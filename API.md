@@ -29,7 +29,7 @@ On failure, the API responds with:
 
 ### `POST /register`
 
-Registers a host using the shared invitation key. Returns the existing host if already registered.
+Registers a host using the shared invitation key. Duplicate FQDNs now return 409 so API keys are never re-issued via /register.
 
 **Request**
 

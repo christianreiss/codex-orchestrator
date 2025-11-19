@@ -44,10 +44,9 @@ class AuthService
 
         $existing = $this->hosts->findByFqdn($fqdn);
         if ($existing) {
-            $this->logs->log((int) $existing['id'], 'register', ['result' => 'existing']);
-            $this->statusExporter->generate();
+            $this->logs->log((int) $existing['id'], 'register', ['result' => 'duplicate']);
 
-            return $this->buildHostPayload($existing, true);
+            throw new HttpException('Host already registered', 409);
         }
 
         $apiKey = bin2hex(random_bytes(32));

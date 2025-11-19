@@ -48,7 +48,7 @@ docker-compose.yml
 
 ### `POST /register`
 
-Registers a new host (or returns the existing record) when provided with the correct invitation key.
+Registers a new host when provided with the correct invitation key. Existing FQDNs must rotate keys through an admin workflow; duplicate registrations return an error.
 
 ```json
 {
