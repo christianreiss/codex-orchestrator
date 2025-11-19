@@ -1,0 +1,5 @@
+.git
+vendor
+storage/*.sqlite
+storage/*.db
+.env

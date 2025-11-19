@@ -1,0 +1,133 @@
+# Codex Auth Central API
+
+Base URL: `https://codex-sync.uggs.io`
+
+All responses are JSON. Unless otherwise noted, request bodies must be `application/json`.
+
+## Authentication
+
+- `POST /register` is public but guarded by a shared invitation key.
+- Every other endpoint requires the per-host API key via either:
+  - `X-API-Key: <key>`
+  - `Authorization: Bearer <key>`
+
+On failure, the API responds with:
+
+```json
+{
+  "status": "error",
+  "message": "Invalid API key"
+}
+```
+
+## Endpoints
+
+### `POST /register`
+
+Registers a host using the shared invitation key. Returns the existing host if already registered.
+
+**Request**
+
+```http
+POST /register HTTP/1.1
+Host: codex-sync.uggs.io
+Content-Type: application/json
+
+{
+  "fqdn": "ci01.example.net",
+  "invitation_key": "<shared-secret>"
+}
+```
+
+**Success Response**
+
+```json
+{
+  "status": "ok",
+  "host": {
+    "fqdn": "ci01.example.net",
+    "status": "active",
+    "last_refresh": null,
+    "updated_at": "2025-01-04T09:15:30Z",
+    "api_key": "8a63...f0"
+  }
+}
+```
+
+Errors:
+- `422` when `fqdn` or `invitation_key` missing.
+- `401` when `invitation_key` is wrong.
+
+### `POST /auth/sync`
+
+Uploads the client’s current `auth.json`. The server compares `last_refresh` and returns either the stored canonical version or the newly accepted payload. You can send the document either nested under `auth` or as the raw body.
+
+**Request**
+
+```http
+POST /auth/sync HTTP/1.1
+Host: codex-sync.uggs.io
+X-API-Key: 8a63...f0
+Content-Type: application/json
+
+{
+  "auth": {
+    "last_refresh": "2025-11-19T09:27:43.373506211Z",
+    "auths": {
+      "api.codex.example.com": {
+        "token": "..."
+      }
+    }
+  }
+}
+```
+
+**Success Response**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "host": {
+      "fqdn": "ci01.example.net",
+      "status": "active",
+      "last_refresh": "2025-11-19T09:27:43.373506211Z",
+      "updated_at": "2025-11-19T09:28:01Z"
+    },
+    "auth": {
+      "last_refresh": "2025-11-19T09:27:43.373506211Z",
+      "auths": {
+        "api.codex.example.com": {
+          "token": "..."
+        }
+      }
+    },
+    "last_refresh": "2025-11-19T09:27:43.373506211Z"
+  }
+}
+```
+
+Behavior:
+- If the submitted `last_refresh` is newer than the stored value, the new payload becomes canonical.
+- Otherwise the server returns the stored copy unchanged.
+
+Errors:
+- `401` missing/invalid API key.
+- `422` missing `auth` body or `last_refresh`.
+- `500` unexpected server error.
+
+## Logs & Auditing
+
+Each call records an entry in the `logs` table summarizing:
+- host id (if authenticated),
+- action (`register` or `auth.sync`),
+- timestamp,
+- JSON details (e.g., `result: updated` or `incoming_last_refresh`).
+
+Access logs directly via `sqlite3 storage/database.sqlite 'SELECT * FROM logs ORDER BY created_at DESC;'` when running on-prem.
+
+## Notes
+
+- Service is API-only; any non-listed route returns `404`.
+- Use HTTPS when deploying publicly (reverse proxy, load balancer, etc.).
+- Rotate API keys by updating the `hosts` table or extending the service with a key-rotation endpoint.

@@ -1,0 +1,17 @@
+<?php
+
+namespace App;
+
+class Config
+{
+    public static function get(string $key, mixed $default = null): mixed
+    {
+        if (array_key_exists($key, $_ENV)) {
+            return $_ENV[$key];
+        }
+
+        $value = getenv($key);
+
+        return $value === false ? $default : $value;
+    }
+}
