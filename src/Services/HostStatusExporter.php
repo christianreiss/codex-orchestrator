@@ -36,13 +36,14 @@ class HostStatusExporter
         }
         $lines[] = str_repeat('=', 120);
         $lines[] = sprintf(
-            '%-3s  %-30s %-10s %-24s %-24s %-12s %-8s %-12s',
+            '%-3s  %-30s %-10s %-24s %-24s %-12s %-12s %-8s %-12s',
             '#',
             'Host',
             'Status',
             'Last Contact',
             'Auth Version',
             'Client Ver',
+            'Wrapper Ver',
             'Entries',
             'Digest'
         );
@@ -57,6 +58,7 @@ class HostStatusExporter
                 $authVersion = $authPayload['last_refresh'] ?? ($host['last_refresh'] ?? 'n/a');
                 $entryCount = 0;
                 $clientVersion = $host['client_version'] ?? 'n/a';
+                $wrapperVersion = $host['wrapper_version'] ?? 'n/a';
                 if (isset($authPayload['auths']) && is_array($authPayload['auths'])) {
                     $entryCount = count($authPayload['auths']);
                 }
@@ -66,13 +68,14 @@ class HostStatusExporter
                     : 'n/a';
 
                 $lines[] = sprintf(
-                    '%-3d  %-30s %-10s %-24s %-24s %-12s %-8s %-12s',
+                    '%-3d  %-30s %-10s %-24s %-24s %-12s %-12s %-8s %-12s',
                     $index + 1,
                     $host['fqdn'],
                     $host['status'],
                     $lastContact,
                     $authVersion,
                     $clientVersion,
+                    $wrapperVersion,
                     $entryCount ?: '-',
                     $digest
                 );
@@ -104,6 +107,7 @@ class HostStatusExporter
                 $lines[] = '    Last refresh  : ' . $lastRefresh;
                 $lines[] = '    Auth version  : ' . $authVersion;
                 $lines[] = '    Client version: ' . ($host['client_version'] ?? 'n/a');
+                $lines[] = '    Wrapper version: ' . ($host['wrapper_version'] ?? 'n/a');
                 $lines[] = '    Auth entries  : ' . ($entryCount ?: 'none');
                 $targets = $authTargets ? implode(', ', $authTargets) : 'none recorded';
                 $lines[] = '    Auth targets  : ' . $targets;

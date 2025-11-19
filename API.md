@@ -69,7 +69,9 @@ Errors:
 
 Uploads the client’s current `auth.json`. The server compares `last_refresh` and returns either the stored canonical version or the newly accepted payload. You can send the document either nested under `auth` or as the raw body.
 
-`client_version` (string) is required at the top level and should match the Codex CLI release running on the host (e.g., `"0.60.1"`). The service stores this value per host and includes it in host payloads and status reports.
+`client_version` (string) is required at the top level and should match the Codex CLI release running on the host (e.g., `"0.60.1"`).
+
+`wrapper_version` (string, optional) may be supplied when a cdx wrapper/installer is fronting the CLI. When provided it is stored alongside the host metadata and surfaced in host payloads/status reports so operators can audit wrapper rollout separately from the CLI version.
 
 **Request**
 
@@ -81,6 +83,7 @@ Content-Type: application/json
 
 {
   "client_version": "0.60.1",
+  "wrapper_version": "1.4.3",
   "auth": {
     "last_refresh": "2025-11-19T09:27:43.373506211Z",
     "auths": {
@@ -104,7 +107,8 @@ Content-Type: application/json
       "status": "active",
       "last_refresh": "2025-11-19T09:27:43.373506211Z",
       "updated_at": "2025-11-19T09:28:01Z",
-      "client_version": "0.60.1"
+      "client_version": "0.60.1",
+      "wrapper_version": "1.4.3"
     },
     "auth": {
       "last_refresh": "2025-11-19T09:27:43.373506211Z",
