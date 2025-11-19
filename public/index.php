@@ -68,8 +68,9 @@ try {
         $clientIp = resolveClientIp();
         $host = $service->authenticate($apiKey, $clientIp);
         $incoming = extractAuthPayload($payload);
+        $clientVersion = extractClientVersion($payload);
 
-        $result = $service->sync($incoming, $host);
+        $result = $service->sync($incoming, $host, $clientVersion);
 
         Response::json([
             'status' => 'ok',
@@ -144,4 +145,20 @@ function extractAuthPayload(mixed $payload): array
     }
 
     return [];
+}
+
+function extractClientVersion(mixed $payload): ?string
+{
+    if (!is_array($payload) || !array_key_exists('client_version', $payload)) {
+        return null;
+    }
+
+    $version = $payload['client_version'];
+    if (!is_string($version)) {
+        return null;
+    }
+
+    $version = trim($version);
+
+    return $version === '' ? null : $version;
 }

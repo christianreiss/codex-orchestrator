@@ -90,14 +90,27 @@ class HostRepository
         ]);
     }
 
-    public function updateAuth(int $hostId, string $authJson, string $lastRefresh): void
+    public function updateAuth(int $hostId, string $authJson, string $lastRefresh, string $clientVersion): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET auth_json = :auth_json, last_refresh = :last_refresh, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET auth_json = :auth_json, last_refresh = :last_refresh, client_version = :client_version, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
             'auth_json' => $authJson,
             'last_refresh' => $lastRefresh,
+            'client_version' => $clientVersion,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
+    public function updateClientVersion(int $hostId, string $clientVersion): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET client_version = :client_version, updated_at = :updated_at WHERE id = :id'
+        );
+        $statement->execute([
+            'client_version' => $clientVersion,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);

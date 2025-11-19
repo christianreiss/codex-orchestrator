@@ -55,6 +55,7 @@ Content-Type: application/json
     "status": "active",
     "last_refresh": null,
     "updated_at": "2025-01-04T09:15:30Z",
+    "client_version": null,
     "api_key": "8a63...f0"
   }
 }
@@ -68,6 +69,8 @@ Errors:
 
 Uploads the client’s current `auth.json`. The server compares `last_refresh` and returns either the stored canonical version or the newly accepted payload. You can send the document either nested under `auth` or as the raw body.
 
+`client_version` (string) is required at the top level and should match the Codex CLI release running on the host (e.g., `"0.60.1"`). The service stores this value per host and includes it in host payloads and status reports.
+
 **Request**
 
 ```http
@@ -77,6 +80,7 @@ X-API-Key: 8a63...f0
 Content-Type: application/json
 
 {
+  "client_version": "0.60.1",
   "auth": {
     "last_refresh": "2025-11-19T09:27:43.373506211Z",
     "auths": {
@@ -99,7 +103,8 @@ Content-Type: application/json
       "fqdn": "ci01.example.net",
       "status": "active",
       "last_refresh": "2025-11-19T09:27:43.373506211Z",
-      "updated_at": "2025-11-19T09:28:01Z"
+      "updated_at": "2025-11-19T09:28:01Z",
+      "client_version": "0.60.1"
     },
     "auth": {
       "last_refresh": "2025-11-19T09:27:43.373506211Z",
@@ -144,7 +149,7 @@ Behavior:
 
 Errors:
 - `401` missing/invalid API key.
-- `422` missing `auth` body or `last_refresh`.
+- `422` missing `auth` body, `client_version`, or `last_refresh`.
 - `500` unexpected server error.
 
 ## Logs & Auditing

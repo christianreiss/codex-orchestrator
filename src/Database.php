@@ -39,6 +39,7 @@ class Database
                 status TEXT NOT NULL DEFAULT 'active',
                 last_refresh TEXT NULL,
                 ip TEXT NULL,
+                client_version TEXT NULL,
                 auth_json TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -61,6 +62,7 @@ class Database
 
         // Backfill new columns for existing databases.
         $this->ensureColumnExists('hosts', 'ip', 'TEXT NULL');
+        $this->ensureColumnExists('hosts', 'client_version', 'TEXT NULL');
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void

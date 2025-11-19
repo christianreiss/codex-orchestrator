@@ -97,10 +97,15 @@ class AuthService
         return $host;
     }
 
-    public function sync(array $incomingAuth, array $host): array
+    public function sync(array $incomingAuth, array $host, ?string $clientVersion): array
     {
         if (!$incomingAuth) {
             throw new ValidationException(['auth' => ['Auth payload is required']]);
+        }
+
+        $normalizedVersion = is_string($clientVersion) ? trim($clientVersion) : '';
+        if ($normalizedVersion === '') {
+            throw new ValidationException(['client_version' => ['client_version is required']]);
         }
 
         $lastRefresh = $incomingAuth['last_refresh'] ?? null;
@@ -122,8 +127,8 @@ class AuthService
         $result = $shouldUpdate ? 'updated' : 'unchanged';
 
         if ($shouldUpdate) {
-            $this->hosts->updateAuth((int) $host['id'], $encodedAuth, $lastRefresh);
-            $host = $this->hosts->findByApiKey($host['api_key']);
+            $this->hosts->updateAuth((int) $host['id'], $encodedAuth, $lastRefresh, $normalizedVersion);
+            $host = $this->hosts->findById((int) $host['id']) ?? $host;
             $storedAuth = $incomingAuth;
             $response = [
                 'result' => $result,
@@ -132,8 +137,9 @@ class AuthService
                 'last_refresh' => $host['last_refresh'] ?? null,
             ];
         } else {
-            // Touch even when not accepting the incoming payload so pruning logic retains the host.
-            $this->hosts->touch((int) $host['id']);
+            // Track version + last contact even when not accepting the incoming payload.
+            $this->hosts->updateClientVersion((int) $host['id'], $normalizedVersion);
+            $host = $this->hosts->findById((int) $host['id']) ?? $host;
 
             $storedAuth = $storedAuth ?: $incomingAuth;
             $incomingIsOlder = $storedLastRefresh !== null && $comparison === -1;
@@ -159,6 +165,7 @@ class AuthService
             'result' => $result,
             'incoming_last_refresh' => $lastRefresh,
             'stored_last_refresh' => $host['last_refresh'] ?? null,
+            'client_version' => $normalizedVersion,
         ]);
 
         $this->statusExporter->generate();
@@ -173,6 +180,7 @@ class AuthService
             'status' => $host['status'],
             'last_refresh' => $host['last_refresh'] ?? null,
             'updated_at' => $host['updated_at'] ?? null,
+            'client_version' => $host['client_version'] ?? null,
         ];
 
         if ($includeApiKey) {

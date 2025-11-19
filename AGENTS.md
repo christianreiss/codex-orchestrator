@@ -18,7 +18,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 3. **`App\Repositories\HostRepository` (Persistence)**
    - CRUD operations on the `hosts` table (find by fqdn/api_key, create, update auth).
-   - Maintains metadata fields like `updated_at` and `status`.
+   - Maintains metadata fields like `updated_at`, `status`, IP bindings, and client versions.
 
 4. **`App\Repositories\LogRepository` (Auditing)**
    - Inserts rows into the `logs` table with lightweight JSON details.
@@ -32,6 +32,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Opens the SQLite connection, enforces foreign keys, and runs migrations.
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_json, timestamps.
+       - Additional columns track `ip` (first sync source) and `client_version` (reported Codex build).
      - `logs`: host_id, action, details, created_at.
 
 ## Extension Tips
