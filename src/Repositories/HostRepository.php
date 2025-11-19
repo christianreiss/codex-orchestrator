@@ -23,6 +23,18 @@ class HostRepository
         return $host ?: null;
     }
 
+    public function findById(int $id): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT * FROM hosts WHERE id = :id LIMIT 1'
+        );
+        $statement->execute(['id' => $id]);
+
+        $host = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $host ?: null;
+    }
+
     public function findByFqdn(string $fqdn): ?array
     {
         $statement = $this->database->connection()->prepare(
@@ -50,6 +62,20 @@ class HostRepository
         ]);
 
         return $this->findByFqdn($fqdn);
+    }
+
+    public function rotateApiKey(int $hostId, string $apiKey): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET api_key = :api_key, updated_at = :updated_at WHERE id = :id'
+        );
+        $statement->execute([
+            'api_key' => $apiKey,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+
+        return $this->findById($hostId);
     }
 
     public function updateAuth(int $hostId, string $authJson, string $lastRefresh): void

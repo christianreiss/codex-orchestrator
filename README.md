@@ -48,7 +48,7 @@ docker-compose.yml
 
 ### `POST /register`
 
-Registers a new host when provided with the correct invitation key. Existing FQDNs must rotate keys through an admin workflow; duplicate registrations return an error.
+Registers a new host when provided with the correct invitation key. Re-registering a known FQDN rotates the API key immediately, invalidating the previous one.
 
 ```json
 {
