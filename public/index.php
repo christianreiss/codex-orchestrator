@@ -65,7 +65,8 @@ try {
 
     if ($method === 'POST' && $normalizedPath === '/auth/sync') {
         $apiKey = resolveApiKey();
-        $host = $service->authenticate($apiKey);
+        $clientIp = resolveClientIp();
+        $host = $service->authenticate($apiKey, $clientIp);
         $incoming = extractAuthPayload($payload);
 
         $result = $service->sync($incoming, $host);
@@ -111,6 +112,25 @@ function resolveApiKey(): ?string
     }
 
     return null;
+}
+
+function resolveClientIp(): ?string
+{
+    // Preserve client IP even when behind simple reverse proxies that forward the address.
+    $headers = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'];
+    foreach ($headers as $header) {
+        $value = $_SERVER[$header] ?? null;
+        if ($value) {
+            // X-Forwarded-For may contain a list; take the first non-empty token.
+            $parts = array_filter(array_map('trim', explode(',', $value)));
+            if ($parts) {
+                return $parts[0];
+            }
+        }
+    }
+
+    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
+    return $remote ?: null;
 }
 
 function extractAuthPayload(mixed $payload): array

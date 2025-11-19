@@ -63,7 +63,7 @@ class AuthService
         return $payload;
     }
 
-    public function authenticate(?string $apiKey): array
+    public function authenticate(?string $apiKey, ?string $ip = null): array
     {
         $this->pruneInactiveHosts();
 
@@ -78,6 +78,20 @@ class AuthService
 
         if (($host['status'] ?? '') !== 'active') {
             throw new HttpException('Host is disabled', 403);
+        }
+
+        if ($ip !== null && $ip !== '') {
+            $storedIp = $host['ip'] ?? null;
+            if ($storedIp === null || $storedIp === '') {
+                $this->hosts->updateIp((int) $host['id'], $ip);
+                $this->logs->log((int) $host['id'], 'auth.bind_ip', ['ip' => $ip]);
+                $host = $this->hosts->findById((int) $host['id']) ?? $host;
+            } elseif (!hash_equals($storedIp, $ip)) {
+                throw new HttpException('API key not allowed from this IP', 403, [
+                    'expected_ip' => $storedIp,
+                    'received_ip' => $ip,
+                ]);
+            }
         }
 
         return $host;
@@ -103,7 +117,8 @@ class AuthService
         $storedAuth = $storedJson ? json_decode($storedJson, true) : null;
         $storedLastRefresh = $host['last_refresh'] ?? null;
 
-        $shouldUpdate = !$storedAuth || Timestamp::compare($lastRefresh, $storedLastRefresh) === 1;
+        $comparison = Timestamp::compare($lastRefresh, $storedLastRefresh);
+        $shouldUpdate = !$storedAuth || $comparison === 1;
         $result = $shouldUpdate ? 'updated' : 'unchanged';
 
         if ($shouldUpdate) {
@@ -117,12 +132,27 @@ class AuthService
                 'last_refresh' => $host['last_refresh'] ?? null,
             ];
         } else {
-            $storedAuth = $storedAuth ?: $incomingAuth;
+            // Touch even when not accepting the incoming payload so pruning logic retains the host.
             $this->hosts->touch((int) $host['id']);
-            $response = [
-                'result' => $result,
-                'last_refresh' => $host['last_refresh'] ?? null,
-            ];
+
+            $storedAuth = $storedAuth ?: $incomingAuth;
+            $incomingIsOlder = $storedLastRefresh !== null && $comparison === -1;
+
+            if ($incomingIsOlder && $storedAuth) {
+                // Client is behind: return the canonical server copy so it can self-heal.
+                $response = [
+                    'result' => $result,
+                    'host' => $this->buildHostPayload($host),
+                    'auth' => $storedAuth,
+                    'last_refresh' => $host['last_refresh'] ?? null,
+                ];
+            } else {
+                // Equal timestamps (or no canonical copy): minimal unchanged response.
+                $response = [
+                    'result' => $result,
+                    'last_refresh' => $host['last_refresh'] ?? null,
+                ];
+            }
         }
 
         $this->logs->log((int) $host['id'], 'auth.sync', [

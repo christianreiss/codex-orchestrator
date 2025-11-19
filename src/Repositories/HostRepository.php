@@ -78,6 +78,18 @@ class HostRepository
         return $this->findById($hostId);
     }
 
+    public function updateIp(int $hostId, string $ip): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET ip = :ip, updated_at = :updated_at WHERE id = :id'
+        );
+        $statement->execute([
+            'ip' => $ip,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     public function updateAuth(int $hostId, string $authJson, string $lastRefresh): void
     {
         $statement = $this->database->connection()->prepare(

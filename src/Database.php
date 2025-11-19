@@ -38,6 +38,7 @@ class Database
                 api_key TEXT NOT NULL UNIQUE,
                 status TEXT NOT NULL DEFAULT 'active',
                 last_refresh TEXT NULL,
+                ip TEXT NULL,
                 auth_json TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -57,5 +58,23 @@ class Database
             );
             SQL
         );
+
+        // Backfill new columns for existing databases.
+        $this->ensureColumnExists('hosts', 'ip', 'TEXT NULL');
+    }
+
+    private function ensureColumnExists(string $table, string $column, string $definition): void
+    {
+        $statement = $this->pdo->prepare('PRAGMA table_info(' . $table . ')');
+        $statement->execute();
+        $columns = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($columns as $info) {
+            if (isset($info['name']) && $info['name'] === $column) {
+                return;
+            }
+        }
+
+        $this->pdo->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', $table, $column, $definition));
     }
 }
