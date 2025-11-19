@@ -110,9 +110,19 @@ class AuthService
             $this->hosts->updateAuth((int) $host['id'], $encodedAuth, $lastRefresh);
             $host = $this->hosts->findByApiKey($host['api_key']);
             $storedAuth = $incomingAuth;
+            $response = [
+                'result' => $result,
+                'host' => $this->buildHostPayload($host),
+                'auth' => $storedAuth,
+                'last_refresh' => $host['last_refresh'] ?? null,
+            ];
         } else {
             $storedAuth = $storedAuth ?: $incomingAuth;
             $this->hosts->touch((int) $host['id']);
+            $response = [
+                'result' => $result,
+                'last_refresh' => $host['last_refresh'] ?? null,
+            ];
         }
 
         $this->logs->log((int) $host['id'], 'auth.sync', [
@@ -120,12 +130,6 @@ class AuthService
             'incoming_last_refresh' => $lastRefresh,
             'stored_last_refresh' => $host['last_refresh'] ?? null,
         ]);
-
-        $response = [
-            'host' => $this->buildHostPayload($host),
-            'auth' => $storedAuth,
-            'last_refresh' => $host['last_refresh'] ?? null,
-        ];
 
         $this->statusExporter->generate();
 

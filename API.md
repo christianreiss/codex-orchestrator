@@ -93,6 +93,7 @@ Content-Type: application/json
 {
   "status": "ok",
   "data": {
+    "result": "updated",
     "host": {
       "fqdn": "ci01.example.net",
       "status": "active",
@@ -113,8 +114,18 @@ Content-Type: application/json
 ```
 
 Behavior:
-- If the submitted `last_refresh` is newer than the stored value, the new payload becomes canonical.
-- Otherwise the server returns the stored copy unchanged.
+- If the submitted `last_refresh` is newer than the stored value, the new payload becomes canonical and the response includes the full document with `result: "updated"`.
+- If the payload is unchanged/older, the response is trimmed to just the result + canonical timestamp:
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "result": "unchanged",
+    "last_refresh": "2025-11-19T09:27:43.373506211Z"
+  }
+}
+```
 
 Errors:
 - `401` missing/invalid API key.

@@ -96,6 +96,7 @@ Content-Type: application/json
 {
   "status": "ok",
   "data": {
+    "result": "updated",
     "host": {
       "fqdn": "host.example.com",
       "status": "active",
@@ -108,7 +109,19 @@ Content-Type: application/json
 }
 ```
 
-If the submitted `last_refresh` is newer than the stored value (per RFC3339 timestamps), the new payload becomes canonical. Otherwise, the stored copy is returned unchanged.
+If the submitted `last_refresh` is newer than the stored value (per RFC3339 timestamps), the new payload becomes canonical. When the incoming payload is **unchanged or older**, the server responds with:
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "result": "unchanged",
+    "last_refresh": "2025-11-19T09:27:43.373506211Z"
+  }
+}
+```
+
+No auth document is sent in the `unchanged` case so clients can skip rewriting their files.
 
 ## Data & Logging
 
