@@ -150,32 +150,64 @@ function extractAuthPayload(mixed $payload): array
 
 function extractClientVersion(mixed $payload): ?string
 {
-    if (!is_array($payload) || !array_key_exists('client_version', $payload)) {
-        return null;
+    $value = null;
+    if (is_array($payload) && array_key_exists('client_version', $payload)) {
+        $value = normalizeVersionValue($payload['client_version']);
     }
 
-    $version = $payload['client_version'];
-    if (!is_string($version)) {
-        return null;
+    if ($value !== null) {
+        return $value;
     }
 
-    $version = trim($version);
+    $aliases = ['client_version', 'cdx_version'];
+    foreach ($aliases as $alias) {
+        $fromQuery = resolveQueryParam($alias);
+        if ($fromQuery !== null) {
+            return $fromQuery;
+        }
+    }
 
-    return $version === '' ? null : $version;
+    return null;
 }
 
 function extractWrapperVersion(mixed $payload): ?string
 {
-    if (!is_array($payload) || !array_key_exists('wrapper_version', $payload)) {
+    $value = null;
+    if (is_array($payload) && array_key_exists('wrapper_version', $payload)) {
+        $value = normalizeVersionValue($payload['wrapper_version']);
+    }
+
+    if ($value !== null) {
+        return $value;
+    }
+
+    $aliases = ['wrapper_version', 'cdx_wrapper_version'];
+    foreach ($aliases as $alias) {
+        $fromQuery = resolveQueryParam($alias);
+        if ($fromQuery !== null) {
+            return $fromQuery;
+        }
+    }
+
+    return null;
+}
+
+function resolveQueryParam(string $key): ?string
+{
+    if (!isset($_GET[$key])) {
         return null;
     }
 
-    $version = $payload['wrapper_version'];
-    if (!is_string($version)) {
+    return normalizeVersionValue($_GET[$key]);
+}
+
+function normalizeVersionValue(mixed $value): ?string
+{
+    if (!is_string($value)) {
         return null;
     }
 
-    $version = trim($version);
+    $value = trim($value);
 
-    return $version === '' ? null : $version;
+    return $value === '' ? null : $value;
 }

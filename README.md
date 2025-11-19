@@ -76,17 +76,15 @@ Registers a new host when provided with the correct invitation key. Re-registeri
 
 Push the current `auth.json` (either wrap it under an `auth` key or send the raw document). Requires the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
 
-Every sync **must** include the top-level `client_version` so the server can track which Codex build each host is running. You may also include `wrapper_version` if a cdx wrapper/installer is involved; it is optional but stored for auditing if provided.
+Every sync **must** include the Codex CLI version, sent either as a JSON field (`client_version`) or a query parameter (`client_version`/`cdx_version`). You may also include `wrapper_version` (JSON or query parameter, alias `cdx_wrapper_version`) if a cdx wrapper/installer is involved; it is optional but stored for auditing when supplied.
 
 ```http
-POST /auth/sync HTTP/1.1
+POST /auth/sync?client_version=0.60.1&wrapper_version=1.4.3 HTTP/1.1
 Host: localhost:8080
 X-API-Key: <host-api-key>
 Content-Type: application/json
 
 {
-  "client_version": "0.60.1",
-  "wrapper_version": "1.4.3",
   "auth": {
     "last_refresh": "2025-11-19T09:27:43.373506211Z",
     "auths": { ... }
