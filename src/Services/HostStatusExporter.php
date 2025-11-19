@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Repositories\HostRepository;
+use DateTimeImmutable;
+use Exception;
 
 class HostStatusExporter
 {
@@ -17,10 +19,21 @@ class HostStatusExporter
         $hosts = $this->hosts->all();
         $generatedAt = gmdate(DATE_ATOM);
         $this->ensureDirectory();
+        $refreshStats = $this->calculateRefreshAgeStats($hosts);
 
         $lines = [];
         $lines[] = 'Codex Auth Sync - Host Status';
         $lines[] = 'Generated: ' . $generatedAt;
+        if ($refreshStats) {
+            $lines[] = sprintf(
+                'Auth refresh age (days) - min: %.2f | avg: %.2f | max: %.2f',
+                $refreshStats['min'],
+                $refreshStats['avg'],
+                $refreshStats['max']
+            );
+        } else {
+            $lines[] = 'Auth refresh age (days) - no refresh data yet';
+        }
         $lines[] = str_repeat('=', 120);
         $lines[] = sprintf(
             '%-3s  %-30s %-10s %-24s %-24s %-12s %-8s %-12s',
@@ -110,5 +123,41 @@ class HostStatusExporter
         if (!is_dir($directory)) {
             mkdir($directory, 0775, true);
         }
+    }
+
+    private function calculateRefreshAgeStats(array $hosts): ?array
+    {
+        $now = new DateTimeImmutable();
+        $samples = [];
+
+        foreach ($hosts as $host) {
+            $lastRefresh = $host['last_refresh'] ?? null;
+            if (!$lastRefresh) {
+                continue;
+            }
+
+            try {
+                $refreshAt = new DateTimeImmutable($lastRefresh);
+            } catch (Exception) {
+                continue;
+            }
+
+            $diffSeconds = max(0, $now->getTimestamp() - $refreshAt->getTimestamp());
+            $samples[] = $diffSeconds / 86400;
+        }
+
+        if (!$samples) {
+            return null;
+        }
+
+        $min = min($samples);
+        $max = max($samples);
+        $avg = array_sum($samples) / count($samples);
+
+        return [
+            'min' => $min,
+            'max' => $max,
+            'avg' => $avg,
+        ];
     }
 }

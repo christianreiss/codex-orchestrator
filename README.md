@@ -139,6 +139,8 @@ Access logs manually with `sqlite3 storage/database.sqlite 'SELECT * FROM logs O
 
 The service regenerates a report (`storage/host-status.txt`) after every register/sync/prune event so operators always have a current snapshot. Override the output path with `STATUS_REPORT_PATH`.
 
+The header now includes aggregated "auth refresh age" metrics (min/avg/max days since each host last delivered a newer `auth.json`) to help you gauge how frequently clients push fresh credentials and tune any cache TTLs accordingly.
+
 Trigger a manual refresh any time (e.g., after offline DB edits):
 
 ```bash
