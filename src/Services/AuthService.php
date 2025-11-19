@@ -7,18 +7,24 @@ use App\Exceptions\ValidationException;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Support\Timestamp;
+use DateTimeImmutable;
 
 class AuthService
 {
+    private const INACTIVITY_WINDOW_DAYS = 30;
+
     public function __construct(
         private readonly HostRepository $hosts,
         private readonly LogRepository $logs,
-        private readonly string $invitationKey
+        private readonly string $invitationKey,
+        private readonly HostStatusExporter $statusExporter
     ) {
     }
 
     public function register(string $fqdn, string $invitationKey): array
     {
+        $this->pruneInactiveHosts();
+
         $errors = [];
         if ($fqdn === '') {
             $errors['fqdn'][] = 'FQDN is required';
@@ -39,6 +45,7 @@ class AuthService
         $existing = $this->hosts->findByFqdn($fqdn);
         if ($existing) {
             $this->logs->log((int) $existing['id'], 'register', ['result' => 'existing']);
+            $this->statusExporter->generate();
 
             return $this->buildHostPayload($existing, true);
         }
@@ -47,11 +54,16 @@ class AuthService
         $host = $this->hosts->create($fqdn, $apiKey);
         $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
 
-        return $this->buildHostPayload($host, true);
+        $payload = $this->buildHostPayload($host, true);
+        $this->statusExporter->generate();
+
+        return $payload;
     }
 
     public function authenticate(?string $apiKey): array
     {
+        $this->pruneInactiveHosts();
+
         if ($apiKey === null || $apiKey === '') {
             throw new HttpException('API key missing', 401);
         }
@@ -106,11 +118,15 @@ class AuthService
             'stored_last_refresh' => $host['last_refresh'] ?? null,
         ]);
 
-        return [
+        $response = [
             'host' => $this->buildHostPayload($host),
             'auth' => $storedAuth,
             'last_refresh' => $host['last_refresh'] ?? null,
         ];
+
+        $this->statusExporter->generate();
+
+        return $response;
     }
 
     private function buildHostPayload(array $host, bool $includeApiKey = false): array
@@ -127,5 +143,30 @@ class AuthService
         }
 
         return $payload;
+    }
+
+    private function pruneInactiveHosts(): void
+    {
+        $cutoff = (new DateTimeImmutable(sprintf('-%d days', self::INACTIVITY_WINDOW_DAYS)));
+        $cutoffTimestamp = $cutoff->format(DATE_ATOM);
+        $staleHosts = $this->hosts->findInactiveBefore($cutoffTimestamp);
+
+        if (!$staleHosts) {
+            return;
+        }
+
+        foreach ($staleHosts as $host) {
+            $hostId = (int) $host['id'];
+            $this->logs->log($hostId, 'host.pruned', [
+                'reason' => 'inactive',
+                'cutoff' => $cutoffTimestamp,
+                'last_contact' => $host['updated_at'] ?? null,
+                'fqdn' => $host['fqdn'],
+            ]);
+        }
+
+        $ids = array_map(static fn (array $host) => (int) $host['id'], $staleHosts);
+        $this->hosts->deleteByIds($ids);
+        $this->statusExporter->generate();
     }
 }

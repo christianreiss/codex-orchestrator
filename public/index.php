@@ -9,6 +9,7 @@ use App\Http\Response;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Services\AuthService;
+use App\Services\HostStatusExporter;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -26,7 +27,9 @@ $database->migrate();
 $hostRepository = new HostRepository($database);
 $logRepository = new LogRepository($database);
 $invitationKey = Config::get('INVITATION_KEY', '');
-$service = new AuthService($hostRepository, $logRepository, $invitationKey);
+$statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
+$statusExporter = new HostStatusExporter($hostRepository, $statusPath);
+$service = new AuthService($hostRepository, $logRepository, $invitationKey, $statusExporter);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';

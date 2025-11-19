@@ -118,10 +118,24 @@ If the submitted `last_refresh` is newer than the stored value (per RFC3339 time
 
 Access logs manually with `sqlite3 storage/database.sqlite 'SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;'`.
 
+## Host Status Report
+
+The service regenerates a report (`storage/host-status.txt`) after every register/sync/prune event so operators always have a current snapshot. Override the output path with `STATUS_REPORT_PATH`.
+
+Trigger a manual refresh any time (e.g., after offline DB edits):
+
+```bash
+docker compose exec api php /var/www/html/bin/export-status.php
+cat /var/docker_data/codex-auth.uggs.io/store/host-status.txt
+```
+
+The script writes the same aligned table plus per-host details, making it easy to share the current deployment state even if the API is offline.
+
 ## Notes
 
 - Every API call except `/register` requires a valid API key.
 - Set a strong `INVITATION_KEY`; without it, registration is blocked.
+- Hosts that have not checked in (no sync or register) for 30 days are automatically pruned and must re-register.
 - The server normalizes timestamps with fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` compare correctly.
 - Extendable: add admin/reporting endpoints by introducing more routes in `public/index.php` and new repository methods.
 - Refer to `AGENTS.md` when you need a walkthrough of how each class collaborates within the request pipeline.

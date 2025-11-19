@@ -1,6 +1,6 @@
 # Codex Auth Central API
 
-Base URL: `https://codex-sync.uggs.io`
+Base URL: `https://codex-auth.uggs.io`
 
 All responses are JSON. Unless otherwise noted, request bodies must be `application/json`.
 
@@ -10,6 +10,11 @@ All responses are JSON. Unless otherwise noted, request bodies must be `applicat
 - Every other endpoint requires the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
+
+### Invitation Key
+
+- Current shared key for onboarding new hosts: `39e0975e1d8e82db7a9b39e0f518d59fc4e588ef9a08564fa499779c9536eacc`
+- Update this value via the `INVITATION_KEY` environment variable when rotating secrets.
 
 On failure, the API responds with:
 
@@ -30,7 +35,7 @@ Registers a host using the shared invitation key. Returns the existing host if a
 
 ```http
 POST /register HTTP/1.1
-Host: codex-sync.uggs.io
+Host: codex-auth.uggs.io
 Content-Type: application/json
 
 {
@@ -66,7 +71,7 @@ Uploads the client’s current `auth.json`. The server compares `last_refresh` a
 
 ```http
 POST /auth/sync HTTP/1.1
-Host: codex-sync.uggs.io
+Host: codex-auth.uggs.io
 X-API-Key: 8a63...f0
 Content-Type: application/json
 
@@ -123,6 +128,7 @@ Each call records an entry in the `logs` table summarizing:
 - action (`register` or `auth.sync`),
 - timestamp,
 - JSON details (e.g., `result: updated` or `incoming_last_refresh`).
+- After every register/sync/prune event the service regenerates the human-readable status file (`STATUS_REPORT_PATH`, defaults to `storage/host-status.txt`) so operators always have an up-to-date snapshot.
 
 Access logs directly via `sqlite3 storage/database.sqlite 'SELECT * FROM logs ORDER BY created_at DESC;'` when running on-prem.
 
@@ -131,3 +137,4 @@ Access logs directly via `sqlite3 storage/database.sqlite 'SELECT * FROM logs OR
 - Service is API-only; any non-listed route returns `404`.
 - Use HTTPS when deploying publicly (reverse proxy, load balancer, etc.).
 - Rotate API keys by updating the `hosts` table or extending the service with a key-rotation endpoint.
+- Hosts that have not contacted the service for 30 days are automatically removed and must re-register before syncing again.

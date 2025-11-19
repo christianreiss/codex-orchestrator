@@ -75,4 +75,36 @@ class HostRepository
             'id' => $hostId,
         ]);
     }
+
+    public function all(): array
+    {
+        $statement = $this->database->connection()->query(
+            'SELECT * FROM hosts ORDER BY fqdn ASC'
+        );
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function findInactiveBefore(string $cutoff): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT * FROM hosts WHERE updated_at < :cutoff'
+        );
+        $statement->execute(['cutoff' => $cutoff]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function deleteByIds(array $ids): void
+    {
+        if (!$ids) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $statement = $this->database->connection()->prepare(
+            "DELETE FROM hosts WHERE id IN ({$placeholders})"
+        );
+        $statement->execute($ids);
+    }
 }
