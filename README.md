@@ -5,7 +5,7 @@ A lightweight PHP API that centralizes Codex `auth.json` files. Clients register
 ## Highlights
 
 - Register hosts with a fixed invitation key and issue per-host API keys.
-- Push/sync Codex `auth.json` documents; server decides whether to adopt the new payload or return the canonical version based on `last_refresh`.
+- Push/sync Codex `auth.json` documents; server decides whether to adopt the new payload or return the canonical version based on `last_refresh` while capturing the client's Codex version for fleet audits.
 - Simple SQLite persistence for hosts + request logs.
 - Dockerized runtime via `php:8.2-apache` with automatic migrations.
 - Authentication enforced for every endpoint except registration (`X-API-Key` or `Authorization: Bearer` headers).
@@ -76,6 +76,8 @@ Registers a new host when provided with the correct invitation key. Re-registeri
 
 Push the current `auth.json` (either wrap it under an `auth` key or send the raw document). Requires the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
 
+Every sync **must** include the top-level `client_version` so the server can track which Codex build each host is running.
+
 ```http
 POST /auth/sync HTTP/1.1
 Host: localhost:8080
@@ -83,6 +85,7 @@ X-API-Key: <host-api-key>
 Content-Type: application/json
 
 {
+  "client_version": "0.60.1",
   "auth": {
     "last_refresh": "2025-11-19T09:27:43.373506211Z",
     "auths": { ... }
@@ -101,7 +104,8 @@ Content-Type: application/json
       "fqdn": "host.example.com",
       "status": "active",
       "last_refresh": "2025-11-19T09:27:43.373506211Z",
-      "updated_at": "2025-11-19T09:28:00Z"
+      "updated_at": "2025-11-19T09:28:00Z",
+      "client_version": "0.60.1"
     },
     "auth": { ... canonical auth.json ... },
     "last_refresh": "2025-11-19T09:27:43.373506211Z"
@@ -125,7 +129,7 @@ No auth document is sent in the `unchanged` case so clients can skip rewriting t
 
 ## Data & Logging
 
-- **hosts**: FQDN, API key, status, stored `auth_json`, and last refresh time.
+- **hosts**: FQDN, API key, status, stored `auth_json`, last refresh time, IP binding, and latest `client_version`.
 - **logs**: Each registration and sync operation records host, action, timestamps, and a JSON blob summarizing the decision (`updated` vs `unchanged`).
 - All data is stored in SQLite under `storage/database.sqlite` (or the path defined in `DB_PATH`). Mount or back up this directory to retain state outside of containers.
 
