@@ -65,9 +65,68 @@ Errors:
 - `422` when `fqdn` or `invitation_key` missing.
 - `401` when `invitation_key` is wrong.
 
-### `POST /auth/sync`
+### `POST /auth/check`
 
-Uploads the client’s current `auth.json`. The server compares `last_refresh` and returns either the stored canonical version or the newly accepted payload. You can send the document either nested under `auth` or as the raw body.
+Lightweight validation endpoint that lets a client confirm whether its cached `auth.json` matches the server without uploading the full document.
+
+**Required fields**
+
+- `last_refresh`: RFC3339 timestamp describing the client’s cached payload.
+- `auth_sha`: lowercase hex SHA-256 digest of the cached payload (hash the exact JSON you would otherwise upload, e.g. `hash('sha256', json_encode($auth, JSON_UNESCAPED_SLASHES))`).
+- `client_version`: provided via JSON or query string (`client_version`/`cdx_version`).
+
+`wrapper_version` is optional and may be sent either via JSON or query string (`wrapper_version`/`cdx_wrapper_version`).
+
+**Request**
+
+```http
+POST /auth/check?client_version=0.60.1 HTTP/1.1
+Host: codex-auth.uggs.io
+X-API-Key: 8a63...f0
+Content-Type: application/json
+
+{
+  "last_refresh": "2025-11-19T09:27:43.373506211Z",
+  "auth_sha": "b0b1b540ea35ac7cf806..."
+}
+```
+
+**Responses**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "status": "valid",
+    "last_refresh": "2025-11-19T09:27:43.373506211Z",
+    "auth_digest": "b0b1b540ea35ac7cf806..."
+  }
+}
+```
+
+- `valid`: client matches server (no payload returned).
+- `outdated`: server holds a newer copy; response includes `auth` and host metadata so the client can hydrate immediately.
+- `upload_required`: client reports a newer version; caller should upload via `/auth/update`.
+- `missing`: server does not yet have a canonical payload; caller should upload.
+
+Example `outdated` response snippet:
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "status": "outdated",
+    "last_refresh": "2025-11-19T09:27:43.373506211Z",
+    "auth_digest": "b0b1b540ea35ac7cf806...",
+    "host": { "fqdn": "ci01.example.net", "status": "active", "last_refresh": "2025-11-19T09:27:43.373506211Z", "updated_at": "2025-11-19T09:28:01Z", "client_version": "0.60.1", "wrapper_version": "1.4.3" },
+    "auth": { "last_refresh": "2025-11-19T09:27:43.373506211Z", "auths": { "api.codex.example.com": { "token": "..." } } }
+  }
+}
+```
+
+### `POST /auth/update`
+
+Uploads the client’s current `auth.json` when it has a newer canonical copy. The server compares `last_refresh` and returns either the stored canonical version or the newly accepted payload. `/auth/sync` is still accepted as an alias for backward compatibility, but `/auth/update` is the preferred path.
 
 `client_version` (string) is required and should match the Codex CLI release running on the host (e.g., `"0.60.1"`). Provide it either as a JSON field or as a query parameter (`client_version` or alias `cdx_version`).
 
@@ -76,7 +135,7 @@ Uploads the client’s current `auth.json`. The server compares `last_refresh` a
 **Request**
 
 ```http
-POST /auth/sync?client_version=0.60.1&wrapper_version=1.4.3 HTTP/1.1
+POST /auth/update?client_version=0.60.1&wrapper_version=1.4.3 HTTP/1.1
 Host: codex-auth.uggs.io
 X-API-Key: 8a63...f0
 Content-Type: application/json

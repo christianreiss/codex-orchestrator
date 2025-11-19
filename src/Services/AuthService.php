@@ -103,16 +103,7 @@ class AuthService
             throw new ValidationException(['auth' => ['Auth payload is required']]);
         }
 
-        $normalizedClientVersion = is_string($clientVersion) ? trim($clientVersion) : '';
-        if ($normalizedClientVersion === '') {
-            throw new ValidationException(['client_version' => ['client_version is required']]);
-        }
-
-        $normalizedWrapperVersion = null;
-        if (is_string($wrapperVersion)) {
-            $trimmed = trim($wrapperVersion);
-            $normalizedWrapperVersion = $trimmed === '' ? null : $trimmed;
-        }
+        [$normalizedClientVersion, $normalizedWrapperVersion] = $this->normalizeVersions($clientVersion, $wrapperVersion);
 
         $lastRefresh = $incomingAuth['last_refresh'] ?? null;
         if (!is_string($lastRefresh) || $lastRefresh === '') {
@@ -180,6 +171,85 @@ class AuthService
         return $response;
     }
 
+    public function checkAuth(array $metadata, array $host, ?string $clientVersion, ?string $wrapperVersion): array
+    {
+        [$normalizedClientVersion, $normalizedWrapperVersion] = $this->normalizeVersions($clientVersion, $wrapperVersion);
+
+        $incomingLastRefresh = null;
+        if (isset($metadata['last_refresh']) && is_string($metadata['last_refresh'])) {
+            $incomingLastRefresh = trim($metadata['last_refresh']);
+            if ($incomingLastRefresh === '') {
+                $incomingLastRefresh = null;
+            }
+        }
+
+        if ($incomingLastRefresh === null) {
+            throw new ValidationException(['last_refresh' => ['last_refresh is required']]);
+        }
+
+        $incomingDigest = $this->normalizeDigest($metadata['auth_sha'] ?? null);
+        if ($incomingDigest === null) {
+            throw new ValidationException(['auth_sha' => ['auth_sha is required']]);
+        }
+
+        $this->hosts->updateClientVersions((int) $host['id'], $normalizedClientVersion, $normalizedWrapperVersion);
+        $host = $this->hosts->findById((int) $host['id']) ?? $host;
+
+        $storedJson = $host['auth_json'] ?? null;
+        $storedLastRefresh = $host['last_refresh'] ?? null;
+        $storedDigest = $this->calculateDigest($storedJson);
+
+        $status = 'missing';
+        $response = [
+            'status' => $status,
+            'last_refresh' => $storedLastRefresh,
+            'auth_digest' => $storedDigest,
+            'action' => 'upload',
+        ];
+
+        if ($storedJson) {
+            $comparison = Timestamp::compare($incomingLastRefresh, $storedLastRefresh);
+            $digestsMatch = $storedDigest && hash_equals($storedDigest, $incomingDigest);
+
+            if ($comparison === 0 && $digestsMatch) {
+                $status = 'valid';
+                $response = [
+                    'status' => $status,
+                    'last_refresh' => $storedLastRefresh,
+                    'auth_digest' => $storedDigest,
+                ];
+            } elseif ($comparison === 1) {
+                $status = 'upload_required';
+                $response = [
+                    'status' => $status,
+                    'last_refresh' => $storedLastRefresh,
+                    'auth_digest' => $storedDigest,
+                    'action' => 'upload',
+                ];
+            } else {
+                $status = 'outdated';
+                $response = [
+                    'status' => $status,
+                    'last_refresh' => $storedLastRefresh,
+                    'auth_digest' => $storedDigest,
+                    'host' => $this->buildHostPayload($host),
+                    'auth' => json_decode($storedJson, true),
+                    'action' => 'sync',
+                ];
+            }
+        }
+
+        $this->logs->log((int) $host['id'], 'auth.check', [
+            'status' => $status,
+            'incoming_last_refresh' => $incomingLastRefresh,
+            'incoming_digest' => $incomingDigest,
+            'stored_last_refresh' => $storedLastRefresh,
+            'stored_digest' => $storedDigest,
+        ]);
+
+        return $response;
+    }
+
     private function buildHostPayload(array $host, bool $includeApiKey = false): array
     {
         $payload = [
@@ -221,5 +291,44 @@ class AuthService
         $ids = array_map(static fn (array $host) => (int) $host['id'], $staleHosts);
         $this->hosts->deleteByIds($ids);
         $this->statusExporter->generate();
+    }
+
+    /**
+     * @return array{0:string,1:?string}
+     */
+    private function normalizeVersions(?string $clientVersion, ?string $wrapperVersion): array
+    {
+        $normalizedClientVersion = is_string($clientVersion) ? trim($clientVersion) : '';
+        if ($normalizedClientVersion === '') {
+            throw new ValidationException(['client_version' => ['client_version is required']]);
+        }
+
+        $normalizedWrapperVersion = null;
+        if (is_string($wrapperVersion)) {
+            $trimmed = trim($wrapperVersion);
+            $normalizedWrapperVersion = $trimmed === '' ? null : $trimmed;
+        }
+
+        return [$normalizedClientVersion, $normalizedWrapperVersion];
+    }
+
+    private function normalizeDigest(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = strtolower(trim($value));
+
+        return $value === '' ? null : $value;
+    }
+
+    private function calculateDigest(?string $authJson): ?string
+    {
+        if ($authJson === null || $authJson === '') {
+            return null;
+        }
+
+        return hash('sha256', $authJson);
     }
 }

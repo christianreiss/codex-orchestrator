@@ -72,14 +72,40 @@ Registers a new host when provided with the correct invitation key. Re-registeri
 }
 ```
 
-### `POST /auth/sync`
+### `POST /auth/check`
+
+Lightweight validation call. The client submits only metadata about its cached `auth.json` so the server can respond with `valid`, `outdated`, or `upload_required` without transferring the full document.
+
+Required body fields:
+- `last_refresh`: RFC3339 timestamp tied to the cached payload.
+- `auth_sha`: lowercase SHA-256 of the cached payload (hash the JSON string you would upload).
+
+Include `client_version` (JSON or `client_version`/`cdx_version` query param). Optionally include `wrapper_version` (JSON or `wrapper_version`/`cdx_wrapper_version`).
+
+```http
+POST /auth/check?client_version=0.60.1 HTTP/1.1
+Host: localhost:8080
+X-API-Key: <host-api-key>
+Content-Type: application/json
+
+{
+  "last_refresh": "2025-11-19T09:27:43.373506211Z",
+  "auth_sha": "b0b1b540ea35ac7cf806..."
+}
+```
+
+- `status: valid` → client matches server (response includes authoritative `last_refresh` + digest only).
+- `status: outdated` → server sends back the canonical payload so the client can hydrate.
+- `status: upload_required` or `status: missing` → server expects the client to call `/auth/update` with the full payload.
+
+### `POST /auth/update` (alias: `/auth/sync`)
 
 Push the current `auth.json` (either wrap it under an `auth` key or send the raw document). Requires the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
 
-Every sync **must** include the Codex CLI version, sent either as a JSON field (`client_version`) or a query parameter (`client_version`/`cdx_version`). You may also include `wrapper_version` (JSON or query parameter, alias `cdx_wrapper_version`) if a cdx wrapper/installer is involved; it is optional but stored for auditing when supplied.
+Every update **must** include the Codex CLI version, sent either as a JSON field (`client_version`) or a query parameter (`client_version`/`cdx_version`). You may also include `wrapper_version` (JSON or query parameter, alias `cdx_wrapper_version`) if a cdx wrapper/installer is involved; it is optional but stored for auditing when supplied.
 
 ```http
-POST /auth/sync?client_version=0.60.1&wrapper_version=1.4.3 HTTP/1.1
+POST /auth/update?client_version=0.60.1&wrapper_version=1.4.3 HTTP/1.1
 Host: localhost:8080
 X-API-Key: <host-api-key>
 Content-Type: application/json

@@ -63,12 +63,28 @@ try {
         ]);
     }
 
-    if ($method === 'POST' && $normalizedPath === '/auth/sync') {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
-        $host = $service->authenticate($apiKey, $clientIp);
-        $incoming = extractAuthPayload($payload);
-        $clientVersion = extractClientVersion($payload);
+if ($method === 'POST' && $normalizedPath === '/auth/check') {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $clientVersion = extractClientVersion($payload);
+    $wrapperVersion = extractWrapperVersion($payload);
+    $metadata = extractAuthMetadata($payload);
+
+    $result = $service->checkAuth($metadata, $host, $clientVersion, $wrapperVersion);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+}
+
+if ($method === 'POST' && ($normalizedPath === '/auth/sync' || $normalizedPath === '/auth/update')) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $incoming = extractAuthPayload($payload);
+    $clientVersion = extractClientVersion($payload);
         $wrapperVersion = extractWrapperVersion($payload);
 
         $result = $service->sync($incoming, $host, $clientVersion, $wrapperVersion);
@@ -150,13 +166,11 @@ function extractAuthPayload(mixed $payload): array
 
 function extractClientVersion(mixed $payload): ?string
 {
-    $value = null;
     if (is_array($payload) && array_key_exists('client_version', $payload)) {
         $value = normalizeVersionValue($payload['client_version']);
-    }
-
-    if ($value !== null) {
-        return $value;
+        if ($value !== null) {
+            return $value;
+        }
     }
 
     $aliases = ['client_version', 'cdx_version'];
@@ -172,13 +186,11 @@ function extractClientVersion(mixed $payload): ?string
 
 function extractWrapperVersion(mixed $payload): ?string
 {
-    $value = null;
     if (is_array($payload) && array_key_exists('wrapper_version', $payload)) {
         $value = normalizeVersionValue($payload['wrapper_version']);
-    }
-
-    if ($value !== null) {
-        return $value;
+        if ($value !== null) {
+            return $value;
+        }
     }
 
     $aliases = ['wrapper_version', 'cdx_wrapper_version'];
@@ -190,6 +202,37 @@ function extractWrapperVersion(mixed $payload): ?string
     }
 
     return null;
+}
+
+function extractAuthMetadata(mixed $payload): array
+{
+    if (!is_array($payload)) {
+        return [];
+    }
+
+    $metadata = [];
+
+    if (array_key_exists('last_refresh', $payload) && is_string($payload['last_refresh'])) {
+        $value = trim($payload['last_refresh']);
+        if ($value !== '') {
+            $metadata['last_refresh'] = $value;
+        }
+    }
+
+    $hashKeys = ['auth_sha', 'auth_digest', 'digest'];
+    foreach ($hashKeys as $key) {
+        if (!array_key_exists($key, $payload)) {
+            continue;
+        }
+
+        $value = normalizeVersionValue($payload[$key]);
+        if ($value !== null) {
+            $metadata['auth_sha'] = strtolower($value);
+            break;
+        }
+    }
+
+    return $metadata;
 }
 
 function resolveQueryParam(string $key): ?string
