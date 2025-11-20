@@ -31,8 +31,9 @@ docker-compose.yml
 
 1. **Environment**
    - Copy `.env.example` to `.env`.
-   - Set a strong `INVITATION_KEY`.
-   - `DB_PATH` defaults to `storage/database.sqlite` inside the container.
+- Set a strong `INVITATION_KEY`.
+- Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes.
+- `DB_PATH` defaults to `storage/database.sqlite` inside the container.
 
 2. **Docker**
    - `docker compose up --build`
@@ -138,6 +139,49 @@ Content-Type: application/json
   }
 }
 ```
+
+### `GET /versions`
+
+Returns the server-cached Codex CLI version (fetched from GitHub at most every 2 hours), the canonical published wrapper version (operator-supplied), and the highest versions reported by any client. Clients should prefer the top-level fields and fall back to `reported_*` only if missing.
+
+```http
+GET /versions HTTP/1.1
+Host: localhost:8080
+```
+
+**Response**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "client_version": "0.60.1",
+    "client_version_checked_at": "2025-11-20T09:00:00Z",
+    "wrapper_version": "2025.11.19-4",
+    "reported_client_version": "0.60.1",
+    "reported_wrapper_version": "2025.11.19-4"
+  }
+}
+```
+
+### `POST /versions` (admin)
+
+Allows an operator to publish the authoritative Codex CLI and/or cdx wrapper versions. Protect this endpoint with `VERSION_ADMIN_KEY` (sent via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query param).
+
+```http
+POST /versions HTTP/1.1
+Host: localhost:8080
+X-Admin-Key: <admin-secret>
+Content-Type: application/json
+
+{ "client_version": "0.60.1", "wrapper_version": "2025.11.19-4" }
+```
+
+Response mirrors `GET /versions`.
+
+Notes:
+- The server refreshes `client_version` by calling the GitHub “latest release” endpoint when `/versions` is requested and the cached value is older than 2 hours. Fetch failures fall back to the last cached value.
+- The `wrapper_version` is auto-seeded from the first reported host if no operator value has been published yet; you can still override it via `POST /versions` when `VERSION_ADMIN_KEY` is set.
 
 If the submitted `last_refresh` is newer than the stored value (per RFC3339 timestamps), the new payload becomes canonical. When the incoming payload is **unchanged or older**, the server responds with:
 

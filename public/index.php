@@ -8,6 +8,7 @@ use App\Exceptions\HttpException;
 use App\Http\Response;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\HostStatusExporter;
 use Dotenv\Dotenv;
@@ -26,10 +27,11 @@ $database->migrate();
 
 $hostRepository = new HostRepository($database);
 $logRepository = new LogRepository($database);
+$versionRepository = new VersionRepository($database);
 $invitationKey = Config::get('INVITATION_KEY', '');
 $statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
 $statusExporter = new HostStatusExporter($hostRepository, $statusPath);
-$service = new AuthService($hostRepository, $logRepository, $invitationKey, $statusExporter);
+$service = new AuthService($hostRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -60,6 +62,65 @@ try {
         Response::json([
             'status' => 'ok',
             'host' => $result,
+        ]);
+    }
+
+    if ($method === 'GET' && $normalizedPath === '/versions') {
+        $available = $service->availableClientVersion();
+        $reported = $service->latestReportedVersions();
+        $service->seedWrapperVersionFromReported($reported['wrapper_version']);
+        $published = $service->publishedVersions();
+
+        $clientVersion = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
+        $wrapperVersion = $published['wrapper_version'] ?? $reported['wrapper_version'];
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'client_version' => $clientVersion,
+                'client_version_checked_at' => $available['updated_at'],
+                'wrapper_version' => $wrapperVersion,
+                'reported_client_version' => $reported['client_version'],
+                'reported_wrapper_version' => $reported['wrapper_version'],
+            ],
+        ]);
+    }
+
+    if ($method === 'POST' && $normalizedPath === '/versions') {
+        $adminKey = resolveAdminKey();
+        if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Admin key required',
+            ], 401);
+        }
+
+        $clientVersion = normalizeVersionValue($payload['client_version'] ?? null);
+        $wrapperVersion = normalizeVersionValue($payload['wrapper_version'] ?? null);
+
+        if ($clientVersion === null && $wrapperVersion === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'At least one of client_version or wrapper_version is required',
+            ], 422);
+        }
+
+        $published = $service->updatePublishedVersions($clientVersion, $wrapperVersion);
+        $available = $service->availableClientVersion();
+        $reported = $service->latestReportedVersions();
+
+        $clientVersionOut = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
+        $wrapperVersionOut = $published['wrapper_version'] ?? $reported['wrapper_version'];
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'client_version' => $clientVersionOut,
+                'client_version_checked_at' => $available['updated_at'],
+                'wrapper_version' => $wrapperVersionOut,
+                'reported_client_version' => $reported['client_version'],
+                'reported_wrapper_version' => $reported['wrapper_version'],
+            ],
         ]);
     }
 
@@ -253,4 +314,32 @@ function normalizeVersionValue(mixed $value): ?string
     $value = trim($value);
 
     return $value === '' ? null : $value;
+}
+
+function resolveAdminKey(): ?string
+{
+    $headerKeys = [
+        'HTTP_X_ADMIN_KEY',
+        'HTTP_AUTHORIZATION',
+    ];
+
+    foreach ($headerKeys as $key) {
+        if (isset($_SERVER[$key]) && is_string($_SERVER[$key])) {
+            $value = trim($_SERVER[$key]);
+            if ($value !== '') {
+                if (str_starts_with($value, 'Bearer ')) {
+                    return substr($value, 7);
+                }
+
+                return $value;
+            }
+        }
+    }
+
+    $fromQuery = resolveQueryParam('admin_key');
+    if ($fromQuery !== null) {
+        return $fromQuery;
+    }
+
+    return null;
 }

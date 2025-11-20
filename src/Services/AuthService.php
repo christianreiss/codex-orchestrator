@@ -6,16 +6,19 @@ use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\VersionRepository;
 use App\Support\Timestamp;
 use DateTimeImmutable;
 
 class AuthService
 {
     private const INACTIVITY_WINDOW_DAYS = 30;
+    private const VERSION_CACHE_TTL_SECONDS = 7200; // 2 hours
 
     public function __construct(
         private readonly HostRepository $hosts,
         private readonly LogRepository $logs,
+        private readonly VersionRepository $versions,
         private readonly string $invitationKey,
         private readonly HostStatusExporter $statusExporter
     ) {
@@ -268,6 +271,127 @@ class AuthService
         return $payload;
     }
 
+    public function latestReportedVersions(): array
+    {
+        $hosts = $this->hosts->all();
+
+        $latestClient = null;
+        $latestWrapper = null;
+
+        foreach ($hosts as $host) {
+            $client = $host['client_version'] ?? null;
+            if (is_string($client) && $client !== '') {
+                if ($latestClient === null || $this->isVersionGreater($client, $latestClient)) {
+                    $latestClient = $client;
+                }
+            }
+
+            $wrapper = $host['wrapper_version'] ?? null;
+            if (is_string($wrapper) && $wrapper !== '') {
+                if ($latestWrapper === null || $this->isVersionGreater($wrapper, $latestWrapper)) {
+                    $latestWrapper = $wrapper;
+                }
+            }
+        }
+
+        return [
+            'client_version' => $latestClient,
+            'wrapper_version' => $latestWrapper,
+        ];
+    }
+
+    public function availableClientVersion(): array
+    {
+        $cached = $this->versions->getWithMetadata('client_available');
+        $now = time();
+        $cacheFresh = false;
+
+        if ($cached && isset($cached['updated_at'])) {
+            $updatedAt = strtotime($cached['updated_at']);
+            if ($updatedAt !== false && ($now - $updatedAt) <= self::VERSION_CACHE_TTL_SECONDS) {
+                $cacheFresh = true;
+            }
+        }
+
+        if ($cacheFresh && isset($cached['version'])) {
+            return [
+                'version' => $cached['version'],
+                'updated_at' => $cached['updated_at'] ?? null,
+                'source' => 'cache',
+            ];
+        }
+
+        $fetched = $this->fetchLatestCodexVersion();
+        if ($fetched !== null) {
+            $this->versions->set('client_available', $fetched);
+            return [
+                'version' => $fetched,
+                'updated_at' => gmdate(DATE_ATOM),
+                'source' => 'github',
+            ];
+        }
+
+        if ($cached && isset($cached['version'])) {
+            return [
+                'version' => $cached['version'],
+                'updated_at' => $cached['updated_at'] ?? null,
+                'source' => 'cache_stale',
+            ];
+        }
+
+        return [
+            'version' => null,
+            'updated_at' => null,
+            'source' => 'unknown',
+        ];
+    }
+
+    public function publishedVersions(): array
+    {
+        $all = $this->versions->all();
+
+        return [
+            'client_version' => $all['client'] ?? null,
+            'wrapper_version' => $all['wrapper'] ?? null,
+        ];
+    }
+
+    public function updatePublishedVersions(?string $clientVersion, ?string $wrapperVersion): array
+    {
+        if ($clientVersion !== null) {
+            $this->versions->set('client', trim($clientVersion));
+        }
+        if ($wrapperVersion !== null) {
+            $this->versions->set('wrapper', trim($wrapperVersion));
+        }
+
+        $this->logs->log(null, 'version.publish', [
+            'client_version' => $clientVersion,
+            'wrapper_version' => $wrapperVersion,
+        ]);
+
+        return $this->publishedVersions();
+    }
+
+    public function seedWrapperVersionFromReported(?string $wrapperVersion): void
+    {
+        if ($wrapperVersion === null || trim($wrapperVersion) === '') {
+            return;
+        }
+
+        $published = $this->publishedVersions();
+        if ($published['wrapper_version'] !== null) {
+            return;
+        }
+
+        $normalized = trim($wrapperVersion);
+        $this->versions->set('wrapper', $normalized);
+        $this->logs->log(null, 'version.seed', [
+            'wrapper_version' => $normalized,
+            'source' => 'reported_fallback',
+        ]);
+    }
+
     private function pruneInactiveHosts(): void
     {
         $cutoff = (new DateTimeImmutable(sprintf('-%d days', self::INACTIVITY_WINDOW_DAYS)));
@@ -310,6 +434,61 @@ class AuthService
         }
 
         return [$normalizedClientVersion, $normalizedWrapperVersion];
+    }
+
+    private function isVersionGreater(string $left, string $right): bool
+    {
+        $left = trim($left);
+        $right = trim($right);
+
+        if ($left === '') {
+            return false;
+        }
+        if ($right === '') {
+            return true;
+        }
+
+        $cmp = version_compare($left, $right);
+
+        return $cmp === 1;
+    }
+
+    private function fetchLatestCodexVersion(): ?string
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: codex-auth-api\r\nAccept: application/json\r\n",
+                'timeout' => 5,
+            ],
+        ]);
+
+        $json = @file_get_contents('https://api.github.com/repos/openai/codex/releases/latest', false, $context);
+        if ($json === false) {
+            return null;
+        }
+
+        $data = json_decode($json, true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $candidates = [
+            $data['tag_name'] ?? null,
+            $data['name'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate)) {
+                $normalized = trim($candidate);
+                if ($normalized !== '') {
+                    $normalized = ltrim($normalized, 'vV');
+                    return $normalized;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function normalizeDigest(mixed $value): ?string

@@ -213,6 +213,57 @@ Errors:
 - `422` missing `auth` body, `client_version`, or `last_refresh`.
 - `500` unexpected server error.
 
+---
+
+## `GET /versions`
+
+Returns the server-cached Codex CLI version (pulled from GitHub “latest release” when cache is older than 2 hours), the operator-published wrapper version, and the highest values reported by any host. Clients should prefer the top-level fields; `reported_*` are fallbacks/telemetry.
+
+**Request**
+
+```
+GET /versions
+```
+
+**Response**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "client_version": "0.60.1",
+    "client_version_checked_at": "2025-11-20T09:00:00Z",
+    "wrapper_version": "2025.11.19-4",
+    "reported_client_version": "0.60.1",
+    "reported_wrapper_version": "2025.11.19-4"
+  }
+}
+```
+
+## `POST /versions` (admin)
+
+Sets the operator-published versions. Requires the admin key configured in `VERSION_ADMIN_KEY` (send via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query parameter).
+
+**Request**
+
+```
+POST /versions
+```
+
+Body (at least one field required):
+
+```json
+{ "client_version": "0.60.1", "wrapper_version": "2025.11.19-4" }
+```
+
+**Response**
+
+Same shape as `GET /versions`.
+
+Caching:
+- The API caches the Codex CLI version for 2 hours (`client_version`/`client_version_checked_at`). Requests made while the cache is fresh avoid hitting GitHub; stale caches trigger a refresh. When GitHub is unreachable the previous cached value is returned.
+- If no operator wrapper version is published, the API auto-seeds it from the first reported host wrapper version.
+
 ## Logs & Auditing
 
 Each call records an entry in the `logs` table summarizing:

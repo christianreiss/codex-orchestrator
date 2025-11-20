@@ -61,6 +61,16 @@ class Database
             SQL
         );
 
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS versions (
+                name TEXT PRIMARY KEY,
+                version TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            SQL
+        );
+
         // Backfill new columns for existing databases.
         $this->ensureColumnExists('hosts', 'ip', 'TEXT NULL');
         $this->ensureColumnExists('hosts', 'client_version', 'TEXT NULL');
