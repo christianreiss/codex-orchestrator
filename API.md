@@ -141,6 +141,54 @@ Content-Type: application/json
 - `unchanged`: timestamps match; returns canonical digest and versions only.
 - `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
 
+### `POST /usage` (token usage reporting)
+
+Allows a host to send the Codex CLI token-usage line after a run. Uses the same API key + IP binding as `/auth`.
+
+**Required auth**: API key header.
+
+**Body fields**
+
+- `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16`).
+- `total`, `input`, `output` (optional integers): parsed token counts.
+- `cached` (optional integer): cached tokens count when present.
+- `model` (optional string): Codex model name, if available.
+
+At least one of `line` or a numeric field must be provided. The payload is stored as a log entry (`token.usage`) for the calling host.
+
+**Example**
+
+```http
+POST /usage HTTP/1.1
+X-API-Key: 8a63...f0
+Content-Type: application/json
+
+{
+  "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
+  "total": 985,
+  "input": 969,
+  "cached": 6912,
+  "output": 16
+}
+```
+
+**Response**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "host_id": 12,
+    "recorded_at": "2025-11-20T20:40:00Z",
+    "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
+    "total": 985,
+    "input": 969,
+    "cached": 6912,
+    "output": 16
+  }
+}
+```
+
 ### `DELETE /auth` (deregister host)
 
 Removes the calling host (identified by its API key) from the orchestrator. Intended for uninstall flows.

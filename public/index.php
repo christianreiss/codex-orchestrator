@@ -252,6 +252,19 @@ try {
         ]);
     }
 
+    if ($method === 'POST' && $normalizedPath === '/usage') {
+        $apiKey = resolveApiKey();
+        $clientIp = resolveClientIp();
+        $host = $service->authenticate($apiKey, $clientIp);
+
+        $result = $service->recordTokenUsage($host, is_array($payload) ? $payload : []);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
     if ($method === 'DELETE' && $normalizedPath === '/auth') {
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
@@ -293,6 +306,8 @@ try {
 
         $latestLog = $logRepository->latestCreatedAt();
         $versions = $service->versionSummary();
+        $tokenTotals = $logRepository->tokenUsageTotals();
+        $topToken = $logRepository->topTokenUsageHost();
 
         $mtlsContext = [
             'subject' => $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null,
@@ -312,6 +327,18 @@ try {
                 'avg_refresh_age_days' => $avgRefreshAgeDays,
                 'latest_log_at' => $latestLog,
                 'versions' => $versions,
+                'tokens' => [
+                    'total' => $tokenTotals['total'],
+                    'input' => $tokenTotals['input'],
+                    'output' => $tokenTotals['output'],
+                    'cached' => $tokenTotals['cached'],
+                    'events' => $tokenTotals['events'],
+                    'top_host' => $topToken ? [
+                        'id' => $topToken['host_id'],
+                        'fqdn' => $topToken['fqdn'],
+                        'total' => $topToken['total'],
+                    ] : null,
+                ],
                 'mtls' => $mtlsContext,
             ],
         ]);
@@ -321,11 +348,15 @@ try {
         requireAdminAccess();
 
         $hosts = $hostRepository->all();
+        $tokenTotalsByHost = $logRepository->tokenUsageTotalsByHost();
         $items = [];
 
         foreach ($hosts as $host) {
+            $hostId = (int) $host['id'];
+            $usageTotals = $tokenTotalsByHost[$hostId] ?? null;
+
             $items[] = [
-                'id' => (int) $host['id'],
+                'id' => $hostId,
                 'fqdn' => $host['fqdn'],
                 'status' => $host['status'],
                 'last_refresh' => $host['last_refresh'] ?? null,
@@ -336,6 +367,13 @@ try {
                 'ip' => $host['ip'] ?? null,
                 'canonical_digest' => $host['auth_digest'] ?? null,
                 'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
+                'token_usage' => $usageTotals ? [
+                    'total' => $usageTotals['total'],
+                    'input' => $usageTotals['input'],
+                    'output' => $usageTotals['output'],
+                    'cached' => $usageTotals['cached'],
+                    'events' => $usageTotals['events'],
+                ] : null,
             ];
         }
 

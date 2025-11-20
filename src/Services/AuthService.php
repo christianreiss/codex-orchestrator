@@ -291,6 +291,54 @@ class AuthService
         ];
     }
 
+    public function recordTokenUsage(array $host, array $payload): array
+    {
+        if (!isset($host['id'])) {
+            throw new HttpException('Host not found', 404);
+        }
+
+        $line = '';
+        if (array_key_exists('line', $payload) && is_string($payload['line'])) {
+            $line = trim($payload['line']);
+        }
+
+        $total = $this->normalizeUsageInt($payload['total'] ?? null, 'total');
+        $input = $this->normalizeUsageInt($payload['input'] ?? null, 'input');
+        $output = $this->normalizeUsageInt($payload['output'] ?? null, 'output');
+        $cached = $this->normalizeUsageInt($payload['cached'] ?? null, 'cached', true);
+        $model = null;
+        if (isset($payload['model']) && is_string($payload['model'])) {
+            $model = trim($payload['model']);
+        }
+
+        if ($line === '' && $total === null && $input === null && $output === null && $cached === null) {
+            throw new ValidationException([
+                'line' => ['line or at least one numeric field is required'],
+            ]);
+        }
+
+        $details = array_filter([
+            'line' => $line !== '' ? $line : null,
+            'total' => $total,
+            'input' => $input,
+            'output' => $output,
+            'cached' => $cached,
+            'model' => $model !== '' ? $model : null,
+        ], static fn ($value) => $value !== null);
+
+        $this->logs->log((int) $host['id'], 'token.usage', $details);
+
+        return array_merge([
+            'host_id' => (int) $host['id'],
+            'recorded_at' => gmdate(DATE_ATOM),
+            'line' => $line !== '' ? $line : null,
+            'total' => $total,
+            'input' => $input,
+            'output' => $output,
+            'cached' => $cached,
+        ], $model !== null ? ['model' => $model === '' ? null : $model] : []);
+    }
+
     private function versionSnapshot(): array
     {
         $available = $this->availableClientVersion();
@@ -311,6 +359,36 @@ class AuthService
             'reported_client_version' => $reported['client_version'],
             'reported_wrapper_version' => $reported['wrapper_version'],
         ];
+    }
+
+    private function normalizeUsageInt(mixed $value, string $field, bool $optional = false): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value)) {
+            if ($value < 0) {
+                throw new ValidationException([$field => [$field . ' must be non-negative']]);
+            }
+
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            $intVal = (int) $value;
+            if ($intVal < 0) {
+                throw new ValidationException([$field => [$field . ' must be non-negative']]);
+            }
+
+            return $intVal;
+        }
+
+        if ($optional) {
+            return null;
+        }
+
+        throw new ValidationException([$field => [$field . ' must be an integer']]);
     }
 
     private function normalizeCommand(mixed $command): string

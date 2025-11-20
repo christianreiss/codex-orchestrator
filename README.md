@@ -8,6 +8,7 @@ A lightweight PHP API that centralizes Codex `auth.json` files. Clients register
 - Push/sync Codex `auth.json` documents; server decides whether to adopt the new payload or return the canonical version based on `last_refresh` while capturing the client's Codex version for fleet audits.
 - MySQL persistence (containerized) for hosts + request logs.
 - Hosts can self-deregister via `DELETE /auth`, which removes their record and digest cache.
+- Token-usage lines from Codex runs can be posted to `/usage` (auto-sent by the wrapper) for per-host auditing.
 - Shipping bin tooling: `bin/codex-install` registers + syncs via the API, and `bin/codex-uninstall` now calls `DELETE /auth` (using stored sync env) before wiping local files—no registry file required.
 - Dockerized runtime via `php:8.2-apache` with automatic migrations.
 - Authentication enforced for every endpoint except registration (`X-API-Key` or `Authorization: Bearer` headers).

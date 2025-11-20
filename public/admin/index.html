@@ -115,13 +115,14 @@
               <th>Client</th>
               <th>Wrapper</th>
               <th>IP</th>
-              <th>Digest</th>
-              <th>Calls</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+          <th>Digest</th>
+          <th>Calls</th>
+          <th>Tokens</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
       </div>
     </div>
     <div class="card">
@@ -139,6 +140,7 @@
     const refreshBtn = document.getElementById('refresh');
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
+    let tokensSummary = null;
 
     function parseTimestamp(value) {
       if (!value) return null;
@@ -181,6 +183,13 @@
       if (delta < 14 * 24 * 60 * 60 * 1000) return `${days} d ${suffix}`;
 
       return formatTimestamp(value);
+    }
+
+    function formatNumber(value) {
+      if (value === null || value === undefined) return '—';
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      return num.toLocaleString('en-US');
     }
 
     function normalizeVersion(v) {
@@ -260,6 +269,12 @@
         client: normalizeVersion(data.versions.client_version),
         wrapper: normalizeVersion(data.versions.wrapper_version),
       };
+      tokensSummary = data.tokens || null;
+
+      const topHost = tokensSummary?.top_host;
+      const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
+      const totalTokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
+
       statsEl.innerHTML = `
         <div class="card">
           <div class="muted">Hosts</div>
@@ -277,6 +292,11 @@
           <div style="font-weight:700;">Avg ${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
           <div class="muted">Latest Log ${latestLog}</div>
         </div>
+        <div class="card">
+          <div class="muted">Tokens</div>
+          <div style="font-weight:700;">${totalTokens}</div>
+          <div class="muted">Top ${topHostLabel}</div>
+        </div>
       `;
     }
 
@@ -285,6 +305,10 @@
       hostsTbody.innerHTML = '';
       hosts.forEach(host => {
         const tr = document.createElement('tr');
+        const tokenTotal = host.token_usage?.total ?? null;
+        const tokenEvents = host.token_usage?.events ?? null;
+        const tokenLabel = tokenTotal !== null ? `${formatNumber(tokenTotal)}${tokenEvents ? ` · ${tokenEvents} runs` : ''}` : '—';
+
         tr.innerHTML = `
           <td>${host.fqdn}</td>
           <td>${formatStatus(host.status)}</td>
@@ -294,6 +318,7 @@
           <td>${host.ip ?? '—'}</td>
           <td>${renderDigestTag(host)}</td>
           <td>${host.api_calls ?? 0}</td>
+          <td>${tokenLabel}</td>
           <td style="display:flex; gap:6px; flex-wrap:wrap;">
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>

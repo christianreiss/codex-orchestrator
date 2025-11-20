@@ -48,7 +48,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.19-5"
+WRAPPER_VERSION="2025.11.20-1"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -737,6 +737,151 @@ push_auth_if_changed() {
   return 1
 }
 
+extract_token_usage_payload() {
+  local log_path="$1"
+  if [[ ! -f "$log_path" ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$log_path" <<'PY'
+import json, pathlib, re, sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    content = path.read_text(encoding="utf-8", errors="ignore")
+except Exception:  # noqa: BLE001
+    sys.exit(0)
+
+lines = [ln.strip() for ln in content.splitlines() if "Token usage" in ln]
+if not lines:
+    sys.exit(0)
+
+line = lines[-1]
+pattern = re.compile(
+    r"Token usage:\s*total=([\d,]+)\s+input=([\d,]+)(?:\s*\(\+\s*([\d,]+)\s*cached\))?\s+output=([\d,]+)",
+    re.IGNORECASE,
+)
+data = {"line": line}
+match = pattern.search(line)
+if match:
+    def clean(val: str | None):
+        return int(val.replace(",", "")) if val else None
+
+    data["total"] = clean(match.group(1))
+    data["input"] = clean(match.group(2))
+    data["output"] = clean(match.group(4))
+    cached = clean(match.group(3))
+    if cached is not None:
+        data["cached"] = cached
+
+print(json.dumps(data, separators=(",", ":")))
+PY
+}
+
+post_token_usage_payload() {
+  local payload_json="$1"
+  if [[ -z "$payload_json" ]]; then
+    return 0
+  fi
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    log_warn "Usage push skipped: API key or base URL missing"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_warn "Usage push skipped: python3 missing"
+    return 1
+  fi
+
+  local summary
+  if summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+api_key = sys.argv[2]
+payload_raw = sys.argv[3]
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+
+try:
+    payload = json.loads(payload_raw)
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+
+body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+url = f"{base}/usage"
+req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+
+
+def build_contexts():
+    contexts = []
+    try:
+        ctx = ssl.create_default_context()
+        if cafile:
+            ctx.load_verify_locations(cafile)
+        try:
+            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except Exception:
+            pass
+        contexts.append(ctx)
+    except Exception:
+        pass
+    try:
+        contexts.append(ssl._create_unverified_context())
+    except Exception:
+        pass
+    return contexts or [None]
+
+
+def format_summary(data: dict) -> str:
+    parts = []
+    for key in ("total", "input", "output", "cached"):
+        if key in data and data[key] is not None:
+            parts.append(f"{key}={data[key]}")
+    if not parts and data.get("line"):
+        return data["line"]
+    return " ".join(parts)
+
+
+last_err = None
+for ctx in build_contexts():
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
+            resp.read(512)
+            print(format_summary(payload))
+            sys.exit(0)
+    except urllib.error.HTTPError as exc:
+        last_err = f"HTTP {exc.code}"
+        continue
+    except Exception as exc:  # noqa: BLE001
+        last_err = str(exc)
+        continue
+
+if last_err:
+    print(last_err, file=sys.stderr)
+sys.exit(1)
+PY
+  )"; then
+    log_info "Usage push | ok | ${summary}"
+    return 0
+  fi
+
+  log_warn "Usage push | failed"
+  return 1
+}
+
+send_token_usage_if_present() {
+  local log_path="$1"
+  local payload
+  payload="$(extract_token_usage_payload "$log_path")" || return 0
+  if [[ -z "$payload" ]]; then
+    return 0
+  fi
+
+  post_token_usage_payload "$payload" || true
+}
+
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
@@ -1128,8 +1273,23 @@ if [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   exit 1
 fi
 
+run_codex_command() {
+  local tmp_output
+  tmp_output="$(mktemp)"
+  set +e
+  "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
+  local status=${PIPESTATUS[0]}
+  set -e
+  send_token_usage_if_present "$tmp_output"
+  rm -f "$tmp_output"
+  return "$status"
+}
+
 CODEX_COMMAND_STARTED=1
-"$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@"
-cmd_status=$?
+if run_codex_command "$@"; then
+  cmd_status=0
+else
+  cmd_status=$?
+fi
 push_auth_if_changed "push" || true
 exit "$cmd_status"
