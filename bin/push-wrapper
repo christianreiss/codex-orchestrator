@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Push the current cdx wrapper to the Codex Auth API.
+
+Environment / flags:
+  -b, --base       Base URL for the API (default: https://codex-auth.uggs.io)
+  -k, --key        VERSION_ADMIN_KEY value (env VERSION_ADMIN_KEY)
+  -f, --file       Path to cdx wrapper script (default: repo bin/cdx)
+  -v, --version    Override wrapper version (defaults to WRAPPER_VERSION in the file)
+  -h, --help       Show this help
+EOF
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+load_dotenv() {
+  local env_file="$ROOT_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    source "$env_file"
+    set +a
+  fi
+}
+
+load_dotenv
+
+BASE_URL="${WRAPPER_BASE_URL:-${CODEX_AUTH_BASE_URL:-https://codex-auth.uggs.io}}"
+ADMIN_KEY="${VERSION_ADMIN_KEY:-}"
+VERSION_OVERRIDE=""
+
+resolve_wrapper_path() {
+  if [[ -n "${WRAPPER_PATH:-}" && -f "${WRAPPER_PATH}" ]]; then
+    printf '%s' "$WRAPPER_PATH"
+    return 0
+  fi
+  if [[ -f "$ROOT_DIR/bin/cdx" ]]; then
+    printf '%s' "$ROOT_DIR/bin/cdx"
+    return 0
+  fi
+  if [[ -f "$ROOT_DIR/resources/wrapper/cdx" ]]; then
+    printf '%s' "$ROOT_DIR/resources/wrapper/cdx"
+    return 0
+  fi
+  return 1
+}
+
+WRAPPER_PATH="$(resolve_wrapper_path || true)"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b|--base) BASE_URL="$2"; shift 2 ;;
+    -k|--key) ADMIN_KEY="$2"; shift 2 ;;
+    -f|--file) WRAPPER_PATH="$2"; shift 2 ;;
+    -v|--version) VERSION_OVERRIDE="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'Unknown option: %s\n\n' "$1" >&2; usage; exit 1 ;;
+  esac
+done
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required" >&2
+  exit 1
+fi
+
+if [[ -z "$WRAPPER_PATH" || ! -f "$WRAPPER_PATH" ]]; then
+  echo "Wrapper file not found (looked for WRAPPER_PATH, bin/cdx, resources/wrapper/cdx)" >&2
+  exit 1
+fi
+
+extract_version() {
+  local path="$1"
+  local line
+  line="$(grep -E '^WRAPPER_VERSION=".*"' "$path" | head -n1 || true)"
+  echo "${line#WRAPPER_VERSION=\"}" | sed 's/"$//'
+}
+
+VERSION="${VERSION_OVERRIDE:-$(extract_version "$WRAPPER_PATH")}"
+if [[ -z "$VERSION" ]]; then
+  echo "Unable to determine WRAPPER_VERSION from $WRAPPER_PATH (add --version)" >&2
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256="$(sha256sum "$WRAPPER_PATH" | awk '{print $1}')"
+else
+  SHA256="$(shasum -a 256 "$WRAPPER_PATH" | awk '{print $1}')"
+fi
+
+echo "Base URL:     $BASE_URL"
+echo "Wrapper path: $WRAPPER_PATH"
+echo "Version:      $VERSION"
+echo "SHA-256:      $SHA256"
+
+curl_opts=(
+  -fsS
+  -F "file=@${WRAPPER_PATH};type=text/x-shellscript"
+  -F "version=${VERSION}"
+  -F "sha256=${SHA256}"
+)
+if [[ -n "$ADMIN_KEY" ]]; then
+  curl_opts+=(-H "X-Admin-Key: $ADMIN_KEY")
+fi
+curl "${curl_opts[@]}" "${BASE_URL%/}/wrapper"
+echo
+echo "Wrapper published."

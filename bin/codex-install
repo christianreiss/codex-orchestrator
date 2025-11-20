@@ -23,7 +23,6 @@ set -euo pipefail
 #       --local-bind <addr>     Local bind address for forward (default: 127.0.0.1)
 #       --local-port <port>     Local TCP port used by Codex login (default: 1455)
 #       --auth-json <path>      Local path to auth.json (default: ~/.codex/auth.json)
-#       --registry <path>       Override registry/servers.json path for auto-recording
 #       --no-browser            (compat) ignored; browsers are never auto-opened
 #       --sync-base-url <url>   Override Codex sync API base URL (default: https://codex-auth.uggs.io)
 #       --sync-invite-key <key> Shared invitation key for sync API registration (or CODEX_SYNC_INVITE_KEY env)
@@ -48,7 +47,6 @@ Options:
       --local-bind <addr>     Local bind address for forward (default: 127.0.0.1)
       --local-port <port>     Local TCP port for Codex login (default: 1455)
       --auth-json <path>      Local path to auth.json (default: ~/.codex/auth.json)
-      --registry <path>       Registry JSON path (default: registry/servers.json)
       --no-browser            (compat) ignored; browsers are never auto-opened
       --install-systemd-timer Install/enable codex-wrapper-update.(service|timer) on the remote host
       --sync-base-url <url>   Codex sync API base URL (default: https://codex-auth.uggs.io)
@@ -332,8 +330,6 @@ else
 fi
 
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DEFAULT_REGISTRY_PATH="${REPO_ROOT}/registry/servers.json"
-REGISTRY_PATH="$DEFAULT_REGISTRY_PATH"
 INSTALL_SYSTEMD_TIMER=0
 
 while [ $# -gt 0 ]; do
@@ -385,11 +381,6 @@ while [ $# -gt 0 ]; do
     --no-browser)
       # retained for compatibility; no effect (browser already disabled)
       shift
-      ;;
-    --registry)
-      [ $# -ge 2 ] || usage
-      REGISTRY_PATH="$2"
-      shift 2
       ;;
     --sync-base-url)
       [ $# -ge 2 ] || usage
@@ -781,6 +772,23 @@ normalize_version() {
   v="${v#codex }"
   v="${v#v}"
   printf '%s' "$v"
+}
+
+# Extracts the first semver-ish token from arbitrary text; returns raw input if none found.
+extract_version_token() {
+  local data="$1"
+  local candidate=""
+  candidate="$(printf '%s\n' "$data" | tr ' \t' '\n' | grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9A-Za-z._-]+$' | head -n1 || true)"
+  if [ -z "$candidate" ]; then
+    candidate="$(printf '%s\n' "$data" | grep -Eo '[0-9]+\.[0-9]+\.[0-9A-Za-z._-]+' | head -n1 || true)"
+  fi
+  candidate="${candidate#v}"
+  candidate="${candidate#V}"
+  if [ -n "$candidate" ]; then
+    printf '%s' "$candidate"
+  else
+    printf '%s' "$data"
+  fi
 }
 
 codex_asset_candidates() {
@@ -1990,144 +1998,6 @@ PY
   return 1
 }
 
-is_registry_excluded_host() {
-  local host="$1"
-  case "$host" in
-    10.2.0.*)
-      local last_octet="${host##*.}"
-      if [[ "$last_octet" =~ ^[0-9]+$ ]] && (( last_octet >= 200 && last_octet <= 254 )); then
-        return 0
-      fi
-      ;;
-  esac
-  return 1
-}
-
-record_registry_metadata() {
-  local flow_mode="${1:-auth}"
-  local codex_version=""
-  local wrapper_sha=""
-  local wrapper_version=""
-  local date_str=""
-  local note=""
-  local registry_dir=""
-
-  if [ -z "$REGISTRY_PATH" ]; then
-    return 0
-  fi
-  if is_registry_excluded_host "$HOST"; then
-    printf '[registry][INFO] Skipping registry update for %s (test VM range)\n' "$HOST"
-    return 0
-  fi
-  if [ -z "$PYTHON3_BIN" ]; then
-    printf '[registry][WARN] python3 is required to update %s; skipping registry write for %s\n' "$REGISTRY_PATH" "$HOST" >&2
-    return 0
-  fi
-
-  if ! codex_version="$(fetch_remote_codex_version)"; then
-    codex_version="unknown"
-  fi
-  if ! wrapper_sha="$(compute_wrapper_sha256)"; then
-    wrapper_sha="unknown"
-  fi
-  wrapper_version="${LOCAL_WRAPPER_VERSION:-unknown}"
-  date_str="$(date +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
-
-  case "$flow_mode" in
-    auth)
-      note="Auto-recorded via codex-install (auth push) on ${date_str}."
-      ;;
-    login)
-      note="Auto-recorded via codex-install (interactive login) on ${date_str}."
-      ;;
-    *)
-      note="Auto-recorded via codex-install on ${date_str}."
-      ;;
-  esac
-
-  registry_dir="$(dirname "$REGISTRY_PATH")"
-  if [ ! -d "$registry_dir" ]; then
-    if ! mkdir -p "$registry_dir"; then
-      printf '[registry][WARN] Unable to create %s; skipping registry update for %s\n' "$registry_dir" "$HOST" >&2
-      return 0
-    fi
-  fi
-
-  REGISTRY_HOST="$HOST" \
-  REGISTRY_USER="$SSH_USER" \
-  REGISTRY_DATE="$date_str" \
-  REGISTRY_VERSION="$codex_version" \
-  REGISTRY_WRAPPER_SHA="$wrapper_sha" \
-  REGISTRY_WRAPPER_VERSION="$wrapper_version" \
-  REGISTRY_NOTES="$note" \
-  "$PYTHON3_BIN" - "$REGISTRY_PATH" <<'PY'
-import json, os, pathlib, sys, tempfile
-
-path = pathlib.Path(sys.argv[1])
-host = os.environ["REGISTRY_HOST"]
-user = os.environ["REGISTRY_USER"]
-last_deployed = os.environ["REGISTRY_DATE"]
-codex_version = os.environ["REGISTRY_VERSION"]
-wrapper_sha = os.environ["REGISTRY_WRAPPER_SHA"]
-notes = os.environ["REGISTRY_NOTES"]
-
-data = {"servers": []}
-if path.exists():
-    try:
-        text = path.read_text()
-        if text.strip():
-            data = json.loads(text)
-    except json.JSONDecodeError:
-        print(f"[registry][WARN] Unable to parse {path}; overwriting with fresh data", file=sys.stderr)
-        data = {"servers": []}
-
-servers = data.get("servers")
-if not isinstance(servers, list):
-    servers = []
-    data["servers"] = servers
-
-entry = None
-for item in servers:
-    if isinstance(item, dict) and item.get("hostname") == host:
-        entry = item
-        break
-
-if entry is None:
-    entry = {}
-    servers.append(entry)
-
-entry["hostname"] = host
-entry["ssh_user"] = user
-entry["last_deployed"] = last_deployed
-entry["codex_version"] = codex_version
-entry["wrapper_sha256"] = wrapper_sha
-entry["wrapper_version"] = os.environ.get("REGISTRY_WRAPPER_VERSION", "unknown")
-entry["notes"] = notes
-
-servers.sort(key=lambda item: (item.get("hostname") or ""))
-
-tmp = tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent))
-tmp_path = pathlib.Path(tmp.name)
-try:
-    json.dump(data, tmp, indent=2)
-    tmp.write("\n")
-    tmp.flush()
-    tmp.close()
-    tmp_path.replace(path)
-finally:
-    try:
-        tmp_path.unlink()
-    except FileNotFoundError:
-        pass
-PY
-  local status=$?
-  if [ "$status" -eq 0 ]; then
-    printf '[registry] Recorded %s (user=%s, version=%s) in %s\n' "$HOST" "$SSH_USER" "$codex_version" "$REGISTRY_PATH"
-  else
-    printf '[registry][WARN] Failed to update registry for %s\n' "$HOST" >&2
-  fi
-}
-
 expand_auth_path() {
   # Expand leading '~' manually to avoid eval
   case "$1" in
@@ -2445,7 +2315,6 @@ if [ "$FLOW" = "auth" ]; then
     exit 1
   fi
 
-  record_registry_metadata "$FLOW"
   exit 0
 fi
 
@@ -2574,8 +2443,5 @@ if [ -z "$BEST_URL" ] && [ -n "$FALLBACK_URL" ]; then
   printf '[local] Falling back to loopback auth URL %s\n' "$FALLBACK_URL"
   open_local_browser "$FALLBACK_URL"
   open_two_fa_tab
-fi
-if [ "$rc" -eq 0 ]; then
-  record_registry_metadata "$FLOW"
 fi
 exit "$rc"

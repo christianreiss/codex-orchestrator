@@ -48,7 +48,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.19-4"
+WRAPPER_VERSION="2025.11.19-5"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -68,8 +68,11 @@ if [[ "${1-}" == "--wrapper-version" || "${1-}" == "-W" ]]; then
   exit 0
 fi
 
-if (( ! IS_ROOT )) && (( CAN_SUDO == 0 || CURRENT_USER != "chris" )); then
-  log_info "Non-root execution detected; skipping automatic Codex install/update."
+if (( ! IS_ROOT )); then
+  # Only auto-install when we can sudo and we're the expected user (chris)
+  if (( CAN_SUDO == 0 )) || [[ "$CURRENT_USER" != "chris" ]]; then
+    log_info "Non-root execution detected; skipping automatic Codex install/update."
+  fi
 fi
 
 detect_linux_package_manager() {
@@ -543,6 +546,14 @@ def record_versions(vblock):
 
 
 versions_out = record_versions(versions_block)
+if versions_out.get("client_version"):
+    SYNC_REMOTE_CLIENT_VERSION = versions_out.get("client_version")
+if versions_out.get("wrapper_version"):
+    SYNC_REMOTE_WRAPPER_VERSION = versions_out.get("wrapper_version")
+if versions_out.get("wrapper_sha256"):
+    SYNC_REMOTE_WRAPPER_SHA256 = versions_out.get("wrapper_sha256")
+if versions_out.get("wrapper_url"):
+    SYNC_REMOTE_WRAPPER_URL = versions_out.get("wrapper_url")
 
 if status == "valid":
     auth_to_write = current
@@ -855,7 +866,14 @@ platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
 log_info "cdx ${WRAPPER_VERSION} | user ${CURRENT_USER} | ${platform_os}/${platform_arch}"
 
-if (( IS_ROOT || (CAN_SUDO && CURRENT_USER == "chris") )) && [[ "$(uname -s)" == "Linux" ]]; then
+can_manage_codex=0
+if (( IS_ROOT )); then
+  can_manage_codex=1
+elif (( CAN_SUDO )) && [[ "$CURRENT_USER" == "chris" ]]; then
+  can_manage_codex=1
+fi
+
+if (( can_manage_codex )) && [[ "$(uname -s)" == "Linux" ]]; then
   ensure_commands curl unzip
 fi
 
@@ -875,12 +893,8 @@ os_name="$(uname -s)"
 arch_name="$(uname -m)"
 asset_name=""
 skip_update_check=0
-if (( ! IS_ROOT )); then
-  if (( CAN_SUDO && CURRENT_USER == "chris" )); then
-    skip_update_check=0
-  else
-    skip_update_check=1
-  fi
+if (( ! can_manage_codex )); then
+  skip_update_check=1
 fi
 case "$os_name" in
   Linux)
@@ -923,6 +937,11 @@ if (( ! skip_update_check )); then
     remote_version="$(normalize_version "$SYNC_REMOTE_CLIENT_VERSION")"
     remote_tag="$remote_version"
     remote_timestamp="$(date +%s)"
+    remote_source="api"
+  elif [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
+    # API succeeded but no version provided; assume local is target to avoid noisy warnings.
+    remote_version="$LOCAL_VERSION"
+    remote_tag="$LOCAL_VERSION"
     remote_source="api"
   fi
 fi
@@ -1081,27 +1100,33 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
   if [[ "$LOCAL_VERSION" != "$target_version" ]]; then
     codex_state="needs update (${target_version}, local ${LOCAL_VERSION:-unknown})"
   fi
-  cdx_state="$wrapper_state/${target_wrapper}"
+  cdx_state="current (${WRAPPER_VERSION}/${target_wrapper})"
   summary_text="$(build_status_summary "OK" "$codex_state" "$cdx_state")"
   log_info "$summary_text"
 else
   summary_text="$(build_status_summary "FAIL" "auth unavailable" "current (${WRAPPER_VERSION}/${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}})")"
   log_warn "$summary_text"
+  log_error "Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth."
+  exit 1
 fi
 
 cleanup() {
   local exit_status=$?
   trap - EXIT
-if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
-  push_auth_if_changed "push" || true
-fi
-# Emit final auth push status if determined
-if [[ -n "$AUTH_PUSH_RESULT" ]]; then
-  log_info "Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}"
-fi
+  if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
+    push_auth_if_changed "push" || true
+  fi
+  # Emit final auth push status if determined
+  if [[ -n "$AUTH_PUSH_RESULT" ]]; then
+    log_info "Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}"
+  fi
   exit "$exit_status"
 }
 trap cleanup EXIT
+
+if [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+  exit 1
+fi
 
 CODEX_COMMAND_STARTED=1
 "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@"

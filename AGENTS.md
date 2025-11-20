@@ -6,7 +6,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 1. **`public/index.php` (HTTP Router)**
    - Bootstraps the environment, loads `.env`, and runs SQLite migrations.
-   - Parses incoming JSON and matches routes: `/register`, `/auth` (single-call retrieve/store), `/versions` (read + admin).
+   - Parses incoming JSON and matches routes: `/register`, `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin).
    - Resolves API keys from `X-API-Key` or `Authorization: Bearer` headers.
    - Returns JSON responses using `App\Http\Response`.
 
@@ -14,8 +14,9 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Validates registration requests against the configured invitation key.
    - Issues per-host API keys (random 64-hex chars) and normalizes host payloads.
    - Handles unified `/auth` commands: `retrieve` (digest check + versions) and `store` (canonical update) while merging `/versions` data into the response.
+   - Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report.
    - Tracks the canonical auth digest and remembers up to 3 digests per host for quick matching.
-   - Logs every register/auth action through `LogRepository`.
+   - Logs every register/auth/delete action through `LogRepository`.
 
 3. **`App\Repositories\HostRepository` (Persistence)**
    - CRUD operations on the `hosts` table (find by fqdn/api_key, create, update auth).

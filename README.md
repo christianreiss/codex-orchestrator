@@ -7,6 +7,8 @@ A lightweight PHP API that centralizes Codex `auth.json` files. Clients register
 - Register hosts with a fixed invitation key and issue per-host API keys.
 - Push/sync Codex `auth.json` documents; server decides whether to adopt the new payload or return the canonical version based on `last_refresh` while capturing the client's Codex version for fleet audits.
 - Simple SQLite persistence for hosts + request logs.
+- Hosts can self-deregister via `DELETE /auth`, which removes their record and digest cache.
+- Shipping bin tooling: `bin/codex-install` registers + syncs via the API, and `bin/codex-uninstall` now calls `DELETE /auth` (using stored sync env) before wiping local files—no registry file required.
 - Dockerized runtime via `php:8.2-apache` with automatic migrations.
 - Authentication enforced for every endpoint except registration (`X-API-Key` or `Authorization: Bearer` headers).
 
@@ -16,6 +18,11 @@ A lightweight PHP API that centralizes Codex `auth.json` files. Clients register
 cp .env.example .env          # set INVITATION_KEY and optional DB_PATH
 docker compose up --build     # runs API on http://localhost:8080
 ```
+
+### CLI helpers (bin/)
+
+- `bin/codex-install`: registers the host (or re-rotates the API key), pushes `auth.json` via `/auth`, and installs the wrapper; supports overriding invite/API/base URL via flags or env.
+- `bin/codex-uninstall`: uses any existing sync config (`/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`) to call `DELETE /auth`, then removes Codex binaries/configs. The legacy registry file is no longer used or updated.
 
 ## Project Structure
 
@@ -95,6 +102,10 @@ Store responses:
 - `updated` → new canonical stored; returns canonical auth + digest + versions.
 - `unchanged` → timestamps match; returns canonical digest + versions.
 - `outdated` → server already has newer auth; returns canonical auth + digest + versions.
+
+### `DELETE /auth`
+
+Self-service deregistration for the calling host (identified by API key + IP binding). Removes the host row and its cached digests, returning `{ "deleted": "<fqdn>" }`.
 
 ### `GET /wrapper` and `GET /wrapper/download`
 
@@ -188,6 +199,7 @@ The script writes the same aligned table plus per-host details, making it easy t
 - Every API call except `/register` requires a valid API key.
 - Set a strong `INVITATION_KEY`; without it, registration is blocked.
 - Hosts that have not checked in (no sync or register) for 30 days are automatically pruned and must re-register.
+- Uninstallers should call `DELETE /auth` (handled automatically by `bin/codex-uninstall` when a sync config is present) to remove the host record cleanly.
 - The server normalizes timestamps with fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` compare correctly.
 - Extendable: add admin/reporting endpoints by introducing more routes in `public/index.php` and new repository methods.
 - Refer to `AGENTS.md` when you need a walkthrough of how each class collaborates within the request pipeline.

@@ -244,6 +244,19 @@ try {
         ]);
     }
 
+    if ($method === 'DELETE' && $normalizedPath === '/auth') {
+        $apiKey = resolveApiKey();
+        $clientIp = resolveClientIp();
+        $host = $service->authenticate($apiKey, $clientIp);
+
+        $result = $service->deleteHost($host);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
     // Admin-only, mTLS-gated routes.
     if ($method === 'GET' && $normalizedPath === '/admin/overview') {
         requireAdminAccess();

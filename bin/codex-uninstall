@@ -12,9 +12,6 @@ Options:
       --ssh-opt <arg>         Extra ssh option (repeatable)
   -S, --sudo                  Use sudo on remote host when removing system files
   -v, --verbose               Verbose output from remote uninstall routine
-      --all                   Uninstall from every host listed in the registry
-      --registry <path>       Override registry path (default: registry/servers.json)
-      --print-targets         Print resolved targets and exit (for dry runs/tests)
   -h, --help                  Show this help and exit
 USAGE
   exit "${1:-2}"
@@ -22,7 +19,6 @@ USAGE
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DEFAULT_REGISTRY="${REPO_ROOT}/registry/servers.json"
 
 SSH_USER="root"
 SSH_PORT=22
@@ -30,9 +26,6 @@ IDENTITY_FILE=""
 SSH_EXTRA_OPTS=()
 USE_SUDO=0
 VERBOSE=0
-USE_REGISTRY=0
-REGISTRY_PATH="$DEFAULT_REGISTRY"
-PRINT_TARGETS=0
 TARGET_HOST=""
 
 while [ $# -gt 0 ]; do
@@ -65,19 +58,6 @@ while [ $# -gt 0 ]; do
       VERBOSE=1
       shift
       ;;
-    --all)
-      USE_REGISTRY=1
-      shift
-      ;;
-    --registry)
-      [ $# -ge 2 ] || usage
-      REGISTRY_PATH="$2"
-      shift 2
-      ;;
-    --print-targets)
-      PRINT_TARGETS=1
-      shift
-      ;;
     -h|--help)
       usage 0
       ;;
@@ -102,48 +82,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$USE_REGISTRY" -eq 0 ] && [ -z "$TARGET_HOST" ]; then
+if [ -z "$TARGET_HOST" ]; then
   usage
 fi
-
-read_registry_targets() {
-  local path="$1"
-  if [ ! -f "$path" ]; then
-    printf 'Registry not found: %s\n' "$path" >&2
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf 'python3 is required to parse %s\n' "$path" >&2
-    return 1
-  fi
-  python3 - "$path" <<'PY'
-import json, sys
-path = sys.argv[1]
-with open(path, 'r', encoding='utf-8') as fh:
-    data = json.load(fh)
-servers = data.get('servers', [])
-for server in servers:
-    host = (server.get('hostname') or '').strip()
-    user = (server.get('ssh_user') or 'root').strip()
-    if host:
-        if user:
-            print(f"{user}@{host}")
-        else:
-            print(host)
-PY
-}
 
 TARGETS=()
 if [ -n "$TARGET_HOST" ]; then
   TARGETS+=("$TARGET_HOST")
-fi
-if [ "$USE_REGISTRY" -eq 1 ]; then
-  mapfile -t registry_targets < <(read_registry_targets "$REGISTRY_PATH") || exit 1
-  if [ ${#registry_targets[@]} -eq 0 ]; then
-    printf 'Registry %s does not contain any servers\n' "$REGISTRY_PATH" >&2
-    exit 1
-  fi
-  TARGETS+=("${registry_targets[@]}")
 fi
 
 if [ ${#TARGETS[@]} -gt 0 ]; then
@@ -162,11 +107,6 @@ fi
 if [ ${#TARGETS[@]} -eq 0 ]; then
   printf 'No targets specified\n' >&2
   exit 1
-fi
-
-if [ "$PRINT_TARGETS" -eq 1 ]; then
-  printf '%s\n' "${TARGETS[@]}"
-  exit 0
 fi
 
 SSH_BASE_OPTS=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -o ForwardAgent=yes -o LogLevel=ERROR -p "$SSH_PORT")
@@ -198,6 +138,10 @@ VERBOSE="${VERBOSE:-0}"
 
 declare -a REMOVED_ITEMS=()
 declare -a FAILED_ITEMS=()
+
+SYNC_BASE_URL=""
+SYNC_API_KEY=""
+SYNC_CA_FILE=""
 
 record_removed() { REMOVED_ITEMS+=("$1"); }
 record_failed() { FAILED_ITEMS+=("$1"); }
@@ -236,6 +180,100 @@ user_home_dir() {
     esac
   fi
   printf '%s\n' "$home"
+}
+
+strip_quotes() {
+  local v="$1"
+  v="${v%$'\r'}"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  v="${v#\"}"; v="${v%\"}"
+  v="${v#\'}"; v="${v%\'}"
+  printf '%s' "$v"
+}
+
+load_sync_env() {
+  local path key value found=0
+  for path in /usr/local/etc/codex-sync.env "$HOME/.codex/sync.env" "/root/.codex/sync.env"; do
+    if [ -r "$path" ]; then
+      found=1
+      while IFS='=' read -r key value; do
+        key="${key%%[[:space:]]*}"
+        case "$key" in
+          ""|\#*) continue ;;
+        esac
+        value="$(strip_quotes "$value")"
+        case "$key" in
+          CODEX_SYNC_BASE_URL) SYNC_BASE_URL="$value" ;;
+          CODEX_SYNC_API_KEY) SYNC_API_KEY="$value" ;;
+          CODEX_SYNC_CA_FILE) SYNC_CA_FILE="$value" ;;
+        esac
+      done <"$path"
+      if [ -n "$SYNC_BASE_URL" ] && [ -n "$SYNC_API_KEY" ]; then
+        log "Loaded sync config from $path"
+        return 0
+      fi
+    fi
+  done
+  if [ "$found" -eq 1 ]; then
+    warn "Sync config found but missing base URL or API key"
+  fi
+  return 1
+}
+
+delete_host_from_api() {
+  if [ -z "$SYNC_BASE_URL" ] || [ -z "$SYNC_API_KEY" ]; then
+    return 0
+  fi
+
+  local url="${SYNC_BASE_URL%/}/auth"
+  if have curl; then
+    local args=("--silent" "--show-error" "--fail" "-X" "DELETE" "-H" "X-API-Key: ${SYNC_API_KEY}")
+    if [ -n "$SYNC_CA_FILE" ] && [ -r "$SYNC_CA_FILE" ]; then
+      args+=("--cacert" "$SYNC_CA_FILE")
+    fi
+    if curl "${args[@]}" "$url" >/dev/null 2>&1; then
+      log "API deregistration succeeded ($url)"
+      return 0
+    fi
+    warn "API deregistration failed via curl ($url)"
+    return 0
+  fi
+
+  if have python3; then
+    if python3 - "$url" "$SYNC_API_KEY" "$SYNC_CA_FILE" <<'PY'; then
+import ssl
+import sys
+import urllib.request
+
+url = sys.argv[1]
+api_key = sys.argv[2]
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+
+ctx = ssl.create_default_context()
+if cafile:
+    try:
+        ctx.load_verify_locations(cafile)
+    except Exception:
+        pass
+
+req = urllib.request.Request(url, headers={"X-API-Key": api_key}, method="DELETE")
+try:
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+        sys.exit(0 if resp.status < 400 else 1)
+except Exception:
+    sys.exit(1)
+PY
+    then
+      log "API deregistration succeeded (python, $url)"
+    else
+      warn "API deregistration failed via python ($url)"
+    fi
+    return 0
+  fi
+
+  warn "API deregistration skipped (curl/python3 unavailable)"
+  return 0
 }
 
 remove_file() {
@@ -278,14 +316,25 @@ remove_auth_for_user() {
     need_priv=1
   fi
   remove_file "$auth_path" "auth.json for $user" "$need_priv"
+  # clean sync config on the user scope as well
+  local sync_env="$home/.codex/sync.env"
+  local sync_ca="$home/.codex/sync-ca.pem"
+  remove_file "$sync_env" "sync env for $user" "$need_priv"
+  remove_file "$sync_ca" "sync CA for $user" "$need_priv"
   remove_dir "$dir_path" ".codex dir for $user" "$need_priv"
 }
+
+load_sync_env || true
+delete_host_from_api || true
 
 remove_file "/usr/local/bin/cdx" "/usr/local/bin/cdx" 1
 remove_file "/usr/local/bin/codex" "/usr/local/bin/codex" 1
 remove_file "/usr/bin/codex" "/usr/bin/codex" 1
 remove_dir "/opt/codex" "/opt/codex" 1
 remove_dir "/usr/local/lib/codex" "/usr/local/lib/codex" 1
+
+remove_file "/usr/local/etc/codex-sync.env" "sync env (/usr/local/etc)" 1
+remove_file "/usr/local/etc/codex-sync-ca.pem" "sync CA (/usr/local/etc)" 1
 
 remove_file "$HOME/.local/bin/cdx" "local cdx" 0
 remove_file "$HOME/cdx.sh" "$HOME/cdx.sh" 0

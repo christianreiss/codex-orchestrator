@@ -268,6 +268,29 @@ class AuthService
         return $response;
     }
 
+    public function deleteHost(array $host): array
+    {
+        if (!isset($host['id'])) {
+            throw new HttpException('Host not found', 404);
+        }
+
+        $hostId = (int) $host['id'];
+        $fqdn = $host['fqdn'] ?? null;
+
+        $this->logs->log($hostId, 'host.delete', [
+            'fqdn' => $fqdn,
+            'initiator' => 'host_api',
+        ]);
+
+        $this->digests->deleteByHostId($hostId);
+        $this->hosts->deleteById($hostId);
+        $this->statusExporter->generate();
+
+        return [
+            'deleted' => $fqdn,
+        ];
+    }
+
     private function versionSnapshot(): array
     {
         $available = $this->availableClientVersion();

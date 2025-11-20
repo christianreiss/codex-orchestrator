@@ -7,6 +7,7 @@ All responses are JSON. Request bodies must be `application/json` unless otherwi
 ## Authentication
 
 - `POST /register` is public but guarded by a shared invitation key.
+- `POST /auth` is the unified retrieve/store sync call; `DELETE /auth` lets the same host deregister itself.
 - Every other endpoint requires the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
@@ -139,6 +140,20 @@ Content-Type: application/json
 - `updated`: incoming `last_refresh` is newer or server had none; server stores the payload and returns canonical `auth`, digest, versions, and host metadata.
 - `unchanged`: timestamps match; returns canonical digest and versions only.
 - `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
+
+### `DELETE /auth` (deregister host)
+
+Removes the calling host (identified by its API key) from the orchestrator. Intended for uninstall flows.
+
+**Required auth**: API key header. IP binding is enforced (same behavior as `/auth`).
+
+**Success**
+
+```json
+{ "status": "ok", "data": { "deleted": "ci01.example.net" } }
+```
+
+If the host record does not exist or the API key is invalid, the response is `401 Invalid API key` or `403 Host is disabled`.
 
 ### `GET /wrapper`
 

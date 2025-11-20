@@ -48,7 +48,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.19-4"
+WRAPPER_VERSION="2025.11.19-5"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -68,8 +68,11 @@ if [[ "${1-}" == "--wrapper-version" || "${1-}" == "-W" ]]; then
   exit 0
 fi
 
-if (( ! IS_ROOT )) && (( CAN_SUDO == 0 || CURRENT_USER != "chris" )); then
-  log_info "Non-root execution detected; skipping automatic Codex install/update."
+if (( ! IS_ROOT )); then
+  # Only auto-install when we can sudo and we're the expected user (chris)
+  if (( CAN_SUDO == 0 )) || [[ "$CURRENT_USER" != "chris" ]]; then
+    log_info "Non-root execution detected; skipping automatic Codex install/update."
+  fi
 fi
 
 detect_linux_package_manager() {
@@ -863,7 +866,14 @@ platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
 log_info "cdx ${WRAPPER_VERSION} | user ${CURRENT_USER} | ${platform_os}/${platform_arch}"
 
-if (( IS_ROOT || (CAN_SUDO && CURRENT_USER == "chris") )) && [[ "$(uname -s)" == "Linux" ]]; then
+can_manage_codex=0
+if (( IS_ROOT )); then
+  can_manage_codex=1
+elif (( CAN_SUDO )) && [[ "$CURRENT_USER" == "chris" ]]; then
+  can_manage_codex=1
+fi
+
+if (( can_manage_codex )) && [[ "$(uname -s)" == "Linux" ]]; then
   ensure_commands curl unzip
 fi
 
@@ -883,12 +893,8 @@ os_name="$(uname -s)"
 arch_name="$(uname -m)"
 asset_name=""
 skip_update_check=0
-if (( ! IS_ROOT )); then
-  if (( CAN_SUDO && CURRENT_USER == "chris" )); then
-    skip_update_check=0
-  else
-    skip_update_check=1
-  fi
+if (( ! can_manage_codex )); then
+  skip_update_check=1
 fi
 case "$os_name" in
   Linux)
@@ -986,7 +992,7 @@ version_status=""
 status_warn=0
 
 if (( skip_update_check )); then
-  version_status="status   ok | local ${LOCAL_VERSION:-unknown} | update check skipped (not root)"
+  version_status="status ok | local ${LOCAL_VERSION:-unknown} | update check skipped (not root)"
   if (( IS_ROOT )); then
     status_warn=1
   fi
@@ -998,18 +1004,18 @@ elif (( need_update )) && [[ -n "$remote_url" ]]; then
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
     LOCAL_VERSION="$(normalize_version "$LOCAL_VERSION_RAW")"
     LOCAL_VERSION_UNKNOWN=0
-    version_status="status   updated | ${display_local} → ${LOCAL_VERSION} (from API ${remote_tag:-latest})"
+    version_status="status updated | ${display_local} → ${LOCAL_VERSION} (from API ${remote_tag:-latest})"
   else
     status_warn=1
-    version_status="status   warn | local ${display_local} | update to ${norm_remote} failed"
+    version_status="status warn | local ${display_local} | update to ${norm_remote} failed"
   fi
 else
   if [[ -n "$remote_version" ]]; then
     final_label="${remote_tag:-${remote_version}}"
-    version_status="status   ok | local ${LOCAL_VERSION:-unknown} | api ${final_label}"
+    version_status="status ok | local ${LOCAL_VERSION:-unknown} | api ${final_label}"
   else
     status_warn=1
-    version_status="status   warn | local ${LOCAL_VERSION:-unknown} | API unavailable"
+    version_status="status warn | local ${LOCAL_VERSION:-unknown} | API unavailable"
   fi
 fi
 
