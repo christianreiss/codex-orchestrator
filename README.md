@@ -97,6 +97,14 @@ On your **laptop or admin box** (the one where you already use Codex):
 - `./bin/codex-install my-server-01.example.com` to enroll a host.
 - `./bin/codex-uninstall my-server-01.example.com` to remove a host and deregister it from the auth server.
 
+## FAQ
+
+- **Do I still need to log into Codex on every host?** No. Log in once on a trusted machine to create `~/.codex/auth.json`, then use `bin/codex-install` to enroll other hosts; they will pull the canonical auth automatically.
+- **How do I rotate tokens or update `auth.json`?** Log in again on the trusted machine to refresh `~/.codex/auth.json`, then rerun `./bin/codex-install <an-enrolled-host>` (optionally with `--sync-api-key <existing-key>` to skip re-registration). That push updates the canonical auth; other hosts pull it on their next `/auth` call.
+- **What if my auth server uses a private CA or self-signed cert?** Pass `--sync-ca-file /path/to/ca.pem` (or set `CODEX_SYNC_CA_FILE`) when running `codex-install` so the host trusts your TLS.
+- **How do I remove a host cleanly?** Run `./bin/codex-uninstall <host>`; it deletes Codex bits on the target and calls `DELETE /auth` using the stored sync config.
+- **Where is the host-side sync config stored?** Global installs use `/usr/local/etc/codex-sync.env`; user installs use `~/.codex/sync.env`. They contain only the sync base URL, API key, and optional CA path.
+
 ## Quick Start
 
 ```bash
