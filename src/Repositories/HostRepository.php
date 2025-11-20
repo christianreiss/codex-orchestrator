@@ -162,6 +162,14 @@ class HostRepository
         $statement->execute($ids);
     }
 
+    public function deleteById(int $id): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM hosts WHERE id = :id'
+        );
+        $statement->execute(['id' => $id]);
+    }
+
     public function updateAuthDigest(int $hostId, ?string $authDigest, ?string $updatedAt = null): void
     {
         $statement = $this->database->connection()->prepare(

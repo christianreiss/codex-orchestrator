@@ -130,9 +130,10 @@
     const detailEl = document.getElementById('detail');
     const mtlsEl = document.getElementById('mtls');
     const refreshBtn = document.getElementById('refresh');
+    let currentHosts = [];
 
-    async function api(path) {
-      const res = await fetch(path, {headers:{'Accept':'application/json'}});
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {headers:{'Accept':'application/json', ...(opts.headers||{})}, method: opts.method || 'GET'});
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`HTTP ${res.status}: ${text}`);
@@ -177,6 +178,7 @@
     }
 
     function renderHosts(hosts) {
+      currentHosts = hosts;
       hostsTbody.innerHTML = '';
       hosts.forEach(host => {
         const tr = document.createElement('tr');
@@ -188,9 +190,18 @@
           <td>${host.wrapper_version ?? '—'}</td>
           <td>${host.ip ?? '—'}</td>
           <td><code>${host.canonical_digest ? host.canonical_digest.slice(0,12)+'…' : '—'}</code></td>
+          <td><button data-id="${host.id}" class="danger">Remove</button></td>
         `;
         tr.addEventListener('click', () => showHostDetail(host.id));
         hostsTbody.appendChild(tr);
+      });
+
+      hostsTbody.querySelectorAll('button.danger').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          confirmRemove(id);
+        });
       });
     }
 
@@ -221,6 +232,19 @@
 
     refreshBtn.addEventListener('click', loadAll);
     loadAll();
+
+    async function confirmRemove(id) {
+      const host = currentHosts.find(h => h.id === id);
+      const name = host ? host.fqdn : `id ${id}`;
+      if (!confirm(`Delete host ${name}? This cannot be undone.`)) return;
+      detailEl.textContent = 'Deleting…';
+      try {
+        await api(`/admin/hosts/${id}`, { method: 'DELETE' });
+        await loadAll();
+      } catch (err) {
+        detailEl.textContent = `Error: ${err.message}`;
+      }
+    }
   </script>
 </body>
 </html>
