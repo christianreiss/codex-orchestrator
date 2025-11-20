@@ -16,15 +16,23 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE_LOADED=""
 
 load_dotenv() {
-  local env_file="$ROOT_DIR/.env"
-  if [[ -f "$env_file" ]]; then
-    # shellcheck disable=SC1090
-    set -a
-    source "$env_file"
-    set +a
-  fi
+  local candidates=()
+  [[ -n "${ENV_FILE:-}" ]] && candidates+=("$ENV_FILE")
+  candidates+=("$PWD/.env" "$ROOT_DIR/.env")
+  local env_file
+  for env_file in "${candidates[@]}"; do
+    if [[ -f "$env_file" ]]; then
+      # shellcheck disable=SC1090
+      set -a
+      source "$env_file"
+      set +a
+      ENV_FILE_LOADED="$env_file"
+      break
+    fi
+  done
 }
 
 load_dotenv
@@ -63,13 +71,17 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -z "$WRAPPER_PATH" || ! -f "$WRAPPER_PATH" ]]; then
-  echo "Wrapper file not found (looked for WRAPPER_PATH or bin/cdx)" >&2
+if [[ -z "$ADMIN_KEY" ]]; then
+  if [[ -n "$ENV_FILE_LOADED" ]]; then
+    echo "VERSION_ADMIN_KEY is required (set it in $ENV_FILE_LOADED or pass with -k/--key)" >&2
+  else
+    echo "VERSION_ADMIN_KEY is required (no .env loaded; set ENV_FILE, create .env, or pass -k/--key)" >&2
+  fi
   exit 1
 fi
 
-if [[ -z "$ADMIN_KEY" ]]; then
-  echo "VERSION_ADMIN_KEY is required (set it in .env or pass with -k/--key)" >&2
+if [[ -z "$WRAPPER_PATH" || ! -f "$WRAPPER_PATH" ]]; then
+  echo "Wrapper file not found (looked for WRAPPER_PATH or bin/cdx)" >&2
   exit 1
 fi
 
