@@ -139,6 +139,16 @@ Notes:
 - The server refreshes `client_version` by calling the GitHub “latest release” endpoint when `/versions` is requested and the cached value is older than 2 hours. Fetch failures fall back to the last cached value.
 - The `wrapper_version` is auto-seeded from the first reported host if no operator value has been published yet; you can still override it via `POST /versions` when `VERSION_ADMIN_KEY` is set.
 
+### Admin (mTLS-only)
+
+- `/admin/*` routes require an mTLS client certificate; requests without one are rejected (Caddy forwards `X-mTLS-Present`).
+- If `DASHBOARD_ADMIN_KEY` is set, the admin key must also be provided (same header rules as `/versions`).
+- Endpoints:
+  - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
+  - `GET /admin/hosts`: list hosts with canonical digest and recent digests.
+  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`).
+  - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
+
 ## Data & Logging
 
 - **hosts**: FQDN, API key, status, stored `auth_json`, last refresh time, IP binding, latest `client_version`, and optional `wrapper_version`.

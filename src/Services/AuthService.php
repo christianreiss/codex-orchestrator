@@ -391,6 +391,11 @@ class AuthService
         ];
     }
 
+    public function versionSummary(): array
+    {
+        return $this->versionSnapshot();
+    }
+
     public function availableClientVersion(): array
     {
         $cached = $this->versions->getWithMetadata('client_available');

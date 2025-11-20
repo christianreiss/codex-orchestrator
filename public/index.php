@@ -34,6 +34,7 @@ $invitationKey = Config::get('INVITATION_KEY', '');
 $statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
 $statusExporter = new HostStatusExporter($hostRepository, $statusPath);
 $service = new AuthService($hostRepository, $digestRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter);
+unset($statusPath, $invitationKey);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -138,6 +139,145 @@ try {
         Response::json([
             'status' => 'ok',
             'data' => $result,
+        ]);
+    }
+
+    // Admin-only, mTLS-gated routes.
+    if ($method === 'GET' && $normalizedPath === '/admin/overview') {
+        requireAdminAccess();
+
+        $hosts = $hostRepository->all();
+        $totalHosts = count($hosts);
+        $activeHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'active'));
+        $suspendedHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'suspended'));
+
+        $latestLog = $logRepository->latestCreatedAt();
+        $versions = $service->versionSummary();
+
+        $mtlsContext = [
+            'subject' => $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null,
+            'issuer' => $_SERVER['HTTP_X_MTLS_ISSUER'] ?? null,
+            'serial' => $_SERVER['HTTP_X_MTLS_SERIAL'] ?? null,
+            'fingerprint' => $_SERVER['HTTP_X_MTLS_PRESENT'] ?? null,
+        ];
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'totals' => [
+                    'hosts' => $totalHosts,
+                    'active' => $activeHosts,
+                    'suspended' => $suspendedHosts,
+                ],
+                'latest_log_at' => $latestLog,
+                'versions' => $versions,
+                'mtls' => $mtlsContext,
+            ],
+        ]);
+    }
+
+    if ($method === 'GET' && $normalizedPath === '/admin/hosts') {
+        requireAdminAccess();
+
+        $hosts = $hostRepository->all();
+        $items = [];
+
+        foreach ($hosts as $host) {
+            $items[] = [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'status' => $host['status'],
+                'last_refresh' => $host['last_refresh'] ?? null,
+                'updated_at' => $host['updated_at'] ?? null,
+                'client_version' => $host['client_version'] ?? null,
+                'wrapper_version' => $host['wrapper_version'] ?? null,
+                'ip' => $host['ip'] ?? null,
+                'canonical_digest' => $host['auth_digest'] ?? null,
+                'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
+            ];
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'hosts' => $items,
+            ],
+        ]);
+    }
+
+    if ($method === 'GET' && preg_match('#^/admin/hosts/(\d+)/auth$#', $normalizedPath, $matches)) {
+        requireAdminAccess();
+        $hostId = (int) $matches[1];
+        $host = $hostRepository->findById($hostId);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $includeBody = filter_var($_GET['include_body'] ?? null, FILTER_VALIDATE_BOOLEAN);
+        $authJson = $host['auth_json'] ?? null;
+        $auth = null;
+        if ($includeBody && $authJson) {
+            $decoded = json_decode($authJson, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $auth = $decoded;
+            }
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => [
+                    'id' => (int) $host['id'],
+                    'fqdn' => $host['fqdn'],
+                    'status' => $host['status'],
+                    'last_refresh' => $host['last_refresh'] ?? null,
+                    'updated_at' => $host['updated_at'] ?? null,
+                    'client_version' => $host['client_version'] ?? null,
+                    'wrapper_version' => $host['wrapper_version'] ?? null,
+                    'ip' => $host['ip'] ?? null,
+                ],
+                'canonical_last_refresh' => $host['last_refresh'] ?? null,
+                'canonical_digest' => $host['auth_digest'] ?? null,
+                'recent_digests' => $digestRepository->recentDigests($hostId),
+                'auth' => $auth,
+            ],
+        ]);
+    }
+
+    if ($method === 'GET' && $normalizedPath === '/admin/logs') {
+        requireAdminAccess();
+
+        $limit = resolveIntQuery('limit') ?? 50;
+        $hostFilter = resolveIntQuery('host_id');
+        $rows = $logRepository->recent($limit, $hostFilter);
+
+        $logs = [];
+        foreach ($rows as $row) {
+            $details = $row['details'] ?? null;
+            if (is_string($details)) {
+                $decoded = json_decode($details, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $details = $decoded;
+                }
+            }
+
+            $logs[] = [
+                'id' => (int) $row['id'],
+                'host_id' => $row['host_id'] !== null ? (int) $row['host_id'] : null,
+                'action' => $row['action'],
+                'details' => $details,
+                'created_at' => $row['created_at'],
+            ];
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'logs' => $logs,
+            ],
         ]);
     }
 
@@ -283,4 +423,51 @@ function resolveAdminKey(): ?string
     }
 
     return null;
+}
+
+function requireMtls(): void
+{
+    $present = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
+    if ($present === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Client certificate required for admin access',
+        ], 403);
+    }
+}
+
+function requireAdminAccess(): void
+{
+    requireMtls();
+
+    $configured = Config::get('DASHBOARD_ADMIN_KEY', '');
+    if ($configured === '') {
+        return;
+    }
+
+    $provided = resolveAdminKey();
+    if ($provided === null || !hash_equals($configured, $provided)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Admin key required',
+        ], 401);
+    }
+}
+
+function resolveIntQuery(string $key): ?int
+{
+    if (!isset($_GET[$key])) {
+        return null;
+    }
+
+    if (is_array($_GET[$key])) {
+        return null;
+    }
+
+    $filtered = filter_var($_GET[$key], FILTER_VALIDATE_INT);
+    if ($filtered === false) {
+        return null;
+    }
+
+    return (int) $filtered;
 }

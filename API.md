@@ -164,5 +164,15 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
 
 - Every `register`, `auth` retrieve/store, and version publish is logged in the `logs` table with JSON details.
 - The service keeps the last 3 canonical digests per host in `host_auth_digests` for quick comparisons.
+
+## Admin (mTLS-only)
+
+- `/admin/*` requires an mTLS client certificate (Caddy forwards `X-mTLS-Present`; requests without it are rejected).
+- If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query (same as `/versions`).
+- Endpoints:
+  - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
+  - `GET /admin/hosts`: hosts with canonical digest and recent digests.
+  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optional auth body with `?include_body=1`).
+  - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
 - Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
 - After register/store/prune events a status report is regenerated at `STATUS_REPORT_PATH` (defaults to `storage/host-status.txt`).
