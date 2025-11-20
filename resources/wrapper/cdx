@@ -1279,10 +1279,9 @@ run_codex_command() {
   set +e
   if command -v script >/dev/null 2>&1 && [[ -t 1 ]]; then
     local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
-    # Preserve a tty for interactive runs while still logging to tmp_output
-    script -q "$tmp_output" -c "$(printf '%q ' "${cmd_line[@]}")"
-    status=$?
-    cat "$tmp_output"
+    # Preserve a tty for interactive runs while still logging output for token parsing
+    script -qfc "$(printf '%q ' "${cmd_line[@]}")" /dev/null | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
   else
     "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
     status=${PIPESTATUS[0]}
