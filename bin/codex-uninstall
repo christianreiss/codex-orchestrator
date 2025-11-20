@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: codex-uninstall [options] [<host|[user@]host>]
+
+Options:
+  -u, --user <ssh_user>       SSH user when host is provided without user (default: root)
+  -p, --ssh-port <port>       SSH port (default: 22)
+  -i, --identity <path>       SSH identity file
+      --ssh-opt <arg>         Extra ssh option (repeatable)
+  -S, --sudo                  Use sudo on remote host when removing system files
+  -v, --verbose               Verbose output from remote uninstall routine
+      --all                   Uninstall from every host listed in the registry
+      --registry <path>       Override registry path (default: registry/servers.json)
+      --print-targets         Print resolved targets and exit (for dry runs/tests)
+  -h, --help                  Show this help and exit
+USAGE
+  exit "${1:-2}"
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEFAULT_REGISTRY="${REPO_ROOT}/registry/servers.json"
+
+SSH_USER="root"
+SSH_PORT=22
+IDENTITY_FILE=""
+SSH_EXTRA_OPTS=()
+USE_SUDO=0
+VERBOSE=0
+USE_REGISTRY=0
+REGISTRY_PATH="$DEFAULT_REGISTRY"
+PRINT_TARGETS=0
+TARGET_HOST=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -u|--user)
+      [ $# -ge 2 ] || usage
+      SSH_USER="$2"
+      shift 2
+      ;;
+    -p|--ssh-port)
+      [ $# -ge 2 ] || usage
+      SSH_PORT="$2"
+      shift 2
+      ;;
+    -i|--identity)
+      [ $# -ge 2 ] || usage
+      IDENTITY_FILE="$2"
+      shift 2
+      ;;
+    --ssh-opt)
+      [ $# -ge 2 ] || usage
+      SSH_EXTRA_OPTS+=("$2")
+      shift 2
+      ;;
+    -S|--sudo)
+      USE_SUDO=1
+      shift
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
+      ;;
+    --all)
+      USE_REGISTRY=1
+      shift
+      ;;
+    --registry)
+      [ $# -ge 2 ] || usage
+      REGISTRY_PATH="$2"
+      shift 2
+      ;;
+    --print-targets)
+      PRINT_TARGETS=1
+      shift
+      ;;
+    -h|--help)
+      usage 0
+      ;;
+    --)
+      shift
+      if [ $# -eq 0 ]; then
+        usage
+      fi
+      TARGET_HOST="$1"
+      shift
+      ;;
+    -* )
+      usage
+      ;;
+    *)
+      if [ -n "$TARGET_HOST" ]; then
+        usage
+      fi
+      TARGET_HOST="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ "$USE_REGISTRY" -eq 0 ] && [ -z "$TARGET_HOST" ]; then
+  usage
+fi
+
+read_registry_targets() {
+  local path="$1"
+  if [ ! -f "$path" ]; then
+    printf 'Registry not found: %s\n' "$path" >&2
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf 'python3 is required to parse %s\n' "$path" >&2
+    return 1
+  fi
+  python3 - "$path" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as fh:
+    data = json.load(fh)
+servers = data.get('servers', [])
+for server in servers:
+    host = (server.get('hostname') or '').strip()
+    user = (server.get('ssh_user') or 'root').strip()
+    if host:
+        if user:
+            print(f"{user}@{host}")
+        else:
+            print(host)
+PY
+}
+
+TARGETS=()
+if [ -n "$TARGET_HOST" ]; then
+  TARGETS+=("$TARGET_HOST")
+fi
+if [ "$USE_REGISTRY" -eq 1 ]; then
+  mapfile -t registry_targets < <(read_registry_targets "$REGISTRY_PATH") || exit 1
+  if [ ${#registry_targets[@]} -eq 0 ]; then
+    printf 'Registry %s does not contain any servers\n' "$REGISTRY_PATH" >&2
+    exit 1
+  fi
+  TARGETS+=("${registry_targets[@]}")
+fi
+
+if [ ${#TARGETS[@]} -gt 0 ]; then
+  declare -A seen_targets=()
+  unique_targets=()
+  for target in "${TARGETS[@]}"; do
+    [ -n "$target" ] || continue
+    if [ -z "${seen_targets[$target]+x}" ]; then
+      seen_targets[$target]=1
+      unique_targets+=("$target")
+    fi
+  done
+  TARGETS=("${unique_targets[@]}")
+fi
+
+if [ ${#TARGETS[@]} -eq 0 ]; then
+  printf 'No targets specified\n' >&2
+  exit 1
+fi
+
+if [ "$PRINT_TARGETS" -eq 1 ]; then
+  printf '%s\n' "${TARGETS[@]}"
+  exit 0
+fi
+
+SSH_BASE_OPTS=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -o ForwardAgent=yes -o LogLevel=ERROR -p "$SSH_PORT")
+if [ -n "$IDENTITY_FILE" ]; then
+  SSH_BASE_OPTS+=(-i "$IDENTITY_FILE")
+fi
+if [ ${#SSH_EXTRA_OPTS[@]} -gt 0 ]; then
+  SSH_BASE_OPTS+=("${SSH_EXTRA_OPTS[@]}")
+fi
+
+REMOTE_ENV_STR() {
+  local parts=()
+  parts+=("USE_SUDO=$(printf %q "$USE_SUDO")")
+  parts+=("VERBOSE=$(printf %q "$VERBOSE")")
+  printf '%s' "${parts[*]}"
+}
+
+read -r -d '' REMOTE_CMD <<'EOCMD' || true
+set -euo pipefail
+
+log() { printf '[remote] %s\n' "$*"; }
+warn() { printf '[remote][WARN] %s\n' "$*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+timestamp() { date +'%Y-%m-%dT%H:%M:%SZ'; }
+
+USE_SUDO="${USE_SUDO:-0}"
+VERBOSE="${VERBOSE:-0}"
+
+declare -a REMOVED_ITEMS=()
+declare -a FAILED_ITEMS=()
+
+record_removed() { REMOVED_ITEMS+=("$1"); }
+record_failed() { FAILED_ITEMS+=("$1"); }
+
+try_run() {
+  local need_priv="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ "$need_priv" -eq 1 ] && [ "$USE_SUDO" -eq 1 ] && have sudo; then
+    if sudo "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+user_exists() {
+  id "$1" >/dev/null 2>&1
+}
+
+user_home_dir() {
+  local user="$1"
+  local home=""
+  if have getent; then
+    home=$(getent passwd "$user" | cut -d: -f6 2>/dev/null || true)
+  fi
+  if [ -z "$home" ] && [ -r /etc/passwd ]; then
+    home=$(awk -F: -v u="$user" '($1==u){print $6; exit}' /etc/passwd 2>/dev/null || true)
+  fi
+  if [ -z "$home" ]; then
+    case "$user" in
+      root) home="/root" ;;
+      *) home="/home/$user" ;;
+    esac
+  fi
+  printf '%s\n' "$home"
+}
+
+remove_file() {
+  local path="$1"
+  local label="$2"
+  local need_priv="$3"
+  if [ -e "$path" ]; then
+    if try_run "$need_priv" rm -f "$path"; then
+      record_removed "$label"
+    else
+      record_failed "$label"
+    fi
+  fi
+}
+
+remove_dir() {
+  local path="$1"
+  local label="$2"
+  local need_priv="$3"
+  if [ -d "$path" ]; then
+    if try_run "$need_priv" rm -rf "$path"; then
+      record_removed "$label"
+    else
+      record_failed "$label"
+    fi
+  fi
+}
+
+remove_auth_for_user() {
+  local user="$1"
+  if ! user_exists "$user"; then
+    return 0
+  fi
+  local home
+  home="$(user_home_dir "$user")"
+  local auth_path="$home/.codex/auth.json"
+  local dir_path="$home/.codex"
+  local need_priv=0
+  if [ "$user" != "$(id -un)" ]; then
+    need_priv=1
+  fi
+  remove_file "$auth_path" "auth.json for $user" "$need_priv"
+  remove_dir "$dir_path" ".codex dir for $user" "$need_priv"
+}
+
+remove_file "/usr/local/bin/cdx" "/usr/local/bin/cdx" 1
+remove_file "/usr/local/bin/codex" "/usr/local/bin/codex" 1
+remove_file "/usr/bin/codex" "/usr/bin/codex" 1
+remove_dir "/opt/codex" "/opt/codex" 1
+remove_dir "/usr/local/lib/codex" "/usr/local/lib/codex" 1
+
+remove_file "$HOME/.local/bin/cdx" "local cdx" 0
+remove_file "$HOME/cdx.sh" "$HOME/cdx.sh" 0
+remove_file "$HOME/codex.sh" "$HOME/codex.sh" 0
+
+remove_auth_for_user "$(id -un)"
+if user_exists root; then
+  remove_auth_for_user root
+fi
+if user_exists chris; then
+  remove_auth_for_user chris
+fi
+
+if [ ${#REMOVED_ITEMS[@]} -gt 0 ]; then
+  log "Removed: ${REMOVED_ITEMS[*]}"
+fi
+if [ ${#FAILED_ITEMS[@]} -gt 0 ]; then
+  warn "Failed: ${FAILED_ITEMS[*]}"
+  exit 1
+fi
+
+log "Uninstall completed at $(timestamp)"
+EOCMD
+
+REMOTE_CMD_ESCAPED="$(printf %q "$REMOTE_CMD")"
+
+run_uninstall() {
+  local target="$1"
+  local ssh_user="$SSH_USER"
+  local host="$target"
+
+  if [[ "$target" == *"@"* ]]; then
+    ssh_user="${target%@*}"
+    host="${target#*@}"
+  fi
+
+  if [ -z "$ssh_user" ] || [ -z "$host" ]; then
+    printf 'Invalid target %s\n' "$target" >&2
+    return 1
+  fi
+
+  local remote_env
+  remote_env="$(REMOTE_ENV_STR)"
+
+  printf '==> Uninstalling Codex on %s@%s\n' "$ssh_user" "$host"
+  if ! ssh -tt "${SSH_BASE_OPTS[@]}" "$ssh_user@$host" "${remote_env} bash -lc ${REMOTE_CMD_ESCAPED}"; then
+    printf '!! Uninstall failed on %s@%s\n' "$ssh_user" "$host" >&2
+    return 1
+  fi
+  printf '==> Completed %s@%s\n' "$ssh_user" "$host"
+  return 0
+}
+
+SUCCESS_TARGETS=()
+FAILED_TARGETS=()
+
+for target in "${TARGETS[@]}"; do
+  if run_uninstall "$target"; then
+    SUCCESS_TARGETS+=("$target")
+  else
+    FAILED_TARGETS+=("$target")
+  fi
+  printf '\n'
+  sleep 0.2 || true
+done
+
+if [ ${#FAILED_TARGETS[@]} -gt 0 ]; then
+  printf 'Completed with failures. Failed targets:\n' >&2
+  printf '  %s\n' "${FAILED_TARGETS[@]}" >&2
+  exit 1
+fi
+
+printf 'Uninstall succeeded for all targets:\n'
+printf '  %s\n' "${SUCCESS_TARGETS[@]}"

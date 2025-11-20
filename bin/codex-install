@@ -1,0 +1,2581 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# codex_install.sh — Remote Codex CLI install + login via SSH port-forward
+#
+# 2025-updated features:
+# - SSH options: port, identity file, extra -o flags
+# - Global vs user install, optional sudo escalation
+# - Direct Codex binary deployment from GitHub releases
+# - Hardened logging and quoting
+# - Configurable local bind/port (default 127.0.0.1:1455)
+# - Root-by-default SSH; when root, also provisions Codex auth for user chris
+#
+# Usage:
+#   ./codex_install.sh [options] <host|[user@]host>
+#
+# Options:
+#   -u, --user <ssh_user>       SSH user (default: root)
+#   -p, --ssh-port <port>       SSH port (default: 22)
+#   -i, --identity <path>       SSH identity file
+#       --ssh-opt <arg>         Extra ssh option (repeatable), e.g. --ssh-opt "-o StrictHostKeyChecking=accept-new"
+#   -g, --global                Prefer global install on remote (requires root or sudo)
+#   -S, --sudo                  Use sudo for global install when not root
+#       --local-bind <addr>     Local bind address for forward (default: 127.0.0.1)
+#       --local-port <port>     Local TCP port used by Codex login (default: 1455)
+#       --auth-json <path>      Local path to auth.json (default: ~/.codex/auth.json)
+#       --registry <path>       Override registry/servers.json path for auto-recording
+#       --no-browser            (compat) ignored; browsers are never auto-opened
+#       --sync-base-url <url>   Override Codex sync API base URL (default: https://codex-auth.uggs.io)
+#       --sync-invite-key <key> Shared invitation key for sync API registration (or CODEX_SYNC_INVITE_KEY env)
+#       --sync-api-key <key>    Existing sync API key (skips registration)
+#       --sync-fqdn <fqdn>      Override FQDN used when registering with the sync API (default: target host)
+#       --sync-ca-file <path>   Custom CA bundle used for sync API TLS validation (default: /home/chris/Documents/certauth2/vault/ca/ca.crt when readable)
+#   -v, --verbose               Verbose output
+#   -h, --help                  Show help
+
+usage() {
+  local code="${1:-2}"
+  cat >&2 <<USAGE
+Usage: $0 [options] <host|[user@]host>
+
+Options:
+  -u, --user <ssh_user>       SSH user (default: root)
+  -p, --ssh-port <port>       SSH port (default: 22)
+  -i, --identity <path>       SSH identity file
+      --ssh-opt <arg>         Extra ssh option (repeatable)
+  -g, --global                Prefer global install on remote
+  -S, --sudo                  Use sudo for global install when not root
+      --local-bind <addr>     Local bind address for forward (default: 127.0.0.1)
+      --local-port <port>     Local TCP port for Codex login (default: 1455)
+      --auth-json <path>      Local path to auth.json (default: ~/.codex/auth.json)
+      --registry <path>       Registry JSON path (default: registry/servers.json)
+      --no-browser            (compat) ignored; browsers are never auto-opened
+      --install-systemd-timer Install/enable codex-wrapper-update.(service|timer) on the remote host
+      --sync-base-url <url>   Codex sync API base URL (default: https://codex-auth.uggs.io)
+      --sync-invite-key <key> Shared invitation key for sync API registration (or CODEX_SYNC_INVITE_KEY env)
+      --sync-api-key <key>    Existing per-host sync API key (skips registration)
+      --sync-fqdn <fqdn>      Override FQDN used when registering (default: target host)
+      --sync-ca-file <path>   CA bundle used for sync API TLS validation (default: /home/chris/Documents/certauth2/vault/ca/ca.crt when readable)
+      --summary-only          Print a single result line per host (default)
+      --show-steps            Emit detailed per-step progress output
+  -v, --verbose               Verbose output
+  -h, --help                  Show this help and exit
+USAGE
+  exit "$code"
+}
+
+SSH_USER="root"
+SSH_USER_EXPLICIT=0
+TARGET_HOST=""
+HOST=""
+SSH_PORT=22
+IDENTITY_FILE=""
+SSH_EXTRA_OPTS=()
+
+PREFER_GLOBAL=0
+USE_SUDO=0
+
+LOCAL_BIND="127.0.0.1"
+LOCAL_PORT=1455
+
+VERBOSE=0
+
+SUMMARY_ONLY=1
+
+# Browser auto-open disabled by default (login URLs will be printed only)
+LAUNCH_BROWSER=0
+BROWSER_CMD=""
+TWO_FA_URL=""
+
+# Use a sentinel without glob metacharacters to simplify parsing
+AUTH_SENTINEL="AUTH_URL"
+
+# Local auth path (if present, will be pushed to remote and login will be skipped)
+AUTH_JSON_LOCAL_DEFAULT="$HOME/.codex/auth.json"
+AUTH_JSON_LOCAL="$AUTH_JSON_LOCAL_DEFAULT"
+
+SYNC_BASE_URL_DEFAULT="https://codex-auth.uggs.io"
+SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-$SYNC_BASE_URL_DEFAULT}"
+SYNC_INVITE_KEY="${CODEX_SYNC_INVITE_KEY:-}"
+SYNC_API_KEY="${CODEX_SYNC_API_KEY:-}"
+SYNC_FQDN="${CODEX_SYNC_FQDN:-}"
+SYNC_REGISTRATION_ATTEMPTED=0
+ORCHESTRATOR_REPO_DEFAULT="/home/chris/Documents/codex-orchestrator"
+ORCHESTRATOR_REPO="${CODEX_ORCHESTRATOR_REPO:-$ORCHESTRATOR_REPO_DEFAULT}"
+SYNC_CA_FILE_DEFAULT="/home/chris/Documents/certauth2/vault/ca/ca.crt"
+SYNC_CA_FILE="${CODEX_SYNC_CA_FILE:-$SYNC_CA_FILE_DEFAULT}"
+SYNC_CA_REMOTE_FILE_DEFAULT="/usr/local/etc/codex-sync-ca.pem"
+SYNC_CA_REMOTE_FILE="${CODEX_SYNC_REMOTE_CA_FILE:-$SYNC_CA_REMOTE_FILE_DEFAULT}"
+SYNC_CA_PAYLOAD=""
+
+# Guardrail: never leak sensitive keys when verbose/xtrace is enabled.
+disable_xtrace_if_set() {
+  local was_xtrace=0
+  case "$-" in
+    *x*) was_xtrace=1; set +x ;;
+  esac
+  printf '%s' "$was_xtrace"
+}
+
+restore_xtrace_if_requested() {
+  local was_xtrace="$1"
+  if [ "$was_xtrace" = "1" ]; then
+    set -x
+  fi
+}
+
+clear_invitation_key_env() {
+  unset SYNC_INVITE_KEY CODEX_SYNC_INVITE_KEY
+}
+
+if [ -t 1 ]; then
+  COLOR_BOLD=$'\033[1m'
+  COLOR_DIM=$'\033[2m'
+  COLOR_GREEN=$'\033[32m'
+  COLOR_YELLOW=$'\033[33m'
+  COLOR_RED=$'\033[31m'
+  COLOR_CYAN=$'\033[36m'
+  COLOR_RESET=$'\033[0m'
+else
+  COLOR_BOLD=""
+  COLOR_DIM=""
+  COLOR_GREEN=""
+  COLOR_YELLOW=""
+  COLOR_RED=""
+  COLOR_CYAN=""
+  COLOR_RESET=""
+fi
+
+extract_invite_key_from_file() {
+  local file="$1"
+  if [ ! -r "$file" ]; then
+    return 1
+  fi
+  local line value
+  line="$(grep -E '^[[:space:]]*INVITATION_KEY=' "$file" | tail -n1 || true)"
+  if [ -z "$line" ]; then
+    return 1
+  fi
+  value="${line#*=}"
+  value="${value%$'\r'}"
+  value="${value%\"}"
+  value="${value#\"}"
+  value="${value%\'}"
+  value="${value#\'}"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+  return 1
+}
+
+extract_invite_key_from_api_doc() {
+  local doc="${ORCHESTRATOR_REPO}/API.md"
+  if [ ! -r "$doc" ]; then
+    return 1
+  fi
+  local match
+  match="$(grep -E '"invitation_key"[[:space:]]*:' "$doc" | head -n1 || true)"
+  if [ -z "$match" ]; then
+    return 1
+  fi
+  local value
+  value="$(printf '%s\n' "$match" | sed -E 's/.*"invitation_key"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  value="${value%$'\r'}"
+  value="${value#<}"
+  value="${value%>}"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+  return 1
+}
+
+extract_invite_key_from_api_spec() {
+  local file="${ORCHESTRATOR_REPO}/API.md"
+  if [ ! -r "$file" ]; then
+    return 1
+  fi
+  local key line
+  line="$(grep -E 'Current shared key' "$file" | head -n1 || true)"
+  if [ -z "$line" ]; then
+    return 1
+  fi
+  key="$(printf '%s\n' "$line" | grep -Eo '[0-9a-f]{32,}' | head -n1 || true)"
+  if [ -n "$key" ]; then
+    printf '%s' "$key"
+    return 0
+  fi
+  return 1
+}
+
+if [ -z "$SYNC_INVITE_KEY" ]; then
+  for candidate in \
+    "${ORCHESTRATOR_REPO}/.env" \
+    "${ORCHESTRATOR_REPO}/.env.local" \
+    "${ORCHESTRATOR_REPO}/.env.production" \
+    "${ORCHESTRATOR_REPO}/.env.example"
+  do
+    if key="$(extract_invite_key_from_file "$candidate" 2>/dev/null)"; then
+      if [ "$key" = "change-me" ] || [ -z "$key" ]; then
+        continue
+      fi
+      SYNC_INVITE_KEY="$key"
+      break
+    fi
+  done
+  if [ -z "$SYNC_INVITE_KEY" ]; then
+    if key="$(extract_invite_key_from_api_spec 2>/dev/null)"; then
+      SYNC_INVITE_KEY="$key"
+    fi
+  fi
+fi
+
+if [ -z "$SYNC_INVITE_KEY" ]; then
+  if key="$(extract_invite_key_from_api_doc 2>/dev/null)"; then
+    SYNC_INVITE_KEY="$key"
+  fi
+fi
+
+# Resolve path even when invoked via symlink (e.g. ~/bin/codex_install.sh)
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SCRIPT_SOURCE" ]; do
+  SCRIPT_DIR_SYM="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+  SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+  case "$SCRIPT_SOURCE" in
+    /*) ;; # absolute path already
+    *) SCRIPT_SOURCE="${SCRIPT_DIR_SYM}/${SCRIPT_SOURCE}" ;;
+  esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+LOCAL_WRAPPER_PATH="${SCRIPT_DIR}/cdx"
+LOCAL_WRAPPER_PAYLOAD=""
+LOCAL_WRAPPER_VERSION=""
+encode_file_base64() {
+  local path="$1"
+  if [ ! -f "$path" ]; then
+    return 1
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$path" <<'PY' || return 1
+import base64, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = path.read_bytes()
+print(base64.b64encode(data).decode('ascii'), end='')
+PY
+  elif command -v base64 >/dev/null 2>&1; then
+    base64 <"$path" | tr -d '\n'
+  else
+    return 1
+  fi
+}
+
+if [ -f "$LOCAL_WRAPPER_PATH" ]; then
+  LOCAL_WRAPPER_PAYLOAD="$(encode_file_base64 "$LOCAL_WRAPPER_PATH" 2>/dev/null || true)"
+  if [ -z "$LOCAL_WRAPPER_VERSION" ]; then
+    LOCAL_WRAPPER_VERSION="$(extract_wrapper_version "$LOCAL_WRAPPER_PATH" 2>/dev/null || true)"
+  fi
+fi
+
+extract_wrapper_version() {
+  local path="$1"
+  if [ ! -r "$path" ]; then
+    return 1
+  fi
+  local line
+  line="$(grep -E '^WRAPPER_VERSION="' "$path" | head -n1 || true)"
+  if [ -n "$line" ]; then
+    printf '%s' "${line#WRAPPER_VERSION=\"}"
+    return 0
+  fi
+  return 1
+}
+
+if [ -f "$LOCAL_WRAPPER_PATH" ]; then
+  LOCAL_WRAPPER_VERSION="$(extract_wrapper_version "$LOCAL_WRAPPER_PATH" 2>/dev/null || true)"
+fi
+
+LOCAL_SYSTEMD_UPDATE_PATH="${SCRIPT_DIR}/codex-systemd-update"
+LOCAL_SYSTEMD_SERVICE_PATH="${SCRIPT_DIR}/../systemd/codex-wrapper-update.service"
+LOCAL_SYSTEMD_TIMER_PATH="${SCRIPT_DIR}/../systemd/codex-wrapper-update.timer"
+
+LOCAL_SYSTEMD_UPDATE_PAYLOAD=""
+LOCAL_SYSTEMD_SERVICE_PAYLOAD=""
+LOCAL_SYSTEMD_TIMER_PAYLOAD=""
+if [ -f "$LOCAL_SYSTEMD_UPDATE_PATH" ]; then
+  LOCAL_SYSTEMD_UPDATE_PAYLOAD="$(encode_file_base64 "$LOCAL_SYSTEMD_UPDATE_PATH" 2>/dev/null || true)"
+fi
+if [ -f "$LOCAL_SYSTEMD_SERVICE_PATH" ]; then
+  LOCAL_SYSTEMD_SERVICE_PAYLOAD="$(encode_file_base64 "$LOCAL_SYSTEMD_SERVICE_PATH" 2>/dev/null || true)"
+fi
+if [ -f "$LOCAL_SYSTEMD_TIMER_PATH" ]; then
+  LOCAL_SYSTEMD_TIMER_PAYLOAD="$(encode_file_base64 "$LOCAL_SYSTEMD_TIMER_PATH" 2>/dev/null || true)"
+fi
+
+if [ -n "$SYNC_CA_FILE" ] && [ ! -r "$SYNC_CA_FILE" ]; then
+  printf 'Warning: sync CA file not readable: %s\n' "$SYNC_CA_FILE" >&2
+  SYNC_CA_FILE=""
+fi
+
+if [ -n "$SYNC_CA_FILE" ]; then
+  SYNC_CA_PAYLOAD="$(encode_file_base64 "$SYNC_CA_FILE" 2>/dev/null || true)"
+  if [ -z "$SYNC_CA_PAYLOAD" ]; then
+    printf 'Warning: failed to encode sync CA file %s\n' "$SYNC_CA_FILE" >&2
+    SYNC_CA_FILE=""
+  fi
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON3_BIN="$(command -v python3)"
+else
+  PYTHON3_BIN=""
+fi
+
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEFAULT_REGISTRY_PATH="${REPO_ROOT}/registry/servers.json"
+REGISTRY_PATH="$DEFAULT_REGISTRY_PATH"
+INSTALL_SYSTEMD_TIMER=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -u|--user)
+      [ $# -ge 2 ] || usage
+      SSH_USER="$2"
+      SSH_USER_EXPLICIT=1
+      shift 2
+      ;;
+    -p|--ssh-port)
+      [ $# -ge 2 ] || usage
+      SSH_PORT="$2"
+      shift 2
+      ;;
+    -i|--identity)
+      [ $# -ge 2 ] || usage
+      IDENTITY_FILE="$2"
+      shift 2
+      ;;
+    --ssh-opt)
+      [ $# -ge 2 ] || usage
+      SSH_EXTRA_OPTS+=("$2")
+      shift 2
+      ;;
+    -g|--global)
+      PREFER_GLOBAL=1
+      shift
+      ;;
+    -S|--sudo)
+      USE_SUDO=1
+      shift
+      ;;
+    --local-bind)
+      [ $# -ge 2 ] || usage
+      LOCAL_BIND="$2"
+      shift 2
+      ;;
+    --local-port)
+      [ $# -ge 2 ] || usage
+      LOCAL_PORT="$2"
+      shift 2
+      ;;
+    --auth-json)
+      [ $# -ge 2 ] || usage
+      AUTH_JSON_LOCAL="$2"
+      shift 2
+      ;;
+    --no-browser)
+      # retained for compatibility; no effect (browser already disabled)
+      shift
+      ;;
+    --registry)
+      [ $# -ge 2 ] || usage
+      REGISTRY_PATH="$2"
+      shift 2
+      ;;
+    --sync-base-url)
+      [ $# -ge 2 ] || usage
+      SYNC_BASE_URL="$2"
+      shift 2
+      ;;
+    --sync-invite-key)
+      [ $# -ge 2 ] || usage
+      SYNC_INVITE_KEY="$2"
+      shift 2
+      ;;
+    --sync-api-key)
+      [ $# -ge 2 ] || usage
+      SYNC_API_KEY="$2"
+      shift 2
+      ;;
+    --sync-fqdn)
+      [ $# -ge 2 ] || usage
+      SYNC_FQDN="$2"
+      shift 2
+      ;;
+    --sync-ca-file)
+      [ $# -ge 2 ] || usage
+      SYNC_CA_FILE="$2"
+      shift 2
+      ;;
+    --summary-only)
+      SUMMARY_ONLY=1
+      shift
+      ;;
+    --show-steps)
+      SUMMARY_ONLY=0
+      shift
+      ;;
+    --install-systemd-timer)
+      INSTALL_SYSTEMD_TIMER=1
+      shift
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      SUMMARY_ONLY=0
+      shift
+      ;;
+    -h|--help)
+      usage 0
+      ;;
+    --)
+      shift
+      if [ $# -eq 0 ]; then usage; fi
+      TARGET_HOST="$1"
+      shift
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      if [ -n "$TARGET_HOST" ]; then usage; fi
+      TARGET_HOST="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$TARGET_HOST" ]; then usage; fi
+
+if [[ "$TARGET_HOST" == *"@"* ]]; then
+  if [ "$SSH_USER_EXPLICIT" -eq 0 ]; then
+    SSH_USER="${TARGET_HOST%@*}"
+    SSH_USER_EXPLICIT=1
+  fi
+  HOST="${TARGET_HOST#*@}"
+else
+  HOST="$TARGET_HOST"
+fi
+
+if [ -z "$SYNC_FQDN" ]; then
+  SYNC_FQDN="$HOST"
+fi
+if [ -n "$SYNC_BASE_URL" ]; then
+  SYNC_BASE_URL="${SYNC_BASE_URL%/}"
+fi
+if [ -z "$SYNC_BASE_URL" ]; then
+  SYNC_BASE_URL="$SYNC_BASE_URL_DEFAULT"
+fi
+
+SSH_OPTS=(-o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -o ForwardAgent=yes -o LogLevel=ERROR)
+SSH_OPTS+=(-p "$SSH_PORT")
+if [ -n "$IDENTITY_FILE" ]; then
+  SSH_OPTS+=(-i "$IDENTITY_FILE")
+fi
+if [ ${#SSH_EXTRA_OPTS[@]} -gt 0 ]; then
+  SSH_OPTS+=("${SSH_EXTRA_OPTS[@]}")
+fi
+
+if [ "$VERBOSE" -eq 1 ]; then
+  set -x
+fi
+
+RUN_STARTED=0
+PREFETCH_RELEASE_TAG=""
+
+build_remote_env() {
+  local sentinel="$1"
+  restore_xtrace="$(disable_xtrace_if_set)"
+  local parts=()
+  if [ -n "$LOCAL_WRAPPER_PAYLOAD" ]; then
+    parts+=("CODEX_WRAPPER_PAYLOAD=$(printf %q "$LOCAL_WRAPPER_PAYLOAD")")
+  fi
+  if [ -n "$LOCAL_WRAPPER_VERSION" ]; then
+    parts+=("CODEX_WRAPPER_VERSION=$(printf %q "$LOCAL_WRAPPER_VERSION")")
+  fi
+  if [ -n "$LOCAL_SYSTEMD_UPDATE_PAYLOAD" ]; then
+    parts+=("CODEX_SYSTEMD_UPDATE_PAYLOAD=$(printf %q "$LOCAL_SYSTEMD_UPDATE_PAYLOAD")")
+  fi
+  if [ -n "$LOCAL_SYSTEMD_SERVICE_PAYLOAD" ]; then
+    parts+=("CODEX_SYSTEMD_SERVICE_PAYLOAD=$(printf %q "$LOCAL_SYSTEMD_SERVICE_PAYLOAD")")
+  fi
+  if [ -n "$LOCAL_SYSTEMD_TIMER_PAYLOAD" ]; then
+    parts+=("CODEX_SYSTEMD_TIMER_PAYLOAD=$(printf %q "$LOCAL_SYSTEMD_TIMER_PAYLOAD")")
+  fi
+  if [ -n "$PREFETCH_RELEASE_TAG" ]; then
+    parts+=("PREFETCH_RELEASE_TAG=$(printf %q "$PREFETCH_RELEASE_TAG")")
+  fi
+  if [ -n "$SYNC_CA_PAYLOAD" ] && [ -n "$SYNC_CA_REMOTE_FILE" ]; then
+    parts+=("CODEX_SYNC_CA_PAYLOAD=$(printf %q "$SYNC_CA_PAYLOAD")")
+    parts+=("CODEX_SYNC_CA_FILE=$(printf %q "$SYNC_CA_REMOTE_FILE")")
+  fi
+  if [ -n "$SYNC_BASE_URL" ]; then
+    parts+=("CODEX_SYNC_BASE_URL=$(printf %q "$SYNC_BASE_URL")")
+  fi
+  if [ -n "$SYNC_API_KEY" ]; then
+    parts+=("CODEX_SYNC_API_KEY=$(printf %q "$SYNC_API_KEY")")
+  fi
+  if [ -n "$SYNC_FQDN" ]; then
+    parts+=("CODEX_SYNC_FQDN=$(printf %q "$SYNC_FQDN")")
+  fi
+  parts+=("AUTH_SENTINEL=$(printf %q "$sentinel")")
+  parts+=("PREFER_GLOBAL=${PREFER_GLOBAL}")
+  parts+=("USE_SUDO=${USE_SUDO}")
+  parts+=("INSTALL_SYSTEMD_TIMER=${INSTALL_SYSTEMD_TIMER}")
+  restore_xtrace_if_requested "$restore_xtrace"
+  printf '%s' "${parts[*]}"
+}
+
+build_remote_env_safe() {
+  # $1 dest var, $2 sentinel; suppress xtrace so secrets aren't echoed
+  local __dest="$1"
+  local __sentinel="$2"
+  local restore_xtrace
+  restore_xtrace="$(disable_xtrace_if_set)"
+  local __val
+  __val="$(build_remote_env "$__sentinel")"
+  printf -v "${__dest}" '%s' "$__val"
+  restore_xtrace_if_requested "$restore_xtrace"
+}
+
+require_local_python3() {
+  if command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  printf 'python3 is required for Codex sync API operations\n' >&2
+  return 1
+}
+
+obtain_sync_api_key() {
+  if [ -n "$SYNC_API_KEY" ]; then
+    return 0
+  fi
+  if [ -z "$SYNC_INVITE_KEY" ]; then
+    printf 'Sync API invitation key missing; supply --sync-invite-key or CODEX_SYNC_INVITE_KEY\n' >&2
+    return 1
+  fi
+  require_local_python3 || return 1
+  local restore_xtrace
+  restore_xtrace="$(disable_xtrace_if_set)"
+  local key_output=""
+  if ! key_output="$(
+    python3 - "$SYNC_BASE_URL" "$SYNC_FQDN" "$SYNC_INVITE_KEY" "$SYNC_CA_FILE" <<'PY'
+import json, ssl, sys, urllib.error, urllib.request
+base = (sys.argv[1] or "").rstrip("/")
+fqdn = sys.argv[2]
+invite = sys.argv[3]
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+if not base:
+    print("Sync API base URL missing", file=sys.stderr)
+    sys.exit(1)
+url = f"{base}/register"
+payload = json.dumps({"fqdn": fqdn, "invitation_key": invite}).encode("utf-8")
+headers = {"Content-Type": "application/json"}
+req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+context = ssl.create_default_context()
+if cafile:
+    context.load_verify_locations(cafile)
+try:
+    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+except AttributeError:
+    pass
+try:
+    with urllib.request.urlopen(req, timeout=20, context=context) as resp:
+        data = json.load(resp)
+except urllib.error.HTTPError as exc:
+    body = exc.read().decode("utf-8", "ignore")
+    print(f"Register failed ({exc.code}): {body}", file=sys.stderr)
+    sys.exit(2)
+except Exception as exc:  # noqa: BLE001
+    print(f"Register failed: {exc}", file=sys.stderr)
+    sys.exit(3)
+host = data.get("host") or data.get("data", {}).get("host") or {}
+api_key = host.get("api_key")
+if not api_key:
+    print("Register response missing api_key", file=sys.stderr)
+    sys.exit(4)
+print(api_key, end="")
+PY
+  )"; then
+    restore_xtrace_if_requested "$restore_xtrace"
+    return 1
+  fi
+  restore_xtrace_if_requested "$restore_xtrace"
+  if [ -z "$key_output" ]; then
+    printf 'Sync API registration returned an empty API key\n' >&2
+    return 1
+  fi
+  SYNC_API_KEY="$key_output"
+  SYNC_REGISTRATION_ATTEMPTED=1
+  clear_invitation_key_env
+  return 0
+}
+
+read -r -d '' REMOTE_CMD <<'EOF' || true
+set -euo pipefail
+
+log() { if [ "${QUIET:-0}" -eq 1 ]; then return; fi; printf '[remote] %s\n' "$*"; }
+WRAPPER_VERSION_REMOTE=${CODEX_WRAPPER_VERSION:-unknown}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+die() { printf '[remote][ERR] %s\n' "$*" >&2; exit 1; }
+
+PKG_MANAGER_CACHE=""
+APT_UPDATED=0
+
+detect_pkg_manager() {
+  if [ -n "$PKG_MANAGER_CACHE" ]; then
+    printf '%s\n' "$PKG_MANAGER_CACHE"
+    return 0
+  fi
+
+  local id_tokens=""
+  if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    id_tokens="${ID:-}"
+    if [ -n "${ID_LIKE:-}" ]; then
+      id_tokens="$id_tokens ${ID_LIKE}"
+    fi
+  fi
+
+  for token in $id_tokens; do
+    case "$token" in
+      debian|ubuntu)
+        if have apt-get; then
+          PKG_MANAGER_CACHE="apt-get"
+          printf '%s\n' "$PKG_MANAGER_CACHE"
+          return 0
+        fi
+        ;;
+      rhel|centos|fedora|almalinux|rocky|ol)
+        if have dnf; then
+          PKG_MANAGER_CACHE="dnf"
+          printf '%s\n' "$PKG_MANAGER_CACHE"
+          return 0
+        fi
+        if have yum; then
+          PKG_MANAGER_CACHE="yum"
+          printf '%s\n' "$PKG_MANAGER_CACHE"
+          return 0
+        fi
+        ;;
+    esac
+  done
+
+  if have apt-get; then
+    PKG_MANAGER_CACHE="apt-get"
+    printf '%s\n' "$PKG_MANAGER_CACHE"
+    return 0
+  fi
+  if have dnf; then
+    PKG_MANAGER_CACHE="dnf"
+    printf '%s\n' "$PKG_MANAGER_CACHE"
+    return 0
+  fi
+  if have yum; then
+    PKG_MANAGER_CACHE="yum"
+    printf '%s\n' "$PKG_MANAGER_CACHE"
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_packages() {
+  if [ $# -eq 0 ]; then
+    return 0
+  fi
+
+  local cmds=("$@")
+  local missing=()
+  local cmd=""
+  for cmd in "${cmds[@]}"; do
+    if ! have "$cmd"; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if [ ${#missing[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  local pm=""
+  if ! pm="$(detect_pkg_manager)"; then
+    local missing_str="${missing[*]}"
+    die "Missing required commands: ${missing_str}; unable to determine package manager for installation"
+  fi
+
+  local run_cmd=()
+  if [ "$(id -u)" -ne 0 ]; then
+    if [ "${USE_SUDO:-0}" -eq 1 ] && have sudo; then
+      run_cmd=(sudo)
+    else
+      local missing_str="${missing[*]}"
+      die "Missing required commands: ${missing_str}; rerun as root or supply --sudo to allow package installation"
+    fi
+  fi
+
+  local missing_str="${missing[*]}"
+  log "Installing missing commands (${missing_str}) via ${pm}"
+
+  case "$pm" in
+    apt-get)
+      if [ "${APT_UPDATED:-0}" -eq 0 ]; then
+        if [ "${run_cmd[0]-}" = "sudo" ]; then
+          "${run_cmd[@]}" apt-get update -qq
+        else
+          apt-get update -qq
+        fi
+        APT_UPDATED=1
+      fi
+      if [ "${run_cmd[0]-}" = "sudo" ]; then
+        "${run_cmd[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+      else
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+      fi
+      ;;
+    dnf)
+      "${run_cmd[@]}" dnf install -y "${missing[@]}"
+      ;;
+    yum)
+      "${run_cmd[@]}" yum install -y "${missing[@]}"
+      ;;
+    *)
+      die "Unsupported package manager ${pm}"
+      ;;
+  esac
+}
+
+ensure_remote_prereqs() {
+  local required_cmds=(curl tar python3)
+  if [ "$(uname -s)" = "Linux" ]; then
+    ensure_packages "${required_cmds[@]}"
+  fi
+  local cmd=""
+  for cmd in "${required_cmds[@]}"; do
+    if ! have "$cmd"; then
+      die "${cmd} required to deploy Codex"
+    fi
+  done
+}
+
+# Control whether to run interactive login on the remote.
+# Default is 1 (login). The local script may set DO_LOGIN=0 to skip.
+: "${DO_LOGIN:=1}"
+
+log "env prep"
+export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+
+normalize_version() {
+  local v="$1"
+  v="${v#codex-cli }"
+  v="${v#codex }"
+  v="${v#v}"
+  printf '%s' "$v"
+}
+
+codex_asset_candidates() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "$os" in
+    Linux)
+      case "$arch" in
+        x86_64|amd64)
+          printf '%s\n' 'codex-x86_64-unknown-linux-gnu.tar.gz'
+          printf '%s\n' 'codex-x86_64-unknown-linux-musl.tar.gz'
+          return 0
+          ;;
+        aarch64|arm64)
+          printf '%s\n' 'codex-aarch64-unknown-linux-gnu.tar.gz'
+          printf '%s\n' 'codex-aarch64-unknown-linux-musl.tar.gz'
+          return 0
+          ;;
+      esac
+      ;;
+    Darwin)
+      case "$arch" in
+        x86_64|amd64) printf '%s\n' 'codex-x86_64-apple-darwin.tar.gz'; return 0 ;;
+        arm64) printf '%s\n' 'codex-aarch64-apple-darwin.tar.gz'; return 0 ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      case "$arch" in
+        x86_64|amd64) printf '%s\n' 'codex-x86_64-pc-windows-msvc.exe.zip'; return 0 ;;
+        aarch64|arm64) printf '%s\n' 'codex-aarch64-pc-windows-msvc.exe.zip'; return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+codex_asset_name() {
+  local asset=""
+  while IFS= read -r asset; do
+    if [ -n "$asset" ]; then
+      printf '%s' "$asset"
+      return 0
+    fi
+  done < <(codex_asset_candidates)
+  return 1
+}
+
+CODEX_SELF_CHECK_OUTPUT=""
+CODEX_SELF_CHECK_STATUS=0
+codex_binary_self_check() {
+  local bin="$1"
+  CODEX_SELF_CHECK_OUTPUT=""
+  CODEX_SELF_CHECK_STATUS=0
+  if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+    CODEX_SELF_CHECK_STATUS=127
+    return 1
+  fi
+  local output=""
+  local status=0
+  set +e
+  output="$("$bin" --version 2>&1)"
+  status=$?
+  set -e
+  CODEX_SELF_CHECK_OUTPUT="$output"
+  CODEX_SELF_CHECK_STATUS=$status
+  [ "$status" -eq 0 ]
+}
+
+resolve_release_url() {
+  local asset="$1"
+  local base="https://github.com/openai/codex/releases/latest/download/${asset}"
+  curl -fsSIL -o /dev/null -w '%{url_effective}' "$base"
+}
+
+ensure_path_dir() {
+  local dir="$1"
+  local use_sudo="${2:-0}"
+  if [ -d "$dir" ]; then
+    return 0
+  fi
+  if [ "$use_sudo" -eq 1 ]; then
+    if ! have sudo; then
+      return 1
+    fi
+    sudo mkdir -p "$dir"
+  else
+    mkdir -p "$dir"
+  fi
+}
+
+install_file_with_mode() {
+  local src="$1"
+  local dest="$2"
+  local mode="${3:-755}"
+  local use_sudo="${4:-0}"
+
+  if have install; then
+    if [ "$use_sudo" -eq 1 ]; then
+      if ! have sudo; then
+        return 1
+      fi
+      sudo install -m "$mode" "$src" "$dest"
+    else
+      install -m "$mode" "$src" "$dest"
+    fi
+  else
+    if [ "$use_sudo" -eq 1 ]; then
+      if ! have sudo; then
+        return 1
+      fi
+      sudo cp "$src" "$dest" || return 1
+      sudo chmod "$mode" "$dest" || return 1
+    else
+      cp "$src" "$dest" || return 1
+      chmod "$mode" "$dest" || return 1
+    fi
+  fi
+}
+
+ensure_codex() {
+  local fallback_prefix="$HOME/.local"
+  local is_root=0
+  local global_target="/usr/local/bin/codex"
+  local candidates=()
+  local candidate=""
+  local release_version=""
+  local release_tag=""
+  local existing_version=""
+  local version_out=""
+  local existing_bin=""
+  local existing_check_status=0
+  local installed=0
+  local prefetch_dir="${PREFETCHED_ASSET_DIR:-}"
+  local prefetch_tag="${PREFETCH_RELEASE_TAG:-}"
+
+  if [ "$(id -u)" -eq 0 ]; then
+    is_root=1
+  fi
+
+  if ! have curl; then
+    die "curl required to deploy Codex"
+  fi
+
+  while IFS= read -r candidate; do
+    if [ -n "$candidate" ]; then
+      candidates+=("$candidate")
+    fi
+  done < <(codex_asset_candidates) || true
+
+  if [ ${#candidates[@]} -eq 0 ]; then
+    die "Unsupported platform for Codex binary deployment"
+  fi
+
+  if have codex; then
+    if version_out="$(codex -V 2>/dev/null || true)"; then
+      existing_version="$(normalize_version "$version_out")"
+    fi
+  fi
+
+  existing_bin="$(command -v codex || true)"
+  if [ -n "$existing_bin" ]; then
+    if codex_binary_self_check "$existing_bin"; then
+      existing_check_status=0
+    else
+      existing_check_status="$CODEX_SELF_CHECK_STATUS"
+      if [ -n "$CODEX_SELF_CHECK_OUTPUT" ]; then
+        log "Existing Codex binary check failed: $CODEX_SELF_CHECK_OUTPUT"
+      else
+        log "Existing Codex binary check failed with status ${existing_check_status}"
+      fi
+    fi
+  fi
+
+  for candidate in "${candidates[@]}"; do
+    local candidate_release_url=""
+    local candidate_version=""
+    local tmpdir=""
+    local archive=""
+    local extracted=""
+    local candidate_basename="${candidate##*/}"
+    local prefetched_path=""
+    local using_prefetch=0
+
+    case "$candidate" in
+      *.tar.gz)
+        if ! have tar; then
+          ensure_packages tar
+        fi
+        ;;
+      *.zip)
+        if [ "$(uname -s)" = "Linux" ]; then
+          ensure_packages unzip
+        fi
+        if ! have unzip; then
+          die "unzip required to extract Codex archive"
+        fi
+        ;;
+    esac
+
+    if [ -n "$prefetch_dir" ]; then
+      prefetched_path="${prefetch_dir%/}/${candidate_basename}"
+      if [ -s "$prefetched_path" ]; then
+        using_prefetch=1
+        log "Using pre-fetched Codex asset ${candidate}"
+      else
+        prefetched_path=""
+      fi
+    fi
+
+    if [ "$using_prefetch" -eq 0 ]; then
+      if ! candidate_release_url="$(resolve_release_url "$candidate")"; then
+        log "Failed to resolve release URL for ${candidate}; trying next asset"
+        continue
+      fi
+      release_tag="$(basename "$(dirname "$candidate_release_url")")"
+      candidate_version="$(normalize_version "$release_tag")"
+      if [ -z "$release_version" ]; then
+        release_version="$candidate_version"
+        if [ -n "$existing_version" ] && [ "$existing_version" = "$release_version" ] && [ "$existing_check_status" -eq 0 ] && [ -n "$existing_bin" ]; then
+          log "Codex already up to date ($release_tag)"
+          return
+        fi
+        if [ -n "$release_tag" ]; then
+          log "Deploying Codex ${release_tag}"
+        else
+          log "Deploying latest Codex build"
+        fi
+      fi
+    else
+      if [ -z "$release_version" ] && [ -n "$prefetch_tag" ]; then
+        release_tag="$prefetch_tag"
+        release_version="$(normalize_version "$prefetch_tag")"
+        if [ -n "$existing_version" ] && [ "$existing_version" = "$release_version" ] && [ "$existing_check_status" -eq 0 ] && [ -n "$existing_bin" ]; then
+          log "Codex already up to date ($release_tag)"
+          return
+        fi
+        if [ -n "$release_tag" ]; then
+          log "Deploying Codex ${release_tag}"
+        else
+          log "Deploying latest Codex build"
+        fi
+      fi
+    fi
+
+    local tmpdir=""
+    local tmp_created=0
+    local tmp_candidate=""
+    local tmp_template=""
+    local tmp_candidates=()
+    if [ -n "${HOME:-}" ]; then
+      tmp_candidates+=("${HOME%/}/.codex-stage")
+    fi
+    tmp_candidates+=("/var/tmp/.codex-stage" "/tmp/.codex-stage")
+    for tmp_candidate in "${tmp_candidates[@]}"; do
+      tmp_template="${tmp_candidate}.XXXXXX"
+      if tmpdir="$(mktemp -d "$tmp_template" 2>/dev/null)"; then
+        tmp_created=1
+        break
+      fi
+    done
+    if [ "$tmp_created" -eq 0 ]; then
+      tmpdir="$(mktemp -d)" || die "mktemp failed while staging Codex"
+    fi
+    archive="$tmpdir/${candidate_basename}"
+
+    if [ "$using_prefetch" -eq 1 ]; then
+      if ! cp "$prefetched_path" "$archive"; then
+        rm -rf "$tmpdir"
+        log "Failed to copy pre-fetched Codex asset ${candidate}; trying next asset"
+        continue
+      fi
+    else
+      if ! curl -fsSL "$candidate_release_url" -o "$archive"; then
+        rm -rf "$tmpdir"
+        log "Failed to download Codex asset ${candidate}; trying next asset"
+        continue
+      fi
+    fi
+
+    case "$archive" in
+      *.tar.gz)
+        if ! tar -xzf "$archive" -C "$tmpdir"; then
+          rm -rf "$tmpdir"
+          log "Failed to extract Codex tarball (${candidate}); trying next asset"
+          continue
+        fi
+        extracted="$(find "$tmpdir" -type f -perm -111 -name 'codex*' | head -n1)"
+        if [ -z "$extracted" ]; then
+          extracted="$(find "$tmpdir" -type f -name 'codex*' | head -n1)"
+        fi
+        ;;
+      *.zip)
+        if ! unzip -q "$archive" -d "$tmpdir"; then
+          rm -rf "$tmpdir"
+          log "Failed to extract Codex zip (${candidate}); trying next asset"
+          continue
+        fi
+        extracted="$(find "$tmpdir" -type f -perm -111 -name 'codex*' | head -n1)"
+        if [ -z "$extracted" ]; then
+          extracted="$(find "$tmpdir" -type f -name 'codex*' | head -n1)"
+        fi
+        ;;
+      *)
+        extracted="$archive"
+        ;;
+    esac
+
+    if [ -z "$extracted" ] || [ ! -f "$extracted" ]; then
+      rm -rf "$tmpdir"
+      log "Unable to locate Codex binary in ${candidate}; trying next asset"
+      continue
+    fi
+    chmod +x "$extracted" 2>/dev/null || true
+
+    if ! codex_binary_self_check "$extracted"; then
+      local check_status="$CODEX_SELF_CHECK_STATUS"
+      local check_output="$CODEX_SELF_CHECK_OUTPUT"
+      rm -rf "$tmpdir"
+      log "Codex asset ${candidate} failed self-check (status ${check_status}); trying next asset"
+      if [ -n "$check_output" ]; then
+        log "$check_output"
+      fi
+      continue
+    fi
+
+    installed=0
+    local codex_path=""
+
+    if [ "${PREFER_GLOBAL:-0}" -eq 1 ]; then
+      if [ "$is_root" -eq 1 ]; then
+        if ensure_path_dir "/usr/local/bin" 0 && install_file_with_mode "$extracted" "$global_target" 755 0; then
+          installed=1
+          codex_path="$global_target"
+          log "Codex installed globally at $global_target"
+        else
+          rm -rf "$tmpdir"
+          die "global Codex install failed while running as root"
+        fi
+      elif [ "${USE_SUDO:-0}" -eq 1 ] && have sudo; then
+        if ensure_path_dir "/usr/local/bin" 1 && install_file_with_mode "$extracted" "$global_target" 755 1; then
+          installed=1
+          codex_path="$global_target"
+          log "Codex installed globally at $global_target (sudo)"
+        else
+          log "sudo global install failed; falling back to user install"
+        fi
+      else
+        log "global install requested but insufficient privileges; falling back to user install"
+      fi
+    else
+      if ensure_path_dir "/usr/local/bin" 0 && install_file_with_mode "$extracted" "$global_target" 755 0; then
+        installed=1
+        codex_path="$global_target"
+        log "Codex installed globally at $global_target"
+      else
+        log "global install failed; attempting user install"
+      fi
+    fi
+
+    if [ "$installed" -eq 0 ]; then
+      if [ "$is_root" -eq 1 ]; then
+        rm -rf "$tmpdir"
+        die "global Codex install failed while running as root"
+      fi
+      local fallback_bin="${fallback_prefix}/bin/codex"
+      if ! ensure_path_dir "${fallback_prefix}/bin" 0; then
+        rm -rf "$tmpdir"
+        die "unable to create ${fallback_prefix}/bin for user install"
+      fi
+      if install_file_with_mode "$extracted" "$fallback_bin" 755 0; then
+        PATH="${fallback_prefix}/bin:$PATH"
+        export PATH
+        installed=1
+        codex_path="$fallback_bin"
+        log "Codex installed to user path $fallback_bin"
+      else
+        rm -rf "$tmpdir"
+        die "unable to install Codex for user scope"
+      fi
+    fi
+
+    rm -rf "$tmpdir"
+
+    hash -r 2>/dev/null || true
+    if codex_binary_self_check "$codex_path"; then
+      log "Codex version after install: $CODEX_SELF_CHECK_OUTPUT"
+      return
+    fi
+
+    log "Installed Codex at $codex_path but self-check failed (status ${CODEX_SELF_CHECK_STATUS}); trying next asset"
+    installed=0
+    continue
+  done
+
+  die "Unable to install usable Codex binary for this platform"
+}
+
+user_exists() {
+  id "$1" >/dev/null 2>&1
+}
+
+user_home_dir() {
+  local user="$1"
+  local home=""
+  if have getent; then
+    home=$(getent passwd "$user" | cut -d: -f6 || true)
+  fi
+  if [ -z "$home" ] && [ -r /etc/passwd ]; then
+    home=$(awk -F: -v u="$user" '($1==u){print $6; exit}' /etc/passwd 2>/dev/null || true)
+  fi
+  if [ -z "$home" ]; then
+    case "$user" in
+      root) home="/root" ;;
+      *) home="/home/$user" ;;
+    esac
+  fi
+  printf '%s\n' "$home"
+}
+
+sync_root_auth_to_chris() {
+  if [ "$(id -u)" -ne 0 ]; then
+    return 0
+  fi
+  if ! user_exists chris; then
+    log "user chris absent; skipping chris provisioning"
+    return 0
+  fi
+  local src="$HOME/.codex/auth.json"
+  if [ ! -s "$src" ]; then
+    log "root auth.json missing; skipping chris provisioning"
+    return 0
+  fi
+  local chris_home
+  chris_home="$(user_home_dir chris)"
+  if [ -z "$chris_home" ] || [ ! -d "$chris_home" ]; then
+    log "home for chris missing; skipping chris provisioning"
+    return 0
+  fi
+  if have install; then
+    install -d -m 700 -o chris -g chris "$chris_home/.codex"
+    install -m 600 -o chris -g chris "$src" "$chris_home/.codex/auth.json"
+  else
+    mkdir -p "$chris_home/.codex"
+    chmod 700 "$chris_home/.codex"
+    cp "$src" "$chris_home/.codex/auth.json"
+    chmod 600 "$chris_home/.codex/auth.json"
+    chown chris:chris "$chris_home/.codex" "$chris_home/.codex/auth.json"
+  fi
+  log "Provisioned Codex auth for chris"
+}
+
+emit_codex_wrapper_script() {
+  if [ -n "${CODEX_WRAPPER_PAYLOAD:-}" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+      python3 - <<'PY'
+import base64, os, sys
+payload = os.environ.get("CODEX_WRAPPER_PAYLOAD", "")
+if not payload:
+    sys.exit(1)
+sys.stdout.buffer.write(base64.b64decode(payload))
+PY
+      return 0
+    fi
+    if command -v base64 >/dev/null 2>&1; then
+      printf '%s' "$CODEX_WRAPPER_PAYLOAD" | base64 --decode
+      return 0
+    fi
+    die "unable to decode cdx wrapper payload; install python3 or base64"
+  fi
+  die "cdx wrapper payload missing"
+}
+
+deploy_global_cdx_wrapper() {
+  local target="/usr/local/bin/cdx"
+  local tmp=""
+
+  tmp="$(mktemp)" || die "mktemp failed while preparing cdx for global install"
+  if ! emit_codex_wrapper_script >"$tmp"; then
+    rm -f "$tmp"
+    die "failed to render cdx wrapper payload"
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    if ! ensure_path_dir "/usr/local/bin" 0 || ! install_file_with_mode "$tmp" "$target" 755 0; then
+      rm -f "$tmp"
+      die "failed to install cdx wrapper at $target"
+    fi
+    log "Installed cdx wrapper at $target"
+  elif [ "${USE_SUDO:-0}" -eq 1 ] && have sudo; then
+    if ! ensure_path_dir "/usr/local/bin" 1 || ! install_file_with_mode "$tmp" "$target" 755 1; then
+      rm -f "$tmp"
+      die "failed to install cdx wrapper at $target with sudo"
+    fi
+    log "Installed cdx wrapper at $target (sudo)"
+  else
+    rm -f "$tmp"
+    die "insufficient privileges to install cdx in /usr/local/bin; rerun with root or --sudo"
+  fi
+
+  rm -f "$tmp"
+}
+
+decode_payload_to_file() {
+  local payload="$1"
+  local dest="$2"
+  if [ -z "$payload" ]; then
+    return 1
+  fi
+  {
+    if command -v python3 >/dev/null 2>&1; then
+      CODEX_PAYLOAD="$payload" python3 - <<'PY'
+import base64, os, sys
+payload = os.environ.get("CODEX_PAYLOAD", "")
+if not payload:
+    sys.exit(1)
+sys.stdout.buffer.write(base64.b64decode(payload))
+PY
+    elif command -v base64 >/dev/null 2>&1; then
+      printf '%s' "$payload" | base64 --decode
+    else
+      return 1
+    fi
+  } >"$dest"
+  return $?
+}
+
+remove_legacy_wrapper_path() {
+  local path="$1"
+  if [ -z "$path" ]; then
+    return 0
+  fi
+  if [ -e "$path" ]; then
+    rm -f "$path" 2>/dev/null || true
+    if [ ! -e "$path" ]; then
+      log "Removed legacy cdx wrapper at $path"
+    fi
+  fi
+}
+
+cleanup_legacy_cdx_wrappers() {
+  remove_legacy_wrapper_path "$HOME/.local/bin/cdx"
+  remove_legacy_wrapper_path "$HOME/cdx.sh"
+  remove_legacy_wrapper_path "$HOME/codex.sh"
+
+  if [ "$(id -u)" -eq 0 ]; then
+    remove_legacy_wrapper_path "/root/.local/bin/cdx"
+    remove_legacy_wrapper_path "/root/cdx.sh"
+    remove_legacy_wrapper_path "/root/codex.sh"
+    if user_exists chris; then
+      local chris_home
+      chris_home="$(user_home_dir chris)"
+      if [ -n "$chris_home" ] && [ -d "$chris_home" ]; then
+        remove_legacy_wrapper_path "$chris_home/.local/bin/cdx"
+        remove_legacy_wrapper_path "$chris_home/cdx.sh"
+        remove_legacy_wrapper_path "$chris_home/codex.sh"
+      fi
+    fi
+  fi
+}
+
+install_sync_ca_bundle() {
+  if [ -z "${CODEX_SYNC_CA_PAYLOAD:-}" ]; then
+    return 0
+  fi
+  local target="${CODEX_SYNC_CA_FILE:-/usr/local/etc/codex-sync-ca.pem}"
+  local tmp need_priv=0
+  tmp="$(mktemp)" || die "mktemp failed while preparing sync CA bundle"
+  if ! decode_payload_to_file "$CODEX_SYNC_CA_PAYLOAD" "$tmp"; then
+    rm -f "$tmp"
+    die "Unable to decode sync CA payload"
+  fi
+  if [ "$(id -u)" -ne 0 ]; then
+    if [ "${USE_SUDO:-0}" -eq 1 ] && have sudo; then
+      need_priv=1
+    else
+      rm -f "$tmp"
+      log "Insufficient privileges to install sync CA bundle at $target; skipping"
+      return 0
+    fi
+  fi
+  if ! ensure_path_dir "$(dirname "$target")" "$need_priv"; then
+    rm -f "$tmp"
+    die "Unable to create directory for $target"
+  fi
+  if ! install_file_with_mode "$tmp" "$target" 644 "$need_priv"; then
+    rm -f "$tmp"
+    die "Failed to install sync CA bundle at $target"
+  fi
+  rm -f "$tmp"
+  CODEX_SYNC_CA_FILE="$target"
+  if [ "$need_priv" -eq 1 ]; then
+    log "Installed sync CA bundle at $target (sudo)"
+  else
+    log "Installed sync CA bundle at $target"
+  fi
+}
+
+install_sync_config_file() {
+  local base="${CODEX_SYNC_BASE_URL:-}"
+  local key="${CODEX_SYNC_API_KEY:-}"
+  if [ -z "$base" ] || [ -z "$key" ]; then
+    log "Sync API configuration missing; skipping sync config install"
+    return 0
+  fi
+  local tmp target need_priv
+  tmp="$(mktemp)" || die "mktemp failed while preparing sync config"
+  {
+    printf 'CODEX_SYNC_BASE_URL=%s\n' "$base"
+    printf 'CODEX_SYNC_API_KEY=%s\n' "$key"
+    if [ -n "${CODEX_SYNC_FQDN:-}" ]; then
+      printf 'CODEX_SYNC_FQDN=%s\n' "$CODEX_SYNC_FQDN"
+    fi
+    if [ -n "${CODEX_SYNC_CA_FILE:-}" ]; then
+      printf 'CODEX_SYNC_CA_FILE=%s\n' "$CODEX_SYNC_CA_FILE"
+    fi
+  } >"$tmp"
+  target="/usr/local/etc/codex-sync.env"
+  need_priv=0
+  if [ "$(id -u)" -ne 0 ]; then
+    if [ "${USE_SUDO:-0}" -eq 1 ] && have sudo; then
+      need_priv=1
+    else
+      local fallback="$HOME/.codex/sync.env"
+      mkdir -p "$HOME/.codex"
+      chmod 700 "$HOME/.codex"
+      cp "$tmp" "$fallback"
+      chmod 600 "$fallback"
+      rm -f "$tmp"
+      log "Wrote sync config to $fallback"
+      return 0
+    fi
+  fi
+  if ! ensure_path_dir "/usr/local/etc" "$need_priv" || ! install_file_with_mode "$tmp" "$target" 644 "$need_priv"; then
+    rm -f "$tmp"
+    die "Failed to install sync config at $target"
+  fi
+  rm -f "$tmp"
+  if [ "$need_priv" -eq 1 ]; then
+    log "Wrote sync config to $target (sudo)"
+  else
+    log "Wrote sync config to $target"
+  fi
+}
+
+initial_sync_auth() {
+  local base="${CODEX_SYNC_BASE_URL:-}"
+  local key="${CODEX_SYNC_API_KEY:-}"
+  local ca_file="${CODEX_SYNC_CA_FILE:-}"
+  local client_version_raw="${CODEX_SELF_CHECK_OUTPUT:-unknown}"
+  local client_version
+  client_version="$(extract_version_token "$client_version_raw")"
+  if [ -z "$client_version" ]; then
+    client_version="$client_version_raw"
+  fi
+  local wrapper_version="${WRAPPER_VERSION_REMOTE:-unknown}"
+  if [ -z "$base" ] || [ -z "$key" ]; then
+    log "Sync API configuration missing; skipping initial auth sync"
+    return 0
+  fi
+  if ! have python3; then
+    log "python3 missing; skipping initial auth sync"
+    return 0
+  fi
+  local auth_path="$HOME/.codex/auth.json"
+  if python3 - "$base" "$key" "$auth_path" "$ca_file" "$client_version" "$wrapper_version" <<'PY'; then
+import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+api_key = sys.argv[2]
+path = pathlib.Path(sys.argv[3]).expanduser()
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+client_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
+wrapper_version = sys.argv[6] if len(sys.argv) > 6 else "unknown"
+
+if not base:
+    print("Sync API base URL missing", file=sys.stderr)
+    sys.exit(1)
+
+
+def default_auth():
+    return {"last_refresh": "1970-01-01T00:00:00Z", "auths": {}}
+
+
+def load_auth():
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return default_auth()
+    if not isinstance(data, dict) or "last_refresh" not in data:
+        return default_auth()
+    return data
+
+
+def canonical_json(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def build_context():
+    ctx = ssl.create_default_context()
+    if cafile:
+        ctx.load_verify_locations(cafile)
+    try:
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    except AttributeError:
+        pass
+    return ctx
+
+
+def parse_error_body(body: str):
+    msg = body
+    details = {}
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict):
+            msg = parsed.get("message", body)
+            details = parsed.get("details", {}) or {}
+    except Exception:
+        pass
+    return msg, details
+
+
+def fail_with_http(exc: urllib.error.HTTPError, action: str):
+    body = exc.read().decode("utf-8", "ignore")
+    msg, details = parse_error_body(body)
+    expected_ip = details.get("expected_ip") if isinstance(details, dict) else None
+    received_ip = details.get("received_ip") if isinstance(details, dict) else None
+    extra = ""
+    if expected_ip or received_ip:
+        parts = []
+        if expected_ip:
+            parts.append(f"expected {expected_ip}")
+        if received_ip:
+            parts.append(f"received {received_ip}")
+        extra = " (" + ", ".join(parts) + ")"
+    print(f"{action} failed ({exc.code}): {msg}{extra}", file=sys.stderr)
+    sys.exit(2)
+
+
+def post_json(url: str, payload: dict, action: str):
+    body = canonical_json(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    ctx = build_context()
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        fail_with_http(exc, action)
+    except Exception as exc:  # noqa: BLE001
+        print(f"{action} failed: {exc}", file=sys.stderr)
+        sys.exit(3)
+
+
+current = load_auth()
+auth_json = canonical_json(current)
+auth_sha = hashlib.sha256(auth_json.encode("utf-8")).hexdigest()
+
+check_payload = {
+    "last_refresh": current.get("last_refresh", "1970-01-01T00:00:00Z"),
+    "auth_sha": auth_sha,
+    "client_version": client_version or "unknown",
+}
+if wrapper_version and wrapper_version != "unknown":
+    check_payload["wrapper_version"] = wrapper_version
+
+check_data = post_json(f"{base}/auth/check", check_payload, "auth check")
+payload_data = check_data.get("data") if isinstance(check_data, dict) else {}
+status = (payload_data or {}).get("status")
+auth_to_write = None
+
+if status == "valid":
+    auth_to_write = current
+elif status == "outdated":
+    auth_to_write = payload_data.get("auth") or current
+    lr = payload_data.get("last_refresh")
+    if isinstance(lr, str):
+        auth_to_write["last_refresh"] = lr
+elif status in ("missing", "upload_required"):
+    status = "upload_required"
+else:
+    status = "upload_required"
+
+if status == "upload_required":
+    upload_payload = {
+        "auth": current,
+        "client_version": client_version or "unknown",
+    }
+    if wrapper_version and wrapper_version != "unknown":
+        upload_payload["wrapper_version"] = wrapper_version
+    update_data = post_json(f"{base}/auth/update", upload_payload, "auth update")
+    payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
+    auth_to_write = payload_data.get("auth") or current
+    lr = payload_data.get("last_refresh")
+    if isinstance(lr, str):
+        auth_to_write["last_refresh"] = lr
+
+if not isinstance(auth_to_write, dict):
+    auth_to_write = current
+
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(auth_to_write, indent=2) + "\n", encoding="utf-8")
+try:
+    os.chmod(path, 0o600)
+except PermissionError:
+    pass
+PY
+    log "Fetched canonical auth.json via sync API"
+  else
+    log "Initial auth sync failed; continuing"
+  fi
+}
+
+ensure_remote_prereqs
+ensure_codex
+
+deploy_global_cdx_wrapper
+install_sync_ca_bundle
+install_sync_config_file
+initial_sync_auth
+cleanup_legacy_cdx_wrappers
+
+cdx_path="$(command -v cdx || true)"
+if [ -z "$cdx_path" ]; then
+  die "cdx wrapper not found on PATH after install"
+fi
+
+log "cdx wrapper: $cdx_path"
+
+if [ "$DO_LOGIN" -eq 1 ]; then
+  # Stream codex login output, echoing lines, and additionally emit a single
+  # sentinel line with the first detected URL so the local side can open a browser.
+  SENTINEL="${AUTH_SENTINEL:-AUTH_URL}"
+  BUF=""
+  if have stdbuf; then BUF="stdbuf -oL -eL"; fi
+  (
+    if [ -n "$BUF" ]; then
+      eval "$BUF \"$cdx_path\" login"
+    else
+      "$cdx_path" login
+    fi
+  ) 2>&1 | awk -v S="$SENTINEL" '
+    {
+      print
+      text=$0
+      while (match(text, /(https?:\/\/[^[:space:]]+)/, m)) {
+        url=m[1]
+        sub(/[),.;]+$/, "", url)
+        printf "%s %s\n", S, url
+        fflush()
+        text=substr(text, RSTART + RLENGTH)
+      }
+    }
+  '
+else
+  log "Skipping 'codex login' (DO_LOGIN=0). Expecting auth.json to be provisioned."
+fi
+
+systemctl_run() {
+  if ! have systemctl; then
+    return 1
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl "$@"
+    return $?
+  fi
+  if [ "${USE_SUDO:-0}" -eq 1 ] && have sudo; then
+    sudo systemctl "$@"
+    return $?
+  fi
+  return 1
+}
+
+deploy_codex_systemd_timer() {
+  if [ "${INSTALL_SYSTEMD_TIMER:-0}" -ne 1 ]; then
+    return 0
+  fi
+  if [ -z "${CODEX_SYSTEMD_UPDATE_PAYLOAD:-}" ] || [ -z "${CODEX_SYSTEMD_SERVICE_PAYLOAD:-}" ] || [ -z "${CODEX_SYSTEMD_TIMER_PAYLOAD:-}" ]; then
+    log "Codex systemd timer payload missing; skipping deployment"
+    return 0
+  fi
+  if ! have systemctl; then
+    log "systemctl unavailable; skipping Codex timer installation"
+    return 0
+  fi
+  local need_priv=0
+  if [ "$(id -u)" -ne 0 ]; then
+    if [ "${USE_SUDO:-0}" -ne 1 ] || ! have sudo; then
+      log "Insufficient privileges to install Codex systemd timer; skipping"
+      return 0
+    fi
+    need_priv=1
+  fi
+
+  local tmp_script tmp_service tmp_timer
+  tmp_script="$(mktemp)" || die "mktemp failed while preparing codex-systemd-update"
+  tmp_service="$(mktemp)" || { rm -f "$tmp_script"; die "mktemp failed while preparing codex service"; }
+  tmp_timer="$(mktemp)" || { rm -f "$tmp_script" "$tmp_service"; die "mktemp failed while preparing codex timer"; }
+
+  if ! decode_payload_to_file "$CODEX_SYSTEMD_UPDATE_PAYLOAD" "$tmp_script"; then
+    rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+    die "Unable to decode codex-systemd-update payload"
+  fi
+  if ! decode_payload_to_file "$CODEX_SYSTEMD_SERVICE_PAYLOAD" "$tmp_service"; then
+    rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+    die "Unable to decode codex-wrapper-update.service payload"
+  fi
+  if ! decode_payload_to_file "$CODEX_SYSTEMD_TIMER_PAYLOAD" "$tmp_timer"; then
+    rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+    die "Unable to decode codex-wrapper-update.timer payload"
+  fi
+
+  if ! install_file_with_mode "$tmp_script" "/usr/local/bin/codex-systemd-update" 755 "$need_priv"; then
+    rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+    die "Failed to install codex-systemd-update"
+  fi
+  if ! install_file_with_mode "$tmp_service" "/etc/systemd/system/codex-wrapper-update.service" 644 "$need_priv"; then
+    rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+    die "Failed to install codex-wrapper-update.service"
+  fi
+  if ! install_file_with_mode "$tmp_timer" "/etc/systemd/system/codex-wrapper-update.timer" 644 "$need_priv"; then
+    rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+    die "Failed to install codex-wrapper-update.timer"
+  fi
+
+  rm -f "$tmp_script" "$tmp_service" "$tmp_timer"
+
+  if ! systemctl_run daemon-reload; then
+    log "systemctl daemon-reload failed after installing Codex timer"
+    return 0
+  fi
+  if systemctl_run is-enabled codex-wrapper-update.timer >/dev/null 2>&1; then
+    systemctl_run restart codex-wrapper-update.timer >/dev/null 2>&1 || true
+    log "Codex systemd timer refreshed"
+  else
+    if systemctl_run enable --now codex-wrapper-update.timer >/dev/null 2>&1; then
+      log "Codex systemd timer enabled"
+    else
+      log "Failed to enable Codex systemd timer"
+    fi
+  fi
+}
+
+deploy_codex_systemd_timer
+sync_root_auth_to_chris
+EOF
+
+REMOTE_CMD_ESCAPED="$(printf %q "$REMOTE_CMD")"
+
+# If a local auth.json exists, push it to the remote and skip login.
+# Otherwise, fall back to the interactive login flow via port-forward.
+
+resolve_release_url_local() {
+  local asset="$1"
+  local base="https://github.com/openai/codex/releases/latest/download/${asset}"
+  curl -fsSIL -o /dev/null -w '%{url_effective}' "$base"
+}
+
+codex_asset_candidates_for() {
+  local os="$1"
+  local arch="$2"
+  case "$os" in
+    Linux)
+      case "$arch" in
+        x86_64|amd64)
+          printf '%s\n' 'codex-x86_64-unknown-linux-gnu.tar.gz'
+          printf '%s\n' 'codex-x86_64-unknown-linux-musl.tar.gz'
+          return 0
+          ;;
+        aarch64|arm64)
+          printf '%s\n' 'codex-aarch64-unknown-linux-gnu.tar.gz'
+          printf '%s\n' 'codex-aarch64-unknown-linux-musl.tar.gz'
+          return 0
+          ;;
+      esac
+      ;;
+    Darwin)
+      case "$arch" in
+        x86_64|amd64) printf '%s\n' 'codex-x86_64-apple-darwin.tar.gz'; return 0 ;;
+        arm64) printf '%s\n' 'codex-aarch64-apple-darwin.tar.gz'; return 0 ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      case "$arch" in
+        x86_64|amd64) printf '%s\n' 'codex-x86_64-pc-windows-msvc.exe.zip'; return 0 ;;
+        aarch64|arm64) printf '%s\n' 'codex-aarch64-pc-windows-msvc.exe.zip'; return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+build_scp_opts() {
+  SCP_OPTS=(-q)
+  local i=0
+  while [ $i -lt ${#SSH_OPTS[@]} ]; do
+    local opt="${SSH_OPTS[$i]}"
+    case "$opt" in
+      -p)
+        i=$((i+1))
+        SCP_OPTS+=(-P "${SSH_OPTS[$i]}")
+        ;;
+      -o)
+        i=$((i+1))
+        SCP_OPTS+=(-o "${SSH_OPTS[$i]}")
+        ;;
+      *)
+        SCP_OPTS+=("$opt")
+        ;;
+    esac
+    i=$((i+1))
+  done
+}
+
+push_auth_json_to_remote() {
+  # Copy local auth.json to remote $HOME/.codex/auth.json for the SSH user and
+  # mirror to chris when running as root, without relying on the sync API.
+  if [ ! -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
+    return 1
+  fi
+  build_scp_opts
+  local remote_tmp=""
+  if ! remote_tmp="$(ssh_capture 'mktemp /tmp/codex-auth.XXXXXX' 2>/dev/null | tr -d '\r')"; then
+    return 1
+  fi
+  if [ -z "$remote_tmp" ]; then
+    return 1
+  fi
+  if ! scp "${SCP_OPTS[@]}" "$AUTH_JSON_LOCAL_EXPANDED" "${SSH_USER}@${HOST}:${remote_tmp}" >/dev/null 2>&1; then
+    ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_tmp")" || true
+    return 1
+  fi
+
+  local remote_apply
+  read -r -d '' remote_apply <<'EOS' || true
+set -euo pipefail
+src_file="$1"
+target_user="$2"
+install_auth_for_user() {
+  local user="$1"
+  local home=""
+  if command -v getent >/dev/null 2>&1; then
+    home=$(getent passwd "$user" | cut -d: -f6 || true)
+  fi
+  if [ -z "$home" ] && [ -r /etc/passwd ]; then
+    home=$(awk -F: -v u="$user" '($1==u){print $6; exit}' /etc/passwd 2>/dev/null || true)
+  fi
+  if [ -z "$home" ]; then
+    if [ "$user" = "root" ]; then
+      home="/root"
+    else
+      home="/home/$user"
+    fi
+  fi
+  mkdir -p "$home/.codex"
+  chmod 700 "$home/.codex" || true
+  if command -v install >/dev/null 2>&1; then
+    install -m 600 "$src_file" "$home/.codex/auth.json"
+  else
+    cp "$src_file" "$home/.codex/auth.json"
+    chmod 600 "$home/.codex/auth.json" || true
+  fi
+  if command -v chown >/dev/null 2>&1; then
+    chown "$user":"$user" "$home/.codex" "$home/.codex/auth.json" 2>/dev/null || true
+  fi
+}
+
+install_auth_for_user "$target_user"
+
+if [ "$(id -u)" -eq 0 ] && id -u chris >/dev/null 2>&1; then
+  install_auth_for_user chris
+fi
+rm -f "$src_file"
+EOS
+
+  local remote_cmd
+  remote_cmd="$(printf 'bash -s -- %q %q' "$remote_tmp" "$SSH_USER")"
+  if ! NO_TTY=1 ssh_quiet_cmd "$remote_cmd" <<<"$remote_apply"; then
+    ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_tmp")" || true
+    return 1
+  fi
+  return 0
+}
+
+ssh_capture() {
+  local cmd="$1"
+  ssh "${SSH_OPTS[@]}" "${SSH_USER}@${HOST}" "$cmd"
+}
+
+prefetch_codex_assets() {
+  PREFETCH_REMOTE_DIR=""
+  PREFETCH_RELEASE_TAG=""
+  local remote_os=""
+  local remote_arch=""
+  local candidates=()
+  local local_tmp=""
+  local remote_dir=""
+  local have_prefetch=0
+
+  if ! remote_os="$(ssh_capture 'uname -s' 2>/dev/null | tr -d '\r')" || [ -z "$remote_os" ]; then
+    return 0
+  fi
+  if ! remote_arch="$(ssh_capture 'uname -m' 2>/dev/null | tr -d '\r')" || [ -z "$remote_arch" ]; then
+    return 0
+  fi
+
+  mapfile -t candidates < <(codex_asset_candidates_for "$remote_os" "$remote_arch" 2>/dev/null) || return 0
+  if [ ${#candidates[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  if ! local_tmp="$(mktemp -d)"; then
+    return 0
+  fi
+
+  if ! remote_dir="$(ssh_capture 'mktemp -d /tmp/codex-assets.XXXXXX' 2>/dev/null | tr -d '\r')"; then
+    rm -rf "$local_tmp"
+    return 0
+  fi
+  remote_dir="${remote_dir%$'\n'}"
+  if [ -z "$remote_dir" ]; then
+    rm -rf "$local_tmp"
+    return 0
+  fi
+
+  build_scp_opts
+
+  for candidate in "${candidates[@]}"; do
+    local url=""
+    local local_asset=""
+    url="$(resolve_release_url_local "$candidate" 2>/dev/null || true)"
+    if [ -z "$url" ]; then
+      continue
+    fi
+    url="${url%$'\r'}"
+    if [ -z "$PREFETCH_RELEASE_TAG" ]; then
+      local maybe_tag
+      maybe_tag="$(basename "$(dirname "$url")")"
+      if [ -n "$maybe_tag" ]; then
+        PREFETCH_RELEASE_TAG="$maybe_tag"
+      fi
+    fi
+    local_asset="${local_tmp}/${candidate}"
+    if curl -fsSL "$url" -o "$local_asset"; then
+      if scp "${SCP_OPTS[@]}" "$local_asset" "${SSH_USER}@${HOST}:${remote_dir}/${candidate}" >/dev/null 2>&1; then
+        have_prefetch=1
+      fi
+    fi
+  done
+
+  rm -rf "$local_tmp"
+
+  if [ "$have_prefetch" -eq 1 ]; then
+    PREFETCH_REMOTE_DIR="$remote_dir"
+  else
+    ssh_quiet "${SSH_USER}@${HOST}" "rm -rf $(printf %q "$remote_dir")"
+  fi
+}
+
+extract_version_token() {
+  local data="$1"
+  local candidate=""
+  candidate="$(printf '%s\n' "$data" | tr ' \t' '\n' | grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9A-Za-z._-]+$' | head -n 1 || true)"
+  if [ -z "$candidate" ]; then
+    candidate="$(printf '%s\n' "$data" | grep -Eo '[0-9]+\.[0-9]+\.[0-9A-Za-z._-]+' | head -n 1 || true)"
+  fi
+  candidate="${candidate#v}"
+  candidate="${candidate#V}"
+  printf '%s' "$candidate"
+}
+
+fetch_remote_codex_version() {
+  local output=""
+  local version=""
+  if ! output="$(ssh_capture 'codex --version' 2>/dev/null)"; then
+    return 1
+  fi
+  output="$(printf '%s' "$output" | tr -d '\r')"
+  version="$(extract_version_token "$output")"
+  if [ -n "$version" ]; then
+    printf '%s' "$version"
+  else
+    printf '%s' "$output"
+  fi
+}
+
+compute_wrapper_sha256() {
+  if [ ! -f "$LOCAL_WRAPPER_PATH" ]; then
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$LOCAL_WRAPPER_PATH" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$LOCAL_WRAPPER_PATH" | awk '{print $1}'
+    return 0
+  fi
+  if [ -n "$PYTHON3_BIN" ]; then
+    "$PYTHON3_BIN" - "$LOCAL_WRAPPER_PATH" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+    return 0
+  fi
+  return 1
+}
+
+is_registry_excluded_host() {
+  local host="$1"
+  case "$host" in
+    10.2.0.*)
+      local last_octet="${host##*.}"
+      if [[ "$last_octet" =~ ^[0-9]+$ ]] && (( last_octet >= 200 && last_octet <= 254 )); then
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+record_registry_metadata() {
+  local flow_mode="${1:-auth}"
+  local codex_version=""
+  local wrapper_sha=""
+  local wrapper_version=""
+  local date_str=""
+  local note=""
+  local registry_dir=""
+
+  if [ -z "$REGISTRY_PATH" ]; then
+    return 0
+  fi
+  if is_registry_excluded_host "$HOST"; then
+    printf '[registry][INFO] Skipping registry update for %s (test VM range)\n' "$HOST"
+    return 0
+  fi
+  if [ -z "$PYTHON3_BIN" ]; then
+    printf '[registry][WARN] python3 is required to update %s; skipping registry write for %s\n' "$REGISTRY_PATH" "$HOST" >&2
+    return 0
+  fi
+
+  if ! codex_version="$(fetch_remote_codex_version)"; then
+    codex_version="unknown"
+  fi
+  if ! wrapper_sha="$(compute_wrapper_sha256)"; then
+    wrapper_sha="unknown"
+  fi
+  wrapper_version="${LOCAL_WRAPPER_VERSION:-unknown}"
+  date_str="$(date +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
+
+  case "$flow_mode" in
+    auth)
+      note="Auto-recorded via codex-install (auth push) on ${date_str}."
+      ;;
+    login)
+      note="Auto-recorded via codex-install (interactive login) on ${date_str}."
+      ;;
+    *)
+      note="Auto-recorded via codex-install on ${date_str}."
+      ;;
+  esac
+
+  registry_dir="$(dirname "$REGISTRY_PATH")"
+  if [ ! -d "$registry_dir" ]; then
+    if ! mkdir -p "$registry_dir"; then
+      printf '[registry][WARN] Unable to create %s; skipping registry update for %s\n' "$registry_dir" "$HOST" >&2
+      return 0
+    fi
+  fi
+
+  REGISTRY_HOST="$HOST" \
+  REGISTRY_USER="$SSH_USER" \
+  REGISTRY_DATE="$date_str" \
+  REGISTRY_VERSION="$codex_version" \
+  REGISTRY_WRAPPER_SHA="$wrapper_sha" \
+  REGISTRY_WRAPPER_VERSION="$wrapper_version" \
+  REGISTRY_NOTES="$note" \
+  "$PYTHON3_BIN" - "$REGISTRY_PATH" <<'PY'
+import json, os, pathlib, sys, tempfile
+
+path = pathlib.Path(sys.argv[1])
+host = os.environ["REGISTRY_HOST"]
+user = os.environ["REGISTRY_USER"]
+last_deployed = os.environ["REGISTRY_DATE"]
+codex_version = os.environ["REGISTRY_VERSION"]
+wrapper_sha = os.environ["REGISTRY_WRAPPER_SHA"]
+notes = os.environ["REGISTRY_NOTES"]
+
+data = {"servers": []}
+if path.exists():
+    try:
+        text = path.read_text()
+        if text.strip():
+            data = json.loads(text)
+    except json.JSONDecodeError:
+        print(f"[registry][WARN] Unable to parse {path}; overwriting with fresh data", file=sys.stderr)
+        data = {"servers": []}
+
+servers = data.get("servers")
+if not isinstance(servers, list):
+    servers = []
+    data["servers"] = servers
+
+entry = None
+for item in servers:
+    if isinstance(item, dict) and item.get("hostname") == host:
+        entry = item
+        break
+
+if entry is None:
+    entry = {}
+    servers.append(entry)
+
+entry["hostname"] = host
+entry["ssh_user"] = user
+entry["last_deployed"] = last_deployed
+entry["codex_version"] = codex_version
+entry["wrapper_sha256"] = wrapper_sha
+entry["wrapper_version"] = os.environ.get("REGISTRY_WRAPPER_VERSION", "unknown")
+entry["notes"] = notes
+
+servers.sort(key=lambda item: (item.get("hostname") or ""))
+
+tmp = tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent))
+tmp_path = pathlib.Path(tmp.name)
+try:
+    json.dump(data, tmp, indent=2)
+    tmp.write("\n")
+    tmp.flush()
+    tmp.close()
+    tmp_path.replace(path)
+finally:
+    try:
+        tmp_path.unlink()
+    except FileNotFoundError:
+        pass
+PY
+  local status=$?
+  if [ "$status" -eq 0 ]; then
+    printf '[registry] Recorded %s (user=%s, version=%s) in %s\n' "$HOST" "$SSH_USER" "$codex_version" "$REGISTRY_PATH"
+  else
+    printf '[registry][WARN] Failed to update registry for %s\n' "$HOST" >&2
+  fi
+}
+
+expand_auth_path() {
+  # Expand leading '~' manually to avoid eval
+  case "$1" in
+    ~*) printf '%s\n' "${HOME}${1#~}" ;;
+    *)  printf '%s\n' "$1" ;;
+  esac
+}
+
+# Quiet step-based execution and verification when pushing auth.json.
+
+AUTH_JSON_LOCAL_EXPANDED="$(expand_auth_path "$AUTH_JSON_LOCAL")"
+
+STEP_IDX=0
+STEP_TOTAL=0
+FAIL_COUNT=0
+FAILED_STEPS=()
+CURRENT_STEP=""
+STEP_HISTORY_NAMES=()
+STEP_HISTORY_STATUS=()
+CURRENT_STEP_INDEX=-1
+
+# Determine flow (auth push vs login) and total steps
+if [ -f "$AUTH_JSON_LOCAL_EXPANDED" ] && [ -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
+  FLOW="auth"
+  STEP_TOTAL=6
+else
+  FLOW="login"
+fi
+
+RUN_STARTED=1
+
+on_exit_summary() {
+  local exit_code=$?
+  trap - EXIT
+  set +e
+  if [ "$RUN_STARTED" -ne 1 ]; then
+    exit "$exit_code"
+  fi
+
+  local target_label
+  if [ -n "$HOST" ]; then
+    target_label="${SSH_USER}@${HOST}"
+  elif [ -n "$TARGET_HOST" ]; then
+    target_label="${SSH_USER}@${TARGET_HOST}"
+  else
+    target_label="${SSH_USER}@unknown"
+  fi
+
+  local flow_desc
+  if [ "$FLOW" = "auth" ]; then
+    flow_desc="auth push"
+    if [ "$STEP_TOTAL" -gt 0 ]; then
+      flow_desc+=" (${STEP_TOTAL} steps)"
+    fi
+  else
+    flow_desc="login flow"
+  fi
+
+  if [ "$SUMMARY_ONLY" -eq 1 ]; then
+    local status_text="OK"
+    local detail="Completed successfully"
+    if [ "$exit_code" -ne 0 ]; then
+      status_text="FAIL"
+      if [ -n "$CURRENT_STEP" ]; then
+        detail="Failed at ${CURRENT_STEP}"
+      else
+        detail="Exited with status $exit_code"
+      fi
+    fi
+    render_tui_summary "$status_text" "$detail" "$target_label" "$flow_desc" "$exit_code"
+    exit "$exit_code"
+  fi
+
+  if [ "$FLOW" = "auth" ]; then
+    local succeeded=$((STEP_IDX - FAIL_COUNT))
+    if [ "$FAIL_COUNT" -eq 0 ]; then
+      printf '%sSummary:%s %d steps — %sall succeeded%s.\n' \
+        "$COLOR_BOLD" "$COLOR_RESET" "$STEP_TOTAL" "$COLOR_GREEN" "$COLOR_RESET"
+    else
+      printf '%sSummary:%s %d steps — %s%d succeeded%s, %s%d failures recorded%s.\n' \
+        "$COLOR_BOLD" "$COLOR_RESET" "$STEP_TOTAL" "$COLOR_GREEN" "$succeeded" "$COLOR_RESET" \
+        "$COLOR_RED" "$FAIL_COUNT" "$COLOR_RESET"
+    fi
+  fi
+
+  exit "$exit_code"
+}
+trap on_exit_summary EXIT
+
+step_begin() { # $1 desc
+  STEP_IDX=$((STEP_IDX+1))
+  CURRENT_STEP="$1"
+  STEP_HISTORY_NAMES+=("$1")
+  STEP_HISTORY_STATUS+=("pending")
+  CURRENT_STEP_INDEX=$((${#STEP_HISTORY_NAMES[@]} - 1))
+  if [ "$SUMMARY_ONLY" -eq 0 ]; then
+    printf '%s[%d/%d]%s %s%s%s ... ' "$COLOR_DIM" "$STEP_IDX" "$STEP_TOTAL" "$COLOR_RESET" "$COLOR_CYAN" "$1" "$COLOR_RESET"
+  fi
+}
+
+step_end_ok() {
+  if [ "$CURRENT_STEP_INDEX" -ge 0 ]; then
+    STEP_HISTORY_STATUS[$CURRENT_STEP_INDEX]="ok"
+  fi
+  if [ "$SUMMARY_ONLY" -eq 0 ]; then
+    printf '%sOK%s\n' "$COLOR_GREEN" "$COLOR_RESET"
+  fi
+}
+
+step_end_fail() { # optional extra message in $1
+  if [ "$CURRENT_STEP_INDEX" -ge 0 ]; then
+    STEP_HISTORY_STATUS[$CURRENT_STEP_INDEX]="fail"
+  fi
+  if [ "$SUMMARY_ONLY" -eq 0 ]; then
+    printf '%sFAIL%s\n' "$COLOR_RED" "$COLOR_RESET"
+  fi
+  FAIL_COUNT=$((FAIL_COUNT+1))
+  FAILED_STEPS+=("$CURRENT_STEP")
+}
+
+repeat_char() {
+  local char="$1"
+  local count="$2"
+  local out=""
+  while [ "$count" -gt 0 ]; do
+    out+="$char"
+    count=$((count-1))
+  done
+  printf '%s' "$out"
+}
+
+# Lightweight version extraction for remote sync payloads
+extract_version_token() {
+  # Extracts first semver-ish token from input; falls back to raw string.
+  local data="$1"
+  local candidate=""
+  candidate="$(printf '%s\n' "$data" | tr ' \t' '\n' | grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9A-Za-z._-]+$' | head -n1 || true)"
+  if [ -z "$candidate" ]; then
+    candidate="$(printf '%s\n' "$data" | grep -Eo '[0-9]+\.[0-9]+\.[0-9A-Za-z._-]+' | head -n1 || true)"
+  fi
+  candidate="${candidate#v}"
+  candidate="${candidate#V}"
+  if [ -n "$candidate" ]; then
+    printf '%s' "$candidate"
+  else
+    printf '%s' "$data"
+  fi
+}
+
+render_tui_summary() {
+  local status_text="$1"
+  local status_detail="$2"
+  local target_line="$3"
+  local flow_line="$4"
+  local exit_code="$5"
+  local lines=()
+  lines+=("codex-install summary")
+  lines+=("Target : ${target_line}")
+  lines+=("Flow   : ${flow_line}")
+  lines+=("Status : ${status_text}")
+  if [ -n "$status_detail" ]; then
+    lines+=("Detail : ${status_detail}")
+  fi
+  lines+=("Exit   : ${exit_code}")
+  if [ ${#STEP_HISTORY_NAMES[@]} -gt 0 ]; then
+    lines+=("")
+    lines+=("Steps:")
+    local idx=0
+    for idx in "${!STEP_HISTORY_NAMES[@]}"; do
+      local label status_symbol
+      label="${STEP_HISTORY_NAMES[$idx]}"
+      case "${STEP_HISTORY_STATUS[$idx]}" in
+        ok) status_symbol="[OK]" ;;
+        fail) status_symbol="[!!]" ;;
+        *) status_symbol="[--]" ;;
+      esac
+      lines+=("  $((idx + 1)). ${status_symbol} ${label}")
+    done
+  fi
+
+  local width=0
+  local line=""
+  for line in "${lines[@]}"; do
+    local len=${#line}
+    if [ "$len" -gt "$width" ]; then
+      width="$len"
+    fi
+  done
+  local border_inner
+  border_inner="$(repeat_char "-" $((width + 2)))"
+  printf '+%s+\n' "$border_inner"
+  for line in "${lines[@]}"; do
+    printf '| %-*s |\n' "$width" "$line"
+  done
+  printf '+%s+\n' "$border_inner"
+}
+
+ssh_quiet() {
+  # passthrough all args to ssh, quieting stdio while surfacing failures
+  local tmp status
+  if ! tmp="$(mktemp 2>/dev/null)"; then
+    ssh -tt "${SSH_OPTS[@]}" "$@" >/dev/null 2>&1
+    return $?
+  fi
+  if ssh -tt "${SSH_OPTS[@]}" "$@" >"$tmp" 2>&1; then
+    rm -f "$tmp"
+    return 0
+  fi
+  status=$?
+  if [ -s "$tmp" ]; then
+    printf '\n%sSSH output:%s\n' "$COLOR_DIM" "$COLOR_RESET" >&2
+    sed 's/^/    /' "$tmp" >&2
+  fi
+  rm -f "$tmp"
+  return "$status"
+}
+
+ssh_quiet_cmd() {
+  # $1 = remote command string
+  local cmd="$1"
+  local tmp status
+  local ssh_args=()
+  if [ "${NO_TTY:-0}" -eq 1 ]; then
+    ssh_args=(${SSH_OPTS[@]})
+  else
+    ssh_args=(-tt "${SSH_OPTS[@]}")
+  fi
+  if ! tmp="$(mktemp 2>/dev/null)"; then
+    ssh "${ssh_args[@]}" "${SSH_USER}@${HOST}" "$cmd" >/dev/null 2>&1
+    return $?
+  fi
+  if ssh "${ssh_args[@]}" "${SSH_USER}@${HOST}" "$cmd" >"$tmp" 2>&1; then
+    rm -f "$tmp"
+    return 0
+  fi
+  status=$?
+  if [ -s "$tmp" ]; then
+    printf '\n%sRemote output (%s):%s\n' "$COLOR_DIM" "$cmd" "$COLOR_RESET" >&2
+    sed 's/^/    /' "$tmp" >&2
+  fi
+  rm -f "$tmp"
+  return "$status"
+}
+
+if [ "$FLOW" = "auth" ]; then
+  # 1) Validate local auth file
+  step_begin "Validate local auth.json"
+  if [ -f "$AUTH_JSON_LOCAL_EXPANDED" ] && [ -s "$AUTH_JSON_LOCAL_EXPANDED" ] && grep -Eq '"(access_token|api_key)"' "$AUTH_JSON_LOCAL_EXPANDED"; then
+    step_end_ok
+  else
+    step_end_fail
+    exit 1
+  fi
+
+  # 2) Check SSH connectivity
+  step_begin "Check SSH connectivity"
+  if ssh_quiet "${SSH_USER}@${HOST}" 'echo ok'; then
+    step_end_ok
+  else
+    step_end_fail
+    exit 1
+  fi
+
+  # 3) Register host with sync API
+  step_begin "Register host with sync API"
+  if obtain_sync_api_key; then
+    step_end_ok
+  else
+    step_end_fail
+    exit 1
+  fi
+
+  # 4) Prepare remote Codex CLI
+  step_begin "Prepare remote runtime"
+  PREFETCH_REMOTE_DIR=""
+  prefetch_codex_assets || true
+  push_auth_json_to_remote || true
+  build_remote_env_safe remote_env "$AUTH_SENTINEL"
+  remote_env+=" QUIET=1 DO_LOGIN=0"
+  if [ -n "$PREFETCH_REMOTE_DIR" ]; then
+    remote_env="PREFETCHED_ASSET_DIR=$(printf %q "$PREFETCH_REMOTE_DIR") ${remote_env}"
+  fi
+  restore_xtrace="$(disable_xtrace_if_set)"
+  if ssh_quiet_cmd "${remote_env} bash -lc ${REMOTE_CMD_ESCAPED}"; then
+    step_end_ok
+  else
+    step_end_fail
+    if [ -n "$PREFETCH_REMOTE_DIR" ]; then
+      ssh_quiet "${SSH_USER}@${HOST}" "rm -rf $(printf %q "$PREFETCH_REMOTE_DIR")"
+    fi
+    restore_xtrace_if_requested "$restore_xtrace"
+    exit 1
+  fi
+  restore_xtrace_if_requested "$restore_xtrace"
+  if [ -n "$PREFETCH_REMOTE_DIR" ]; then
+    ssh_quiet "${SSH_USER}@${HOST}" "rm -rf $(printf %q "$PREFETCH_REMOTE_DIR")"
+  fi
+
+  # 5) Verify Codex CLI present
+  step_begin "Verify Codex CLI"
+  if ssh_quiet_cmd 'command -v cdx >/dev/null 2>&1 && cdx --version >/dev/null 2>&1'; then
+    step_end_ok
+  else
+    step_end_fail
+    exit 1
+  fi
+
+  # 6) Verify auth on remote (exists, non-empty, perms 600)
+  step_begin "Verify remote auth file"
+  verify_script='set -euo pipefail; resolve_home() { vr_user="$1"; vr_home=""; if command -v getent >/dev/null 2>&1; then vr_home=$(getent passwd "$vr_user" | cut -d: -f6 2>/dev/null || true); fi; if [ -z "$vr_home" ] && [ -r /etc/passwd ]; then vr_home=$(awk -F: -v u="$vr_user" "(\$1==u){print \$6; exit}" /etc/passwd 2>/dev/null || true); fi; if [ -z "$vr_home" ]; then if [ "$vr_user" = "root" ]; then vr_home="/root"; else vr_home="/home/$vr_user"; fi; fi; printf "%s" "$vr_home"; }; check_user() { cu_user="$1"; cu_home="$(resolve_home "$cu_user")"; if [ -z "$cu_home" ] || [ ! -d "$cu_home" ]; then exit 5; fi; cu_path="$cu_home/.codex/auth.json"; [ -s "$cu_path" ] || exit 2; cu_perm=""; if stat -c %a "$cu_path" >/dev/null 2>&1; then cu_perm=$(stat -c %a "$cu_path"); elif stat -f %Lp "$cu_path" >/dev/null 2>&1; then cu_perm=$(stat -f %Lp "$cu_path"); fi; case "$cu_perm" in 600|0400|400) : ;; *) exit 3 ;; esac; cu_owner=""; if stat -c %U "$cu_path" >/dev/null 2>&1; then cu_owner=$(stat -c %U "$cu_path"); elif stat -f %Su "$cu_path" >/dev/null 2>&1; then cu_owner=$(stat -f %Su "$cu_path"); fi; if [ -n "$cu_owner" ] && [ "$cu_owner" != "$cu_user" ]; then exit 4; fi; }; check_user "$(id -un)"; if [ "$(id -u)" -eq 0 ] && id -u chris >/dev/null 2>&1; then check_user chris; fi'
+  if ssh_quiet_cmd "$verify_script"; then
+    step_end_ok
+  else
+    step_end_fail
+    exit 1
+  fi
+
+  record_registry_metadata "$FLOW"
+  exit 0
+fi
+
+# Login flow requires the sync API key even when we do not have a local auth.json
+if ! obtain_sync_api_key; then
+  printf 'Unable to register host with sync API; aborting login flow\n' >&2
+  exit 1
+fi
+
+# Forward local <bind>:<port> to remote 127.0.0.1:<port> for login flow.
+# Capture the auth URL and attempt to open local browser.
+
+open_local_browser() { return 0; }
+open_two_fa_tab() { return 0; }
+
+SENTINEL="$AUTH_SENTINEL"
+if [ -z "$SENTINEL" ]; then SENTINEL='AUTH_URL'; fi
+
+is_loopback_url() {
+  case "$1" in
+    http://127.0.0.1:*|http://127.0.0.1/*|http://localhost:*|http://localhost/*|https://127.0.0.1:*|https://127.0.0.1/*|https://localhost:*|https://localhost/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+clean_url() {
+  printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[)>.,]+$//'
+}
+
+BEST_URL=""
+FALLBACK_URL=""
+BEST_URL_FILE=""
+FALLBACK_URL_FILE=""
+if command -v mktemp >/dev/null 2>&1; then
+  if BEST_URL_FILE="$(mktemp 2>/dev/null)"; then
+    :
+  else
+    BEST_URL_FILE=""
+  fi
+  if FALLBACK_URL_FILE="$(mktemp 2>/dev/null)"; then
+    :
+  else
+    FALLBACK_URL_FILE=""
+  fi
+fi
+
+build_remote_env_safe login_env "$SENTINEL"
+
+set +e
+restore_xtrace="$(disable_xtrace_if_set)"
+ssh -tt "${SSH_OPTS[@]}" -L "${LOCAL_BIND}:${LOCAL_PORT}:127.0.0.1:${LOCAL_PORT}" \
+  "${SSH_USER}@${HOST}" \
+  "${login_env} bash -lc ${REMOTE_CMD_ESCAPED}" \
+  | while IFS= read -r line; do
+      printf '%s\n' "$line"
+      case "$line" in
+        "$SENTINEL"\ *)
+          candidate="${line#"$SENTINEL"}"
+          url="$(clean_url "${candidate}")"
+          if [ -z "$url" ]; then
+            continue
+          fi
+          if is_loopback_url "$url"; then
+            if [ -z "$FALLBACK_URL" ]; then
+              FALLBACK_URL="$url"
+              if [ -n "$FALLBACK_URL_FILE" ]; then
+                printf '%s\n' "$url" >"$FALLBACK_URL_FILE"
+              fi
+            fi
+          else
+            if [ -z "$BEST_URL" ]; then
+              BEST_URL="$url"
+              if [ -n "$BEST_URL_FILE" ]; then
+                printf '%s\n' "$url" >"$BEST_URL_FILE"
+              fi
+              open_local_browser "$url"
+              open_two_fa_tab
+            fi
+          fi
+          ;;
+        "[AUTH_URL]"\ *)
+          # Back-compat if older sentinel is used
+          url="${line#* }"
+          url="$(clean_url "$url")"
+          if [ -z "$url" ]; then
+            continue
+          fi
+          if is_loopback_url "$url"; then
+            if [ -z "$FALLBACK_URL" ]; then
+              FALLBACK_URL="$url"
+              if [ -n "$FALLBACK_URL_FILE" ]; then
+                printf '%s\n' "$url" >"$FALLBACK_URL_FILE"
+              fi
+            fi
+          else
+            if [ -z "$BEST_URL" ]; then
+              BEST_URL="$url"
+              if [ -n "$BEST_URL_FILE" ]; then
+                printf '%s\n' "$url" >"$BEST_URL_FILE"
+              fi
+              open_local_browser "$url"
+              open_two_fa_tab
+            fi
+          fi
+          ;;
+      esac
+    done
+rc=${PIPESTATUS[0]}
+restore_xtrace_if_requested "$restore_xtrace"
+set -e
+if [ -n "$BEST_URL_FILE" ] && [ -s "$BEST_URL_FILE" ]; then
+  BEST_URL="$(cat "$BEST_URL_FILE")"
+fi
+if [ -n "$FALLBACK_URL_FILE" ] && [ -s "$FALLBACK_URL_FILE" ]; then
+  FALLBACK_URL="$(cat "$FALLBACK_URL_FILE")"
+fi
+if [ -n "$BEST_URL_FILE" ]; then
+  rm -f "$BEST_URL_FILE"
+fi
+if [ -n "$FALLBACK_URL_FILE" ]; then
+  rm -f "$FALLBACK_URL_FILE"
+fi
+if [ -z "$BEST_URL" ] && [ -n "$FALLBACK_URL" ]; then
+  printf '[local] Falling back to loopback auth URL %s\n' "$FALLBACK_URL"
+  open_local_browser "$FALLBACK_URL"
+  open_two_fa_tab
+fi
+if [ "$rc" -eq 0 ]; then
+  record_registry_metadata "$FLOW"
+fi
+exit "$rc"
