@@ -92,35 +92,29 @@
   </header>
   <main class="grid">
     <div class="grid cols-3" id="stats"></div>
-    <div class="split">
-      <div class="card">
-        <div class="flex" style="justify-content: space-between; margin-bottom: 8px;">
-          <div>
-            <div style="font-weight:700;">Hosts</div>
-            <div class="muted">Canonical digests + versions</div>
-          </div>
-          <button id="refresh">Refresh</button>
+    <div class="card">
+      <div class="flex" style="justify-content: space-between; margin-bottom: 8px;">
+        <div>
+          <div style="font-weight:700;">Hosts</div>
+          <div class="muted">Canonical digests + versions</div>
         </div>
-        <div style="overflow:auto;">
-          <table id="hosts">
-            <thead>
-              <tr>
-                <th>Host</th>
-                <th>Status</th>
-                <th>Last Refresh</th>
-                <th>Client</th>
-                <th>Wrapper</th>
-                <th>IP</th>
-                <th>Digest</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+        <button id="refresh">Refresh</button>
       </div>
-      <div class="card">
-        <div style="font-weight:700; margin-bottom:6px;">Latest Activity</div>
-        <div id="logs" class="logs"></div>
+      <div style="overflow:auto;">
+        <table id="hosts">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>Status</th>
+              <th>Last Refresh</th>
+              <th>Client</th>
+              <th>Wrapper</th>
+              <th>IP</th>
+              <th>Digest</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
     <div class="card">
@@ -133,7 +127,6 @@
   <script>
     const statsEl = document.getElementById('stats');
     const hostsTbody = document.querySelector('#hosts tbody');
-    const logsEl = document.getElementById('logs');
     const detailEl = document.getElementById('detail');
     const mtlsEl = document.getElementById('mtls');
     const refreshBtn = document.getElementById('refresh');
@@ -201,19 +194,6 @@
       });
     }
 
-    function renderLogs(logs) {
-      logsEl.innerHTML = '';
-      logs.forEach(log => {
-        const div = document.createElement('div');
-        div.className = 'log-item';
-        const host = log.host_id ? `host ${log.host_id}` : 'system';
-        div.innerHTML = `<div style="font-weight:700;">${log.action}</div>
-          <div class="muted">${host} · ${log.created_at}</div>
-          <div><code>${JSON.stringify(log.details ?? {}, null, 0)}</code></div>`;
-        logsEl.appendChild(div);
-      });
-    }
-
     async function showHostDetail(id) {
       detailEl.textContent = 'Loading…';
       try {
@@ -232,8 +212,6 @@
         renderStats(overview.data);
         const hosts = await api('/admin/hosts');
         renderHosts(hosts.data.hosts);
-        const logs = await api('/admin/logs?limit=25');
-        renderLogs(logs.data.logs);
       } catch (err) {
         mtlsEl.textContent = 'mTLS / Admin access failed';
         mtlsEl.classList.add('error');
