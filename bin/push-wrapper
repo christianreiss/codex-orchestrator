@@ -42,10 +42,6 @@ resolve_wrapper_path() {
     printf '%s' "$ROOT_DIR/bin/cdx"
     return 0
   fi
-  if [[ -f "$ROOT_DIR/resources/wrapper/cdx" ]]; then
-    printf '%s' "$ROOT_DIR/resources/wrapper/cdx"
-    return 0
-  fi
   return 1
 }
 
@@ -68,7 +64,7 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 if [[ -z "$WRAPPER_PATH" || ! -f "$WRAPPER_PATH" ]]; then
-  echo "Wrapper file not found (looked for WRAPPER_PATH, bin/cdx, resources/wrapper/cdx)" >&2
+  echo "Wrapper file not found (looked for WRAPPER_PATH or bin/cdx)" >&2
   exit 1
 fi
 
