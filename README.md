@@ -96,6 +96,14 @@ Store responses:
 - `unchanged` → timestamps match; returns canonical digest + versions.
 - `outdated` → server already has newer auth; returns canonical auth + digest + versions.
 
+### `GET /wrapper` and `GET /wrapper/download`
+
+Both require the same API key + IP binding as `/auth`. `/wrapper` returns metadata (version, sha256, size, download URL); `/wrapper/download` streams the latest cdx wrapper script with `X-SHA256` and `ETag` headers. Only the latest wrapper copy is retained.
+
+### `POST /wrapper` (admin)
+
+Authenticated with `VERSION_ADMIN_KEY`; accepts `multipart/form-data` (`file`, `version`, optional `sha256`) to replace the wrapper without rebuilding the image. Metadata feeds `/auth` and `/versions`.
+
 ### `GET /versions`
 
 Optional (primarily for ops). Returns the cached Codex CLI version (fetched from GitHub when stale), published wrapper version, and the highest values reported by any host. `/auth` already embeds the same structure in its responses.
@@ -114,6 +122,8 @@ Host: localhost:8080
     "client_version": "0.60.1",
     "client_version_checked_at": "2025-11-20T09:00:00Z",
     "wrapper_version": "2025.11.19-4",
+    "wrapper_sha256": "…",
+    "wrapper_url": "/wrapper/download",
     "reported_client_version": "0.60.1",
     "reported_wrapper_version": "2025.11.19-4"
   }

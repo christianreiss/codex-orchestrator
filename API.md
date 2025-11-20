@@ -11,6 +11,7 @@ All responses are JSON. Request bodies must be `application/json` unless otherwi
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
 - API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-register to rotate the key and reset the binding.
+- Wrapper metadata/downloads use the same API key + IP binding; there is no public wrapper URL.
 
 ### Invitation Key
 
@@ -139,6 +140,37 @@ Content-Type: application/json
 - `unchanged`: timestamps match; returns canonical digest and versions only.
 - `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
 
+### `GET /wrapper`
+
+Returns metadata about the latest cdx wrapper (only one copy is retained). Requires the per-host API key; IP binding enforced.
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "version": "2025.11.19-4",
+    "sha256": "…",
+    "size_bytes": 12345,
+    "updated_at": "2025-11-20T10:00:00Z",
+    "url": "/wrapper/download"
+  }
+}
+```
+
+### `GET /wrapper/download`
+
+Downloads the current cdx wrapper script. Requires the per-host API key; IP binding enforced. Response headers include `X-SHA256` and `ETag` for hash verification.
+
+### `POST /wrapper` (admin)
+
+Publishes/replaces the wrapper without rebuilding the image. Requires `VERSION_ADMIN_KEY` and `multipart/form-data`:
+
+- `file` (required): wrapper script.
+- `version` (required): version string to publish.
+- `sha256` (optional): hash to verify before accepting.
+
+Only the latest wrapper is kept; this updates metadata used by `/auth` and `/versions`.
+
 ### `GET /versions` (optional)
 
 Provided for observability; clients do not need it because `/auth` responses already include the same block.
@@ -150,6 +182,8 @@ Provided for observability; clients do not need it because `/auth` responses alr
     "client_version": "0.60.1",
     "client_version_checked_at": "2025-11-20T09:00:00Z",
     "wrapper_version": "2025.11.19-4",
+    "wrapper_sha256": "…",
+    "wrapper_url": "/wrapper/download",
     "reported_client_version": "0.60.1",
     "reported_wrapper_version": "2025.11.19-4"
   }

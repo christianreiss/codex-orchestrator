@@ -12,6 +12,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\HostStatusExporter;
+use App\Services\WrapperService;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -30,10 +31,14 @@ $hostRepository = new HostRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $logRepository = new LogRepository($database);
 $versionRepository = new VersionRepository($database);
+$wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
+$wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/resources/wrapper/cdx');
+$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
 $invitationKey = Config::get('INVITATION_KEY', '');
 $statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
 $statusExporter = new HostStatusExporter($hostRepository, $statusPath);
-$service = new AuthService($hostRepository, $digestRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter);
+$service = new AuthService($hostRepository, $digestRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter, $wrapperService);
+$wrapperService->ensureSeeded();
 unset($statusPath, $invitationKey);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -73,9 +78,10 @@ try {
         $reported = $service->latestReportedVersions();
         $service->seedWrapperVersionFromReported($reported['wrapper_version']);
         $published = $service->publishedVersions();
+        $wrapperMeta = $wrapperService->metadata();
 
         $clientVersion = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
-        $wrapperVersion = $published['wrapper_version'] ?? $reported['wrapper_version'];
+        $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
 
         Response::json([
             'status' => 'ok',
@@ -83,6 +89,8 @@ try {
                 'client_version' => $clientVersion,
                 'client_version_checked_at' => $available['updated_at'],
                 'wrapper_version' => $wrapperVersion,
+                'wrapper_sha256' => $wrapperMeta['sha256'],
+                'wrapper_url' => $wrapperMeta['url'],
                 'reported_client_version' => $reported['client_version'],
                 'reported_wrapper_version' => $reported['wrapper_version'],
             ],
@@ -125,6 +133,100 @@ try {
                 'reported_wrapper_version' => $reported['wrapper_version'],
             ],
         ]);
+    }
+
+    if ($method === 'POST' && $normalizedPath === '/wrapper') {
+        $adminKey = resolveAdminKey();
+        if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Admin key required',
+            ], 401);
+        }
+
+        if (!isset($_FILES['file']) || !is_array($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'file is required (multipart/form-data)',
+            ], 422);
+        }
+
+        $version = normalizeVersionValue($_POST['version'] ?? null);
+        if ($version === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'version is required',
+            ], 422);
+        }
+
+        $expectedSha = normalizeVersionValue($_POST['sha256'] ?? null);
+
+        try {
+            $meta = $wrapperService->replaceFromUpload(
+                (string) $_FILES['file']['tmp_name'],
+                $version,
+                $expectedSha,
+                true
+            );
+        } catch (Throwable $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $meta,
+        ]);
+    }
+
+    if ($method === 'GET' && $normalizedPath === '/wrapper') {
+        $apiKey = resolveApiKey();
+        $clientIp = resolveClientIp();
+        $service->authenticate($apiKey, $clientIp);
+
+        $meta = $wrapperService->metadata();
+        if ($meta['url'] === null || $meta['version'] === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Wrapper not available',
+            ], 404);
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $meta,
+        ]);
+    }
+
+    if ($method === 'GET' && $normalizedPath === '/wrapper/download') {
+        $apiKey = resolveApiKey();
+        $clientIp = resolveClientIp();
+        $service->authenticate($apiKey, $clientIp);
+
+        $meta = $wrapperService->metadata();
+        $pathToFile = $wrapperService->contentPath();
+        if ($meta['version'] === null || !is_file($pathToFile)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Wrapper not available',
+            ], 404);
+        }
+
+        $fileName = 'cdx-' . ($meta['version'] ?? 'latest') . '.sh';
+        header('Content-Type: text/x-shellscript');
+        header('Content-Disposition: attachment; filename="' . $fileName . '"');
+        if ($meta['sha256']) {
+            header('X-SHA256: ' . $meta['sha256']);
+            header('ETag: "' . $meta['sha256'] . '"');
+        }
+        $size = $meta['size_bytes'];
+        if ($size !== null) {
+            header('Content-Length: ' . $size);
+        }
+        readfile($pathToFile);
+        exit;
     }
 
     if ($method === 'POST' && $normalizedPath === '/auth') {

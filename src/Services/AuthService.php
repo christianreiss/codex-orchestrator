@@ -10,6 +10,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Support\Timestamp;
 use DateTimeImmutable;
+use App\Services\WrapperService;
 
 class AuthService
 {
@@ -22,7 +23,8 @@ class AuthService
         private readonly LogRepository $logs,
         private readonly VersionRepository $versions,
         private readonly string $invitationKey,
-        private readonly HostStatusExporter $statusExporter
+        private readonly HostStatusExporter $statusExporter,
+        private readonly WrapperService $wrapperService
     ) {
     }
 
@@ -272,14 +274,17 @@ class AuthService
         $reported = $this->latestReportedVersions();
         $this->seedWrapperVersionFromReported($reported['wrapper_version']);
         $published = $this->publishedVersions();
+        $wrapperMeta = $this->wrapperService->metadata();
 
         $clientVersion = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
-        $wrapperVersion = $published['wrapper_version'] ?? $reported['wrapper_version'];
+        $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
 
         return [
             'client_version' => $clientVersion,
             'client_version_checked_at' => $available['updated_at'] ?? null,
             'wrapper_version' => $wrapperVersion,
+            'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
+            'wrapper_url' => $wrapperMeta['url'] ?? null,
             'reported_client_version' => $reported['client_version'],
             'reported_wrapper_version' => $reported['wrapper_version'],
         ];
