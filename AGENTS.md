@@ -5,7 +5,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 ## Request Flow
 
 1. **`public/index.php` (HTTP Router)**
-   - Bootstraps the environment, loads `.env`, and runs SQLite migrations.
+   - Bootstraps the environment, loads `.env`, and runs MySQL migrations.
    - Parses incoming JSON and matches routes: `/register`, `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin).
    - Resolves API keys from `X-API-Key` or `Authorization: Bearer` headers.
    - Returns JSON responses using `App\Http\Response`.
@@ -34,12 +34,13 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Ensures `2025-11-19T09:27:43.373506211Z` style values sort correctly.
 
 7. **`App\Database` (Infrastructure)**
-   - Opens the SQLite connection, enforces foreign keys, and runs migrations.
+   - Opens the MySQL connection (configured via `DB_*`), enforces foreign keys, and runs migrations.
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, auth_json, timestamps.
-       - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), and `wrapper_version` (cdx wrapper build when supplied).
+       - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
      - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
      - `logs`: host_id, action, details, created_at.
+     - `versions`: published/seen versions with updated_at.
 
 ## Extension Tips
 

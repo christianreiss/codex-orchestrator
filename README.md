@@ -6,7 +6,7 @@ A lightweight PHP API that centralizes Codex `auth.json` files. Clients register
 
 - Register hosts with a fixed invitation key and issue per-host API keys.
 - Push/sync Codex `auth.json` documents; server decides whether to adopt the new payload or return the canonical version based on `last_refresh` while capturing the client's Codex version for fleet audits.
-- Simple SQLite persistence for hosts + request logs.
+- MySQL persistence (containerized) for hosts + request logs.
 - Hosts can self-deregister via `DELETE /auth`, which removes their record and digest cache.
 - Shipping bin tooling: `bin/codex-install` registers + syncs via the API, and `bin/codex-uninstall` now calls `DELETE /auth` (using stored sync env) before wiping local files—no registry file required.
 - Dockerized runtime via `php:8.2-apache` with automatic migrations.
@@ -15,8 +15,8 @@ A lightweight PHP API that centralizes Codex `auth.json` files. Clients register
 ## Quick Start
 
 ```bash
-cp .env.example .env          # set INVITATION_KEY and optional DB_PATH
-docker compose up --build     # runs API on http://localhost:8080
+cp .env.example .env          # set INVITATION_KEY and DB_* creds (match docker-compose)
+docker compose up --build     # runs API on http://localhost:8488 with a mysql sidecar
 ```
 
 ### CLI helpers (bin/)
@@ -29,7 +29,7 @@ docker compose up --build     # runs API on http://localhost:8080
 ```
 public/           # Single entrypoint (index.php)
 src/              # Core classes: database, repositories, services, support
-storage/          # Mounted volume for the SQLite database
+storage/          # Mounted volume for host status/wrapper assets and SQL backups (storage/sql)
 Dockerfile        # Production image
 docker-compose.yml
 ```
@@ -38,14 +38,15 @@ docker-compose.yml
 
 1. **Environment**
    - Copy `.env.example` to `.env`.
-- Set a strong `INVITATION_KEY`.
-- Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes.
-- `DB_PATH` defaults to `storage/database.sqlite` inside the container.
+   - Set a strong `INVITATION_KEY`.
+   - Configure the MySQL credentials via `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD` (defaults line up with `docker-compose.yml`).
+   - Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes.
 
 2. **Docker**
    - `docker compose up --build`
-   - Service listens on `http://localhost:8080`.
-   - Named volume `auth_storage` persists the SQLite file.
+   - Services: `api` (PHP) and `mysql` (MySQL 8). Both join the `codex_auth` network.
+   - API listens on `http://localhost:8488`.
+   - MySQL data persists in the `mysql_data` volume; SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
 
 3. **Local (optional)**
    - `composer install`
@@ -175,9 +176,20 @@ Notes:
 
 - **hosts**: FQDN, API key, status, stored `auth_json`, last refresh time, IP binding, latest `client_version`, and optional `wrapper_version`.
 - **logs**: Each registration and sync operation records host, action, timestamps, and a JSON blob summarizing the decision (`updated` vs `unchanged`).
-- All data is stored in SQLite under `storage/database.sqlite` (or the path defined in `DB_PATH`). Mount or back up this directory to retain state outside of containers.
+- All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data in the `mysql_data` volume; use `storage/sql` for exports/backups or one-off imports during migrations.
 
-Access logs manually with `sqlite3 storage/database.sqlite 'SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;'`.
+Access logs manually with `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`.
+
+## Migrating from SQLite
+
+If you are upgrading from the old SQLite-backed container:
+
+- Place the legacy SQLite file where the API container can read it (e.g., mount the old `storage/database.sqlite` to `/var/www/html/storage/database.sqlite`).
+- Run the migration helper to seed MySQL (truncates existing MySQL tables when `--force` is set):
+  - `docker compose run --rm api php bin/migrate-sqlite-to-mysql.php --sqlite /var/www/html/storage/database.sqlite --force`
+- The script copies the SQLite file to `storage/sql/sqlite-backup-<timestamp>.db` before writing to MySQL.
+- Start the stack normally (`docker compose up -d`); the API will continue using MySQL going forward.
+- Once MySQL is verified, archive or remove the old SQLite file from your mounted storage to avoid confusion (a timestamped backup already lives in `storage/sql`).
 
 ## Host Status Report
 

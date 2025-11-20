@@ -36,7 +36,7 @@ class HostAuthDigestRepository
 
         $statement = $connection->prepare(
             'INSERT INTO host_auth_digests (host_id, digest, last_seen, created_at) VALUES (:host_id, :digest, :last_seen, :created_at)
-             ON CONFLICT(host_id, digest) DO UPDATE SET last_seen = excluded.last_seen'
+             ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen)'
         );
 
         foreach (array_keys($normalized) as $digest) {

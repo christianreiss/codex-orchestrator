@@ -17,9 +17,17 @@ if (file_exists($root . '/.env')) {
     Dotenv::createImmutable($root)->safeLoad();
 }
 
-$dbPath = Config::get('DB_PATH', $root . '/storage/database.sqlite');
+$dbConfig = [
+    'driver' => Config::get('DB_DRIVER', 'mysql'),
+    'host' => Config::get('DB_HOST', 'mysql'),
+    'port' => (int) Config::get('DB_PORT', 3306),
+    'database' => Config::get('DB_DATABASE', 'codex_auth'),
+    'username' => Config::get('DB_USERNAME', 'codex'),
+    'password' => Config::get('DB_PASSWORD', 'codex-pass'),
+    'charset' => Config::get('DB_CHARSET', 'utf8mb4'),
+];
 $statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
-$database = new Database($dbPath);
+$database = new Database($dbConfig);
 $database->migrate();
 
 $hostRepository = new HostRepository($database);

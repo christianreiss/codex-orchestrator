@@ -47,7 +47,7 @@ class VersionRepository
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
             'INSERT INTO versions (name, version, updated_at) VALUES (:name, :version, :updated_at)
-             ON CONFLICT(name) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at'
+             ON DUPLICATE KEY UPDATE version = VALUES(version), updated_at = VALUES(updated_at)'
         );
         $statement->execute([
             'name' => $name,
