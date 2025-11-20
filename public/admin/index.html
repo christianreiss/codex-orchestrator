@@ -256,6 +256,7 @@
       try {
         await api(`/admin/hosts/${id}`, { method: 'DELETE' });
         await loadAll();
+        detailEl.textContent = `Removed ${name}`;
       } catch (err) {
         detailEl.textContent = `Error: ${err.message}`;
       }
@@ -269,6 +270,7 @@
       try {
         await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
         await loadAll();
+        detailEl.textContent = `Cleared ${name}`;
       } catch (err) {
         detailEl.textContent = `Error: ${err.message}`;
       }
