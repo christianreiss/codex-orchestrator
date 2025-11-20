@@ -98,49 +98,20 @@
   <main class="grid">
     <div class="grid cols-3" id="stats"></div>
     <div class="card">
-      <div class="flex" style="justify-content: space-between; margin-bottom: 8px;">
+      <div class="flex" style="justify-content: space-between; align-items: flex-start;">
         <div>
-          <div style="font-weight:700;">Hosts</div>
-          <div class="muted">Canonical digests + versions</div>
+          <div style="font-weight:700; margin-bottom:4px;">Host list hidden</div>
+          <div class="muted">Host-level details are not displayed here. Use the admin API or CLI for host management.</div>
         </div>
-        <button id="refresh">Refresh</button>
+        <button id="refresh">Refresh stats</button>
       </div>
-      <div style="overflow:auto;">
-        <table id="hosts">
-          <thead>
-            <tr>
-              <th>Host</th>
-              <th>Status</th>
-              <th>Last Refresh</th>
-              <th>Client</th>
-              <th>Wrapper</th>
-              <th>IP</th>
-          <th>Digest</th>
-          <th>Calls</th>
-          <th>Tokens</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-      </div>
-    </div>
-    <div class="card">
-      <div style="font-weight:700; margin-bottom:6px;">Host Details</div>
-      <div class="muted" style="margin-bottom:8px;">Select a row to inspect canonical auth metadata.</div>
-      <pre id="detail" style="background: rgba(255,255,255,0.03); padding:12px; border-radius:8px; overflow:auto; max-height:360px;">No host selected.</pre>
     </div>
   </main>
 
   <script>
     const statsEl = document.getElementById('stats');
-    const hostsTbody = document.querySelector('#hosts tbody');
-    const detailEl = document.getElementById('detail');
     const mtlsEl = document.getElementById('mtls');
     const refreshBtn = document.getElementById('refresh');
-    let currentHosts = [];
-    let latestVersions = { client: null, wrapper: null };
-    let tokensSummary = null;
 
     function parseTimestamp(value) {
       if (!value) return null;
@@ -162,75 +133,11 @@
       return `${dd}.${mm}.${yy}, ${hh}:${min}`;
     }
 
-    function formatRelative(value) {
-      const date = parseTimestamp(value);
-      if (!date) return '—';
-      const now = Date.now();
-      const diff = now - date.getTime();
-      const future = diff < 0;
-      const delta = Math.abs(diff);
-
-      const minutes = Math.round(delta / 60000);
-      const hours = Math.round(delta / 3600000);
-      const days = Math.round(delta / 86400000);
-
-      const suffix = future ? 'from now' : 'ago';
-
-      if (delta < 45 * 1000) return future ? 'in a few seconds' : 'just now';
-      if (delta < 90 * 1000) return future ? 'in 1 minute' : '1 minute ago';
-      if (delta < 45 * 60 * 1000) return `${minutes} min ${suffix}`;
-      if (delta < 36 * 60 * 60 * 1000) return `${hours} h ${suffix}`;
-      if (delta < 14 * 24 * 60 * 60 * 1000) return `${days} d ${suffix}`;
-
-      return formatTimestamp(value);
-    }
-
     function formatNumber(value) {
       if (value === null || value === undefined) return '—';
       const num = Number(value);
       if (!Number.isFinite(num)) return '—';
       return num.toLocaleString('en-US');
-    }
-
-    function normalizeVersion(v) {
-      return typeof v === 'string' ? v.trim().replace(/^v/i, '') : null;
-    }
-
-    function compareVersions(a, b) {
-      const left = normalizeVersion(a);
-      const right = normalizeVersion(b);
-      if (!left || !right) return null;
-      const leftParts = left.split(/[^0-9]+/).map(Number).filter(n => !Number.isNaN(n));
-      const rightParts = right.split(/[^0-9]+/).map(Number).filter(n => !Number.isNaN(n));
-      const len = Math.max(leftParts.length, rightParts.length);
-      for (let i = 0; i < len; i++) {
-        const l = leftParts[i] ?? 0;
-        const r = rightParts[i] ?? 0;
-        if (l > r) return 1;
-        if (l < r) return -1;
-      }
-      return 0;
-    }
-
-    function renderVersionTag(version, current) {
-      const normalized = normalizeVersion(version);
-      if (!normalized) return '—';
-
-      const cmp = compareVersions(normalized, current);
-      if (cmp === 0) {
-        return `<span class="chip ok">${version}<small>current</small></span>`;
-      }
-      if (cmp === -1) {
-        return `<span class="chip warn">${version}<small>outdated</small></span>`;
-      }
-      return `<span class="chip neutral">${version}</span>`;
-    }
-
-    function renderDigestTag(host) {
-      const hasCanonical = !!host.canonical_digest;
-      return hasCanonical
-        ? '<span class="chip ok">current</span>'
-        : '<span class="chip warn">outdated</span>';
     }
 
     async function api(path, opts = {}) {
@@ -244,11 +151,6 @@
         throw new Error(`HTTP ${res.status}: ${text}`);
       }
       return res.json();
-    }
-
-    function formatStatus(status) {
-      const cls = status === 'active' ? 'status-active' : status === 'suspended' ? 'status-suspended' : 'status-unknown';
-      return `<span class="badge ${cls}">${status}</span>`;
     }
 
     function setMtls(meta) {
@@ -265,15 +167,10 @@
     function renderStats(data) {
       const checkedAt = formatTimestamp(data.versions.client_version_checked_at);
       const latestLog = formatTimestamp(data.latest_log_at);
-      latestVersions = {
-        client: normalizeVersion(data.versions.client_version),
-        wrapper: normalizeVersion(data.versions.wrapper_version),
-      };
-      tokensSummary = data.tokens || null;
-
-      const topHost = tokensSummary?.top_host;
+      const tokens = data.tokens || null;
+      const topHost = tokens?.top_host;
       const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
-      const totalTokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
+      const totalTokens = tokens ? formatNumber(tokens.total) : '—';
 
       statsEl.innerHTML = `
         <div class="card">
@@ -300,69 +197,11 @@
       `;
     }
 
-    function renderHosts(hosts) {
-      currentHosts = hosts;
-      hostsTbody.innerHTML = '';
-      hosts.forEach(host => {
-        const tr = document.createElement('tr');
-        const tokenTotal = host.token_usage?.total ?? null;
-        const tokenEvents = host.token_usage?.events ?? null;
-        const tokenLabel = tokenTotal !== null ? `${formatNumber(tokenTotal)}${tokenEvents ? ` · ${tokenEvents} runs` : ''}` : '—';
-
-        tr.innerHTML = `
-          <td>${host.fqdn}</td>
-          <td>${formatStatus(host.status)}</td>
-          <td><div>${formatRelative(host.last_refresh)}</div><div class="muted" style="font-size:12px;">Updated ${formatRelative(host.updated_at)}</div></td>
-          <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
-          <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-          <td>${host.ip ?? '—'}</td>
-          <td>${renderDigestTag(host)}</td>
-          <td>${host.api_calls ?? 0}</td>
-          <td>${tokenLabel}</td>
-          <td style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button data-id="${host.id}" class="ghost">Clear</button>
-            <button data-id="${host.id}" class="danger">Remove</button>
-          </td>
-        `;
-        tr.addEventListener('click', () => showHostDetail(host.id));
-        hostsTbody.appendChild(tr);
-      });
-
-      hostsTbody.querySelectorAll('button.danger').forEach(btn => {
-        btn.addEventListener('click', ev => {
-          ev.stopPropagation();
-          const id = parseInt(btn.getAttribute('data-id'), 10);
-          confirmRemove(id);
-        });
-      });
-
-      hostsTbody.querySelectorAll('button.ghost').forEach(btn => {
-        btn.addEventListener('click', ev => {
-          ev.stopPropagation();
-          const id = parseInt(btn.getAttribute('data-id'), 10);
-          confirmClear(id);
-        });
-      });
-    }
-
-    async function showHostDetail(id) {
-      detailEl.textContent = 'Loading…';
-      try {
-        const data = await api(`/admin/hosts/${id}/auth?include_body=1`);
-        detailEl.textContent = JSON.stringify(data.data, null, 2);
-      } catch (err) {
-        detailEl.textContent = `Error: ${err.message}`;
-      }
-    }
-
     async function loadAll() {
-      detailEl.textContent = 'No host selected.';
       try {
         const overview = await api('/admin/overview');
         setMtls(overview.data.mtls);
         renderStats(overview.data);
-        const hosts = await api('/admin/hosts');
-        renderHosts(hosts.data.hosts);
       } catch (err) {
         mtlsEl.textContent = 'mTLS / Admin access failed';
         mtlsEl.classList.add('error');
@@ -370,36 +209,10 @@
       }
     }
 
-    refreshBtn.addEventListener('click', loadAll);
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', loadAll);
+    }
     loadAll();
-
-    async function confirmRemove(id) {
-      const host = currentHosts.find(h => h.id === id);
-      const name = host ? host.fqdn : `id ${id}`;
-      if (!confirm(`Delete host ${name}? This cannot be undone.`)) return;
-      detailEl.textContent = 'Deleting…';
-      try {
-        await api(`/admin/hosts/${id}`, { method: 'DELETE' });
-        await loadAll();
-        detailEl.textContent = `Removed ${name}`;
-      } catch (err) {
-        detailEl.textContent = `Error: ${err.message}`;
-      }
-    }
-
-    async function confirmClear(id) {
-      const host = currentHosts.find(h => h.id === id);
-      const name = host ? host.fqdn : `id ${id}`;
-      if (!confirm(`Clear IP binding and stored digests for ${name}?`)) return;
-      detailEl.textContent = 'Clearing…';
-      try {
-        await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
-        await loadAll();
-        detailEl.textContent = `Cleared ${name}`;
-      } catch (err) {
-        detailEl.textContent = `Error: ${err.message}`;
-      }
-    }
   </script>
 </body>
 </html>
