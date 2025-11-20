@@ -182,4 +182,16 @@ class HostRepository
             'id' => $hostId,
         ]);
     }
+
+    public function clearIp(int $hostId): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET ip = NULL, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
 }

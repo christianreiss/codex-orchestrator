@@ -84,4 +84,12 @@ class HostAuthDigestRepository
         );
         $delete->execute($toDelete);
     }
+
+    public function deleteByHostId(int $hostId): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM host_auth_digests WHERE host_id = :host_id'
+        );
+        $statement->execute(['host_id' => $hostId]);
+    }
 }

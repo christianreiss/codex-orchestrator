@@ -267,6 +267,27 @@ try {
         ]);
     }
 
+    if ($method === 'POST' && preg_match('#^/admin/hosts/(\d+)/clear$#', $normalizedPath, $matches)) {
+        requireAdminAccess();
+        $hostId = (int) $matches[1];
+        $host = $hostRepository->findById($hostId);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $hostRepository->clearIp($hostId);
+        $digestRepository->deleteByHostId($hostId);
+        $logRepository->log($hostId, 'admin.host.clear', ['fqdn' => $host['fqdn']]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['cleared' => $hostId],
+        ]);
+    }
+
     if ($method === 'GET' && $normalizedPath === '/admin/logs') {
         requireAdminAccess();
 
