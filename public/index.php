@@ -209,6 +209,7 @@ try {
                 'updated_at' => $host['updated_at'] ?? null,
                 'client_version' => $host['client_version'] ?? null,
                 'wrapper_version' => $host['wrapper_version'] ?? null,
+                'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
                 'ip' => $host['ip'] ?? null,
                 'canonical_digest' => $host['auth_digest'] ?? null,
                 'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
@@ -261,6 +262,7 @@ try {
                 'canonical_digest' => $host['auth_digest'] ?? null,
                 'recent_digests' => $digestRepository->recentDigests($hostId),
                 'auth' => $auth,
+                'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             ],
         ]);
     }

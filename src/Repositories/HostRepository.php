@@ -183,6 +183,19 @@ class HostRepository
         ]);
     }
 
+    public function incrementApiCalls(int $hostId, int $by = 1): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET api_calls = COALESCE(api_calls, 0) + :by, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'by' => $by,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     public function clearIp(int $hostId): void
     {
         $statement = $this->database->connection()->prepare(

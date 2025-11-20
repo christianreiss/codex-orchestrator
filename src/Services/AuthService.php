@@ -109,6 +109,7 @@ class AuthService
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
         $this->hosts->updateClientVersions((int) $host['id'], $normalizedClientVersion, $normalizedWrapperVersion);
+        $this->hosts->incrementApiCalls((int) $host['id']);
         $host = $this->hosts->findById((int) $host['id']) ?? $host;
 
         $storedJson = $host['auth_json'] ?? null;
@@ -138,6 +139,7 @@ class AuthService
                 'canonical_last_refresh' => $storedLastRefresh,
                 'canonical_digest' => $storedDigest,
                 'action' => 'store',
+                'api_calls' => (int) ($host['api_calls'] ?? 0),
                 'versions' => $versions,
             ];
 
@@ -152,6 +154,7 @@ class AuthService
                         'status' => $status,
                         'canonical_last_refresh' => $storedLastRefresh,
                         'canonical_digest' => $storedDigest,
+                        'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
                 } elseif ($comparison === 1 || !$matchesRecent) {
@@ -161,6 +164,7 @@ class AuthService
                         'canonical_last_refresh' => $storedLastRefresh,
                         'canonical_digest' => $storedDigest,
                         'action' => 'store',
+                        'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
                 } else {
@@ -171,6 +175,7 @@ class AuthService
                         'canonical_digest' => $storedDigest,
                         'host' => $this->buildHostPayload($host),
                         'auth' => json_decode($storedJson, true),
+                        'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
                 }
@@ -219,6 +224,7 @@ class AuthService
                 'auth' => $incomingAuth,
                 'canonical_last_refresh' => $storedLastRefresh,
                 'canonical_digest' => $storedDigest,
+                'api_calls' => (int) ($host['api_calls'] ?? 0),
                 'versions' => $versions,
             ];
 
@@ -233,6 +239,7 @@ class AuthService
                     'auth' => json_decode($storedJson, true),
                     'canonical_last_refresh' => $storedLastRefresh,
                     'canonical_digest' => $storedDigest,
+                    'api_calls' => (int) ($host['api_calls'] ?? 0),
                     'versions' => $versions,
                 ];
             } else {
@@ -240,6 +247,7 @@ class AuthService
                     'status' => $status,
                     'canonical_last_refresh' => $storedLastRefresh,
                     'canonical_digest' => $storedDigest,
+                    'api_calls' => (int) ($host['api_calls'] ?? 0),
                     'versions' => $versions,
                 ];
             }
@@ -353,6 +361,7 @@ class AuthService
             'updated_at' => $host['updated_at'] ?? null,
             'client_version' => $host['client_version'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
+            'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
         ];
 
         if ($includeApiKey) {

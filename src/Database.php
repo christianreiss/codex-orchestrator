@@ -42,6 +42,7 @@ class Database
                 ip TEXT NULL,
                 client_version TEXT NULL,
                 wrapper_version TEXT NULL,
+                api_calls INTEGER NOT NULL DEFAULT 0,
                 auth_json TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -91,6 +92,7 @@ class Database
         $this->ensureColumnExists('hosts', 'client_version', 'TEXT NULL');
         $this->ensureColumnExists('hosts', 'wrapper_version', 'TEXT NULL');
         $this->ensureColumnExists('hosts', 'auth_digest', 'TEXT NULL');
+        $this->ensureColumnExists('hosts', 'api_calls', 'INTEGER NOT NULL DEFAULT 0');
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void

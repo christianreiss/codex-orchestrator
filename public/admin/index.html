@@ -111,6 +111,8 @@
               <th>Wrapper</th>
               <th>IP</th>
               <th>Digest</th>
+              <th>Calls</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -191,6 +193,7 @@
           <td>${host.wrapper_version ?? '—'}</td>
           <td>${host.ip ?? '—'}</td>
           <td><code>${host.canonical_digest ? host.canonical_digest.slice(0,12)+'…' : '—'}</code></td>
+          <td>${host.api_calls ?? 0}</td>
           <td style="display:flex; gap:6px; flex-wrap:wrap;">
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>
