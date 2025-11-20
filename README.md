@@ -81,12 +81,12 @@ Body fields:
 - `command`: `retrieve` (default) or `store`.
 - `client_version`: required (JSON or `client_version`/`cdx_version` query param).
 - `wrapper_version`: optional (JSON or `wrapper_version`/`cdx_wrapper_version` query param).
-- `digests`: optional array of up to 3 SHA-256 digests the host has seen (server stores the last 3 per host).
+- `digest`: required for `retrieve`; the client’s current SHA-256 auth digest (hash of the exact JSON).
 - `last_refresh`: required for `retrieve`.
 - `auth`: required for `store`; must include `last_refresh`.
 
 Retrieve responses:
-- `valid` → canonical digest matches one of the supplied digests; returns canonical digest + versions only.
+- `valid` → canonical digest matches the supplied digest; returns canonical digest + versions only.
 - `outdated` → server has newer auth; returns canonical auth + digest + versions.
 - `upload_required` → client claims a newer payload; caller should resend with `command: "store"`.
 - `missing` → server has no canonical payload yet.

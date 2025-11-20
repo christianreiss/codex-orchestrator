@@ -68,11 +68,11 @@ Unified endpoint for both checking and updating auth. Each response includes the
 - `command`: `retrieve` (default) or `store`.
 - `client_version`: required (JSON or query param `client_version`/`cdx_version`).
 - `wrapper_version`: optional (JSON or query param `wrapper_version`/`cdx_wrapper_version`).
-- `digests`: optional array of up to 3 lowercase SHA-256 hex digests previously issued to this host.
+- `digest`: required for `retrieve`; the client’s current auth SHA-256 (exact JSON digest).
 - `last_refresh`: required when `command` is `retrieve`; timestamp of the client’s current payload.
 - `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body and must include `last_refresh`.
 
-The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 digests per host (`host_auth_digests`) based on what callers submit.
+The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 canonical digests per host (`host_auth_digests`).
 
 **Retrieve example (valid)**
 
@@ -84,7 +84,7 @@ Content-Type: application/json
 {
   "command": "retrieve",
   "last_refresh": "2025-11-19T09:27:43.373506211Z",
-  "digests": ["b0b1b540ea35ac7cf806..."],
+  "digest": "b0b1b540ea35ac7cf806...",
   "client_version": "0.60.1",
   "wrapper_version": "2025.11.19-4"
 }
@@ -126,7 +126,6 @@ Content-Type: application/json
   "command": "store",
   "client_version": "0.60.1",
   "wrapper_version": "2025.11.19-4",
-  "digests": ["b0b1b540ea35ac7cf806..."],  // optional; server records them
   "auth": {
     "last_refresh": "2025-11-20T09:27:43.373506211Z",
     "auths": { "api.codex.example.com": { "token": "..." } }
@@ -164,6 +163,6 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
 ## Logs & Housekeeping
 
 - Every `register`, `auth` retrieve/store, and version publish is logged in the `logs` table with JSON details.
-- The service keeps the last 3 digests per host in `host_auth_digests` to recognize recent client states.
+- The service keeps the last 3 canonical digests per host in `host_auth_digests` for quick comparisons.
 - Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
 - After register/store/prune events a status report is regenerated at `STATUS_REPORT_PATH` (defaults to `storage/host-status.txt`).

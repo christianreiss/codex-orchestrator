@@ -107,7 +107,6 @@ class AuthService
         [$normalizedClientVersion, $normalizedWrapperVersion] = $this->normalizeVersions($clientVersion, $wrapperVersion);
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
-        $digests = $this->normalizeDigestList($payload['digests'] ?? []);
 
         $this->hosts->updateClientVersions((int) $host['id'], $normalizedClientVersion, $normalizedWrapperVersion);
         $host = $this->hosts->findById((int) $host['id']) ?? $host;
@@ -121,10 +120,16 @@ class AuthService
             $host = $this->hosts->findById((int) $host['id']) ?? $host;
         }
 
+        $recentDigests = $this->digests->recentDigests((int) $host['id']);
+        if ($storedDigest !== null && !in_array($storedDigest, $recentDigests, true)) {
+            $this->digests->rememberDigests((int) $host['id'], [$storedDigest]);
+            $recentDigests = $this->digests->recentDigests((int) $host['id']);
+        }
+
         $versions = $this->versionSnapshot();
 
         if ($command === 'retrieve') {
-            $this->digests->rememberDigests((int) $host['id'], $digests);
+            $providedDigest = $this->extractDigest($payload, true);
             $incomingLastRefresh = $this->extractLastRefresh($payload, 'last_refresh');
 
             $status = 'missing';
@@ -136,11 +141,12 @@ class AuthService
                 'versions' => $versions,
             ];
 
-            if ($storedJson) {
+            if ($storedJson && $storedDigest !== null) {
                 $comparison = Timestamp::compare($incomingLastRefresh, $storedLastRefresh);
-                $matches = $storedDigest !== null && $this->digestMatches($storedDigest, $digests);
+                $matchesCanonical = hash_equals($storedDigest, $providedDigest);
+                $matchesRecent = in_array($providedDigest, $recentDigests, true);
 
-                if ($matches) {
+                if ($matchesCanonical) {
                     $status = 'valid';
                     $response = [
                         'status' => $status,
@@ -148,7 +154,7 @@ class AuthService
                         'canonical_digest' => $storedDigest,
                         'versions' => $versions,
                     ];
-                } elseif ($comparison === 1) {
+                } elseif ($comparison === 1 || !$matchesRecent) {
                     $status = 'upload_required';
                     $response = [
                         'status' => $status,
@@ -173,7 +179,7 @@ class AuthService
             $this->logs->log((int) $host['id'], 'auth.retrieve', [
                 'status' => $status,
                 'incoming_last_refresh' => $incomingLastRefresh,
-                'digests_submitted' => $digests,
+                'incoming_digest' => $providedDigest,
                 'stored_last_refresh' => $storedLastRefresh,
                 'stored_digest' => $storedDigest,
             ]);
@@ -194,8 +200,7 @@ class AuthService
         }
 
         $incomingDigest = $this->calculateDigest($encodedAuth);
-        $digestsToRemember = array_merge([$incomingDigest], $digests);
-        $this->digests->rememberDigests((int) $host['id'], $digestsToRemember);
+        $this->digests->rememberDigests((int) $host['id'], [$incomingDigest]);
 
         $comparison = Timestamp::compare($incomingLastRefresh, $storedLastRefresh);
         $shouldUpdate = !$storedJson || $comparison === 1;
@@ -246,7 +251,6 @@ class AuthService
             'incoming_digest' => $incomingDigest,
             'stored_last_refresh' => $storedLastRefresh,
             'stored_digest' => $storedDigest,
-            'digests_submitted' => $digests,
             'client_version' => $normalizedClientVersion,
             'wrapper_version' => $normalizedWrapperVersion,
         ]);
@@ -287,38 +291,6 @@ class AuthService
         return $normalized;
     }
 
-    private function normalizeDigestList(mixed $digests): array
-    {
-        if ($digests === null) {
-            return [];
-        }
-
-        if (!is_array($digests)) {
-            throw new ValidationException(['digests' => ['digests must be an array of up to 3 sha256 values']]);
-        }
-
-        $normalized = [];
-        foreach ($digests as $digest) {
-            $value = $this->normalizeDigest($digest);
-            if ($value === null) {
-                continue;
-            }
-
-            if (!preg_match('/^[a-f0-9]{64}$/', $value)) {
-                throw new ValidationException(['digests' => ['digests must be 64-character hex sha256 values']]);
-            }
-
-            $normalized[] = $value;
-        }
-
-        $unique = array_values(array_unique($normalized));
-        if (count($unique) > 3) {
-            throw new ValidationException(['digests' => ['Provide at most 3 digests']]);
-        }
-
-        return $unique;
-    }
-
     private function extractLastRefresh(array $payload, string $field): string
     {
         if (!array_key_exists($field, $payload) || !is_string($payload[$field])) {
@@ -346,15 +318,30 @@ class AuthService
         throw new ValidationException(['auth' => ['Auth payload is required']]);
     }
 
-    private function digestMatches(string $canonicalDigest, array $digests): bool
+    private function extractDigest(array $payload, bool $required): ?string
     {
-        foreach ($digests as $candidate) {
-            if (hash_equals($canonicalDigest, $candidate)) {
-                return true;
+        $candidates = [
+            $payload['digest'] ?? null,
+            $payload['auth_digest'] ?? null,
+            $payload['auth_sha'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $normalized = $this->normalizeDigest($candidate);
+            if ($normalized !== null) {
+                if (!preg_match('/^[a-f0-9]{64}$/', $normalized)) {
+                    throw new ValidationException(['digest' => ['digest must be a 64-character hex sha256 value']]);
+                }
+
+                return $normalized;
             }
         }
 
-        return false;
+        if ($required) {
+            throw new ValidationException(['digest' => ['digest is required']]);
+        }
+
+        return null;
     }
 
     private function buildHostPayload(array $host, bool $includeApiKey = false): array
