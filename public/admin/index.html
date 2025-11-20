@@ -111,7 +111,7 @@
             <tr>
               <th>Host</th>
               <th>Status</th>
-              <th>Last Refresh</th>
+              <th>Last Seen</th>
               <th>Client</th>
               <th>Wrapper</th>
               <th>IP</th>
@@ -301,7 +301,7 @@
         tr.innerHTML = `
           <td>${host.fqdn}</td>
           <td>${host.status ?? 'unknown'}</td>
-          <td><div>${formatRelative(host.last_refresh)}</div><div class="muted" style="font-size:12px;">Updated ${formatRelative(host.updated_at)}</div></td>
+          <td><div>${formatRelative(host.updated_at)}</div><div class="muted" style="font-size:12px;">Auth refresh ${formatRelative(host.last_refresh)}</div></td>
           <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
           <td>${host.ip ?? '—'}</td>
