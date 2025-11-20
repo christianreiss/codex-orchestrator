@@ -151,6 +151,23 @@ try {
         $activeHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'active'));
         $suspendedHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'suspended'));
 
+        $refreshAges = [];
+        $now = time();
+        foreach ($hosts as $h) {
+            $lr = $h['last_refresh'] ?? null;
+            if (!$lr) {
+                continue;
+            }
+            $ts = strtotime($lr);
+            if ($ts === false) {
+                continue;
+            }
+            $days = max(0, ($now - $ts) / 86400);
+            $refreshAges[] = $days;
+        }
+
+        $avgRefreshAgeDays = $refreshAges ? array_sum($refreshAges) / count($refreshAges) : null;
+
         $latestLog = $logRepository->latestCreatedAt();
         $versions = $service->versionSummary();
 
@@ -169,6 +186,7 @@ try {
                     'active' => $activeHosts,
                     'suspended' => $suspendedHosts,
                 ],
+                'avg_refresh_age_days' => $avgRefreshAgeDays,
                 'latest_log_at' => $latestLog,
                 'versions' => $versions,
                 'mtls' => $mtlsContext,

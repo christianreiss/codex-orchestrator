@@ -171,8 +171,9 @@
           <div class="muted">Checked ${data.versions.client_version_checked_at ?? 'n/a'}</div>
         </div>
         <div class="card">
-          <div class="muted">Latest Log</div>
-          <div style="font-weight:700;">${data.latest_log_at ?? 'n/a'}</div>
+          <div class="muted">Refresh cadence</div>
+          <div style="font-weight:700;">Avg ${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
+          <div class="muted">Latest Log ${data.latest_log_at ?? 'n/a'}</div>
         </div>
       `;
     }
