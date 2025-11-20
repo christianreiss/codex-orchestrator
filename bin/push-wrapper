@@ -6,8 +6,8 @@ usage() {
 Push the current cdx wrapper to the Codex Auth API.
 
 Environment / flags:
-  -b, --base       Base URL for the API (default: https://codex-auth.uggs.io)
-  -k, --key        VERSION_ADMIN_KEY value (env VERSION_ADMIN_KEY)
+  -b, --base       Base URL for the API (default: https://codex-auth.uggs.io; env WRAPPER_BASE_URL/CODEX_AUTH_BASE_URL)
+  -k, --key        VERSION_ADMIN_KEY value (read from .env or env VERSION_ADMIN_KEY)
   -f, --file       Path to cdx wrapper script (default: repo bin/cdx)
   -v, --version    Override wrapper version (defaults to WRAPPER_VERSION in the file)
   -h, --help       Show this help
@@ -72,6 +72,11 @@ if [[ -z "$WRAPPER_PATH" || ! -f "$WRAPPER_PATH" ]]; then
   exit 1
 fi
 
+if [[ -z "$ADMIN_KEY" ]]; then
+  echo "VERSION_ADMIN_KEY is required (set it in .env or pass with -k/--key)" >&2
+  exit 1
+fi
+
 extract_version() {
   local path="$1"
   local line
@@ -102,9 +107,7 @@ curl_opts=(
   -F "version=${VERSION}"
   -F "sha256=${SHA256}"
 )
-if [[ -n "$ADMIN_KEY" ]]; then
-  curl_opts+=(-H "X-Admin-Key: $ADMIN_KEY")
-fi
+curl_opts+=(-H "X-Admin-Key: $ADMIN_KEY")
 curl "${curl_opts[@]}" "${BASE_URL%/}/wrapper"
 echo
 echo "Wrapper published."

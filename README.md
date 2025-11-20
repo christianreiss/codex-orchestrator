@@ -1,17 +1,101 @@
 # Codex Auth Central API
 
-A lightweight PHP API that centralizes Codex `auth.json` files. Clients register themselves with an invitation key, upload their current `auth.json`, and receive either their own submission (if newer) or the canonical copy maintained by the service. All write/read operations are logged, and host metadata is persisted for auditing. See `AGENTS.md` for a deeper look at each component.
+Welcome! If you were searching for a "Codex auth.json sync server / Codex wrapper backend / multi-host auth.json manager," you landed in the right place. This is a small PHP service that keeps one canonical Codex `auth.json` for your fleet, so hosts either pull the official copy or publish a newer one in a single API call.
 
-## Highlights
+## Use case (start here)
 
-- Register hosts with a fixed invitation key and issue per-host API keys.
-- Push/sync Codex `auth.json` documents; server decides whether to adopt the new payload or return the canonical version based on `last_refresh` while capturing the client's Codex version for fleet audits.
-- MySQL persistence (containerized) for hosts + request logs.
-- Hosts can self-deregister via `DELETE /auth`, which removes their record and digest cache.
-- Token-usage lines from Codex runs can be posted to `/usage` (auto-sent by the wrapper) for per-host auditing.
-- Shipping bin tooling: `bin/codex-install` registers + syncs via the API, and `bin/codex-uninstall` now calls `DELETE /auth` (using stored sync env) before wiping local files—no registry file required.
-- Dockerized runtime via `php:8.2-apache` with automatic migrations.
-- Authentication enforced for every endpoint except registration (`X-API-Key` or `Authorization: Bearer` headers).
+- You run Codex across multiple hosts and want a single source of truth for `auth.json`.
+- Hosts should self-enroll with an invite key, pick up the canonical file, or contribute an update when theirs is fresher.
+- You want lightweight auditing (who registered, who synced, which versions) without babysitting machines.
+- You are fine with a containerized PHP + MySQL service and a couple of helper scripts to wire it up.
+
+**Search terms:** codex auth.json sync, codex wrapper server, codex central auth backend, php codex auth api, multi-host auth.json manager.
+
+## Why teams use it
+
+- One `/auth` flow: register once, then a unified retrieve/store call that decides whether to accept the client's auth or return the canonical copy (with versions attached).
+- Invitation-key gating issues per-host API keys; hosts can self-deregister via `DELETE /auth` when decommissioned.
+- Captures host metadata (IP, client version, optional wrapper version) so you know which machines are on which build.
+- MySQL-backed persistence and audit logs out of the box; storage lives in the compose volume by default.
+- Bin helpers ship with the container: `bin/codex-install` handles registration + sync, while `bin/codex-uninstall` calls `DELETE /auth` before tearing down local files.
+- Token-usage lines from Codex runs can be posted to `/usage` for per-host auditing.
+- Runs in `php:8.2-apache` with automatic migrations; every endpoint except registration enforces API-key auth (`X-API-Key` or `Authorization: Bearer`).
+
+## How it works (big picture)
+
+- This container exposes a small PHP API + MySQL database that act as the "auth.json registry" for all of your Codex hosts.
+- A companion installer script (`bin/codex-install`) SSHes into a host, installs or updates the Codex CLI + `cdx` wrapper, registers the host with this API using an invitation key, and uploads your `auth.json`.
+- Each host keeps a tiny sync env file (for example `/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`) that tells the wrapper how to reach this API; from then on, the host no longer needs manual `codex login` runs.
+
+## From manual logins to central sync
+
+Think of a very common starting point:
+
+- You have several servers (or laptops, CI runners, etc.).
+- On each one, you log into Codex by hand and end up with a separate `~/.codex/auth.json`.
+- When a token rotates, you have to remember which machines to fix.
+
+With this project in place:
+
+1. **Run the auth server once.** Bring up the Docker stack (see "Quick Start") and choose an `INVITATION_KEY` in `.env`.
+2. **Log into Codex on one trusted machine.** Use the normal Codex CLI sign-in so you get a local `~/.codex/auth.json`. This will become your starting canonical auth.
+3. **Enroll each host with `bin/codex-install`.**
+
+   From this repo (or any clone that has `bin/codex-install`), on your trusted machine:
+
+   ```bash
+   # Point the installer at your auth server
+   export CODEX_SYNC_BASE_URL="https://codex-auth.example.com"   # or http://localhost:8488 during testing
+   export CODEX_SYNC_INVITE_KEY="<INVITATION_KEY from the server .env>"
+
+   # Install Codex + wrapper + sync on a host
+   ./bin/codex-install my-server-01.example.com
+   ```
+
+   What this does behind the scenes:
+
+   - SSHes into `my-server-01.example.com` (default user is `root`, override with `-u ubuntu`).
+   - Installs or upgrades the Codex CLI and the `cdx` wrapper.
+   - Registers the host with this API using the invitation key and gets a per-host API key.
+   - Uploads your local `~/.codex/auth.json` and makes it the canonical `auth.json` for that host.
+   - Writes a small sync config so future Codex runs talk to this server automatically.
+
+   To tweak SSH details:
+
+   ```bash
+   ./bin/codex-install -u ubuntu -p 2222 my-server-02.example.com
+   ```
+
+   To keep the wrapper auto-updated on the host, add:
+
+   ```bash
+   ./bin/codex-install --install-systemd-timer my-server-03.example.com
+   ```
+
+4. **Repeat for all your machines.** Every call to `codex-install` enrolls another host with the same central auth service; you no longer have to log in interactively on each box.
+5. **Clean up when a host is retired.**
+
+   ```bash
+   ./bin/codex-uninstall my-server-01.example.com
+   ```
+
+   This removes Codex binaries/configs on the target host and calls `DELETE /auth` using the stored sync config so the host disappears from the registry.
+
+## Commands you'll actually type
+
+On the **auth server host**:
+
+- `cp .env.example .env`
+- Edit `.env` and set `INVITATION_KEY` and `DB_*` (or use the defaults from `docker-compose.yml`).
+- `docker compose up --build`
+
+On your **laptop or admin box** (the one where you already use Codex):
+
+- `codex login` (or whichever flow creates `~/.codex/auth.json`).
+- `export CODEX_SYNC_BASE_URL="https://codex-auth.example.com"` (or `http://localhost:8488`).
+- `export CODEX_SYNC_INVITE_KEY="<INVITATION_KEY from the server .env>"`.
+- `./bin/codex-install my-server-01.example.com` to enroll a host.
+- `./bin/codex-uninstall my-server-01.example.com` to remove a host and deregister it from the auth server.
 
 ## Quick Start
 
@@ -47,7 +131,7 @@ docker-compose.yml
    - `docker compose up --build`
    - Services: `api` (PHP) and `mysql` (MySQL 8). Both join the `codex_auth` network.
    - API listens on `http://localhost:8488`.
-   - MySQL data persists in the `mysql_data` volume; SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
+   - MySQL data persists in `/var/docker_data/codex-auth.uggs.io/mysql_data` (bind-mounted one level above the repo); SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
 
 3. **Local (optional)**
    - `composer install`
@@ -177,7 +261,7 @@ Notes:
 
 - **hosts**: FQDN, API key, status, stored `auth_json`, last refresh time, IP binding, latest `client_version`, and optional `wrapper_version`.
 - **logs**: Each registration and sync operation records host, action, timestamps, and a JSON blob summarizing the decision (`updated` vs `unchanged`).
-- All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data in the `mysql_data` volume; use `storage/sql` for exports/backups or one-off imports during migrations.
+- All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.uggs.io/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
 
 Access logs manually with `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`.
 

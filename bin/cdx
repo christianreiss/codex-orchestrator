@@ -603,7 +603,7 @@ PY
     versions_json="$api_output"
     if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
       local parsed
-      parsed="$(python3 - "$versions_json" <<'PY'
+      parsed="$(printf '%s' "$versions_json" | python3 - <<'PY'
 import json, sys
 try:
     data = json.loads(sys.stdin.read())
@@ -1274,11 +1274,19 @@ if [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
 fi
 
 run_codex_command() {
-  local tmp_output
+  local tmp_output status
   tmp_output="$(mktemp)"
   set +e
-  "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
-  local status=${PIPESTATUS[0]}
+  if command -v script >/dev/null 2>&1 && [[ -t 1 ]]; then
+    local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
+    # Preserve a tty for interactive runs while still logging to tmp_output
+    script -q "$tmp_output" -c "$(printf '%q ' "${cmd_line[@]}")"
+    status=$?
+    cat "$tmp_output"
+  else
+    "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
+  fi
   set -e
   send_token_usage_if_present "$tmp_output"
   rm -f "$tmp_output"
