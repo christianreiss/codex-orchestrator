@@ -190,7 +190,10 @@
           <td>${host.wrapper_version ?? '—'}</td>
           <td>${host.ip ?? '—'}</td>
           <td><code>${host.canonical_digest ? host.canonical_digest.slice(0,12)+'…' : '—'}</code></td>
-          <td><button data-id="${host.id}" class="danger">Remove</button></td>
+          <td style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button data-id="${host.id}" class="ghost">Clear</button>
+            <button data-id="${host.id}" class="danger">Remove</button>
+          </td>
         `;
         tr.addEventListener('click', () => showHostDetail(host.id));
         hostsTbody.appendChild(tr);
@@ -201,6 +204,14 @@
           ev.stopPropagation();
           const id = parseInt(btn.getAttribute('data-id'), 10);
           confirmRemove(id);
+        });
+      });
+
+      hostsTbody.querySelectorAll('button.ghost').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          confirmClear(id);
         });
       });
     }
@@ -240,6 +251,19 @@
       detailEl.textContent = 'Deleting…';
       try {
         await api(`/admin/hosts/${id}`, { method: 'DELETE' });
+        await loadAll();
+      } catch (err) {
+        detailEl.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    async function confirmClear(id) {
+      const host = currentHosts.find(h => h.id === id);
+      const name = host ? host.fqdn : `id ${id}`;
+      if (!confirm(`Clear IP binding and stored digests for ${name}?`)) return;
+      detailEl.textContent = 'Clearing…';
+      try {
+        await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
         await loadAll();
       } catch (err) {
         detailEl.textContent = `Error: ${err.message}`;
