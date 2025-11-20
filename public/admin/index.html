@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Auth Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --border: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22d3ee;
+      --accent-2: #a78bfa;
+      --danger: #f87171;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(34,211,238,0.08), transparent 30%), radial-gradient(circle at 80% 0%, rgba(167,139,250,0.08), transparent 25%), var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 24px 32px 12px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    h1 { margin: 0; letter-spacing: 0.4px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    main { padding: 0 32px 32px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+    .grid { display: grid; gap: 12px; }
+    .grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .badge { padding: 4px 8px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+    .status-active { background: rgba(52, 211, 153, 0.15); color: var(--success); }
+    .status-suspended { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+    .status-unknown { background: rgba(156, 163, 175, 0.2); color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    tr:hover { background: rgba(255,255,255,0.02); }
+    code { background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 6px; font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; }
+    button {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #0b1224;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 10px 20px rgba(34,211,238,0.25);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(34,211,238,0.35); }
+    button:active { transform: translateY(0); }
+    .split { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+    @media (max-width: 960px) {
+      .split { grid-template-columns: 1fr; }
+      main { padding: 0 16px 24px; }
+      header { padding: 20px 16px 10px; }
+    }
+    .error { color: var(--danger); font-weight: 600; }
+    .success { color: var(--success); font-weight: 600; }
+    .pill { padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--muted); font-size: 12px; }
+    .logs { max-height: 400px; overflow: auto; }
+    .log-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .log-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Codex Auth Dashboard</h1>
+      <div class="muted">mTLS-only admin view</div>
+    </div>
+    <div id="mtls" class="pill">mTLS: pending…</div>
+  </header>
+  <main class="grid">
+    <div class="grid cols-3" id="stats"></div>
+    <div class="split">
+      <div class="card">
+        <div class="flex" style="justify-content: space-between; margin-bottom: 8px;">
+          <div>
+            <div style="font-weight:700;">Hosts</div>
+            <div class="muted">Canonical digests + versions</div>
+          </div>
+          <button id="refresh">Refresh</button>
+        </div>
+        <div style="overflow:auto;">
+          <table id="hosts">
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th>Status</th>
+                <th>Last Refresh</th>
+                <th>Client</th>
+                <th>Wrapper</th>
+                <th>IP</th>
+                <th>Digest</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700; margin-bottom:6px;">Latest Activity</div>
+        <div id="logs" class="logs"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700; margin-bottom:6px;">Host Details</div>
+      <div class="muted" style="margin-bottom:8px;">Select a row to inspect canonical auth metadata.</div>
+      <pre id="detail" style="background: rgba(255,255,255,0.03); padding:12px; border-radius:8px; overflow:auto; max-height:360px;">No host selected.</pre>
+    </div>
+  </main>
+
+  <script>
+    const statsEl = document.getElementById('stats');
+    const hostsTbody = document.querySelector('#hosts tbody');
+    const logsEl = document.getElementById('logs');
+    const detailEl = document.getElementById('detail');
+    const mtlsEl = document.getElementById('mtls');
+    const refreshBtn = document.getElementById('refresh');
+
+    async function api(path) {
+      const res = await fetch(path, {headers:{'Accept':'application/json'}});
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      return res.json();
+    }
+
+    function formatStatus(status) {
+      const cls = status === 'active' ? 'status-active' : status === 'suspended' ? 'status-suspended' : 'status-unknown';
+      return `<span class="badge ${cls}">${status}</span>`;
+    }
+
+    function setMtls(meta) {
+      if (meta && meta.fingerprint) {
+        mtlsEl.textContent = 'mTLS: presented';
+        mtlsEl.classList.add('success');
+      } else {
+        mtlsEl.textContent = 'mTLS: missing (admin blocked)';
+        mtlsEl.classList.remove('success');
+        mtlsEl.classList.add('error');
+      }
+    }
+
+    function renderStats(data) {
+      statsEl.innerHTML = `
+        <div class="card">
+          <div class="muted">Hosts</div>
+          <div style="font-size:24px;font-weight:700;">${data.totals.hosts}</div>
+          <div class="muted">Active ${data.totals.active} · Suspended ${data.totals.suspended}</div>
+        </div>
+        <div class="card">
+          <div class="muted">Versions</div>
+          <div style="font-weight:700;">CLI ${data.versions.client_version ?? 'n/a'}</div>
+          <div class="muted">Wrapper ${data.versions.wrapper_version ?? 'n/a'}</div>
+          <div class="muted">Checked ${data.versions.client_version_checked_at ?? 'n/a'}</div>
+        </div>
+        <div class="card">
+          <div class="muted">Latest Log</div>
+          <div style="font-weight:700;">${data.latest_log_at ?? 'n/a'}</div>
+        </div>
+      `;
+    }
+
+    function renderHosts(hosts) {
+      hostsTbody.innerHTML = '';
+      hosts.forEach(host => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${host.fqdn}</td>
+          <td>${formatStatus(host.status)}</td>
+          <td><div>${host.last_refresh ?? '—'}</div><div class="muted" style="font-size:12px;">${host.updated_at ?? ''}</div></td>
+          <td>${host.client_version ?? '—'}</td>
+          <td>${host.wrapper_version ?? '—'}</td>
+          <td>${host.ip ?? '—'}</td>
+          <td><code>${host.canonical_digest ? host.canonical_digest.slice(0,12)+'…' : '—'}</code></td>
+        `;
+        tr.addEventListener('click', () => showHostDetail(host.id));
+        hostsTbody.appendChild(tr);
+      });
+    }
+
+    function renderLogs(logs) {
+      logsEl.innerHTML = '';
+      logs.forEach(log => {
+        const div = document.createElement('div');
+        div.className = 'log-item';
+        const host = log.host_id ? `host ${log.host_id}` : 'system';
+        div.innerHTML = `<div style="font-weight:700;">${log.action}</div>
+          <div class="muted">${host} · ${log.created_at}</div>
+          <div><code>${JSON.stringify(log.details ?? {}, null, 0)}</code></div>`;
+        logsEl.appendChild(div);
+      });
+    }
+
+    async function showHostDetail(id) {
+      detailEl.textContent = 'Loading…';
+      try {
+        const data = await api(`/admin/hosts/${id}/auth?include_body=1`);
+        detailEl.textContent = JSON.stringify(data.data, null, 2);
+      } catch (err) {
+        detailEl.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    async function loadAll() {
+      detailEl.textContent = 'No host selected.';
+      try {
+        const overview = await api('/admin/overview');
+        setMtls(overview.data.mtls);
+        renderStats(overview.data);
+        const hosts = await api('/admin/hosts');
+        renderHosts(hosts.data.hosts);
+        const logs = await api('/admin/logs?limit=25');
+        renderLogs(logs.data.logs);
+      } catch (err) {
+        mtlsEl.textContent = 'mTLS / Admin access failed';
+        mtlsEl.classList.add('error');
+        statsEl.innerHTML = `<div class="card"><div class="error">Error: ${err.message}</div></div>`;
+      }
+    }
+
+    refreshBtn.addEventListener('click', loadAll);
+    loadAll();
+  </script>
+</body>
+</html>

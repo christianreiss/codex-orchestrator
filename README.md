@@ -148,6 +148,7 @@ Notes:
   - `GET /admin/hosts`: list hosts with canonical digest and recent digests.
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`).
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
+- A basic dashboard lives at `/admin/` (served by this container); it calls the endpoints above and will only work when mTLS is presented.
 
 ## Data & Logging
 
