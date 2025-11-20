@@ -90,13 +90,14 @@ class HostRepository
         ]);
     }
 
-    public function updateAuth(int $hostId, string $authJson, string $lastRefresh, string $clientVersion, ?string $wrapperVersion): void
+    public function updateAuth(int $hostId, string $authJson, string $lastRefresh, string $authDigest, string $clientVersion, ?string $wrapperVersion): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET auth_json = :auth_json, last_refresh = :last_refresh, client_version = :client_version, wrapper_version = :wrapper_version, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET auth_json = :auth_json, auth_digest = :auth_digest, last_refresh = :last_refresh, client_version = :client_version, wrapper_version = :wrapper_version, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
             'auth_json' => $authJson,
+            'auth_digest' => $authDigest,
             'last_refresh' => $lastRefresh,
             'client_version' => $clientVersion,
             'wrapper_version' => $wrapperVersion,
@@ -159,5 +160,18 @@ class HostRepository
             "DELETE FROM hosts WHERE id IN ({$placeholders})"
         );
         $statement->execute($ids);
+    }
+
+    public function updateAuthDigest(int $hostId, ?string $authDigest, ?string $updatedAt = null): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET auth_digest = :auth_digest, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'auth_digest' => $authDigest,
+            'updated_at' => $updatedAt ?? gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
     }
 }

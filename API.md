@@ -2,7 +2,7 @@
 
 Base URL: `https://codex-auth.uggs.io`
 
-All responses are JSON. Unless otherwise noted, request bodies must be `application/json`.
+All responses are JSON. Request bodies must be `application/json` unless otherwise stated.
 
 ## Authentication
 
@@ -10,27 +10,24 @@ All responses are JSON. Unless otherwise noted, request bodies must be `applicat
 - Every other endpoint requires the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
-- API keys are IP-bound after the first sync: the first successful `/auth/sync` stores the caller's IP, and all subsequent syncs with that key must come from the same IP or a `403` is returned. (Re-register to rotate the key and reset the bound IP.)
+- API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-register to rotate the key and reset the binding.
 
 ### Invitation Key
 
-- Current shared key for onboarding new hosts: `39e0975e1d8e82db7a9b39e0f518d59fc4e588ef9a08564fa499779c9536eacc`
-- Update this value via the `INVITATION_KEY` environment variable when rotating secrets.
+- Current onboarding key: `39e0975e1d8e82db7a9b39e0f518d59fc4e588ef9a08564fa499779c9536eacc`
+- Rotate via the `INVITATION_KEY` environment variable.
 
-On failure, the API responds with:
+Errors return:
 
 ```json
-{
-  "status": "error",
-  "message": "Invalid API key"
-}
+{ "status": "error", "message": "Invalid API key" }
 ```
 
 ## Endpoints
 
 ### `POST /register`
 
-Registers a host using the shared invitation key. Re-registering the same FQDN rotates the API key and returns the new value.
+Registers a host with the invitation key. Re-registering the same FQDN rotates the API key immediately.
 
 **Request**
 
@@ -39,13 +36,10 @@ POST /register HTTP/1.1
 Host: codex-auth.uggs.io
 Content-Type: application/json
 
-{
-  "fqdn": "ci01.example.net",
-  "invitation_key": "<shared-secret>"
-}
+{ "fqdn": "ci01.example.net", "invitation_key": "<shared-secret>" }
 ```
 
-**Success Response**
+**Success**
 
 ```json
 {
@@ -61,171 +55,94 @@ Content-Type: application/json
 }
 ```
 
-Errors:
-- `422` when `fqdn` or `invitation_key` missing.
-- `401` when `invitation_key` is wrong.
+Errors: `422` for missing fields, `401` for wrong invitation key.
 
-### `POST /auth/check`
+### `POST /auth` (single-call sync)
 
-Lightweight validation endpoint that lets a client confirm whether its cached `auth.json` matches the server without uploading the full document.
+Unified endpoint for both checking and updating auth. Each response includes the versions block, so no separate `/versions` request is needed.
 
-**Required fields**
+**Required auth**: API key header.
 
-- `last_refresh`: RFC3339 timestamp describing the client’s cached payload.
-- `auth_sha`: lowercase hex SHA-256 digest of the cached payload (hash the exact JSON you would otherwise upload, e.g. `hash('sha256', json_encode($auth, JSON_UNESCAPED_SLASHES))`).
-- `client_version`: provided via JSON or query string (`client_version`/`cdx_version`).
+**Body fields**
 
-`wrapper_version` is optional and may be sent either via JSON or query string (`wrapper_version`/`cdx_wrapper_version`).
+- `command`: `retrieve` (default) or `store`.
+- `client_version`: required (JSON or query param `client_version`/`cdx_version`).
+- `wrapper_version`: optional (JSON or query param `wrapper_version`/`cdx_wrapper_version`).
+- `digests`: optional array of up to 3 lowercase SHA-256 hex digests previously issued to this host.
+- `last_refresh`: required when `command` is `retrieve`; timestamp of the client’s current payload.
+- `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body and must include `last_refresh`.
 
-**Request**
+The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 digests per host (`host_auth_digests`) based on what callers submit.
+
+**Retrieve example (valid)**
 
 ```http
-POST /auth/check?client_version=0.60.1 HTTP/1.1
-Host: codex-auth.uggs.io
+POST /auth HTTP/1.1
 X-API-Key: 8a63...f0
 Content-Type: application/json
 
 {
+  "command": "retrieve",
   "last_refresh": "2025-11-19T09:27:43.373506211Z",
-  "auth_sha": "b0b1b540ea35ac7cf806..."
+  "digests": ["b0b1b540ea35ac7cf806..."],
+  "client_version": "0.60.1",
+  "wrapper_version": "2025.11.19-4"
 }
 ```
-
-**Responses**
 
 ```json
 {
   "status": "ok",
   "data": {
     "status": "valid",
-    "last_refresh": "2025-11-19T09:27:43.373506211Z",
-    "auth_digest": "b0b1b540ea35ac7cf806..."
-  }
-}
-```
-
-- `valid`: client matches server (no payload returned).
-- `outdated`: server holds a newer copy; response includes `auth` and host metadata so the client can hydrate immediately.
-- `upload_required`: client reports a newer version; caller should upload via `/auth/update`.
-- `missing`: server does not yet have a canonical payload; caller should upload.
-
-Example `outdated` response snippet:
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "status": "outdated",
-    "last_refresh": "2025-11-19T09:27:43.373506211Z",
-    "auth_digest": "b0b1b540ea35ac7cf806...",
-    "host": { "fqdn": "ci01.example.net", "status": "active", "last_refresh": "2025-11-19T09:27:43.373506211Z", "updated_at": "2025-11-19T09:28:01Z", "client_version": "0.60.1", "wrapper_version": "1.4.3" },
-    "auth": { "last_refresh": "2025-11-19T09:27:43.373506211Z", "auths": { "api.codex.example.com": { "token": "..." } } }
-  }
-}
-```
-
-### `POST /auth/update`
-
-Uploads the client’s current `auth.json` when it has a newer canonical copy. The server compares `last_refresh` and returns either the stored canonical version or the newly accepted payload. `/auth/sync` is still accepted as an alias for backward compatibility, but `/auth/update` is the preferred path.
-
-`client_version` (string) is required and should match the Codex CLI release running on the host (e.g., `"0.60.1"`). Provide it either as a JSON field or as a query parameter (`client_version` or alias `cdx_version`).
-
-`wrapper_version` (string, optional) may be supplied when a cdx wrapper/installer is fronting the CLI. Send it via JSON or a query parameter (`wrapper_version` or alias `cdx_wrapper_version`). When provided it is stored alongside the host metadata and surfaced in host payloads/status reports so operators can audit wrapper rollout separately from the CLI version.
-
-**Request**
-
-```http
-POST /auth/update?client_version=0.60.1&wrapper_version=1.4.3 HTTP/1.1
-Host: codex-auth.uggs.io
-X-API-Key: 8a63...f0
-Content-Type: application/json
-
-{
-  "auth": {
-    "last_refresh": "2025-11-19T09:27:43.373506211Z",
-    "auths": {
-      "api.codex.example.com": {
-        "token": "..."
-      }
+    "canonical_last_refresh": "2025-11-19T09:27:43.373506211Z",
+    "canonical_digest": "b0b1b540ea35ac7cf806...",
+    "versions": {
+      "client_version": "0.60.1",
+      "client_version_checked_at": "2025-11-20T09:00:00Z",
+      "wrapper_version": "2025.11.19-4",
+      "reported_client_version": "0.60.1",
+      "reported_wrapper_version": "2025.11.19-4"
     }
   }
 }
 ```
 
-**Success Response**
+**Retrieve responses**
 
-```json
+- `valid`: submitted digest matches canonical; no auth JSON returned.
+- `outdated`: server has newer auth; response includes `auth`, canonical digest, and versions.
+- `upload_required`: client claims a newer payload (client `last_refresh` > server); caller should resend with `command: "store"` and include `auth`.
+- `missing`: server does not yet have a canonical payload; caller should send `command: "store"`.
+
+**Store example (update canonical)**
+
+```http
+POST /auth HTTP/1.1
+X-API-Key: 8a63...f0
+Content-Type: application/json
+
 {
-  "status": "ok",
-  "data": {
-    "result": "updated",
-    "host": {
-      "fqdn": "ci01.example.net",
-      "status": "active",
-      "last_refresh": "2025-11-19T09:27:43.373506211Z",
-      "updated_at": "2025-11-19T09:28:01Z",
-      "client_version": "0.60.1",
-      "wrapper_version": "1.4.3"
-    },
-    "auth": {
-      "last_refresh": "2025-11-19T09:27:43.373506211Z",
-      "auths": {
-        "api.codex.example.com": {
-          "token": "..."
-        }
-      }
-    },
-    "last_refresh": "2025-11-19T09:27:43.373506211Z"
+  "command": "store",
+  "client_version": "0.60.1",
+  "wrapper_version": "2025.11.19-4",
+  "digests": ["b0b1b540ea35ac7cf806..."],  // optional; server records them
+  "auth": {
+    "last_refresh": "2025-11-20T09:27:43.373506211Z",
+    "auths": { "api.codex.example.com": { "token": "..." } }
   }
 }
 ```
 
-Behavior:
-- If the submitted `last_refresh` is newer than the stored value, the new payload becomes canonical and the response includes the full document with `result: "updated"`.
-- If the submitted `last_refresh` is older than what the server holds, the server keeps its canonical copy and returns it so the client can hydrate:
+**Store responses**
 
-```json
-{
-  "status": "ok",
-  "data": {
-    "result": "unchanged",
-    "host": { "fqdn": "ci01.example.net", "status": "active", "last_refresh": "2025-11-19T09:27:43.373506211Z", "updated_at": "2025-11-19T09:28:01Z" },
-    "auth": { "last_refresh": "2025-11-19T09:27:43.373506211Z", "auths": { "api.codex.example.com": { "token": "..." } } },
-    "last_refresh": "2025-11-19T09:27:43.373506211Z"
-  }
-}
-```
+- `updated`: incoming `last_refresh` is newer or server had none; server stores the payload and returns canonical `auth`, digest, versions, and host metadata.
+- `unchanged`: timestamps match; returns canonical digest and versions only.
+- `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
 
-- If the payload timestamp matches the stored value, the response is trimmed to result + canonical timestamp:
+### `GET /versions` (optional)
 
-```json
-{
-  "status": "ok",
-  "data": {
-    "result": "unchanged",
-    "last_refresh": "2025-11-19T09:27:43.373506211Z"
-  }
-}
-```
-
-Errors:
-- `401` missing/invalid API key.
-- `422` missing `auth` body, `client_version`, or `last_refresh`.
-- `500` unexpected server error.
-
----
-
-## `GET /versions`
-
-Returns the server-cached Codex CLI version (pulled from GitHub “latest release” when cache is older than 2 hours), the operator-published wrapper version, and the highest values reported by any host. Clients should prefer the top-level fields; `reported_*` are fallbacks/telemetry.
-
-**Request**
-
-```
-GET /versions
-```
-
-**Response**
+Provided for observability; clients do not need it because `/auth` responses already include the same block.
 
 ```json
 {
@@ -240,44 +157,13 @@ GET /versions
 }
 ```
 
-## `POST /versions` (admin)
+### `POST /versions` (admin)
 
-Sets the operator-published versions. Requires the admin key configured in `VERSION_ADMIN_KEY` (send via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query parameter).
+Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query). Body accepts `client_version` and/or `wrapper_version`. Response mirrors `GET /versions`.
 
-**Request**
+## Logs & Housekeeping
 
-```
-POST /versions
-```
-
-Body (at least one field required):
-
-```json
-{ "client_version": "0.60.1", "wrapper_version": "2025.11.19-4" }
-```
-
-**Response**
-
-Same shape as `GET /versions`.
-
-Caching:
-- The API caches the Codex CLI version for 2 hours (`client_version`/`client_version_checked_at`). Requests made while the cache is fresh avoid hitting GitHub; stale caches trigger a refresh. When GitHub is unreachable the previous cached value is returned.
-- If no operator wrapper version is published, the API auto-seeds it from the first reported host wrapper version.
-
-## Logs & Auditing
-
-Each call records an entry in the `logs` table summarizing:
-- host id (if authenticated),
-- action (`register` or `auth.sync`),
-- timestamp,
-- JSON details (e.g., `result: updated` or `incoming_last_refresh`).
-- After every register/sync/prune event the service regenerates the human-readable status file (`STATUS_REPORT_PATH`, defaults to `storage/host-status.txt`) so operators always have an up-to-date snapshot.
-
-Access logs directly via `sqlite3 storage/database.sqlite 'SELECT * FROM logs ORDER BY created_at DESC;'` when running on-prem.
-
-## Notes
-
-- Service is API-only; any non-listed route returns `404`.
-- Use HTTPS when deploying publicly (reverse proxy, load balancer, etc.).
-- Rotate API keys by updating the `hosts` table or extending the service with a key-rotation endpoint.
-- Hosts that have not contacted the service for 30 days are automatically removed and must re-register before syncing again.
+- Every `register`, `auth` retrieve/store, and version publish is logged in the `logs` table with JSON details.
+- The service keeps the last 3 digests per host in `host_auth_digests` to recognize recent client states.
+- Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
+- After register/store/prune events a status report is regenerated at `STATUS_REPORT_PATH` (defaults to `storage/host-status.txt`).

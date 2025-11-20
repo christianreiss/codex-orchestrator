@@ -63,9 +63,12 @@ class HostStatusExporter
                     $entryCount = count($authPayload['auths']);
                 }
 
-                $digest = $host['auth_json']
-                    ? substr(hash('sha256', $host['auth_json']), 0, 12)
-                    : 'n/a';
+                $rawDigest = $host['auth_digest'] ?? null;
+                if (!$rawDigest && $host['auth_json']) {
+                    $rawDigest = hash('sha256', $host['auth_json']);
+                }
+
+                $digest = $rawDigest ? substr($rawDigest, 0, 12) : 'n/a';
 
                 $lines[] = sprintf(
                     '%-3d  %-30s %-10s %-24s %-24s %-12s %-12s %-8s %-12s',
@@ -97,9 +100,12 @@ class HostStatusExporter
                     $authTargets = array_keys($authPayload['auths']);
                 }
 
-                $digest = $host['auth_json']
-                    ? substr(hash('sha256', $host['auth_json']), 0, 20)
-                    : 'n/a';
+                $rawDigest = $host['auth_digest'] ?? null;
+                if (!$rawDigest && $host['auth_json']) {
+                    $rawDigest = hash('sha256', $host['auth_json']);
+                }
+
+                $digest = $rawDigest ? substr($rawDigest, 0, 20) : 'n/a';
 
                 $lines[] = sprintf('%d. %s', $index + 1, $host['fqdn']);
                 $lines[] = '    Status        : ' . $host['status'];

@@ -38,6 +38,7 @@ class Database
                 api_key TEXT NOT NULL UNIQUE,
                 status TEXT NOT NULL DEFAULT 'active',
                 last_refresh TEXT NULL,
+                auth_digest TEXT NULL,
                 ip TEXT NULL,
                 client_version TEXT NULL,
                 wrapper_version TEXT NULL,
@@ -63,6 +64,20 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS host_auth_digests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host_id INTEGER NOT NULL,
+                digest TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(host_id, digest),
+                FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+            );
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS versions (
                 name TEXT PRIMARY KEY,
                 version TEXT NOT NULL,
@@ -75,6 +90,7 @@ class Database
         $this->ensureColumnExists('hosts', 'ip', 'TEXT NULL');
         $this->ensureColumnExists('hosts', 'client_version', 'TEXT NULL');
         $this->ensureColumnExists('hosts', 'wrapper_version', 'TEXT NULL');
+        $this->ensureColumnExists('hosts', 'auth_digest', 'TEXT NULL');
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void

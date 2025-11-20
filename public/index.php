@@ -6,6 +6,7 @@ use App\Config;
 use App\Database;
 use App\Exceptions\HttpException;
 use App\Http\Response;
+use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
@@ -26,12 +27,13 @@ $database = new Database($dbPath);
 $database->migrate();
 
 $hostRepository = new HostRepository($database);
+$digestRepository = new HostAuthDigestRepository($database);
 $logRepository = new LogRepository($database);
 $versionRepository = new VersionRepository($database);
 $invitationKey = Config::get('INVITATION_KEY', '');
 $statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
 $statusExporter = new HostStatusExporter($hostRepository, $statusPath);
-$service = new AuthService($hostRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter);
+$service = new AuthService($hostRepository, $digestRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -124,31 +126,14 @@ try {
         ]);
     }
 
-if ($method === 'POST' && $normalizedPath === '/auth/check') {
-    $apiKey = resolveApiKey();
-    $clientIp = resolveClientIp();
-    $host = $service->authenticate($apiKey, $clientIp);
-    $clientVersion = extractClientVersion($payload);
-    $wrapperVersion = extractWrapperVersion($payload);
-    $metadata = extractAuthMetadata($payload);
-
-    $result = $service->checkAuth($metadata, $host, $clientVersion, $wrapperVersion);
-
-    Response::json([
-        'status' => 'ok',
-        'data' => $result,
-    ]);
-}
-
-if ($method === 'POST' && ($normalizedPath === '/auth/sync' || $normalizedPath === '/auth/update')) {
-    $apiKey = resolveApiKey();
-    $clientIp = resolveClientIp();
-    $host = $service->authenticate($apiKey, $clientIp);
-    $incoming = extractAuthPayload($payload);
-    $clientVersion = extractClientVersion($payload);
+    if ($method === 'POST' && $normalizedPath === '/auth') {
+        $apiKey = resolveApiKey();
+        $clientIp = resolveClientIp();
+        $host = $service->authenticate($apiKey, $clientIp);
+        $clientVersion = extractClientVersion($payload);
         $wrapperVersion = extractWrapperVersion($payload);
 
-        $result = $service->sync($incoming, $host, $clientVersion, $wrapperVersion);
+        $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion);
 
         Response::json([
             'status' => 'ok',
@@ -212,19 +197,6 @@ function resolveClientIp(): ?string
     return $remote ?: null;
 }
 
-function extractAuthPayload(mixed $payload): array
-{
-    if (is_array($payload) && array_key_exists('auth', $payload) && is_array($payload['auth'])) {
-        return $payload['auth'];
-    }
-
-    if (is_array($payload) && array_key_exists('last_refresh', $payload)) {
-        return $payload;
-    }
-
-    return [];
-}
-
 function extractClientVersion(mixed $payload): ?string
 {
     if (is_array($payload) && array_key_exists('client_version', $payload)) {
@@ -263,37 +235,6 @@ function extractWrapperVersion(mixed $payload): ?string
     }
 
     return null;
-}
-
-function extractAuthMetadata(mixed $payload): array
-{
-    if (!is_array($payload)) {
-        return [];
-    }
-
-    $metadata = [];
-
-    if (array_key_exists('last_refresh', $payload) && is_string($payload['last_refresh'])) {
-        $value = trim($payload['last_refresh']);
-        if ($value !== '') {
-            $metadata['last_refresh'] = $value;
-        }
-    }
-
-    $hashKeys = ['auth_sha', 'auth_digest', 'digest'];
-    foreach ($hashKeys as $key) {
-        if (!array_key_exists($key, $payload)) {
-            continue;
-        }
-
-        $value = normalizeVersionValue($payload[$key]);
-        if ($value !== null) {
-            $metadata['auth_sha'] = strtolower($value);
-            break;
-        }
-    }
-
-    return $metadata;
 }
 
 function resolveQueryParam(string $key): ?string
