@@ -507,7 +507,10 @@
         const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
         tr.innerHTML = `
           <td>
-            <div class="inline-cell"><strong>${host.fqdn}</strong><span class="muted">· added ${formatRelative(addedAt)}</span></div>
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <strong>${host.fqdn}</strong>
+              <span class="muted" style="font-size:12px;">added ${formatRelative(addedAt)}</span>
+            </div>
           </td>
           <td>${renderStatusPill(host.status)}</td>
           <td><div class="inline-cell">${formatRelative(host.updated_at)}<span class="muted">· auth ${formatRelative(host.last_refresh)}</span></div></td>
