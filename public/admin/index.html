@@ -634,11 +634,9 @@
     async function confirmClear(id) {
       const host = currentHosts.find(h => h.id === id);
       const name = host ? host.fqdn : `id ${id}`;
-      if (!confirm(`Clear IP binding and stored digests for ${name}?`)) return;
       try {
         await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
         await loadAll();
-        alert(`Cleared ${name}`);
       } catch (err) {
         alert(`Error: ${err.message}`);
       }
