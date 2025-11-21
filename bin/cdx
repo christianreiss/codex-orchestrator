@@ -1170,11 +1170,18 @@ remote_tag=""
 remote_source=""
 remote_timestamp=0
 
-if (( ! skip_update_check )) && [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
-  remote_version="$(normalize_version "$SYNC_REMOTE_CLIENT_VERSION")"
-  remote_tag="$remote_version"
-  remote_timestamp="$(date +%s)"
-  remote_source="api"
+if (( ! skip_update_check )); then
+  if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
+    remote_version="$(normalize_version "$SYNC_REMOTE_CLIENT_VERSION")"
+    remote_tag="$remote_version"
+    remote_timestamp="$(date +%s)"
+    remote_source="api"
+  elif [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
+    # API succeeded but did not report a client version; assume local is target to avoid spurious warnings.
+    remote_version="$LOCAL_VERSION"
+    remote_tag="$LOCAL_VERSION"
+    remote_source="api"
+  fi
 fi
 
 need_update=0
