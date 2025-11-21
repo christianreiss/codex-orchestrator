@@ -59,6 +59,7 @@ class Database
                 fqdn VARCHAR(255) NOT NULL UNIQUE,
                 api_key CHAR(64) NOT NULL UNIQUE,
                 status VARCHAR(32) NOT NULL DEFAULT 'active',
+                allow_roaming_ips TINYINT(1) NOT NULL DEFAULT 0,
                 last_refresh VARCHAR(100) NULL,
                 auth_digest VARCHAR(128) NULL,
                 ip VARCHAR(64) NULL,
@@ -186,6 +187,7 @@ class Database
         $this->ensureColumnExists('hosts', 'wrapper_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'auth_digest', 'VARCHAR(128) NULL');
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
+        $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void

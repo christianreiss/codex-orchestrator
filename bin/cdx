@@ -1276,14 +1276,120 @@ fi
 run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
+  local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
   set +e
-  if command -v script >/dev/null 2>&1 && [[ -t 1 ]]; then
-    local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
-    # Preserve a tty for interactive runs while still logging output for token parsing
-    script -qfc "$(printf '%q ' "${cmd_line[@]}")" /dev/null | tee "$tmp_output"
+  if command -v python3 >/dev/null 2>&1; then
+    local filter_flag="1"
+    if [[ -n "${CODEX_WRAPPER_FILTER_ESC:-}" ]]; then
+      filter_flag="$CODEX_WRAPPER_FILTER_ESC"
+    fi
+    if CODEX_WRAPPER_FILTER_ESC="$filter_flag" python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'; then
+import os, pty, re, sys
+
+log_path = sys.argv[1]
+cmd = sys.argv[2:]
+filter_flag = os.environ.get("CODEX_WRAPPER_FILTER_ESC") == "1"
+ansi_csi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+ansi_osc = re.compile(rb"\x1b\].*?(?:\x07|\x1b\\)", re.DOTALL)
+
+with open(log_path, "wb") as log:
+    # Debug hook: record whether filtering is enabled so we can verify the
+    # wrapper path is active when troubleshooting escape leaks.
+    try:
+        with open("/tmp/cdx-filter.log", "wb") as dbg:
+            dbg.write(b"filter=" + (b"1" if filter_flag else b"0") + b"\n")
+    except OSError:
+        pass
+    pending = [b""]
+
+    def scrub(data: bytes) -> bytes:
+        """Strip CSI/OSC codes, carrying incomplete sequences across reads."""
+        if not filter_flag:
+            return data
+
+        buf = pending[0] + data
+        pending[0] = b""
+
+        # Keep trailing incomplete escape sequences to merge with next chunk.
+        def split_partial(buffer: bytes):
+            last = buffer.rfind(b"\x1b")
+            if last == -1:
+                return buffer, b""
+            tail = buffer[last:]
+
+            # Incomplete OSC (no BEL or ST yet)
+            if tail.startswith(b"\x1b]") and (b"\x07" not in tail and b"\x1b\\" not in tail):
+                return buffer[:last], tail
+
+            # Incomplete CSI (no final byte in @-~)
+            if tail.startswith(b"\x1b[") and not re.search(rb"\x1b\[[0-?]*[ -/]*[@-~]", tail):
+                return buffer[:last], tail
+
+            # Lone ESC
+            if tail == b"\x1b":
+                return buffer[:last], tail
+
+            return buffer, b""
+
+        buf, pend = split_partial(buf)
+        pending[0] = pend
+
+        buf = ansi_csi.sub(b"", buf)
+        buf = ansi_osc.sub(b"", buf)
+        return buf
+
+    def master_read(fd):
+        data = os.read(fd, 1024)
+        if data:
+            log.write(data)
+            log.flush()
+
+            # Prevent terminal queries from leaking into the user's shell by
+            # answering them here and suppressing the outbound bytes.
+            scrubbed = data
+            if b"\x1b[6n" in data:
+                try:
+                    os.write(fd, b"\x1b[1;1R")
+                except OSError:
+                    pass
+                scrubbed = scrubbed.replace(b"\x1b[6n", b"")
+            if b"\x1b[c" in data:
+                try:
+                    os.write(fd, b"\x1b[?62;1;4c")
+                except OSError:
+                    pass
+                scrubbed = scrubbed.replace(b"\x1b[c", b"")
+
+            return scrub(scrubbed)
+        return data
+
+    def stdin_read(_fd):
+        try:
+            data = os.read(0, 1024)
+        except OSError:
+            return b""
+        return data
+
+    status = pty.spawn(cmd, master_read=master_read, stdin_read=stdin_read)
+
+exit_code = 1
+if os.WIFEXITED(status):
+    exit_code = os.WEXITSTATUS(status)
+elif os.WIFSIGNALED(status):
+    exit_code = 128 + os.WTERMSIG(status)
+sys.exit(exit_code)
+PY
+      status=0
+    else
+      status=$?
+    fi
+  elif command -v script >/dev/null 2>&1; then
+    local cmd_string
+    printf -v cmd_string '%q ' "${cmd_line[@]}"
+    script -qfec "$cmd_string" /dev/null | tee "$tmp_output"
     status=${PIPESTATUS[0]}
   else
-    "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
+    "${cmd_line[@]}" 2>&1 | tee "$tmp_output"
     status=${PIPESTATUS[0]}
   fi
   set -e
@@ -1293,6 +1399,12 @@ run_codex_command() {
 }
 
 CODEX_COMMAND_STARTED=1
+if [[ $# -eq 0 && ( ! -t 0 || ! -t 1 ) ]]; then
+  if ! command -v script >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+    log_error "Interactive Codex requires python3 or 'script' when no TTY is present."
+    exit 1
+  fi
+fi
 if run_codex_command "$@"; then
   cmd_status=0
 else

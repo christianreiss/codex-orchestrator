@@ -374,6 +374,7 @@ try {
                 'wrapper_version' => $host['wrapper_version'] ?? null,
                 'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
                 'ip' => $host['ip'] ?? null,
+                'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
                 'canonical_digest' => $state['seen_digest'] ?? ($host['auth_digest'] ?? null),
                 'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
                 'token_usage' => $usageTotals ? [
@@ -455,6 +456,7 @@ try {
                     'client_version' => $host['client_version'] ?? null,
                     'wrapper_version' => $host['wrapper_version'] ?? null,
                     'ip' => $host['ip'] ?? null,
+                    'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
                 ],
                 'canonical_last_refresh' => $canonicalLastRefresh,
                 'canonical_digest' => $canonicalDigest,
@@ -503,6 +505,46 @@ try {
         Response::json([
             'status' => 'ok',
             'data' => ['cleared' => $hostId],
+        ]);
+    }
+
+    if ($method === 'POST' && preg_match('#^/admin/hosts/(\d+)/roaming$#', $normalizedPath, $matches)) {
+        requireAdminAccess();
+        $hostId = (int) $matches[1];
+        $host = $hostRepository->findById($hostId);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $rawAllow = $payload['allow'] ?? ($payload['allow_roaming_ips'] ?? null);
+        $allow = normalizeBoolean($rawAllow);
+        if ($allow === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'allow must be a boolean',
+            ], 422);
+        }
+
+        $hostRepository->updateAllowRoaming($hostId, $allow);
+        $logRepository->log($hostId, 'admin.host.roaming', [
+            'fqdn' => $host['fqdn'],
+            'allow_roaming_ips' => $allow,
+        ]);
+
+        $updated = $hostRepository->findById($hostId) ?? $host;
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => [
+                    'id' => (int) $updated['id'],
+                    'fqdn' => $updated['fqdn'],
+                    'allow_roaming_ips' => isset($updated['allow_roaming_ips']) ? (bool) (int) $updated['allow_roaming_ips'] : false,
+                ],
+            ],
         ]);
     }
 
@@ -654,6 +696,34 @@ function normalizeVersionValue(mixed $value): ?string
     $value = trim($value);
 
     return $value === '' ? null : $value;
+}
+
+function normalizeBoolean(mixed $value): ?bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    if (is_int($value)) {
+        if ($value === 1) {
+            return true;
+        }
+        if ($value === 0) {
+            return false;
+        }
+    }
+
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        if ($normalized === '1' || $normalized === 'true' || $normalized === 'yes' || $normalized === 'on') {
+            return true;
+        }
+        if ($normalized === '0' || $normalized === 'false' || $normalized === 'no' || $normalized === 'off') {
+            return false;
+        }
+    }
+
+    return null;
 }
 
 function resolveAdminKey(): ?string

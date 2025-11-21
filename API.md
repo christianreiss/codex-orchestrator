@@ -11,7 +11,7 @@ All responses are JSON. Request bodies must be `application/json` unless otherwi
 - Every other endpoint requires the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
-- API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-register to rotate the key and reset the binding.
+- API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-register to rotate the key and reset the binding, or let an operator mark the host as “allow roaming IPs” via the dashboard / `POST /admin/hosts/{id}/roaming`.
 - Wrapper metadata/downloads use the same API key + IP binding; there is no public wrapper URL.
 
 ### Invitation Key
@@ -270,6 +270,8 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
   - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
   - `GET /admin/hosts`: hosts with canonical digest and recent digests.
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optional auth body with `?include_body=1`).
+  - `POST /admin/hosts/{id}/clear`: clear stored IP / digests for a host (forces the next auth call to bind again).
+  - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
 - Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
 - After register/store/prune events a status report is regenerated at `STATUS_REPORT_PATH` (defaults to `storage/host-status.txt`).

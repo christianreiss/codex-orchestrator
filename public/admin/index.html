@@ -4,108 +4,262 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Auth Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #111827;
-      --border: #1f2937;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
+      --bg: #030712;
+      --bg-accent: #0f172a;
+      --card: rgba(15, 23, 42, 0.75);
+      --border: rgba(148, 163, 184, 0.15);
+      --text: #f8fafc;
+      --muted: #94a3b8;
       --accent: #22d3ee;
       --accent-2: #a78bfa;
       --danger: #f87171;
       --success: #34d399;
       --warning: #fbbf24;
-      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+      --shadow: 0 25px 60px rgba(15, 23, 42, 0.55);
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 0;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at 20% 20%, rgba(34,211,238,0.08), transparent 30%), radial-gradient(circle at 80% 0%, rgba(167,139,250,0.08), transparent 25%), var(--bg);
+      margin: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: radial-gradient(circle at 0% 0%, rgba(34,211,238,0.25), transparent 35%),
+                  radial-gradient(circle at 100% 0%, rgba(167,139,250,0.25), transparent 30%),
+                  var(--bg);
       color: var(--text);
       min-height: 100vh;
+      line-height: 1.5;
+      position: relative;
+      overflow-x: hidden;
     }
-    header {
-      padding: 24px 32px 12px;
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: url('data:image/svg+xml,%3Csvg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop stop-color="%23000000" stop-opacity="0.25"/%3E%3Cstop offset="1" stop-color="%23000000" stop-opacity="0"/%3E%3C/linearGradient%3E%3Cpattern id="p" width="40" height="40" patternUnits="userSpaceOnUse"%3E%3Crect width="40" height="40" fill="url(%23g)"/%3E%3C/pattern%3E%3C/defs%3E%3Crect width="400" height="400" fill="url(%23p)"/%3E%3C/svg%3E');
+      opacity: 0.25;
+      z-index: -2;
+    }
+    .glow {
+      position: fixed;
+      filter: blur(120px);
+      opacity: 0.35;
+      z-index: -1;
+    }
+    .glow-a {
+      width: 320px; height: 320px;
+      background: var(--accent);
+      top: 10%; left: 5%;
+    }
+    .glow-b {
+      width: 420px; height: 420px;
+      background: var(--accent-2);
+      bottom: 5%; right: 10%;
+    }
+    .shell {
+      width: min(1400px, 100%);
+      margin: 0 auto;
+      padding: 0 32px;
+    }
+    header.nav {
+      padding: 40px 0 12px;
       display: flex;
-      align-items: baseline;
       justify-content: space-between;
-      gap: 12px;
+      align-items: flex-start;
+      gap: 24px;
+      flex-wrap: wrap;
     }
-    h1 { margin: 0; letter-spacing: 0.4px; }
+    h1 { margin: 0; font-size: 40px; letter-spacing: -0.5px; }
+    .eyebrow { text-transform: uppercase; font-size: 12px; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 4px; }
     .muted { color: var(--muted); font-size: 14px; }
-    main { padding: 0 32px 32px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
-    .grid { display: grid; gap: 12px; }
-    .grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-    .card {
-      background: var(--card);
+    .pulse {
+      background: rgba(15, 23, 42, 0.6);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 16px;
+      min-width: 220px;
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       box-shadow: var(--shadow);
     }
-    .flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    .badge { padding: 4px 8px; border-radius: 8px; font-size: 12px; font-weight: 600; }
-    .status-active { background: rgba(52, 211, 153, 0.15); color: var(--success); }
-    .status-suspended { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
-    .status-unknown { background: rgba(156, 163, 175, 0.2); color: var(--muted); }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: left; }
-    th { color: var(--muted); font-weight: 600; }
-    tr:hover { background: rgba(255,255,255,0.02); }
-    code { background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 6px; font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; }
-    button {
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      color: #0b1224;
-      border: none;
-      border-radius: 10px;
+    #mtls.pill { align-self: flex-start; }
+    main.main { padding-bottom: 64px; }
+    .grid { display: grid; gap: 16px; }
+    .metrics { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+    }
+    .card h2 { margin: 0; font-size: 22px; }
+    .card .stat-value { font-size: 36px; font-weight: 700; }
+    .panel { margin-top: 24px; }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid rgba(148,163,184,0.12);
+      padding-bottom: 16px;
+    }
+    .panel-head h2 { margin: 4px 0 0; font-size: 26px; }
+    .panel-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .panel-actions input,
+    .panel-actions select {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border);
+      color: var(--text);
       padding: 10px 14px;
-      font-weight: 700;
+      border-radius: 12px;
+      font-size: 14px;
+      min-width: 180px;
+    }
+    .panel-actions input:focus,
+    .panel-actions select:focus { outline: 1px solid var(--accent); }
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 11px 18px;
+      font-weight: 600;
       cursor: pointer;
-      box-shadow: 0 10px 20px rgba(34,211,238,0.25);
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #020617;
       transition: transform 120ms ease, box-shadow 120ms ease;
+      box-shadow: 0 15px 30px rgba(34,211,238,0.35);
     }
-    button:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(34,211,238,0.35); }
+    button:hover { transform: translateY(-1px); }
     button:active { transform: translateY(0); }
-    .split { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
-    @media (max-width: 960px) {
-      .split { grid-template-columns: 1fr; }
-      main { padding: 0 16px 24px; }
-      header { padding: 20px 16px 10px; }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid rgba(148,163,184,0.3);
+      box-shadow: none;
     }
-    .error { color: var(--danger); font-weight: 600; }
-    .success { color: var(--success); font-weight: 600; }
-    .pill { padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--muted); font-size: 12px; }
-    .logs { max-height: 400px; overflow: auto; }
-    .log-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-    .log-item:last-child { border-bottom: none; }
-    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-weight: 700; font-size: 12px; border: 1px solid transparent; }
-    .chip.ok { background: rgba(52, 211, 153, 0.12); color: var(--success); border-color: rgba(52, 211, 153, 0.35); }
-    .chip.warn { background: rgba(251, 191, 36, 0.14); color: var(--warning); border-color: rgba(251, 191, 36, 0.32); }
-    .chip.neutral { background: rgba(255,255,255,0.05); color: var(--muted); border-color: var(--border); }
-    .chip small { color: var(--muted); font-weight: 600; }
+    button.danger {
+      background: rgba(248,113,113,0.15);
+      color: var(--danger);
+      border: 1px solid rgba(248,113,113,0.35);
+      box-shadow: none;
+    }
+    .table-wrap { margin-top: 20px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; min-width: 960px; }
+    thead { background: rgba(15, 23, 42, 0.85); }
+    th, td { padding: 14px 12px; text-align: left; font-size: 14px; }
+    th { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 12px; }
+    tbody tr { transition: background 150ms ease, transform 150ms ease; }
+    tbody tr:hover { background: rgba(34,211,238,0.05); transform: translateX(2px); }
+    .pill {
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--muted);
+      border: 1px solid rgba(148,163,184,0.4);
+      background: rgba(15, 23, 42, 0.7);
+    }
+    .pill.success { color: var(--success); border-color: rgba(52,211,153,0.5); }
+    .pill.error { color: var(--danger); border-color: rgba(248,113,113,0.5); }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      text-transform: capitalize;
+      gap: 6px;
+      font-size: 12px;
+      border: 1px solid transparent;
+    }
+    .status-pill::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .status-active { background: rgba(52, 211, 153, 0.14); color: var(--success); border-color: rgba(52,211,153,0.4); }
+    .status-active::before { background: var(--success); }
+    .status-suspended { background: rgba(248,113,113,0.12); color: var(--danger); border-color: rgba(248,113,113,0.4); }
+    .status-suspended::before { background: var(--danger); }
+    .status-unknown { background: rgba(148,163,184,0.15); color: var(--muted); border-color: rgba(148,163,184,0.3); }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    code { background: rgba(15, 23, 42, 0.8); padding: 2px 6px; border-radius: 6px; font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: var(--accent); }
+    .chip.ok { background: rgba(52,211,153,0.1); color: var(--success); border-color: rgba(52,211,153,0.4); }
+    .chip.warn { background: rgba(251,191,36,0.12); color: var(--warning); border-color: rgba(251,191,36,0.4); }
+    .chip.neutral { background: rgba(148,163,184,0.15); color: var(--muted); border-color: rgba(148,163,184,0.4); }
+    .chip small { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    .host-cell { display: flex; flex-direction: column; gap: 4px; }
+    .host-cell strong { font-size: 15px; }
+    .token-cell { display: flex; flex-direction: column; gap: 6px; }
+    .meter { width: 100%; height: 4px; border-radius: 999px; background: rgba(15,23,42,0.8); overflow: hidden; }
+    .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .actions-cell { display: flex; gap: 6px; flex-wrap: wrap; }
+    .digest-cell { display: flex; flex-direction: column; gap: 6px; }
+    .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
+
+    @media (max-width: 960px) {
+      .shell { padding: 0 16px; }
+      header.nav { padding-top: 28px; }
+      .panel-actions { flex-direction: column; align-items: stretch; }
+      .panel-actions input,
+      .panel-actions select,
+      button { width: 100%; }
+      .table-wrap { overflow-x: auto; }
+    }
   </style>
 </head>
 <body>
-  <header>
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
+  <header class="shell nav">
     <div>
-      <h1>Codex Auth Dashboard</h1>
-      <div class="muted">mTLS-only admin view</div>
+      <div class="eyebrow">Codex Control</div>
+      <h1>Auth Orchestrator</h1>
+      <p class="muted">Live view of canonical digests, client versions, and fleet health.</p>
     </div>
-    <div id="mtls" class="pill">mTLS: pending…</div>
+    <div class="meta" style="display:flex; flex-direction:column; gap:12px;">
+      <div id="mtls" class="pill">mTLS: pending…</div>
+      <div id="pulse" class="pulse">Awaiting telemetry…</div>
+    </div>
   </header>
-  <main class="grid">
-    <div class="grid cols-3" id="stats"></div>
-    <div class="card">
-      <div class="flex" style="justify-content: space-between; margin-bottom: 8px;">
+  <main class="shell main">
+    <section class="grid metrics" id="stats"></section>
+    <section class="card panel">
+      <div class="panel-head">
         <div>
-          <div style="font-weight:700;">Hosts</div>
-          <div class="muted">Canonical digests + versions</div>
+          <div class="eyebrow">Fleet</div>
+          <h2>Hosts & Digests</h2>
+          <p class="muted" style="margin:4px 0 0;">Search, filter, and act on every registered Codex host.</p>
         </div>
-        <button id="refresh">Refresh</button>
+        <div class="panel-actions">
+          <input type="search" id="host-filter" placeholder="Search host, IP, or version">
+          <select id="status-filter">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="unknown">Unknown</option>
+          </select>
+          <button id="refresh">Refresh</button>
+        </div>
       </div>
-      <div style="overflow:auto;">
+      <div class="table-wrap">
         <table id="hosts">
           <thead>
             <tr>
@@ -114,17 +268,17 @@
               <th>Last Seen</th>
               <th>Client</th>
               <th>Wrapper</th>
-              <th>IP</th>
+              <th>IP / Mode</th>
               <th>Digest</th>
               <th>Calls</th>
-              <th>Tokens</th>
+              <th>Usage</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-    </div>
+    </section>
   </main>
 
   <script>
@@ -132,14 +286,20 @@
     const hostsTbody = document.querySelector('#hosts tbody');
     const mtlsEl = document.getElementById('mtls');
     const refreshBtn = document.getElementById('refresh');
+    const filterInput = document.getElementById('host-filter');
+    const statusFilter = document.getElementById('status-filter');
+    const pulseEl = document.getElementById('pulse');
+
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
+    let hostFilterText = '';
+    let hostStatusFilter = '';
+    let lastOverview = null;
 
     function parseTimestamp(value) {
       if (!value) return null;
       const raw = String(value).trim();
-      // Trim fractional seconds to milliseconds so Date can parse nanosecond RFC3339 strings.
       const normalized = raw.replace(/\.(\d{3})\d*(Z?)/, '.$1$2');
       const date = new Date(normalized);
       return Number.isNaN(date.getTime()) ? null : date;
@@ -163,23 +323,34 @@
       return num.toLocaleString('en-US');
     }
 
-    async function api(path, opts = {}) {
-      const res = await fetch(path, {
+    function api(path, opts = {}) {
+      const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
+      const init = {
         cache: 'no-store',
-        headers: {'Accept':'application/json', ...(opts.headers||{})},
+        headers,
         method: opts.method || 'GET',
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
+      };
+      if (Object.prototype.hasOwnProperty.call(opts, 'json')) {
+        init.body = JSON.stringify(opts.json);
+        headers['Content-Type'] = 'application/json';
+      } else if (Object.prototype.hasOwnProperty.call(opts, 'body')) {
+        init.body = opts.body;
       }
-      return res.json();
+
+      return fetch(path, init).then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+        return res.json();
+      });
     }
 
     function setMtls(meta) {
       if (meta && meta.fingerprint) {
         mtlsEl.textContent = 'mTLS: presented';
         mtlsEl.classList.add('success');
+        mtlsEl.classList.remove('error');
       } else {
         mtlsEl.textContent = 'mTLS: missing (admin blocked)';
         mtlsEl.classList.remove('success');
@@ -187,7 +358,23 @@
       }
     }
 
+    function renderPulse(data) {
+      if (!pulseEl) return;
+      const active = data?.totals?.active ?? 0;
+      const suspended = data?.totals?.suspended ?? 0;
+      const cadence = typeof data?.avg_refresh_age_days === 'number'
+        ? `${data.avg_refresh_age_days.toFixed(2)} d`
+        : 'n/a';
+      const tokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
+      pulseEl.innerHTML = `
+        <div><strong>${active}</strong> active · <strong>${suspended}</strong> suspended hosts</div>
+        <div>Avg refresh cadence <strong>${cadence}</strong></div>
+        <div>Total tokens synced <strong>${tokens}</strong></div>
+      `;
+    }
+
     function renderStats(data) {
+      lastOverview = data;
       const checkedAt = formatTimestamp(data.versions.client_version_checked_at);
       const latestLog = formatTimestamp(data.latest_log_at);
       latestVersions = {
@@ -207,7 +394,7 @@
       statsEl.innerHTML = `
         <div class="card">
           <div class="muted">Hosts</div>
-          <div style="font-size:24px;font-weight:700;">${data.totals.hosts}</div>
+          <div class="stat-value">${data.totals.hosts}</div>
           <div class="muted">Active ${data.totals.active} · Suspended ${data.totals.suspended}</div>
         </div>
         <div class="card">
@@ -217,16 +404,18 @@
           <div class="muted">Checked ${checkedAt}</div>
         </div>
         <div class="card">
-          <div class="muted">Refresh cadence</div>
-          <div style="font-weight:700;">Avg ${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
+          <div class="muted">Refresh Cadence</div>
+          <div class="stat-value" style="font-size:28px;">${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
           <div class="muted">Latest Log ${latestLog}</div>
         </div>
         <div class="card">
           <div class="muted">Tokens</div>
-          <div style="font-weight:700;">${totalTokens}</div>
+          <div class="stat-value" style="font-size:28px;">${totalTokens}</div>
           <div class="muted">Top ${topHostLabel}</div>
         </div>
       `;
+
+      renderPulse(data);
     }
 
     function compareVersions(a, b) {
@@ -256,14 +445,24 @@
       if (cmp === -1) {
         return `<span class="chip warn">${version}<small>outdated</small></span>`;
       }
-      return `<span class="chip neutral">${version}</span>`;
+      return `<span class="chip neutral">${version}<small>ahead</small></span>`;
+    }
+
+    function renderStatusPill(status) {
+      const normalized = typeof status === 'string' ? status.toLowerCase() : 'unknown';
+      const slug = ['active', 'suspended'].includes(normalized) ? normalized : 'unknown';
+      return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
     }
 
     function renderDigestTag(host) {
       const hasCanonical = !!host.canonical_digest;
-      return hasCanonical
-        ? '<span class="chip ok">current</span>'
-        : '<span class="chip warn">outdated</span>';
+      const digestSource = host.canonical_digest || host.auth_digest || host.digest;
+      const preview = typeof digestSource === 'string' && digestSource.length > 8
+        ? `${digestSource.slice(0, 8)}…`
+        : (digestSource || '—');
+      const label = hasCanonical ? 'canonical' : 'drift';
+      const tone = hasCanonical ? 'ok' : 'warn';
+      return `<div class="digest-cell"><span class="chip ${tone}">${label}</span><small class="muted">${preview}</small></div>`;
     }
 
     function formatRelative(value) {
@@ -273,42 +472,78 @@
       const diff = now - date.getTime();
       const future = diff < 0;
       const delta = Math.abs(diff);
-
       const minutes = Math.round(delta / 60000);
       const hours = Math.round(delta / 3600000);
       const days = Math.round(delta / 86400000);
-
       const suffix = future ? 'from now' : 'ago';
-
       if (delta < 45 * 1000) return future ? 'in a few seconds' : 'just now';
       if (delta < 90 * 1000) return future ? 'in 1 minute' : '1 minute ago';
       if (delta < 45 * 60 * 1000) return `${minutes} min ${suffix}`;
       if (delta < 36 * 60 * 60 * 1000) return `${hours} h ${suffix}`;
       if (delta < 14 * 24 * 60 * 60 * 1000) return `${days} d ${suffix}`;
-
       return formatTimestamp(value);
     }
 
-    function renderHosts(hosts) {
-      currentHosts = hosts;
-      hostsTbody.innerHTML = '';
-      hosts.forEach(host => {
-        const tr = document.createElement('tr');
-        const tokenTotal = host.token_usage?.total ?? null;
-        const tokenEvents = host.token_usage?.events ?? null;
-        const tokenLabel = tokenTotal !== null ? `${formatNumber(tokenTotal)}${tokenEvents ? ` · ${tokenEvents} runs` : ''}` : '—';
+    function renderTokenCell(host) {
+      const total = host?.token_usage?.total ?? null;
+      if (total === null) return '—';
+      const runs = host?.token_usage?.events;
+      const percent = tokensSummary?.total
+        ? Math.min(100, Math.round((total / tokensSummary.total) * 100))
+        : 0;
+      return `
+        <div class="token-cell">
+          <span>${formatNumber(total)}${runs ? ` · ${formatNumber(runs)} runs` : ''}</span>
+          ${percent ? `<div class="meter"><span style="width:${percent}%"></span></div>` : ''}
+        </div>
+      `;
+    }
 
+    function applyHostFilters(list) {
+      return list.filter(host => {
+        const normalizedStatus = (host.status || 'unknown').toLowerCase();
+        const matchesStatus = !hostStatusFilter || normalizedStatus === hostStatusFilter;
+        if (!matchesStatus) return false;
+        if (!hostFilterText) return true;
+        const haystacks = [host.fqdn, host.ip, host.client_version, host.wrapper_version]
+          .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
+        return haystacks.some(text => text.includes(hostFilterText));
+      });
+    }
+
+    function paintHosts() {
+      if (!Array.isArray(currentHosts)) return;
+      const filtered = applyHostFilters(currentHosts);
+      hostsTbody.innerHTML = '';
+      if (!filtered.length) {
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="10">No hosts match your filters yet.</td></tr>';
+        return;
+      }
+      filtered.forEach(host => {
+        const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td>${host.fqdn}</td>
-          <td>${host.status ?? 'unknown'}</td>
-          <td><div>${formatRelative(host.updated_at)}</div><div class="muted" style="font-size:12px;">Auth refresh ${formatRelative(host.last_refresh)}</div></td>
+          <td>
+            <div class="host-cell">
+              <strong>${host.fqdn}</strong>
+              <span class="muted">${formatRelative(host.created_at)}</span>
+            </div>
+          </td>
+          <td>${renderStatusPill(host.status)}</td>
+          <td>
+            <div>${formatRelative(host.updated_at)}</div>
+            <div class="muted" style="font-size:12px;">Auth ${formatRelative(host.last_refresh)}</div>
+          </td>
           <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-          <td>${host.ip ?? '—'}</td>
+          <td>
+            <div>${host.ip ?? '—'}</div>
+            <div class="muted" style="font-size:12px;">${host.allow_roaming_ips ? 'Roaming allowed' : 'IP locked'}</div>
+          </td>
           <td>${renderDigestTag(host)}</td>
-          <td>${host.api_calls ?? 0}</td>
-          <td>${tokenLabel}</td>
-          <td style="display:flex; gap:6px; flex-wrap:wrap;">
+          <td>${formatNumber(host.api_calls ?? 0)}</td>
+          <td>${renderTokenCell(host)}</td>
+          <td class="actions-cell">
+            <button data-id="${host.id}" class="roaming">${host.allow_roaming_ips ? 'Lock IP' : 'Allow Roaming'}</button>
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>
           </td>
@@ -331,6 +566,19 @@
           confirmClear(id);
         });
       });
+
+      hostsTbody.querySelectorAll('button.roaming').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          toggleRoaming(id);
+        });
+      });
+    }
+
+    function renderHosts(hosts) {
+      currentHosts = Array.isArray(hosts) ? hosts : [];
+      paintHosts();
     }
 
     async function loadAll() {
@@ -350,6 +598,19 @@
     if (refreshBtn) {
       refreshBtn.addEventListener('click', loadAll);
     }
+    if (filterInput) {
+      filterInput.addEventListener('input', (event) => {
+        hostFilterText = event.target.value.trim().toLowerCase();
+        paintHosts();
+      });
+    }
+    if (statusFilter) {
+      statusFilter.addEventListener('change', (event) => {
+        hostStatusFilter = event.target.value;
+        paintHosts();
+      });
+    }
+
     loadAll();
 
     async function confirmRemove(id) {
@@ -373,6 +634,28 @@
         await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
         await loadAll();
         alert(`Cleared ${name}`);
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    async function toggleRoaming(id) {
+      const host = currentHosts.find(h => h.id === id);
+      if (!host) {
+        alert('Host not found');
+        return;
+      }
+      const name = host.fqdn;
+      const targetState = !host.allow_roaming_ips;
+      const actionLabel = targetState ? 'allow roaming IPs for' : 'lock IP on';
+      if (!confirm(`Are you sure you want to ${actionLabel} ${name}?`)) return;
+      try {
+        await api(`/admin/hosts/${id}/roaming`, {
+          method: 'POST',
+          json: { allow: targetState },
+        });
+        await loadAll();
+        alert(`${name} is now ${targetState ? 'allowed to roam' : 'IP locked'}.`);
       } catch (err) {
         alert(`Error: ${err.message}`);
       }

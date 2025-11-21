@@ -93,17 +93,29 @@ class AuthService
             throw new HttpException('Host is disabled', 403);
         }
 
+        $hostId = (int) $host['id'];
+        $allowsRoaming = isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false;
+
         if ($ip !== null && $ip !== '') {
             $storedIp = $host['ip'] ?? null;
             if ($storedIp === null || $storedIp === '') {
-                $this->hosts->updateIp((int) $host['id'], $ip);
-                $this->logs->log((int) $host['id'], 'auth.bind_ip', ['ip' => $ip]);
-                $host = $this->hosts->findById((int) $host['id']) ?? $host;
+                $this->hosts->updateIp($hostId, $ip);
+                $this->logs->log($hostId, 'auth.bind_ip', ['ip' => $ip]);
+                $host = $this->hosts->findById($hostId) ?? $host;
             } elseif (!hash_equals($storedIp, $ip)) {
-                throw new HttpException('API key not allowed from this IP', 403, [
-                    'expected_ip' => $storedIp,
-                    'received_ip' => $ip,
-                ]);
+                if ($allowsRoaming) {
+                    $this->hosts->updateIp($hostId, $ip);
+                    $this->logs->log($hostId, 'auth.roaming_ip', [
+                        'previous_ip' => $storedIp,
+                        'ip' => $ip,
+                    ]);
+                    $host = $this->hosts->findById($hostId) ?? $host;
+                } else {
+                    throw new HttpException('API key not allowed from this IP', 403, [
+                        'expected_ip' => $storedIp,
+                        'received_ip' => $ip,
+                    ]);
+                }
             }
         }
 
@@ -492,6 +504,7 @@ class AuthService
             'client_version' => $host['client_version'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
+            'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
         ];
 
         if ($includeApiKey) {

@@ -96,6 +96,7 @@ On your **laptop or admin box** (the one where you already use Codex):
 - `export CODEX_SYNC_INVITE_KEY="<INVITATION_KEY from the server .env>"`.
 - `./bin/codex-install my-server-01.example.com` to enroll a host.
 - `./bin/codex-uninstall my-server-01.example.com` to remove a host and deregister it from the auth server.
+- `./bin/local-bootstrap full` to prep the current workstation without SSH (installs `cdx`, registers using the `.env` invitation key, and writes the sync env locally).
 
 ## FAQ
 
@@ -104,6 +105,16 @@ On your **laptop or admin box** (the one where you already use Codex):
 - **What if my auth server uses a private CA or self-signed cert?** Pass `--sync-ca-file /path/to/ca.pem` (or set `CODEX_SYNC_CA_FILE`) when running `codex-install` so the host trusts your TLS.
 - **How do I remove a host cleanly?** Run `./bin/codex-uninstall <host>`; it deletes Codex bits on the target and calls `DELETE /auth` using the stored sync config.
 - **Where is the host-side sync config stored?** Global installs use `/usr/local/etc/codex-sync.env`; user installs use `~/.codex/sync.env`. They contain only the sync base URL, API key, and optional CA path.
+
+### Local bootstrap helper (`bin/local-bootstrap`)
+
+Use `bin/local-bootstrap` when you want to configure this machine directly:
+
+- `./bin/local-bootstrap full` installs/updates `/usr/local/bin/cdx`, registers the host via `/register` using the `INVITATION_KEY` from `.env`, and writes `/usr/local/etc/codex-sync.env` (use `--local-env` to target `~/.codex/sync.env`).
+- `./bin/local-bootstrap cdx` refreshes the wrapper only (no API calls).
+- `./bin/local-bootstrap register --invite-key <key>` rotates just the API key and rewrites the sync env.
+
+The script accepts the same environment variables as the Codex wrapper (`CODEX_SYNC_BASE_URL`, `CODEX_SYNC_INVITE_KEY`, etc.), reads `INVITATION_KEY` from `.env` by default (falling back to `--invite-key` only when you override it), auto-detects the key from `API.md` when `.env` is missing, and ensures the generated env file is owned by the invoking user so `cdx` can read it without sudo.
 
 ## Quick Start
 
