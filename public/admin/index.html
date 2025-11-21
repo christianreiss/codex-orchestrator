@@ -513,7 +513,11 @@
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
               <strong>${host.fqdn}</strong>
               <span class="muted" style="font-size:12px;">added ${formatRelative(addedAt)}</span>
-              <span class="muted" style="font-size:12px;">last seen ${formatRelative(host.updated_at)}</span>
+            </div>
+          </td>
+          <td>
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <span>${formatRelative(host.updated_at)}</span>
               <span class="muted" style="font-size:12px;">auth ${formatRelative(host.last_refresh)}</span>
             </div>
           </td>
