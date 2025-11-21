@@ -677,7 +677,6 @@ PY
       else
         log_warn "Auth API sync failed"
       fi
-      rm -f "$auth_path" 2>/dev/null || true
       AUTH_PULL_STATUS="fail"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
