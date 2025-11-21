@@ -31,7 +31,6 @@ class AuthService
         private readonly TokenUsageRepository $tokenUsages,
         private readonly VersionRepository $versions,
         private readonly string $invitationKey,
-        private readonly HostStatusExporter $statusExporter,
         private readonly WrapperService $wrapperService
     ) {
     }
@@ -73,7 +72,7 @@ class AuthService
         $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
 
         $payload = $this->buildHostPayload($host, true);
-        $this->statusExporter->generate();
+        // status report deprecated
 
         return $payload;
     }
@@ -325,7 +324,7 @@ class AuthService
 
         $this->digests->deleteByHostId($hostId);
         $this->hosts->deleteById($hostId);
-        $this->statusExporter->generate();
+        // status report deprecated
 
         return [
             'deleted' => $fqdn,

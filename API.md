@@ -276,4 +276,4 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
 - Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
-- After register/store/prune events a status report is regenerated at `STATUS_REPORT_PATH` (defaults to `storage/host-status.txt`).
+- Legacy `host-status.txt` exports have been removed; use admin endpoints instead.

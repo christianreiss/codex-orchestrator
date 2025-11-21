@@ -297,18 +297,7 @@ If you are upgrading from the old SQLite-backed container:
 
 ## Host Status Report
 
-The service regenerates a report (`storage/host-status.txt`) after every register/sync/prune event so operators always have a current snapshot. Override the output path with `STATUS_REPORT_PATH`.
-
-The header now includes aggregated "auth refresh age" metrics (min/avg/max days since each host last delivered a newer `auth.json`) to help you gauge how frequently clients push fresh credentials and tune any cache TTLs accordingly.
-
-Trigger a manual refresh any time (e.g., after offline DB edits):
-
-```bash
-docker compose exec api php /var/www/html/bin/export-status.php
-cat /var/docker_data/codex-auth.uggs.io/store/host-status.txt
-```
-
-The script writes the same aligned table plus per-host details, making it easy to share the current deployment state even if the API is offline.
+The legacy `host-status.txt` export has been removed; use the admin dashboard (`/admin/overview` and `/admin/hosts`) for current status.
 
 ## Notes
 

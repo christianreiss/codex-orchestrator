@@ -51,11 +51,9 @@ $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrap
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
 $invitationKey = Config::get('INVITATION_KEY', '');
-$statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
-$statusExporter = new HostStatusExporter($hostRepository, $authPayloadRepository, $hostStateRepository, $statusPath);
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $invitationKey, $statusExporter, $wrapperService);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $invitationKey, $wrapperService);
 $wrapperService->ensureSeeded();
-unset($statusPath, $invitationKey);
+unset($invitationKey);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
