@@ -393,36 +393,36 @@ class AuthService
         if (!empty($published['client_version'])) {
             $candidates[] = [
                 'version' => $published['client_version'],
+                'normalized' => $this->normalizeVersionString($published['client_version']),
                 'checked_at' => $publishedMetaClient['updated_at'] ?? null,
+                'source' => 'published',
             ];
         }
         if (!empty($available['version'])) {
             $candidates[] = [
                 'version' => $available['version'],
+                'normalized' => $this->normalizeVersionString($available['version']),
                 'checked_at' => $available['updated_at'] ?? null,
+                'source' => $available['source'] ?? 'available',
             ];
         }
         if (!empty($reported['client_version'])) {
             $candidates[] = [
                 'version' => $reported['client_version'],
+                'normalized' => $this->normalizeVersionString($reported['client_version']),
                 'checked_at' => null,
+                'source' => 'reported',
             ];
         }
 
-        $clientVersion = null;
-        $clientCheckedAt = null;
-        foreach ($candidates as $candidate) {
-            if ($clientVersion === null || $this->isVersionGreater($candidate['version'], $clientVersion)) {
-                $clientVersion = $candidate['version'];
-                $clientCheckedAt = $candidate['checked_at'] ?? null;
-            }
-        }
+        [$clientVersion, $clientCheckedAt, $clientSource] = $this->selectHighestVersion($candidates);
 
         $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
 
         return [
             'client_version' => $clientVersion,
             'client_version_checked_at' => $clientCheckedAt,
+            'client_version_source' => $clientSource,
             'wrapper_version' => $wrapperVersion,
             'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
             'wrapper_url' => $wrapperMeta['url'] ?? null,
@@ -872,6 +872,33 @@ class AuthService
         $normalized = ltrim($normalized, 'vV');
 
         return $normalized;
+    }
+
+    /**
+     * @param array<int,array{version:string,normalized:string,checked_at:?string,source:string}> $candidates
+     * @return array{0:?string,1:?string,2:?string}
+     */
+    private function selectHighestVersion(array $candidates): array
+    {
+        $best = null;
+        foreach ($candidates as $candidate) {
+            if ($candidate['normalized'] === '') {
+                continue;
+            }
+            if ($best === null) {
+                $best = $candidate;
+                continue;
+            }
+            if ($this->isVersionGreater($candidate['normalized'], $best['normalized'])) {
+                $best = $candidate;
+            }
+        }
+
+        return [
+            $best['version'] ?? null,
+            $best['checked_at'] ?? null,
+            $best['source'] ?? null,
+        ];
     }
 
     private function fetchLatestCodexVersion(): ?string
