@@ -378,11 +378,6 @@ sync_auth_with_api() {
     return 1
   fi
   local auth_path="$HOME/.codex/auth.json"
-    if [[ ! -f "$auth_path" ]]; then
-      log_warn "No local auth.json found; run 'codex login' or provision auth before syncing."
-      AUTH_PULL_STATUS="fail"
-      return 1
-    fi
   local phase_label
   phase_label="${phase:-sync}"
   # No chatty per-step auth logging; final summary will capture the outcome.
@@ -424,15 +419,17 @@ def is_valid_auth(auth):
     auths = auth.get("auths")
     if not isinstance(auths, dict) or not auths:
         return False
+    has_token = False
     for target, entry in auths.items():
         if not isinstance(target, str) or not target.strip():
-            return False
+            continue
         if not isinstance(entry, dict):
-            return False
+            continue
         token = entry.get("token")
-        if not isinstance(token, str) or not token.strip():
-            return False
-    return True
+        if isinstance(token, str) and token.strip():
+            has_token = True
+            break
+    return has_token
 
 
 def canonical_json(obj):
@@ -594,8 +591,8 @@ else:
 
 if status in ("missing", "upload_required"):
     if not is_valid_auth(current):
-        print("Local auth.json is missing required fields (last_refresh/auths/token); refusing to upload", file=sys.stderr)
-        sys.exit(30)
+        print("No local auth available; skipping upload and waiting for canonical", file=sys.stderr)
+        sys.exit(0)
     store_payload = {
         "command": "store",
         "auth": current,
