@@ -18,7 +18,7 @@ use App\Services\WrapperService;
 class AuthService
 {
     private const INACTIVITY_WINDOW_DAYS = 30;
-    private const VERSION_CACHE_TTL_SECONDS = 300; // 5 minutes for fast release pickup
+    private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
 
@@ -382,41 +382,16 @@ class AuthService
     private function versionSnapshot(): array
     {
         $available = $this->availableClientVersion();
+        $wrapperMeta = $this->wrapperService->metadata();
         $reported = $this->latestReportedVersions();
         $this->seedWrapperVersionFromReported($reported['wrapper_version']);
+
+        // Only trust GitHub (cached for 3h). If unavailable, client_version will be null.
+        $clientVersion = $available['version'] ?? null;
+        $clientCheckedAt = $available['updated_at'] ?? null;
+        $clientSource = $available['source'] ?? null;
+
         $published = $this->publishedVersions();
-        $publishedMetaClient = $this->versions->getWithMetadata('client') ?? [];
-        $wrapperMeta = $this->wrapperService->metadata();
-
-        // Choose the newest client version across published / available / reported.
-        $candidates = [];
-        if (!empty($published['client_version'])) {
-            $candidates[] = [
-                'version' => $published['client_version'],
-                'normalized' => $this->normalizeVersionString($published['client_version']),
-                'checked_at' => $publishedMetaClient['updated_at'] ?? null,
-                'source' => 'published',
-            ];
-        }
-        if (!empty($available['version'])) {
-            $candidates[] = [
-                'version' => $available['version'],
-                'normalized' => $this->normalizeVersionString($available['version']),
-                'checked_at' => $available['updated_at'] ?? null,
-                'source' => $available['source'] ?? 'available',
-            ];
-        }
-        if (!empty($reported['client_version'])) {
-            $candidates[] = [
-                'version' => $reported['client_version'],
-                'normalized' => $this->normalizeVersionString($reported['client_version']),
-                'checked_at' => null,
-                'source' => 'reported',
-            ];
-        }
-
-        [$clientVersion, $clientCheckedAt, $clientSource] = $this->selectHighestVersion($candidates);
-
         $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
 
         return [
@@ -874,32 +849,6 @@ class AuthService
         return $normalized;
     }
 
-    /**
-     * @param array<int,array{version:string,normalized:string,checked_at:?string,source:string}> $candidates
-     * @return array{0:?string,1:?string,2:?string}
-     */
-    private function selectHighestVersion(array $candidates): array
-    {
-        $best = null;
-        foreach ($candidates as $candidate) {
-            if ($candidate['normalized'] === '') {
-                continue;
-            }
-            if ($best === null) {
-                $best = $candidate;
-                continue;
-            }
-            if ($this->isVersionGreater($candidate['normalized'], $best['normalized'])) {
-                $best = $candidate;
-            }
-        }
-
-        return [
-            $best['version'] ?? null,
-            $best['checked_at'] ?? null,
-            $best['source'] ?? null,
-        ];
-    }
 
     private function fetchLatestCodexVersion(): ?string
     {

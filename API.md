@@ -236,7 +236,7 @@ Only the latest wrapper is kept; this updates metadata used by `/auth` and `/ver
 
 ### `GET /versions` (optional)
 
-Provided for observability; clients do not need it because `/auth` responses already include the same block.
+Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` is always sourced from the latest GitHub release (`/repos/openai/codex/releases/latest`), cached for up to 3 hours and refreshed automatically when stale.
 
 ```json
 {
