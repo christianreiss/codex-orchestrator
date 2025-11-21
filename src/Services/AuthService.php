@@ -382,7 +382,28 @@ class AuthService
         $clientSource = $available['source'] ?? null;
 
         $published = $this->publishedVersions();
-        $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
+        // Wrapper: take the highest of stored metadata, published, or reported.
+        $wrapperCandidates = [];
+        foreach ([
+            ['version' => $wrapperMeta['version'] ?? null, 'source' => 'stored'],
+            ['version' => $published['wrapper_version'] ?? null, 'source' => 'published'],
+            ['version' => $reported['wrapper_version'] ?? null, 'source' => 'reported'],
+        ] as $candidate) {
+            if (empty($candidate['version'])) {
+                continue;
+            }
+            $wrapperCandidates[] = $candidate;
+        }
+
+        $wrapperVersion = null;
+        if ($wrapperCandidates) {
+            $wrapperVersion = $wrapperCandidates[0]['version'];
+            foreach ($wrapperCandidates as $candidate) {
+                if ($this->isVersionGreater((string) $candidate['version'], (string) $wrapperVersion)) {
+                    $wrapperVersion = $candidate['version'];
+                }
+            }
+        }
 
         return [
             'client_version' => $clientVersion,
