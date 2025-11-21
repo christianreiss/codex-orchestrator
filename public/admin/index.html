@@ -416,7 +416,7 @@
       if (!normalized) return '—';
       const cmp = compareVersions(normalized, current);
       if (cmp === 0) {
-        return `<span class="chip ok">${version}<small>current</small></span>`;
+        return '—';
       }
       if (cmp === -1) {
         return `<span class="chip warn">${version}<small>outdated</small></span>`;
@@ -498,6 +498,7 @@
       filtered.forEach(host => {
         const tr = document.createElement('tr');
         const addedAt = host.created_at ?? host.updated_at ?? host.last_refresh ?? null;
+        const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
         tr.innerHTML = `
           <td>
             <div class="inline-cell"><strong>${host.fqdn}</strong><span class="muted">· added ${formatRelative(addedAt)}</span></div>
@@ -506,12 +507,11 @@
           <td><div class="inline-cell">${formatRelative(host.updated_at)}<span class="muted">· auth ${formatRelative(host.last_refresh)}</span></div></td>
           <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-          <td><div class="inline-cell">${host.ip ?? '—'}<span class="muted">${host.allow_roaming_ips ? 'roaming' : 'locked'}</span></div></td>
+          <td><div class="inline-cell">${host.ip ?? '—'} ${host.ip ? ipIcon : ''}</div></td>
           <td>${renderDigestTag(host)}</td>
           <td>${formatNumber(host.api_calls ?? 0)}</td>
           <td>${renderTokenCell(host)}</td>
           <td class="actions-cell">
-            <button data-id="${host.id}" class="roaming-icon" title="${host.allow_roaming_ips ? 'Disable roaming' : 'Allow roaming'}">${host.allow_roaming_ips ? '🌍' : '🔒'}</button>
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>
           </td>
@@ -535,13 +535,6 @@
         });
       });
 
-      hostsTbody.querySelectorAll('button.roaming-icon').forEach(btn => {
-        btn.addEventListener('click', ev => {
-          ev.stopPropagation();
-          const id = parseInt(btn.getAttribute('data-id'), 10);
-          toggleRoaming(id);
-        });
-      });
     }
 
     function renderHosts(hosts) {
@@ -626,27 +619,6 @@
       }
     }
 
-    async function toggleRoaming(id) {
-      const host = currentHosts.find(h => h.id === id);
-      if (!host) {
-        alert('Host not found');
-        return;
-      }
-      const name = host.fqdn;
-      const targetState = !host.allow_roaming_ips;
-      const actionLabel = targetState ? 'allow roaming IPs for' : 'lock IP on';
-      if (!confirm(`Are you sure you want to ${actionLabel} ${name}?`)) return;
-      try {
-        await api(`/admin/hosts/${id}/roaming`, {
-          method: 'POST',
-          json: { allow: targetState },
-        });
-        await loadAll();
-        alert(`${name} is now ${targetState ? 'allowed to roam' : 'IP locked'}.`);
-      } catch (err) {
-        alert(`Error: ${err.message}`);
-      }
-    }
   </script>
 </body>
 </html>
