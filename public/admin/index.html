@@ -395,7 +395,13 @@
     }
 
     function compareVersions(a, b) {
-      const normalize = (v) => (typeof v === 'string' ? v.trim().replace(/^v/i, '') : null);
+      const normalize = (v) => {
+        if (typeof v !== 'string') return null;
+        let n = v.trim();
+        n = n.replace(/^(codex-cli|codex|rust-)/i, '');
+        n = n.replace(/^v/i, '');
+        return n;
+      };
       const left = normalize(a);
       const right = normalize(b);
       if (!left || !right) return null;
