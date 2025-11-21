@@ -497,9 +497,10 @@
       }
       filtered.forEach(host => {
         const tr = document.createElement('tr');
+        const addedAt = host.created_at ?? host.updated_at ?? host.last_refresh ?? null;
         tr.innerHTML = `
           <td>
-            <div class="inline-cell"><strong>${host.fqdn}</strong><span class="muted">· added ${formatRelative(host.created_at)}</span></div>
+            <div class="inline-cell"><strong>${host.fqdn}</strong><span class="muted">· added ${formatRelative(addedAt)}</span></div>
           </td>
           <td>${renderStatusPill(host.status)}</td>
           <td><div class="inline-cell">${formatRelative(host.updated_at)}<span class="muted">· auth ${formatRelative(host.last_refresh)}</span></div></td>
