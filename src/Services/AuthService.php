@@ -179,19 +179,8 @@ class AuthService
 
                     $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
                     $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
-                } elseif ($comparison === 1) {
-                    // Client claims a newer auth than the server has; ask it to upload.
-                    $status = 'upload_required';
-                    $response = [
-                        'status' => $status,
-                        'canonical_last_refresh' => $canonicalLastRefresh,
-                        'canonical_digest' => $canonicalDigest,
-                        'action' => 'store',
-                        'api_calls' => (int) ($host['api_calls'] ?? 0),
-                        'versions' => $versions,
-                    ];
                 } else {
-                    // Server is newer or equal; send canonical auth so client can hydrate.
+                    // Always hand back canonical to allow hydration, even if client claims newer.
                     $status = 'outdated';
                     $authArray = $this->buildAuthArrayFromPayload($canonicalPayload);
                     $response = [
