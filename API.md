@@ -244,6 +244,7 @@ Provided for observability; clients do not need it because `/auth` responses alr
   "data": {
     "client_version": "0.60.1",
     "client_version_checked_at": "2025-11-20T09:00:00Z",
+    "client_version_source": "published",
     "wrapper_version": "2025.11.19-4",
     "wrapper_sha256": "…",
     "wrapper_url": "/wrapper/download",
