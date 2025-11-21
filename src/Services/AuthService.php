@@ -384,16 +384,33 @@ class AuthService
         $publishedMetaClient = $this->versions->getWithMetadata('client') ?? [];
         $wrapperMeta = $this->wrapperService->metadata();
 
-        // Prefer operator-published versions, then GitHub (available), then latest reported.
-        $clientVersion = $published['client_version'] ?? $available['version'] ?? $reported['client_version'];
+        // Choose the newest client version across published / available / reported.
+        $candidates = [];
+        if (!empty($published['client_version'])) {
+            $candidates[] = [
+                'version' => $published['client_version'],
+                'checked_at' => $publishedMetaClient['updated_at'] ?? null,
+            ];
+        }
+        if (!empty($available['version'])) {
+            $candidates[] = [
+                'version' => $available['version'],
+                'checked_at' => $available['updated_at'] ?? null,
+            ];
+        }
+        if (!empty($reported['client_version'])) {
+            $candidates[] = [
+                'version' => $reported['client_version'],
+                'checked_at' => null,
+            ];
+        }
+
+        $clientVersion = null;
         $clientCheckedAt = null;
-        if ($clientVersion !== null) {
-            if ($publishedMetaClient && ($publishedMetaClient['version'] ?? null) === $clientVersion) {
-                $clientCheckedAt = $publishedMetaClient['updated_at'] ?? null;
-            } elseif (($available['version'] ?? null) === $clientVersion) {
-                $clientCheckedAt = $available['updated_at'] ?? null;
-            } else {
-                $clientCheckedAt = $available['updated_at'] ?? null;
+        foreach ($candidates as $candidate) {
+            if ($clientVersion === null || $this->isVersionGreater($candidate['version'], $clientVersion)) {
+                $clientVersion = $candidate['version'];
+                $clientCheckedAt = $candidate['checked_at'] ?? null;
             }
         }
 
@@ -805,8 +822,8 @@ class AuthService
 
     private function isVersionGreater(string $left, string $right): bool
     {
-        $left = trim($left);
-        $right = trim($right);
+        $left = $this->normalizeVersionString($left);
+        $right = $this->normalizeVersionString($right);
 
         if ($left === '') {
             return false;
@@ -818,6 +835,15 @@ class AuthService
         $cmp = version_compare($left, $right);
 
         return $cmp === 1;
+    }
+
+    private function normalizeVersionString(string $value): string
+    {
+        $normalized = trim($value);
+        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
+        $normalized = ltrim($normalized, 'vV');
+
+        return $normalized;
     }
 
     private function fetchLatestCodexVersion(): ?string
