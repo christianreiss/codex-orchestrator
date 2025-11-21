@@ -270,6 +270,7 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
   - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
   - `GET /admin/hosts`: hosts with canonical digest and recent digests.
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optional auth body with `?include_body=1`).
+  - `POST /admin/versions/check`: force a refresh of the available client version from GitHub and return the latest version block.
   - `POST /admin/hosts/{id}/clear`: clear stored IP / digests for a host (forces the next auth call to bind again).
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.

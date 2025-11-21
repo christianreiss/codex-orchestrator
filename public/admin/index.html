@@ -256,6 +256,7 @@
             <option value="suspended">Suspended</option>
             <option value="unknown">Unknown</option>
           </select>
+          <button id="version-check">Check versions</button>
           <button id="refresh">Refresh</button>
         </div>
       </div>
@@ -286,6 +287,7 @@
     const hostsTbody = document.querySelector('#hosts tbody');
     const mtlsEl = document.getElementById('mtls');
     const refreshBtn = document.getElementById('refresh');
+    const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const statusFilter = document.getElementById('status-filter');
     const pulseEl = document.getElementById('pulse');
@@ -595,8 +597,27 @@
       }
     }
 
+    async function runVersionCheck() {
+      if (!versionCheckBtn) return;
+      const original = versionCheckBtn.textContent;
+      versionCheckBtn.disabled = true;
+      versionCheckBtn.textContent = 'Checking…';
+      try {
+        await api('/admin/versions/check', { method: 'POST' });
+        await loadAll();
+      } catch (err) {
+        alert(`Version check failed: ${err.message}`);
+      } finally {
+        versionCheckBtn.disabled = false;
+        versionCheckBtn.textContent = original;
+      }
+    }
+
     if (refreshBtn) {
       refreshBtn.addEventListener('click', loadAll);
+    }
+    if (versionCheckBtn) {
+      versionCheckBtn.addEventListener('click', runVersionCheck);
     }
     if (filterInput) {
       filterInput.addEventListener('input', (event) => {

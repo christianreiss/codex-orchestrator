@@ -90,26 +90,11 @@ try {
     }
 
     if ($method === 'GET' && $normalizedPath === '/versions') {
-        $available = $service->availableClientVersion();
-        $reported = $service->latestReportedVersions();
-        $service->seedWrapperVersionFromReported($reported['wrapper_version']);
-        $published = $service->publishedVersions();
-        $wrapperMeta = $wrapperService->metadata();
-
-        $clientVersion = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
-        $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
+        $versions = $service->versionSummary();
 
         Response::json([
             'status' => 'ok',
-            'data' => [
-                'client_version' => $clientVersion,
-                'client_version_checked_at' => $available['updated_at'],
-                'wrapper_version' => $wrapperVersion,
-                'wrapper_sha256' => $wrapperMeta['sha256'],
-                'wrapper_url' => $wrapperMeta['url'],
-                'reported_client_version' => $reported['client_version'],
-                'reported_wrapper_version' => $reported['wrapper_version'],
-            ],
+            'data' => $versions,
         ]);
     }
 
@@ -132,22 +117,12 @@ try {
             ], 422);
         }
 
-        $published = $service->updatePublishedVersions($clientVersion, $wrapperVersion);
-        $available = $service->availableClientVersion();
-        $reported = $service->latestReportedVersions();
-
-        $clientVersionOut = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
-        $wrapperVersionOut = $published['wrapper_version'] ?? $reported['wrapper_version'];
+        $service->updatePublishedVersions($clientVersion, $wrapperVersion);
+        $versions = $service->versionSummary();
 
         Response::json([
             'status' => 'ok',
-            'data' => [
-                'client_version' => $clientVersionOut,
-                'client_version_checked_at' => $available['updated_at'],
-                'wrapper_version' => $wrapperVersionOut,
-                'reported_client_version' => $reported['client_version'],
-                'reported_wrapper_version' => $reported['wrapper_version'],
-            ],
+            'data' => $versions,
         ]);
     }
 
@@ -348,6 +323,22 @@ try {
                     ] : null,
                 ],
                 'mtls' => $mtlsContext,
+            ],
+        ]);
+    }
+
+    if ($method === 'POST' && $normalizedPath === '/admin/versions/check') {
+        requireAdminAccess();
+
+        // Force refresh the available client version from upstream
+        $available = $service->availableClientVersion(true);
+        $versions = $service->versionSummary();
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'available' => $available,
+                'versions' => $versions,
             ],
         ]);
     }

@@ -381,14 +381,27 @@ class AuthService
         $reported = $this->latestReportedVersions();
         $this->seedWrapperVersionFromReported($reported['wrapper_version']);
         $published = $this->publishedVersions();
+        $publishedMetaClient = $this->versions->getWithMetadata('client') ?? [];
         $wrapperMeta = $this->wrapperService->metadata();
 
-        $clientVersion = $available['version'] ?? $published['client_version'] ?? $reported['client_version'];
+        // Prefer operator-published versions, then GitHub (available), then latest reported.
+        $clientVersion = $published['client_version'] ?? $available['version'] ?? $reported['client_version'];
+        $clientCheckedAt = null;
+        if ($clientVersion !== null) {
+            if ($publishedMetaClient && ($publishedMetaClient['version'] ?? null) === $clientVersion) {
+                $clientCheckedAt = $publishedMetaClient['updated_at'] ?? null;
+            } elseif (($available['version'] ?? null) === $clientVersion) {
+                $clientCheckedAt = $available['updated_at'] ?? null;
+            } else {
+                $clientCheckedAt = $available['updated_at'] ?? null;
+            }
+        }
+
         $wrapperVersion = $wrapperMeta['version'] ?? $published['wrapper_version'] ?? $reported['wrapper_version'];
 
         return [
             'client_version' => $clientVersion,
-            'client_version_checked_at' => $available['updated_at'] ?? null,
+            'client_version_checked_at' => $clientCheckedAt,
             'wrapper_version' => $wrapperVersion,
             'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
             'wrapper_url' => $wrapperMeta['url'] ?? null,
@@ -654,13 +667,13 @@ class AuthService
         return $this->versionSnapshot();
     }
 
-    public function availableClientVersion(): array
+    public function availableClientVersion(bool $forceRefresh = false): array
     {
         $cached = $this->versions->getWithMetadata('client_available');
         $now = time();
         $cacheFresh = false;
 
-        if ($cached && isset($cached['updated_at'])) {
+        if (!$forceRefresh && $cached && isset($cached['updated_at'])) {
             $updatedAt = strtotime($cached['updated_at']);
             if ($updatedAt !== false && ($now - $updatedAt) <= self::VERSION_CACHE_TTL_SECONDS) {
                 $cacheFresh = true;
