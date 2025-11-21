@@ -652,8 +652,6 @@
       }
       const name = host.fqdn;
       const targetState = !host.allow_roaming_ips;
-      const actionLabel = targetState ? 'allow roaming IPs for' : 'lock IP on';
-      if (!confirm(`Are you sure you want to ${actionLabel} ${name}?`)) return;
       try {
         await api(`/admin/hosts/${id}/roaming`, {
           method: 'POST',
