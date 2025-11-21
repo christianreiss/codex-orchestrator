@@ -180,7 +180,8 @@ class AuthService
 
                     $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
                     $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
-                } elseif ($comparison === 1 || !$matchesRecent) {
+                } elseif ($comparison === 1) {
+                    // Client claims a newer auth than the server has; ask it to upload.
                     $status = 'upload_required';
                     $response = [
                         'status' => $status,
@@ -191,6 +192,7 @@ class AuthService
                         'versions' => $versions,
                     ];
                 } else {
+                    // Server is newer or equal; send canonical auth so client can hydrate.
                     $status = 'outdated';
                     $authArray = $this->buildAuthArrayFromPayload($canonicalPayload);
                     $response = [
