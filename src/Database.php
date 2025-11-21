@@ -66,7 +66,6 @@ class Database
                 client_version VARCHAR(64) NULL,
                 wrapper_version VARCHAR(64) NULL,
                 api_calls BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                auth_json LONGTEXT NULL,
                 created_at VARCHAR(100) NOT NULL,
                 updated_at VARCHAR(100) NOT NULL,
                 INDEX idx_hosts_updated_at (updated_at)
@@ -188,6 +187,9 @@ class Database
         $this->ensureColumnExists('hosts', 'auth_digest', 'VARCHAR(128) NULL');
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
+
+        // Remove legacy inline auth storage now that payloads + entries are normalized.
+        $this->dropColumnIfExists('hosts', 'auth_json');
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void
@@ -208,5 +210,25 @@ class Database
         }
 
         $this->pdo->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', $table, $column, $definition));
+    }
+
+    private function dropColumnIfExists(string $table, string $column): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+            'column' => $column,
+        ]);
+
+        $exists = (int) $statement->fetchColumn() > 0;
+        if (!$exists) {
+            return;
+        }
+
+        $this->pdo->exec(sprintf('ALTER TABLE %s DROP COLUMN %s', $table, $column));
     }
 }

@@ -36,7 +36,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 7. **`App\Database` (Infrastructure)**
    - Opens the MySQL connection (configured via `DB_*`), enforces foreign keys, and runs migrations.
    - Creates tables:
-     - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, auth_json, timestamps.
+     - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
        - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
      - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
      - `logs`: host_id, action, details, created_at.

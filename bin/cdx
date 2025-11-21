@@ -411,6 +411,25 @@ def load_auth():
     return data
 
 
+def is_valid_auth(auth):
+    if not isinstance(auth, dict):
+        return False
+    if not isinstance(auth.get("last_refresh"), str) or not auth.get("last_refresh").strip():
+        return False
+    auths = auth.get("auths")
+    if not isinstance(auths, dict) or not auths:
+        return False
+    for target, entry in auths.items():
+        if not isinstance(target, str) or not target.strip():
+            return False
+        if not isinstance(entry, dict):
+            return False
+        token = entry.get("token")
+        if not isinstance(token, str) or not token.strip():
+            return False
+    return True
+
+
 def canonical_json(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
@@ -569,6 +588,9 @@ else:
     status = "upload_required"
 
 if status in ("missing", "upload_required"):
+    if not is_valid_auth(current):
+        print("Local auth.json is missing required fields (last_refresh/auths/token); refusing to upload", file=sys.stderr)
+        sys.exit(30)
     store_payload = {
         "command": "store",
         "auth": current,
@@ -671,6 +693,11 @@ PY
       log_warn "Auth sync failed: API key missing/invalid"
       return 1
       ;;
+    30)
+      log_warn "Auth sync aborted: local auth.json is missing required fields (last_refresh/auths/token). Run 'codex login' or re-sync to regenerate it."
+      AUTH_PULL_STATUS="invalid"
+      return 1
+      ;;
     *)
       if [[ -n "$phase" ]]; then
         log_warn "Auth API sync (${phase}) failed"
@@ -707,6 +734,48 @@ if isinstance(data, dict):
 PY
 }
 
+validate_auth_json_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$path" <<'PY'
+import json, sys, pathlib
+
+path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+
+if not isinstance(data, dict):
+    sys.exit(1)
+
+last_refresh = data.get("last_refresh")
+auths = data.get("auths")
+
+if not isinstance(last_refresh, str) or not last_refresh.strip():
+    sys.exit(1)
+
+if not isinstance(auths, dict) or not auths:
+    sys.exit(1)
+
+for target, entry in auths.items():
+    if not isinstance(target, str) or not target.strip():
+        sys.exit(1)
+    if not isinstance(entry, dict):
+        sys.exit(1)
+    token = entry.get("token")
+    if not isinstance(token, str) or not token.strip():
+        sys.exit(1)
+
+sys.exit(0)
+PY
+}
+
 push_auth_if_changed() {
   local phase="${1:-push}"
   local auth_path="$HOME/.codex/auth.json"
@@ -725,6 +794,12 @@ push_auth_if_changed() {
     AUTH_PUSH_RESULT="not-needed"
     AUTH_PUSH_REASON="auth.json unchanged"
     return 0
+  fi
+  if ! validate_auth_json_file "$auth_path"; then
+    AUTH_PUSH_RESULT="invalid"
+    AUTH_PUSH_REASON="auth.json missing required fields"
+    log_warn "Auth push skipped: auth.json is missing last_refresh/auths/token. Run 'codex login' or re-sync to regenerate a valid file."
+    return 1
   fi
   if sync_auth_with_api "$phase"; then
     SYNC_PUSH_COMPLETED=1

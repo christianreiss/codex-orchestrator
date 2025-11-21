@@ -64,6 +64,8 @@ if ($normalizedPath === '') {
     $normalizedPath = '/';
 }
 
+const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
+
 $rawBody = file_get_contents('php://input');
 $payload = [];
 if ($rawBody !== false && $rawBody !== '') {
@@ -279,6 +281,9 @@ try {
             }
             $ts = strtotime($lr);
             if ($ts === false) {
+                continue;
+            }
+            if ($ts < MIN_LAST_REFRESH_EPOCH) {
                 continue;
             }
             $days = max(0, ($now - $ts) / 86400);

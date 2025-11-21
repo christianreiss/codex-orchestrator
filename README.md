@@ -278,7 +278,7 @@ Notes:
 
 ## Data & Logging
 
-- **hosts**: FQDN, API key, status, stored `auth_json`, last refresh time, IP binding, latest `client_version`, and optional `wrapper_version`.
+- **hosts**: FQDN, API key, status, last refresh time, canonical digest, IP binding, latest `client_version`, and optional `wrapper_version`.
 - **logs**: Each registration and sync operation records host, action, timestamps, and a JSON blob summarizing the decision (`updated` vs `unchanged`).
 - All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.uggs.io/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
 

@@ -71,8 +71,8 @@ Unified endpoint for both checking and updating auth. Each response includes the
 - `client_version`: required (JSON or query param `client_version`/`cdx_version`).
 - `wrapper_version`: optional (JSON or query param `wrapper_version`/`cdx_wrapper_version`).
 - `digest`: required for `retrieve`; the client’s current auth SHA-256 (exact JSON digest).
-- `last_refresh`: required when `command` is `retrieve`; timestamp of the client’s current payload.
-- `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body and must include `last_refresh`.
+- `last_refresh`: required when `command` is `retrieve`; must be an RFC3339 timestamp, not in the future, and not implausibly old (earlier than 2000-01-01T00:00:00Z).
+- `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body, must include `last_refresh` (same timestamp rules), and `auths` must contain at least one target entry.
 
 The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 canonical digests per host (`host_auth_digests`).
 

@@ -19,6 +19,8 @@ class AuthService
 {
     private const INACTIVITY_WINDOW_DAYS = 30;
     private const VERSION_CACHE_TTL_SECONDS = 300; // 5 minutes for fast release pickup
+    private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
+    private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
 
     public function __construct(
         private readonly HostRepository $hosts,
@@ -149,6 +151,7 @@ class AuthService
         if ($command === 'retrieve') {
             $providedDigest = $this->extractDigest($payload, true);
             $incomingLastRefresh = $this->extractLastRefresh($payload, 'last_refresh');
+            $this->assertReasonableLastRefresh($incomingLastRefresh, 'last_refresh');
 
             $status = 'missing';
             $response = [
@@ -222,6 +225,7 @@ class AuthService
         if (!is_string($incomingLastRefresh) || trim($incomingLastRefresh) === '') {
             throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
         }
+        $this->assertReasonableLastRefresh($incomingLastRefresh, 'auth.last_refresh');
 
         $entries = $this->normalizeAuthEntries($incomingAuth);
         $canonicalizedAuth = $this->buildAuthArrayFromEntries($incomingLastRefresh, $entries);
@@ -485,6 +489,26 @@ class AuthService
         return $value;
     }
 
+    private function assertReasonableLastRefresh(string $value, string $field): void
+    {
+        try {
+            $dt = new DateTimeImmutable($value);
+        } catch (\Exception) {
+            throw new ValidationException([$field => ['must be an RFC3339 timestamp']]);
+        }
+
+        $ts = $dt->getTimestamp();
+        $now = time();
+
+        if ($ts < self::MIN_LAST_REFRESH_EPOCH) {
+            throw new ValidationException([$field => ['timestamp is implausibly old']]);
+        }
+
+        if ($ts > ($now + self::MAX_FUTURE_SKEW_SECONDS)) {
+            throw new ValidationException([$field => ['timestamp is in the future']]);
+        }
+    }
+
     private function extractAuthPayload(array $payload): array
     {
         if (array_key_exists('auth', $payload) && is_array($payload['auth'])) {
@@ -548,6 +572,10 @@ class AuthService
     {
         if (!isset($authPayload['auths']) || !is_array($authPayload['auths'])) {
             throw new ValidationException(['auth.auths' => ['auths must be an object of targets']]);
+        }
+
+        if ($authPayload['auths'] === [] || count($authPayload['auths']) === 0) {
+            throw new ValidationException(['auth.auths' => ['auths must contain at least one entry']]);
         }
 
         $entries = [];

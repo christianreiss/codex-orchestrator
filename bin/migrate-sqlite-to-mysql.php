@@ -94,8 +94,8 @@ try {
     $hostRows = fetchRows($source, 'SELECT * FROM hosts ORDER BY id ASC');
     $hostIds = [];
     $hostInsert = $target->prepare(
-        'INSERT INTO hosts (id, fqdn, api_key, status, last_refresh, auth_digest, ip, client_version, wrapper_version, api_calls, auth_json, created_at, updated_at)
-         VALUES (:id, :fqdn, :api_key, :status, :last_refresh, :auth_digest, :ip, :client_version, :wrapper_version, :api_calls, :auth_json, :created_at, :updated_at)'
+        'INSERT INTO hosts (id, fqdn, api_key, status, last_refresh, auth_digest, ip, client_version, wrapper_version, api_calls, created_at, updated_at)
+         VALUES (:id, :fqdn, :api_key, :status, :last_refresh, :auth_digest, :ip, :client_version, :wrapper_version, :api_calls, :created_at, :updated_at)'
     );
 
     foreach ($hostRows as $row) {
@@ -111,7 +111,6 @@ try {
             'client_version' => $row['client_version'] ?? null,
             'wrapper_version' => $row['wrapper_version'] ?? null,
             'api_calls' => isset($row['api_calls']) ? (int) $row['api_calls'] : 0,
-            'auth_json' => $row['auth_json'] ?? null,
             'created_at' => (string) ($row['created_at'] ?? gmdate(DATE_ATOM)),
             'updated_at' => (string) ($row['updated_at'] ?? gmdate(DATE_ATOM)),
         ]);
