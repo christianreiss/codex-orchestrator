@@ -434,7 +434,8 @@
       if (cmp === -1) {
         return `<span class="chip warn">${version}<small>outdated</small></span>`;
       }
-      return `<span class="chip neutral">${version}<small>ahead</small></span>`;
+      // Treat newer-than-current as ahead, but label clearly
+      return `<span class="chip neutral">${version}<small>ahead*</small></span>`;
     }
 
     function renderStatusPill(status) {
