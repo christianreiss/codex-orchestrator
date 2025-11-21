@@ -18,7 +18,7 @@ use App\Services\WrapperService;
 class AuthService
 {
     private const INACTIVITY_WINDOW_DAYS = 30;
-    private const VERSION_CACHE_TTL_SECONDS = 7200; // 2 hours
+    private const VERSION_CACHE_TTL_SECONDS = 300; // 5 minutes for fast release pickup
 
     public function __construct(
         private readonly HostRepository $hosts,
