@@ -135,13 +135,25 @@
       border: 1px solid rgba(248,113,113,0.35);
       box-shadow: none;
     }
-    .table-wrap { margin-top: 20px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
-    table { width: max-content; min-width: 100%; border-collapse: collapse; }
+    .table-wrap { margin-top: 20px; border-radius: 16px; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); }
+    table { width: auto; min-width: 1200px; border-collapse: collapse; }
     thead { background: rgba(15, 23, 42, 0.85); }
     th, td { padding: 12px 10px; text-align: left; font-size: 13px; white-space: nowrap; }
     th { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 12px; }
     tbody tr { transition: none; }
     .inline-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .ip-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      margin: 0 4px 0 2px;
+      border: none;
+      background: none;
+      font-size: 16px;
+      cursor: pointer;
+      line-height: 1;
+    }
     .pill {
       padding: 6px 12px;
       border-radius: 999px;
@@ -516,7 +528,7 @@
           <td>
             <div class="inline-cell" style="gap:6px; align-items:center;">
               <span>${host.ip ?? '—'}</span>
-              ${host.ip ? `<button class="ip-toggle" data-id="${host.id}" title="Toggle IP lock">${ipIcon}</button>` : ''}
+              ${host.ip ? `<span class="ip-toggle" data-id="${host.id}" title="Toggle IP lock" role="button" aria-label="Toggle IP lock">${ipIcon}</span>` : ''}
             </div>
           </td>
           <td>${renderDigestTag(host)}</td>
@@ -546,7 +558,7 @@
         });
       });
 
-      hostsTbody.querySelectorAll('button.ip-toggle').forEach(btn => {
+      hostsTbody.querySelectorAll('.ip-toggle').forEach(btn => {
         btn.addEventListener('click', ev => {
           ev.stopPropagation();
           const id = parseInt(btn.getAttribute('data-id'), 10);
