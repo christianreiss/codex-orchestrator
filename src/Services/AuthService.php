@@ -812,7 +812,7 @@ class AuthService
     {
         $normalizedClientVersion = is_string($clientVersion) ? trim($clientVersion) : '';
         if ($normalizedClientVersion === '') {
-            throw new ValidationException(['client_version' => ['client_version is required']]);
+            $normalizedClientVersion = 'unknown';
         }
 
         $normalizedWrapperVersion = null;
