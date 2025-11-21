@@ -121,11 +121,8 @@
       cursor: pointer;
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
       color: #020617;
-      transition: transform 120ms ease, box-shadow 120ms ease;
       box-shadow: 0 15px 30px rgba(34,211,238,0.35);
     }
-    button:hover { transform: translateY(-1px); }
-    button:active { transform: translateY(0); }
     button.ghost {
       background: transparent;
       color: var(--muted);
@@ -143,8 +140,7 @@
     thead { background: rgba(15, 23, 42, 0.85); }
     th, td { padding: 12px 10px; text-align: left; font-size: 13px; white-space: nowrap; }
     th { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 12px; }
-    tbody tr { transition: background 150ms ease, transform 150ms ease; }
-    tbody tr:hover { background: rgba(34,211,238,0.05); transform: translateX(2px); }
+    tbody tr { transition: none; }
     .inline-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
     .pill {
       padding: 6px 12px;
