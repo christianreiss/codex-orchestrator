@@ -9,18 +9,18 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #030712;
-      --bg-accent: #0f172a;
-      --card: rgba(15, 23, 42, 0.75);
-      --border: rgba(148, 163, 184, 0.15);
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --accent: #22d3ee;
-      --accent-2: #a78bfa;
-      --danger: #f87171;
-      --success: #34d399;
+      --bg: #050910;
+      --bg-accent: #0b1226;
+      --card: rgba(16, 24, 40, 0.9);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f9fbff;
+      --muted: #b8c4d6;
+      --accent: #5ef0ff;
+      --accent-2: #ff9cf0;
+      --danger: #ff7b7b;
+      --success: #4ade80;
       --warning: #fbbf24;
-      --shadow: 0 25px 60px rgba(15, 23, 42, 0.55);
+      --shadow: 0 28px 70px rgba(11, 18, 38, 0.6);
     }
     * { box-sizing: border-box; }
     body {
@@ -75,18 +75,6 @@
     h1 { margin: 0; font-size: 40px; letter-spacing: -0.5px; }
     .eyebrow { text-transform: uppercase; font-size: 12px; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 4px; }
     .muted { color: var(--muted); font-size: 14px; }
-    .pulse {
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      min-width: 220px;
-      font-size: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      box-shadow: var(--shadow);
-    }
     #mtls.pill { align-self: flex-start; }
     main.main { padding-bottom: 64px; }
     .grid { display: grid; gap: 16px; }
@@ -153,10 +141,11 @@
     .table-wrap { margin-top: 20px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
     table { width: 100%; border-collapse: collapse; min-width: 960px; }
     thead { background: rgba(15, 23, 42, 0.85); }
-    th, td { padding: 14px 12px; text-align: left; font-size: 14px; }
+    th, td { padding: 12px 10px; text-align: left; font-size: 13px; white-space: nowrap; }
     th { color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 12px; }
     tbody tr { transition: background 150ms ease, transform 150ms ease; }
     tbody tr:hover { background: rgba(34,211,238,0.05); transform: translateX(2px); }
+    .inline-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
     .pill {
       padding: 6px 12px;
       border-radius: 999px;
@@ -190,6 +179,9 @@
     .status-suspended { background: rgba(248,113,113,0.12); color: var(--danger); border-color: rgba(248,113,113,0.4); }
     .status-suspended::before { background: var(--danger); }
     .status-unknown { background: rgba(148,163,184,0.15); color: var(--muted); border-color: rgba(148,163,184,0.3); }
+    .actions-cell { display: flex; gap: 8px; align-items: center; }
+    .actions-cell button { padding: 8px 12px; font-size: 12px; }
+    .roaming-icon { min-width: 44px; text-align: center; }
     .chip {
       display: inline-flex;
       align-items: center;
@@ -236,7 +228,6 @@
     </div>
     <div class="meta" style="display:flex; flex-direction:column; gap:12px;">
       <div id="mtls" class="pill">mTLS: pending…</div>
-      <div id="pulse" class="pulse">Awaiting telemetry…</div>
     </div>
   </header>
   <main class="shell main">
@@ -290,7 +281,6 @@
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const statusFilter = document.getElementById('status-filter');
-    const pulseEl = document.getElementById('pulse');
 
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
@@ -360,21 +350,6 @@
       }
     }
 
-    function renderPulse(data) {
-      if (!pulseEl) return;
-      const active = data?.totals?.active ?? 0;
-      const suspended = data?.totals?.suspended ?? 0;
-      const cadence = typeof data?.avg_refresh_age_days === 'number'
-        ? `${data.avg_refresh_age_days.toFixed(2)} d`
-        : 'n/a';
-      const tokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
-      pulseEl.innerHTML = `
-        <div><strong>${active}</strong> active · <strong>${suspended}</strong> suspended hosts</div>
-        <div>Avg refresh cadence <strong>${cadence}</strong></div>
-        <div>Total tokens synced <strong>${tokens}</strong></div>
-      `;
-    }
-
     function renderStats(data) {
       lastOverview = data;
       const checkedAt = formatTimestamp(data.versions.client_version_checked_at);
@@ -417,7 +392,6 @@
         </div>
       `;
 
-      renderPulse(data);
     }
 
     function compareVersions(a, b) {
@@ -525,27 +499,18 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>
-            <div class="host-cell">
-              <strong>${host.fqdn}</strong>
-              <span class="muted">${formatRelative(host.created_at)}</span>
-            </div>
+            <div class="inline-cell"><strong>${host.fqdn}</strong><span class="muted">· added ${formatRelative(host.created_at)}</span></div>
           </td>
           <td>${renderStatusPill(host.status)}</td>
-          <td>
-            <div>${formatRelative(host.updated_at)}</div>
-            <div class="muted" style="font-size:12px;">Auth ${formatRelative(host.last_refresh)}</div>
-          </td>
+          <td><div class="inline-cell">${formatRelative(host.updated_at)}<span class="muted">· auth ${formatRelative(host.last_refresh)}</span></div></td>
           <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-          <td>
-            <div>${host.ip ?? '—'}</div>
-            <div class="muted" style="font-size:12px;">${host.allow_roaming_ips ? 'Roaming allowed' : 'IP locked'}</div>
-          </td>
+          <td><div class="inline-cell">${host.ip ?? '—'}<span class="muted">${host.allow_roaming_ips ? 'roaming' : 'locked'}</span></div></td>
           <td>${renderDigestTag(host)}</td>
           <td>${formatNumber(host.api_calls ?? 0)}</td>
           <td>${renderTokenCell(host)}</td>
           <td class="actions-cell">
-            <button data-id="${host.id}" class="roaming">${host.allow_roaming_ips ? 'Lock IP' : 'Allow Roaming'}</button>
+            <button data-id="${host.id}" class="roaming-icon" title="${host.allow_roaming_ips ? 'Disable roaming' : 'Allow roaming'}">${host.allow_roaming_ips ? '🌍' : '🔒'}</button>
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>
           </td>
@@ -569,7 +534,7 @@
         });
       });
 
-      hostsTbody.querySelectorAll('button.roaming').forEach(btn => {
+      hostsTbody.querySelectorAll('button.roaming-icon').forEach(btn => {
         btn.addEventListener('click', ev => {
           ev.stopPropagation();
           const id = parseInt(btn.getAttribute('data-id'), 10);
