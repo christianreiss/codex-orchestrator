@@ -517,7 +517,12 @@
           </td>
           <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-          <td><div class="inline-cell">${host.ip ?? '—'} ${host.ip ? ipIcon : ''}</div></td>
+          <td>
+            <div class="inline-cell" style="gap:6px; align-items:center;">
+              <span>${host.ip ?? '—'}</span>
+              ${host.ip ? `<button class="ip-toggle" data-id="${host.id}" title="Toggle IP lock">${ipIcon}</button>` : ''}
+            </div>
+          </td>
           <td>${renderDigestTag(host)}</td>
           <td>${formatNumber(host.api_calls ?? 0)}</td>
           <td>${renderTokenCell(host)}</td>
@@ -542,6 +547,14 @@
           ev.stopPropagation();
           const id = parseInt(btn.getAttribute('data-id'), 10);
           confirmClear(id);
+        });
+      });
+
+      hostsTbody.querySelectorAll('button.ip-toggle').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          toggleRoaming(id);
         });
       });
 
@@ -624,6 +637,27 @@
         await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
         await loadAll();
         alert(`Cleared ${name}`);
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    async function toggleRoaming(id) {
+      const host = currentHosts.find(h => h.id === id);
+      if (!host) {
+        alert('Host not found');
+        return;
+      }
+      const name = host.fqdn;
+      const targetState = !host.allow_roaming_ips;
+      const actionLabel = targetState ? 'allow roaming IPs for' : 'lock IP on';
+      if (!confirm(`Are you sure you want to ${actionLabel} ${name}?`)) return;
+      try {
+        await api(`/admin/hosts/${id}/roaming`, {
+          method: 'POST',
+          json: { allow: targetState },
+        });
+        await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);
       }
