@@ -5,62 +5,32 @@ namespace App\Repositories;
 use App\Database;
 use PDO;
 
-class LogRepository
+class TokenUsageRepository
 {
     public function __construct(private readonly Database $database)
     {
     }
 
-    public function log(?int $hostId, string $action, array $details = []): void
+    public function record(?int $hostId, ?int $total, ?int $input, ?int $output, ?int $cached, ?string $model, ?string $line): void
     {
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO logs (host_id, action, details, created_at) VALUES (:host_id, :action, :details, :created_at)'
+            'INSERT INTO token_usages (host_id, total, input_tokens, output_tokens, cached_tokens, model, line, created_at)
+             VALUES (:host_id, :total, :input_tokens, :output_tokens, :cached_tokens, :model, :line, :created_at)'
         );
 
         $statement->execute([
             'host_id' => $hostId,
-            'action' => $action,
-            'details' => $details ? json_encode($details, JSON_UNESCAPED_SLASHES) : null,
+            'total' => $total,
+            'input_tokens' => $input,
+            'output_tokens' => $output,
+            'cached_tokens' => $cached,
+            'model' => $model,
+            'line' => $line,
             'created_at' => gmdate(DATE_ATOM),
         ]);
     }
 
-    public function recent(int $limit = 50, ?int $hostId = null): array
-    {
-        $limit = max(1, min($limit, 500));
-        $connection = $this->database->connection();
-
-        if ($hostId !== null) {
-            $statement = $connection->prepare(
-                'SELECT id, host_id, action, details, created_at FROM logs WHERE host_id = :host_id ORDER BY created_at DESC, id DESC LIMIT :limit'
-            );
-            $statement->bindValue('host_id', $hostId, PDO::PARAM_INT);
-        } else {
-            $statement = $connection->prepare(
-                'SELECT id, host_id, action, details, created_at FROM logs ORDER BY created_at DESC, id DESC LIMIT :limit'
-            );
-        }
-
-        $statement->bindValue('limit', $limit, PDO::PARAM_INT);
-        $statement->execute();
-
-        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
-
-        return is_array($rows) ? $rows : [];
-    }
-
-    public function latestCreatedAt(): ?string
-    {
-        $statement = $this->database->connection()->query(
-            'SELECT created_at FROM logs ORDER BY created_at DESC, id DESC LIMIT 1'
-        );
-
-        $value = $statement->fetchColumn();
-
-        return is_string($value) ? $value : null;
-    }
-
-    public function tokenUsageTotals(?int $hostId = null): array
+    public function totals(?int $hostId = null): array
     {
         $sql = 'SELECT COALESCE(SUM(total), 0) AS total,
                        COALESCE(SUM(input_tokens), 0) AS input,
@@ -77,7 +47,7 @@ class LogRepository
 
         $statement = $this->database->connection()->prepare($sql);
         $statement->execute($params);
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
 
         return [
             'total' => isset($row['total']) ? (int) $row['total'] : 0,
@@ -88,7 +58,7 @@ class LogRepository
         ];
     }
 
-    public function tokenUsageTotalsByHost(): array
+    public function totalsByHost(): array
     {
         $statement = $this->database->connection()->query(
             'SELECT host_id,
@@ -103,7 +73,6 @@ class LogRepository
         );
 
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
         $totals = [];
         foreach ($rows as $row) {
             $hostId = isset($row['host_id']) ? (int) $row['host_id'] : null;
@@ -123,7 +92,7 @@ class LogRepository
         return $totals;
     }
 
-    public function topTokenUsageHost(): ?array
+    public function topHost(): ?array
     {
         $statement = $this->database->connection()->query(
             'SELECT h.id AS host_id, h.fqdn AS fqdn, COALESCE(SUM(tu.total), 0) AS total

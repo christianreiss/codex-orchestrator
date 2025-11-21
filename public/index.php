@@ -6,9 +6,13 @@ use App\Config;
 use App\Database;
 use App\Exceptions\HttpException;
 use App\Http\Response;
+use App\Repositories\AuthEntryRepository;
+use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
+use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\HostStatusExporter;
@@ -36,16 +40,20 @@ $database = new Database($dbConfig);
 $database->migrate();
 
 $hostRepository = new HostRepository($database);
+$hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
+$authEntryRepository = new AuthEntryRepository($database);
+$authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository);
 $logRepository = new LogRepository($database);
+$tokenUsageRepository = new TokenUsageRepository($database);
 $versionRepository = new VersionRepository($database);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
 $invitationKey = Config::get('INVITATION_KEY', '');
 $statusPath = Config::get('STATUS_REPORT_PATH', $root . '/storage/host-status.txt');
-$statusExporter = new HostStatusExporter($hostRepository, $statusPath);
-$service = new AuthService($hostRepository, $digestRepository, $logRepository, $versionRepository, $invitationKey, $statusExporter, $wrapperService);
+$statusExporter = new HostStatusExporter($hostRepository, $authPayloadRepository, $hostStateRepository, $statusPath);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $invitationKey, $statusExporter, $wrapperService);
 $wrapperService->ensureSeeded();
 unset($statusPath, $invitationKey);
 
@@ -306,8 +314,8 @@ try {
 
         $latestLog = $logRepository->latestCreatedAt();
         $versions = $service->versionSummary();
-        $tokenTotals = $logRepository->tokenUsageTotals();
-        $topToken = $logRepository->topTokenUsageHost();
+        $tokenTotals = $tokenUsageRepository->totals();
+        $topToken = $tokenUsageRepository->topHost();
 
         $mtlsContext = [
             'subject' => $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null,
@@ -348,11 +356,12 @@ try {
         requireAdminAccess();
 
         $hosts = $hostRepository->all();
-        $tokenTotalsByHost = $logRepository->tokenUsageTotalsByHost();
+        $tokenTotalsByHost = $tokenUsageRepository->totalsByHost();
         $items = [];
 
         foreach ($hosts as $host) {
             $hostId = (int) $host['id'];
+            $state = $hostStateRepository->findByHostId($hostId);
             $usageTotals = $tokenTotalsByHost[$hostId] ?? null;
 
             $items[] = [
@@ -365,7 +374,7 @@ try {
                 'wrapper_version' => $host['wrapper_version'] ?? null,
                 'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
                 'ip' => $host['ip'] ?? null,
-                'canonical_digest' => $host['auth_digest'] ?? null,
+                'canonical_digest' => $state['seen_digest'] ?? ($host['auth_digest'] ?? null),
                 'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
                 'token_usage' => $usageTotals ? [
                     'total' => $usageTotals['total'],
@@ -397,14 +406,42 @@ try {
         }
 
         $includeBody = filter_var($_GET['include_body'] ?? null, FILTER_VALIDATE_BOOLEAN);
-        $authJson = $host['auth_json'] ?? null;
+        $payloadRow = $authPayloadRepository->latest();
         $auth = null;
-        if ($includeBody && $authJson) {
-            $decoded = json_decode($authJson, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                $auth = $decoded;
+        if ($includeBody && $payloadRow) {
+            $auths = [];
+            foreach ($payloadRow['entries'] ?? [] as $entry) {
+                $item = ['token' => $entry['token']];
+                if (!empty($entry['token_type'])) {
+                    $item['token_type'] = $entry['token_type'];
+                }
+                if (!empty($entry['organization'])) {
+                    $item['organization'] = $entry['organization'];
+                }
+                if (!empty($entry['project'])) {
+                    $item['project'] = $entry['project'];
+                }
+                if (!empty($entry['api_base'])) {
+                    $item['api_base'] = $entry['api_base'];
+                }
+                if (!empty($entry['meta']) && is_array($entry['meta'])) {
+                    foreach ($entry['meta'] as $k => $v) {
+                        $item[$k] = $v;
+                    }
+                }
+                ksort($item);
+                $auths[$entry['target']] = $item;
             }
+            ksort($auths);
+            $auth = [
+                'last_refresh' => $payloadRow['last_refresh'] ?? null,
+                'auths' => $auths,
+            ];
         }
+
+        $state = $hostStateRepository->findByHostId($hostId);
+        $canonicalLastRefresh = $payloadRow['last_refresh'] ?? null;
+        $canonicalDigest = $payloadRow['sha256'] ?? ($host['auth_digest'] ?? null);
 
         Response::json([
             'status' => 'ok',
@@ -413,14 +450,14 @@ try {
                     'id' => (int) $host['id'],
                     'fqdn' => $host['fqdn'],
                     'status' => $host['status'],
-                    'last_refresh' => $host['last_refresh'] ?? null,
+                    'last_refresh' => $host['last_refresh'] ?? ($state['seen_at'] ?? null),
                     'updated_at' => $host['updated_at'] ?? null,
                     'client_version' => $host['client_version'] ?? null,
                     'wrapper_version' => $host['wrapper_version'] ?? null,
                     'ip' => $host['ip'] ?? null,
                 ],
-                'canonical_last_refresh' => $host['last_refresh'] ?? null,
-                'canonical_digest' => $host['auth_digest'] ?? null,
+                'canonical_last_refresh' => $canonicalLastRefresh,
+                'canonical_digest' => $canonicalDigest,
                 'recent_digests' => $digestRepository->recentDigests($hostId),
                 'auth' => $auth,
                 'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,

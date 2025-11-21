@@ -4,9 +4,12 @@ namespace App\Services;
 
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
+use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
+use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Support\Timestamp;
 use DateTimeImmutable;
@@ -19,8 +22,11 @@ class AuthService
 
     public function __construct(
         private readonly HostRepository $hosts,
+        private readonly AuthPayloadRepository $payloads,
+        private readonly HostAuthStateRepository $hostStates,
         private readonly HostAuthDigestRepository $digests,
         private readonly LogRepository $logs,
+        private readonly TokenUsageRepository $tokenUsages,
         private readonly VersionRepository $versions,
         private readonly string $invitationKey,
         private readonly HostStatusExporter $statusExporter,
@@ -110,23 +116,20 @@ class AuthService
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
-        $this->hosts->updateClientVersions((int) $host['id'], $normalizedClientVersion, $normalizedWrapperVersion);
-        $this->hosts->incrementApiCalls((int) $host['id']);
-        $host = $this->hosts->findById((int) $host['id']) ?? $host;
+        $hostId = (int) $host['id'];
 
-        $storedJson = $host['auth_json'] ?? null;
-        $storedLastRefresh = $host['last_refresh'] ?? null;
-        $storedDigest = $host['auth_digest'] ?? $this->calculateDigest($storedJson);
+        $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
+        $this->hosts->incrementApiCalls($hostId);
+        $host = $this->hosts->findById($hostId) ?? $host;
 
-        if ($storedDigest !== null && (!isset($host['auth_digest']) || $host['auth_digest'] !== $storedDigest)) {
-            $this->hosts->updateAuthDigest((int) $host['id'], $storedDigest, $host['updated_at'] ?? null);
-            $host = $this->hosts->findById((int) $host['id']) ?? $host;
-        }
+        $canonicalPayload = $this->resolveCanonicalPayload();
+        $canonicalDigest = $canonicalPayload['sha256'] ?? null;
+        $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
 
-        $recentDigests = $this->digests->recentDigests((int) $host['id']);
-        if ($storedDigest !== null && !in_array($storedDigest, $recentDigests, true)) {
-            $this->digests->rememberDigests((int) $host['id'], [$storedDigest]);
-            $recentDigests = $this->digests->recentDigests((int) $host['id']);
+        $recentDigests = $this->digests->recentDigests($hostId);
+        if ($canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
+            $this->digests->rememberDigests($hostId, [$canonicalDigest]);
+            $recentDigests = $this->digests->recentDigests($hostId);
         }
 
         $versions = $this->versionSnapshot();
@@ -138,57 +141,64 @@ class AuthService
             $status = 'missing';
             $response = [
                 'status' => $status,
-                'canonical_last_refresh' => $storedLastRefresh,
-                'canonical_digest' => $storedDigest,
+                'canonical_last_refresh' => $canonicalLastRefresh,
+                'canonical_digest' => $canonicalDigest,
                 'action' => 'store',
                 'api_calls' => (int) ($host['api_calls'] ?? 0),
                 'versions' => $versions,
             ];
 
-            if ($storedJson && $storedDigest !== null) {
-                $comparison = Timestamp::compare($incomingLastRefresh, $storedLastRefresh);
-                $matchesCanonical = hash_equals($storedDigest, $providedDigest);
-                $matchesRecent = in_array($providedDigest, $recentDigests, true);
+            if ($canonicalPayload) {
+                $comparison = Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh);
+                $matchesCanonical = $providedDigest !== null && $canonicalDigest !== null && hash_equals($canonicalDigest, $providedDigest);
+                $matchesRecent = $providedDigest !== null && in_array($providedDigest, $recentDigests, true);
 
                 if ($matchesCanonical) {
                     $status = 'valid';
                     $response = [
                         'status' => $status,
-                        'canonical_last_refresh' => $storedLastRefresh,
-                        'canonical_digest' => $storedDigest,
+                        'canonical_last_refresh' => $canonicalLastRefresh,
+                        'canonical_digest' => $canonicalDigest,
                         'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
+
+                    $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
+                    $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
                 } elseif ($comparison === 1 || !$matchesRecent) {
                     $status = 'upload_required';
                     $response = [
                         'status' => $status,
-                        'canonical_last_refresh' => $storedLastRefresh,
-                        'canonical_digest' => $storedDigest,
+                        'canonical_last_refresh' => $canonicalLastRefresh,
+                        'canonical_digest' => $canonicalDigest,
                         'action' => 'store',
                         'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
                 } else {
                     $status = 'outdated';
+                    $authArray = $this->buildAuthArrayFromPayload($canonicalPayload);
                     $response = [
                         'status' => $status,
-                        'canonical_last_refresh' => $storedLastRefresh,
-                        'canonical_digest' => $storedDigest,
+                        'canonical_last_refresh' => $canonicalLastRefresh,
+                        'canonical_digest' => $canonicalDigest,
                         'host' => $this->buildHostPayload($host),
-                        'auth' => json_decode($storedJson, true),
+                        'auth' => $authArray,
                         'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
+
+                    $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
+                    $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
                 }
             }
 
-            $this->logs->log((int) $host['id'], 'auth.retrieve', [
+            $this->logs->log($hostId, 'auth.retrieve', [
                 'status' => $status,
                 'incoming_last_refresh' => $incomingLastRefresh,
                 'incoming_digest' => $providedDigest,
-                'stored_last_refresh' => $storedLastRefresh,
-                'stored_digest' => $storedDigest,
+                'stored_last_refresh' => $canonicalLastRefresh,
+                'stored_digest' => $canonicalDigest,
             ]);
 
             return $response;
@@ -201,66 +211,79 @@ class AuthService
             throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
         }
 
-        $encodedAuth = json_encode($incomingAuth, JSON_UNESCAPED_SLASHES);
+        $entries = $this->normalizeAuthEntries($incomingAuth);
+        $canonicalizedAuth = $this->buildAuthArrayFromEntries($incomingLastRefresh, $entries);
+
+        $encodedAuth = json_encode($canonicalizedAuth, JSON_UNESCAPED_SLASHES);
         if ($encodedAuth === false) {
             throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
         }
 
         $incomingDigest = $this->calculateDigest($encodedAuth);
-        $this->digests->rememberDigests((int) $host['id'], [$incomingDigest]);
+        $this->digests->rememberDigests($hostId, [$incomingDigest]);
 
-        $comparison = Timestamp::compare($incomingLastRefresh, $storedLastRefresh);
-        $shouldUpdate = !$storedJson || $comparison === 1;
+        $comparison = $canonicalLastRefresh !== null ? Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh) : 1;
+        $shouldUpdate = !$canonicalPayload || $comparison === 1;
         $status = $shouldUpdate ? 'updated' : ($comparison === -1 ? 'outdated' : 'unchanged');
 
         if ($shouldUpdate) {
-            $this->hosts->updateAuth((int) $host['id'], $encodedAuth, $incomingLastRefresh, $incomingDigest, $normalizedClientVersion, $normalizedWrapperVersion);
-            $host = $this->hosts->findById((int) $host['id']) ?? $host;
-            $storedJson = $encodedAuth;
-            $storedLastRefresh = $incomingLastRefresh;
-            $storedDigest = $incomingDigest;
+            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries);
+            $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
+            $canonicalPayload = $payloadRow;
+            $canonicalDigest = $incomingDigest;
+            $canonicalLastRefresh = $incomingLastRefresh;
+
+            $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $incomingDigest);
+            $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+            $host = $this->hosts->findById($hostId) ?? $host;
 
             $response = [
                 'status' => $status,
                 'host' => $this->buildHostPayload($host),
-                'auth' => $incomingAuth,
-                'canonical_last_refresh' => $storedLastRefresh,
-                'canonical_digest' => $storedDigest,
+                'auth' => $canonicalizedAuth,
+                'canonical_last_refresh' => $canonicalLastRefresh,
+                'canonical_digest' => $canonicalDigest,
                 'api_calls' => (int) ($host['api_calls'] ?? 0),
                 'versions' => $versions,
             ];
 
             $this->statusExporter->generate();
         } else {
-            $host = $this->hosts->findById((int) $host['id']) ?? $host;
+            $host = $this->hosts->findById($hostId) ?? $host;
 
-            if ($status === 'outdated' && $storedJson) {
+            if ($status === 'outdated' && $canonicalPayload) {
+                $authArray = $this->buildAuthArrayFromPayload($canonicalPayload);
                 $response = [
                     'status' => $status,
                     'host' => $this->buildHostPayload($host),
-                    'auth' => json_decode($storedJson, true),
-                    'canonical_last_refresh' => $storedLastRefresh,
-                    'canonical_digest' => $storedDigest,
+                    'auth' => $authArray,
+                    'canonical_last_refresh' => $canonicalLastRefresh,
+                    'canonical_digest' => $canonicalDigest,
                     'api_calls' => (int) ($host['api_calls'] ?? 0),
                     'versions' => $versions,
                 ];
             } else {
                 $response = [
                     'status' => $status,
-                    'canonical_last_refresh' => $storedLastRefresh,
-                    'canonical_digest' => $storedDigest,
+                    'canonical_last_refresh' => $canonicalLastRefresh,
+                    'canonical_digest' => $canonicalDigest,
                     'api_calls' => (int) ($host['api_calls'] ?? 0),
                     'versions' => $versions,
                 ];
             }
+
+            if ($canonicalPayload) {
+                $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest ?? $incomingDigest);
+                $this->hosts->updateSyncState($hostId, $canonicalLastRefresh ?? $incomingLastRefresh, $canonicalDigest ?? $incomingDigest);
+            }
         }
 
-        $this->logs->log((int) $host['id'], 'auth.store', [
+        $this->logs->log($hostId, 'auth.store', [
             'status' => $status,
             'incoming_last_refresh' => $incomingLastRefresh,
             'incoming_digest' => $incomingDigest,
-            'stored_last_refresh' => $storedLastRefresh,
-            'stored_digest' => $storedDigest,
+            'stored_last_refresh' => $canonicalLastRefresh,
+            'stored_digest' => $canonicalDigest,
             'client_version' => $normalizedClientVersion,
             'wrapper_version' => $normalizedWrapperVersion,
         ]);
@@ -326,6 +349,7 @@ class AuthService
             'model' => $model !== '' ? $model : null,
         ], static fn ($value) => $value !== null);
 
+        $this->tokenUsages->record((int) $host['id'], $total, $input, $output, $cached, $model !== '' ? $model : null, $line !== '' ? $line : null);
         $this->logs->log((int) $host['id'], 'token.usage', $details);
 
         return array_merge([
@@ -475,6 +499,112 @@ class AuthService
         }
 
         return $payload;
+    }
+
+    private function normalizeAuthEntries(array $authPayload): array
+    {
+        if (!isset($authPayload['auths']) || !is_array($authPayload['auths'])) {
+            throw new ValidationException(['auth.auths' => ['auths must be an object of targets']]);
+        }
+
+        $entries = [];
+        foreach ($authPayload['auths'] as $target => $entry) {
+            if (!is_string($target) || trim($target) === '') {
+                throw new ValidationException(['auth.auths' => ['auths keys must be non-empty strings']]);
+            }
+            if (!is_array($entry)) {
+                throw new ValidationException(['auth.auths.' . $target => ['entry must be an object']]);
+            }
+
+            $token = $entry['token'] ?? null;
+            if (!is_string($token) || trim($token) === '') {
+                throw new ValidationException(['auth.auths.' . $target . '.token' => ['token is required']]);
+            }
+
+            $tokenType = $entry['token_type'] ?? ($entry['type'] ?? 'bearer');
+            $organization = $entry['organization'] ?? ($entry['org'] ?? ($entry['default_organization'] ?? ($entry['default_org'] ?? null)));
+            $project = $entry['project'] ?? ($entry['default_project'] ?? null);
+            $apiBase = $entry['api_base'] ?? ($entry['base_url'] ?? null);
+
+            $meta = [];
+            foreach ($entry as $key => $value) {
+                if (in_array($key, ['token', 'token_type', 'type', 'organization', 'org', 'default_organization', 'default_org', 'project', 'default_project', 'api_base', 'base_url'], true)) {
+                    continue;
+                }
+                if (is_scalar($value) || $value === null) {
+                    $meta[$key] = $value;
+                }
+            }
+
+            $entries[] = [
+                'target' => trim($target),
+                'token' => trim($token),
+                'token_type' => is_string($tokenType) && trim($tokenType) !== '' ? trim($tokenType) : 'bearer',
+                'organization' => is_string($organization) && trim($organization) !== '' ? trim($organization) : null,
+                'project' => is_string($project) && trim($project) !== '' ? trim($project) : null,
+                'api_base' => is_string($apiBase) && trim($apiBase) !== '' ? trim($apiBase) : null,
+                'meta' => $meta ?: null,
+            ];
+        }
+
+        return $entries;
+    }
+
+    private function buildAuthArrayFromEntries(string $lastRefresh, array $entries): array
+    {
+        $auths = [];
+
+        foreach ($entries as $entry) {
+            $item = ['token' => $entry['token']];
+            if (isset($entry['token_type']) && $entry['token_type'] !== null) {
+                $item['token_type'] = $entry['token_type'];
+            }
+            if (isset($entry['organization']) && $entry['organization'] !== null) {
+                $item['organization'] = $entry['organization'];
+            }
+            if (isset($entry['project']) && $entry['project'] !== null) {
+                $item['project'] = $entry['project'];
+            }
+            if (isset($entry['api_base']) && $entry['api_base'] !== null) {
+                $item['api_base'] = $entry['api_base'];
+            }
+            if (!empty($entry['meta']) && is_array($entry['meta'])) {
+                foreach ($entry['meta'] as $key => $value) {
+                    $item[$key] = $value;
+                }
+            }
+
+            ksort($item);
+            $auths[$entry['target']] = $item;
+        }
+
+        ksort($auths);
+
+        return [
+            'last_refresh' => $lastRefresh,
+            'auths' => $auths,
+        ];
+    }
+
+    private function buildAuthArrayFromPayload(array $payload): array
+    {
+        $lastRefresh = $payload['last_refresh'] ?? '';
+        $entries = $payload['entries'] ?? [];
+
+        return $this->buildAuthArrayFromEntries($lastRefresh, $entries);
+    }
+
+    private function resolveCanonicalPayload(): ?array
+    {
+        $id = $this->versions->get('canonical_payload_id');
+        if ($id !== null && ctype_digit((string) $id)) {
+            $payload = $this->payloads->findByIdWithEntries((int) $id);
+            if ($payload) {
+                return $payload;
+            }
+        }
+
+        return $this->payloads->latest();
     }
 
     public function latestReportedVersions(): array

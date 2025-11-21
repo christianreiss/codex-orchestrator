@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Repositories\HostRepository;
+use App\Repositories\AuthPayloadRepository;
+use App\Repositories\HostAuthStateRepository;
 use DateTimeImmutable;
 use Exception;
 
@@ -10,6 +12,8 @@ class HostStatusExporter
 {
     public function __construct(
         private readonly HostRepository $hosts,
+        private readonly AuthPayloadRepository $payloads,
+        private readonly HostAuthStateRepository $states,
         private readonly string $outputPath
     ) {
     }
@@ -17,6 +21,9 @@ class HostStatusExporter
     public function generate(): string
     {
         $hosts = $this->hosts->all();
+        $canonical = $this->payloads->latest();
+        $canonicalEntries = $canonical['entries'] ?? [];
+        $canonicalDigest = $canonical['sha256'] ?? null;
         $generatedAt = gmdate(DATE_ATOM);
         $this->ensureDirectory();
         $refreshStats = $this->calculateRefreshAgeStats($hosts);
@@ -53,20 +60,14 @@ class HostStatusExporter
             $lines[] = 'No hosts registered.';
         } else {
             foreach ($hosts as $index => $host) {
-                $authPayload = $host['auth_json'] ? json_decode($host['auth_json'], true) : null;
+                $state = $this->states->findByHostId((int) $host['id']);
                 $lastContact = $host['updated_at'] ?? 'n/a';
-                $authVersion = $authPayload['last_refresh'] ?? ($host['last_refresh'] ?? 'n/a');
-                $entryCount = 0;
+                $authVersion = $host['last_refresh'] ?? 'n/a';
+                $entryCount = count($canonicalEntries);
                 $clientVersion = $host['client_version'] ?? 'n/a';
                 $wrapperVersion = $host['wrapper_version'] ?? 'n/a';
-                if (isset($authPayload['auths']) && is_array($authPayload['auths'])) {
-                    $entryCount = count($authPayload['auths']);
-                }
 
-                $rawDigest = $host['auth_digest'] ?? null;
-                if (!$rawDigest && $host['auth_json']) {
-                    $rawDigest = hash('sha256', $host['auth_json']);
-                }
+                $rawDigest = $state['seen_digest'] ?? ($host['auth_digest'] ?? $canonicalDigest);
 
                 $digest = $rawDigest ? substr($rawDigest, 0, 12) : 'n/a';
 
@@ -89,21 +90,14 @@ class HostStatusExporter
             $lines[] = str_repeat('-', 120);
 
             foreach ($hosts as $index => $host) {
-                $authPayload = $host['auth_json'] ? json_decode($host['auth_json'], true) : null;
-                $authVersion = $authPayload['last_refresh'] ?? ($host['last_refresh'] ?? 'n/a');
+                $state = $this->states->findByHostId((int) $host['id']);
+                $authVersion = $host['last_refresh'] ?? 'n/a';
                 $lastContact = $host['updated_at'] ?? 'n/a';
                 $lastRefresh = $host['last_refresh'] ?? 'n/a';
-                $entryCount = 0;
-                $authTargets = [];
-                if (isset($authPayload['auths']) && is_array($authPayload['auths'])) {
-                    $entryCount = count($authPayload['auths']);
-                    $authTargets = array_keys($authPayload['auths']);
-                }
+                $entryCount = count($canonicalEntries);
+                $authTargets = array_map(static fn ($entry) => $entry['target'], $canonicalEntries);
 
-                $rawDigest = $host['auth_digest'] ?? null;
-                if (!$rawDigest && $host['auth_json']) {
-                    $rawDigest = hash('sha256', $host['auth_json']);
-                }
+                $rawDigest = $state['seen_digest'] ?? ($host['auth_digest'] ?? $canonicalDigest);
 
                 $digest = $rawDigest ? substr($rawDigest, 0, 20) : 'n/a';
 

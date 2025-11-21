@@ -75,6 +75,54 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS auth_payloads (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                last_refresh VARCHAR(100) NOT NULL,
+                sha256 CHAR(64) NOT NULL,
+                source_host_id BIGINT UNSIGNED NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_auth_payloads_last_refresh (last_refresh),
+                INDEX idx_auth_payloads_created_at (created_at),
+                CONSTRAINT fk_payload_source_host FOREIGN KEY (source_host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS auth_entries (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                payload_id BIGINT UNSIGNED NOT NULL,
+                target VARCHAR(255) NOT NULL,
+                token TEXT NOT NULL,
+                token_type VARCHAR(32) DEFAULT 'bearer',
+                organization VARCHAR(255) NULL,
+                project VARCHAR(255) NULL,
+                api_base VARCHAR(255) NULL,
+                meta JSON NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_entries_payload (payload_id),
+                UNIQUE KEY uniq_entry_target (payload_id, target),
+                CONSTRAINT fk_entries_payload FOREIGN KEY (payload_id) REFERENCES auth_payloads(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS host_auth_states (
+                host_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+                payload_id BIGINT UNSIGNED NOT NULL,
+                seen_digest CHAR(64) NOT NULL,
+                seen_at VARCHAR(100) NOT NULL,
+                CONSTRAINT fk_state_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
+                CONSTRAINT fk_state_payload FOREIGN KEY (payload_id) REFERENCES auth_payloads(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS logs (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NULL,
@@ -84,6 +132,25 @@ class Database
                 INDEX idx_logs_host (host_id),
                 INDEX idx_logs_created_at (created_at),
                 CONSTRAINT fk_logs_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS token_usages (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                host_id BIGINT UNSIGNED NULL,
+                total BIGINT UNSIGNED NULL,
+                input_tokens BIGINT UNSIGNED NULL,
+                output_tokens BIGINT UNSIGNED NULL,
+                cached_tokens BIGINT UNSIGNED NULL,
+                model VARCHAR(128) NULL,
+                line TEXT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_token_usage_host (host_id),
+                INDEX idx_token_usage_created_at (created_at),
+                CONSTRAINT fk_token_usage_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
             ) ENGINE=InnoDB {$collation};
             SQL
         );

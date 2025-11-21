@@ -5,6 +5,9 @@ declare(strict_types=1);
 
 use App\Config;
 use App\Database;
+use App\Repositories\AuthEntryRepository;
+use App\Repositories\AuthPayloadRepository;
+use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Services\HostStatusExporter;
 use Dotenv\Dotenv;
@@ -31,7 +34,10 @@ $database = new Database($dbConfig);
 $database->migrate();
 
 $hostRepository = new HostRepository($database);
-$exporter = new HostStatusExporter($hostRepository, $statusPath);
+$hostStateRepository = new HostAuthStateRepository($database);
+$authEntryRepository = new AuthEntryRepository($database);
+$authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository);
+$exporter = new HostStatusExporter($hostRepository, $authPayloadRepository, $hostStateRepository, $statusPath);
 $outputPath = $exporter->generate();
 
 fwrite(STDOUT, "Host status report written to {$outputPath}" . PHP_EOL);

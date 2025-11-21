@@ -119,6 +119,20 @@ class HostRepository
         ]);
     }
 
+    public function updateSyncState(int $hostId, string $lastRefresh, string $authDigest): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET last_refresh = :last_refresh, auth_digest = :auth_digest, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'last_refresh' => $lastRefresh,
+            'auth_digest' => $authDigest,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     public function touch(int $hostId): void
     {
         $statement = $this->database->connection()->prepare(
