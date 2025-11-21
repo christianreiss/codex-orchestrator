@@ -411,6 +411,21 @@ def load_auth():
     return data
 
 
+def normalize_last_refresh(auth):
+    lr = auth.get("last_refresh") if isinstance(auth, dict) else None
+    if not isinstance(lr, str):
+        auth["last_refresh"] = "2000-01-01T00:00:00Z"
+        return
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.fromisoformat(lr.replace("Z", "+00:00"))
+    except Exception:
+        auth["last_refresh"] = "2000-01-01T00:00:00Z"
+        return
+    if ts.timestamp() < 946684800:  # 2000-01-01
+        auth["last_refresh"] = "2000-01-01T00:00:00Z"
+
+
 def is_valid_auth(auth):
     if not isinstance(auth, dict):
         return False
@@ -529,6 +544,7 @@ def post_json(url: str, payload: dict, action: str):
 
 
 current = load_auth()
+normalize_last_refresh(current)
 auth_json = canonical_json(current)
 auth_sha = hashlib.sha256(auth_json.encode("utf-8")).hexdigest()
 
