@@ -378,6 +378,11 @@ sync_auth_with_api() {
     return 1
   fi
   local auth_path="$HOME/.codex/auth.json"
+    if [[ ! -f "$auth_path" ]]; then
+      log_warn "No local auth.json found; run 'codex login' or provision auth before syncing."
+      AUTH_PULL_STATUS="fail"
+      return 1
+    fi
   local phase_label
   phase_label="${phase:-sync}"
   # No chatty per-step auth logging; final summary will capture the outcome.
@@ -398,7 +403,7 @@ if not base:
 
 
 def default_auth():
-    return {"last_refresh": "1970-01-01T00:00:00Z", "auths": {}}
+    return {"last_refresh": "2000-01-01T00:00:00Z", "auths": {}}
 
 
 def load_auth():
