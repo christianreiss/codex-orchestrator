@@ -513,7 +513,12 @@
             </div>
           </td>
           <td>${renderStatusPill(host.status)}</td>
-          <td><div class="inline-cell">${formatRelative(host.updated_at)}<span class="muted">· auth ${formatRelative(host.last_refresh)}</span></div></td>
+          <td>
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <span>${formatRelative(host.updated_at)}</span>
+              <span class="muted" style="font-size:12px;">auth ${formatRelative(host.last_refresh)}</span>
+            </div>
+          </td>
           <td>${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td>${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
           <td><div class="inline-cell">${host.ip ?? '—'} ${host.ip ? ipIcon : ''}</div></td>
