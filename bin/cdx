@@ -417,7 +417,10 @@ sync_auth_with_api() {
   local phase="$1"
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    return 0
+    log_error "Sync config missing API key or base URL; create ~/.codex/sync.env or set CODEX_SYNC_*"
+    AUTH_PULL_STATUS="missing-config"
+    AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+    return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
     if (( SYNC_WARNED_NO_PYTHON == 0 )); then
@@ -537,6 +540,9 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
             print(f"{action} denied (IP bound){extra}", file=sys.stderr)
             sys.exit(12)
         sys.exit(23)
+    if exc.code == 503 and "disabled" in msg.lower():
+        print("api disabled", file=sys.stderr)
+        sys.exit(40)
     print(f"{action} failed ({exc.code}): {msg}{extra}", file=sys.stderr)
     sys.exit(2)
 
@@ -722,6 +728,12 @@ PY
       ;;
     21|22)
       log_warn "Auth sync failed: API key missing/invalid"
+      return 1
+      ;;
+    40)
+      log_warn "Auth sync blocked: API disabled by administrator"
+      AUTH_PULL_STATUS="disabled"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
       ;;
     *)
