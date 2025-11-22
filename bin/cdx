@@ -23,7 +23,10 @@ fi
 log_info() { printf "%b» %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
 log_warn() { printf "%b! %s%b\n" "${YELLOW}${BOLD}" "$1" "${RESET}" >&2; }
 log_error() { printf "%bx %s%b\n" "${RED}${BOLD}" "$1" "${RESET}" >&2; }
-log_debug() { (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2; }
+log_debug() {
+  (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
+  return 0
+}
 
 mask_key() {
   local key="$1"
@@ -434,6 +437,7 @@ sync_auth_with_api() {
   phase_label="${phase:-sync}"
   # No chatty per-step auth logging; final summary will capture the outcome.
   local api_output=""
+  local api_status=0
   if api_output="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
@@ -705,8 +709,10 @@ PY
     AUTH_PULL_STATUS="ok"
     AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
     return 0
+  else
+    api_status=$?
   fi
-  case $? in
+  case "$api_status" in
     10)
       log_warn "Auth sync denied: invalid API key; removing local auth.json"
       AUTH_PULL_STATUS="invalid"
