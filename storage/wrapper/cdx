@@ -63,6 +63,9 @@ SYNC_PUSH_COMPLETED=0
 ORIGINAL_LAST_REFRESH=""
 AUTH_PUSH_RESULT=""
 AUTH_PUSH_REASON=""
+AUTH_STATUS=""
+AUTH_ACTION=""
+AUTH_MESSAGE=""
 SYNC_REMOTE_CLIENT_VERSION=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
@@ -655,8 +658,23 @@ try:
 except PermissionError:
     pass
 
-# Surface versions to caller via stdout as JSON
-print(json.dumps({"versions": versions_out}, separators=(",", ":")))
+# Surface versions and auth outcome to caller via stdout as JSON
+print(
+    json.dumps(
+        {
+            "versions": versions_out,
+            "auth_status": status or "unknown",
+            "auth_action": ("store" if status in ("missing", "upload_required") else status or "unknown"),
+            "auth_message": (
+                "synced (no change)" if status == "valid" else
+                "updated from api" if status == "outdated" else
+                "uploaded current auth" if status in ("missing", "upload_required") else
+                status
+            ),
+        },
+        separators=(",", ":"),
+    )
+)
 PY
   )"; then
     log_debug "auth api output: ${api_output}"
@@ -688,6 +706,15 @@ if isinstance(ws, str) and ws.strip():
     print(f"ws={ws.strip()}")
 if isinstance(wu, str) and wu.strip():
     print(f"wu={wu.strip()}")
+asv = parsed.get("auth_status")
+if isinstance(asv, str) and asv.strip():
+    print(f"as={asv.strip()}")
+aact = parsed.get("auth_action")
+if isinstance(aact, str) and aact.strip():
+    print(f"aa={aact.strip()}")
+amsg = parsed.get("auth_message")
+if isinstance(amsg, str) and amsg.strip():
+    print(f"am={amsg.strip()}")
 PY
 )" || true
       if [[ -n "$parsed" ]]; then
@@ -705,6 +732,15 @@ PY
               ;;
             wu=*)
               SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
+              ;;
+            as=*)
+              AUTH_STATUS="${line#as=}"
+              ;;
+            aa=*)
+              AUTH_ACTION="${line#aa=}"
+              ;;
+            am=*)
+              AUTH_MESSAGE="${line#am=}"
               ;;
           esac
         done <<<"$parsed"
@@ -1375,6 +1411,9 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
     codex_state="needs update (${target_version}, local ${LOCAL_VERSION:-unknown})"
   fi
   cdx_state="current (${WRAPPER_VERSION}/${target_wrapper})"
+  if [[ -n "$AUTH_STATUS" || -n "$AUTH_ACTION" || -n "$AUTH_MESSAGE" ]]; then
+    log_info "Auth | ${AUTH_STATUS:-ok} | action=${AUTH_ACTION:-n/a}${AUTH_MESSAGE:+ | ${AUTH_MESSAGE}}"
+  fi
   summary_text="$(build_status_summary "OK" "$codex_state" "$cdx_state")"
   log_info "$summary_text"
 else
