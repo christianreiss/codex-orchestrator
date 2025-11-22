@@ -600,12 +600,11 @@
       if (!normalized) return '—';
       const cmp = compareVersions(normalized, current);
       if (cmp === 0) {
-        return '—';
+        return normalized;
       }
       if (cmp === -1) {
-        return `<span class="chip warn">${version}<small>outdated</small></span>`;
+        return `<span class="chip warn">${version}<small>needs update</small></span>`;
       }
-      // Treat newer-than-current as ahead, but label clearly
       return `<span class="chip neutral">${version}<small>ahead*</small></span>`;
     }
 
