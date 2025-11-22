@@ -374,6 +374,9 @@ try {
                 'ip' => $host['ip'] ?? null,
                 'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
                 'canonical_digest' => $state['seen_digest'] ?? ($host['auth_digest'] ?? null),
+                'authed' => ($state['seen_digest'] ?? null) !== null
+                    && ($host['auth_digest'] ?? null) !== null
+                    && ($state['seen_digest'] === $host['auth_digest']),
                 'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
                 'token_usage' => $usageTotals ? [
                     'total' => $usageTotals['total'],

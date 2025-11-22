@@ -637,11 +637,14 @@
       return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
     }
 
-    function renderDigestTag(host) {
-      const hasCanonical = !!host.canonical_digest;
-      const label = hasCanonical ? 'canonical' : 'drift';
-      const tone = hasCanonical ? 'ok' : 'warn';
-      return `<div class="digest-cell"><span class="chip ${tone}">${label}</span></div>`;
+    function renderAuthedTag(host) {
+      const authed = host.authed === true;
+      const tone = authed ? 'ok' : 'warn';
+      const label = authed ? 'yes' : 'no';
+      const hint = host.canonical_digest
+        ? `Digest: ${host.canonical_digest.slice(0,8)}…`
+        : 'No canonical digest';
+      return `<div class="digest-cell" title="${hint}"><span class="chip ${tone}">${label}</span></div>`;
     }
 
     function formatRelative(value) {
@@ -692,7 +695,7 @@
       const filtered = applyHostFilters(currentHosts);
       hostsTbody.innerHTML = '';
       if (!filtered.length) {
-        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="10">No hosts match your filters yet.</td></tr>';
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="9">No hosts match your filters yet.</td></tr>';
         return;
       }
       filtered.forEach(host => {
@@ -720,7 +723,7 @@
               ${host.ip ? `<span class="ip-toggle" data-id="${host.id}" title="Toggle IP lock" role="button" aria-label="Toggle IP lock">${ipIcon}</span>` : ''}
             </div>
           </td>
-          <td>${renderDigestTag(host)}</td>
+          <td>${renderAuthedTag(host)}</td>
           <td data-label="Usage">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
               <span class="muted">Calls ${formatNumber(host.api_calls ?? 0)}</span>
