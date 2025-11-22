@@ -273,7 +273,6 @@ try {
         $hosts = $hostRepository->all();
         $totalHosts = count($hosts);
         $activeHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'active'));
-        $suspendedHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'suspended'));
 
         $refreshAges = [];
         $now = time();
@@ -313,7 +312,6 @@ try {
                 'totals' => [
                     'hosts' => $totalHosts,
                     'active' => $activeHosts,
-                    'suspended' => $suspendedHosts,
                 ],
                 'avg_refresh_age_days' => $avgRefreshAgeDays,
                 'latest_log_at' => $latestLog,
