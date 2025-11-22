@@ -278,18 +278,16 @@
 <body>
   <div class="glow glow-a"></div>
   <div class="glow glow-b"></div>
-  <header class="shell nav">
-    <div>
-      <div class="eyebrow">Codex Control</div>
-      <h1>Auth Orchestrator</h1>
-      <p class="muted">Live view of canonical digests, client versions, and fleet health.</p>
+  <header class="shell nav" style="align-items:center; gap:12px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="eyebrow" style="margin:0;">Codex</div>
+      <h1 style="margin:0;">Auth Orchestrator</h1>
+      <div id="mtls" class="pill" style="margin-left:8px;">mTLS: pending…</div>
     </div>
-    <div class="meta" style="display:flex; flex-direction:column; gap:12px; align-items:flex-end;">
-      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
-        <button class="secondary" id="newHostBtn">+ New Host</button>
-        <button id="refresh">Refresh</button>
-      </div>
-      <div id="mtls" class="pill">mTLS: pending…</div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-left:auto;">
+      <button class="secondary" id="newHostBtn">+ New Host</button>
+      <button id="refresh">Refresh</button>
+      <button id="version-check">Check versions</button>
     </div>
   </header>
   <main class="shell main">
@@ -331,10 +329,9 @@
             <option value="suspended">Suspended</option>
             <option value="unknown">Unknown</option>
           </select>
-          <button id="version-check">Check versions</button>
         </div>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap" style="margin-top:12px;">
         <table id="hosts">
           <thead>
             <tr>
