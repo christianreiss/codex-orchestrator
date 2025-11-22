@@ -60,6 +60,9 @@ POSITIONAL_MODE=""
 log() { printf '==> %s\n' "$1"; }
 warn() { printf '!! %s\n' "$1" >&2; }
 die() { printf 'Error: %s\n' "$1" >&2; exit 1; }
+step() { printf '→ %s\n' "$1"; }
+ok() { printf '✔ %s\n' "$1"; }
+skip() { printf '↷ %s\n' "$1"; }
 
 usage() {
   cat <<USAGE
@@ -201,6 +204,7 @@ load_existing_sync_env() {
     [[ -r "$file" ]] || continue
     parse_env_file "$file"
     ENV_SOURCE_PATH="$file"
+    log "Loaded existing sync env: $file"
     break
   done
 }
@@ -469,7 +473,9 @@ elif [[ -z "$API_KEY" ]]; then
 fi
 
 if [[ "$MODE" == "full" || "$MODE" == "cdx" ]]; then
+  step "Install/update cdx wrapper -> $WRAPPER_TARGET"
   install_cdx_wrapper
+  ok "cdx wrapper ready"
 fi
 
 if [[ "$MODE" == "cdx" ]]; then
@@ -478,7 +484,11 @@ if [[ "$MODE" == "cdx" ]]; then
 fi
 
 if (( NEED_REGISTER )); then
+  step "Registering host $FQDN at $BASE_URL"
   register_host
+  ok "Registration complete"
+else
+  skip "Registration skipped (API key provided)"
 fi
 
 WRITE_ENV=0
@@ -491,9 +501,11 @@ elif [[ -n "$ENV_SOURCE_PATH" && "$ENV_SOURCE_PATH" != "$ENV_PATH" ]]; then
 fi
 
 if (( WRITE_ENV )); then
+  step "Writing sync env -> $ENV_PATH"
   write_sync_env
+  ok "Sync env written"
 else
-  log "Sync env already present at $ENV_PATH (use --force to overwrite)"
+  skip "Sync env already present at $ENV_PATH (use --force to overwrite)"
 fi
 
 log "Done ($MODE mode)."
