@@ -5,7 +5,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 ## Operational Checklist (humans)
 
 - When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the loaded sync env, masked API key, and base URL. The user-level `~/.codex/sync.env` now overrides system paths.
-- Before letting Codex start, open `~/.codex/auth.json` and confirm it contains a non-empty `token` under `auths` (structure-only validation happens client-side; the server cannot verify token validity without calling upstream).
+- Before letting Codex start, open `~/.codex/auth.json` and confirm it has `last_refresh` plus either a non-empty `auths` map (each with `token`) or a `tokens.access_token`; the server now stores and hashes the full auth.json body, so missing top-level fields will cause digest mismatches.
 - If the API is in emergency stop mode, `/auth` returns `503 API disabled by administrator` and cdx will refuse to start. Toggle it in the dashboard.
 - Dashboard URL (mTLS required): https://codex.uggs.io/admin/
 
@@ -22,7 +22,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Issues per-host API keys (random 64-hex chars) and normalizes host payloads.
    - Handles unified `/auth` commands: `retrieve` (digest check + versions) and `store` (canonical update) while merging `/versions` data into the response.
    - Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report.
-   - Tracks the canonical auth digest and remembers up to 3 digests per host for quick matching.
+   - Tracks the canonical auth digest (computed from the fully preserved auth.json body, with `auths` sorted) and remembers up to 3 digests per host for quick matching.
    - Logs every register/auth/delete action through `LogRepository`.
 
 3. **`App\Repositories\HostRepository` (Persistence)**
@@ -45,6 +45,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
        - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
+   - `auth_payloads`: last_refresh, sha256, source_host_id, created_at, **body (full canonical auth.json as uploaded)**.
    - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
    - `logs`: host_id, action, details, created_at.
    - `versions`: published/seen versions with updated_at.
@@ -52,7 +53,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 ## CLI & Ops Scripts (`bin/`)
 
 - `cdx` (local wrapper/launcher) — Loads sync env from `/etc`→`/usr/local/etc`→`~/.codex`; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`.
-- `codex-install` (remote installer) — SSHes to a host, ensures curl/tar/python, optionally registers the host via `/register` (invitation key discovery from env or repo `.env`/API doc), writes remote `codex-sync.env`/CA, installs `cdx` (and optional systemd timer) globally or per-user (sudo aware), then port-forwards 1455 to run Codex login and capture the auth URL sentinel.
+- `codex-install` (remote installer) — SSHes to a host, ensures curl/tar/python, optionally registers the host via `/register` (invitation key discovery from env or repo `.env`/API doc), writes remote `codex-sync.env`/CA, installs `cdx` (and optional systemd timer) globally or per-user (sudo aware), then port-forwards 1455 to run Codex login and capture the auth URL sentinel. Local auth validation now accepts either `auths.*.token` or `tokens.access_token` so auth.json files that follow the ChatGPT layout work.
 - `codex-uninstall` (remote remover) — SSH cleanup that DELETEs the host from the API when sync creds exist, removes cdx/codex binaries, `/opt/codex`, sync env/CA files, and per-user `~/.codex` auth (root/chris/current user). Optional sudo; dedupes multiple targets.
 - `codex-clean` (local nuke) — Optionally DELETEs `/auth?force=1`, then removes local `~/.codex/{auth.json,sync.env}`, system-level sync env files, and `/usr/local/bin/{cdx,codex}`. Prompted unless `--yes`; `--no-api` skips deregistration.
 - `local-bootstrap` (local setup) — Modes: `full` (install cdx + register), `cdx` (wrapper only), `register` (write env). Picks invitation key from env, repo `.env`, or API.md; registers via `/register` when needed; writes `codex-sync.env` to `/usr/local/etc` or `~/.codex`; supports custom CA and wrapper target path.
