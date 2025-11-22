@@ -97,6 +97,7 @@ if (( ! IS_ROOT )); then
     log_info "Non-root execution detected; skipping automatic Codex install/update."
   fi
 fi
+log_debug "starting | user=${CURRENT_USER} | can_manage=${CAN_SUDO} | path=$PATH"
 
 detect_linux_package_manager() {
   local tokens=()
@@ -371,24 +372,16 @@ parse_sync_env_file() {
     esac
     case "$key" in
       CODEX_SYNC_BASE_URL)
-        if [[ -z "$CODEX_SYNC_BASE_URL" ]]; then
-          CODEX_SYNC_BASE_URL="${value%/}"
-        fi
+        CODEX_SYNC_BASE_URL="${value%/}"
         ;;
       CODEX_SYNC_API_KEY)
-        if [[ -z "$CODEX_SYNC_API_KEY" ]]; then
-          CODEX_SYNC_API_KEY="$value"
-        fi
+        CODEX_SYNC_API_KEY="$value"
         ;;
       CODEX_SYNC_FQDN)
-        if [[ -z "$CODEX_SYNC_FQDN" ]]; then
-          CODEX_SYNC_FQDN="$value"
-        fi
+        CODEX_SYNC_FQDN="$value"
         ;;
       CODEX_SYNC_CA_FILE)
-        if [[ -z "$CODEX_SYNC_CA_FILE" ]]; then
-          CODEX_SYNC_CA_FILE="$value"
-        fi
+        CODEX_SYNC_CA_FILE="$value"
         ;;
     esac
   done <"$path"
