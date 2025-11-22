@@ -45,9 +45,20 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
        - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
-     - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
-     - `logs`: host_id, action, details, created_at.
-     - `versions`: published/seen versions with updated_at.
+   - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
+   - `logs`: host_id, action, details, created_at.
+   - `versions`: published/seen versions with updated_at.
+
+## CLI & Ops Scripts (`bin/`)
+
+- `cdx` (local wrapper/launcher) — Loads sync env from `/etc`→`/usr/local/etc`→`~/.codex`; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`.
+- `codex-install` (remote installer) — SSHes to a host, ensures curl/tar/python, optionally registers the host via `/register` (invitation key discovery from env or repo `.env`/API doc), writes remote `codex-sync.env`/CA, installs `cdx` (and optional systemd timer) globally or per-user (sudo aware), then port-forwards 1455 to run Codex login and capture the auth URL sentinel.
+- `codex-uninstall` (remote remover) — SSH cleanup that DELETEs the host from the API when sync creds exist, removes cdx/codex binaries, `/opt/codex`, sync env/CA files, and per-user `~/.codex` auth (root/chris/current user). Optional sudo; dedupes multiple targets.
+- `codex-clean` (local nuke) — Optionally DELETEs `/auth?force=1`, then removes local `~/.codex/{auth.json,sync.env}`, system-level sync env files, and `/usr/local/bin/{cdx,codex}`. Prompted unless `--yes`; `--no-api` skips deregistration.
+- `local-bootstrap` (local setup) — Modes: `full` (install cdx + register), `cdx` (wrapper only), `register` (write env). Picks invitation key from env, repo `.env`, or API.md; registers via `/register` when needed; writes `codex-sync.env` to `/usr/local/etc` or `~/.codex`; supports custom CA and wrapper target path.
+- `force-push-auth` (emergency canonicalizer) — Ensures an API key (or registers with invitation key) and force-POSTs the local `auth.json` to `/auth` as the canonical store, preserving tokens and last_refresh.
+- `push-wrapper` (admin publish) — Uploads the current `cdx` script to `/wrapper` with SHA-256 and version using `VERSION_ADMIN_KEY`; can also POST `/versions` to bump published Codex client or wrapper version.
+- `migrate-sqlite-to-mysql.php` (one-time migration) — Copies SQLite data to MySQL using `App\Database::migrate()` for schema, backs up the SQLite file, truncates target tables when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
 
 ## Extension Tips
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Config;
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Repositories\AuthPayloadRepository;
@@ -581,6 +582,8 @@ class AuthService
             if (!is_string($token) || trim($token) === '') {
                 throw new ValidationException(['auth.auths.' . $target . '.token' => ['token is required']]);
             }
+            $token = trim($token);
+            $this->assertTokenQuality($token, $target);
 
             $tokenType = $entry['token_type'] ?? ($entry['type'] ?? 'bearer');
             $organization = $entry['organization'] ?? ($entry['org'] ?? ($entry['default_organization'] ?? ($entry['default_org'] ?? null)));
@@ -653,6 +656,37 @@ class AuthService
         $entries = $payload['entries'] ?? [];
 
         return $this->buildAuthArrayFromEntries($lastRefresh, $entries);
+    }
+
+    private function assertTokenQuality(string $token, string $target): void
+    {
+        $minLength = (int) (Config::get('TOKEN_MIN_LENGTH', 24));
+        if ($minLength < 8) {
+            $minLength = 8;
+        }
+
+        if (preg_match('/\s/', $token)) {
+            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token may not contain whitespace or newlines']]);
+        }
+
+        if (strlen($token) < $minLength) {
+            throw new ValidationException(['auth.auths.' . $target . '.token' => ["token too short (min {$minLength} characters)"]]);
+        }
+
+        $lower = strtolower($token);
+        $placeholders = ['token', 'newer-token', 'placeholder', 'changeme', 'dummy', 'test', 'example', 'example-token'];
+        if (in_array($lower, $placeholders, true)) {
+            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token appears to be a placeholder value']]);
+        }
+
+        if (preg_match('/^(.)\1+$/', $token)) {
+            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token is not high-entropy (single repeated character)']]);
+        }
+
+        $uniqueChars = count(array_unique(str_split($token)));
+        if ($uniqueChars < 6) {
+            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token entropy too low (too few unique characters)']]);
+        }
     }
 
     private function resolveCanonicalPayload(): ?array
