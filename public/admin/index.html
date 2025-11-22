@@ -309,7 +309,10 @@
   <div class="glow glow-a"></div>
   <div class="glow glow-b"></div>
   <header class="shell nav" style="align-items:center; gap:12px; flex-wrap:wrap;">
-    <h1 style="margin:0;">Codex Auth</h1>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1 style="margin:0;">Codex Auth</h1>
+      <div id="mtls" class="pill" style="display:none;">mTLS</div>
+    </div>
     <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-left:auto;">
       <label class="toggle" title="Emergency stop for Codex agents">
         <span class="muted" style="font-size:13px;">API</span>
@@ -512,6 +515,8 @@
     }
 
     function setMtls(meta) {
+      if (!mtlsEl) return;
+      mtlsEl.style.display = 'inline-flex';
       if (meta && meta.fingerprint) {
         mtlsEl.textContent = 'mTLS: presented';
         mtlsEl.classList.add('success');
