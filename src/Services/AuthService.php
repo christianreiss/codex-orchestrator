@@ -581,6 +581,9 @@ class AuthService
             if (!is_string($token) || trim($token) === '') {
                 throw new ValidationException(['auth.auths.' . $target . '.token' => ['token is required']]);
             }
+            if (strlen($token) < 20 || in_array($token, ['token', 'newer-token'], true)) {
+                throw new ValidationException(['auth.auths.' . $target . '.token' => ['token looks invalid or placeholder']]);
+            }
 
             $tokenType = $entry['token_type'] ?? ($entry['type'] ?? 'bearer');
             $organization = $entry['organization'] ?? ($entry['org'] ?? ($entry['default_organization'] ?? ($entry['default_org'] ?? null)));
