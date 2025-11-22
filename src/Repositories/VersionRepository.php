@@ -66,4 +66,13 @@ class VersionRepository
 
         return is_array($rows) ? $rows : [];
     }
+
+    public function getFlag(string $name, bool $default = false): bool
+    {
+        $value = $this->get($name);
+        if ($value === null) {
+            return $default;
+        }
+        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
+    }
 }

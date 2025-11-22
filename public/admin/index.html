@@ -251,6 +251,35 @@
     }
     .cmd-text { flex: 1; }
     .chip small { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    /* Toggle */
+    .toggle {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle input { display: none; }
+    .toggle-track {
+      width: 46px; height: 26px;
+      background: #e2e8f0;
+      border-radius: 999px;
+      position: relative;
+      transition: background 0.2s ease;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .toggle-thumb {
+      width: 22px; height: 22px;
+      background: #ffffff;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px; left: 2px;
+      transition: transform 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .toggle input:checked + .toggle-track { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+    .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(20px); }
     .host-cell { display: flex; flex-direction: column; gap: 4px; }
     .host-cell strong { font-size: 15px; }
     .token-cell { display: flex; flex-direction: column; gap: 6px; }
@@ -284,7 +313,12 @@
       <h1 style="margin:0;">Auth Orchestrator</h1>
       <div id="mtls" class="pill" style="margin-left:8px;">mTLS: pending…</div>
     </div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-left:auto;">
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-left:auto;">
+      <label class="toggle" title="Emergency stop for Codex agents">
+        <span class="muted" style="font-size:13px;">API</span>
+        <input type="checkbox" id="api-toggle">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
       <button class="secondary" id="newHostBtn">+ New Host</button>
       <button id="refresh">Refresh</button>
       <button id="version-check">Check versions</button>
@@ -359,6 +393,7 @@
     const commandField = document.getElementById('commandField');
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
+    const apiToggle = document.getElementById('api-toggle');
 
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
@@ -425,6 +460,32 @@
         document.execCommand('copy');
         document.body.removeChild(ta);
       });
+    }
+
+    async function loadApiState() {
+      try {
+        const res = await api('/admin/api/state');
+        const disabled = !!res.data?.disabled;
+        if (apiToggle) {
+          apiToggle.checked = !disabled;
+        }
+      } catch (err) {
+        console.error('api state', err);
+      }
+    }
+
+    async function setApiState(enabled) {
+      try {
+        await api('/admin/api/state', {
+          method: 'POST',
+          json: { disabled: !enabled },
+        });
+      } catch (err) {
+        alert(`API toggle failed: ${err.message}`);
+        if (apiToggle) {
+          apiToggle.checked = !apiToggle.checked;
+        }
+      }
     }
 
     function copyToClipboard(text) {
@@ -721,6 +782,12 @@
       newHostModal.addEventListener('click', (e) => {
         if (e.target === newHostModal) showNewHostModal(false);
       });
+    }
+    if (apiToggle) {
+      apiToggle.addEventListener('change', () => setApiState(apiToggle.checked));
+      loadApiState();
+    } else {
+      loadApiState();
     }
 
     function showNewHostModal(show) {

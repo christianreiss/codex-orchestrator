@@ -220,6 +220,12 @@ try {
     }
 
     if ($method === 'POST' && $normalizedPath === '/auth') {
+        if ($versionRepository->getFlag('api_disabled', false)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'API disabled by administrator',
+            ], 503);
+        }
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
         $host = $service->authenticate($apiKey, $clientIp);
@@ -407,6 +413,37 @@ try {
             'data' => [
                 'host' => $host,
             ],
+        ]);
+    }
+
+    if ($method === 'GET' && $normalizedPath === '/admin/api/state') {
+        requireAdminAccess();
+
+        $disabled = $versionRepository->getFlag('api_disabled', false);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['disabled' => $disabled],
+        ]);
+    }
+
+    if ($method === 'POST' && $normalizedPath === '/admin/api/state') {
+        requireAdminAccess();
+
+        $disabledRaw = $payload['disabled'] ?? null;
+        $disabled = normalizeBoolean($disabledRaw);
+        if ($disabled === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'disabled must be boolean',
+            ], 422);
+        }
+
+        $versionRepository->set('api_disabled', $disabled ? '1' : '0');
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['disabled' => $disabled],
         ]);
     }
 
