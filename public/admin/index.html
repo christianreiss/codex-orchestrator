@@ -848,7 +848,7 @@
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
         copyCmdBtn.onclick = () => copyToClipboard(cmd);
-        await refreshHosts();
+        await loadAll();
       } catch (err) {
         alert(err.message || err);
       } finally {
