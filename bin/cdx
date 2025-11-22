@@ -629,6 +629,11 @@ if status in ("missing", "upload_required"):
 if not isinstance(auth_to_write, dict):
     auth_to_write = current
 
+# Never write an invalid auth payload; keep the existing file untouched.
+if not is_valid_auth(auth_to_write):
+    print("Auth payload from API is invalid; refusing to overwrite ~/.codex/auth.json", file=sys.stderr)
+    sys.exit(1)
+
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(auth_to_write, indent=2) + "\n", encoding="utf-8")
 try:
@@ -1164,6 +1169,7 @@ case "$os_name" in
 esac
 
 remote_version=""
+remote_tag_raw=""
 remote_url=""
 remote_asset=""
 remote_tag=""
@@ -1172,8 +1178,9 @@ remote_timestamp=0
 
 if (( ! skip_update_check )); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
+    remote_tag_raw="$SYNC_REMOTE_CLIENT_VERSION"
     remote_version="$(normalize_version "$SYNC_REMOTE_CLIENT_VERSION")"
-    remote_tag="$remote_version"
+    remote_tag="$remote_tag_raw"
     remote_timestamp="$(date +%s)"
     remote_source="api"
   elif [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
@@ -1204,9 +1211,18 @@ fi
 if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
-  candidate_tag="$remote_tag"
-  for tag_variant in "$candidate_tag" "v${candidate_tag}"; do
-    [[ -z "$tag_variant" ]] && continue
+  candidate_tags=()
+  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
+  add_tag "$remote_tag_raw"
+  add_tag "$remote_tag"
+  if [[ -n "$remote_version" ]]; then
+    add_tag "$remote_version"
+    add_tag "v${remote_version}"
+    add_tag "rust-v${remote_version}"
+    add_tag "rust-${remote_version}"
+  fi
+
+  for tag_variant in "${candidate_tags[@]}"; do
     if payload_json="$(fetch_release_payload "${API_RELEASES_URL}/tags/${tag_variant}" "$asset_name" 2>/dev/null)"; then
       printf '%s\n' "$payload_json" > "$tmp_payload"
       if mapfile -t fresh_fields < <(read_cached_payload "$tmp_payload"); then
@@ -1332,11 +1348,12 @@ build_status_summary() {
 }
 
 if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
-  target_version="${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}"
+  target_version="${remote_version:-${LOCAL_VERSION:-unknown}}"
+  target_label="${remote_tag_raw:-${remote_tag:-${target_version}}}"
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   codex_state="current (${LOCAL_VERSION})"
-  if [[ "$LOCAL_VERSION" != "$target_version" ]]; then
-    codex_state="needs update (${target_version}, local ${LOCAL_VERSION:-unknown})"
+  if [[ -n "$remote_version" && "$LOCAL_VERSION" != "$remote_version" ]]; then
+    codex_state="needs update (${target_label}, local ${LOCAL_VERSION:-unknown})"
   fi
   cdx_state="current (${WRAPPER_VERSION}/${target_wrapper})"
   summary_text="$(build_status_summary "OK" "$codex_state" "$cdx_state")"

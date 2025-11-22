@@ -377,7 +377,7 @@ class AuthService
         $this->seedWrapperVersionFromReported($reported['wrapper_version']);
 
         // Only trust GitHub (cached for 3h). If unavailable, client_version will be null.
-        $clientVersion = $available['version'] ?? null;
+        $clientVersion = $this->canonicalVersion($available['version'] ?? null);
         $clientCheckedAt = $available['updated_at'] ?? null;
         $clientSource = $available['source'] ?? null;
 
@@ -688,8 +688,8 @@ class AuthService
         }
 
         return [
-            'client_version' => $latestClient,
-            'wrapper_version' => $latestWrapper,
+            'client_version' => $this->canonicalVersion($latestClient),
+            'wrapper_version' => $this->canonicalVersion($latestWrapper),
         ];
     }
 
@@ -711,9 +711,11 @@ class AuthService
             }
         }
 
-        if ($cacheFresh && isset($cached['version'])) {
+        $cachedVersion = $this->canonicalVersion($cached['version'] ?? null);
+
+        if ($cacheFresh && $cachedVersion !== null) {
             return [
-                'version' => $cached['version'],
+                'version' => $cachedVersion,
                 'updated_at' => $cached['updated_at'] ?? null,
                 'source' => 'cache',
             ];
@@ -721,17 +723,18 @@ class AuthService
 
         $fetched = $this->fetchLatestCodexVersion();
         if ($fetched !== null) {
-            $this->versions->set('client_available', $fetched);
+            $normalized = $this->canonicalVersion($fetched) ?? $fetched;
+            $this->versions->set('client_available', $normalized);
             return [
-                'version' => $fetched,
+                'version' => $normalized,
                 'updated_at' => gmdate(DATE_ATOM),
                 'source' => 'github',
             ];
         }
 
-        if ($cached && isset($cached['version'])) {
+        if ($cachedVersion !== null) {
             return [
-                'version' => $cached['version'],
+                'version' => $cachedVersion,
                 'updated_at' => $cached['updated_at'] ?? null,
                 'source' => 'cache_stale',
             ];
@@ -757,7 +760,8 @@ class AuthService
     public function updatePublishedVersions(?string $clientVersion, ?string $wrapperVersion): array
     {
         if ($clientVersion !== null) {
-            $this->versions->set('client', trim($clientVersion));
+            $normalizedClient = $this->canonicalVersion($clientVersion);
+            $this->versions->set('client', $normalizedClient ?? trim($clientVersion));
         }
         if ($wrapperVersion !== null) {
             $this->versions->set('wrapper', trim($wrapperVersion));
@@ -820,8 +824,8 @@ class AuthService
      */
     private function normalizeVersions(?string $clientVersion, ?string $wrapperVersion): array
     {
-        $normalizedClientVersion = is_string($clientVersion) ? trim($clientVersion) : '';
-        if ($normalizedClientVersion === '') {
+        $normalizedClientVersion = $this->canonicalVersion(is_string($clientVersion) ? $clientVersion : '');
+        if ($normalizedClientVersion === null || $normalizedClientVersion === '') {
             $normalizedClientVersion = 'unknown';
         }
 
@@ -851,16 +855,6 @@ class AuthService
         return $cmp === 1;
     }
 
-    private function normalizeVersionString(string $value): string
-    {
-        $normalized = trim($value);
-        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
-        $normalized = ltrim($normalized, 'vV');
-
-        return $normalized;
-    }
-
-
     private function fetchLatestCodexVersion(): ?string
     {
         $context = stream_context_create([
@@ -888,15 +882,34 @@ class AuthService
 
         foreach ($candidates as $candidate) {
             if (is_string($candidate)) {
-                $normalized = trim($candidate);
-                if ($normalized !== '') {
-                    $normalized = ltrim($normalized, 'vV');
+                $normalized = $this->canonicalVersion($candidate);
+                if ($normalized !== null && $normalized !== '') {
                     return $normalized;
                 }
             }
         }
 
         return null;
+    }
+
+    private function normalizeVersionString(string $value): string
+    {
+        $normalized = trim($value);
+        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
+        $normalized = ltrim($normalized, 'vV');
+
+        return $normalized;
+    }
+
+    private function canonicalVersion(?string $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = $this->normalizeVersionString($value);
+
+        return $normalized === '' ? null : $normalized;
     }
 
     private function normalizeDigest(mixed $value): ?string
