@@ -599,13 +599,8 @@
       const normalized = typeof version === 'string' ? version.trim().replace(/^v/i, '') : null;
       if (!normalized) return '—';
       const cmp = compareVersions(normalized, current);
-      if (cmp === 0) {
-        return normalized;
-      }
-      if (cmp === -1) {
-        return `<span class="chip warn">${version}<small>needs update</small></span>`;
-      }
-      return `<span class="chip neutral">${version}<small>ahead*</small></span>`;
+      const badge = `<span class="chip ${cmp === -1 ? 'warn' : cmp === 1 ? 'neutral' : 'ok'}">${normalized}</span>`;
+      return badge;
     }
 
     function renderStatusPill(status) {
