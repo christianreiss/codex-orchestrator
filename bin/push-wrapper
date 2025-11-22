@@ -10,6 +10,7 @@ Environment / flags:
   -k, --key        VERSION_ADMIN_KEY value (read from .env or env VERSION_ADMIN_KEY)
   -f, --file       Path to cdx wrapper script (default: repo bin/cdx)
   -v, --version    Override wrapper version (defaults to WRAPPER_VERSION in the file)
+  -c, --client     Update published Codex client version too (e.g. 0.63.0)
   -h, --help       Show this help
 EOF
 }
@@ -40,6 +41,7 @@ load_dotenv
 BASE_URL="${WRAPPER_BASE_URL:-${CODEX_AUTH_BASE_URL:-https://codex-auth.uggs.io}}"
 ADMIN_KEY="${VERSION_ADMIN_KEY:-}"
 VERSION_OVERRIDE=""
+CLIENT_VERSION=""
 
 resolve_wrapper_path() {
   if [[ -n "${WRAPPER_PATH:-}" && -f "${WRAPPER_PATH}" ]]; then
@@ -61,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     -k|--key) ADMIN_KEY="$2"; shift 2 ;;
     -f|--file) WRAPPER_PATH="$2"; shift 2 ;;
     -v|--version) VERSION_OVERRIDE="$2"; shift 2 ;;
+    -c|--client) CLIENT_VERSION="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n\n' "$1" >&2; usage; exit 1 ;;
   esac
@@ -108,6 +111,7 @@ echo "Base URL:     $BASE_URL"
 echo "Wrapper path: $WRAPPER_PATH"
 echo "Version:      $VERSION"
 echo "SHA-256:      $SHA256"
+[[ -n "$CLIENT_VERSION" ]] && echo "Client ver:   $CLIENT_VERSION"
 
 curl_opts=(
   -fsS
@@ -119,3 +123,21 @@ curl_opts+=(-H "X-Admin-Key: $ADMIN_KEY")
 curl "${curl_opts[@]}" "${BASE_URL%/}/wrapper"
 echo
 echo "Wrapper published."
+
+# Publish versions block if requested or to sync wrapper version flag.
+if [[ -n "$CLIENT_VERSION" || -n "$VERSION" ]]; then
+  body='{}'
+  if [[ -n "$CLIENT_VERSION" ]]; then
+    body="$(jq -c --arg cv "$CLIENT_VERSION" '.client_version = $cv' <<<"$body")"
+  fi
+  if [[ -n "$VERSION" ]]; then
+    body="$(jq -c --arg wv "$VERSION" '.wrapper_version = $wv' <<<"$body")"
+  fi
+  echo "Updating published versions…"
+  curl -fsS -X POST "${BASE_URL%/}/versions" \
+    -H "Content-Type: application/json" \
+    -H "X-Admin-Key: $ADMIN_KEY" \
+    -d "$body"
+  echo
+  echo "Versions updated."
+fi
