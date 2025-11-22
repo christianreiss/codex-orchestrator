@@ -256,7 +256,8 @@ try {
     if ($method === 'DELETE' && $normalizedPath === '/auth') {
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
-        $host = $service->authenticate($apiKey, $clientIp);
+        $forceDelete = ($_GET['force'] ?? '') === '1' || ($_SERVER['HTTP_X_CODEX_SELF_DESTRUCT'] ?? '') === '1';
+        $host = $service->authenticate($apiKey, $clientIp, $forceDelete);
 
         $result = $service->deleteHost($host);
 

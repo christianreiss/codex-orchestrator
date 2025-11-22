@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Remove local Codex artifacts and optionally self-destruct the host in the API.
+
+usage() {
+  cat <<'EOF'
+codex-clean [-y|--yes] [--no-api]
+
+Actions:
+  - Call DELETE /auth?force=1 to delete this host in Codex Auth (default).
+  - Remove local auth + sync config: ~/.codex/{auth.json,sync.env}, /usr/local/etc/codex-sync.env, /etc/codex-sync.env
+  - Remove binaries: /usr/local/bin/cdx and /usr/local/bin/codex (if present)
+
+Options:
+  -y, --yes    Run without interactive prompt.
+  --no-api     Skip API self-destruct (local cleanup only).
+
+Environment (or parsed from sync.env):
+  CODEX_SYNC_BASE_URL   Base URL for API (default https://codex-auth.uggs.io)
+  CODEX_SYNC_API_KEY    Host API key (required for API delete)
+  CODEX_SYNC_FQDN       Hostname (optional, for logs only)
+EOF
+}
+
+confirm=1
+skip_api=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -y|--yes) confirm=0; shift ;;
+    --no-api) skip_api=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+LOG_BOLD=$'\033[1m'; LOG_RESET=$'\033[0m'
+
+log() { printf "%b%s%b\n" "$LOG_BOLD" "$*" "$LOG_RESET"; }
+
+CONFIG_PATHS=("$HOME/.codex/sync.env" "/usr/local/etc/codex-sync.env" "/etc/codex-sync.env")
+CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-}"
+CODEX_SYNC_API_KEY="${CODEX_SYNC_API_KEY:-}"
+CODEX_SYNC_FQDN="${CODEX_SYNC_FQDN:-}"
+
+parse_sync_env_file() {
+  local path="$1" key value
+  while IFS='=' read -r key value; do
+    value="${value%$'\r'}"
+    case "$key" in ''|\#*) continue ;; esac
+    case "$key" in
+      CODEX_SYNC_BASE_URL) CODEX_SYNC_BASE_URL="${value%/}" ;;
+      CODEX_SYNC_API_KEY) CODEX_SYNC_API_KEY="$value" ;;
+      CODEX_SYNC_FQDN) CODEX_SYNC_FQDN="$value" ;;
+    esac
+  done <"$path"
+}
+
+for cfg in "${CONFIG_PATHS[@]}"; do
+  [[ -f "$cfg" ]] && parse_sync_env_file "$cfg"
+done
+
+CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-https://codex-auth.uggs.io}"
+
+if (( ! skip_api )) && [[ -z "$CODEX_SYNC_API_KEY" ]]; then
+  echo "CODEX_SYNC_API_KEY missing; set it or use --no-api" >&2
+  exit 1
+fi
+
+targets=(
+  "$HOME/.codex/auth.json"
+  "$HOME/.codex/sync.env"
+  "/usr/local/etc/codex-sync.env"
+  "/etc/codex-sync.env"
+  "/usr/local/bin/cdx"
+  "/usr/local/bin/codex"
+)
+
+log "Planned cleanup for ${CODEX_SYNC_FQDN:-this host}:"
+for t in "${targets[@]}"; do
+  printf "  - %s%s\n" "$t" "$( [[ -f "$t" ]] && echo "" || echo " (missing)")"
+done
+if (( ! skip_api )); then
+  echo "  - API self-destruct via ${CODEX_SYNC_BASE_URL}/auth?force=1"
+fi
+
+if (( confirm )); then
+  read -r -p "Proceed? [y/N] " ans
+  [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || exit 1
+fi
+
+if (( ! skip_api )); then
+  log "Self-destructing host in API…"
+  set +e
+  resp="$(curl -fsS -X DELETE "${CODEX_SYNC_BASE_URL%/}/auth?force=1" -H "X-API-Key: ${CODEX_SYNC_API_KEY}")"
+  status=$?
+  set -e
+  if [[ $status -ne 0 ]]; then
+    echo "API delete failed (exit $status). Response:" >&2
+    echo "${resp:-<none>}" >&2
+  else
+    echo "$resp"
+  fi
+fi
+
+log "Removing local files…"
+for t in "${targets[@]}"; do
+  if [[ -f "$t" || -L "$t" ]]; then
+    rm -f "$t" || true
+    echo "removed $t"
+  fi
+done
+
+[[ -d "$HOME/.codex" ]] && rmdir "$HOME/.codex" 2>/dev/null || true
+
+log "Cleanup complete."

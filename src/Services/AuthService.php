@@ -75,7 +75,7 @@ class AuthService
         return $payload;
     }
 
-    public function authenticate(?string $apiKey, ?string $ip = null): array
+    public function authenticate(?string $apiKey, ?string $ip = null, bool $allowIpBypass = false): array
     {
         $this->pruneInactiveHosts();
 
@@ -105,6 +105,13 @@ class AuthService
                 if ($allowsRoaming) {
                     $this->hosts->updateIp($hostId, $ip);
                     $this->logs->log($hostId, 'auth.roaming_ip', [
+                        'previous_ip' => $storedIp,
+                        'ip' => $ip,
+                    ]);
+                    $host = $this->hosts->findById($hostId) ?? $host;
+                } elseif ($allowIpBypass) {
+                    $this->hosts->updateIp($hostId, $ip);
+                    $this->logs->log($hostId, 'auth.force_ip_override', [
                         'previous_ip' => $storedIp,
                         'ip' => $ip,
                     ]);
