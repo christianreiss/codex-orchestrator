@@ -659,31 +659,35 @@ except PermissionError:
 print(json.dumps({"versions": versions_out}, separators=(",", ":")))
 PY
   )"; then
+    log_debug "auth api output: ${api_output}"
     local versions_json
     versions_json="$api_output"
     if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
       local parsed
-      parsed="$(printf '%s' "$versions_json" | python3 - <<'PY'
-import json, sys
+      parsed="$(VJSON="$versions_json" python3 - <<'PY'
+import json, os, sys
+data = os.environ.get("VJSON", "")
 try:
-    data = json.loads(sys.stdin.read())
-    versions = data.get("versions") if isinstance(data, dict) else {}
-    if not isinstance(versions, dict):
-        sys.exit(0)
-    cv = versions.get("client_version")
-    wv = versions.get("wrapper_version")
-    ws = versions.get("wrapper_sha256")
-    wu = versions.get("wrapper_url")
-    if isinstance(cv, str) and cv.strip():
-        print(f"cv={cv.strip()}")
-    if isinstance(wv, str) and wv.strip():
-        print(f"wv={wv.strip()}")
-    if isinstance(ws, str) and ws.strip():
-        print(f"ws={ws.strip()}")
-    if isinstance(wu, str) and wu.strip():
-        print(f"wu={wu.strip()}")
+    parsed = json.loads(data)
 except Exception:
     sys.exit(0)
+if not isinstance(parsed, dict):
+    sys.exit(0)
+versions = parsed.get("versions")
+if not isinstance(versions, dict):
+    sys.exit(0)
+cv = versions.get("client_version")
+wv = versions.get("wrapper_version")
+ws = versions.get("wrapper_sha256")
+wu = versions.get("wrapper_url")
+if isinstance(cv, str) and cv.strip():
+    print(f"cv={cv.strip()}")
+if isinstance(wv, str) and wv.strip():
+    print(f"wv={wv.strip()}")
+if isinstance(ws, str) and ws.strip():
+    print(f"ws={ws.strip()}")
+if isinstance(wu, str) and wu.strip():
+    print(f"wu={wu.strip()}")
 PY
 )" || true
       if [[ -n "$parsed" ]]; then
