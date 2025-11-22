@@ -833,15 +833,11 @@
     loadAll();
 
     async function confirmRemove(id) {
-      const host = currentHosts.find(h => h.id === id);
-      const name = host ? host.fqdn : `id ${id}`;
-      if (!confirm(`Delete host ${name}? This cannot be undone.`)) return;
       try {
         await api(`/admin/hosts/${id}`, { method: 'DELETE' });
         await loadAll();
-        alert(`Removed ${name}`);
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        alert(`Remove failed: ${err.message}`);
       }
     }
 
