@@ -55,17 +55,29 @@
       padding: 0 32px;
     }
     header.nav {
-      padding: 32px 0 12px;
+      padding: 28px 0 8px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px 18px;
+    }
+    h1 { margin: 0; font-size: 32px; letter-spacing: -0.3px; }
+    .brand-line {
       display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 24px;
+      align-items: center;
+      gap: 12px;
       flex-wrap: wrap;
     }
-    h1 { margin: 0; font-size: 36px; letter-spacing: -0.3px; }
-    .eyebrow { text-transform: uppercase; font-size: 12px; letter-spacing: 0.18em; color: var(--accent); margin-bottom: 4px; }
+    .action-line {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .eyebrow { text-transform: uppercase; font-size: 11px; letter-spacing: 0.14em; color: var(--accent); margin-bottom: 2px; }
     .muted { color: var(--muted); font-size: 14px; }
-    #mtls.pill { align-self: flex-start; }
+    #mtls.pill { align-self: center; }
     main.main { padding-bottom: 64px; }
     .grid { display: grid; gap: 16px; }
     .metrics { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
@@ -308,17 +320,15 @@
 <body>
   <div class="glow glow-a"></div>
   <div class="glow glow-b"></div>
-  <header class="shell nav" style="align-items:center; gap:16px; flex-wrap:wrap;">
-    <div style="display:flex; align-items:center; gap:14px;">
-      <div style="width:44px; height:44px; border-radius:14px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:18px; box-shadow: var(--shadow);">
-        CA
-      </div>
+  <header class="shell nav">
+    <div class="brand-line">
       <div>
-        <h1 style="margin:0; font-size:28px; letter-spacing:-0.4px; color:#0b1d3a;">Codex Auth</h1>
-        <div id="mtls" class="pill" style="display:none; margin-top:4px;">mTLS</div>
+        <div class="eyebrow">Codex</div>
+        <h1 style="color:#0b1d3a;">Codex Auth</h1>
       </div>
+      <div id="mtls" class="pill" style="display:none;">mTLS presented</div>
     </div>
-    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-left:auto;">
+    <div class="action-line">
       <label class="toggle" title="Emergency stop for Codex agents">
         <span class="muted" style="font-size:13px;">API</span>
         <input type="checkbox" id="api-toggle">
