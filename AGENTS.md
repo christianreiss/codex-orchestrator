@@ -22,7 +22,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Issues per-host API keys (random 64-hex chars) and normalizes host payloads.
    - Handles unified `/auth` commands: `retrieve` (digest check + versions) and `store` (canonical update) while merging `/versions` data into the response.
    - Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report.
-   - Tracks the canonical auth digest (computed from a reconstructed auth.json: normalized `auths` + preserved extras) and remembers up to 3 digests per host for quick matching.
+   - Tracks the canonical auth digest (sha256 of the stored canonical auth.json blob with normalized `auths`) and remembers up to 3 digests per host for quick matching.
    - Logs every register/auth/delete action through `LogRepository`.
 
 3. **`App\Repositories\HostRepository` (Persistence)**
@@ -45,7 +45,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
        - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
-   - `auth_payloads`: last_refresh, sha256, source_host_id, created_at, **body (stored extras: top-level fields other than auths/last_refresh; file is rebuilt at serve time)**.
+   - `auth_payloads`: last_refresh, sha256, source_host_id, created_at, **body (compact canonical auth.json as uploaded)**.
    - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
    - `logs`: host_id, action, details, created_at.
    - `versions`: published/seen versions with updated_at.
