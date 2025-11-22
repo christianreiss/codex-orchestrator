@@ -42,6 +42,30 @@ BASE_URL="${WRAPPER_BASE_URL:-${CODEX_AUTH_BASE_URL:-https://codex-auth.uggs.io}
 ADMIN_KEY="${VERSION_ADMIN_KEY:-}"
 VERSION_OVERRIDE=""
 CLIENT_VERSION=""
+ENV_KEY_PATHS=("$ENV_FILE_LOADED" "$PWD/.env" "$ROOT_DIR/.env")
+
+auto_load_admin_key() {
+  local file
+  for file in "${ENV_KEY_PATHS[@]}"; do
+    [[ -n "$file" && -f "$file" ]] || continue
+    local line
+    line="$(grep -E '^VERSION_ADMIN_KEY=' "$file" | tail -n1 || true)"
+    if [[ -n "$line" ]]; then
+      ADMIN_KEY="${line#VERSION_ADMIN_KEY=}"
+      ADMIN_KEY="${ADMIN_KEY%$'\r'}"
+      ADMIN_KEY="${ADMIN_KEY%\"}"
+      ADMIN_KEY="${ADMIN_KEY#\"}"
+      ADMIN_KEY="${ADMIN_KEY%\'}"
+      ADMIN_KEY="${ADMIN_KEY#\'}"
+      ENV_FILE_LOADED="$file"
+      break
+    }
+  done
+}
+
+if [[ -z "$ADMIN_KEY" ]]; then
+  auto_load_admin_key
+fi
 
 resolve_wrapper_path() {
   if [[ -n "${WRAPPER_PATH:-}" && -f "${WRAPPER_PATH}" ]]; then
@@ -75,11 +99,7 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 if [[ -z "$ADMIN_KEY" ]]; then
-  if [[ -n "$ENV_FILE_LOADED" ]]; then
-    echo "VERSION_ADMIN_KEY is required (set it in $ENV_FILE_LOADED or pass with -k/--key)" >&2
-  else
-    echo "VERSION_ADMIN_KEY is required (no .env loaded; set ENV_FILE, create .env, or pass -k/--key)" >&2
-  fi
+  echo "VERSION_ADMIN_KEY is required (auto-loaded .env; set it in $(printf '%s' "${ENV_FILE_LOADED:-$ROOT_DIR/.env}") or pass -k/--key)" >&2
   exit 1
 fi
 
