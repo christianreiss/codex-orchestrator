@@ -13,7 +13,7 @@ class AuthPayloadRepository
     ) {
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $body = null): array
+    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson = null): array
     {
         $statement = $this->database->connection()->prepare(
             'INSERT INTO auth_payloads (last_refresh, sha256, source_host_id, body, created_at)
@@ -24,7 +24,7 @@ class AuthPayloadRepository
             'last_refresh' => $lastRefresh,
             'sha256' => $sha256,
             'source_host_id' => $sourceHostId,
-            'body' => $body,
+            'body' => $extrasJson,
             'created_at' => gmdate(DATE_ATOM),
         ]);
 

@@ -20,7 +20,7 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 - Bin helpers ship with the container: `bin/codex-install` handles registration + sync, while `bin/codex-uninstall` calls `DELETE /auth` before tearing down local files.
 - Token-usage lines from Codex runs can be posted to `/usage` for per-host auditing.
 - Runs in `php:8.2-apache` with automatic migrations; every endpoint except registration enforces API-key auth (`X-API-Key` or `Authorization: Bearer`).
-- Stores and returns the full `auth.json` layout (including `tokens`/`OPENAI_API_KEY`); only the `auths` map is normalized for consistency.
+- Reassembles the canonical `auth.json` from stored fields: normalized `auths` entries plus top-level extras (tokens, `OPENAI_API_KEY`, custom metadata). The raw blob isn’t stored; the file is rebuilt at serve time, still matching the client layout.
 
 ## How it works (big picture)
 
@@ -196,7 +196,7 @@ Body fields:
 - `wrapper_version`: optional (JSON or `wrapper_version`/`cdx_wrapper_version` query param).
 - `digest`: required for `retrieve`; the client’s current SHA-256 auth digest (hash of the exact JSON).
 - `last_refresh`: required for `retrieve`.
-- `auth`: required for `store`; must include `last_refresh`. The server preserves every top-level field (e.g., `tokens`, `OPENAI_API_KEY`, custom metadata) and only normalizes/sorts the `auths` map for consistency, so the returned `auth.json` layout matches what the client sent.
+- `auth`: required for `store`; must include `last_refresh`. The server preserves every top-level field (e.g., `tokens`, `OPENAI_API_KEY`, custom metadata), normalizes/sorts only the `auths` map, and reassembles the file at runtime instead of storing the raw blob.
 
 Retrieve responses:
 - `valid` → canonical digest matches the supplied digest; returns canonical digest + versions only.

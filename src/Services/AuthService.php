@@ -233,13 +233,15 @@ class AuthService
 
         $incomingDigest = $this->calculateDigest($encodedAuth);
         $this->digests->rememberDigests($hostId, [$incomingDigest]);
+        $extras = $this->extractExtras($incomingAuth);
+        $encodedExtras = json_encode($extras, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
         $comparison = $canonicalLastRefresh !== null ? Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh) : 1;
         $shouldUpdate = !$canonicalPayload || $comparison === 1;
         $status = $shouldUpdate ? 'updated' : ($comparison === -1 ? 'outdated' : 'unchanged');
 
         if ($shouldUpdate) {
-            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries, $encodedAuth);
+            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries, $encodedExtras);
             $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
             $canonicalPayload = $payloadRow;
             $canonicalDigest = $incomingDigest;
@@ -586,16 +588,38 @@ class AuthService
         return $this->sortRecursive($normalized);
     }
 
+    private function extractExtras(array $incomingAuth): array
+    {
+        $extras = [];
+        foreach ($incomingAuth as $key => $value) {
+            if (in_array($key, ['auths', 'last_refresh'], true)) {
+                continue;
+            }
+            $extras[$key] = $value;
+        }
+
+        return $this->sortRecursive($extras);
+    }
+
     private function canonicalAuthFromPayload(array $payload): array
     {
+        $extras = [];
         if (isset($payload['body']) && is_string($payload['body']) && $payload['body'] !== '') {
             $decoded = json_decode($payload['body'], true);
             if (is_array($decoded)) {
-                return $decoded;
+                $extras = $decoded;
             }
         }
 
-        return $this->buildAuthArrayFromPayload($payload);
+        $auth = $this->buildAuthArrayFromPayload($payload);
+        foreach ($extras as $key => $value) {
+            if (in_array($key, ['auths', 'last_refresh'], true)) {
+                continue;
+            }
+            $auth[$key] = $value;
+        }
+
+        return $this->sortRecursive($auth);
     }
 
     private function normalizeAuthEntries(array $authPayload): array
