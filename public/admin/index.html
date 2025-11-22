@@ -227,6 +227,7 @@
       font-size: 14px;
     }
     .modal input:focus { outline: 1px solid var(--accent); }
+    .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
     .command-box {
       background: #0f172a;
       color: #e2e8f0;
@@ -347,6 +348,16 @@
         </div>
       </div>
     </div>
+    <div class="modal-backdrop" id="deleteHostModal">
+      <div class="modal">
+        <h3>Remove host</h3>
+        <p id="delete-host-text" class="muted"></p>
+        <div class="actions">
+          <button class="ghost" id="cancelDeleteHost">Cancel</button>
+          <button class="danger" id="confirmDeleteHost">Remove</button>
+        </div>
+      </div>
+    </div>
     <section class="grid metrics" id="stats"></section>
     <section class="card panel">
       <div class="panel-head">
@@ -394,6 +405,11 @@
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
     const apiToggle = document.getElementById('api-toggle');
+    const deleteHostModal = document.getElementById('deleteHostModal');
+    const deleteHostText = document.getElementById('delete-host-text');
+    const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
+    const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
+    let pendingDeleteId = null;
 
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
@@ -700,7 +716,7 @@
         btn.addEventListener('click', ev => {
           ev.stopPropagation();
           const id = parseInt(btn.getAttribute('data-id'), 10);
-          confirmRemove(id);
+          openDeleteModal(id);
         });
       });
 
@@ -783,6 +799,17 @@
         if (e.target === newHostModal) showNewHostModal(false);
       });
     }
+    if (deleteHostModal) {
+      deleteHostModal.addEventListener('click', (e) => {
+        if (e.target === deleteHostModal) closeDeleteModal();
+      });
+    }
+    if (cancelDeleteHostBtn) {
+      cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);
+    }
+    if (confirmDeleteHostBtn) {
+      confirmDeleteHostBtn.addEventListener('click', confirmRemove);
+    }
     if (apiToggle) {
       apiToggle.addEventListener('change', () => setApiState(apiToggle.checked));
       loadApiState();
@@ -832,12 +859,39 @@
 
     loadAll();
 
-    async function confirmRemove(id) {
+    function openDeleteModal(id) {
+      pendingDeleteId = id;
+      const host = currentHosts.find(h => h.id === id);
+      const name = host ? host.fqdn : `host #${id}`;
+      if (deleteHostText) {
+        deleteHostText.textContent = `Remove ${name}? This cannot be undone.`;
+      }
+      deleteHostModal?.classList.add('show');
+    }
+
+    function closeDeleteModal() {
+      deleteHostModal?.classList.remove('show');
+      pendingDeleteId = null;
+    }
+
+    async function confirmRemove() {
+      if (pendingDeleteId === null) return;
+      const btn = confirmDeleteHostBtn;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+      }
       try {
-        await api(`/admin/hosts/${id}`, { method: 'DELETE' });
+        await api(`/admin/hosts/${pendingDeleteId}`, { method: 'DELETE' });
         await loadAll();
+        closeDeleteModal();
       } catch (err) {
         alert(`Remove failed: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Remove';
+        }
       }
     }
 
