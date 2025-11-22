@@ -73,6 +73,7 @@ Unified endpoint for both checking and updating auth. Each response includes the
 - `digest`: required for `retrieve`; the client’s current auth SHA-256 (exact JSON digest).
 - `last_refresh`: required when `command` is `retrieve`; must be an RFC3339 timestamp, not in the future, and not implausibly old (earlier than 2000-01-01T00:00:00Z).
 - `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body, must include `last_refresh` (same timestamp rules), and `auths` must contain at least one target entry.
+  - All other top-level fields inside `auth` (for example `tokens`, `OPENAI_API_KEY`, or custom metadata) are preserved verbatim; only the `auths` map is normalized/sorted for consistency.
 
 The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 canonical digests per host (`host_auth_digests`).
 
@@ -117,7 +118,7 @@ Content-Type: application/json
 - `upload_required`: client claims a newer payload (client `last_refresh` > server); caller should resend with `command: "store"` and include `auth`.
 - `missing`: server does not yet have a canonical payload; caller should send `command: "store"`.
 
-**Store example (update canonical)**
+**Store example (update canonical, preserving full auth.json layout)**
 
 ```http
 POST /auth HTTP/1.1
@@ -130,7 +131,14 @@ Content-Type: application/json
   "wrapper_version": "2025.11.19-4",
   "auth": {
     "last_refresh": "2025-11-20T09:27:43.373506211Z",
-    "auths": { "api.codex.example.com": { "token": "..." } }
+    "auths": { "api.codex.example.com": { "token": "...", "token_type": "bearer" } },
+    "tokens": {
+      "id_token": "...",
+      "access_token": "...",
+      "refresh_token": "...",
+      "account_id": "92d59f2a-1b48-4466-86a6-cfc3816bfede"
+    },
+    "OPENAI_API_KEY": null
   }
 }
 ```

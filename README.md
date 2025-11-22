@@ -20,6 +20,7 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 - Bin helpers ship with the container: `bin/codex-install` handles registration + sync, while `bin/codex-uninstall` calls `DELETE /auth` before tearing down local files.
 - Token-usage lines from Codex runs can be posted to `/usage` for per-host auditing.
 - Runs in `php:8.2-apache` with automatic migrations; every endpoint except registration enforces API-key auth (`X-API-Key` or `Authorization: Bearer`).
+- Stores and returns the full `auth.json` layout (including `tokens`/`OPENAI_API_KEY`); only the `auths` map is normalized for consistency.
 
 ## How it works (big picture)
 

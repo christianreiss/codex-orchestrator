@@ -461,11 +461,19 @@ try {
         $payloadRow = $authPayloadRepository->latest();
         $auth = null;
         if ($includeBody && $payloadRow) {
-            $auths = [];
-            foreach ($payloadRow['entries'] ?? [] as $entry) {
-                $item = ['token' => $entry['token']];
-                if (!empty($entry['token_type'])) {
-                    $item['token_type'] = $entry['token_type'];
+            if (!empty($payloadRow['body']) && is_string($payloadRow['body'])) {
+                $decoded = json_decode($payloadRow['body'], true);
+                if (is_array($decoded)) {
+                    $auth = $decoded;
+                }
+            }
+            if ($auth === null) {
+                // Fallback to reconstructed auth from entries.
+                $auths = [];
+                foreach ($payloadRow['entries'] ?? [] as $entry) {
+                    $item = ['token' => $entry['token']];
+                    if (!empty($entry['token_type'])) {
+                        $item['token_type'] = $entry['token_type'];
                 }
                 if (!empty($entry['organization'])) {
                     $item['organization'] = $entry['organization'];
@@ -484,11 +492,12 @@ try {
                 ksort($item);
                 $auths[$entry['target']] = $item;
             }
-            ksort($auths);
-            $auth = [
-                'last_refresh' => $payloadRow['last_refresh'] ?? null,
-                'auths' => $auths,
-            ];
+                ksort($auths);
+                $auth = [
+                    'last_refresh' => $payloadRow['last_refresh'] ?? null,
+                    'auths' => $auths,
+                ];
+            }
         }
 
         $state = $hostStateRepository->findByHostId($hostId);

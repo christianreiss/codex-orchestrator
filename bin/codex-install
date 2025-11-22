@@ -2245,8 +2245,34 @@ ssh_quiet_cmd() {
 if [ "$FLOW" = "auth" ]; then
   # 1) Validate local auth file
   step_begin "Validate local auth.json"
-  if [ -f "$AUTH_JSON_LOCAL_EXPANDED" ] && [ -s "$AUTH_JSON_LOCAL_EXPANDED" ] && grep -Eq '"(access_token|api_key)"' "$AUTH_JSON_LOCAL_EXPANDED"; then
-    step_end_ok
+  if [ -f "$AUTH_JSON_LOCAL_EXPANDED" ] && [ -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
+    if [ -n "$PYTHON3_BIN" ] && "$PYTHON3_BIN" - "$AUTH_JSON_LOCAL_EXPANDED" <<'PY' >/dev/null 2>&1
+import json, sys, pathlib
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+if not isinstance(data, dict):
+    sys.exit(1)
+lr = data.get("last_refresh")
+if not isinstance(lr, str) or not lr.strip():
+    sys.exit(1)
+auths = data.get("auths")
+has_auth = isinstance(auths, dict) and any(
+    isinstance(v, dict) and isinstance(v.get("token"), str) and v.get("token").strip()
+    for v in auths.values()
+)
+tokens = data.get("tokens")
+has_token = isinstance(tokens, dict) and isinstance(tokens.get("access_token"), str) and tokens.get("access_token").strip()
+if not (has_auth or has_token):
+    sys.exit(1)
+PY
+    then
+      step_end_ok
+    elif grep -Eq '"(access_token|api_key)"' "$AUTH_JSON_LOCAL_EXPANDED"; then
+      step_end_ok
+    else
+      step_end_fail
+      exit 1
+    fi
   else
     step_end_fail
     exit 1

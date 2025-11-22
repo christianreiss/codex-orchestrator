@@ -224,9 +224,9 @@ class AuthService
         $this->assertReasonableLastRefresh($incomingLastRefresh, 'auth.last_refresh');
 
         $entries = $this->normalizeAuthEntries($incomingAuth);
-        $canonicalizedAuth = $this->buildAuthArrayFromEntries($incomingLastRefresh, $entries);
+        $canonicalizedAuth = $this->canonicalizeAuthPayload($incomingAuth, $entries, $incomingLastRefresh);
 
-        $encodedAuth = json_encode($canonicalizedAuth, JSON_UNESCAPED_SLASHES);
+        $encodedAuth = json_encode($canonicalizedAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($encodedAuth === false) {
             throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
         }
@@ -239,7 +239,7 @@ class AuthService
         $status = $shouldUpdate ? 'updated' : ($comparison === -1 ? 'outdated' : 'unchanged');
 
         if ($shouldUpdate) {
-            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries);
+            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries, $encodedAuth);
             $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
             $canonicalPayload = $payloadRow;
             $canonicalDigest = $incomingDigest;
@@ -263,7 +263,7 @@ class AuthService
             $host = $this->hosts->findById($hostId) ?? $host;
 
             if ($status === 'outdated' && $canonicalPayload) {
-                $authArray = $this->buildAuthArrayFromPayload($canonicalPayload);
+                $authArray = $this->canonicalAuthFromPayload($canonicalPayload);
                 $response = [
                     'status' => $status,
                     'host' => $this->buildHostPayload($host),
@@ -557,6 +557,45 @@ class AuthService
         }
 
         return $payload;
+    }
+
+    private function sortRecursive(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $isAssoc = array_keys($value) !== range(0, count($value) - 1);
+        if ($isAssoc) {
+            ksort($value);
+        }
+
+        foreach ($value as $k => $v) {
+            $value[$k] = $this->sortRecursive($v);
+        }
+
+        return $value;
+    }
+
+    private function canonicalizeAuthPayload(array $incomingAuth, array $entries, string $incomingLastRefresh): array
+    {
+        $normalized = $incomingAuth;
+        $normalized['last_refresh'] = $incomingLastRefresh;
+        $normalized['auths'] = $this->buildAuthArrayFromEntries($incomingLastRefresh, $entries)['auths'];
+
+        return $this->sortRecursive($normalized);
+    }
+
+    private function canonicalAuthFromPayload(array $payload): array
+    {
+        if (isset($payload['body']) && is_string($payload['body']) && $payload['body'] !== '') {
+            $decoded = json_decode($payload['body'], true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return $this->buildAuthArrayFromPayload($payload);
     }
 
     private function normalizeAuthEntries(array $authPayload): array

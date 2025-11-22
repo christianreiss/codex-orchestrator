@@ -13,17 +13,18 @@ class AuthPayloadRepository
     ) {
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries): array
+    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $body = null): array
     {
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO auth_payloads (last_refresh, sha256, source_host_id, created_at)
-             VALUES (:last_refresh, :sha256, :source_host_id, :created_at)'
+            'INSERT INTO auth_payloads (last_refresh, sha256, source_host_id, body, created_at)
+             VALUES (:last_refresh, :sha256, :source_host_id, :body, :created_at)'
         );
 
         $statement->execute([
             'last_refresh' => $lastRefresh,
             'sha256' => $sha256,
             'source_host_id' => $sourceHostId,
+            'body' => $body,
             'created_at' => gmdate(DATE_ATOM),
         ]);
 
@@ -36,7 +37,7 @@ class AuthPayloadRepository
     public function findByIdWithEntries(int $id): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT id, last_refresh, sha256, source_host_id, created_at FROM auth_payloads WHERE id = :id LIMIT 1'
+            'SELECT id, last_refresh, sha256, source_host_id, body, created_at FROM auth_payloads WHERE id = :id LIMIT 1'
         );
         $statement->execute(['id' => $id]);
         $payload = $statement->fetch(PDO::FETCH_ASSOC);
@@ -53,7 +54,7 @@ class AuthPayloadRepository
     public function latest(): ?array
     {
         $statement = $this->database->connection()->query(
-            'SELECT id, last_refresh, sha256, source_host_id, created_at FROM auth_payloads ORDER BY created_at DESC, id DESC LIMIT 1'
+            'SELECT id, last_refresh, sha256, source_host_id, body, created_at FROM auth_payloads ORDER BY created_at DESC, id DESC LIMIT 1'
         );
         $payload = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$payload) {
