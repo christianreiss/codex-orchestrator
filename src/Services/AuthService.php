@@ -62,8 +62,6 @@ class AuthService
             $host = $this->hosts->rotateApiKey((int) $existing['id'], $apiKey);
             $this->logs->log((int) $existing['id'], 'register', ['result' => 'rotated']);
             $payload = $this->buildHostPayload($host ?? $existing, true);
-            $this->statusExporter->generate();
-
             return $payload;
         }
 
@@ -253,7 +251,6 @@ class AuthService
                 'versions' => $versions,
             ];
 
-            $this->statusExporter->generate();
         } else {
             $host = $this->hosts->findById($hostId) ?? $host;
 
@@ -700,6 +697,17 @@ class AuthService
 
     public function availableClientVersion(bool $forceRefresh = false): array
     {
+        // 1) Prefer published (admin-set) version if present.
+        $published = $this->versions->get('client');
+        if ($published !== null && $published !== '') {
+            $normalized = $this->canonicalVersion($published) ?? $published;
+            return [
+                'version' => $normalized,
+                'updated_at' => gmdate(DATE_ATOM),
+                'source' => 'published',
+            ];
+        }
+
         $cached = $this->versions->getWithMetadata('client_available');
         $now = time();
         $cacheFresh = false;
@@ -816,7 +824,6 @@ class AuthService
 
         $ids = array_map(static fn (array $host) => (int) $host['id'], $staleHosts);
         $this->hosts->deleteByIds($ids);
-        $this->statusExporter->generate();
     }
 
     /**

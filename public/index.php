@@ -15,7 +15,6 @@ use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
-use App\Services\HostStatusExporter;
 use App\Services\WrapperService;
 use Dotenv\Dotenv;
 
@@ -385,6 +384,28 @@ try {
             'status' => 'ok',
             'data' => [
                 'hosts' => $items,
+            ],
+        ]);
+    }
+
+    if ($method === 'POST' && $normalizedPath === '/admin/hosts/register') {
+        requireAdminAccess();
+
+        $fqdn = trim((string) ($payload['fqdn'] ?? ''));
+        if ($fqdn === '') {
+            Response::json([
+                'status' => 'error',
+                'message' => 'fqdn is required',
+            ], 422);
+        }
+
+        // Reuse invitation-gated registration with the server's configured key.
+        $host = $service->register($fqdn, Config::get('INVITATION_KEY', ''));
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => $host,
             ],
         ]);
     }

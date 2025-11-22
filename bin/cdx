@@ -20,8 +20,7 @@ else
   RESET=""
 fi
 
-# Log helpers (ASCII prefixes to stay clean when piped)
-log_info() { printf "%b>> %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
+log_info() { printf "%b» %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
 log_warn() { printf "%b! %s%b\n" "${YELLOW}${BOLD}" "$1" "${RESET}" >&2; }
 log_error() { printf "%bx %s%b\n" "${RED}${BOLD}" "$1" "${RESET}" >&2; }
 
@@ -49,7 +48,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.21-2"
+WRAPPER_VERSION="2025.11.22-1"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -188,6 +187,28 @@ ensure_commands() {
   if (( ${#still_missing[@]} > 0 )); then
     log_error "Failed to install required commands: ${still_missing[*]}"
     exit 1
+  fi
+}
+
+is_codex_installed_via_npm() {
+  if ! command -v npm >/dev/null 2>&1; then
+    return 1
+  fi
+  if npm list -g codex-cli --depth=0 >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+update_codex_via_npm() {
+  local target="$1"
+  if ! command -v npm >/dev/null 2>&1; then
+    return 1
+  fi
+  if [[ -z "$target" ]]; then
+    npm install -g codex-cli >/dev/null
+  else
+    npm install -g "codex-cli@$target" >/dev/null
   fi
 }
 
@@ -378,6 +399,10 @@ sync_auth_with_api() {
     return 1
   fi
   local auth_path="$HOME/.codex/auth.json"
+   # Drop a malformed local auth.json so we can hydrate cleanly.
+  if [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
+    rm -f "$auth_path"
+  fi
   local phase_label
   phase_label="${phase:-sync}"
   # No chatty per-step auth logging; final summary will capture the outcome.
@@ -409,42 +434,6 @@ def load_auth():
     if not isinstance(data, dict) or "last_refresh" not in data:
         return default_auth()
     return data
-
-
-def normalize_last_refresh(auth):
-    lr = auth.get("last_refresh") if isinstance(auth, dict) else None
-    if not isinstance(lr, str):
-        auth["last_refresh"] = "2000-01-01T00:00:00Z"
-        return
-    try:
-        from datetime import datetime, timezone
-        ts = datetime.fromisoformat(lr.replace("Z", "+00:00"))
-    except Exception:
-        auth["last_refresh"] = "2000-01-01T00:00:00Z"
-        return
-    if ts.timestamp() < 946684800:  # 2000-01-01
-        auth["last_refresh"] = "2000-01-01T00:00:00Z"
-
-
-def is_valid_auth(auth):
-    if not isinstance(auth, dict):
-        return False
-    if not isinstance(auth.get("last_refresh"), str) or not auth.get("last_refresh").strip():
-        return False
-    auths = auth.get("auths")
-    if not isinstance(auths, dict) or not auths:
-        return False
-    has_token = False
-    for target, entry in auths.items():
-        if not isinstance(target, str) or not target.strip():
-            continue
-        if not isinstance(entry, dict):
-            continue
-        token = entry.get("token")
-        if isinstance(token, str) and token.strip():
-            has_token = True
-            break
-    return has_token
 
 
 def canonical_json(obj):
@@ -544,13 +533,12 @@ def post_json(url: str, payload: dict, action: str):
 
 
 current = load_auth()
-normalize_last_refresh(current)
 auth_json = canonical_json(current)
 auth_sha = hashlib.sha256(auth_json.encode("utf-8")).hexdigest()
 
 retrieve_payload = {
     "command": "retrieve",
-    "last_refresh": current.get("last_refresh") or "1970-01-01T00:00:00Z",
+    "last_refresh": current.get("last_refresh") or "2000-01-01T00:00:00Z",
     "digest": auth_sha,
     "client_version": client_version or "unknown",
 }
@@ -606,9 +594,6 @@ else:
     status = "upload_required"
 
 if status in ("missing", "upload_required"):
-    if not is_valid_auth(current):
-        print("No local auth available; skipping upload and waiting for canonical", file=sys.stderr)
-        sys.exit(0)
     store_payload = {
         "command": "store",
         "auth": current,
@@ -628,11 +613,6 @@ if status in ("missing", "upload_required"):
 
 if not isinstance(auth_to_write, dict):
     auth_to_write = current
-
-# Never write an invalid auth payload; keep the existing file untouched.
-if not is_valid_auth(auth_to_write):
-    print("Auth payload from API is invalid; refusing to overwrite ~/.codex/auth.json", file=sys.stderr)
-    sys.exit(1)
 
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(auth_to_write, indent=2) + "\n", encoding="utf-8")
@@ -716,17 +696,13 @@ PY
       log_warn "Auth sync failed: API key missing/invalid"
       return 1
       ;;
-    30)
-      log_warn "Auth sync aborted: local auth.json is missing required fields (last_refresh/auths/token). Run 'codex login' or re-sync to regenerate it."
-      AUTH_PULL_STATUS="invalid"
-      return 1
-      ;;
     *)
       if [[ -n "$phase" ]]; then
         log_warn "Auth API sync (${phase}) failed"
       else
         log_warn "Auth API sync failed"
       fi
+      rm -f "$auth_path" 2>/dev/null || true
       AUTH_PULL_STATUS="fail"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
@@ -810,19 +786,10 @@ push_auth_if_changed() {
     AUTH_PUSH_REASON="no local auth.json"
     return 0
   fi
-  if [[ -z "$ORIGINAL_LAST_REFRESH" && -z "$refreshed" ]]; then
-    return 0
-  fi
   if [[ "$refreshed" == "$ORIGINAL_LAST_REFRESH" ]]; then
     AUTH_PUSH_RESULT="not-needed"
     AUTH_PUSH_REASON="auth.json unchanged"
     return 0
-  fi
-  if ! validate_auth_json_file "$auth_path"; then
-    AUTH_PUSH_RESULT="invalid"
-    AUTH_PUSH_REASON="auth.json missing required fields"
-    log_warn "Auth push skipped: auth.json is missing last_refresh/auths/token. Run 'codex login' or re-sync to regenerate a valid file."
-    return 1
   fi
   if sync_auth_with_api "$phase"; then
     SYNC_PUSH_COMPLETED=1
@@ -1169,22 +1136,21 @@ case "$os_name" in
 esac
 
 remote_version=""
-remote_tag_raw=""
 remote_url=""
 remote_asset=""
 remote_tag=""
 remote_source=""
 remote_timestamp=0
+prefer_npm_update=0
 
 if (( ! skip_update_check )); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
-    remote_tag_raw="$SYNC_REMOTE_CLIENT_VERSION"
     remote_version="$(normalize_version "$SYNC_REMOTE_CLIENT_VERSION")"
-    remote_tag="$remote_tag_raw"
+    remote_tag="$remote_version"
     remote_timestamp="$(date +%s)"
     remote_source="api"
   elif [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
-    # API succeeded but did not report a client version; assume local is target to avoid spurious warnings.
+    # API succeeded but no version provided; assume local is target to avoid noisy warnings.
     remote_version="$LOCAL_VERSION"
     remote_tag="$LOCAL_VERSION"
     remote_source="api"
@@ -1207,22 +1173,17 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
   fi
 fi
 
+if (( need_update )) && is_codex_installed_via_npm; then
+  prefer_npm_update=1
+fi
+
 # If an update is needed but we don't yet have a download URL (e.g., version came from the API), fetch release metadata now.
 if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
-  candidate_tags=()
-  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
-  add_tag "$remote_tag_raw"
-  add_tag "$remote_tag"
-  if [[ -n "$remote_version" ]]; then
-    add_tag "$remote_version"
-    add_tag "v${remote_version}"
-    add_tag "rust-v${remote_version}"
-    add_tag "rust-${remote_version}"
-  fi
-
-  for tag_variant in "${candidate_tags[@]}"; do
+  candidate_tag="$remote_tag"
+  for tag_variant in "$candidate_tag" "v${candidate_tag}"; do
+    [[ -z "$tag_variant" ]] && continue
     if payload_json="$(fetch_release_payload "${API_RELEASES_URL}/tags/${tag_variant}" "$asset_name" 2>/dev/null)"; then
       printf '%s\n' "$payload_json" > "$tmp_payload"
       if mapfile -t fresh_fields < <(read_cached_payload "$tmp_payload"); then
@@ -1252,7 +1213,14 @@ if (( skip_update_check )); then
   fi
 elif (( need_update )) && [[ -n "$remote_url" ]]; then
   display_local="${LOCAL_VERSION:-unknown}"
-  if perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote"; then
+  if (( prefer_npm_update )) && update_codex_via_npm "$norm_remote"; then
+    hash -r
+    CODEX_REAL_BIN="$(resolve_real_codex)"
+    LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
+    LOCAL_VERSION="$(normalize_version "$LOCAL_VERSION_RAW")"
+    LOCAL_VERSION_UNKNOWN=0
+    version_status="status updated | ${display_local} → ${LOCAL_VERSION} (npm codex-cli @${norm_remote})"
+  elif perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote"; then
     hash -r
     CODEX_REAL_BIN="$(resolve_real_codex)"
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
@@ -1348,12 +1316,11 @@ build_status_summary() {
 }
 
 if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
-  target_version="${remote_version:-${LOCAL_VERSION:-unknown}}"
-  target_label="${remote_tag_raw:-${remote_tag:-${target_version}}}"
+  target_version="${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}"
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   codex_state="current (${LOCAL_VERSION})"
-  if [[ -n "$remote_version" && "$LOCAL_VERSION" != "$remote_version" ]]; then
-    codex_state="needs update (${target_label}, local ${LOCAL_VERSION:-unknown})"
+  if [[ "$LOCAL_VERSION" != "$target_version" ]]; then
+    codex_state="needs update (${target_version}, local ${LOCAL_VERSION:-unknown})"
   fi
   cdx_state="current (${WRAPPER_VERSION}/${target_wrapper})"
   summary_text="$(build_status_summary "OK" "$codex_state" "$cdx_state")"
@@ -1386,101 +1353,15 @@ fi
 run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
-  local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
-  local want_pty=0
-  if [[ -t 0 && -t 1 ]]; then
-    want_pty=1
-  fi
-
   set +e
-  status=''
-
-  # Optional escape scrubber only when explicitly requested.
-  if (( want_pty )) && command -v python3 >/dev/null 2>&1 && [[ "${CODEX_WRAPPER_FILTER_ESC:-0}" == "1" ]]; then
-    if CODEX_WRAPPER_FILTER_ESC=1 python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
-import os, pty, re, sys
-
-log_path = sys.argv[1]
-cmd = sys.argv[2:]
-ansi_csi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
-ansi_osc = re.compile(rb"\x1b\].*?(?:\x07|\x1b\\)", re.DOTALL)
-pending = [b""]
-
-def scrub(data: bytes) -> bytes:
-    buf = pending[0] + data
-    pending[0] = b""
-    def split_partial(buffer: bytes):
-        last = buffer.rfind(b"\x1b")
-        if last == -1:
-            return buffer, b""
-        tail = buffer[last:]
-        if tail.startswith(b"\x1b]") and (b"\x07" not in tail and b"\x1b\\" not in tail):
-            return buffer[:last], tail
-        if tail.startswith(b"\x1b[") and not re.search(rb"\x1b\[[0-?]*[ -/]*[@-~]", tail):
-            return buffer[:last], tail
-        if tail == b"\x1b":
-            return buffer[:last], tail
-        return buffer, b""
-    buf, pend = split_partial(buf)
-    pending[0] = pend
-    buf = ansi_csi.sub(b"", buf)
-    buf = ansi_osc.sub(b"", buf)
-    return buf
-
-with open(log_path, "wb") as log:
-    def master_read(fd):
-        data = os.read(fd, 1024)
-        if data:
-            log.write(data)
-            log.flush()
-            if b"\x1b[6n" in data:
-                try:
-                    os.write(fd, b"\x1b[1;1R")
-                except OSError:
-                    pass
-                data = data.replace(b"\x1b[6n", b"")
-            if b"\x1b[c" in data:
-                try:
-                    os.write(fd, b"\x1b[?62;1;4c")
-                except OSError:
-                    pass
-                data = data.replace(b"\x1b[c", b"")
-            return scrub(data)
-        return data
-
-    def stdin_read(_fd):
-        try:
-            return os.read(0, 1024)
-        except OSError:
-            return b""
-
-    status = pty.spawn(cmd, master_read=master_read, stdin_read=stdin_read)
-
-exit_code = 1
-if os.WIFEXITED(status):
-    exit_code = os.WEXITSTATUS(status)
-elif os.WIFSIGNALED(status):
-    exit_code = 128 + os.WTERMSIG(status)
-sys.exit(exit_code)
-PY
-    then
-      status=0
-    else
-      log_warn "PTY output filter failed; falling back to plain PTY passthrough."
-      status=''
-    fi
-  fi
-
-  if [[ -z "$status" ]]; then
-    if (( want_pty )) && command -v script >/dev/null 2>&1; then
-      local cmd_string
-      printf -v cmd_string '%q ' "${cmd_line[@]}"
-      script -qfec "$cmd_string" /dev/null | tee "$tmp_output"
-      status=${PIPESTATUS[0]}
-    else
-      "${cmd_line[@]}" 2>&1 | tee "$tmp_output"
-      status=${PIPESTATUS[0]}
-    fi
+  if command -v script >/dev/null 2>&1 && [[ -t 1 ]]; then
+    local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
+    # Preserve a tty for interactive runs while still logging output for token parsing
+    script -qfc "$(printf '%q ' "${cmd_line[@]}")" /dev/null | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
+  else
+    "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
   fi
   set -e
   send_token_usage_if_present "$tmp_output"
@@ -1489,12 +1370,6 @@ PY
 }
 
 CODEX_COMMAND_STARTED=1
-if [[ $# -eq 0 && ( ! -t 0 || ! -t 1 ) ]]; then
-  if ! command -v script >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
-    log_error "Interactive Codex requires python3 or 'script' when no TTY is present."
-    exit 1
-  fi
-fi
 if run_codex_command "$@"; then
   cmd_status=0
 else

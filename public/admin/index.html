@@ -9,39 +9,29 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f6f8fb;
-      --bg-accent: #e5e7ef;
-      --card: #ffffff;
-      --border: #e5e7eb;
-      --text: #0f172a;
-      --muted: #6b7280;
-      --accent: #2563eb;
-      --accent-2: #0ea5e9;
+      --bg: linear-gradient(135deg, #0c2f63 0%, #0f4ea7 45%, #0a66c2 100%);
+      --bg-accent: #0f325f;
+      --card: rgba(255, 255, 255, 0.96);
+      --border: rgba(255, 255, 255, 0.18);
+      --text: #0b1d3a;
+      --muted: #4c6a92;
+      --accent: #0a66c2;
+      --accent-2: #0f9bd7;
       --danger: #dc2626;
       --success: #16a34a;
       --warning: #f59e0b;
-      --shadow: 0 12px 36px rgba(15, 23, 42, 0.12);
+      --shadow: 0 18px 40px rgba(6, 33, 71, 0.24);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 20% 20%, rgba(37,99,235,0.05), transparent 40%),
-                  radial-gradient(circle at 80% 0%, rgba(14,165,233,0.06), transparent 35%),
-                  var(--bg);
+      background: var(--bg);
       color: var(--text);
       min-height: 100vh;
       line-height: 1.5;
       position: relative;
       overflow-x: hidden;
-    }
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background: url('data:image/svg+xml,%3Csvg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop stop-color="%23000000" stop-opacity="0.25"/%3E%3Cstop offset="1" stop-color="%23000000" stop-opacity="0"/%3E%3C/linearGradient%3E%3Cpattern id="p" width="40" height="40" patternUnits="userSpaceOnUse"%3E%3Crect width="40" height="40" fill="url(%23g)"/%3E%3C/pattern%3E%3C/defs%3E%3Crect width="400" height="400" fill="url(%23p)"/%3E%3C/svg%3E');
-      opacity: 0.25;
-      z-index: -2;
     }
     .glow {
       position: fixed;
@@ -50,14 +40,14 @@
       z-index: -1;
     }
     .glow-a {
-      width: 320px; height: 320px;
-      background: var(--accent);
-      top: 10%; left: 5%;
+      width: 360px; height: 360px;
+      background: radial-gradient(circle, rgba(10,102,194,0.55), rgba(10,102,194,0));
+      top: 8%; left: 6%;
     }
     .glow-b {
-      width: 420px; height: 420px;
-      background: var(--accent-2);
-      bottom: 5%; right: 10%;
+      width: 520px; height: 520px;
+      background: radial-gradient(circle, rgba(15,157,215,0.45), rgba(15,157,215,0));
+      bottom: 4%; right: 8%;
     }
     .shell {
       width: min(1400px, 100%);
@@ -135,7 +125,7 @@
       box-shadow: 0 6px 12px rgba(220,38,38,0.08);
     }
     .table-wrap { margin-top: 20px; border-radius: 16px; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); }
-    table { width: auto; min-width: 1200px; border-collapse: collapse; }
+    table { width: 100%; min-width: 960px; border-collapse: collapse; }
     thead { background: #f3f4f6; }
     th, td { padding: 12px 10px; text-align: left; font-size: 13px; white-space: nowrap; }
     th { color: var(--muted); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 12px; }
@@ -187,7 +177,7 @@
     .status-suspended { background: rgba(220,38,38,0.12); color: var(--danger); border-color: rgba(220,38,38,0.35); }
     .status-suspended::before { background: var(--danger); }
     .status-unknown { background: rgba(107,114,128,0.12); color: var(--muted); border-color: rgba(107,114,128,0.3); }
-    .actions-cell { display: flex; gap: 8px; align-items: center; }
+    .actions-cell { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .actions-cell button { padding: 8px 12px; font-size: 12px; }
     .roaming-icon { min-width: 44px; text-align: center; }
     .chip {
@@ -204,13 +194,68 @@
     .chip.ok { background: rgba(22,163,74,0.1); color: var(--success); border-color: rgba(22,163,74,0.35); }
     .chip.warn { background: rgba(245,158,11,0.12); color: var(--warning); border-color: rgba(245,158,11,0.35); }
     .chip.neutral { background: rgba(107,114,128,0.12); color: var(--muted); border-color: rgba(107,114,128,0.3); }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(4,10,30,0.55);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 24px;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 24px 70px rgba(6, 33, 71, 0.25);
+      max-width: 520px;
+      width: 100%;
+      padding: 24px;
+      color: #0f172a;
+    }
+    .modal h3 { margin: 0 0 8px; }
+    .modal p { margin: 0 0 16px; color: #475569; }
+    .modal .field { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+    .modal input {
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      font-size: 14px;
+    }
+    .modal input:focus { outline: 1px solid var(--accent); }
+    .command-box {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      border-radius: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      word-break: break-all;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .copy-btn {
+      border: 1px solid rgba(226,232,240,0.25);
+      color: #e2e8f0;
+      background: rgba(255,255,255,0.08);
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .cmd-text { flex: 1; }
     .chip small { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
     .host-cell { display: flex; flex-direction: column; gap: 4px; }
     .host-cell strong { font-size: 15px; }
     .token-cell { display: flex; flex-direction: column; gap: 6px; }
     .meter { width: 100%; height: 4px; border-radius: 999px; background: rgba(15,23,42,0.8); overflow: hidden; }
     .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-    .actions-cell { display: flex; gap: 6px; flex-wrap: wrap; }
     .digest-cell { display: flex; flex-direction: column; gap: 6px; }
     .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
 
@@ -222,6 +267,11 @@
       .panel-actions select,
       button { width: 100%; }
       .table-wrap { overflow-x: auto; }
+      table { min-width: 0; }
+      thead { display: none; }
+      tbody tr { display: block; margin-bottom: 12px; background: #ffffff; border-radius: 12px; box-shadow: var(--shadow); padding: 12px; }
+      tbody td { display: flex; justify-content: space-between; padding: 8px 6px; }
+      tbody td::before { content: attr(data-label); font-weight: 600; color: var(--muted); margin-right: 12px; }
     }
   </style>
 </head>
@@ -234,11 +284,37 @@
       <h1>Auth Orchestrator</h1>
       <p class="muted">Live view of canonical digests, client versions, and fleet health.</p>
     </div>
-    <div class="meta" style="display:flex; flex-direction:column; gap:12px;">
+    <div class="meta" style="display:flex; flex-direction:column; gap:12px; align-items:flex-end;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="secondary" id="newHostBtn">+ New Host</button>
+        <button id="refresh">Refresh</button>
+      </div>
       <div id="mtls" class="pill">mTLS: pending…</div>
     </div>
   </header>
   <main class="shell main">
+    <div class="modal-backdrop" id="newHostModal">
+      <div class="modal">
+        <h3>New Host</h3>
+        <p>Generate a bootstrap command for a host. The API key is bound to this FQDN and IP on first contact.</p>
+        <div class="field">
+          <label for="new-host-name" style="font-weight:600;">Host FQDN</label>
+          <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
+        </div>
+        <div class="field" id="commandField" style="display:none;">
+          <label style="font-weight:600;">Run on the target host</label>
+          <div class="command-box">
+            <span class="cmd-text" id="bootstrapCmd"></span>
+            <button class="copy-btn" id="copyCmd">Copy</button>
+          </div>
+          <p class="muted" style="margin-top:8px;">Runs cdx, installs Codex if needed, and binds the host to this service.</p>
+        </div>
+        <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+          <button class="ghost" id="cancelNewHost">Cancel</button>
+          <button id="createHost">Generate</button>
+        </div>
+      </div>
+    </div>
     <section class="grid metrics" id="stats"></section>
     <section class="card panel">
       <div class="panel-head">
@@ -256,7 +332,6 @@
             <option value="unknown">Unknown</option>
           </select>
           <button id="version-check">Check versions</button>
-          <button id="refresh">Refresh</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -287,6 +362,14 @@
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const statusFilter = document.getElementById('status-filter');
+    const newHostBtn = document.getElementById('newHostBtn');
+    const newHostModal = document.getElementById('newHostModal');
+    const newHostName = document.getElementById('new-host-name');
+    const createHostBtn = document.getElementById('createHost');
+    const cancelNewHostBtn = document.getElementById('cancelNewHost');
+    const commandField = document.getElementById('commandField');
+    const bootstrapCmdEl = document.getElementById('bootstrapCmd');
+    const copyCmdBtn = document.getElementById('copyCmd');
 
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
@@ -341,6 +424,28 @@
           throw new Error(`HTTP ${res.status}: ${text}`);
         }
         return res.json();
+      });
+    }
+
+    function copyToClipboard(text) {
+      return navigator.clipboard?.writeText(text).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      });
+    }
+
+    function copyToClipboard(text) {
+      return navigator.clipboard?.writeText(text).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
       });
     }
 
@@ -616,6 +721,60 @@
         hostFilterText = event.target.value.trim().toLowerCase();
         paintHosts();
       });
+    }
+    if (newHostBtn) {
+      newHostBtn.addEventListener('click', () => showNewHostModal(true));
+    }
+    if (cancelNewHostBtn) {
+      cancelNewHostBtn.addEventListener('click', () => showNewHostModal(false));
+    }
+    if (createHostBtn) {
+      createHostBtn.addEventListener('click', createHost);
+    }
+    if (newHostModal) {
+      newHostModal.addEventListener('click', (e) => {
+        if (e.target === newHostModal) showNewHostModal(false);
+      });
+    }
+
+    function showNewHostModal(show) {
+      if (show) {
+        newHostModal.classList.add('show');
+        commandField.style.display = 'none';
+        newHostName.value = '';
+        newHostName.focus();
+      } else {
+        newHostModal.classList.remove('show');
+      }
+    }
+
+    async function createHost() {
+      const fqdn = newHostName.value.trim();
+      if (!fqdn) {
+        alert('Please enter a host name');
+        return;
+      }
+      createHostBtn.disabled = true;
+      createHostBtn.textContent = 'Generating…';
+      try {
+        const res = await api('/admin/hosts/register', {
+          method: 'POST',
+          json: { fqdn },
+        });
+        const host = res.data?.host;
+        if (!host || !host.api_key) throw new Error('Missing API key in response');
+        const base = `${window.location.origin}`;
+        const cmd = `curl -fsSL ${base}/wrapper/download -H "X-API-Key: ${host.api_key}" -o /tmp/cdx && chmod +x /tmp/cdx && CODEX_SYNC_BASE_URL=${base} CODEX_SYNC_API_KEY=${host.api_key} CODEX_SYNC_FQDN=${fqdn} /tmp/cdx --version`;
+        bootstrapCmdEl.textContent = cmd;
+        commandField.style.display = 'block';
+        copyCmdBtn.onclick = () => copyToClipboard(cmd);
+        await refreshHosts();
+      } catch (err) {
+        alert(err.message || err);
+      } finally {
+        createHostBtn.disabled = false;
+        createHostBtn.textContent = 'Generate';
+      }
     }
     if (statusFilter) {
       statusFilter.addEventListener('change', (event) => {

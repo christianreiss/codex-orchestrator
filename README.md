@@ -284,17 +284,6 @@ Notes:
 
 Access logs manually with `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`.
 
-## Migrating from SQLite
-
-If you are upgrading from the old SQLite-backed container:
-
-- Place the legacy SQLite file where the API container can read it (e.g., mount the old `storage/database.sqlite` to `/var/www/html/storage/database.sqlite`).
-- Run the migration helper to seed MySQL (truncates existing MySQL tables when `--force` is set):
-  - `docker compose run --rm api php bin/migrate-sqlite-to-mysql.php --sqlite /var/www/html/storage/database.sqlite --force`
-- The script copies the SQLite file to `storage/sql/sqlite-backup-<timestamp>.db` before writing to MySQL.
-- Start the stack normally (`docker compose up -d`); the API will continue using MySQL going forward.
-- Once MySQL is verified, archive or remove the old SQLite file from your mounted storage to avoid confusion (a timestamped backup already lives in `storage/sql`).
-
 ## Host Status Report
 
 The legacy `host-status.txt` export has been removed; use the admin dashboard (`/admin/overview` and `/admin/hosts`) for current status.

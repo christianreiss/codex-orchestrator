@@ -188,8 +188,9 @@ class Database
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
 
-        // Remove legacy inline auth storage now that payloads + entries are normalized.
-        $this->dropColumnIfExists('hosts', 'auth_json');
+        // Legacy inline auth storage was removed in the initial MySQL migration.
+        // This column cleanup is intentionally skipped on modern deployments to avoid
+        // extra information_schema lookups on every boot.
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void
