@@ -318,17 +318,10 @@
       <div class="panel-head">
         <div>
           <div class="eyebrow">Fleet</div>
-          <h2>Hosts & Digests</h2>
-          <p class="muted" style="margin:4px 0 0;">Search, filter, and act on every registered Codex host.</p>
+          <h2>Authorized Hosts</h2>
         </div>
         <div class="panel-actions">
           <input type="search" id="host-filter" placeholder="Search host, IP, or version">
-          <select id="status-filter">
-            <option value="">All statuses</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
-            <option value="unknown">Unknown</option>
-          </select>
         </div>
       </div>
       <div class="table-wrap" style="margin-top:12px;">
@@ -358,7 +351,6 @@
     const refreshBtn = document.getElementById('refresh');
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
-    const statusFilter = document.getElementById('status-filter');
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
     const newHostName = document.getElementById('new-host-name');
@@ -372,7 +364,7 @@
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let hostFilterText = '';
-    let hostStatusFilter = '';
+    let hostStatusFilter = ''; // deprecated, maintained for clarity
     let lastOverview = null;
 
     function parseTimestamp(value) {
@@ -588,9 +580,6 @@
 
     function applyHostFilters(list) {
       return list.filter(host => {
-        const normalizedStatus = (host.status || 'unknown').toLowerCase();
-        const matchesStatus = !hostStatusFilter || normalizedStatus === hostStatusFilter;
-        if (!matchesStatus) return false;
         if (!hostFilterText) return true;
         const haystacks = [host.fqdn, host.ip, host.client_version, host.wrapper_version]
           .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
@@ -772,12 +761,6 @@
         createHostBtn.disabled = false;
         createHostBtn.textContent = 'Generate';
       }
-    }
-    if (statusFilter) {
-      statusFilter.addEventListener('change', (event) => {
-        hostStatusFilter = event.target.value;
-        paintHosts();
-      });
     }
 
     loadAll();
