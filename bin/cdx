@@ -50,8 +50,9 @@ CODEX_SYNC_CA_FILE="${CODEX_SYNC_CA_FILE:-}"
 CODEX_SYNC_CONFIG_PATHS=()
 if [[ -n "${CODEX_SYNC_CONFIG_PATH:-}" ]]; then
   CODEX_SYNC_CONFIG_PATHS+=("$CODEX_SYNC_CONFIG_PATH")
+else
+  CODEX_SYNC_CONFIG_PATHS+=("/etc/codex-sync.env" "/usr/local/etc/codex-sync.env" "$HOME/.codex/sync.env")
 fi
-CODEX_SYNC_CONFIG_PATHS+=("$HOME/.codex/sync.env" "/usr/local/etc/codex-sync.env" "/etc/codex-sync.env")
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
