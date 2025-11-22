@@ -23,9 +23,27 @@ fi
 log_info() { printf "%b» %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
 log_warn() { printf "%b! %s%b\n" "${YELLOW}${BOLD}" "$1" "${RESET}" >&2; }
 log_error() { printf "%bx %s%b\n" "${RED}${BOLD}" "$1" "${RESET}" >&2; }
+log_debug() { (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2; }
+
+mask_key() {
+  local key="$1"
+  if [[ -z "$key" ]]; then
+    printf 'none'
+    return
+  fi
+  local len=${#key}
+  if (( len <= 8 )); then
+    printf '%s' "$key"
+  else
+    printf '%s…%s' "${key:0:4}" "${key: -4}"
+  fi
+}
+
+CODEX_DEBUG=${CODEX_DEBUG:-0}
 
 # Default sync API endpoint; can be overridden via env or config files.
-CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-https://codex-auth.uggs.io}"
+CODEX_SYNC_BASE_URL_DEFAULT="https://codex-auth.uggs.io"
+CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-$CODEX_SYNC_BASE_URL_DEFAULT}"
 CODEX_SYNC_API_KEY="${CODEX_SYNC_API_KEY:-}"
 CODEX_SYNC_FQDN="${CODEX_SYNC_FQDN:-}"
 CODEX_SYNC_CA_FILE="${CODEX_SYNC_CA_FILE:-}"
@@ -66,6 +84,11 @@ CURRENT_USER="$(id -un 2>/dev/null || echo unknown)"
 if [[ "${1-}" == "--wrapper-version" || "${1-}" == "-W" ]]; then
   printf 'cdx wrapper %s\n' "$WRAPPER_VERSION"
   exit 0
+fi
+
+if [[ "${1-}" == "--debug" ]]; then
+  CODEX_DEBUG=1
+  shift
 fi
 
 if (( ! IS_ROOT )); then
@@ -380,8 +403,13 @@ load_sync_config() {
     [[ -z "$path" ]] && continue
     if [[ -f "$path" ]]; then
       parse_sync_env_file "$path"
+      log_debug "loaded sync env: $path"
     fi
   done
+  if [[ -z "$CODEX_SYNC_BASE_URL" ]]; then
+    CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
+  fi
+  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none}"
   SYNC_CONFIG_LOADED=1
 }
 
