@@ -2,6 +2,13 @@
 
 This project is small, but each class has a clear role in the orchestration pipeline that keeps Codex `auth.json` files synchronized between servers. Use this guide when extending or debugging the service.
 
+## Operational Checklist (humans)
+
+- When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the loaded sync env, masked API key, and base URL. The user-level `~/.codex/sync.env` now overrides system paths.
+- Before letting Codex start, open `~/.codex/auth.json` and confirm it contains a non-empty `token` under `auths` (structure-only validation happens client-side; the server cannot verify token validity without calling upstream).
+- If the API is in emergency stop mode, `/auth` returns `503 API disabled by administrator` and cdx will refuse to start. Toggle it in the dashboard.
+- Dashboard URL (mTLS required): https://codex.uggs.io/admin/
+
 ## Request Flow
 
 1. **`public/index.php` (HTTP Router)**
