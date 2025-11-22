@@ -188,7 +188,7 @@ class AuthService
                 } else {
                     // Always hand back canonical to allow hydration, even if client claims newer.
                     $status = 'outdated';
-                    $authArray = $this->buildAuthArrayFromPayload($canonicalPayload);
+                    $authArray = $this->canonicalAuthFromPayload($canonicalPayload);
                     $response = [
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
@@ -239,7 +239,8 @@ class AuthService
         $status = $shouldUpdate ? 'updated' : ($comparison === -1 ? 'outdated' : 'unchanged');
 
         if ($shouldUpdate) {
-            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, [], $encodedAuth);
+            // Persist normalized entries alongside the raw canonical body so older callers can still rehydrate.
+            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries, $encodedAuth);
             $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
             $canonicalPayload = $payloadRow;
             $canonicalDigest = $incomingDigest;
