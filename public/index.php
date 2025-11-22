@@ -493,8 +493,9 @@ try {
             ], 404);
         }
 
-        $hostRepository->deleteById($hostId);
+        // Log before delete so the FK can null out the host_id when the row is removed.
         $logRepository->log($hostId, 'admin.host.delete', ['fqdn' => $host['fqdn']]);
+        $hostRepository->deleteById($hostId);
 
         Response::json([
             'status' => 'ok',

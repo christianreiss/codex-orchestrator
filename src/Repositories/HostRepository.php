@@ -209,12 +209,11 @@ class HostRepository
     public function updateAllowRoaming(int $hostId, bool $allow): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET allow_roaming_ips = :allow, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET allow_roaming_ips = :allow WHERE id = :id'
         );
 
         $statement->execute([
             'allow' => $allow ? 1 : 0,
-            'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
     }

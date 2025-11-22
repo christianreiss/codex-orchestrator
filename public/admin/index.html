@@ -344,7 +344,7 @@
               <th>Wrapper</th>
               <th>IP / Mode</th>
               <th>Digest</th>
-              <th>Calls / Usage</th>
+              <th>Usage</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -635,9 +635,9 @@
             </div>
           </td>
           <td>${renderDigestTag(host)}</td>
-          <td>
+          <td data-label="Usage">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
-              <span class="chip neutral">Calls ${formatNumber(host.api_calls ?? 0)}</span>
+              <span class="muted">Calls ${formatNumber(host.api_calls ?? 0)}</span>
               ${renderTokenCell(host)}
             </div>
           </td>
