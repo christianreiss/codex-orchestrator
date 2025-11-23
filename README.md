@@ -18,15 +18,17 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 - Captures host metadata (IP, client version, optional wrapper version) so you know which machines are on which build.
 - MySQL-backed persistence and audit logs out of the box; storage lives in the compose volume by default.
 - Bin helpers ship with the container: `bin/codex-install` handles registration + sync, while `bin/codex-uninstall` calls `DELETE /auth` before tearing down local files.
-- Token-usage lines from Codex runs can be posted to `/usage` for per-host auditing.
+- The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
 - Runs in `php:8.2-apache` with automatic migrations; every endpoint except registration enforces API-key auth (`X-API-Key` or `Authorization: Bearer`).
 - Stores the canonical `auth.json` as a compact JSON blob (sha256 over that exact text); only the `auths` map is normalized, everything else is preserved verbatim.
+- Optional “auth runner” sidecar container (`auth-runner`) can validate the canonical `auth.json` by running `cdx` in an isolated temp `$HOME`, auto-applying refreshed tokens when Codex updates them.
 
 ## How it works (big picture)
 
 - This container exposes a small PHP API + MySQL database that act as the "auth.json registry" for all of your Codex hosts.
 - A companion installer script (`bin/codex-install`) SSHes into a host, installs or updates the Codex CLI + `cdx` wrapper, registers the host with this API using an invitation key, and uploads your `auth.json`.
 - Each host keeps a tiny sync env file (for example `/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`) that tells the wrapper how to reach this API; from then on, the host no longer needs manual `codex login` runs.
+- When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` with `cdx` on store and once per UTC day; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically.
 
 ## From manual logins to central sync
 
@@ -129,6 +131,8 @@ docker compose up --build     # runs API on http://localhost:8488 with a mysql s
 - `bin/codex-install`: registers the host (or re-rotates the API key), pushes `auth.json` via `/auth`, and installs the wrapper; supports overriding invite/API/base URL via flags or env.
 - `bin/codex-uninstall`: uses any existing sync config (`/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`) to call `DELETE /auth`, then removes Codex binaries/configs. The legacy registry file is no longer used or updated.
 
+For details on the optional runner container that validates `auth.json` using `cdx`, see `runner/README.md`.
+
 ## Project Structure
 
 ```
@@ -194,7 +198,7 @@ Single-call endpoint for both checking and updating auth. Every response include
 
 Body fields:
 - `command`: `retrieve` (default) or `store`.
-- `client_version`: required (JSON or `client_version`/`cdx_version` query param).
+- `client_version`: optional but recommended (JSON or `client_version`/`cdx_version` query param); when omitted, the server records `unknown`.
 - `wrapper_version`: optional (JSON or `wrapper_version`/`cdx_wrapper_version` query param).
 - `digest`: required for `retrieve`; the client’s current SHA-256 auth digest (hash of the exact JSON).
 - `last_refresh`: required for `retrieve`.
@@ -212,6 +216,18 @@ Store responses:
 - `outdated` → server already has newer auth; returns canonical auth + digest + versions.
 
 Auth payload fallbacks: if `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation (still enforces token quality and timestamp rules).
+
+### `POST /usage`
+
+Token-usage reporting endpoint. The `cdx` wrapper automatically parses Codex “Token usage: …” lines after each run and posts a compact summary here for the current host.
+
+Body fields (all optional, but at least one of `line` or a numeric field is required):
+- `line`: raw usage line from Codex (for example `Token usage: total=985 input=969 (+ 6,912 cached) output=16`).
+- `total`, `input`, `output`: integer token counts.
+- `cached`: integer count of cached tokens, when present.
+- `model`: Codex model identifier, if available.
+
+Responses return the recorded values plus a timestamp and `host_id`, which feed the token-usage aggregates shown in the admin dashboard.
 
 ### `DELETE /auth`
 
@@ -278,13 +294,21 @@ Notes:
   - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
   - `GET /admin/hosts`: list hosts with canonical digest and recent digests.
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`).
+  - `POST /admin/hosts/{id}/clear`: clear the stored IP and recent digests for a host so the next `/auth` call can re-bind cleanly.
+  - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
+  - `POST /admin/hosts/register`: register or rotate a host using the server’s configured `INVITATION_KEY` without exposing it to clients.
+  - `GET /admin/api/state`: read whether `/auth` is currently disabled.
+  - `POST /admin/api/state`: toggle the `api_disabled` flag that makes `/auth` return `503 API disabled by administrator`.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
 - A basic dashboard lives at `/admin/` (served by this container); it calls the endpoints above and will only work when mTLS is presented.
 
 ## Data & Logging
 
-- **hosts**: FQDN, API key, status, last refresh time, canonical digest, IP binding, latest `client_version`, and optional `wrapper_version`.
-- **logs**: Each registration and sync operation records host, action, timestamps, and a JSON blob summarizing the decision (`updated` vs `unchanged`).
+- **hosts**: FQDN, API key, status, last refresh time, canonical digest, IP binding, latest `client_version`, optional `wrapper_version`, roaming flag, and API call counts.
+- **auth_payloads** / **auth_entries**: canonical `auth.json` snapshots plus per-target token entries; the canonical payload is what `/auth` uses for digests and hydration.
+- **host_auth_states** / **host_auth_digests**: last-seen canonical payload per host and up to three recent digests for quick matching.
+- **token_usages**: per-host token usage rows created by `/usage`, used for aggregates in the admin views.
+- **logs**: registration/auth/usage/version/admin events with timestamps and a JSON details blob.
 - All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.uggs.io/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
 
 Access logs manually with `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`.
@@ -300,5 +324,7 @@ The legacy `host-status.txt` export has been removed; use the admin dashboard (`
 - Hosts that have not checked in (no sync or register) for 30 days are automatically pruned and must re-register.
 - Uninstallers should call `DELETE /auth` (handled automatically by `bin/codex-uninstall` when a sync config is present) to remove the host record cleanly.
 - The server normalizes timestamps with fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` compare correctly.
+- API keys are IP-bound after the first successful authenticated call; use `POST /admin/hosts/{id}/roaming` or re-register to move a host cleanly.
+- When the admin toggle marks the API as disabled (`/admin/api/state`), `POST /auth` returns `503 API disabled by administrator` and the `cdx` wrapper refuses to start Codex until the flag is cleared.
 - Extendable: add admin/reporting endpoints by introducing more routes in `public/index.php` and new repository methods.
 - Refer to `AGENTS.md` when you need a walkthrough of how each class collaborates within the request pipeline.
