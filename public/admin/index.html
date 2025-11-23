@@ -432,34 +432,7 @@
     .cmd-text { flex: 1; }
     .chip small { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
     /* Toggle */
-    .toggle {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .toggle input { display: none; }
-    .toggle-track {
-      width: 46px; height: 26px;
-      background: #e2e8f0;
-      border-radius: 999px;
-      position: relative;
-      transition: background 0.2s ease;
-      box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);
-    }
-    .toggle-thumb {
-      width: 22px; height: 22px;
-      background: #ffffff;
-      border-radius: 50%;
-      position: absolute;
-      top: 2px; left: 2px;
-      transition: transform 0.2s ease;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    }
-    .toggle input:checked + .toggle-track { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
-    .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(20px); }
+    .toggle { display: none; }
     .host-cell { display: flex; flex-direction: column; gap: 4px; }
     .host-cell strong { font-size: 15px; }
     .token-cell { display: flex; flex-direction: column; gap: 6px; }
@@ -498,11 +471,7 @@
           <div id="mtls" class="pill" style="display:none;">mTLS Status</div>
         </div>
         <div class="action-line">
-          <label class="toggle" title="Emergency stop for Codex agents">
-            <span class="muted" style="font-size:13px;">API</span>
-            <input type="checkbox" id="api-toggle">
-            <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          </label>
+          <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API: loading…</button>
           <button class="secondary" id="newHostBtn">+ New Host</button>
           <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
           <button id="refresh">Refresh</button>
@@ -593,7 +562,7 @@
     const commandField = document.getElementById('commandField');
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
-    const apiToggle = document.getElementById('api-toggle');
+    const apiToggleBtn = document.getElementById('api-toggle-btn');
     const runnerRunnerBtn = document.getElementById('runner-runner');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
@@ -676,16 +645,26 @@
       try {
         const res = await api('/admin/api/state');
         apiDisabled = !!res.data?.disabled;
-        if (apiToggle) {
-          apiToggle.checked = !apiDisabled;
+        if (apiToggleBtn) {
+          apiToggleBtn.textContent = apiDisabled ? 'API: disabled' : 'API: active';
+          apiToggleBtn.classList.toggle('danger', apiDisabled);
+          apiToggleBtn.classList.toggle('ghost', !apiDisabled);
         }
         renderHealth();
       } catch (err) {
         console.error('api state', err);
+        if (apiToggleBtn) {
+          apiToggleBtn.textContent = 'API: unavailable';
+          apiToggleBtn.classList.add('danger');
+        }
       }
     }
 
     async function setApiState(enabled) {
+      if (!apiToggleBtn) return;
+      const original = apiToggleBtn.textContent;
+      apiToggleBtn.disabled = true;
+      apiToggleBtn.textContent = enabled ? 'Enabling…' : 'Disabling…';
       try {
         await api('/admin/api/state', {
           method: 'POST',
@@ -695,9 +674,10 @@
         renderHealth();
       } catch (err) {
         alert(`API toggle failed: ${err.message}`);
-        if (apiToggle) {
-          apiToggle.checked = !apiToggle.checked;
-        }
+      } finally {
+        apiToggleBtn.disabled = false;
+        apiToggleBtn.textContent = original;
+        loadApiState();
       }
     }
 
@@ -1170,12 +1150,13 @@
     if (confirmDeleteHostBtn) {
       confirmDeleteHostBtn.addEventListener('click', confirmRemove);
     }
-    if (apiToggle) {
-      apiToggle.addEventListener('change', () => setApiState(apiToggle.checked));
-      loadApiState();
-    } else {
-      loadApiState();
+    if (apiToggleBtn) {
+      apiToggleBtn.addEventListener('click', () => {
+        if (apiDisabled === null) return;
+        setApiState(!apiDisabled);
+      });
     }
+    loadApiState();
 
     function showNewHostModal(show) {
       if (show) {
