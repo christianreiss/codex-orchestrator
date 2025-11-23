@@ -26,7 +26,6 @@ set -euo pipefail
 #       --no-browser            (compat) ignored; browsers are never auto-opened
 #       --sync-base-url <url>   Override Codex sync API base URL (default: https://codex-auth.uggs.io)
 #       --sync-invite-key <key> Shared invitation key for sync API registration (or CODEX_SYNC_INVITE_KEY env)
-#       --sync-api-key <key>    Existing sync API key (skips registration)
 #       --sync-fqdn <fqdn>      Override FQDN used when registering with the sync API (default: target host)
 #       --sync-ca-file <path>   Custom CA bundle used for sync API TLS validation (default: /home/chris/Documents/certauth2/vault/ca/ca.crt when readable)
 #   -v, --verbose               Verbose output
@@ -51,7 +50,6 @@ Options:
       --install-systemd-timer Install/enable codex-wrapper-update.(service|timer) on the remote host
       --sync-base-url <url>   Codex sync API base URL (default: https://codex-auth.uggs.io)
       --sync-invite-key <key> Shared invitation key for sync API registration (or CODEX_SYNC_INVITE_KEY env)
-      --sync-api-key <key>    Existing per-host sync API key (skips registration)
       --sync-fqdn <fqdn>      Override FQDN used when registering (default: target host)
       --sync-ca-file <path>   CA bundle used for sync API TLS validation (default: /home/chris/Documents/certauth2/vault/ca/ca.crt when readable)
       --summary-only          Print a single result line per host (default)
@@ -95,7 +93,10 @@ AUTH_JSON_LOCAL="$AUTH_JSON_LOCAL_DEFAULT"
 SYNC_BASE_URL_DEFAULT="https://codex-auth.uggs.io"
 SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-$SYNC_BASE_URL_DEFAULT}"
 SYNC_INVITE_KEY="${CODEX_SYNC_INVITE_KEY:-}"
-SYNC_API_KEY="${CODEX_SYNC_API_KEY:-}"
+SYNC_API_KEY=""
+if [ -n "${CODEX_SYNC_API_KEY:-}" ]; then
+  printf 'CODEX_SYNC_API_KEY is ignored; codex-install registers via /register to obtain a fresh key.\n' >&2
+fi
 SYNC_FQDN="${CODEX_SYNC_FQDN:-}"
 SYNC_REGISTRATION_ATTEMPTED=0
 ORCHESTRATOR_REPO_DEFAULT="/home/chris/Documents/codex-orchestrator"
@@ -394,7 +395,7 @@ while [ $# -gt 0 ]; do
       ;;
     --sync-api-key)
       [ $# -ge 2 ] || usage
-      SYNC_API_KEY="$2"
+      printf '--sync-api-key is ignored; codex-install always registers via /register.\n' >&2
       shift 2
       ;;
     --sync-fqdn)
@@ -546,9 +547,6 @@ require_local_python3() {
 }
 
 obtain_sync_api_key() {
-  if [ -n "$SYNC_API_KEY" ]; then
-    return 0
-  fi
   if [ -z "$SYNC_INVITE_KEY" ]; then
     printf 'Sync API invitation key missing; supply --sync-invite-key or CODEX_SYNC_INVITE_KEY\n' >&2
     return 1

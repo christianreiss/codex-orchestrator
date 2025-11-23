@@ -57,6 +57,7 @@ else
   CODEX_SYNC_CONFIG_PATHS+=("/etc/codex-sync.env" "/usr/local/etc/codex-sync.env" "$HOME/.codex/sync.env")
 fi
 CODEX_SYNC_ALLOW_INSECURE=${CODEX_SYNC_ALLOW_INSECURE:-0}
+CODEX_SYNC_OPTIONAL=${CODEX_SYNC_OPTIONAL:-0}
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
@@ -427,6 +428,14 @@ sync_auth_with_api() {
   local phase="$1"
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    if (( CODEX_SYNC_OPTIONAL )); then
+      log_warn "Sync API config missing; skipping API sync (CODEX_SYNC_OPTIONAL=1)"
+      AUTH_PULL_STATUS="ok"
+      AUTH_STATUS="skip-sync"
+      AUTH_ACTION="skip"
+      AUTH_MESSAGE="sync skipped (missing API config)"
+      return 0
+    fi
     log_error "Sync config missing API key or base URL; create ~/.codex/sync.env or set CODEX_SYNC_*"
     AUTH_PULL_STATUS="missing-config"
     AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"

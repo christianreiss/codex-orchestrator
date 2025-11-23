@@ -58,20 +58,13 @@
       bottom: 6%; right: 6%;
     }
     .app {
-      display: grid;
-      grid-template-columns: 260px 1fr;
       min-height: 100vh;
       width: 100%;
+      display: flex;
+      justify-content: center;
+      padding: 0 18px;
     }
-    .sidebar {
-      position: relative;
-      padding: 28px 20px;
-      border-right: 1px solid var(--panel-strong);
-      background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
-      backdrop-filter: blur(16px);
-      box-shadow: var(--shadow);
-      z-index: 1;
-    }
+    .sidebar { display: none; }
     .sidebar .brand {
       display: flex;
       align-items: center;
@@ -119,8 +112,10 @@
       box-shadow: 0 0 0 6px rgba(58,214,255,0.12);
     }
     .content {
-      padding: 24px 32px 48px;
+      padding: 28px 16px 56px;
       width: 100%;
+      max-width: 1220px;
+      margin: 0 auto;
     }
     .topbar {
       display: grid;
@@ -452,9 +447,7 @@
     .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
 
     @media (max-width: 960px) {
-      .app { grid-template-columns: 1fr; }
-      .sidebar { position: sticky; top: 0; z-index: 3; }
-      .content { padding: 18px 16px 48px; }
+      .content { padding: 20px 12px 52px; }
       .panel-actions { flex-direction: column; align-items: stretch; }
       .panel-actions input,
       .panel-actions select,
@@ -472,33 +465,6 @@
   <div class="glow glow-a"></div>
   <div class="glow glow-b"></div>
   <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="avatar">C</div>
-        <div class="brand-text">
-          <h1>Codex Auth</h1>
-          <span>Fleet control</span>
-        </div>
-      </div>
-      <div class="nav-links">
-        <a class="nav-link active" href="#">
-          <span class="nav-icon"></span>
-          Dashboard
-        </a>
-        <a class="nav-link" href="#hosts-panel">
-          <span class="nav-icon"></span>
-          Hosts
-        </a>
-        <a class="nav-link" href="#logs">
-          <span class="nav-icon"></span>
-          Logs
-        </a>
-        <a class="nav-link" href="#settings">
-          <span class="nav-icon"></span>
-          Settings
-        </a>
-      </div>
-    </aside>
     <div class="content">
       <header class="topbar">
         <div class="title-line">
@@ -571,7 +537,7 @@
                   <th>Client</th>
                   <th>Wrapper</th>
                   <th>IP / Mode</th>
-                  <th>Digest</th>
+                  <th>Valid Auth</th>
                   <th>Usage</th>
                   <th>Actions</th>
                 </tr>
@@ -893,8 +859,8 @@
 
     function renderStats(data) {
       lastOverview = data;
-      const checkedAt = formatTimestamp(data.versions.client_version_checked_at);
-      const latestLog = formatTimestamp(data.latest_log_at);
+      const checkedAt = formatRelative(data.versions.client_version_checked_at);
+      const latestLog = formatRelative(data.latest_log_at);
       latestVersions = {
         client: typeof data.versions.client_version === 'string'
           ? data.versions.client_version.trim().replace(/^v/i, '')
@@ -913,7 +879,6 @@
         <div class="card">
           <div class="stat-head">
             <span class="stat-label">Hosts</span>
-            <span class="stat-badge">Active ${data.totals.active}</span>
           </div>
           <div class="stat-value">${data.totals.hosts}</div>
           <small>Total registered</small>

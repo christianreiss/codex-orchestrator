@@ -12,6 +12,7 @@
   - `CODEX_SYNC_FQDN` (optional label; not sent to API by `cdx`)
   - `CODEX_SYNC_CA_FILE` (optional path to PEM bundle used for TLS verification)
   - `CODEX_SYNC_ALLOW_INSECURE` (default `0`; set to `1` to allow unverified TLS fallback — break‑glass only)
+  - `CODEX_SYNC_OPTIONAL` (default `0`; when `1` and the API key is missing, skip API sync and proceed with the local `auth.json`)
 - **Precedence when loading in `cdx`:**
   1) Environment variables override everything.
   2) Files are read in order: `/etc/codex-sync.env` → `/usr/local/etc/codex-sync.env` → `~/.codex/sync.env`; later files override earlier ones.
@@ -36,7 +37,7 @@ CODEX_SYNC_CA_FILE=/usr/local/etc/codex-sync-ca.pem
 - **Inputs:** env + sync env file above; optional flags `--debug|--verbose` (sets `CODEX_DEBUG=1`), `--allow-insecure-tls` (sets `CODEX_SYNC_ALLOW_INSECURE=1`), `--wrapper-version/-W` (prints wrapper version and exits). All other args are forwarded to the Codex binary.
 - **Dependencies:** `python3` (required for API sync), `curl`/`unzip` (auto-installable on Linux when running as root or sudo‑capable `chris`), `sha256sum`, `script` (optional).
 - **Flow (pull → run → push):**
-  1) Load config; drop malformed `~/.codex/auth.json` (missing `last_refresh` or tokens) before syncing. If no local auth exists (fresh install), skip API sync, mark auth status `missing-local`, and continue so the user can login via Codex without being blocked by a 422.
+  1) Load config; drop malformed `~/.codex/auth.json` (missing `last_refresh` or tokens) before syncing. If no local auth exists (fresh install), skip API sync, mark auth status `missing-local`, and continue so the user can login via Codex without being blocked by a 422. When `CODEX_SYNC_OPTIONAL=1` and the API key is absent, `cdx` also skips API sync (auth status `skip-sync`) but still runs Codex with the provided `auth.json`.
   2) **POST `/auth` retrieve** with body  
      ```json
      {
@@ -72,8 +73,8 @@ CODEX_SYNC_CA_FILE=/usr/local/etc/codex-sync-ca.pem
 
 ### `codex-install`
 - **Purpose:** Provision a remote host over SSH (default root) with Codex CLI, `cdx`, sync env, and optionally auth.json.
-- **Key flags/env:** `--user/-u`, `--ssh-port`, `--identity`, `--ssh-opt`, `--global`, `--sudo`, `--local-bind/--local-port` (for login tunnel, default 127.0.0.1:1455), `--auth-json` (use local auth push), `--sync-base-url`, `--sync-invite-key` (or `CODEX_SYNC_INVITE_KEY`), `--sync-api-key` (skip register), `--sync-fqdn`, `--sync-ca-file`, `--install-systemd-timer`, `--summary-only/--show-steps`, `-v`.
-- **Registration:** If no `--sync-api-key`, registers via **POST `/register`** `{ "fqdn": <target fqdn>, "invitation_key": <key> }` (invite key auto-discovered from env/.env/API.md); stores returned `api_key`.
+- **Key flags/env:** `--user/-u`, `--ssh-port`, `--identity`, `--ssh-opt`, `--global`, `--sudo`, `--local-bind/--local-port` (for login tunnel, default 127.0.0.1:1455), `--auth-json` (use local auth push), `--sync-base-url`, `--sync-invite-key` (or `CODEX_SYNC_INVITE_KEY`), `--sync-fqdn`, `--sync-ca-file`, `--install-systemd-timer`, `--summary-only/--show-steps`, `-v`.
+- **Registration:** Always registers via **POST `/register`** `{ "fqdn": <target fqdn>, "invitation_key": <key> }` (invite key auto-discovered from env/.env/API.md) and uses the returned `api_key`; `--sync-api-key`/`CODEX_SYNC_API_KEY` inputs are ignored to prevent key reuse.
 - **Sync env written** to `/usr/local/etc/codex-sync.env` (or `~/.codex/sync.env` if no sudo) containing base URL, API key, FQDN, optional CA path. Optional CA payload installed at `/usr/local/etc/codex-sync-ca.pem`.
 - **Auth provisioning modes:**
   - *Auth push flow* (local `auth.json` present): upload the local auth via **`POST /auth` store** before touching the remote, then install Codex + `cdx`; the remote bootstrap runs the same **`POST /auth` retrieve→store** logic to hydrate `~/.codex/auth.json`. Verifies remote `~/.codex/auth.json` exists and is mode 600 (also for user `chris` when root).

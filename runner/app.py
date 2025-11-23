@@ -19,7 +19,7 @@ DEFAULT_TIMEOUT = 8.0
 class VerifyRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload to test")
     base_url: Optional[str] = Field(None, description="Override CODEX_SYNC_BASE_URL")
-    probe: Optional[str] = Field("models", description="cdx subcommand to run after --")
+    probe: Optional[str] = Field("login", description="cdx subcommand to run after --")
     probe_args: Optional[List[str]] = Field(
         None, description="Additional args for the probe command"
     )
@@ -32,7 +32,7 @@ def _validated_probe_tokens(probe: str, probe_args: Optional[List[str]]) -> List
     if not TOKEN_PATTERN.match(probe):
         raise HTTPException(status_code=400, detail="invalid probe token")
     args: List[str] = []
-    for item in probe_args or ["--limit", "1"]:
+    for item in probe_args or ["status"]:
         if not TOKEN_PATTERN.match(item):
             raise HTTPException(status_code=400, detail="invalid probe arg")
         args.append(item)
@@ -61,6 +61,7 @@ def _run_probe(payload: VerifyRequest) -> dict:
             "CODEX_SYNC_BASE_URL", "http://api"
         )
         env.setdefault("CODEX_SYNC_ALLOW_INSECURE", "1")
+        env.setdefault("CODEX_SYNC_OPTIONAL", "1")
 
         codex_home = os.path.join(tmpdir, ".codex")
         os.makedirs(codex_home, exist_ok=True)
@@ -68,8 +69,8 @@ def _run_probe(payload: VerifyRequest) -> dict:
         with open(auth_path, "w", encoding="utf-8") as fh:
             json.dump(payload.auth_json, fh)
 
-        probe_cmd = ["/app/cdx", "--"] + _validated_probe_tokens(
-            payload.probe or "models", payload.probe_args
+        probe_cmd = ["/app/cdx"] + _validated_probe_tokens(
+            payload.probe or "login", payload.probe_args
         )
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
 
@@ -111,7 +112,8 @@ def _run_probe(payload: VerifyRequest) -> dict:
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
             stdout = (proc.stdout or "").strip()
-            message = stderr if stderr else stdout
+            parts = [p for p in [stderr, stdout] if p]
+            message = "\n".join(parts)
             result["reason"] = message[:400] if message else "probe failed"
         if updated_auth is not None:
             result["updated_auth"] = updated_auth
