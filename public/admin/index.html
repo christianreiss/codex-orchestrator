@@ -100,7 +100,7 @@
       align-items: center;
       gap: 14px 18px;
       margin: 0 0 18px;
-      padding: 14px 0;
+      padding: 14px 18px;
       max-width: 1220px;
       width: 100%;
       position: sticky;
@@ -488,17 +488,17 @@
         </div>
         <div class="action-line">
           <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API: loading…</button>
-          <button class="runner-accent" id="newHostBtn">+ New Host</button>
+          <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
           <button class="ghost tiny-btn runner-ghost" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
-          <button class="runner-accent" id="refresh">Refresh</button>
-          <button class="runner-accent" id="version-check">Check versions</button>
+          <button class="ghost runner-ghost" id="refresh">Refresh</button>
+          <button class="ghost runner-ghost" id="version-check">Check versions</button>
         </div>
       </header>
       <main class="main">
         <div class="modal-backdrop" id="newHostModal">
           <div class="modal">
             <h3>New Host</h3>
-            <p>Generate a bootstrap command for a host. The API key is bound to this FQDN and IP on first contact.</p>
+            <p>Issue a one-time installer link for this FQDN. The API key is baked in and bound to this host on first contact.</p>
             <div class="field">
               <label for="new-host-name" style="font-weight:600;">Host FQDN</label>
               <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
@@ -509,7 +509,8 @@
                 <span class="cmd-text" id="bootstrapCmd"></span>
                 <button class="copy-btn" id="copyCmd">Copy</button>
               </div>
-              <p class="muted" style="margin-top:8px;">Runs cdx, installs Codex if needed, and binds the host to this service.</p>
+              <p class="muted" id="installerMeta" style="margin-top:8px; display:none;"></p>
+              <p class="muted" style="margin-top:8px;">Single command downloads the baked installer and registers the host.</p>
             </div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="cancelNewHost">Cancel</button>
@@ -578,6 +579,7 @@
     const commandField = document.getElementById('commandField');
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
+    const installerMeta = document.getElementById('installerMeta');
     const apiToggleBtn = document.getElementById('api-toggle-btn');
     const runnerRunnerBtn = document.getElementById('runner-runner');
     const deleteHostModal = document.getElementById('deleteHostModal');
@@ -1160,6 +1162,13 @@
       if (show) {
         newHostModal.classList.add('show');
         commandField.style.display = 'none';
+        if (installerMeta) {
+          installerMeta.style.display = 'none';
+          installerMeta.textContent = '';
+        }
+        if (bootstrapCmdEl) {
+          bootstrapCmdEl.textContent = '';
+        }
         newHostName.value = '';
         newHostName.focus();
       } else {
@@ -1180,35 +1189,21 @@
           method: 'POST',
           json: { fqdn },
         });
-        const host = res.data?.host;
-        if (!host || !host.api_key) throw new Error('Missing API key in response');
-        const base = `${window.location.origin}`;
-        const codexVer = lastOverview?.versions?.client_version || '0.63.0';
-        const cmd = [
-          'set -euo pipefail',
-          'tmpdir="$(mktemp -d)"',
-          `curl -fsSL ${base}/wrapper/download -H "X-API-Key: ${host.api_key}" -o "$tmpdir/cdx"`,
-          'chmod +x "$tmpdir/cdx"',
-          'install_path="/usr/local/bin/cdx"',
-          'if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then install_path="$HOME/.local/bin/cdx"; mkdir -p "$(dirname "$install_path")"; install -m 755 "$tmpdir/cdx" "$install_path"; fi',
-          'arch="$(uname -m)"',
-          'asset=""',
-          'case "$arch" in x86_64|amd64) asset="codex-x86_64-unknown-linux-gnu.tar.gz" ;; aarch64|arm64) asset="codex-aarch64-unknown-linux-gnu.tar.gz" ;; *) echo "Unsupported arch: $arch" >&2; exit 1 ;; esac',
-          `curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${codexVer}/${asset}" -o "$tmpdir/codex.tar.gz"`,
-          'tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"',
-          'codex_bin="$(find "$tmpdir" -type f -name "codex*" | head -n1)"',
-          'if [ -z "$codex_bin" ]; then echo "Codex binary not found in archive" >&2; exit 1; fi',
-          'codex_path="/usr/local/bin/codex"',
-          'if ! install -m 755 "$codex_bin" "$codex_path" 2>/dev/null; then codex_path="$HOME/.local/bin/codex"; mkdir -p "$(dirname "$codex_path")"; install -m 755 "$codex_bin" "$codex_path"; fi',
-          'mkdir -p "$HOME/.codex"',
-          `cat > "$HOME/.codex/sync.env" <<'EOF'\nCODEX_SYNC_BASE_URL=${base}\nCODEX_SYNC_API_KEY=${host.api_key}\nCODEX_SYNC_FQDN=${fqdn}\nEOF`,
-          '"$install_path" --version',
-          '"$codex_path" -V || true',
-          'rm -rf "$tmpdir"',
-        ].join(' && ');
+        const installer = res.data?.installer;
+        if (!installer || !installer.command) throw new Error('Missing installer command in response');
+        const cmd = installer.command;
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
-        copyCmdBtn.onclick = () => copyToClipboard(cmd);
+        if (copyCmdBtn) {
+          copyCmdBtn.onclick = () => copyToClipboard(cmd);
+        }
+        if (installerMeta) {
+          const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
+          installerMeta.textContent = expires
+            ? `One-time installer (expires ${expires}).`
+            : 'One-time installer ready.';
+          installerMeta.style.display = 'block';
+        }
         await loadAll();
       } catch (err) {
         alert(err.message || err);

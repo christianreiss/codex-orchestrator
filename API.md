@@ -2,7 +2,7 @@
 
 Base URL: `https://codex-auth.uggs.io`
 
-All responses are JSON. Request bodies must be `application/json` unless otherwise stated.
+All responses are JSON unless noted. Request bodies must be `application/json` unless otherwise stated.
 
 ## Authentication
 
@@ -210,6 +210,16 @@ Removes the calling host (identified by its API key) from the orchestrator. Inte
 
 If the host record does not exist or the API key is invalid, the response is `401 Invalid API key` or `403 Host is disabled`.
 
+### `GET /install/{token}` (one-time installer)
+
+Public, single-use endpoint that returns a self-contained bash installer for a pre-registered host. Tokens are minted by operators (see `/admin/hosts/register`), expire after `INSTALL_TOKEN_TTL_SECONDS` (default: 1800 seconds), and are invalidated on first download.
+
+```
+curl -fsSL https://codex-auth.uggs.io/install/3b1a8c21-fa4e-4191-9670-f508eeb0b292 | bash
+```
+
+Response: `text/plain` shell script that bakes in `BASE_URL`, `API_KEY`, and `FQDN`, installs the wrapper + Codex binary, and writes `~/.codex/sync.env`. Errors emit a short shell snippet that prints the failure and exits non-zero.
+
 ### `GET /wrapper`
 
 Returns metadata about the latest cdx wrapper (only one copy is retained). Requires the per-host API key; IP binding enforced.
@@ -277,6 +287,7 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
 - Endpoints:
   - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
   - `GET /admin/hosts`: hosts with canonical digest and recent digests.
+  - `POST /admin/hosts/register`: mint a host + single-use installer token for a given FQDN. Response includes `installer.url`, `installer.command` (`curl …/install/{token} | bash`), and `installer.expires_at` (TTL controlled by `INSTALL_TOKEN_TTL_SECONDS`, default 1800s).
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optional auth body with `?include_body=1`).
   - `POST /admin/versions/check`: force a refresh of the available client version from GitHub and return the latest version block.
   - `POST /admin/hosts/{id}/clear`: clear stored IP / digests for a host (forces the next auth call to bind again).

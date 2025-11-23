@@ -11,6 +11,7 @@ use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
+use App\Repositories\InstallTokenRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
@@ -42,6 +43,7 @@ $database->migrate();
 $hostRepository = new HostRepository($database);
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
+$installTokenRepository = new InstallTokenRepository($database);
 $authEntryRepository = new AuthEntryRepository($database);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository);
 $logRepository = new LogRepository($database);
@@ -226,6 +228,43 @@ try {
             header('Content-Length: ' . $size);
         }
         readfile($pathToFile);
+        exit;
+    }
+
+    if ($method === 'GET' && preg_match('#^/install/([a-f0-9\\-]{36})$#i', $normalizedPath, $matches)) {
+        $tokenValue = $matches[1];
+        $tokenRow = $installTokenRepository->findByToken($tokenValue);
+        if (!$tokenRow) {
+            installerError('Installer not found', 404);
+        }
+
+        if (!empty($tokenRow['used_at'])) {
+            installerError('Installer already used', 410);
+        }
+
+        if (installerTokenExpired($tokenRow)) {
+            installerError('Installer expired', 410);
+        }
+
+        $hostId = isset($tokenRow['host_id']) ? (int) $tokenRow['host_id'] : null;
+        $host = $hostId ? $hostRepository->findById($hostId) : null;
+        if (!$host) {
+            installerError('Installer host missing', 404);
+        }
+
+        $installTokenRepository->markUsed((int) $tokenRow['id']);
+        $logRepository->log($hostId, 'install.token.consume', [
+            'fqdn' => $tokenRow['fqdn'] ?? ($host['fqdn'] ?? null),
+            'token' => substr((string) $tokenValue, 0, 8) . '…',
+        ]);
+
+        $versions = $service->versionSummary();
+        $script = buildInstallerScript($host, $tokenRow, resolveBaseUrl(), $versions);
+
+        header('Content-Type: text/plain');
+        header('Cache-Control: no-store, must-revalidate');
+        header('X-Installer-Expires-At: ' . ($tokenRow['expires_at'] ?? ''));
+        echo $script;
         exit;
     }
 
@@ -418,12 +457,48 @@ try {
         }
 
         // Reuse invitation-gated registration with the server's configured key.
-        $host = $service->register($fqdn, Config::get('INVITATION_KEY', ''));
+        $hostPayload = $service->register($fqdn, Config::get('INVITATION_KEY', ''));
+        $host = $hostRepository->findByFqdn($fqdn);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host could not be loaded after registration',
+            ], 500);
+        }
+
+        $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));
+
+        $ttlSeconds = (int) Config::get('INSTALL_TOKEN_TTL_SECONDS', 1800);
+        if ($ttlSeconds <= 0) {
+            $ttlSeconds = 1800;
+        }
+
+        $expiresAt = gmdate(DATE_ATOM, time() + $ttlSeconds);
+        $tokenRow = $installTokenRepository->create(
+            generateUuid(),
+            (int) $host['id'],
+            (string) $host['api_key'],
+            (string) $host['fqdn'],
+            $expiresAt
+        );
+
+        $baseUrl = resolveBaseUrl();
+        $logRepository->log((int) $host['id'], 'admin.install_token.create', [
+            'fqdn' => $host['fqdn'],
+            'expires_at' => $expiresAt,
+            'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+        ]);
 
         Response::json([
             'status' => 'ok',
             'data' => [
-                'host' => $host,
+                'host' => array_merge($hostPayload, ['id' => (int) $host['id']]),
+                'installer' => [
+                    'token' => $tokenRow['token'],
+                    'url' => rtrim($baseUrl, '/') . '/install/' . $tokenRow['token'],
+                    'command' => installerCommand($baseUrl, $tokenRow['token']),
+                    'expires_at' => $expiresAt,
+                ],
             ],
         ]);
     }
@@ -855,6 +930,134 @@ function normalizeBoolean(mixed $value): ?bool
     }
 
     return null;
+}
+
+function resolveBaseUrl(): string
+{
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $scheme = 'http';
+
+    $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
+    if ($forwardedProto !== '') {
+        $schemeCandidate = explode(',', $forwardedProto)[0] ?? '';
+        $scheme = strtolower(trim($schemeCandidate)) === 'https' ? 'https' : 'http';
+    } elseif (!empty($_SERVER['REQUEST_SCHEME'])) {
+        $scheme = $_SERVER['REQUEST_SCHEME'];
+    } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        $scheme = 'https';
+    }
+
+    return sprintf('%s://%s', $scheme, $host);
+}
+
+function escapeForSingleQuotes(string $value): string
+{
+    return str_replace("'", "'\"'\"'", $value);
+}
+
+function generateUuid(): string
+{
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
+function installerCommand(string $baseUrl, string $token): string
+{
+    $base = rtrim($baseUrl, '/');
+
+    return sprintf('curl -fsSL "%s/install/%s" | bash', $base, $token);
+}
+
+function installerTokenExpired(array $tokenRow): bool
+{
+    $expires = strtotime($tokenRow['expires_at'] ?? '');
+    if ($expires === false) {
+        return true;
+    }
+
+    return $expires < time();
+}
+
+function buildInstallerScript(array $host, array $tokenRow, string $baseUrl, array $versions): string
+{
+    $base = rtrim($baseUrl, '/');
+    $apiKey = escapeForSingleQuotes((string) ($tokenRow['api_key'] ?? ($host['api_key'] ?? '')));
+    $fqdn = escapeForSingleQuotes((string) ($tokenRow['fqdn'] ?? ($host['fqdn'] ?? '')));
+    $codexVersion = $versions['client_version'] ?? null;
+    if ($codexVersion === null || $codexVersion === '') {
+        $codexVersion = '0.63.0';
+    }
+    $codexVersion = escapeForSingleQuotes((string) $codexVersion);
+    $baseEscaped = escapeForSingleQuotes($base);
+
+    return <<<SCRIPT
+#!/usr/bin/env bash
+set -euo pipefail
+BASE_URL='{$baseEscaped}'
+API_KEY='{$apiKey}'
+FQDN='{$fqdn}'
+CODEX_VERSION='{$codexVersion}'
+
+tmpdir="$(mktemp -d)"
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+echo "Installing Codex for ${FQDN} via ${BASE_URL}"
+
+curl -fsSL "${BASE_URL}/wrapper/download" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/cdx"
+chmod +x "$tmpdir/cdx"
+install_path="/usr/local/bin/cdx"
+if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then
+  install_path="$HOME/.local/bin/cdx"
+  mkdir -p "$(dirname "$install_path")"
+  install -m 755 "$tmpdir/cdx" "$install_path"
+fi
+
+arch="$(uname -m)"
+case "$arch" in
+  x86_64|amd64) asset="codex-x86_64-unknown-linux-gnu.tar.gz" ;;
+  aarch64|arm64) asset="codex-aarch64-unknown-linux-gnu.tar.gz" ;;
+  *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
+esac
+
+curl -fsSL "https://github.com/openai/codex/releases/download/rust-v\${CODEX_VERSION}/\${asset}" -o "$tmpdir/codex.tar.gz"
+tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
+codex_bin="$(find "$tmpdir" -type f -name "codex*" | head -n1)"
+if [ -z "$codex_bin" ]; then
+  echo "Codex binary not found in archive" >&2
+  exit 1
+fi
+
+codex_path="/usr/local/bin/codex"
+if ! install -m 755 "$codex_bin" "$codex_path" 2>/dev/null; then
+  codex_path="$HOME/.local/bin/codex"
+  mkdir -p "$(dirname "$codex_path")"
+  install -m 755 "$codex_bin" "$codex_path"
+fi
+
+mkdir -p "$HOME/.codex"
+cat > "$HOME/.codex/sync.env" <<EOF
+CODEX_SYNC_BASE_URL=\${BASE_URL}
+CODEX_SYNC_API_KEY=\${API_KEY}
+CODEX_SYNC_FQDN=\${FQDN}
+EOF
+
+"$install_path" --version
+"$codex_path" -V || true
+echo "Install complete for ${FQDN}"
+SCRIPT;
+}
+
+function installerError(string $message, int $status = 400): void
+{
+    http_response_code($status);
+    header('Content-Type: text/plain');
+    header('Cache-Control: no-store, must-revalidate');
+    echo 'echo "' . addslashes($message) . "\" >&2\nexit 1\n";
+    exit;
 }
 
 function resolveAdminKey(): ?string

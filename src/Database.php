@@ -138,6 +138,24 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS install_tokens (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                token CHAR(36) NOT NULL UNIQUE,
+                host_id BIGINT UNSIGNED NOT NULL,
+                fqdn VARCHAR(255) NOT NULL,
+                api_key CHAR(64) NOT NULL,
+                expires_at VARCHAR(100) NOT NULL,
+                used_at VARCHAR(100) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_install_tokens_host (host_id),
+                INDEX idx_install_tokens_expires_at (expires_at),
+                CONSTRAINT fk_install_tokens_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS token_usages (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NULL,
