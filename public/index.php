@@ -1035,9 +1035,9 @@ tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
-echo "Installing Codex for ${FQDN} via ${BASE_URL}"
+echo "Installing Codex for __FQDN__ via __BASE__"
 
-curl -fsSL "${BASE_URL}/wrapper/download" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/cdx"
+curl -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
 install_path="/usr/local/bin/cdx"
 if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then
@@ -1070,14 +1070,14 @@ fi
 
 mkdir -p "$HOME/.codex"
 cat > "$HOME/.codex/sync.env" <<EOF
-CODEX_SYNC_BASE_URL=\${BASE_URL}
-CODEX_SYNC_API_KEY=\${API_KEY}
-CODEX_SYNC_FQDN=\${FQDN}
+CODEX_SYNC_BASE_URL=__BASE__
+CODEX_SYNC_API_KEY=__API__
+CODEX_SYNC_FQDN=__FQDN__
 EOF
 
 "$install_path" --version
 "$codex_path" -V || true
-echo "Install complete for ${FQDN}"
+echo "Install complete for __FQDN__"
 SCRIPT;
 
     return strtr($template, [
