@@ -228,21 +228,22 @@
     .panel-actions input:focus,
     .panel-actions select:focus { outline: 1px solid var(--accent); }
     button {
-      border: 1px solid transparent;
-      border-radius: 12px;
+      border: 1px solid var(--panel-strong);
+      border-radius: 10px;
       padding: 10px 16px;
       font-weight: 700;
       cursor: pointer;
-      background: var(--accent);
+      background: #0d8456;
       color: #ffffff;
-      box-shadow: 0 10px 24px rgba(16,163,127,0.22);
-      transition: transform 0.08s ease, box-shadow 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+      box-shadow: 0 8px 18px rgba(16,163,127,0.18);
+      transition: transform 0.08s ease, box-shadow 0.12s ease, opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+      min-height: 40px;
     }
     button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
-    button:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(16,163,127,0.26); background: var(--accent-2); }
+    button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(16,163,127,0.2); background: var(--accent); border-color: #0c7a4f; }
     button.ghost {
       background: #ffffff;
-      color: var(--text);
+      color: #0f172a;
       border: 1px solid var(--panel-strong);
       box-shadow: none;
     }
@@ -255,7 +256,8 @@
     button.danger {
       background: var(--danger);
       color: #ffffff;
-      box-shadow: 0 10px 24px rgba(229,72,77,0.2);
+      border-color: rgba(229,72,77,0.6);
+      box-shadow: 0 8px 18px rgba(229,72,77,0.2);
     }
     .tiny-btn {
       padding: 7px 10px;
