@@ -1,7 +1,7 @@
 # Interface: Codex CLI (`cdx`) ↔ Codex Auth API
 
 ## Overview
-- `cdx` is the local wrapper that **pulls canonical auth**, **runs Codex**, **pushes changes**, **reports usage**, and **self‑updates** (both Codex binary and the wrapper) using the Auth API.
+- `cdx` is the local wrapper (now compiled from `bin/src/cdx.c` with `gcc -O2 -Wall -Wextra -o bin/cdx bin/src/cdx.c`) that **pulls canonical auth**, **runs Codex**, **pushes changes**, **reports usage**, and **self‑updates** (both Codex binary and the wrapper) using the Auth API.
 - Helper scripts (`codex-install`, `codex-uninstall`, `local-bootstrap`, `force-push-auth`, `codex-clean`, `push-wrapper`) provision or clean hosts, write the sync env file, and publish wrapper/admin data.
 - All client <-> API calls are authenticated with the per‑host API key via `X-API-Key` (or Bearer) and are IP-bound after first use.
 

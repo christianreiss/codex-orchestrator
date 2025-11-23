@@ -1889,6 +1889,23 @@ install_auth_for_user() {
   fi
 }
 
+install_auth_for_user "$target_user"
+
+if [ "$(id -u)" -eq 0 ] && id -u chris >/dev/null 2>&1; then
+  install_auth_for_user chris
+fi
+rm -f "$src_file"
+EOS
+
+  local remote_cmd
+  remote_cmd="$(printf 'bash -s -- %q %q' "$remote_tmp" "$SSH_USER")"
+  if ! NO_TTY=1 ssh_quiet_cmd "$remote_cmd" <<<"$remote_apply"; then
+    ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_tmp")" || true
+    return 1
+  fi
+  return 0
+}
+
 push_auth_json_to_api() {
   # Upload local auth.json to the sync API using the unified /auth flow.
   if [ ! -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
@@ -2021,25 +2038,7 @@ response = post_json(f"{base}/auth", store_payload, "auth store")
 data = response.get("data") if isinstance(response, dict) else {}
 status = (data or {}).get("status", "unknown")
 print(f"auth.store status={status}")
-sys.exit(0)
 PY
-}
-
-install_auth_for_user "$target_user"
-
-if [ "$(id -u)" -eq 0 ] && id -u chris >/dev/null 2>&1; then
-  install_auth_for_user chris
-fi
-rm -f "$src_file"
-EOS
-
-  local remote_cmd
-  remote_cmd="$(printf 'bash -s -- %q %q' "$remote_tmp" "$SSH_USER")"
-  if ! NO_TTY=1 ssh_quiet_cmd "$remote_cmd" <<<"$remote_apply"; then
-    ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_tmp")" || true
-    return 1
-  fi
-  return 0
 }
 
 ssh_capture() {
