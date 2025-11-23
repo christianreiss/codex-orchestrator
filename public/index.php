@@ -22,6 +22,10 @@ use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+// Ensure errors do not leak HTML into shell outputs.
+ini_set('display_errors', '0');
+ini_set('html_errors', '0');
+
 $root = dirname(__DIR__);
 
 if (file_exists($root . '/.env')) {
@@ -261,11 +265,7 @@ try {
         $versions = $service->versionSummary();
         $script = buildInstallerScript($host, $tokenRow, resolveBaseUrl(), $versions);
 
-        header('Content-Type: text/plain');
-        header('Cache-Control: no-store, must-revalidate');
-        header('X-Installer-Expires-At: ' . ($tokenRow['expires_at'] ?? ''));
-        echo $script;
-        exit;
+        emitInstaller($script, 200, $tokenRow['expires_at'] ?? null);
     }
 
     if ($method === 'POST' && $normalizedPath === '/auth') {
@@ -1051,13 +1051,22 @@ echo "Install complete for ${FQDN}"
 SCRIPT;
 }
 
-function installerError(string $message, int $status = 400): void
+function emitInstaller(string $body, int $status = 200, ?string $expiresAt = null): void
 {
     http_response_code($status);
-    header('Content-Type: text/plain');
+    header('Content-Type: text/x-shellscript; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
     header('Cache-Control: no-store, must-revalidate');
-    echo 'echo "' . addslashes($message) . "\" >&2\nexit 1\n";
+    if ($expiresAt !== null) {
+        header('X-Installer-Expires-At: ' . $expiresAt);
+    }
+    echo $body;
     exit;
+}
+
+function installerError(string $message, int $status = 400, ?string $expiresAt = null): void
+{
+    emitInstaller('echo "' . addslashes($message) . "\" >&2\nexit 1\n", $status, $expiresAt);
 }
 
 function resolveAdminKey(): ?string
