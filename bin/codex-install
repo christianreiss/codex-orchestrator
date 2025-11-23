@@ -52,8 +52,8 @@ Options:
       --sync-invite-key <key> Shared invitation key for sync API registration (or CODEX_SYNC_INVITE_KEY env)
       --sync-fqdn <fqdn>      Override FQDN used when registering (default: target host)
       --sync-ca-file <path>   CA bundle used for sync API TLS validation (default: /home/chris/Documents/certauth2/vault/ca/ca.crt when readable)
-      --summary-only          Print a single result line per host (default)
-      --show-steps            Emit detailed per-step progress output
+      --summary-only          Print a single result line per host
+      --show-steps            Emit detailed per-step progress output (default)
   -v, --verbose               Verbose output
   -h, --help                  Show this help and exit
 USAGE
@@ -76,7 +76,7 @@ LOCAL_PORT=1455
 
 VERBOSE=0
 
-SUMMARY_ONLY=1
+SUMMARY_ONLY=0
 
 # Browser auto-open disabled by default (login URLs will be printed only)
 LAUNCH_BROWSER=0
