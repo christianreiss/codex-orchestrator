@@ -263,7 +263,14 @@ try {
         ]);
 
         $versions = $service->versionSummary();
-        $script = buildInstallerScript($host, $tokenRow, resolveBaseUrl(), $versions);
+        $baseUrl = resolveBaseUrl();
+        if ($baseUrl === '' || $baseUrl === 'http://' || $baseUrl === 'https://') {
+            $fallbackBase = Config::get('PUBLIC_BASE_URL', '');
+            if (is_string($fallbackBase) && trim($fallbackBase) !== '') {
+                $baseUrl = trim($fallbackBase);
+            }
+        }
+        $script = buildInstallerScript($host, $tokenRow, $baseUrl, $versions);
 
         emitInstaller($script, 200, $tokenRow['expires_at'] ?? null);
     }
@@ -984,8 +991,15 @@ function installerTokenExpired(array $tokenRow): bool
 function buildInstallerScript(array $host, array $tokenRow, string $baseUrl, array $versions): string
 {
     $base = rtrim($baseUrl, '/');
-    $apiKey = escapeForSingleQuotes((string) ($tokenRow['api_key'] ?? ($host['api_key'] ?? '')));
-    $fqdn = escapeForSingleQuotes((string) ($tokenRow['fqdn'] ?? ($host['fqdn'] ?? '')));
+    $apiKeyRaw = (string) ($tokenRow['api_key'] ?? ($host['api_key'] ?? ''));
+    $fqdnRaw = (string) (($tokenRow['fqdn'] ?? '') !== '' ? $tokenRow['fqdn'] : ($host['fqdn'] ?? ''));
+
+    if ($apiKeyRaw === '' || $fqdnRaw === '' || $base === '' || $base === 'http://' || $base === 'https://') {
+        installerError('Installer metadata missing (fqdn/base/api key)', 500);
+    }
+
+    $apiKey = escapeForSingleQuotes($apiKeyRaw);
+    $fqdn = escapeForSingleQuotes($fqdnRaw);
     $codexVersion = $versions['client_version'] ?? null;
     if ($codexVersion === null || $codexVersion === '') {
         $codexVersion = '0.63.0';
