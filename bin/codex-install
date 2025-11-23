@@ -1856,138 +1856,115 @@ EOS
 }
 
 push_auth_json_to_api() {
-  # Upload local auth.json to the sync API using the unified /auth flow.
+  # Upload local auth.json to the sync API using /auth, executed from the REMOTE host to satisfy IP binding.
   if [ ! -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
     return 1
   fi
   if [ -z "$SYNC_BASE_URL" ] || [ -z "$SYNC_API_KEY" ]; then
     return 1
   fi
-  require_local_python3 || return 1
 
-  local base="$SYNC_BASE_URL"
-  local key="$SYNC_API_KEY"
-  local ca_file="$SYNC_CA_FILE"
+  build_scp_opts
+
+  local remote_auth remote_ca=""
+  remote_auth="$(ssh_capture 'mktemp /tmp/codex-auth.XXXXXX' 2>/dev/null | tr -d '\r')"
+  if [ -z "$remote_auth" ]; then
+    return 1
+  fi
+  if ! scp "${SCP_OPTS[@]}" "$AUTH_JSON_LOCAL_EXPANDED" "${SSH_USER}@${HOST}:${remote_auth}" >/dev/null 2>&1; then
+    ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_auth")" || true
+    return 1
+  fi
+
+  if [ -n "$SYNC_CA_PAYLOAD" ]; then
+    local tmp
+    tmp="$(mktemp)" || true
+    if [ -n "$tmp" ]; then
+      if decode_payload_to_file "$SYNC_CA_PAYLOAD" "$tmp"; then
+        remote_ca="$(ssh_capture 'mktemp /tmp/codex-ca.XXXXXX' 2>/dev/null | tr -d '\r')"
+        if [ -n "$remote_ca" ]; then
+          scp "${SCP_OPTS[@]}" "$tmp" "${SSH_USER}@${HOST}:${remote_ca}" >/dev/null 2>&1 || remote_ca=""
+        fi
+      fi
+      rm -f "$tmp"
+    fi
+  elif [ -n "$SYNC_CA_FILE" ] && [ -r "$SYNC_CA_FILE" ]; then
+    remote_ca="$(ssh_capture 'mktemp /tmp/codex-ca.XXXXXX' 2>/dev/null | tr -d '\r')"
+    if [ -n "$remote_ca" ]; then
+      scp "${SCP_OPTS[@]}" "$SYNC_CA_FILE" "${SSH_USER}@${HOST}:${remote_ca}" >/dev/null 2>&1 || remote_ca=""
+    fi
+  fi
+
   local client_version_raw="${CODEX_SELF_CHECK_OUTPUT:-unknown}"
   local client_version
   client_version="$(extract_version_token "$client_version_raw")"
   if [ -z "$client_version" ]; then
     client_version="$client_version_raw"
   fi
-  local wrapper_version="$LOCAL_WRAPPER_VERSION"
-  if [ -z "$wrapper_version" ]; then
-    wrapper_version="unknown"
-  fi
+  local wrapper_version="${LOCAL_WRAPPER_VERSION:-unknown}"
 
-  python3 - "$base" "$key" "$AUTH_JSON_LOCAL_EXPANDED" "$ca_file" "$client_version" "$wrapper_version" <<'PY'
-import hashlib, json, pathlib, ssl, sys, urllib.error, urllib.request
-
+  local remote_cmd status=0
+  read -r -d '' remote_cmd <<'EOS' || true
+base="$1"; api_key="$2"; auth_path="$3"; ca_file="$4"; client_version="$5"; wrapper_version="$6"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 required on remote host" >&2
+  exit 1
+fi
+python3 - "$base" "$api_key" "$auth_path" "$ca_file" "$client_version" "$wrapper_version" <<'PY'
+import json, ssl, sys, urllib.error, urllib.request
 base = (sys.argv[1] or "").rstrip("/")
 api_key = sys.argv[2]
-path = pathlib.Path(sys.argv[3]).expanduser()
+auth_path = sys.argv[3]
 cafile = sys.argv[4] if len(sys.argv) > 4 else ""
 client_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
 wrapper_version = sys.argv[6] if len(sys.argv) > 6 else "unknown"
-
-if not base:
-    print("Sync API base URL missing", file=sys.stderr)
+if not base or not api_key:
     sys.exit(1)
-
-
-def load_auth():
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        print("Auth file missing or invalid", file=sys.stderr)
-        sys.exit(1)
-    if not isinstance(data, dict):
-        print("Auth file must be a JSON object", file=sys.stderr)
-        sys.exit(1)
-    if "last_refresh" not in data or not isinstance(data["last_refresh"], str) or not data["last_refresh"].strip():
-        print("Auth file missing last_refresh", file=sys.stderr)
-        sys.exit(1)
-    return data
-
-
-def ensure_auths_fallback(auth_payload: dict) -> dict:
-    has_auths = isinstance(auth_payload.get("auths"), dict) and len(auth_payload.get("auths", {})) > 0
-    if has_auths:
-        return auth_payload
-
-    token_candidates = []
-    tokens = auth_payload.get("tokens") if isinstance(auth_payload.get("tokens"), dict) else None
-    if isinstance(tokens, dict):
-        token_candidates.append(tokens.get("access_token"))
-    token_candidates.append(auth_payload.get("OPENAI_API_KEY"))
-
-    chosen = None
-    for candidate in token_candidates:
-        if isinstance(candidate, str) and candidate.strip():
-            chosen = candidate.strip()
-            break
-
-    if chosen is None:
-        return auth_payload
-
-    auth_copy = dict(auth_payload)
-    auth_copy["auths"] = {
-        "api.openai.com": {
-            "token": chosen,
-            "token_type": "bearer",
-        }
-    }
-    return auth_copy
-
-
-def canonical_json(obj):
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
-
-
+try:
+    with open(auth_path, "r", encoding="utf-8") as fh:
+        auth_payload = json.load(fh)
+except Exception as exc:
+    print(f"Auth file invalid: {exc}", file=sys.stderr)
+    sys.exit(1)
+body = json.dumps({
+    "command": "store",
+    "auth": auth_payload,
+    "client_version": client_version,
+    "wrapper_version": wrapper_version,
+}, separators=(",", ":")).encode("utf-8")
+headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+req = urllib.request.Request(f"{base}/auth", data=body, headers=headers, method="POST")
 def build_context():
-    ctx_primary = ssl.create_default_context()
+    ctx = ssl.create_default_context()
     if cafile:
-        try:
-            ctx_primary.load_verify_locations(cafile)
-        except Exception:
-            pass
+        ctx.load_verify_locations(cafile)
     try:
-        ctx_primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
     except Exception:
         pass
-    return ctx_primary
-
-
-def post_json(url: str, payload: dict, action: str):
-    body = canonical_json(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    ctx = build_context()
+    return ctx
+try:
+    with urllib.request.urlopen(req, timeout=12, context=build_context()) as resp:
+        resp.read(4096)
+        sys.exit(0)
+except urllib.error.HTTPError as exc:
+    print(f"HTTP {exc.code}", file=sys.stderr)
     try:
-        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-            return json.load(resp)
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", "ignore")
-        print(f"{action} failed ({exc.code}): {body}", file=sys.stderr)
-        sys.exit(2)
-    except Exception as exc:  # noqa: BLE001
-        print(f"{action} failed: {exc}", file=sys.stderr)
-        sys.exit(3)
-
-
-current = ensure_auths_fallback(load_auth())
-store_payload = {
-    "command": "store",
-    "auth": current,
-    "client_version": client_version or "unknown",
-}
-if wrapper_version and wrapper_version != "unknown":
-    store_payload["wrapper_version"] = wrapper_version
-
-response = post_json(f"{base}/auth", store_payload, "auth store")
-data = response.get("data") if isinstance(response, dict) else {}
-status = (data or {}).get("status", "unknown")
-print(f"auth.store status={status}")
+        print(exc.read(4096).decode("utf-8"), file=sys.stderr)
+    except Exception:
+        pass
+    sys.exit(1)
+except Exception as exc:
+    print(exc, file=sys.stderr)
+    sys.exit(1)
 PY
+EOS
+
+  if ! ssh_quiet_cmd "$(printf 'bash -lc %q' "$(printf '%q ' "$remote_cmd" "$SYNC_BASE_URL" "$SYNC_API_KEY" "$remote_auth" "$remote_ca" "$client_version" "$wrapper_version")")"; then
+    status=1
+  fi
+  ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_auth") $(printf %q "$remote_ca")" || true
+  return "$status"
 }
 
 ssh_capture() {
