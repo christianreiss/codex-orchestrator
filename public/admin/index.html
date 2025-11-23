@@ -941,6 +941,13 @@
       lastOverview = data;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
       const latestLog = formatRelative(data.latest_log_at);
+      const validationAgo = runnerInfo?.latest_validation?.created_at
+        ? formatRelative(runnerInfo.latest_validation.created_at)
+        : 'never';
+      const validationStatus = runnerInfo?.latest_validation?.status ?? null;
+      const validationTone = validationStatus === 'ok' || validationStatus === 'valid'
+        ? 'ok'
+        : (validationStatus ? 'warn' : 'neutral');
       latestVersions = {
         client: typeof data.versions.client_version === 'string'
           ? data.versions.client_version.trim().replace(/^v/i, '')
@@ -983,7 +990,8 @@
               <span class="stat-badge">${latestLog}</span>
             </div>
             <div class="stat-value" style="font-size:28px;">${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
-            <small>Average since last auth</small>
+            <small>Average since last auth · Runner ${validationAgo}</small>
+            ${validationStatus ? `<div style="margin-top:8px;"><span class="chip ${validationTone}">Runner ${validationStatus}</span></div>` : ''}
           </div>
         `,
         `
