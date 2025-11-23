@@ -1053,7 +1053,7 @@ case "$arch" in
   *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
 esac
 
-curl -fsSL "https://github.com/openai/codex/releases/download/rust-v\${CODEX_VERSION}/\${asset}" -o "$tmpdir/codex.tar.gz"
+curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
 tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
 codex_bin="$(find "$tmpdir" -type f -name "codex*" | head -n1)"
 if [ -z "$codex_bin" ]; then
