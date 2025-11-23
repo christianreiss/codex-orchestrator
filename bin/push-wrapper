@@ -59,7 +59,7 @@ auto_load_admin_key() {
       ADMIN_KEY="${ADMIN_KEY#\'}"
       ENV_FILE_LOADED="$file"
       break
-    }
+    fi
   done
 }
 

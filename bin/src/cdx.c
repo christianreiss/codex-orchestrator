@@ -48,7 +48,7 @@ static char *CODEX_SYNC_FQDN = NULL;
 static char *CODEX_SYNC_CA_FILE = NULL;
 static int SYNC_CONFIG_LOADED = 0;
 
-static const char *WRAPPER_VERSION = "2025.11.23-1";
+static const char *WRAPPER_VERSION = "2025.11.23-2";
 
 static int IS_ROOT = 0;
 static int CAN_SUDO = 0;

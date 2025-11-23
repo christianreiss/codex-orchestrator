@@ -186,6 +186,40 @@
       width: 72px; height: 32px;
       opacity: 0.65;
     }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .info-box {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-strong);
+      background: var(--frost);
+    }
+    .info-label {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .info-value {
+      margin-top: 6px;
+      font-weight: 800;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .info-subtext {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
     .panel { margin-top: 20px; background: var(--frost); border-radius: 16px; border: 1px solid var(--panel-strong); box-shadow: var(--shadow); }
     .panel-head {
       display: flex;
@@ -860,31 +894,69 @@
 
     function renderRunnerCard(info) {
       if (!info) return '';
-      const enabledTone = info.enabled ? 'ok' : 'warn';
+      const baseUrl = info.base_url || 'n/a';
+      const runnerUrl = info.runner_url || baseUrl;
       const lastDaily = info.last_daily_check ? formatRelative(info.last_daily_check) : 'never';
       const counts = info.counts || {};
       const validation = info.latest_validation || null;
       const runnerStore = info.latest_runner_store || null;
-      const validationLabel = validation
-        ? `${validation.status ?? 'unknown'}${validation.latency_ms ? ` · ${validation.latency_ms}ms` : ''}`
-        : 'No runs yet';
-      const validationHost = validation?.host?.fqdn ? ` (${validation.host.fqdn})` : '';
-      const runnerStoreLabel = runnerStore
-        ? `${runnerStore.last_refresh ?? 'n/a'}${runnerStore.host?.fqdn ? ` (${runnerStore.host.fqdn})` : ''}`
-        : 'No updates';
+      const hasValidation = !!validation;
+      const validationStatus = hasValidation
+        ? (validation.status ?? 'unknown')
+        : (info.enabled ? 'No runs yet' : 'Disabled');
+      const normalizedStatus = typeof validationStatus === 'string' ? validationStatus.toLowerCase() : '';
+      const validationTone = !hasValidation
+        ? (info.enabled ? 'neutral' : 'warn')
+        : (['ok', 'valid'].includes(normalizedStatus) ? 'ok'
+          : normalizedStatus === 'unchanged' ? 'neutral'
+          : 'warn');
+      const validationWhen = validation?.created_at ? formatRelative(validation.created_at) : '—';
+      const validationHost = validation?.host?.fqdn ? ` on ${validation.host.fqdn}` : '';
+      const validationLatency = validation?.latency_ms ? `${validation.latency_ms}ms` : null;
+      const validationReason = validation?.reason ? validation.reason : null;
+      const validationDigest = validation?.digest ? `digest ${validation.digest.slice(0, 8)}…` : null;
+      const validationNotes = [validationReason, validationDigest].filter(Boolean).join(' · ');
+      const hasRunnerStore = !!runnerStore;
+      const runnerStoreAt = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
+      const runnerStoreLabel = runnerStore?.last_refresh ? formatTimestamp(runnerStore.last_refresh) : '—';
+      const runnerStoreHost = runnerStore?.host?.fqdn ? ` · ${runnerStore.host.fqdn}` : '';
+      const countsValidations = counts.validations_24h ?? 0;
+      const countsStore = counts.runner_store_24h ?? 0;
       return `
         <div class="card runner-card">
           <div class="stat-head">
             <span class="stat-label">Auth Runner</span>
-            <span class="stat-badge">${info.base_url || 'n/a'}</span>
+            <span class="stat-badge">${runnerUrl}</span>
           </div>
           <div class="stat-value" style="font-size:28px;">${info.enabled ? 'Enabled' : 'Disabled'}</div>
-          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s · Last daily ${lastDaily}</small>
-          <div style="margin-top:12px; display:grid; gap:8px; font-size:13px;">
-            <div><strong>Status:</strong> <span class="chip ${enabledTone}">${validationLabel}</span>${validationHost}</div>
-            <div class="muted">Last run ${validation?.created_at ? formatRelative(validation.created_at) : 'never'}</div>
-            <div><strong>Applied:</strong> ${runnerStoreLabel}</div>
-            <div class="muted">24h: ${counts.validations_24h ?? 0} runs · ${counts.runner_store_24h ?? 0} updates</div>
+          <small class="muted">Base ${baseUrl} · Timeout ${info.timeout_seconds ?? '—'}s · Daily check ${lastDaily}</small>
+          <div class="info-grid">
+            <div class="info-box">
+              <div class="info-label">Last run</div>
+              <div class="info-value">
+                <span class="chip ${validationTone}">${validationStatus}</span>
+                ${validationLatency ? `<span class="muted" style="font-size:12px;">${validationLatency}</span>` : ''}
+              </div>
+              <div class="info-subtext">
+                ${!hasValidation ? 'No runs yet' : `Ran ${validationWhen}${validationHost}`}
+                ${validationNotes ? ` · ${validationNotes}` : ''}
+              </div>
+            </div>
+            <div class="info-box">
+              <div class="info-label">Last apply</div>
+              <div class="info-value">${runnerStoreLabel}</div>
+              <div class="info-subtext">${!hasRunnerStore ? 'No updates yet' : `Pushed ${runnerStoreAt}${runnerStoreHost}`}</div>
+            </div>
+            <div class="info-box">
+              <div class="info-label">Heartbeat</div>
+              <div class="info-value">${lastDaily}</div>
+              <div class="info-subtext">Daily runner check-in</div>
+            </div>
+            <div class="info-box">
+              <div class="info-label">24h activity</div>
+              <div class="info-value">${countsValidations} validations</div>
+              <div class="info-subtext">${countsStore} updates pushed</div>
+            </div>
           </div>
         </div>
       `;
