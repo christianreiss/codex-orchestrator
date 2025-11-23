@@ -249,6 +249,21 @@
       border: 1px solid var(--panel-strong);
       box-shadow: none;
     }
+    .runner-accent {
+      background: #0d8456;
+      color: #ffffff;
+      border-color: rgba(13,132,86,0.7);
+      box-shadow: 0 8px 18px rgba(16,163,127,0.18);
+    }
+    .runner-accent:hover:not(:disabled) {
+      background: var(--accent);
+      border-color: #0c7a4f;
+      box-shadow: 0 12px 26px rgba(16,163,127,0.2);
+    }
+    .runner-ghost {
+      border-color: rgba(13,132,86,0.3);
+      color: #0c7a4f;
+    }
     button.secondary {
       background: #eef2f7;
       color: #0f172a;
@@ -474,10 +489,10 @@
         </div>
         <div class="action-line">
           <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API: loading…</button>
-          <button class="secondary" id="newHostBtn">+ New Host</button>
-          <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
-          <button id="refresh">Refresh</button>
-          <button id="version-check">Check versions</button>
+          <button class="runner-accent" id="newHostBtn">+ New Host</button>
+          <button class="ghost tiny-btn runner-ghost" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
+          <button class="runner-accent" id="refresh">Refresh</button>
+          <button class="runner-accent" id="version-check">Check versions</button>
         </div>
       </header>
       <main class="main">
