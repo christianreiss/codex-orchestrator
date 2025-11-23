@@ -1903,8 +1903,11 @@ push_auth_json_to_api() {
   fi
   local wrapper_version="${LOCAL_WRAPPER_VERSION:-unknown}"
 
-  local remote_cmd status=0
-  read -r -d '' remote_cmd <<'EOS' || true
+  local status=0
+  # Run the store call remotely to bind the API key to the remote IP.
+  if ! ssh "${SSH_OPTS[@]}" "${SSH_USER}@${HOST}" bash -s -- "$SYNC_BASE_URL" "$SYNC_API_KEY" "$remote_auth" "$remote_ca" "$client_version" "$wrapper_version" <<'EOS'; then
+    status=1
+  fi
 base="$1"; api_key="$2"; auth_path="$3"; ca_file="$4"; client_version="$5"; wrapper_version="$6"
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 required on remote host" >&2
@@ -1960,9 +1963,6 @@ except Exception as exc:
 PY
 EOS
 
-  if ! ssh_quiet_cmd "$(printf 'bash -lc %q' "$(printf '%q ' "$remote_cmd" "$SYNC_BASE_URL" "$SYNC_API_KEY" "$remote_auth" "$remote_ca" "$client_version" "$wrapper_version")")"; then
-    status=1
-  fi
   ssh_quiet "${SSH_USER}@${HOST}" "rm -f $(printf %q "$remote_auth") $(printf %q "$remote_ca")" || true
   return "$status"
 }
