@@ -256,15 +256,19 @@ try {
             installerError('Installer host missing', 404);
         }
 
+        $versions = $service->versionSummary();
+        $baseUrl = resolveInstallerBaseUrl($tokenRow);
+        if ($baseUrl === '') {
+            installerError('Installer base URL invalid', 500, $tokenRow['expires_at'] ?? null);
+        }
+        $script = buildInstallerScript($host, $tokenRow, $baseUrl, $versions);
+
         $installTokenRepository->markUsed((int) $tokenRow['id']);
         $logRepository->log($hostId, 'install.token.consume', [
             'fqdn' => $tokenRow['fqdn'] ?? ($host['fqdn'] ?? null),
             'token' => substr((string) $tokenValue, 0, 8) . '…',
+            'base_url' => $baseUrl,
         ]);
-
-        $versions = $service->versionSummary();
-        $baseUrl = resolveInstallerBaseUrl($tokenRow);
-        $script = buildInstallerScript($host, $tokenRow, $baseUrl, $versions);
 
         emitInstaller($script, 200, $tokenRow['expires_at'] ?? null);
     }
@@ -476,6 +480,12 @@ try {
 
         $expiresAt = gmdate(DATE_ATOM, time() + $ttlSeconds);
         $baseUrl = resolveInstallerBaseUrl();
+        if ($baseUrl === '') {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Unable to determine public base URL for installer. Set PUBLIC_BASE_URL or ensure Host/X-Forwarded-Proto headers are forwarded.',
+            ], 500);
+        }
         $tokenRow = $installTokenRepository->create(
             generateUuid(),
             (int) $host['id'],
@@ -984,7 +994,13 @@ function resolveInstallerBaseUrl(?array $tokenRow = null): string
         }
     }
 
-    return rtrim($baseUrl, '/');
+    $baseUrl = rtrim($baseUrl, '/');
+
+    if (!preg_match('#^https?://[A-Za-z0-9._:-]+(/.*)?$#', $baseUrl)) {
+        return '';
+    }
+
+    return $baseUrl;
 }
 
 function installerCommand(string $baseUrl, string $token): string

@@ -480,7 +480,7 @@
               </div>
               <p class="muted" id="installerMeta" style="margin-top:8px; display:none;"></p>
               <p class="muted" style="margin-top:8px;">Single command downloads the baked installer and registers the host.</p>
-            </div>
+              </div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="cancelNewHost">Cancel</button>
               <button id="createHost">Generate</button>
@@ -1135,13 +1135,14 @@
         if (installerMeta) {
           const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
           installerMeta.textContent = expires
-            ? `One-time installer (expires ${expires}).`
-            : 'One-time installer ready.';
+            ? `One-time installer (expires ${expires}). Base: ${installer.base_url || 'n/a'}.`
+            : `One-time installer ready. Base: ${installer.base_url || 'n/a'}.`;
           installerMeta.style.display = 'block';
         }
         await loadAll();
       } catch (err) {
-        alert(err.message || err);
+        const msg = err?.message || String(err);
+        alert(`Installer generation failed: ${msg}`);
       } finally {
         createHostBtn.disabled = false;
         createHostBtn.textContent = 'Generate';
