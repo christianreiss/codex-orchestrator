@@ -143,6 +143,7 @@ class AuthService
         $this->hosts->incrementApiCalls($hostId);
         $host = $this->hosts->findById($hostId) ?? $host;
 
+        $versions = $this->versionSnapshot();
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
@@ -157,8 +158,6 @@ class AuthService
             $this->digests->rememberDigests($hostId, [$canonicalDigest]);
             $recentDigests = $this->digests->recentDigests($hostId);
         }
-
-        $versions = $this->versionSnapshot();
 
         if ($command === 'retrieve') {
             $providedDigest = $this->extractDigest($payload, true);
