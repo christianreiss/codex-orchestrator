@@ -1091,8 +1091,8 @@ CODEX_SYNC_API_KEY=__API__
 CODEX_SYNC_FQDN=__FQDN__
 EOF
 
-"$install_path" --version
-"$codex_path" -V || true
+CODEX_SYNC_BASE_URL=__BASE__ CODEX_SYNC_API_KEY=__API__ CODEX_SYNC_FQDN=__FQDN__ "$install_path" --version
+CODEX_SYNC_BASE_URL=__BASE__ CODEX_SYNC_API_KEY=__API__ CODEX_SYNC_FQDN=__FQDN__ "$codex_path" -V || true
 echo "Install complete for __FQDN__"
 SCRIPT;
 
