@@ -147,10 +147,39 @@ class AuthService
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
+        $canonicalAuthArray = null;
+
+        if ($canonicalPayload !== null) {
+            $validated = $this->validateCanonicalPayload($canonicalPayload);
+            if ($validated !== null) {
+                $canonicalAuthArray = $validated['auth'];
+                $canonicalDigest = $validated['digest'];
+                $canonicalLastRefresh = $validated['last_refresh'];
+            } else {
+                $canonicalPayload = null;
+                $canonicalDigest = null;
+                $canonicalLastRefresh = null;
+            }
+        }
 
         // Daily runner preflight: once per UTC day, refresh canonical via runner before responding.
         if ($this->runnerVerifier !== null) {
             [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerDailyCheck($canonicalPayload, $host, $versions);
+            if ($canonicalPayload !== null) {
+                $validated = $this->validateCanonicalPayload($canonicalPayload);
+                if ($validated !== null) {
+                    $canonicalAuthArray = $validated['auth'];
+                    $canonicalDigest = $validated['digest'];
+                    $canonicalLastRefresh = $validated['last_refresh'];
+                } else {
+                    $canonicalPayload = null;
+                    $canonicalAuthArray = null;
+                    $canonicalDigest = null;
+                    $canonicalLastRefresh = null;
+                }
+            } else {
+                $canonicalAuthArray = null;
+            }
         }
 
         $recentDigests = $this->digests->recentDigests($hostId);
@@ -207,7 +236,7 @@ class AuthService
                 } else {
                     // Always hand back canonical to allow hydration, even if client claims newer.
                     $status = 'outdated';
-                    $authArray = $this->canonicalAuthFromPayload($canonicalPayload);
+                    $authArray = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
                     $response = [
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
@@ -284,7 +313,7 @@ class AuthService
             $host = $this->hosts->findById($hostId) ?? $host;
 
             if ($status === 'outdated' && $canonicalPayload) {
-                $authArray = $this->canonicalAuthFromPayload($canonicalPayload);
+                $authArray = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
                 $response = [
                     'status' => $status,
                     'host' => $this->buildHostPayload($host),
@@ -325,7 +354,7 @@ class AuthService
         if ($this->runnerVerifier !== null) {
             $authToValidate = null;
             if ($canonicalPayload) {
-                $authToValidate = $this->canonicalAuthFromPayload($canonicalPayload);
+                $authToValidate = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
             } elseif ($canonicalizedAuth !== null) {
                 $authToValidate = $canonicalizedAuth;
             }
@@ -426,15 +455,24 @@ class AuthService
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
         }
 
+        $validatedCanonical = $this->validateCanonicalPayload($canonicalPayload);
+        if ($validatedCanonical === null) {
+            return [null, null, null];
+        }
+
+        $canonicalAuth = $validatedCanonical['auth'];
+        $currentDigest = $validatedCanonical['digest'];
+        $currentLastRefresh = $validatedCanonical['last_refresh'];
+
         $today = gmdate('Y-m-d');
         $lastCheck = $this->versions->get('runner_last_check', '');
         if ($lastCheck === $today) {
-            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
+            return [$canonicalPayload, $currentDigest, $currentLastRefresh];
         }
 
         $hostId = (int) ($host['id'] ?? 0);
         try {
-            $validation = $this->runnerVerifier->verify($this->canonicalAuthFromPayload($canonicalPayload));
+            $validation = $this->runnerVerifier->verify($canonicalAuth);
             $this->logs->log($hostId, 'auth.validate', [
                 'status' => $validation['status'] ?? null,
                 'reason' => $validation['reason'] ?? null,
@@ -455,8 +493,6 @@ class AuthService
                 }
                 $runnerDigest = $this->calculateDigest($runnerEncoded);
 
-                $currentDigest = $canonicalPayload['sha256'] ?? null;
-                $currentLastRefresh = $canonicalPayload['last_refresh'] ?? null;
                 $comparison = $currentLastRefresh !== null
                     ? Timestamp::compare((string) $runnerLastRefresh, $currentLastRefresh)
                     : 1;
@@ -832,6 +868,51 @@ class AuthService
         }
 
         return $this->buildAuthArrayFromPayload($payload);
+    }
+
+    public function validateCanonicalPayload(?array $payload): ?array
+    {
+        if ($payload === null) {
+            return null;
+        }
+
+        try {
+            $auth = $this->canonicalAuthFromPayload($payload);
+            $lastRefresh = $auth['last_refresh'] ?? null;
+            if (!is_string($lastRefresh) || trim($lastRefresh) === '') {
+                throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
+            }
+            $this->assertReasonableLastRefresh($lastRefresh, 'auth.last_refresh');
+            $this->normalizeAuthEntries($auth);
+
+            $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($encoded === false) {
+                throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
+            }
+            $digest = $this->calculateDigest($encoded);
+            $storedDigest = $payload['sha256'] ?? null;
+            if (is_string($storedDigest) && $storedDigest !== '' && !hash_equals($storedDigest, $digest)) {
+                throw new ValidationException(['auth.digest' => ['stored digest mismatch']]);
+            }
+
+            return [
+                'auth' => $auth,
+                'digest' => $digest,
+                'last_refresh' => $lastRefresh,
+                'encoded' => $encoded,
+            ];
+        } catch (\Throwable $exception) {
+            $this->logs->log(
+                isset($payload['source_host_id']) ? (int) $payload['source_host_id'] : null,
+                'auth.canonical_invalid',
+                [
+                    'payload_id' => $payload['id'] ?? null,
+                    'reason' => $exception->getMessage(),
+                ]
+            );
+
+            return null;
+        }
     }
 
     private function normalizeAuthEntries(array $authPayload): array

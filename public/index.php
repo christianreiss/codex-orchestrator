@@ -543,50 +543,16 @@ try {
             $payloadRow = $authPayloadRepository->latest();
         }
 
+        $validated = $payloadRow ? $service->validateCanonicalPayload($payloadRow) : null;
+
         $auth = null;
-        if ($includeBody && $payloadRow) {
-            if (!empty($payloadRow['body']) && is_string($payloadRow['body'])) {
-                $decoded = json_decode($payloadRow['body'], true);
-                if (is_array($decoded)) {
-                    $auth = $decoded;
-                }
-            }
-            if ($auth === null) {
-                // Fallback to reconstructed auth from entries.
-                $auths = [];
-                foreach ($payloadRow['entries'] ?? [] as $entry) {
-                    $item = ['token' => $entry['token']];
-                    if (!empty($entry['token_type'])) {
-                        $item['token_type'] = $entry['token_type'];
-                    }
-                    if (!empty($entry['organization'])) {
-                        $item['organization'] = $entry['organization'];
-                    }
-                    if (!empty($entry['project'])) {
-                        $item['project'] = $entry['project'];
-                    }
-                    if (!empty($entry['api_base'])) {
-                        $item['api_base'] = $entry['api_base'];
-                    }
-                    if (!empty($entry['meta']) && is_array($entry['meta'])) {
-                        foreach ($entry['meta'] as $k => $v) {
-                            $item[$k] = $v;
-                        }
-                    }
-                    ksort($item);
-                    $auths[$entry['target']] = $item;
-                }
-                ksort($auths);
-                $auth = [
-                    'last_refresh' => $payloadRow['last_refresh'] ?? null,
-                    'auths' => $auths,
-                ];
-            }
+        if ($includeBody && $validated !== null) {
+            $auth = $validated['auth'];
         }
 
-        $canonicalLastRefresh = $payloadRow['last_refresh']
+        $canonicalLastRefresh = $validated['last_refresh']
             ?? ($host['last_refresh'] ?? ($state['seen_at'] ?? null));
-        $canonicalDigest = $payloadRow['sha256']
+        $canonicalDigest = $validated['digest']
             ?? ($state['seen_digest'] ?? ($host['auth_digest'] ?? null));
 
         Response::json([
