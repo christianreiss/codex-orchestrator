@@ -86,37 +86,37 @@ def _run_probe(payload: VerifyRequest) -> dict:
                 detail="cdx wrapper not runnable",
             )
 
-    proc = subprocess.run(
-        probe_cmd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    updated_auth = None
-    try:
-        with open(auth_path, "r", encoding="utf-8") as fh:
-            current_auth = json.load(fh)
-            if isinstance(current_auth, dict) and current_auth != payload.auth_json:
-                updated_auth = current_auth
-    except Exception:
+        proc = subprocess.run(
+            probe_cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
         updated_auth = None
+        try:
+            with open(auth_path, "r", encoding="utf-8") as fh:
+                current_auth = json.load(fh)
+                if isinstance(current_auth, dict) and current_auth != payload.auth_json:
+                    updated_auth = current_auth
+        except Exception:
+            updated_auth = None
 
-    latency_ms = int((time.perf_counter() - start) * 1000)
-    result = {
-        "status": "ok" if proc.returncode == 0 else "fail",
-        "latency_ms": latency_ms,
-        "wrapper_version": _wrapper_version(env),
-    }
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        result = {
+            "status": "ok" if proc.returncode == 0 else "fail",
+            "latency_ms": latency_ms,
+            "wrapper_version": _wrapper_version(env),
+        }
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
-        stdout = (proc.stdout or "").strip()
-        message = stderr if stderr else stdout
-        result["reason"] = message[:400] if message else "probe failed"
-    if updated_auth is not None:
-        result["updated_auth"] = updated_auth
-        result.setdefault("reason", "auth.json changed during probe")
-    return result
+            stdout = (proc.stdout or "").strip()
+            message = stderr if stderr else stdout
+            result["reason"] = message[:400] if message else "probe failed"
+        if updated_auth is not None:
+            result["updated_auth"] = updated_auth
+            result.setdefault("reason", "auth.json changed during probe")
+        return result
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
