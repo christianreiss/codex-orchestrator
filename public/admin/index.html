@@ -1022,32 +1022,6 @@
           tone: mtlsMeta.fingerprint ? 'ok' : 'danger',
         });
       }
-      if (lastOverview?.versions) {
-        chips.push({
-          label: 'CLI',
-          value: lastOverview.versions.client_version ?? 'n/a',
-          tone: 'neutral',
-        });
-        chips.push({
-          label: 'Wrapper',
-          value: lastOverview.versions.wrapper_version ?? 'n/a',
-          tone: 'neutral',
-        });
-      }
-      if (runnerSummary) {
-        chips.push({
-          label: 'Runner',
-          value: runnerSummary.enabled ? 'Enabled' : 'Disabled',
-          tone: runnerSummary.enabled ? 'ok' : 'warn',
-        });
-      }
-      if (tokensSummary) {
-        chips.push({
-          label: 'Tokens',
-          value: formatNumber(tokensSummary.total),
-          tone: 'neutral',
-        });
-      }
       healthEl.innerHTML = `
         <div class="health-card">
           ${chips.map(c => `
