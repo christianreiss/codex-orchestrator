@@ -178,6 +178,9 @@ For each endpoint, fields are **required unless noted**. Timestamps are RFC3339.
   - Returns all hosts with status, last/updated timestamps, versions, api_calls, IP, roaming flag, canonical digest (from host state or host row), boolean `authed`, up to 3 recent digests, and aggregated token usage per host.
 - **POST /admin/hosts/register**
   - Body `{ fqdn }`; uses configured `INVITATION_KEY` to register the host (rotates if existing). Response `{ status: "ok", data: { host } }`.
+- **GET /admin/runner**
+  - Returns runner configuration and recent activity when `AUTH_RUNNER_URL` is set: `{ enabled, runner_url, base_url, timeout_seconds, last_daily_check, counts: { validations_24h, runner_store_24h }, latest_validation?, latest_runner_store? }`.
+  - `latest_validation`/`latest_runner_store` include host (id/fqdn), status/reason/latency (validation), and incoming digest/last_refresh when the runner applied or attempted to apply an update.
 - **GET /admin/api/state** / **POST /admin/api/state**
   - GET returns `{ disabled: bool }` from `versions.api_disabled` flag.
   - POST body `{ disabled: bool }`; sets the flag. Validation error `422` if value not boolean-ish.

@@ -428,6 +428,68 @@ try {
         ]);
     }
 
+    if ($method === 'GET' && $normalizedPath === '/admin/runner') {
+        requireAdminAccess();
+
+        $runnerUrl = (string) Config::get('AUTH_RUNNER_URL', '');
+        $enabled = trim($runnerUrl) !== '';
+        $defaultBaseUrl = (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api');
+        $timeoutSeconds = (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0);
+
+        $since = gmdate(DATE_ATOM, time() - 86400);
+        $latestValidationRow = $logRepository->recentByActions(['auth.validate'], 1);
+        $latestRunnerStoreRow = $logRepository->recentByActions(['auth.runner_store'], 1);
+
+        $formatLog = static function (?array $row) use ($hostRepository): ?array {
+            if (!$row) {
+                return null;
+            }
+            $detailsRaw = $row['details'] ?? null;
+            $details = null;
+            if (is_array($detailsRaw)) {
+                $details = $detailsRaw;
+            } elseif (is_string($detailsRaw) && $detailsRaw !== '') {
+                $decoded = json_decode($detailsRaw, true);
+                if (is_array($decoded)) {
+                    $details = $decoded;
+                }
+            }
+            $hostId = isset($row['host_id']) ? (int) $row['host_id'] : null;
+            $host = $hostId ? $hostRepository->findById($hostId) : null;
+
+            return [
+                'id' => (int) $row['id'],
+                'created_at' => $row['created_at'] ?? null,
+                'host' => $host ? [
+                    'id' => (int) $host['id'],
+                    'fqdn' => $host['fqdn'],
+                ] : null,
+                'status' => $details['status'] ?? null,
+                'reason' => $details['reason'] ?? null,
+                'latency_ms' => isset($details['latency_ms']) ? (int) $details['latency_ms'] : null,
+                'digest' => $details['incoming_digest'] ?? null,
+                'last_refresh' => $details['incoming_last_refresh'] ?? null,
+            ];
+        };
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'enabled' => $enabled,
+                'runner_url' => $runnerUrl,
+                'base_url' => $defaultBaseUrl,
+                'timeout_seconds' => $timeoutSeconds,
+                'last_daily_check' => $versionRepository->get('runner_last_check', null),
+                'counts' => [
+                    'validations_24h' => $logRepository->countActionsSince(['auth.validate'], $since),
+                    'runner_store_24h' => $logRepository->countActionsSince(['auth.runner_store'], $since),
+                ],
+                'latest_validation' => $formatLog($latestValidationRow[0] ?? null),
+                'latest_runner_store' => $formatLog($latestRunnerStoreRow[0] ?? null),
+            ],
+        ]);
+    }
+
     if ($method === 'GET' && $normalizedPath === '/admin/api/state') {
         requireAdminAccess();
 

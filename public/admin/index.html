@@ -578,6 +578,7 @@
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
+    let runnerSummary = null;
     let hostFilterText = '';
     let hostStatusFilter = ''; // maintained for clarity
     let lastOverview = null;
@@ -857,7 +858,39 @@
       renderHealth();
     }
 
-    function renderStats(data) {
+    function renderRunnerCard(info) {
+      if (!info) return '';
+      const enabledTone = info.enabled ? 'ok' : 'warn';
+      const lastDaily = info.last_daily_check ? formatRelative(info.last_daily_check) : 'never';
+      const counts = info.counts || {};
+      const validation = info.latest_validation || null;
+      const runnerStore = info.latest_runner_store || null;
+      const validationLabel = validation
+        ? `${validation.status ?? 'unknown'}${validation.latency_ms ? ` · ${validation.latency_ms}ms` : ''}`
+        : 'No runs yet';
+      const validationHost = validation?.host?.fqdn ? ` (${validation.host.fqdn})` : '';
+      const runnerStoreLabel = runnerStore
+        ? `${runnerStore.last_refresh ?? 'n/a'}${runnerStore.host?.fqdn ? ` (${runnerStore.host.fqdn})` : ''}`
+        : 'No updates';
+      return `
+        <div class="card runner-card">
+          <div class="stat-head">
+            <span class="stat-label">Auth Runner</span>
+            <span class="stat-badge">${info.base_url || 'n/a'}</span>
+          </div>
+          <div class="stat-value" style="font-size:28px;">${info.enabled ? 'Enabled' : 'Disabled'}</div>
+          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s · Last daily ${lastDaily}</small>
+          <div style="margin-top:12px; display:grid; gap:8px; font-size:13px;">
+            <div><strong>Status:</strong> <span class="chip ${enabledTone}">${validationLabel}</span>${validationHost}</div>
+            <div class="muted">Last run ${validation?.created_at ? formatRelative(validation.created_at) : 'never'}</div>
+            <div><strong>Applied:</strong> ${runnerStoreLabel}</div>
+            <div class="muted">24h: ${counts.validations_24h ?? 0} runs · ${counts.runner_store_24h ?? 0} updates</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStats(data, runnerInfo = null) {
       lastOverview = data;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
       const latestLog = formatRelative(data.latest_log_at);
@@ -875,39 +908,54 @@
       const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
       const totalTokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
 
-      statsEl.innerHTML = `
-        <div class="card">
-          <div class="stat-head">
-            <span class="stat-label">Hosts</span>
+      runnerSummary = runnerInfo;
+      const cards = [
+        `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">Hosts</span>
+            </div>
+            <div class="stat-value">${data.totals.hosts}</div>
+            <small>Total registered</small>
           </div>
-          <div class="stat-value">${data.totals.hosts}</div>
-          <small>Total registered</small>
-        </div>
-        <div class="card">
-          <div class="stat-head">
-            <span class="stat-label">Versions</span>
-            <span class="stat-badge">Checked ${checkedAt}</span>
+        `,
+        `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">Versions</span>
+              <span class="stat-badge">Checked ${checkedAt}</span>
+            </div>
+            <div class="stat-value">CLI ${data.versions.client_version ?? 'n/a'}</div>
+            <small>Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
           </div>
-          <div class="stat-value">CLI ${data.versions.client_version ?? 'n/a'}</div>
-          <small>Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
-        </div>
-        <div class="card">
-          <div class="stat-head">
-            <span class="stat-label">Refresh Cadence</span>
-            <span class="stat-badge">${latestLog}</span>
+        `,
+        `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">Refresh Cadence</span>
+              <span class="stat-badge">${latestLog}</span>
+            </div>
+            <div class="stat-value" style="font-size:28px;">${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
+            <small>Average since last auth</small>
           </div>
-          <div class="stat-value" style="font-size:28px;">${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
-          <small>Average since last auth</small>
-        </div>
-        <div class="card">
-          <div class="stat-head">
-            <span class="stat-label">Tokens</span>
-            <span class="stat-badge">Top ${topHostLabel}</span>
+        `,
+        `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">Tokens</span>
+              <span class="stat-badge">Top ${topHostLabel}</span>
+            </div>
+            <div class="stat-value" style="font-size:28px;">${totalTokens}</div>
+            <small>Usage total</small>
           </div>
-          <div class="stat-value" style="font-size:28px;">${totalTokens}</div>
-          <small>Usage total</small>
-        </div>
-      `;
+        `,
+      ];
+
+      if (runnerInfo) {
+        cards.push(renderRunnerCard(runnerInfo));
+      }
+
+      statsEl.innerHTML = cards.join('\n');
       renderHealth();
     }
 
@@ -939,6 +987,13 @@
           tone: 'neutral',
         });
       }
+      if (runnerSummary) {
+        chips.push({
+          label: 'Runner',
+          value: runnerSummary.enabled ? 'Enabled' : 'Disabled',
+          tone: runnerSummary.enabled ? 'ok' : 'warn',
+        });
+      }
       if (tokensSummary) {
         chips.push({
           label: 'Tokens',
@@ -960,10 +1015,16 @@
 
     async function loadAll() {
       try {
-        const overview = await api('/admin/overview');
+        const [overview, hosts, runner] = await Promise.all([
+          api('/admin/overview'),
+          api('/admin/hosts'),
+          api('/admin/runner').catch(err => {
+            console.warn('Runner status unavailable', err);
+            return null;
+          }),
+        ]);
         setMtls(overview.data.mtls);
-        renderStats(overview.data);
-        const hosts = await api('/admin/hosts');
+        renderStats(overview.data, runner?.data || null);
         renderHosts(hosts.data.hosts);
       } catch (err) {
         mtlsEl.textContent = 'mTLS / Admin access failed';

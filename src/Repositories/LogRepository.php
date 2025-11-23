@@ -49,6 +49,57 @@ class LogRepository
         return is_array($rows) ? $rows : [];
     }
 
+    public function recentByActions(array $actions, int $limit = 20): array
+    {
+        $actions = array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
+        if (!$actions) {
+            return [];
+        }
+
+        $limit = max(1, min($limit, 200));
+        $placeholders = implode(',', array_fill(0, count($actions), '?'));
+
+        $statement = $this->database->connection()->prepare(
+            "SELECT id, host_id, action, details, created_at
+             FROM logs
+             WHERE action IN ({$placeholders})
+             ORDER BY created_at DESC, id DESC
+             LIMIT :limit"
+        );
+
+        foreach ($actions as $idx => $action) {
+            $statement->bindValue($idx + 1, $action);
+        }
+        $statement->bindValue('limit', $limit, PDO::PARAM_INT);
+        $statement->execute();
+
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return is_array($rows) ? $rows : [];
+    }
+
+    public function countActionsSince(array $actions, string $since): int
+    {
+        $actions = array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
+        if (!$actions || trim($since) === '') {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($actions), '?'));
+        $statement = $this->database->connection()->prepare(
+            "SELECT COUNT(*) FROM logs WHERE action IN ({$placeholders}) AND created_at >= :since"
+        );
+        foreach ($actions as $idx => $action) {
+            $statement->bindValue($idx + 1, $action);
+        }
+        $statement->bindValue('since', $since);
+        $statement->execute();
+
+        $count = $statement->fetchColumn();
+
+        return is_numeric($count) ? (int) $count : 0;
+    }
+
     public function latestCreatedAt(): ?string
     {
         $statement = $this->database->connection()->query(
