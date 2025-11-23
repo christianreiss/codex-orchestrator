@@ -359,37 +359,6 @@
     .chip.warn { color: var(--warning); border-color: rgba(255,200,87,0.35); background: rgba(255,200,87,0.12); }
     .chip.neutral { color: var(--muted); border-color: rgba(155,179,217,0.35); background: rgba(155,179,217,0.12); }
     .error { color: var(--danger); font-weight: 700; }
-    .health { margin-top: 18px; display: grid; gap: 12px; }
-    .health-card {
-      background: #ffffff;
-      border: 1px solid var(--panel-strong);
-      border-radius: 14px;
-      padding: 12px 14px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      box-shadow: var(--shadow);
-    }
-    .health-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.06);
-      font-weight: 700;
-      color: var(--text);
-    }
-    .health-dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      background: var(--muted);
-      box-shadow: 0 0 12px currentColor;
-    }
-    .health-chip.ok .health-dot { background: var(--success); }
-    .health-chip.warn .health-dot { background: var(--warning); }
-    .health-chip.danger .health-dot { background: var(--danger); }
     /* Modal */
     .modal-backdrop {
       position: fixed;
@@ -559,7 +528,6 @@
           </div>
         </section>
 
-        <section class="health" id="health"></section>
       </main>
     </div>
   </div>
@@ -586,7 +554,6 @@
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
-    const healthEl = document.getElementById('health');
     let pendingDeleteId = null;
 
     let currentHosts = [];
@@ -668,7 +635,6 @@
           apiToggleBtn.classList.toggle('danger', apiDisabled);
           apiToggleBtn.classList.toggle('ghost', !apiDisabled);
         }
-        renderHealth();
       } catch (err) {
         console.error('api state', err);
         if (apiToggleBtn) {
@@ -689,7 +655,6 @@
           json: { disabled: !enabled },
         });
         apiDisabled = !enabled;
-        renderHealth();
       } catch (err) {
         alert(`API toggle failed: ${err.message}`);
       } finally {
@@ -880,7 +845,6 @@
     function renderHosts(hosts) {
       currentHosts = Array.isArray(hosts) ? hosts : [];
       paintHosts();
-      renderHealth();
     }
 
     function renderRunnerCard(info) {
@@ -1027,35 +991,6 @@
       }
 
       statsEl.innerHTML = cards.join('\n');
-      renderHealth();
-    }
-
-    function renderHealth() {
-      if (!healthEl) return;
-      const chips = [];
-      const apiTone = apiDisabled === null ? 'neutral' : (apiDisabled ? 'danger' : 'ok');
-      chips.push({
-        label: 'API',
-        value: apiDisabled ? 'Disabled' : 'Active',
-        tone: apiTone,
-      });
-      if (mtlsMeta) {
-        chips.push({
-          label: 'mTLS',
-          value: mtlsMeta.fingerprint ? 'Presented' : 'Missing',
-          tone: mtlsMeta.fingerprint ? 'ok' : 'danger',
-        });
-      }
-      healthEl.innerHTML = `
-        <div class="health-card">
-          ${chips.map(c => `
-            <span class="health-chip ${c.tone}">
-              <span class="health-dot"></span>
-              ${c.label}: ${c.value}
-            </span>
-          `).join('')}
-        </div>
-      `;
     }
 
     async function loadAll() {
