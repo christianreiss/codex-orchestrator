@@ -21,7 +21,7 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 - The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
 - Runs in `php:8.2-apache` with automatic migrations; every endpoint except registration enforces API-key auth (`X-API-Key` or `Authorization: Bearer`).
 - Stores the canonical `auth.json` as a compact JSON blob (sha256 over that exact text); only the `auths` map is normalized, everything else is preserved verbatim.
-- Optional “auth runner” sidecar container (`auth-runner`) can validate the canonical `auth.json` by running `cdx` in an isolated temp `$HOME`, auto-applying refreshed tokens when Codex updates them.
+- The “auth runner” sidecar (`auth-runner`, enabled by default in `docker-compose.yml`) validates canonical auth by running `cdx` in an isolated temp `$HOME` on every store and once per UTC day; if Codex refreshes tokens, the runner’s updated auth is auto-applied. Admins can also force a run via `POST /admin/runner/run`.
 
 ## How it works (big picture)
 
@@ -89,7 +89,7 @@ With this project in place:
 On the **auth server host**:
 
 - `cp .env.example .env`
-- Edit `.env` and set `INVITATION_KEY` and `DB_*` (or use the defaults from `docker-compose.yml`).
+- Edit `.env` and set `INVITATION_KEY` and `DB_*` (or use the defaults from `docker-compose.yml`). Add `VERSION_ADMIN_KEY` if you plan to publish wrapper/client versions via `bin/push-wrapper`.
 - `docker compose up --build`
 
 On your **laptop or admin box** (the one where you already use Codex):
@@ -152,10 +152,12 @@ docker-compose.yml
    - Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes.
 
 2. **Docker**
-   - `docker compose up --build`
-   - Services: `api` (PHP) and `mysql` (MySQL 8). Both join the `codex_auth` network.
-   - API listens on `http://localhost:8488`.
-   - MySQL data persists in `/var/docker_data/codex-auth.uggs.io/mysql_data` (bind-mounted one level above the repo); SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
+  - `docker compose up --build`
+  - Services: `api` (PHP) and `mysql` (MySQL 8). Both join the `codex_auth` network.
+  - API listens on `http://localhost:8488`.
+  - MySQL data persists in `/var/docker_data/codex-auth.uggs.io/mysql_data` (bind-mounted one level above the repo); SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
+  - Optional runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); disable by clearing that env or removing the service from compose.
+  - Admin dashboard routes live at `/admin/*`; they require mTLS (`X-mTLS-Present` header is set by your proxy) and optionally `DASHBOARD_ADMIN_KEY`.
 
 3. **Local (optional)**
    - `composer install`

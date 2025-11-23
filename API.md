@@ -16,8 +16,7 @@ All responses are JSON. Request bodies must be `application/json` unless otherwi
 
 ### Invitation Key
 
-- Current onboarding key: `39e0975e1d8e82db7a9b39e0f518d59fc4e588ef9a08564fa499779c9536eacc`
-- Rotate via the `INVITATION_KEY` environment variable.
+- Onboarding key is configured via the `INVITATION_KEY` environment variable (not published here); rotate as needed and distribute out-of-band.
 
 Errors return:
 
