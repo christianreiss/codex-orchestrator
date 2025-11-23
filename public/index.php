@@ -263,13 +263,7 @@ try {
         ]);
 
         $versions = $service->versionSummary();
-        $baseUrl = resolveBaseUrl();
-        if ($baseUrl === '' || $baseUrl === 'http://' || $baseUrl === 'https://') {
-            $fallbackBase = Config::get('PUBLIC_BASE_URL', '');
-            if (is_string($fallbackBase) && trim($fallbackBase) !== '') {
-                $baseUrl = trim($fallbackBase);
-            }
-        }
+        $baseUrl = resolveInstallerBaseUrl($tokenRow);
         $script = buildInstallerScript($host, $tokenRow, $baseUrl, $versions);
 
         emitInstaller($script, 200, $tokenRow['expires_at'] ?? null);
@@ -481,15 +475,16 @@ try {
         }
 
         $expiresAt = gmdate(DATE_ATOM, time() + $ttlSeconds);
+        $baseUrl = resolveInstallerBaseUrl();
         $tokenRow = $installTokenRepository->create(
             generateUuid(),
             (int) $host['id'],
             (string) $host['api_key'],
             (string) $host['fqdn'],
-            $expiresAt
+            $expiresAt,
+            $baseUrl
         );
 
-        $baseUrl = resolveBaseUrl();
         $logRepository->log((int) $host['id'], 'admin.install_token.create', [
             'fqdn' => $host['fqdn'],
             'expires_at' => $expiresAt,
@@ -969,6 +964,27 @@ function generateUuid(): string
     $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
 
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
+function resolveInstallerBaseUrl(?array $tokenRow = null): string
+{
+    $baseUrl = '';
+    if ($tokenRow && isset($tokenRow['base_url']) && is_string($tokenRow['base_url'])) {
+        $baseUrl = trim((string) $tokenRow['base_url']);
+    }
+
+    if ($baseUrl === '') {
+        $baseUrl = resolveBaseUrl();
+    }
+
+    if ($baseUrl === '' || $baseUrl === 'http://' || $baseUrl === 'https://') {
+        $fallbackBase = Config::get('PUBLIC_BASE_URL', '');
+        if (is_string($fallbackBase) && trim($fallbackBase) !== '') {
+            $baseUrl = trim($fallbackBase);
+        }
+    }
+
+    return rtrim($baseUrl, '/');
 }
 
 function installerCommand(string $baseUrl, string $token): string

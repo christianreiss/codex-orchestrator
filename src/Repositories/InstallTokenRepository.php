@@ -11,11 +11,11 @@ class InstallTokenRepository
     {
     }
 
-    public function create(string $token, int $hostId, string $apiKey, string $fqdn, string $expiresAt): array
+    public function create(string $token, int $hostId, string $apiKey, string $fqdn, string $expiresAt, ?string $baseUrl = null): array
     {
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO install_tokens (token, host_id, api_key, fqdn, expires_at, created_at) VALUES (:token, :host_id, :api_key, :fqdn, :expires_at, :created_at)'
+            'INSERT INTO install_tokens (token, host_id, api_key, fqdn, base_url, expires_at, created_at) VALUES (:token, :host_id, :api_key, :fqdn, :base_url, :expires_at, :created_at)'
         );
 
         $statement->execute([
@@ -23,6 +23,7 @@ class InstallTokenRepository
             'host_id' => $hostId,
             'api_key' => $apiKey,
             'fqdn' => $fqdn,
+            'base_url' => $baseUrl,
             'expires_at' => $expiresAt,
             'created_at' => $now,
         ]);

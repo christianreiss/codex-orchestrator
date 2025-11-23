@@ -144,6 +144,7 @@ class Database
                 host_id BIGINT UNSIGNED NOT NULL,
                 fqdn VARCHAR(255) NOT NULL,
                 api_key CHAR(64) NOT NULL,
+                base_url VARCHAR(255) NULL,
                 expires_at VARCHAR(100) NOT NULL,
                 used_at VARCHAR(100) NULL,
                 created_at VARCHAR(100) NOT NULL,
@@ -206,6 +207,7 @@ class Database
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');
+        $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
 
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid
