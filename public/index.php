@@ -1023,13 +1023,13 @@ function buildInstallerScript(array $host, array $tokenRow, string $baseUrl, arr
     $codexVersion = escapeForSingleQuotes((string) $codexVersion);
     $baseEscaped = escapeForSingleQuotes($base);
 
-    return <<<SCRIPT
+    $template = <<<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
-BASE_URL='{$baseEscaped}'
-API_KEY='{$apiKey}'
-FQDN='{$fqdn}'
-CODEX_VERSION='{$codexVersion}'
+BASE_URL='__BASE__'
+API_KEY='__API__'
+FQDN='__FQDN__'
+CODEX_VERSION='__CODEX__'
 
 tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
@@ -1079,6 +1079,13 @@ EOF
 "$codex_path" -V || true
 echo "Install complete for ${FQDN}"
 SCRIPT;
+
+    return strtr($template, [
+        '__BASE__' => $baseEscaped,
+        '__API__' => $apiKey,
+        '__FQDN__' => $fqdn,
+        '__CODEX__' => $codexVersion,
+    ]);
 }
 
 function emitInstaller(string $body, int $status = 200, ?string $expiresAt = null): void
