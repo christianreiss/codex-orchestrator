@@ -168,46 +168,6 @@ extract_invite_key_from_file() {
   return 1
 }
 
-extract_invite_key_from_api_doc() {
-  local doc="${ORCHESTRATOR_REPO}/API.md"
-  if [ ! -r "$doc" ]; then
-    return 1
-  fi
-  local match
-  match="$(grep -E '"invitation_key"[[:space:]]*:' "$doc" | head -n1 || true)"
-  if [ -z "$match" ]; then
-    return 1
-  fi
-  local value
-  value="$(printf '%s\n' "$match" | sed -E 's/.*"invitation_key"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
-  value="${value%$'\r'}"
-  value="${value#<}"
-  value="${value%>}"
-  if [ -n "$value" ]; then
-    printf '%s' "$value"
-    return 0
-  fi
-  return 1
-}
-
-extract_invite_key_from_api_spec() {
-  local file="${ORCHESTRATOR_REPO}/API.md"
-  if [ ! -r "$file" ]; then
-    return 1
-  fi
-  local key line
-  line="$(grep -E 'Current shared key' "$file" | head -n1 || true)"
-  if [ -z "$line" ]; then
-    return 1
-  fi
-  key="$(printf '%s\n' "$line" | grep -Eo '[0-9a-f]{32,}' | head -n1 || true)"
-  if [ -n "$key" ]; then
-    printf '%s' "$key"
-    return 0
-  fi
-  return 1
-}
-
 if [ -z "$SYNC_INVITE_KEY" ]; then
   for candidate in \
     "${ORCHESTRATOR_REPO}/.env" \
@@ -223,17 +183,6 @@ if [ -z "$SYNC_INVITE_KEY" ]; then
       break
     fi
   done
-  if [ -z "$SYNC_INVITE_KEY" ]; then
-    if key="$(extract_invite_key_from_api_spec 2>/dev/null)"; then
-      SYNC_INVITE_KEY="$key"
-    fi
-  fi
-fi
-
-if [ -z "$SYNC_INVITE_KEY" ]; then
-  if key="$(extract_invite_key_from_api_doc 2>/dev/null)"; then
-    SYNC_INVITE_KEY="$key"
-  fi
 fi
 
 # Resolve path even when invoked via symlink (e.g. ~/bin/codex_install.sh)
