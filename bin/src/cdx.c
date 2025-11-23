@@ -36,6 +36,7 @@ static const char *YELLOW = "";
 static const char *BLUE = "";
 static const char *RED = "";
 static const char *RESET = "";
+static const char *TAG_DIM = "";
 
 static int CODEX_DEBUG = 0;
 static int CODEX_SYNC_ALLOW_INSECURE = 0;
@@ -48,7 +49,7 @@ static char *CODEX_SYNC_FQDN = NULL;
 static char *CODEX_SYNC_CA_FILE = NULL;
 static int SYNC_CONFIG_LOADED = 0;
 
-static const char *WRAPPER_VERSION = "2025.11.23-2";
+static const char *WRAPPER_VERSION = "2025.11.23-3";
 
 static int IS_ROOT = 0;
 static int CAN_SUDO = 0;
@@ -95,33 +96,44 @@ static void set_colors(void) {
         BLUE = "\033[36m";
         RED = "\033[31m";
         RESET = "\033[0m";
+        TAG_DIM = "\033[90m";
+    } else {
+        BOLD = "";
+        DIM = "";
+        GREEN = "";
+        YELLOW = "";
+        BLUE = "";
+        RED = "";
+        RESET = "";
+        TAG_DIM = "";
     }
+}
+
+static void log_line(FILE *stream, const char *color, const char *label, const char *fmt, va_list ap) {
+    if (IS_TTY && color && *color) fprintf(stream, "%s%s[%s]%s ", BOLD, color, label, RESET);
+    else fprintf(stream, "[%s] ", label);
+    vfprintf(stream, fmt, ap);
+    fprintf(stream, "\n");
 }
 
 static void log_info(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stdout, "%s%s» ", BLUE, BOLD);
-    vfprintf(stdout, fmt, ap);
-    fprintf(stdout, "%s\n", RESET);
+    log_line(stdout, BLUE, "info", fmt, ap);
     va_end(ap);
 }
 
 static void log_warn(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "%s%s! ", YELLOW, BOLD);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "%s\n", RESET);
+    log_line(stderr, YELLOW, "warn", fmt, ap);
     va_end(ap);
 }
 
 static void log_error(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "%s%sx ", RED, BOLD);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "%s\n", RESET);
+    log_line(stderr, RED, "fail", fmt, ap);
     va_end(ap);
 }
 
@@ -129,9 +141,7 @@ static void log_debug(const char *fmt, ...) {
     if (!CODEX_DEBUG) return;
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "%s[debug]%s ", DIM, RESET);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
+    log_line(stderr, TAG_DIM, "debug", fmt, ap);
     va_end(ap);
 }
 
@@ -270,7 +280,7 @@ static int ensure_commands(char **cmds, int count) {
     if (!missing) return 0;
     char *pm = detect_linux_pm();
     if (!pm) {
-        log_error("Missing commands and cannot detect package manager");
+        log_error("system  | missing commands and cannot detect package manager");
         return 1;
     }
     int use_sudo = (!IS_ROOT && CAN_SUDO);
@@ -293,7 +303,7 @@ static int ensure_commands(char **cmds, int count) {
             strncat(listbuf, cmds[i], sizeof(listbuf) - strlen(listbuf) - 1);
         }
     }
-    log_info("Installing prerequisites (%s) with %s", listbuf, pm);
+    log_info("system  | installing prerequisites (%s) with %s", listbuf, pm);
     int rc = run_status(cmdline);
     free(pm);
     if (rc != 0) return 1;
@@ -418,7 +428,7 @@ static void load_sync_config(void) {
     char *masked = mask_key(CODEX_SYNC_API_KEY);
     log_debug("config | base=%s | api_key=%s | fqdn=%s | ca=%s | allow_insecure=%d", CODEX_SYNC_BASE_URL, masked, CODEX_SYNC_FQDN ? CODEX_SYNC_FQDN : "none", CODEX_SYNC_CA_FILE ? CODEX_SYNC_CA_FILE : "none", CODEX_SYNC_ALLOW_INSECURE);
     free(masked);
-    if (CODEX_SYNC_ALLOW_INSECURE) log_warn("TLS verification fallback to insecure context is ENABLED (CODEX_SYNC_ALLOW_INSECURE=1)");
+    if (CODEX_SYNC_ALLOW_INSECURE) log_warn("tls     | verification fallback to insecure context is ENABLED (CODEX_SYNC_ALLOW_INSECURE=1)");
 }
 
 // Embedded Python helpers --------------------------------------------------
@@ -867,12 +877,12 @@ static int sync_auth_with_api(const char *phase) {
         }
         AUTH_PULL_STATUS = safe_strdup("missing-config");
         AUTH_PULL_URL = safe_strdup(CODEX_SYNC_BASE_URL ? CODEX_SYNC_BASE_URL : "");
-        log_error("Sync config missing API key or base URL; create ~/.codex/sync.env or set CODEX_SYNC_*");
+        log_error("auth    | sync config missing API key or base URL; create ~/.codex/sync.env or set CODEX_SYNC_*");
         return 1;
     }
     if (!command_exists("python3")) {
         if (!SYNC_WARNED_NO_PYTHON) {
-            log_warn("python3 is required for Codex auth sync; skipping API synchronization.");
+            log_warn("auth    | python3 required; skipping API sync");
             SYNC_WARNED_NO_PYTHON = 1;
         }
         return 1;
@@ -921,28 +931,28 @@ static int sync_auth_with_api(const char *phase) {
     free(api_output);
     switch (rc) {
         case 10:
-            log_warn("Auth sync denied: invalid API key; removing local auth.json");
+            log_warn("auth    | sync denied: invalid API key; removing local auth.json");
             unlink(auth_path);
             AUTH_PULL_STATUS = safe_strdup("invalid");
             return 1;
         case 11:
-            log_warn("Auth sync denied: host disabled; removing local auth.json");
+            log_warn("auth    | sync denied: host disabled; removing local auth.json");
             unlink(auth_path);
             return 1;
         case 12:
-            log_warn("Auth sync blocked for this IP (key bound elsewhere); keeping local auth.json.");
+            log_warn("auth    | sync blocked for this IP (key bound elsewhere); keeping local auth.json.");
             return 1;
         case 21:
         case 22:
-            log_warn("Auth sync failed: API key missing/invalid");
+            log_warn("auth    | sync failed: API key missing/invalid");
             return 1;
         case 40:
-            log_warn("Auth sync blocked: API disabled by administrator");
+            log_warn("auth    | sync blocked: API disabled by administrator");
             AUTH_PULL_STATUS = safe_strdup("disabled");
             AUTH_PULL_URL = safe_strdup(CODEX_SYNC_BASE_URL);
             return 1;
         default:
-            log_warn("Auth API sync (%s) failed (base=%s, key=%s)", phase ? phase : "sync", CODEX_SYNC_BASE_URL, CODEX_SYNC_API_KEY);
+            log_warn("auth    | sync %s failed (base=%s, key=%s)", phase ? phase : "sync", CODEX_SYNC_BASE_URL, CODEX_SYNC_API_KEY);
             unlink(auth_path);
             AUTH_PULL_STATUS = safe_strdup("fail");
             AUTH_PULL_URL = safe_strdup(CODEX_SYNC_BASE_URL);
@@ -963,16 +973,16 @@ static char *extract_token_usage_payload(const char *log_path) {
 static void post_token_usage_payload(const char *payload_json) {
     if (!payload_json || !*payload_json) return;
     if (!CODEX_SYNC_API_KEY || !CODEX_SYNC_BASE_URL) {
-        log_warn("Usage push skipped: API key or base URL missing");
+        log_warn("usage   | skipped | API key or base URL missing");
         return;
     }
     char *argv[] = {(char *)CODEX_SYNC_BASE_URL, (char *)CODEX_SYNC_API_KEY, (char *)payload_json, CODEX_SYNC_CA_FILE ? CODEX_SYNC_CA_FILE : "", NULL};
     char *out = NULL;
     int rc = run_python(PY_POST_USAGE, argv, &out);
     if (rc == 0) {
-        if (out) { out[strcspn(out, "\n")] = '\0'; log_info("Usage push | ok | %s", out); }
+        if (out) { out[strcspn(out, "\n")] = '\0'; log_info("usage   | sent | %s", out); }
     } else {
-        log_warn("Usage push | failed");
+        log_warn("usage   | failed");
     }
     free(out);
 }
@@ -1008,7 +1018,7 @@ static int perform_update(const char *target_path, const char *url, const char *
     char asset_path[PATH_MAX]; snprintf(asset_path, sizeof(asset_path), "%s/asset", tmpdir);
     char cmd[PATH_MAX * 2];
     snprintf(cmd, sizeof(cmd), "curl -fsSL '%s' -o '%s'", url, asset_path);
-    if (run_status(cmd) != 0) { log_error("Download failed from %s", url); goto cleanup; }
+    if (run_status(cmd) != 0) { log_error("versions | download failed from %s", url); goto cleanup; }
     char extracted[PATH_MAX] = "";
     if (asset_name && strstr(asset_name, ".tar.gz")) {
         snprintf(cmd, sizeof(cmd), "tar -xzf '%s' -C '%s'", asset_path, tmpdir);
@@ -1044,22 +1054,22 @@ static int perform_update(const char *target_path, const char *url, const char *
     }
     chmod(extracted, 0755);
     struct stat st;
-    if (stat(extracted, &st) != 0) { log_error("Unable to locate Codex binary inside downloaded asset"); goto cleanup; }
+    if (stat(extracted, &st) != 0) { log_error("versions | unable to locate Codex binary inside downloaded asset"); goto cleanup; }
     char target_dir[PATH_MAX];
     snprintf(target_dir, sizeof(target_dir), "%s", target_path);
     char *slash = strrchr(target_dir, '/');
     if (slash) *slash = '\0'; else strcpy(target_dir, ".");
     if (access(target_dir, W_OK) == 0) {
         snprintf(cmd, sizeof(cmd), "install -m 755 '%s' '%s'", extracted, target_path);
-        if (run_status(cmd) != 0) { log_error("Install failed into %s", target_path); goto cleanup; }
+        if (run_status(cmd) != 0) { log_error("install | failed into %s", target_path); goto cleanup; }
     } else if (CAN_SUDO) {
         snprintf(cmd, sizeof(cmd), "%s install -m 755 '%s' '%s'", SUDO_BIN, extracted, target_path);
-        if (run_status(cmd) != 0) { log_warn("Install denied (sudo) for %s", target_path); goto cleanup; }
+        if (run_status(cmd) != 0) { log_warn("install | denied (sudo) for %s", target_path); goto cleanup; }
     } else {
-        log_warn("Insufficient permissions to install Codex into %s", target_path);
+        log_warn("install | insufficient permissions for %s", target_path);
         goto cleanup;
     }
-    log_info("Codex updated to %s", new_version);
+    log_info("versions | codex updated to %s", new_version);
     rmdir(tmpdir);
     return 1;
 cleanup:
@@ -1236,14 +1246,14 @@ int main(int argc, char **argv) {
     char **user_argv = argv + argi;
 
     if (!IS_ROOT && (!CAN_SUDO || strcmp(CURRENT_USER, "chris") != 0)) {
-        log_info("Non-root execution detected; skipping automatic Codex install/update.");
+        log_info("system  | non-root; skipping automatic Codex install/update");
     }
     log_debug("starting | user=%s | can_manage=%d | path=%s", CURRENT_USER, CAN_SUDO, getenv("PATH") ? getenv("PATH") : "");
 
     SCRIPT_REAL = real_path(argv[0]);
     CODEX_REAL_BIN = resolve_real_codex();
     if (!CODEX_REAL_BIN) {
-        log_error("Unable to find the real Codex binary on PATH");
+        log_error("system  | unable to find the real Codex binary on PATH");
         return 1;
     }
 
@@ -1252,7 +1262,7 @@ int main(int argc, char **argv) {
     char archbuf[64];
     fp = popen("uname -m", "r"); fgets(archbuf, sizeof(archbuf), fp); pclose(fp); archbuf[strcspn(archbuf, "\n")] = '\0';
 
-    log_info("cdx %s | user %s | %s/%s", WRAPPER_VERSION, CURRENT_USER, osbuf, archbuf);
+    log_info("start   | cdx %s | user %s | %s/%s", WRAPPER_VERSION, CURRENT_USER, osbuf, archbuf);
 
     int can_manage_codex = IS_ROOT || (CAN_SUDO && strcmp(CURRENT_USER, "chris") == 0);
     if (can_manage_codex && strcmp(osbuf, "Linux") == 0) {
@@ -1265,7 +1275,7 @@ int main(int argc, char **argv) {
     LOCAL_VERSION = normalize_version(ver_out ? ver_out : "");
     if (!LOCAL_VERSION || !*LOCAL_VERSION) {
         LOCAL_VERSION_UNKNOWN = 1;
-        log_warn("Could not determine local Codex version; attempting to refresh Codex before launch.");
+        log_warn("versions | local unknown; will try refresh before launch");
     }
     free(ver_out); ver_out = NULL;
 
@@ -1281,7 +1291,7 @@ int main(int argc, char **argv) {
             char *glibc = detect_glibc_version();
             if (!glibc || version_compare(glibc, "2.39") < 0) {
                 strcpy(asset_name, "codex-x86_64-unknown-linux-musl.tar.gz");
-                log_info("glibc %s detected; using musl Codex build for compatibility.", glibc ? glibc : "unknown");
+                log_info("runtime | glibc %s; using musl Codex build", glibc ? glibc : "unknown");
             } else {
                 strcpy(asset_name, "codex-x86_64-unknown-linux-gnu.tar.gz");
             }
@@ -1289,11 +1299,11 @@ int main(int argc, char **argv) {
         } else if (strcmp(archbuf, "aarch64") == 0 || strcmp(archbuf, "arm64") == 0) {
             strcpy(asset_name, "codex-aarch64-unknown-linux-gnu.tar.gz");
         } else {
-            log_warn("Unsupported Linux architecture (%s); skipping update check.", archbuf);
+            log_warn("versions | unsupported arch (%s); skipping update check", archbuf);
             skip_update_check = 1;
         }
     } else {
-        log_warn("Non-Linux operating system (%s) detected; skipping update check.", osbuf);
+        log_warn("versions | non-Linux (%s); skipping update check", osbuf);
         skip_update_check = 1;
     }
 
@@ -1351,7 +1361,7 @@ int main(int argc, char **argv) {
 
     char version_status[256] = ""; int status_warn = 0;
     if (skip_update_check) {
-        snprintf(version_status, sizeof(version_status), "status ok | local %s | update check skipped (not root)", LOCAL_VERSION ? LOCAL_VERSION : "unknown");
+        snprintf(version_status, sizeof(version_status), "versions | ok | local %s | check skipped (not root)", LOCAL_VERSION ? LOCAL_VERSION : "unknown");
         if (IS_ROOT) status_warn = 1;
     } else if (need_update && remote_url) {
         char display_local[64]; snprintf(display_local, sizeof(display_local), "%s", LOCAL_VERSION ? LOCAL_VERSION : "unknown");
@@ -1359,22 +1369,22 @@ int main(int argc, char **argv) {
             run_capture("codex -V 2>/dev/null", &ver_out);
             free(LOCAL_VERSION); LOCAL_VERSION = normalize_version(ver_out ? ver_out : "");
             LOCAL_VERSION_UNKNOWN = 0; free(ver_out);
-            snprintf(version_status, sizeof(version_status), "status updated | %s → %s (npm codex-cli @%s)", display_local, LOCAL_VERSION, remote_version);
+            snprintf(version_status, sizeof(version_status), "versions | updated | %s → %s (npm codex-cli @%s)", display_local, LOCAL_VERSION, remote_version);
         } else if (perform_update(CODEX_REAL_BIN, remote_url, remote_asset ? remote_asset : asset_name, remote_version)) {
             run_capture("codex -V 2>/dev/null", &ver_out);
             free(LOCAL_VERSION); LOCAL_VERSION = normalize_version(ver_out ? ver_out : "");
             LOCAL_VERSION_UNKNOWN = 0; free(ver_out);
-            snprintf(version_status, sizeof(version_status), "status updated | %s → %s (from API %s)", display_local, LOCAL_VERSION, remote_tag ? remote_tag : "latest");
+            snprintf(version_status, sizeof(version_status), "versions | updated | %s → %s (from API %s)", display_local, LOCAL_VERSION, remote_tag ? remote_tag : "latest");
         } else {
             status_warn = 1;
-            snprintf(version_status, sizeof(version_status), "status warn | local %s | update to %s failed", display_local, remote_version);
+            snprintf(version_status, sizeof(version_status), "versions | warn | local %s | update to %s failed", display_local, remote_version);
         }
     } else {
         if (remote_version) {
-            snprintf(version_status, sizeof(version_status), "status ok | local %s | api %s", LOCAL_VERSION ? LOCAL_VERSION : "unknown", remote_tag ? remote_tag : remote_version);
+            snprintf(version_status, sizeof(version_status), "versions | ok | local %s | api %s", LOCAL_VERSION ? LOCAL_VERSION : "unknown", remote_tag ? remote_tag : remote_version);
         } else {
             status_warn = 1;
-            snprintf(version_status, sizeof(version_status), "status warn | local %s | API unavailable", LOCAL_VERSION ? LOCAL_VERSION : "unknown");
+            snprintf(version_status, sizeof(version_status), "versions | warn | local %s | API unavailable", LOCAL_VERSION ? LOCAL_VERSION : "unknown");
         }
     }
     if (status_warn) log_warn("%s", version_status); else log_info("%s", version_status);
@@ -1401,7 +1411,7 @@ int main(int argc, char **argv) {
                 char sha_cmd[PATH_MAX * 2]; snprintf(sha_cmd, sizeof(sha_cmd), "sha256sum '%s' | awk '{print $1}'", tmpfile);
                 char *sha_out = NULL; run_capture(sha_cmd, &sha_out);
                 if (!sha_out || strcmp(trim(sha_out), SYNC_REMOTE_WRAPPER_SHA256) != 0) {
-                    log_warn("Wrapper update skipped: hash mismatch");
+                    log_warn("wrapper | update skipped: hash mismatch");
                 } else {
                     if (access(SCRIPT_REAL, W_OK) == 0) {
                         char install_cmd[PATH_MAX * 2]; snprintf(install_cmd, sizeof(install_cmd), "install -m 755 '%s' '%s'", tmpfile, SCRIPT_REAL);
@@ -1409,12 +1419,12 @@ int main(int argc, char **argv) {
                     } else if (CAN_SUDO) {
                         char install_cmd[PATH_MAX * 2]; snprintf(install_cmd, sizeof(install_cmd), "%s install -m 755 '%s' '%s'", SUDO_BIN, tmpfile, SCRIPT_REAL);
                         run_status(install_cmd);
-                    } else log_warn("Wrapper update skipped: insufficient permissions");
+                    } else log_warn("wrapper | update skipped: insufficient permissions");
                 }
                 free(sha_out);
             }
         } else {
-            log_warn("Wrapper update failed: download error");
+            log_warn("wrapper | update failed: download error");
         }
         char rmcmd[PATH_MAX]; snprintf(rmcmd, sizeof(rmcmd), "rm -rf '%s'", tmpdir); run_status(rmcmd);
     }
@@ -1432,16 +1442,16 @@ int main(int argc, char **argv) {
         size_t len = strlen(WRAPPER_VERSION) + (target_wrapper ? strlen(target_wrapper) : 0) + 32;
         cdx_state = malloc(len); snprintf(cdx_state, len, "current (%s/%s)", WRAPPER_VERSION, target_wrapper ? target_wrapper : WRAPPER_VERSION);
         if (AUTH_STATUS || AUTH_ACTION || AUTH_MESSAGE) {
-            log_info("Auth | %s | action=%s%s", AUTH_STATUS ? AUTH_STATUS : "ok", AUTH_ACTION ? AUTH_ACTION : "n/a", AUTH_MESSAGE ? " | " : "");
-            if (AUTH_MESSAGE) log_info("%s", AUTH_MESSAGE);
+            const char *message = AUTH_MESSAGE ? AUTH_MESSAGE : "ok";
+            log_info("auth    | %s | action=%s | %s", AUTH_STATUS ? AUTH_STATUS : "ok", AUTH_ACTION ? AUTH_ACTION : "n/a", message);
         }
-        char summary[256]; snprintf(summary, sizeof(summary), "Api OK | codex %s | cdx %s", codex_state, cdx_state);
+        char summary[256]; snprintf(summary, sizeof(summary), "health  | api ok | codex %s | cdx %s", codex_state, cdx_state);
         log_info("%s", summary);
         free(codex_state); free(cdx_state);
     } else {
-        char summary[256]; snprintf(summary, sizeof(summary), "Api FAIL | codex auth unavailable | cdx current (%s/%s)", WRAPPER_VERSION, SYNC_REMOTE_WRAPPER_VERSION ? SYNC_REMOTE_WRAPPER_VERSION : WRAPPER_VERSION);
+        char summary[256]; snprintf(summary, sizeof(summary), "health  | api fail | codex auth unavailable | cdx current (%s/%s)", WRAPPER_VERSION, SYNC_REMOTE_WRAPPER_VERSION ? SYNC_REMOTE_WRAPPER_VERSION : WRAPPER_VERSION);
         log_warn("%s", summary);
-        log_error("Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth.");
+        log_error("health  | auth unavailable; refusing to start Codex until sync succeeds");
         return 1;
     }
 
@@ -1454,7 +1464,7 @@ int main(int argc, char **argv) {
     unlink(tmp_log);
 
     push_auth_if_changed("push");
-    if (AUTH_PUSH_RESULT) log_info("Auth push | %s | %s", AUTH_PUSH_RESULT, AUTH_PUSH_REASON ? AUTH_PUSH_REASON : "n/a");
+    if (AUTH_PUSH_RESULT) log_info("push    | auth | %s | %s", AUTH_PUSH_RESULT, AUTH_PUSH_REASON ? AUTH_PUSH_REASON : "n/a");
 
     return cmd_status;
 }
