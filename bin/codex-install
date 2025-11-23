@@ -233,7 +233,9 @@ extract_wrapper_version() {
   local line
   line="$(grep -E '^WRAPPER_VERSION="' "$path" | head -n1 || true)"
   if [ -n "$line" ]; then
-    printf '%s' "${line#WRAPPER_VERSION=\"}"
+    line="${line#WRAPPER_VERSION=\"}"
+    line="${line%\"}"
+    printf '%s' "$line"
     return 0
   fi
   return 1
@@ -1879,7 +1881,25 @@ push_auth_json_to_api() {
   if [ -n "$SYNC_CA_PAYLOAD" ]; then
     # Decode CA payload locally before copying it to the remote host.
     if ! command -v decode_payload_to_file >/dev/null 2>&1; then
-      : # function is defined earlier; shellcheck guard
+      decode_payload_to_file() {
+        local payload="$1" dest="$2"
+        if [ -z "$payload" ]; then return 1; fi
+        {
+          if command -v python3 >/dev/null 2>&1; then
+            CODEX_PAYLOAD="$payload" python3 - <<'PY'
+import base64, os, sys
+payload = os.environ.get("CODEX_PAYLOAD", "")
+if not payload:
+    sys.exit(1)
+sys.stdout.buffer.write(base64.b64decode(payload))
+PY
+          elif command -v base64 >/dev/null 2>&1; then
+            printf '%s' "$payload" | base64 --decode
+          else
+            return 1
+          fi
+        } >"$dest"
+      }
     fi
     local tmp
     tmp="$(mktemp)" || true
