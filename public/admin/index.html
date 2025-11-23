@@ -99,8 +99,10 @@
       grid-template-columns: 1fr auto;
       align-items: center;
       gap: 14px 18px;
-      margin: 0 -16px 18px;
-      padding: 14px 16px;
+      margin: 0 0 18px;
+      padding: 14px 0;
+      max-width: 1220px;
+      width: 100%;
       position: sticky;
       top: 0;
       z-index: 20;
@@ -443,7 +445,7 @@
 
     @media (max-width: 960px) {
       .content { padding: 20px 12px 52px; }
-      .topbar { margin: 0 -12px 14px; padding: 12px; grid-template-columns: 1fr; position: sticky; top: 0; }
+      .topbar { margin: 0 0 14px; padding: 12px 0; grid-template-columns: 1fr; position: sticky; top: 0; }
       .action-line { justify-content: flex-start; }
       .panel-actions { flex-direction: column; align-items: stretch; }
       .panel-actions input,
