@@ -1877,6 +1877,10 @@ push_auth_json_to_api() {
   fi
 
   if [ -n "$SYNC_CA_PAYLOAD" ]; then
+    # Decode CA payload locally before copying it to the remote host.
+    if ! command -v decode_payload_to_file >/dev/null 2>&1; then
+      : # function is defined earlier; shellcheck guard
+    fi
     local tmp
     tmp="$(mktemp)" || true
     if [ -n "$tmp" ]; then
