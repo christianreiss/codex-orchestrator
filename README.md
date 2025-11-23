@@ -160,6 +160,8 @@ docker-compose.yml
 
 ## API Reference
 
+> Full, code-accurate contracts live in `interface-api.md`, `interface-db.md`, and `interface-cdx.md`. Highlights below stay in sync with those specs.
+
 ### `POST /register`
 
 Registers a new host when provided with the correct invitation key. Re-registering a known FQDN rotates the API key immediately, invalidating the previous one.
@@ -200,14 +202,16 @@ Body fields:
 
 Retrieve responses:
 - `valid` → canonical digest matches the supplied digest; returns canonical digest + versions only.
-- `outdated` → server has newer auth; returns canonical auth + digest + versions.
-- `upload_required` → client claims a newer payload; caller should resend with `command: "store"`.
+- `upload_required` → client `last_refresh` is newer than canonical; caller should resend with `command: "store"` and full auth.
+- `outdated` → server has newer or mismatched auth; returns canonical auth + digest + versions.
 - `missing` → server has no canonical payload yet.
 
 Store responses:
 - `updated` → new canonical stored; returns canonical auth + digest + versions.
 - `unchanged` → timestamps match; returns canonical digest + versions.
 - `outdated` → server already has newer auth; returns canonical auth + digest + versions.
+
+Auth payload fallbacks: if `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation (still enforces token quality and timestamp rules).
 
 ### `DELETE /auth`
 
@@ -263,8 +267,8 @@ Content-Type: application/json
 Response mirrors `GET /versions`.
 
 Notes:
-- The server refreshes `client_version` by calling the GitHub “latest release” endpoint when `/versions` is requested and the cached value is older than 2 hours. Fetch failures fall back to the last cached value.
-- The `wrapper_version` is auto-seeded from the first reported host if no operator value has been published yet; you can still override it via `POST /versions` when `VERSION_ADMIN_KEY` is set.
+- The server refreshes `client_version` by calling the GitHub “latest release” endpoint when `/versions` is requested and the cached value is older than **3 hours**. Fetch failures fall back to the last cached value.
+- The `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists). You can still override it via `POST /versions` when `VERSION_ADMIN_KEY` is set.
 
 ### Admin (mTLS-only)
 

@@ -15,6 +15,7 @@ use App\Repositories\VersionRepository;
 use App\Support\Timestamp;
 use DateTimeImmutable;
 use App\Services\WrapperService;
+use App\Services\RunnerVerifier;
 
 class AuthService
 {
@@ -32,7 +33,8 @@ class AuthService
         private readonly TokenUsageRepository $tokenUsages,
         private readonly VersionRepository $versions,
         private readonly string $invitationKey,
-        private readonly WrapperService $wrapperService
+        private readonly WrapperService $wrapperService,
+        private readonly ?RunnerVerifier $runnerVerifier = null
     ) {
     }
 
@@ -145,6 +147,11 @@ class AuthService
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
 
+        // Daily runner preflight: once per UTC day, refresh canonical via runner before responding.
+        if ($this->runnerVerifier !== null) {
+            [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerDailyCheck($canonicalPayload, $host, $versions);
+        }
+
         $recentDigests = $this->digests->recentDigests($hostId);
         if ($canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
             $this->digests->rememberDigests($hostId, [$canonicalDigest]);
@@ -171,7 +178,6 @@ class AuthService
             if ($canonicalPayload) {
                 $comparison = Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh);
                 $matchesCanonical = $providedDigest !== null && $canonicalDigest !== null && hash_equals($canonicalDigest, $providedDigest);
-                $matchesRecent = $providedDigest !== null && in_array($providedDigest, $recentDigests, true);
 
                 if ($matchesCanonical) {
                     $status = 'valid';
@@ -180,6 +186,20 @@ class AuthService
                         'canonical_last_refresh' => $canonicalLastRefresh,
                         'canonical_digest' => $canonicalDigest,
                         'api_calls' => (int) ($host['api_calls'] ?? 0),
+                        'versions' => $versions,
+                    ];
+
+                    $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
+                    $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                } elseif ($comparison === 1) {
+                    // Client claims a newer payload; ask it to upload.
+                    $status = 'upload_required';
+                    $response = [
+                        'status' => $status,
+                        'canonical_last_refresh' => $canonicalLastRefresh,
+                        'canonical_digest' => $canonicalDigest,
+                        'api_calls' => (int) ($host['api_calls'] ?? 0),
+                        'action' => 'store',
                         'versions' => $versions,
                     ];
 
@@ -223,6 +243,7 @@ class AuthService
         }
         $this->assertReasonableLastRefresh($incomingLastRefresh, 'auth.last_refresh');
 
+        $incomingAuth = $this->ensureAuthsFallback($incomingAuth);
         $entries = $this->normalizeAuthEntries($incomingAuth);
         $canonicalizedAuth = $this->canonicalizeAuthPayload($incomingAuth, $entries, $incomingLastRefresh);
 
@@ -300,7 +321,185 @@ class AuthService
             'wrapper_version' => $normalizedWrapperVersion,
         ]);
 
+        $validation = null;
+        $runnerApplied = false;
+        if ($this->runnerVerifier !== null) {
+            $authToValidate = null;
+            if ($canonicalPayload) {
+                $authToValidate = $this->canonicalAuthFromPayload($canonicalPayload);
+            } elseif ($canonicalizedAuth !== null) {
+                $authToValidate = $canonicalizedAuth;
+            }
+
+            if ($authToValidate !== null) {
+                $validation = $this->runnerVerifier->verify($authToValidate);
+                $this->logs->log($hostId, 'auth.validate', [
+                    'status' => $validation['status'] ?? null,
+                    'reason' => $validation['reason'] ?? null,
+                    'latency_ms' => $validation['latency_ms'] ?? null,
+                ]);
+
+                if (isset($validation['updated_auth']) && is_array($validation['updated_auth'])) {
+                    try {
+                        $runnerAuth = $validation['updated_auth'];
+                        $runnerLastRefresh = $runnerAuth['last_refresh'] ?? null;
+                        if (!is_string($runnerLastRefresh) || trim($runnerLastRefresh) === '') {
+                            throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
+                        }
+                        $this->assertReasonableLastRefresh($runnerLastRefresh, 'auth.last_refresh');
+                        $runnerAuth = $this->ensureAuthsFallback($runnerAuth);
+                        $runnerEntries = $this->normalizeAuthEntries($runnerAuth);
+                        $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
+                        $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        if ($runnerEncoded === false) {
+                            throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
+                        }
+                        $runnerDigest = $this->calculateDigest($runnerEncoded);
+                        $comparisonRunner = $canonicalLastRefresh !== null ? Timestamp::compare($runnerLastRefresh, $canonicalLastRefresh) : 1;
+                        $runnerShouldUpdate = $canonicalPayload === null
+                            || $comparisonRunner === 1
+                            || ($comparisonRunner === 0 && $runnerDigest !== $canonicalDigest);
+
+                        if ($runnerShouldUpdate) {
+                            $payloadRow = $this->payloads->create($runnerLastRefresh, $runnerDigest, $hostId, $runnerEntries, $runnerEncoded);
+                            $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
+                            $canonicalPayload = $payloadRow;
+                            $canonicalDigest = $runnerDigest;
+                            $canonicalLastRefresh = $runnerLastRefresh;
+
+                            $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
+                            $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                            $host = $this->hosts->findById($hostId) ?? $host;
+
+                            $response = [
+                                'status' => 'updated',
+                                'host' => $this->buildHostPayload($host),
+                                'auth' => $this->canonicalAuthFromPayload($canonicalPayload),
+                                'canonical_last_refresh' => $canonicalLastRefresh,
+                                'canonical_digest' => $canonicalDigest,
+                                'api_calls' => (int) ($host['api_calls'] ?? 0),
+                                'versions' => $versions,
+                            ];
+                            $runnerApplied = true;
+                            $this->logs->log($hostId, 'auth.runner_store', [
+                                'status' => 'applied',
+                                'incoming_last_refresh' => $runnerLastRefresh,
+                                'incoming_digest' => $runnerDigest,
+                            ]);
+                        } else {
+                            $this->logs->log($hostId, 'auth.runner_store', [
+                                'status' => 'skipped',
+                                'reason' => 'runner auth not newer or identical',
+                                'incoming_last_refresh' => $runnerLastRefresh,
+                                'incoming_digest' => $runnerDigest,
+                                'stored_last_refresh' => $canonicalLastRefresh,
+                                'stored_digest' => $canonicalDigest,
+                            ]);
+                        }
+                    } catch (\Throwable $exception) {
+                        $this->logs->log($hostId, 'auth.runner_store', [
+                            'status' => 'failed',
+                            'reason' => $exception->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        }
+
+        if ($validation !== null) {
+            $response['validation'] = $validation;
+        }
+        if ($runnerApplied) {
+            $response['runner_applied'] = true;
+        }
+
         return $response;
+    }
+
+    /**
+     * Run the runner once per UTC day against the current canonical auth to catch auto-refreshes.
+     *
+     * @return array{0: ?array, 1: ?string, 2: ?string} Updated canonical payload, digest, last_refresh
+     */
+    private function runnerDailyCheck(?array $canonicalPayload, array $host, array $versions): array
+    {
+        if ($canonicalPayload === null || $this->runnerVerifier === null) {
+            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
+        }
+
+        $today = gmdate('Y-m-d');
+        $lastCheck = $this->versions->get('runner_last_check', '');
+        if ($lastCheck === $today) {
+            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
+        }
+
+        $hostId = (int) ($host['id'] ?? 0);
+        try {
+            $validation = $this->runnerVerifier->verify($this->canonicalAuthFromPayload($canonicalPayload));
+            $this->logs->log($hostId, 'auth.validate', [
+                'status' => $validation['status'] ?? null,
+                'reason' => $validation['reason'] ?? null,
+                'latency_ms' => $validation['latency_ms'] ?? null,
+                'trigger' => 'daily_preflight',
+            ]);
+
+            if (isset($validation['updated_auth']) && is_array($validation['updated_auth'])) {
+                $runnerAuth = $validation['updated_auth'];
+                $runnerLastRefresh = $runnerAuth['last_refresh'] ?? null;
+                $this->assertReasonableLastRefresh((string) $runnerLastRefresh, 'auth.last_refresh');
+                $runnerAuth = $this->ensureAuthsFallback($runnerAuth);
+                $runnerEntries = $this->normalizeAuthEntries($runnerAuth);
+                $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, (string) $runnerLastRefresh);
+                $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                if ($runnerEncoded === false) {
+                    throw new ValidationException(['auth' => ['Unable to encode runner auth payload']]);
+                }
+                $runnerDigest = $this->calculateDigest($runnerEncoded);
+
+                $currentDigest = $canonicalPayload['sha256'] ?? null;
+                $currentLastRefresh = $canonicalPayload['last_refresh'] ?? null;
+                $comparison = $currentLastRefresh !== null
+                    ? Timestamp::compare((string) $runnerLastRefresh, $currentLastRefresh)
+                    : 1;
+
+                $shouldUpdate = $canonicalPayload === null
+                    || $comparison === 1
+                    || ($comparison === 0 && $runnerDigest !== $currentDigest);
+
+                if ($shouldUpdate) {
+                    $payloadRow = $this->payloads->create((string) $runnerLastRefresh, $runnerDigest, $hostId, $runnerEntries, $runnerEncoded);
+                    $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
+                    $canonicalPayload = $payloadRow;
+
+                    $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
+                    $this->hosts->updateSyncState($hostId, (string) $runnerLastRefresh, $runnerDigest);
+                    $this->logs->log($hostId, 'auth.runner_store', [
+                        'status' => 'applied',
+                        'trigger' => 'daily_preflight',
+                        'incoming_last_refresh' => $runnerLastRefresh,
+                        'incoming_digest' => $runnerDigest,
+                    ]);
+                } else {
+                    $this->logs->log($hostId, 'auth.runner_store', [
+                        'status' => 'skipped',
+                        'trigger' => 'daily_preflight',
+                        'reason' => 'runner auth not newer or identical',
+                    ]);
+                }
+            }
+        } catch (\Throwable $exception) {
+            $this->logs->log($hostId, 'auth.runner_store', [
+                'status' => 'failed',
+                'trigger' => 'daily_preflight',
+                'reason' => $exception->getMessage(),
+            ]);
+        } finally {
+            $this->versions->set('runner_last_check', $today);
+        }
+
+        $canonicalDigest = $canonicalPayload['sha256'] ?? null;
+        $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
+        return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
     }
 
     public function deleteHost(array $host): array
@@ -514,6 +713,43 @@ class AuthService
         throw new ValidationException(['auth' => ['Auth payload is required']]);
     }
 
+    private function ensureAuthsFallback(array $authPayload): array
+    {
+        $hasAuths = isset($authPayload['auths']) && is_array($authPayload['auths']) && count($authPayload['auths']) > 0;
+        if ($hasAuths) {
+            return $authPayload;
+        }
+
+        $tokenCandidates = [];
+        if (isset($authPayload['tokens']) && is_array($authPayload['tokens'])) {
+            $tokenCandidates[] = $authPayload['tokens']['access_token'] ?? null;
+        }
+        if (isset($authPayload['OPENAI_API_KEY'])) {
+            $tokenCandidates[] = $authPayload['OPENAI_API_KEY'];
+        }
+
+        $chosen = null;
+        foreach ($tokenCandidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                $chosen = trim($candidate);
+                break;
+            }
+        }
+
+        if ($chosen === null) {
+            return $authPayload;
+        }
+
+        $authPayload['auths'] = [
+            'api.openai.com' => [
+                'token' => $chosen,
+                'token_type' => 'bearer',
+            ],
+        ];
+
+        return $authPayload;
+    }
+
     private function extractDigest(array $payload, bool $required): ?string
     {
         $candidates = [
@@ -601,8 +837,25 @@ class AuthService
 
     private function normalizeAuthEntries(array $authPayload): array
     {
-        if (!isset($authPayload['auths']) || !is_array($authPayload['auths'])) {
-            throw new ValidationException(['auth.auths' => ['auths must be an object of targets']]);
+        // Allow fallback when auths are missing or empty but a tokens-style access token exists.
+        if (!isset($authPayload['auths']) || !is_array($authPayload['auths']) || count($authPayload['auths']) === 0) {
+            $fallbackToken = null;
+            if (isset($authPayload['tokens']['access_token']) && is_string($authPayload['tokens']['access_token'])) {
+                $fallbackToken = trim($authPayload['tokens']['access_token']);
+            } elseif (isset($authPayload['OPENAI_API_KEY']) && is_string($authPayload['OPENAI_API_KEY'])) {
+                $fallbackToken = trim($authPayload['OPENAI_API_KEY']);
+            }
+
+            if ($fallbackToken !== null && $fallbackToken !== '') {
+                // Default target mirrors Codex endpoints; keeps behavior deterministic.
+                $authPayload['auths'] = [
+                    'api.openai.com' => [
+                        'token' => $fallbackToken,
+                    ],
+                ];
+            } else {
+                throw new ValidationException(['auth.auths' => ['auths must be an object of targets']]);
+            }
         }
 
         if ($authPayload['auths'] === [] || count($authPayload['auths']) === 0) {

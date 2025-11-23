@@ -1470,7 +1470,7 @@ if not base:
 
 
 def default_auth():
-    return {"last_refresh": "1970-01-01T00:00:00Z", "auths": {}}
+    return {"last_refresh": "2000-01-01T00:00:00Z", "auths": {}}
 
 
 def load_auth():
@@ -1481,6 +1481,36 @@ def load_auth():
     if not isinstance(data, dict) or "last_refresh" not in data:
         return default_auth()
     return data
+
+
+def ensure_auths_fallback(auth_payload: dict) -> dict:
+    has_auths = isinstance(auth_payload.get("auths"), dict) and len(auth_payload.get("auths", {})) > 0
+    if has_auths:
+        return auth_payload
+
+    token_candidates = []
+    tokens = auth_payload.get("tokens") if isinstance(auth_payload.get("tokens"), dict) else None
+    if isinstance(tokens, dict):
+        token_candidates.append(tokens.get("access_token"))
+    token_candidates.append(auth_payload.get("OPENAI_API_KEY"))
+
+    chosen = None
+    for candidate in token_candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            chosen = candidate.strip()
+            break
+
+    if chosen is None:
+        return auth_payload
+
+    auth_copy = dict(auth_payload)
+    auth_copy["auths"] = {
+        "api.openai.com": {
+            "token": chosen,
+            "token_type": "bearer",
+        }
+    }
+    return auth_copy
 
 
 def canonical_json(obj):
@@ -1543,46 +1573,51 @@ def post_json(url: str, payload: dict, action: str):
         sys.exit(3)
 
 
-current = load_auth()
+current = ensure_auths_fallback(load_auth())
 auth_json = canonical_json(current)
 auth_sha = hashlib.sha256(auth_json.encode("utf-8")).hexdigest()
 
-check_payload = {
-    "last_refresh": current.get("last_refresh", "1970-01-01T00:00:00Z"),
-    "auth_sha": auth_sha,
+retrieve_payload = {
+    "command": "retrieve",
+    "last_refresh": current.get("last_refresh", "2000-01-01T00:00:00Z"),
+    "digest": auth_sha,
     "client_version": client_version or "unknown",
 }
 if wrapper_version and wrapper_version != "unknown":
-    check_payload["wrapper_version"] = wrapper_version
+    retrieve_payload["wrapper_version"] = wrapper_version
 
-check_data = post_json(f"{base}/auth/check", check_payload, "auth check")
-payload_data = check_data.get("data") if isinstance(check_data, dict) else {}
+payload = post_json(f"{base}/auth", retrieve_payload, "auth retrieve")
+payload_data = payload.get("data") if isinstance(payload, dict) else {}
 status = (payload_data or {}).get("status")
+canonical_digest = payload_data.get("canonical_digest") or payload_data.get("digest")
+canonical_last_refresh = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
 auth_to_write = None
 
 if status == "valid":
     auth_to_write = current
 elif status == "outdated":
     auth_to_write = payload_data.get("auth") or current
-    lr = payload_data.get("last_refresh")
-    if isinstance(lr, str):
-        auth_to_write["last_refresh"] = lr
+    if isinstance(canonical_last_refresh, str):
+        auth_to_write["last_refresh"] = canonical_last_refresh
 elif status in ("missing", "upload_required"):
-    status = "upload_required"
+    pass
 else:
     status = "upload_required"
 
-if status == "upload_required":
+if status in ("missing", "upload_required"):
     upload_payload = {
+        "command": "store",
         "auth": current,
         "client_version": client_version or "unknown",
     }
+    if canonical_digest:
+        upload_payload["digest"] = canonical_digest
     if wrapper_version and wrapper_version != "unknown":
         upload_payload["wrapper_version"] = wrapper_version
-    update_data = post_json(f"{base}/auth/update", upload_payload, "auth update")
+    update_data = post_json(f"{base}/auth", upload_payload, "auth store")
     payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
     auth_to_write = payload_data.get("auth") or current
-    lr = payload_data.get("last_refresh")
+    lr = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
     if isinstance(lr, str):
         auth_to_write["last_refresh"] = lr
 
@@ -1856,6 +1891,142 @@ install_auth_for_user() {
   fi
 }
 
+push_auth_json_to_api() {
+  # Upload local auth.json to the sync API using the unified /auth flow.
+  if [ ! -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
+    return 1
+  fi
+  if [ -z "$SYNC_BASE_URL" ] || [ -z "$SYNC_API_KEY" ]; then
+    return 1
+  fi
+  require_local_python3 || return 1
+
+  local base="$SYNC_BASE_URL"
+  local key="$SYNC_API_KEY"
+  local ca_file="$SYNC_CA_FILE"
+  local client_version_raw="${CODEX_SELF_CHECK_OUTPUT:-unknown}"
+  local client_version
+  client_version="$(extract_version_token "$client_version_raw")"
+  if [ -z "$client_version" ]; then
+    client_version="$client_version_raw"
+  fi
+  local wrapper_version="$LOCAL_WRAPPER_VERSION"
+  if [ -z "$wrapper_version" ]; then
+    wrapper_version="unknown"
+  fi
+
+  python3 - "$base" "$key" "$AUTH_JSON_LOCAL_EXPANDED" "$ca_file" "$client_version" "$wrapper_version" <<'PY'
+import hashlib, json, pathlib, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+api_key = sys.argv[2]
+path = pathlib.Path(sys.argv[3]).expanduser()
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+client_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
+wrapper_version = sys.argv[6] if len(sys.argv) > 6 else "unknown"
+
+if not base:
+    print("Sync API base URL missing", file=sys.stderr)
+    sys.exit(1)
+
+
+def load_auth():
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        print("Auth file missing or invalid", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(data, dict):
+        print("Auth file must be a JSON object", file=sys.stderr)
+        sys.exit(1)
+    if "last_refresh" not in data or not isinstance(data["last_refresh"], str) or not data["last_refresh"].strip():
+        print("Auth file missing last_refresh", file=sys.stderr)
+        sys.exit(1)
+    return data
+
+
+def ensure_auths_fallback(auth_payload: dict) -> dict:
+    has_auths = isinstance(auth_payload.get("auths"), dict) and len(auth_payload.get("auths", {})) > 0
+    if has_auths:
+        return auth_payload
+
+    token_candidates = []
+    tokens = auth_payload.get("tokens") if isinstance(auth_payload.get("tokens"), dict) else None
+    if isinstance(tokens, dict):
+        token_candidates.append(tokens.get("access_token"))
+    token_candidates.append(auth_payload.get("OPENAI_API_KEY"))
+
+    chosen = None
+    for candidate in token_candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            chosen = candidate.strip()
+            break
+
+    if chosen is None:
+        return auth_payload
+
+    auth_copy = dict(auth_payload)
+    auth_copy["auths"] = {
+        "api.openai.com": {
+            "token": chosen,
+            "token_type": "bearer",
+        }
+    }
+    return auth_copy
+
+
+def canonical_json(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def build_context():
+    ctx_primary = ssl.create_default_context()
+    if cafile:
+        try:
+            ctx_primary.load_verify_locations(cafile)
+        except Exception:
+            pass
+    try:
+        ctx_primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    except Exception:
+        pass
+    return ctx_primary
+
+
+def post_json(url: str, payload: dict, action: str):
+    body = canonical_json(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    ctx = build_context()
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "ignore")
+        print(f"{action} failed ({exc.code}): {body}", file=sys.stderr)
+        sys.exit(2)
+    except Exception as exc:  # noqa: BLE001
+        print(f"{action} failed: {exc}", file=sys.stderr)
+        sys.exit(3)
+
+
+current = ensure_auths_fallback(load_auth())
+store_payload = {
+    "command": "store",
+    "auth": current,
+    "client_version": client_version or "unknown",
+}
+if wrapper_version and wrapper_version != "unknown":
+    store_payload["wrapper_version"] = wrapper_version
+
+response = post_json(f"{base}/auth", store_payload, "auth store")
+data = response.get("data") if isinstance(response, dict) else {}
+status = (data or {}).get("status", "unknown")
+print(f"auth.store status={status}")
+sys.exit(0)
+PY
+}
+
 install_auth_for_user "$target_user"
 
 if [ "$(id -u)" -eq 0 ] && id -u chris >/dev/null 2>&1; then
@@ -2022,7 +2193,7 @@ CURRENT_STEP_INDEX=-1
 # Determine flow (auth push vs login) and total steps
 if [ -f "$AUTH_JSON_LOCAL_EXPANDED" ] && [ -s "$AUTH_JSON_LOCAL_EXPANDED" ]; then
   FLOW="auth"
-  STEP_TOTAL=6
+  STEP_TOTAL=7
 else
   FLOW="login"
 fi
@@ -2297,10 +2468,18 @@ PY
   fi
 
   # 4) Prepare remote Codex CLI
+  step_begin "Upload auth to sync API"
+  if push_auth_json_to_api; then
+    step_end_ok
+  else
+    step_end_fail
+    exit 1
+  fi
+
+  # 5) Prepare remote Codex CLI
   step_begin "Prepare remote runtime"
   PREFETCH_REMOTE_DIR=""
   prefetch_codex_assets || true
-  push_auth_json_to_remote || true
   build_remote_env_safe remote_env "$AUTH_SENTINEL"
   remote_env+=" QUIET=1 DO_LOGIN=0"
   if [ -n "$PREFETCH_REMOTE_DIR" ]; then
@@ -2322,7 +2501,7 @@ PY
     ssh_quiet "${SSH_USER}@${HOST}" "rm -rf $(printf %q "$PREFETCH_REMOTE_DIR")"
   fi
 
-  # 5) Verify Codex CLI present
+  # 6) Verify Codex CLI present
   step_begin "Verify Codex CLI"
   if ssh_quiet_cmd 'command -v cdx >/dev/null 2>&1 && cdx --version >/dev/null 2>&1'; then
     step_end_ok
@@ -2331,7 +2510,7 @@ PY
     exit 1
   fi
 
-  # 6) Verify auth on remote (exists, non-empty, perms 600)
+  # 7) Verify auth on remote (exists, non-empty, perms 600)
   step_begin "Verify remote auth file"
   verify_script='set -euo pipefail; resolve_home() { vr_user="$1"; vr_home=""; if command -v getent >/dev/null 2>&1; then vr_home=$(getent passwd "$vr_user" | cut -d: -f6 2>/dev/null || true); fi; if [ -z "$vr_home" ] && [ -r /etc/passwd ]; then vr_home=$(awk -F: -v u="$vr_user" "(\$1==u){print \$6; exit}" /etc/passwd 2>/dev/null || true); fi; if [ -z "$vr_home" ]; then if [ "$vr_user" = "root" ]; then vr_home="/root"; else vr_home="/home/$vr_user"; fi; fi; printf "%s" "$vr_home"; }; check_user() { cu_user="$1"; cu_home="$(resolve_home "$cu_user")"; if [ -z "$cu_home" ] || [ ! -d "$cu_home" ]; then exit 5; fi; cu_path="$cu_home/.codex/auth.json"; [ -s "$cu_path" ] || exit 2; cu_perm=""; if stat -c %a "$cu_path" >/dev/null 2>&1; then cu_perm=$(stat -c %a "$cu_path"); elif stat -f %Lp "$cu_path" >/dev/null 2>&1; then cu_perm=$(stat -f %Lp "$cu_path"); fi; case "$cu_perm" in 600|0400|400) : ;; *) exit 3 ;; esac; cu_owner=""; if stat -c %U "$cu_path" >/dev/null 2>&1; then cu_owner=$(stat -c %U "$cu_path"); elif stat -f %Su "$cu_path" >/dev/null 2>&1; then cu_owner=$(stat -f %Su "$cu_path"); fi; if [ -n "$cu_owner" ] && [ "$cu_owner" != "$cu_user" ]; then exit 4; fi; }; check_user "$(id -un)"; if [ "$(id -u)" -eq 0 ] && id -u chris >/dev/null 2>&1; then check_user chris; fi'
   if ssh_quiet_cmd "$verify_script"; then

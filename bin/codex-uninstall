@@ -226,7 +226,7 @@ delete_host_from_api() {
     return 0
   fi
 
-  local url="${SYNC_BASE_URL%/}/auth"
+  local url="${SYNC_BASE_URL%/}/auth?force=1"
   if have curl; then
     local args=("--silent" "--show-error" "--fail" "-X" "DELETE" "-H" "X-API-Key: ${SYNC_API_KEY}")
     if [ -n "$SYNC_CA_FILE" ] && [ -r "$SYNC_CA_FILE" ]; then

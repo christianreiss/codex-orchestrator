@@ -56,6 +56,7 @@ if [[ -n "${CODEX_SYNC_CONFIG_PATH:-}" ]]; then
 else
   CODEX_SYNC_CONFIG_PATHS+=("/etc/codex-sync.env" "/usr/local/etc/codex-sync.env" "$HOME/.codex/sync.env")
 fi
+CODEX_SYNC_ALLOW_INSECURE=${CODEX_SYNC_ALLOW_INSECURE:-0}
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
@@ -73,7 +74,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.22-6"
+WRAPPER_VERSION="2025.11.23-1"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -96,6 +97,10 @@ fi
 case "${1-}" in
   --debug|--verbose)
     CODEX_DEBUG=1
+    shift
+    ;;
+  --allow-insecure-tls)
+    CODEX_SYNC_ALLOW_INSECURE=1
     shift
     ;;
 esac
@@ -411,7 +416,10 @@ load_sync_config() {
   if [[ -z "$CODEX_SYNC_BASE_URL" ]]; then
     CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
   fi
-  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none}"
+  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | allow_insecure=${CODEX_SYNC_ALLOW_INSECURE}"
+  if (( CODEX_SYNC_ALLOW_INSECURE )); then
+    log_warn "TLS verification fallback to insecure context is ENABLED (CODEX_SYNC_ALLOW_INSECURE=1)"
+  fi
   SYNC_CONFIG_LOADED=1
 }
 
@@ -435,6 +443,15 @@ sync_auth_with_api() {
    # Drop a malformed local auth.json so we can hydrate cleanly.
   if [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
     rm -f "$auth_path"
+  fi
+  # If no local auth exists (fresh install) and we have nothing to upload, skip API sync
+  # so the user can run Codex login without being blocked by a 422 from the API.
+  if [[ ! -f "$auth_path" ]]; then
+    AUTH_PULL_STATUS="ok"
+    AUTH_STATUS="missing-local"
+    AUTH_ACTION="skip"
+    AUTH_MESSAGE="no local auth; skipping sync"
+    return 0
   fi
   local phase_label
   phase_label="${phase:-sync}"
@@ -470,11 +487,42 @@ def load_auth():
     return data
 
 
+def ensure_auths_fallback(auth_payload: dict) -> dict:
+    has_auths = isinstance(auth_payload.get("auths"), dict) and len(auth_payload.get("auths", {})) > 0
+    if has_auths:
+        return auth_payload
+
+    token_candidates = []
+    tokens = auth_payload.get("tokens") if isinstance(auth_payload.get("tokens"), dict) else None
+    if isinstance(tokens, dict):
+        token_candidates.append(tokens.get("access_token"))
+    token_candidates.append(auth_payload.get("OPENAI_API_KEY"))
+
+    chosen = None
+    for candidate in token_candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            chosen = candidate.strip()
+            break
+
+    if chosen is None:
+        return auth_payload
+
+    auth_copy = dict(auth_payload)
+    auth_copy["auths"] = {
+        "api.openai.com": {
+            "token": chosen,
+            "token_type": "bearer",
+        }
+    }
+    return auth_copy
+
+
 def canonical_json(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_context():
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE") in ("1", "true", "TRUE", "yes", "on")
     contexts = []
     # Preferred: custom CA if provided
     ctx_primary = ssl.create_default_context()
@@ -496,11 +544,12 @@ def build_context():
         contexts.append(ctx_default)
     except Exception:
         pass
-    # Last resort: unverified (only if others fail)
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    # Opt-in last resort: unverified
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return contexts or [None]
 
 
@@ -570,7 +619,8 @@ def post_json(url: str, payload: dict, action: str):
 
 
 current = load_auth()
-auth_json = canonical_json(current)
+current_for_sync = ensure_auths_fallback(current)
+auth_json = canonical_json(current_for_sync)
 auth_sha = hashlib.sha256(auth_json.encode("utf-8")).hexdigest()
 
 retrieve_payload = {
@@ -633,7 +683,7 @@ else:
 if status in ("missing", "upload_required"):
     store_payload = {
         "command": "store",
-        "auth": current,
+        "auth": current_for_sync,
         "client_version": client_version or "unknown",
     }
     if canonical_digest:
@@ -837,21 +887,29 @@ if not isinstance(data, dict):
 
 last_refresh = data.get("last_refresh")
 auths = data.get("auths")
+tokens = data.get("tokens") if isinstance(data.get("tokens"), dict) else {}
+access = tokens.get("access_token") if isinstance(tokens, dict) else None
+api_key = data.get("OPENAI_API_KEY")
 
 if not isinstance(last_refresh, str) or not last_refresh.strip():
     sys.exit(1)
 
-if not isinstance(auths, dict) or not auths:
+auths_valid = isinstance(auths, dict) and len(auths) > 0
+token_fallback = isinstance(access, str) and access.strip()
+api_key_fallback = isinstance(api_key, str) and api_key.strip()
+
+if not auths_valid and not token_fallback and not api_key_fallback:
     sys.exit(1)
 
-for target, entry in auths.items():
-    if not isinstance(target, str) or not target.strip():
-        sys.exit(1)
-    if not isinstance(entry, dict):
-        sys.exit(1)
-    token = entry.get("token")
-    if not isinstance(token, str) or not token.strip():
-        sys.exit(1)
+if auths_valid:
+    for target, entry in auths.items():
+        if not isinstance(target, str) or not target.strip():
+            sys.exit(1)
+        if not isinstance(entry, dict):
+            sys.exit(1)
+        token = entry.get("token")
+        if not isinstance(token, str) or not token.strip():
+            sys.exit(1)
 
 sys.exit(0)
 PY
@@ -943,7 +1001,7 @@ post_token_usage_payload() {
 
   local summary
   if summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, ssl, sys, urllib.error, urllib.request
+import json, os, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
 api_key = sys.argv[2]
@@ -962,6 +1020,7 @@ req = urllib.request.Request(url, data=body, headers=headers, method="POST")
 
 
 def build_contexts():
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE") in ("1", "true", "TRUE", "yes", "on")
     contexts = []
     try:
         ctx = ssl.create_default_context()
@@ -974,10 +1033,11 @@ def build_contexts():
         contexts.append(ctx)
     except Exception:
         pass
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return contexts or [None]
 
 

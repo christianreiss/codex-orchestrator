@@ -68,11 +68,11 @@ Unified endpoint for both checking and updating auth. Each response includes the
 **Body fields**
 
 - `command`: `retrieve` (default) or `store`.
-- `client_version`: required (JSON or query param `client_version`/`cdx_version`).
+- `client_version`: optional (JSON or query param `client_version`/`cdx_version`); when omitted the server records `unknown`.
 - `wrapper_version`: optional (JSON or query param `wrapper_version`/`cdx_wrapper_version`).
 - `digest`: required for `retrieve`; the client’s current auth SHA-256 (exact JSON digest).
 - `last_refresh`: required when `command` is `retrieve`; must be an RFC3339 timestamp, not in the future, and not implausibly old (earlier than 2000-01-01T00:00:00Z).
-- `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body, must include `last_refresh` (same timestamp rules), and `auths` must contain at least one target entry.
+- `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body, must include `last_refresh` (same timestamp rules), and `auths` must contain at least one target entry. If `auths` is missing or empty but `tokens.access_token` or `OPENAI_API_KEY` is present, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation.
   - All other top-level fields inside `auth` (for example `tokens`, `OPENAI_API_KEY`, or custom metadata) are preserved verbatim; only the `auths` map is normalized/sorted for consistency.
 
 The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 canonical digests per host (`host_auth_digests`).
@@ -244,7 +244,7 @@ Only the latest wrapper is kept; this updates metadata used by `/auth` and `/ver
 
 ### `GET /versions` (optional)
 
-Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` is always sourced from the latest GitHub release (`/repos/openai/codex/releases/latest`), cached for up to 3 hours and refreshed automatically when stale.
+Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` is always sourced from the latest GitHub release (`/repos/openai/codex/releases/latest`), cached for up to 3 hours and refreshed automatically when stale. `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists).
 
 ```json
 {

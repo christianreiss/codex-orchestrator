@@ -16,6 +16,7 @@ use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
+use App\Services\RunnerVerifier;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -49,8 +50,17 @@ $versionRepository = new VersionRepository($database);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
+$runnerVerifier = null;
+$runnerUrl = Config::get('AUTH_RUNNER_URL', '');
+if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
+    $runnerVerifier = new RunnerVerifier(
+        $runnerUrl,
+        (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api'),
+        (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0)
+    );
+}
 $invitationKey = Config::get('INVITATION_KEY', '');
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $invitationKey, $wrapperService);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $invitationKey, $wrapperService, $runnerVerifier);
 $wrapperService->ensureSeeded();
 unset($invitationKey);
 
@@ -461,7 +471,16 @@ try {
         }
 
         $includeBody = filter_var($_GET['include_body'] ?? null, FILTER_VALIDATE_BOOLEAN);
-        $payloadRow = $authPayloadRepository->latest();
+        $state = $hostStateRepository->findByHostId($hostId);
+
+        $payloadRow = null;
+        if ($state && isset($state['payload_id'])) {
+            $payloadRow = $authPayloadRepository->findByIdWithEntries((int) $state['payload_id']);
+        }
+        if ($payloadRow === null) {
+            $payloadRow = $authPayloadRepository->latest();
+        }
+
         $auth = null;
         if ($includeBody && $payloadRow) {
             if (!empty($payloadRow['body']) && is_string($payloadRow['body'])) {
@@ -477,24 +496,24 @@ try {
                     $item = ['token' => $entry['token']];
                     if (!empty($entry['token_type'])) {
                         $item['token_type'] = $entry['token_type'];
-                }
-                if (!empty($entry['organization'])) {
-                    $item['organization'] = $entry['organization'];
-                }
-                if (!empty($entry['project'])) {
-                    $item['project'] = $entry['project'];
-                }
-                if (!empty($entry['api_base'])) {
-                    $item['api_base'] = $entry['api_base'];
-                }
-                if (!empty($entry['meta']) && is_array($entry['meta'])) {
-                    foreach ($entry['meta'] as $k => $v) {
-                        $item[$k] = $v;
                     }
+                    if (!empty($entry['organization'])) {
+                        $item['organization'] = $entry['organization'];
+                    }
+                    if (!empty($entry['project'])) {
+                        $item['project'] = $entry['project'];
+                    }
+                    if (!empty($entry['api_base'])) {
+                        $item['api_base'] = $entry['api_base'];
+                    }
+                    if (!empty($entry['meta']) && is_array($entry['meta'])) {
+                        foreach ($entry['meta'] as $k => $v) {
+                            $item[$k] = $v;
+                        }
+                    }
+                    ksort($item);
+                    $auths[$entry['target']] = $item;
                 }
-                ksort($item);
-                $auths[$entry['target']] = $item;
-            }
                 ksort($auths);
                 $auth = [
                     'last_refresh' => $payloadRow['last_refresh'] ?? null,
@@ -503,9 +522,10 @@ try {
             }
         }
 
-        $state = $hostStateRepository->findByHostId($hostId);
-        $canonicalLastRefresh = $payloadRow['last_refresh'] ?? null;
-        $canonicalDigest = $payloadRow['sha256'] ?? ($host['auth_digest'] ?? null);
+        $canonicalLastRefresh = $payloadRow['last_refresh']
+            ?? ($host['last_refresh'] ?? ($state['seen_at'] ?? null));
+        $canonicalDigest = $payloadRow['sha256']
+            ?? ($state['seen_digest'] ?? ($host['auth_digest'] ?? null));
 
         Response::json([
             'status' => 'ok',

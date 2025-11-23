@@ -1,0 +1,226 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Repositories\AuthPayloadRepository;
+use App\Repositories\HostAuthDigestRepository;
+use App\Repositories\HostAuthStateRepository;
+use App\Repositories\HostRepository;
+use App\Repositories\LogRepository;
+use App\Repositories\TokenUsageRepository;
+use App\Repositories\VersionRepository;
+use App\Services\AuthService;
+use App\Services\WrapperService;
+use PHPUnit\Framework\TestCase;
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+class InMemoryHostRepository extends HostRepository
+{
+    public array $host;
+
+    public function __construct(array $host)
+    {
+        $this->host = $host;
+    }
+
+    public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
+    {
+        $this->host['client_version'] = $clientVersion;
+        $this->host['wrapper_version'] = $wrapperVersion;
+    }
+
+    public function incrementApiCalls(int $hostId, int $by = 1): void
+    {
+        $this->host['api_calls'] = ($this->host['api_calls'] ?? 0) + $by;
+    }
+
+    public function findById(int $id): ?array
+    {
+        return $this->host;
+    }
+
+    public function updateSyncState(int $hostId, string $lastRefresh, string $authDigest): void
+    {
+        $this->host['last_refresh'] = $lastRefresh;
+        $this->host['auth_digest'] = $authDigest;
+    }
+
+    public function all(): array
+    {
+        return [$this->host];
+    }
+}
+
+class InMemoryAuthPayloadRepository extends AuthPayloadRepository
+{
+    public function __construct(private readonly array $payload)
+    {
+    }
+
+    public function findByIdWithEntries(int $id): ?array
+    {
+        return $this->payload['id'] === $id ? $this->payload : null;
+    }
+
+    public function latest(): ?array
+    {
+        return $this->payload;
+    }
+}
+
+class InMemoryHostAuthDigestRepository extends HostAuthDigestRepository
+{
+    private array $digests = [];
+
+    public function __construct()
+    {
+    }
+
+    public function recentDigests(int $hostId): array
+    {
+        return $this->digests;
+    }
+
+    public function rememberDigests(int $hostId, array $digests): void
+    {
+        $merged = array_values(array_unique(array_merge($digests, $this->digests)));
+        $this->digests = array_slice($merged, 0, 3);
+    }
+}
+
+class NullHostAuthStateRepository extends HostAuthStateRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function upsert(int $hostId, int $payloadId, string $digest): void
+    {
+        // no-op for test
+    }
+}
+
+class NullLogRepository extends LogRepository
+{
+    public array $events = [];
+
+    public function __construct()
+    {
+    }
+
+    public function log(?int $hostId, string $action, array $details = []): void
+    {
+        $this->events[] = [$hostId, $action, $details];
+    }
+}
+
+class NullTokenUsageRepository extends TokenUsageRepository
+{
+    public function __construct()
+    {
+    }
+}
+
+class InMemoryVersionRepository extends VersionRepository
+{
+    private array $store;
+
+    public function __construct(array $store)
+    {
+        $this->store = $store;
+    }
+
+    public function get(string $key): mixed
+    {
+        return $this->store[$key] ?? null;
+    }
+
+    public function getWithMetadata(string $key): ?array
+    {
+        if (!isset($this->store[$key])) {
+            return null;
+        }
+        return [
+            'value' => $this->store[$key],
+            'updated_at' => gmdate(DATE_ATOM),
+        ];
+    }
+
+    public function set(string $key, string $value): void
+    {
+        $this->store[$key] = $value;
+    }
+}
+
+class StubWrapperService extends WrapperService
+{
+    public function __construct()
+    {
+    }
+
+    public function metadata(): array
+    {
+        return [];
+    }
+
+    public function ensureSeeded(): void
+    {
+    }
+
+    public function replaceFromUpload(string $tmpPath, string $version, ?string $expectedSha, bool $isUploadedFile = false): array
+    {
+        return [];
+    }
+
+    public function contentPath(): string
+    {
+        return '';
+    }
+}
+
+final class AuthServiceUploadRequiredTest extends TestCase
+{
+    public function testRetrieveRespondsWithUploadRequiredWhenClientIsNewer(): void
+    {
+        $canonicalPayload = [
+            'id' => 99,
+            'last_refresh' => '2025-11-20T00:00:00Z',
+            'sha256' => str_repeat('a', 64),
+        ];
+
+        $host = [
+            'id' => 1,
+            'fqdn' => 'host.test',
+            'status' => 'active',
+            'api_calls' => 0,
+        ];
+
+        $service = new AuthService(
+            new InMemoryHostRepository($host),
+            new InMemoryAuthPayloadRepository($canonicalPayload),
+            new NullHostAuthStateRepository(),
+            new InMemoryHostAuthDigestRepository(),
+            new NullLogRepository(),
+            new NullTokenUsageRepository(),
+            new InMemoryVersionRepository(['canonical_payload_id' => 99]),
+            'invite-key',
+            new StubWrapperService()
+        );
+
+        $response = $service->handleAuth(
+            [
+                'command' => 'retrieve',
+                'last_refresh' => '2025-11-21T00:00:00Z',
+                'digest' => str_repeat('b', 64),
+            ],
+            $host,
+            '1.0.0',
+            '2025.11.22-6'
+        );
+
+        $this->assertSame('upload_required', $response['status'] ?? null);
+        $this->assertSame('store', $response['action'] ?? null);
+        $this->assertSame($canonicalPayload['sha256'], $response['canonical_digest'] ?? null);
+    }
+}

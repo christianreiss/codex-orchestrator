@@ -1,5 +1,7 @@
 # Agents & Responsibilities
 
+Source of truth docs: keep `interface-api.md`, `interface-db.md`, and `interface-cdx.md` aligned with code. Use them when auditing or extending behavior.
+
 This project is small, but each class has a clear role in the orchestration pipeline that keeps Codex `auth.json` files synchronized between servers. Use this guide when extending or debugging the service.
 
 ## Operational Checklist (humans)
@@ -20,8 +22,9 @@ This project is small, but each class has a clear role in the orchestration pipe
 2. **`App\Services\AuthService` (Coordinator)**
    - Validates registration requests against the configured invitation key.
    - Issues per-host API keys (random 64-hex chars) and normalizes host payloads.
-   - Handles unified `/auth` commands: `retrieve` (digest check + versions) and `store` (canonical update) while merging `/versions` data into the response.
-   - Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report.
+- Handles unified `/auth` commands: `retrieve` (statuses: `valid`, `upload_required` when client is newer, `outdated`, `missing`) and `store` (`updated`, `unchanged`, `outdated`) while merging `/versions` data into the response.
+- Synthesizes `auths` from `tokens.access_token` or `OPENAI_API_KEY` when the map is missing/empty; still enforces token quality and timestamp sanity.
+- Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report; `DELETE /auth?force=1` bypasses IP binding (used by uninstall/clean scripts).
    - Tracks the canonical auth digest (sha256 of the stored canonical auth.json blob with normalized `auths`) and remembers up to 3 digests per host for quick matching.
    - Logs every register/auth/delete action through `LogRepository`.
 
