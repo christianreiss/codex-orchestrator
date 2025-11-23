@@ -490,6 +490,25 @@ try {
         ]);
     }
 
+    if ($method === 'POST' && $normalizedPath === '/admin/runner/run') {
+        requireAdminAccess();
+
+        try {
+            $result = $service->triggerRunnerRefresh();
+        } catch (HttpException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], $exception->getStatusCode());
+            return;
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
     if ($method === 'GET' && $normalizedPath === '/admin/api/state') {
         requireAdminAccess();
 

@@ -122,7 +122,15 @@
       grid-template-columns: 1fr auto;
       align-items: center;
       gap: 14px 18px;
-      margin-bottom: 18px;
+      margin: 0 -16px 18px;
+      padding: 14px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: linear-gradient(135deg, rgba(6,16,32,0.92), rgba(6,16,32,0.75));
+      border-bottom: 1px solid var(--panel-strong);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
     }
     .title-line { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
     .title-line h2 { margin:0; font-size: 28px; letter-spacing: -0.2px; }
@@ -273,6 +281,13 @@
       background: linear-gradient(135deg, rgba(255,93,122,0.9), rgba(255,150,150,0.85));
       color: #1b0c16;
       box-shadow: 0 10px 24px rgba(255,93,122,0.25);
+    }
+    .tiny-btn {
+      padding: 7px 10px;
+      font-size: 12px;
+      border-radius: 10px;
+      min-width: 0;
+      line-height: 1.1;
     }
     .table-wrap { margin-top: 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--panel-strong); background: rgba(0,0,0,0.12); }
     table { width: 100%; min-width: 960px; border-collapse: collapse; }
@@ -482,6 +497,8 @@
 
     @media (max-width: 960px) {
       .content { padding: 20px 12px 52px; }
+      .topbar { margin: 0 -12px 14px; padding: 12px; grid-template-columns: 1fr; position: sticky; top: 0; }
+      .action-line { justify-content: flex-start; }
       .panel-actions { flex-direction: column; align-items: stretch; }
       .panel-actions input,
       .panel-actions select,
@@ -513,6 +530,7 @@
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
           </label>
           <button class="secondary" id="newHostBtn">+ New Host</button>
+          <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
           <button id="refresh">Refresh</button>
           <button id="version-check">Check versions</button>
         </div>
@@ -602,6 +620,7 @@
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
     const apiToggle = document.getElementById('api-toggle');
+    const runnerRunnerBtn = document.getElementById('runner-runner');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
@@ -1121,8 +1140,27 @@
       }
     }
 
+    async function runRunnerNow() {
+      if (!runnerRunnerBtn) return;
+      const original = runnerRunnerBtn.textContent;
+      runnerRunnerBtn.disabled = true;
+      runnerRunnerBtn.textContent = 'Running…';
+      try {
+        await api('/admin/runner/run', { method: 'POST' });
+        await loadAll();
+      } catch (err) {
+        alert(`Runner failed: ${err.message}`);
+      } finally {
+        runnerRunnerBtn.disabled = false;
+        runnerRunnerBtn.textContent = original;
+      }
+    }
+
     if (refreshBtn) {
       refreshBtn.addEventListener('click', loadAll);
+    }
+    if (runnerRunnerBtn) {
+      runnerRunnerBtn.addEventListener('click', runRunnerNow);
     }
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);

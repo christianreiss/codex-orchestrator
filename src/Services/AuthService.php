@@ -445,11 +445,14 @@ class AuthService
     }
 
     /**
-     * Run the runner once per UTC day against the current canonical auth to catch auto-refreshes.
+     * Run the runner against the current canonical auth (daily or manual).
+     *
+     * @param bool $forceRun When true, bypass the once-per-day guard (used for manual admin trigger).
+     * @param string $trigger Label for log records.
      *
      * @return array{0: ?array, 1: ?string, 2: ?string} Updated canonical payload, digest, last_refresh
      */
-    private function runnerDailyCheck(?array $canonicalPayload, array $host, array $versions): array
+    private function runnerDailyCheck(?array $canonicalPayload, array $host, array $versions, bool $forceRun = false, string $trigger = 'daily_preflight'): array
     {
         if ($canonicalPayload === null || $this->runnerVerifier === null) {
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
@@ -466,7 +469,7 @@ class AuthService
 
         $today = gmdate('Y-m-d');
         $lastCheck = $this->versions->get('runner_last_check', '');
-        if ($lastCheck === $today) {
+        if (!$forceRun && $lastCheck === $today) {
             return [$canonicalPayload, $currentDigest, $currentLastRefresh];
         }
 
@@ -477,7 +480,7 @@ class AuthService
                 'status' => $validation['status'] ?? null,
                 'reason' => $validation['reason'] ?? null,
                 'latency_ms' => $validation['latency_ms'] ?? null,
-                'trigger' => 'daily_preflight',
+                'trigger' => $trigger,
             ]);
 
             if (isset($validation['updated_auth']) && is_array($validation['updated_auth'])) {
@@ -510,14 +513,14 @@ class AuthService
                     $this->hosts->updateSyncState($hostId, (string) $runnerLastRefresh, $runnerDigest);
                     $this->logs->log($hostId, 'auth.runner_store', [
                         'status' => 'applied',
-                        'trigger' => 'daily_preflight',
+                        'trigger' => $trigger,
                         'incoming_last_refresh' => $runnerLastRefresh,
                         'incoming_digest' => $runnerDigest,
                     ]);
                 } else {
                     $this->logs->log($hostId, 'auth.runner_store', [
                         'status' => 'skipped',
-                        'trigger' => 'daily_preflight',
+                        'trigger' => $trigger,
                         'reason' => 'runner auth not newer or identical',
                     ]);
                 }
@@ -525,7 +528,7 @@ class AuthService
         } catch (\Throwable $exception) {
             $this->logs->log($hostId, 'auth.runner_store', [
                 'status' => 'failed',
-                'trigger' => 'daily_preflight',
+                'trigger' => $trigger,
                 'reason' => $exception->getMessage(),
             ]);
         } finally {
@@ -535,6 +538,50 @@ class AuthService
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
         return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
+    }
+
+    public function triggerRunnerRefresh(): array
+    {
+        if ($this->runnerVerifier === null) {
+            throw new HttpException('Runner not configured', 503);
+        }
+
+        $canonicalPayload = $this->resolveCanonicalPayload();
+        if ($canonicalPayload === null) {
+            throw new HttpException('No canonical auth payload available', 404);
+        }
+
+        $host = null;
+        if (isset($canonicalPayload['source_host_id'])) {
+            $host = $this->hosts->findById((int) $canonicalPayload['source_host_id']);
+        }
+        if ($host === null) {
+            $hosts = $this->hosts->all();
+            $host = $hosts[0] ?? null;
+        }
+        if ($host === null) {
+            throw new HttpException('No host available to tag runner logs', 404);
+        }
+
+        $versions = $this->versionSnapshot();
+        $originalDigest = $canonicalPayload['sha256'] ?? null;
+
+        [$updatedPayload, $newDigest, $newLastRefresh] = $this->runnerDailyCheck(
+            $canonicalPayload,
+            $host,
+            $versions,
+            true,
+            'manual'
+        );
+
+        $applied = $newDigest !== null && $newDigest !== $originalDigest;
+
+        return [
+            'applied' => $applied,
+            'canonical_digest' => $newDigest,
+            'canonical_last_refresh' => $newLastRefresh,
+            'runner_last_check' => $this->versions->get('runner_last_check', null),
+        ];
     }
 
     public function deleteHost(array $host): array

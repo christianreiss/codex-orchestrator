@@ -181,6 +181,8 @@ For each endpoint, fields are **required unless noted**. Timestamps are RFC3339.
 - **GET /admin/runner**
   - Returns runner configuration and recent activity when `AUTH_RUNNER_URL` is set: `{ enabled, runner_url, base_url, timeout_seconds, last_daily_check, counts: { validations_24h, runner_store_24h }, latest_validation?, latest_runner_store? }`.
   - `latest_validation`/`latest_runner_store` include host (id/fqdn), status/reason/latency (validation), and incoming digest/last_refresh when the runner applied or attempted to apply an update.
+- **POST /admin/runner/run**
+  - Forces an immediate runner execution against the canonical auth (bypasses the once-per-day guard). Returns `{ applied: bool, canonical_digest, canonical_last_refresh, runner_last_check }` or an error when runner is disabled/missing canonical auth.
 - **GET /admin/api/state** / **POST /admin/api/state**
   - GET returns `{ disabled: bool }` from `versions.api_disabled` flag.
   - POST body `{ disabled: bool }`; sets the flag. Validation error `422` if value not boolean-ish.
