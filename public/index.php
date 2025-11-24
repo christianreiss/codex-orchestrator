@@ -1015,6 +1015,21 @@ function resolveBaseUrl(): string
     return sprintf('%s://%s', $scheme, $host);
 }
 
+function resolveApiKey(): ?string
+{
+    $header = $_SERVER['HTTP_X_API_KEY'] ?? null;
+    if ($header) {
+        return $header;
+    }
+
+    $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
+    if ($authorization && str_starts_with($authorization, 'Bearer ')) {
+        return substr($authorization, 7);
+    }
+
+    return null;
+}
+
 function escapeForSingleQuotes(string $value): string
 {
     return str_replace("'", "'\"'\"'", $value);

@@ -57,18 +57,24 @@ class LogRepository
         }
 
         $limit = max(1, min($limit, 200));
-        $placeholders = implode(',', array_fill(0, count($actions), '?'));
+        $placeholders = [];
+        $params = [];
+        foreach ($actions as $idx => $action) {
+            $key = 'action' . $idx;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $action;
+        }
 
         $statement = $this->database->connection()->prepare(
-            "SELECT id, host_id, action, details, created_at
+            'SELECT id, host_id, action, details, created_at
              FROM logs
-             WHERE action IN ({$placeholders})
+             WHERE action IN (' . implode(',', $placeholders) . ')
              ORDER BY created_at DESC, id DESC
-             LIMIT :limit"
+             LIMIT :limit'
         );
 
-        foreach ($actions as $idx => $action) {
-            $statement->bindValue($idx + 1, $action);
+        foreach ($params as $key => $value) {
+            $statement->bindValue($key, $value);
         }
         $statement->bindValue('limit', $limit, PDO::PARAM_INT);
         $statement->execute();
@@ -85,12 +91,18 @@ class LogRepository
             return 0;
         }
 
-        $placeholders = implode(',', array_fill(0, count($actions), '?'));
-        $statement = $this->database->connection()->prepare(
-            "SELECT COUNT(*) FROM logs WHERE action IN ({$placeholders}) AND created_at >= :since"
-        );
+        $placeholders = [];
+        $params = [];
         foreach ($actions as $idx => $action) {
-            $statement->bindValue($idx + 1, $action);
+            $key = 'action' . $idx;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $action;
+        }
+        $statement = $this->database->connection()->prepare(
+            'SELECT COUNT(*) FROM logs WHERE action IN (' . implode(',', $placeholders) . ') AND created_at >= :since'
+        );
+        foreach ($params as $key => $value) {
+            $statement->bindValue($key, $value);
         }
         $statement->bindValue('since', $since);
         $statement->execute();

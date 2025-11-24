@@ -92,4 +92,26 @@ class HostAuthDigestRepository
         );
         $statement->execute(['host_id' => $hostId]);
     }
+
+    /**
+     * Return all digests grouped by host_id.
+     *
+     * @return array<int, array<int, string>>
+     */
+    public function byHostId(): array
+    {
+        $statement = $this->database->connection()->query(
+            'SELECT host_id, digest FROM host_auth_digests ORDER BY last_seen DESC, id DESC'
+        );
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $grouped = [];
+        foreach ($rows as $row) {
+            $hostId = isset($row['host_id']) ? (int) $row['host_id'] : null;
+            if ($hostId === null) {
+                continue;
+            }
+            $grouped[$hostId][] = (string) $row['digest'];
+        }
+        return $grouped;
+    }
 }
