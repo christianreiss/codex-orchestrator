@@ -940,7 +940,7 @@
           const isInstall = btn.classList.contains('reinstall-btn');
           if (isInstall) {
             const fqdn = btn.getAttribute('data-fqdn') || '';
-            regenerateInstaller(id, fqdn);
+            regenerateInstaller(fqdn, id);
           } else {
             confirmClear(id);
           }
@@ -1304,7 +1304,7 @@
       await regenerateInstaller(fqdn);
     }
 
-    async function regenerateInstaller(fqdn) {
+    async function regenerateInstaller(fqdn, hostId = null) {
       const targetFqdn = fqdn || newHostName.value.trim();
       if (!targetFqdn) {
         alert('Please enter a host name');
@@ -1317,7 +1317,7 @@
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn: targetFqdn },
+          json: { fqdn: targetFqdn, host_id: hostId ?? undefined },
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');

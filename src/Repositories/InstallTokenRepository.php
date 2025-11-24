@@ -14,6 +14,11 @@ class InstallTokenRepository
     public function create(string $token, int $hostId, string $apiKey, string $fqdn, string $expiresAt, ?string $baseUrl = null): array
     {
         $now = gmdate(DATE_ATOM);
+
+        // Ensure only one pending token per host to avoid accidental host churn on reinstall.
+        $delete = $this->database->connection()->prepare('DELETE FROM install_tokens WHERE host_id = :host_id');
+        $delete->execute(['host_id' => $hostId]);
+
         $statement = $this->database->connection()->prepare(
             'INSERT INTO install_tokens (token, host_id, api_key, fqdn, base_url, expires_at, created_at) VALUES (:token, :host_id, :api_key, :fqdn, :base_url, :expires_at, :created_at)'
         );
