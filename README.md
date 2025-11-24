@@ -230,7 +230,7 @@ Content-Type: application/json
 Response mirrors `GET /versions`.
 
 Notes:
-- The server refreshes `client_version` by calling the GitHub “latest release” endpoint when `/versions` is requested and the cached value is older than **3 hours**. Fetch failures fall back to the last cached value.
+- `versions.client` (published override) wins when set; otherwise the server refreshes `client_version` from the GitHub “latest release” endpoint when the cache is older than **3 hours**, falling back to the last cached value on failure.
 - The `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists). You can still override it via `POST /versions` when `VERSION_ADMIN_KEY` is set.
 
 ### Admin (mTLS-only)
@@ -238,15 +238,19 @@ Notes:
 - `/admin/*` routes require an mTLS client certificate; requests without one are rejected (Caddy forwards `X-mTLS-Present`).
 - If `DASHBOARD_ADMIN_KEY` is set, the admin key must also be provided (same header rules as `/versions`).
 - Endpoints:
-  - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
-  - `GET /admin/hosts`: list hosts with canonical digest and recent digests.
-  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`).
-  - `POST /admin/hosts/{id}/clear`: clear the stored IP and recent digests for a host so the next `/auth` call can re-bind cleanly.
-  - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
+  - `GET /admin/overview`: versions, host counts, average refresh age, latest log timestamp, token totals, mTLS metadata.
+  - `GET /admin/hosts`: list hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, latest token usage.
   - `POST /admin/hosts/register`: create or rotate a host and mint a single-use installer token (used by the dashboard “New Host” button).
-  - `GET /admin/api/state`: read whether `/auth` is currently disabled.
-  - `POST /admin/api/state`: toggle the `api_disabled` flag that makes `/auth` return `503 API disabled by administrator`.
+  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`), recent digests, last-seen timestamp.
+  - `DELETE /admin/hosts/{id}`: remove a host and its digests.
+  - `POST /admin/hosts/{id}/clear`: intended to clear digests/host auth, but currently 500s because `HostRepository::clearHostAuth()` is missing.
+  - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
+  - `POST /admin/auth/upload`: upload a canonical auth JSON (body or `file`) and attribute it to a specific host (or first host when omitted).
+  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; `/auth` does not check it yet).
+  - `GET /admin/runner`: runner config + recent validation/runner_store logs.
+  - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
+  - `GET /admin/usage?limit=50` and `GET /admin/tokens?limit=50`: recent usage rows and token aggregates.
 - A basic dashboard lives at `/admin/` (served by this container); it calls the endpoints above and will only work when mTLS is presented.
 
 ## Data & Logging
@@ -271,6 +275,7 @@ The legacy `host-status.txt` export has been removed; use the admin dashboard (`
 - Uninstallers should call `DELETE /auth` (handled automatically by `cdx --uninstall`) to remove the host record cleanly.
 - The server normalizes timestamps with fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` compare correctly.
 - API keys are IP-bound after the first successful authenticated call; use `POST /admin/hosts/{id}/roaming` or mint a new host/API key to move a host cleanly.
-- When the admin toggle marks the API as disabled (`/admin/api/state`), `POST /auth` returns `503 API disabled by administrator` and the `cdx` wrapper refuses to start Codex until the flag is cleared.
+- Auth payload validation synthesizes `auths` from `tokens.access_token` / `OPENAI_API_KEY` when missing, then sorts them; tokens must pass quality checks (`TOKEN_MIN_LENGTH` env, no whitespace/placeholder/low-entropy values).
+- `/admin/api/state` only stores a flag today; `/auth` does not enforce it. Add a guard if you need a kill-switch.
 - Extendable: add admin/reporting endpoints by introducing more routes in `public/index.php` and new repository methods.
 - Refer to `AGENTS.md` when you need a walkthrough of how each class collaborates within the request pipeline.

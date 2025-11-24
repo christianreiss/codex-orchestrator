@@ -7,50 +7,80 @@ This project is small, but each class has a clear role in the orchestration pipe
 ## Operational Checklist (humans)
 
 - When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the baked base URL and masked API key.
-- Before letting Codex start, open `~/.codex/auth.json` and confirm it has `last_refresh` plus either a non-empty `auths` map (each with `token`) or a `tokens.access_token`; the server hashes the reconstructed auth.json (normalized `auths` + preserved extras) so missing top-level fields will cause digest mismatches.
-- If the API is in emergency stop mode, `/auth` returns `503 API disabled by administrator` and cdx will refuse to start. Toggle it in the dashboard.
+- Before letting Codex start, open `~/.codex/auth.json` and confirm it has `last_refresh` plus either a non-empty `auths` map (each with `token`) or a `tokens.access_token`; the server hashes the reconstructed auth.json (normalized `auths` + preserved extras) so missing top-level fields will cause digest mismatches. Fallbacks: if `auths` is empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the API will synthesize `auths = {"api.openai.com": {...}}` during validation.
+- Admin API toggle (`/admin/api/state`) currently only stores a flag; `/auth` does not read it yet. Add a guard if you need a real kill-switch.
 - Dashboard URL (mTLS required): https://codex.uggs.io/admin/
+- Inactivity pruning: every authenticate/register call deletes hosts inactive for 30 days (`host.pruned` logs). Re-register to restore.
+- The admin “clear” endpoint currently calls an undefined `HostRepository::clearHostAuth()`; expect a 500 until that method is added.
 
 ## Request Flow
 
 1. **`public/index.php` (HTTP Router)**
-   - Bootstraps the environment, loads `.env`, and runs MySQL migrations.
-   - Declares a route table (see `src/Http/Router.php`) and dispatches to per-path handlers: `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin), `/install/{token}` (one-time installer), and admin-only endpoints (e.g., `/admin/hosts/register`).
-   - Resolves API keys from `X-API-Key` or `Authorization: Bearer` headers (installer tokens are handled separately).
-   - Returns JSON responses using `App\Http\Response`.
+   - Bootstraps env, runs migrations, seeds the wrapper from `bin/cdx` if missing, and (optionally) wires the auth runner (`AUTH_RUNNER_URL`, `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`).
+   - Declares routes in `src/Http/Router.php`: host endpoints (`/auth`, `DELETE /auth`, `/usage`, `/wrapper`, `/wrapper/download`), installer (`/install/{token}`), versions + wrapper publish (`/versions`, `/wrapper`), and admin endpoints (runner status/run, auth upload, API flag, hosts CRUD, roaming toggle, overview, logs, usage, tokens).
+   - Resolves API keys from `X-API-Key` or `Authorization: Bearer`; admin keys from `X-Admin-Key`/Bearer/query; installer tokens are separate.
+   - Emits JSON via `App\Http\Response`; installer responses are shell scripts with `text/x-shellscript`.
 
 2. **`App\Services\AuthService` (Coordinator)**
-   - Issues per-host API keys (random 64-hex chars) and normalizes host payloads for admin-driven provisioning.
-- Handles unified `/auth` commands: `retrieve` (statuses: `valid`, `upload_required` when client is newer, `outdated`, `missing`) and `store` (`updated`, `unchanged`, `outdated`) while merging `/versions` data into the response.
-- Synthesizes `auths` from `tokens.access_token` or `OPENAI_API_KEY` when the map is missing/empty; still enforces token quality and timestamp sanity.
-- Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report; `DELETE /auth?force=1` bypasses IP binding (used by uninstall/clean scripts).
-   - Tracks the canonical auth digest (sha256 of the stored canonical auth.json blob with normalized `auths`) and remembers up to 3 digests per host for quick matching.
-   - Logs every register/auth/delete action through `LogRepository`.
+   - Issues per-host API keys (random 64-hex) and normalizes host payloads for admin-driven provisioning; prunes hosts inactive for 30 days.
+   - Auth/IP binding: first auth call stores caller IP; later calls from a different IP 403 unless `allow_roaming_ips` (set via admin) or `?force=1` on `DELETE /auth`. Stores IP and logs `auth.bind_ip` / `auth.roaming_ip` / `auth.force_ip_override`.
+   - `/auth` flow:
+     - `retrieve` statuses: `valid`, `upload_required` (client `last_refresh` is newer), `outdated` (server newer), `missing` (no canonical). Always includes versions and API call counts.
+     - `store` statuses: `updated` (incoming newer or different digest), `unchanged`, `outdated` (server newer). Canonicalizes auths (sorted, token quality enforced, fallback from tokens/OPENAI_API_KEY) and stores compact JSON plus per-target entries.
+     - Validations: RFC3339 `last_refresh` (>= 2000-01-01, <= now+300s), `digest` must be 64-hex, tokens checked for entropy/min length (`TOKEN_MIN_LENGTH`, default 24).
+   - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`), records last-seen per host (`host_auth_states`), keeps up to 3 recent digests per host (`host_auth_digests`), and updates host `last_refresh`/`auth_digest`/versions/API call counters.
+   - Versions block (per response): client version prefers published (`versions.client`) else cached GitHub latest (3h TTL), wrapper version is the max of stored wrapper metadata, published wrapper, or latest reported by any host. Seeds `versions.wrapper` the first time a host reports one. Wrapper metadata comes from `WrapperService`.
+   - Runner integration (optional): once per UTC day (or on manual trigger) runs the auth runner against canonical auth before responding; applies runner-returned `updated_auth` when newer/different and logs `auth.runner_store`. Every store also logs `auth.validate` result. Manual trigger: `POST /admin/runner/run`.
+   - Token usage: `recordTokenUsage()` logs `token.usage` and writes to `token_usages`; aggregates are surfaced in admin endpoints.
+   - Host deletion: `deleteHost()` removes host row + digests; uninstall flow uses `DELETE /auth`.
 
 3. **`App\Repositories\HostRepository` (Persistence)**
    - CRUD operations on the `hosts` table (find by fqdn/api_key, create, update auth).
    - Maintains metadata fields like `updated_at`, `status`, IP bindings, canonical auth digest, client versions, and optional wrapper versions.
+   - `incrementApiCalls()` bumps per-host counters on every `/auth`.
+   - Note: `clearHostAuth()` is not implemented; `/admin/hosts/{id}/clear` currently fails.
 
-4. **`App\Repositories\HostAuthDigestRepository` (Digest cache)**
+4. **`App\Repositories\HostAuthStateRepository` (Per-host canonical pointer)**
+   - Stores the last canonical payload ID/digest/seen_at per host for admin inspection.
+
+5. **`App\Repositories\AuthPayloadRepository` & `AuthEntryRepository` (Canonical auth storage)**
+   - Saves canonical `auth.json` (compact body JSON in `auth_payloads.body`) plus per-target entries in `auth_entries`.
+   - `findByIdWithEntries()`/`latest()` return payload with entries for validation/hydration.
+
+6. **`App\Repositories\HostAuthDigestRepository` (Digest cache)**
    - Persists up to three recent auth digests per host (`host_auth_digests` table) and prunes older entries.
 
-5. **`App\Repositories\LogRepository` (Auditing)**
+7. **`App\Repositories\LogRepository` (Auditing)**
    - Inserts rows into the `logs` table with lightweight JSON details.
    - Keeps a chronological record of who did what and when.
 
-6. **`App\Support\Timestamp` (Comparer)**
+8. **`App\Repositories\TokenUsageRepository` (Usage metrics)**
+   - Writes token usage rows (`token_usages`) and exposes aggregates/top hosts for admin views.
+
+9. **`App\Support\Timestamp` (Comparer)**
    - Compares RFC3339 strings (with or without fractional seconds) reliably.
    - Ensures `2025-11-19T09:27:43.373506211Z` style values sort correctly.
 
-7. **`App\Database` (Infrastructure)**
+10. **`App\Services\WrapperService` (Wrapper distribution)**
+    - Seeds stored wrapper from `bin/cdx` on boot if missing or changed; stores version in `versions.wrapper`.
+    - `metadata()` returns version/sha/size/updated_at; `bakedForHost()` injects base URL, API key, FQDN, CA file, and wrapper version, returning content + per-host sha256/size.
+    - `replaceFromUpload()` handles admin-published wrapper uploads (optional sha256 check).
+
+11. **`App\Services\RunnerVerifier` (Auth validator)**
+    - POSTs auth payloads to `AUTH_RUNNER_URL` with base URL override and optional host telemetry; returns status/latency/reason and optional `updated_auth`.
+
+12. **`App\Database` (Infrastructure)**
    - Opens the MySQL connection (configured via `DB_*`), enforces foreign keys, and runs migrations.
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
        - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
    - `auth_payloads`: last_refresh, sha256, source_host_id, created_at, **body (compact canonical auth.json as uploaded)**.
+   - `auth_entries`: per-target token rows for each payload.
    - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
+   - `host_auth_states`: host_id → payload_id/digest/seen_at (last canonical served to that host).
    - `logs`: host_id, action, details, created_at.
    - `versions`: published/seen versions with updated_at.
+   - `token_usages`: per-host token usage rows for dashboard aggregates.
 
 ## CLI & Ops Scripts (`bin/`)
 
@@ -64,3 +94,4 @@ This project is small, but each class has a clear role in the orchestration pipe
 - Add new endpoints by expanding `public/index.php` and delegating to `AuthService` or a new service class.
 - Additional background tasks (cleanup, retention) should live in their own service but reuse the repositories.
 - When adding new columns, extend `Database::migrate()` and keep repositories in sync.
+- Wire new admin toggles into `AuthService` or request guards; `api_disabled` is currently persisted but not enforced—if you need the kill-switch, add a guard around `/auth`.

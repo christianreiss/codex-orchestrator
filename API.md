@@ -11,8 +11,9 @@ The front controller (`public/index.php`) dispatches requests via a small route 
 - Host endpoints (`/auth`, `/usage`, `/wrapper*`, `DELETE /auth`) require the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
-- API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-mint the host (new API key) to reset the binding, or let an operator mark the host as “allow roaming IPs” via the dashboard / `POST /admin/hosts/{id}/roaming`.
+- IP binding: the first successful auth stores the caller IP. Later calls from a different IP return `403` unless the host has `allow_roaming_ips` (admin toggle) or `DELETE /auth?force=1` is used during uninstall. The stored IP is updated (and logged) on allowed moves.
 - Wrapper metadata/downloads use the same API key + IP binding; the installer script is the only public artifact and is guarded by a one-time token.
+- Admin API toggle (`/admin/api/state`) persists a flag but is not currently enforced by `/auth`—add a guard if you need a kill-switch.
 
 Errors return:
 
@@ -24,11 +25,11 @@ Errors return:
 
 ### Host provisioning (admin)
 
-- `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token.
-- `GET /install/{token}` is public but token-gated and expires after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s). The response is a bash installer that:
-  - Downloads the latest `cdx` wrapper (`/wrapper/download`) baked with the host’s API key and base URL.
-  - Fetches the Codex CLI from GitHub.
-  - Prints progress and exits non-zero on failure. Tokens are marked used immediately after download.
+- `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token. Expired/used tokens are pruned on each call. Base URL comes from request headers or `PUBLIC_BASE_URL`; call fails if a usable base cannot be determined.
+- `GET /install/{token}` is public but token-gated and expires after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s). The handler marks the token used before emitting the script. The bash installer:
+  - Downloads the latest stored `cdx` wrapper (`/wrapper/download`) baked with the host’s API key, base URL, FQDN, and wrapper version.
+  - Detects arch, fetches Codex CLI from GitHub (falls back to `0.63.0` when server has no published version), and installs to `/usr/local/bin` or `$HOME/.local/bin`.
+  - Prints progress and exits non-zero on failure. Tokens cannot be reused.
 
 ### `POST /auth` (single-call sync)
 
@@ -41,84 +42,32 @@ Unified endpoint for both checking and updating auth. Each response includes the
 - `command`: `retrieve` (default) or `store`.
 - `client_version`: optional (JSON or query param `client_version`/`cdx_version`); when omitted the server records `unknown`.
 - `wrapper_version`: optional (JSON or query param `wrapper_version`/`cdx_wrapper_version`).
-- `digest`: required for `retrieve`; the client’s current auth SHA-256 (exact JSON digest).
-- `last_refresh`: required when `command` is `retrieve`; must be an RFC3339 timestamp, not in the future, and not implausibly old (earlier than 2000-01-01T00:00:00Z).
-- `auth`: required when `command` is `store`; payload identical to the previous `/auth/update` body, must include `last_refresh` (same timestamp rules), and `auths` must contain at least one target entry. If `auths` is missing or empty but `tokens.access_token` or `OPENAI_API_KEY` is present, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation.
+- `digest`: required for `retrieve`; the client’s current auth SHA-256 (digest of the exact JSON sent to Codex).
+- `last_refresh`: required when `command` is `retrieve`; must be RFC3339, not in the future (>300s skew), and not before `2000-01-01T00:00:00Z`.
+- `auth`: required when `command` is `store`; must include `last_refresh` (same rules). `auths` must contain at least one entry; if missing/empty but `tokens.access_token` or `OPENAI_API_KEY` is present, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation. Tokens are rejected when too short (`TOKEN_MIN_LENGTH`, default 24), low-entropy, placeholder, or containing whitespace.
   - All other top-level fields inside `auth` (for example `tokens`, `OPENAI_API_KEY`, or custom metadata) are preserved verbatim; only the `auths` map is normalized/sorted for consistency.
 
 The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 canonical digests per host (`host_auth_digests`).
 
-**Retrieve example (valid)**
-
-```http
-POST /auth HTTP/1.1
-X-API-Key: 8a63...f0
-Content-Type: application/json
-
-{
-  "command": "retrieve",
-  "last_refresh": "2025-11-19T09:27:43.373506211Z",
-  "digest": "b0b1b540ea35ac7cf806...",
-  "client_version": "0.60.1",
-  "wrapper_version": "2025.11.19-4"
-}
-```
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "status": "valid",
-    "canonical_last_refresh": "2025-11-19T09:27:43.373506211Z",
-    "canonical_digest": "b0b1b540ea35ac7cf806...",
-    "versions": {
-      "client_version": "0.60.1",
-      "client_version_checked_at": "2025-11-20T09:00:00Z",
-      "wrapper_version": "2025.11.19-4",
-      "reported_client_version": "0.60.1",
-      "reported_wrapper_version": "2025.11.19-4"
-    }
-  }
-}
-```
-
-**Retrieve responses**
+**Retrieve statuses**
 
 - `valid`: submitted digest matches canonical; no auth JSON returned.
 - `outdated`: server has newer auth; response includes `auth`, canonical digest, and versions.
-- `upload_required`: client claims a newer payload (client `last_refresh` > server); caller should resend with `command: "store"` and include `auth`.
+- `upload_required`: client claims a newer payload (`last_refresh` later than canonical); caller should resend with `command: "store"` and include `auth`.
 - `missing`: server does not yet have a canonical payload; caller should send `command: "store"`.
-
-**Store example (update canonical, preserving full auth.json layout)**
-
-```http
-POST /auth HTTP/1.1
-X-API-Key: 8a63...f0
-Content-Type: application/json
-
-{
-  "command": "store",
-  "client_version": "0.60.1",
-  "wrapper_version": "2025.11.19-4",
-  "auth": {
-    "last_refresh": "2025-11-20T09:27:43.373506211Z",
-    "auths": { "api.codex.example.com": { "token": "...", "token_type": "bearer" } },
-    "tokens": {
-      "id_token": "...",
-      "access_token": "...",
-      "refresh_token": "...",
-      "account_id": "92d59f2a-1b48-4466-86a6-cfc3816bfede"
-    },
-    "OPENAI_API_KEY": null
-  }
-}
-```
 
 **Store responses**
 
-- `updated`: incoming `last_refresh` is newer or server had none; server stores the payload and returns canonical `auth`, digest, versions, and host metadata.
+- `updated`: incoming `last_refresh` is newer (or canonical missing/different digest); server stores the payload and returns canonical `auth`, digest, versions, and host metadata.
 - `unchanged`: timestamps match; returns canonical digest and versions only.
 - `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
+
+**Runner validation**
+
+When `AUTH_RUNNER_URL` is configured, the server:
+- Runs the runner once per UTC day during `retrieve` to validate the current canonical auth (logs `auth.validate`).
+- Runs it again after `store`; if the runner returns `updated_auth` with a newer/different digest, the server saves that payload and sets `runner_applied: true` in the response.
+- Manual run: `POST /admin/runner/run`.
 
 ### `POST /usage` (token usage reporting)
 
@@ -225,7 +174,7 @@ Only the latest wrapper is kept; this updates metadata used by `/auth` and `/ver
 
 ### `GET /versions` (optional)
 
-Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` is always sourced from the latest GitHub release (`/repos/openai/codex/releases/latest`), cached for up to 3 hours and refreshed automatically when stale. `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists).
+Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` prefers the published override (`versions.client`); otherwise it uses the cached GitHub “latest release” value (3h TTL), falling back to a stale cache if GitHub is unreachable. `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists).
 
 ```json
 {
@@ -249,21 +198,28 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
 
 ## Logs & Housekeeping
 
-- Every `register`, `auth` retrieve/store, and version publish is logged in the `logs` table with JSON details.
-- The service keeps the last 3 canonical digests per host in `host_auth_digests` for quick comparisons.
+- Every `register`, `auth` retrieve/store, runner validation, token usage, and version publish is logged in `logs` (JSON details).
+- Canonical auth is stored as a compact body in `auth_payloads.body` plus per-target rows in `auth_entries`; `host_auth_states` tracks the last canonical payload per host; `host_auth_digests` keeps the last 3 digests per host.
+- Hosts inactive for 30 days are pruned during auth/register (logged as `host.pruned`).
 
 ## Admin (mTLS-only)
 
 - `/admin/*` requires an mTLS client certificate (Caddy forwards `X-mTLS-Present`; requests without it are rejected).
 - If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query (same as `/versions`).
 - Endpoints:
-  - `GET /admin/overview`: versions, host counts, latest log timestamp, mTLS metadata.
-  - `GET /admin/hosts`: hosts with canonical digest and recent digests.
-  - `POST /admin/hosts/register`: mint a host + single-use installer token for a given FQDN. Response includes `installer.url`, `installer.command` (`curl …/install/{token} | bash`), and `installer.expires_at` (TTL controlled by `INSTALL_TOKEN_TTL_SECONDS`, default 1800s).
-  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optional auth body with `?include_body=1`).
-  - `POST /admin/versions/check`: force a refresh of the available client version from GitHub and return the latest version block.
-  - `POST /admin/hosts/{id}/clear`: clear stored IP / digests for a host (forces the next auth call to bind again).
+  - `GET /admin/overview`: versions, host counts, avg refresh age, latest log timestamp, mTLS metadata, token aggregates.
+  - `GET /admin/hosts`: hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, and latest token usage.
+  - `POST /admin/hosts/register`: mint a host + single-use installer token for a given FQDN. Response includes `installer.url`, `installer.command` (`curl …/install/{token} | bash`), and `installer.expires_at` (TTL default 1800s).
+  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include `auth` body with `?include_body=1`), recent digests, last seen timestamp.
+  - `DELETE /admin/hosts/{id}`: remove a host and its digests.
+  - `POST /admin/hosts/{id}/clear`: intended to clear digests + host auth, but currently 500s because `HostRepository::clearHostAuth()` is missing.
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
+  - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`) and attribute it to a host (first host when `host_id` omitted).
+  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; not enforced by `/auth`).
+  - `GET /admin/runner`: runner configuration/telemetry (last validations, counts, configured URL, timeouts, last daily check).
+  - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
+  - `GET /admin/usage?limit=50`: recent token usage rows.
+  - `GET /admin/tokens?limit=50`: token usage totals per token line.
 - Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
 - Legacy `host-status.txt` exports have been removed; use admin endpoints instead.
