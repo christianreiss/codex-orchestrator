@@ -987,28 +987,19 @@
       const runnerStoreWhen = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
       const runnerHost = validation?.host?.fqdn || runnerStore?.host?.fqdn || '';
       const lastRun = hasValidation ? validationWhen : (info.enabled ? 'No runs yet' : '—');
-      const okPressed = hasValidation && ['ok', 'valid', 'unchanged'].includes(normalizedStatus);
-      const failPressed = hasValidation && !okPressed;
-      const statusChip = info.enabled
-        ? `<span class="chip ${validationTone}">${validationStatus}</span>`
-        : '<span class="chip warn">Disabled</span>';
-      const toggleLabel = info.enabled ? 'Enabled' : 'Disabled';
+      const statusLabel = (hasValidation ? validationStatus : (info.enabled ? 'VALID' : 'DISABLED')).toString().toUpperCase();
+      const toggleLabel = info.enabled ? 'Run now' : 'Disabled';
       return `
         <div class="card runner-card">
           <div class="stat-head">
             <span class="stat-label">Validation Service</span>
             <span class="stat-badge">${baseUrl}</span>
           </div>
-          <div class="runner-actions">
-            <button class="ghost runner-ghost tiny-btn ok-btn" id="runner-ok" aria-pressed="${okPressed}">OK</button>
-            <button class="ghost runner-ghost tiny-btn fail-btn" id="runner-fail" aria-pressed="${failPressed}">FAIL</button>
-            <button class="ghost runner-ghost tiny-btn" id="runner-toggle" aria-label="Toggle validation service">${toggleLabel}</button>
+          <div class="stat-value">${statusLabel}</div>
+          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
+          <div class="runner-actions" style="margin-top:10px;">
+            <button class="ghost runner-ghost tiny-btn" id="runner-toggle" aria-label="Run validation now">${toggleLabel}</button>
           </div>
-          <div class="runner-status-row" style="margin-top:-4px; margin-bottom:6px;">
-            ${statusChip}
-            ${validationLatency ? `<span class="muted" style="font-size:13px;">${validationLatency}</span>` : ''}
-          </div>
-          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
           <div class="runner-meta" style="margin-top:12px;">
             <div><div class="label">Last run</div><div>${lastRun}</div></div>
             <div><div class="label">Last apply</div><div>${runnerStoreLabel} · ${runnerStoreWhen}</div></div>
@@ -1080,15 +1071,13 @@
     }
 
     function wireRunnerCardControls() {
-      ['runner-toggle', 'runner-ok', 'runner-fail'].forEach((id) => {
-        const btn = document.getElementById(id);
-        if (btn) {
-          btn.onclick = (ev) => {
-            ev.preventDefault();
-            handleRunnerClick();
-          };
-        }
-      });
+      const btn = document.getElementById('runner-toggle');
+      if (btn) {
+        btn.onclick = (ev) => {
+          ev.preventDefault();
+          handleRunnerClick();
+        };
+      }
     }
 
     async function loadAll() {
