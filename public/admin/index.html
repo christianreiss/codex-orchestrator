@@ -985,7 +985,7 @@
       const runnerStore = info.latest_runner_store || null;
       const runnerStoreLabel = runnerStore?.last_refresh ? formatTimestamp(runnerStore.last_refresh) : '—';
       const runnerStoreWhen = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
-      const runnerHost = validation?.host?.fqdn || runnerStore?.host?.fqdn || '';
+      const runnerHost = '';
       const lastRun = hasValidation ? validationWhen : (info.enabled ? 'No runs yet' : '—');
       const statusLabel = (hasValidation ? validationStatus : (info.enabled ? 'VALID' : 'DISABLED')).toString().toUpperCase();
       const toggleLabel = info.enabled ? 'Run now' : 'Disabled';
@@ -996,9 +996,8 @@
             <span class="stat-badge">${baseUrl}</span>
           </div>
           <div class="stat-value">${statusLabel}</div>
-          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
+          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}</small>
           <div class="runner-meta" style="margin-top:12px;">
-            <div><div class="label">Last apply</div><div>${runnerStoreLabel} · ${runnerStoreWhen}</div></div>
             ${validationReason ? `<div><div class="label">Notes</div><div>${validationReason}</div></div>` : ''}
           </div>
         </div>
