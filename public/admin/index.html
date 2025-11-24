@@ -93,14 +93,14 @@
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
       box-shadow: 0 0 0 6px rgba(58,214,255,0.12);
     }
-    .content { padding: 86px 18px 56px; width: 100%; max-width: 1220px; margin: 0 auto; }
+    .content { padding: 32px 18px 56px; width: 100%; max-width: 1220px; margin: 0 auto; }
     .topbar {
       display: grid;
       grid-template-columns: 1fr auto;
       align-items: center;
-      gap: 14px 18px;
-      margin: 0 0 18px;
-      padding: 14px 18px;
+      gap: 10px 14px;
+      margin: 0 0 12px;
+      padding: 12px 14px;
       max-width: 1220px;
       width: 100%;
       position: sticky;
@@ -427,8 +427,8 @@
     .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
 
     @media (max-width: 960px) {
-      .content { padding: 20px 12px 52px; }
-      .topbar { margin: 0 0 14px; padding: 12px 0; grid-template-columns: 1fr; position: sticky; top: 0; }
+      .content { padding: 16px 12px 52px; }
+      .topbar { margin: 0 0 10px; padding: 10px 0; grid-template-columns: 1fr; position: sticky; top: 0; }
       .action-line { justify-content: flex-start; }
       .panel-actions { flex-direction: column; align-items: stretch; }
       .panel-actions input,
@@ -457,6 +457,7 @@
         </div>
         <div class="action-line">
           <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API: loading…</button>
+          <button class="ghost runner-ghost" id="uploadAuthBtn">Upload auth.json</button>
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
           <button class="ghost tiny-btn runner-ghost" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
           <button class="ghost runner-ghost" id="refresh">Refresh</button>
@@ -479,11 +480,34 @@
                 <button class="copy-btn" id="copyCmd">Copy</button>
               </div>
               <p class="muted" id="installerMeta" style="margin-top:8px; display:none;"></p>
-              <p class="muted" style="margin-top:8px;">Single command downloads the baked installer and registers the host.</p>
+              <p class="muted" style="margin-top:8px;">Single command downloads the baked installer and configures the host.</p>
               </div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="cancelNewHost">Cancel</button>
               <button id="createHost">Generate</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="uploadModal">
+          <div class="modal">
+            <h3>Upload auth.json</h3>
+            <p>Paste or choose an auth.json; it will be validated via the runner and stored as canonical.</p>
+            <div class="field">
+              <label for="uploadHostSelect" style="font-weight:600;">Attribute to host (optional)</label>
+              <select id="uploadHostSelect"></select>
+            </div>
+            <div class="field">
+              <label for="uploadAuthText" style="font-weight:600;">auth.json</label>
+              <textarea id="uploadAuthText" rows="8" placeholder='{"last_refresh":"...","auths":{...}}'></textarea>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">or choose file</label>
+              <input type="file" id="uploadAuthFile" accept=".json,application/json">
+            </div>
+            <div id="uploadStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+              <button class="ghost" id="uploadAuthCancel">Cancel</button>
+              <button id="uploadAuthSubmit">Upload</button>
             </div>
           </div>
         </div>
@@ -548,6 +572,14 @@
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
     const installerMeta = document.getElementById('installerMeta');
+    const uploadAuthBtn = document.getElementById('uploadAuthBtn');
+    const uploadModal = document.getElementById('uploadModal');
+    const uploadAuthText = document.getElementById('uploadAuthText');
+    const uploadAuthFile = document.getElementById('uploadAuthFile');
+    const uploadAuthSubmit = document.getElementById('uploadAuthSubmit');
+    const uploadAuthCancel = document.getElementById('uploadAuthCancel');
+    const uploadHostSelect = document.getElementById('uploadHostSelect');
+    const uploadStatus = document.getElementById('uploadStatus');
     const apiToggleBtn = document.getElementById('api-toggle-btn');
     const runnerRunnerBtn = document.getElementById('runner-runner');
     const deleteHostModal = document.getElementById('deleteHostModal');
@@ -565,6 +597,7 @@
     let lastOverview = null;
     let apiDisabled = null;
     let mtlsMeta = null;
+    let uploadFileContent = '';
 
     function parseTimestamp(value) {
       if (!value) return null;
@@ -844,6 +877,10 @@
 
     function renderHosts(hosts) {
       currentHosts = Array.isArray(hosts) ? hosts : [];
+      // Populate upload host select
+      if (uploadHostSelect) {
+        uploadHostSelect.innerHTML = '<option value="">Auto (first host)</option>' + currentHosts.map(h => `<option value="${h.id}">${h.fqdn}</option>`).join('');
+      }
       paintHosts();
     }
 
@@ -1063,11 +1100,23 @@
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
     }
+    if (uploadAuthBtn) {
+      uploadAuthBtn.addEventListener('click', () => showUploadModal(true));
+    }
     if (cancelNewHostBtn) {
       cancelNewHostBtn.addEventListener('click', () => showNewHostModal(false));
     }
     if (createHostBtn) {
       createHostBtn.addEventListener('click', createHost);
+    }
+    if (uploadAuthCancel) {
+      uploadAuthCancel.addEventListener('click', () => showUploadModal(false));
+    }
+    if (uploadAuthFile) {
+      uploadAuthFile.addEventListener('change', handleAuthFile);
+    }
+    if (uploadAuthSubmit) {
+      uploadAuthSubmit.addEventListener('click', submitAuthUpload);
     }
     if (newHostModal) {
       newHostModal.addEventListener('click', (e) => {
@@ -1111,6 +1160,19 @@
       }
     }
 
+    function showUploadModal(show) {
+      if (!uploadModal) return;
+      if (show) {
+        uploadModal.classList.add('show');
+        uploadAuthText.value = '';
+        uploadAuthFile.value = '';
+        uploadFileContent = '';
+        if (uploadStatus) uploadStatus.textContent = '';
+      } else {
+        uploadModal.classList.remove('show');
+      }
+    }
+
     async function createHost() {
       const fqdn = newHostName.value.trim();
       if (!fqdn) {
@@ -1150,6 +1212,57 @@
     }
 
     loadAll();
+
+    function handleAuthFile() {
+      const file = uploadAuthFile?.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        uploadFileContent = String(e.target?.result || '');
+        if (uploadAuthText) {
+          uploadAuthText.value = uploadFileContent;
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    async function submitAuthUpload() {
+      const raw = uploadAuthText?.value?.trim() || uploadFileContent || '';
+      if (!raw) {
+        alert('Paste auth.json or choose a file first');
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (err) {
+        alert(`Invalid JSON: ${err.message}`);
+        return;
+      }
+      const hostId = uploadHostSelect?.value ? Number(uploadHostSelect.value) : null;
+      const originalText = uploadAuthSubmit.textContent;
+      uploadAuthSubmit.disabled = true;
+      uploadAuthSubmit.textContent = 'Uploading…';
+      try {
+        const res = await api('/admin/auth/upload', {
+          method: 'POST',
+          json: { auth: parsed, host_id: hostId || undefined },
+        });
+        const data = res.data || {};
+        const digest = data.canonical_digest || data.digest || 'n/a';
+        const status = data.status || 'unknown';
+        const validation = data.validation ? data.validation.status : null;
+        const runnerApplied = data.runner_applied ? 'applied' : 'skipped';
+        const message = `Upload ${status}; digest ${digest}; runner ${validation || 'n/a'} (${runnerApplied})`;
+        if (uploadStatus) uploadStatus.textContent = message;
+        await loadAll();
+      } catch (err) {
+        alert(`Upload failed: ${err.message}`);
+      } finally {
+        uploadAuthSubmit.disabled = false;
+        uploadAuthSubmit.textContent = originalText;
+      }
+    }
 
     function openDeleteModal(id) {
       pendingDeleteId = id;

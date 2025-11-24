@@ -32,13 +32,12 @@ class AuthService
         private readonly LogRepository $logs,
         private readonly TokenUsageRepository $tokenUsages,
         private readonly VersionRepository $versions,
-        private readonly string $invitationKey,
         private readonly WrapperService $wrapperService,
         private readonly ?RunnerVerifier $runnerVerifier = null
     ) {
     }
 
-    public function register(string $fqdn, string $invitationKey): array
+    public function register(string $fqdn): array
     {
         $this->pruneInactiveHosts();
 
@@ -47,16 +46,8 @@ class AuthService
             $errors['fqdn'][] = 'FQDN is required';
         }
 
-        if ($invitationKey === '') {
-            $errors['invitation_key'][] = 'Invitation key is required';
-        }
-
         if ($errors) {
             throw new ValidationException($errors);
-        }
-
-        if (!hash_equals($this->invitationKey, $invitationKey)) {
-            throw new HttpException('Invalid invitation key', 401);
         }
 
         $existing = $this->hosts->findByFqdn($fqdn);
@@ -131,7 +122,7 @@ class AuthService
         return $host;
     }
 
-    public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null): array
+    public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null): array
     {
         [$normalizedClientVersion, $normalizedWrapperVersion] = $this->normalizeVersions($clientVersion, $wrapperVersion);
 
@@ -143,7 +134,12 @@ class AuthService
         $this->hosts->incrementApiCalls($hostId);
         $host = $this->hosts->findById($hostId) ?? $host;
 
-        $versions = $this->versionSnapshot();
+        $bakedWrapperMeta = null;
+        if ($baseUrl !== null && $baseUrl !== '') {
+            $bakedWrapperMeta = $this->wrapperService->bakedForHost($host, $baseUrl);
+        }
+
+        $versions = $this->versionSnapshot($bakedWrapperMeta);
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
@@ -441,6 +437,11 @@ class AuthService
             $response['runner_applied'] = true;
         }
 
+        if ($validation !== null) {
+            $response['validation'] = $validation;
+        }
+        $response['runner_applied'] = $runnerApplied;
+
         return $response;
     }
 
@@ -656,10 +657,10 @@ class AuthService
         ], $model !== null ? ['model' => $model === '' ? null : $model] : []);
     }
 
-    private function versionSnapshot(): array
+    private function versionSnapshot(?array $wrapperMetaOverride = null): array
     {
         $available = $this->availableClientVersion();
-        $wrapperMeta = $this->wrapperService->metadata();
+        $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata();
         $reported = $this->latestReportedVersions();
         $this->seedWrapperVersionFromReported($reported['wrapper_version']);
 

@@ -5,7 +5,7 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 ## Use case (start here)
 
 - You run Codex across multiple hosts and want a single source of truth for `auth.json`.
-- Hosts should self-enroll with an invite key, pick up the canonical file, or contribute an update when theirs is fresher.
+- Hosts are created from the admin dashboard ("New Host"), then install via a one-time command that bakes in the issued API key.
 - You want lightweight auditing (who registered, who synced, which versions) without babysitting machines.
 - You are fine with a containerized PHP + MySQL service and a couple of helper scripts to wire it up.
 
@@ -14,20 +14,20 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 ## Why teams use it
 
 - One `/auth` flow: register once, then a unified retrieve/store call that decides whether to accept the client's auth or return the canonical copy (with versions attached).
-- Invitation-key gating issues per-host API keys; hosts can self-deregister via `DELETE /auth` when decommissioned.
+- Per-host API keys are minted from the admin dashboard (New Host) and IP-bound on first use; hosts can self-deregister via `DELETE /auth` when decommissioned.
 - Captures host metadata (IP, client version, optional wrapper version) so you know which machines are on which build.
 - MySQL-backed persistence and audit logs out of the box; storage lives in the compose volume by default.
-- Bin helpers ship with the container: `bin/codex-install` handles registration + sync, while `bin/codex-uninstall` calls `DELETE /auth` before tearing down local files.
+- The dashboard "New Host" action generates a single-use installer token (`curl …/install/{token} | bash`) that bakes the API key into the downloaded `cdx`; `cdx --uninstall` handles clean removal.
 - The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
-- Runs in `php:8.2-apache` with automatic migrations; every endpoint except registration enforces API-key auth (`X-API-Key` or `Authorization: Bearer`).
+- Runs in `php:8.2-apache` with automatic migrations; host endpoints enforce API-key auth (`X-API-Key` or `Authorization: Bearer`), and installer downloads are guarded by single-use tokens created via the dashboard.
 - Stores the canonical `auth.json` as a compact JSON blob (sha256 over that exact text); only the `auths` map is normalized, everything else is preserved verbatim.
 - The “auth runner” sidecar (`auth-runner`, enabled by default in `docker-compose.yml`) validates canonical auth by running `cdx` in an isolated temp `$HOME` on every store and once per UTC day; if Codex refreshes tokens, the runner’s updated auth is auto-applied. Admins can also force a run via `POST /admin/runner/run`.
 
 ## How it works (big picture)
 
 - This container exposes a small PHP API + MySQL database that act as the "auth.json registry" for all of your Codex hosts.
-- A companion installer script (`bin/codex-install`) SSHes into a host, installs or updates the Codex CLI + `cdx` wrapper, registers the host with this API using an invitation key, and uploads your `auth.json`.
-- Each host keeps a tiny sync env file (for example `/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`) that tells the wrapper how to reach this API; from then on, the host no longer needs manual `codex login` runs.
+- The admin dashboard mints per-host API keys and one-time installer tokens; each token maps to `/install/{uuid}` which returns a self-contained bash script that installs/updates `cdx`, fetches Codex, and bakes the API key/base URL directly into the wrapper (no sync env file needed).
+- Each host keeps only `~/.codex/auth.json`; connection details are embedded in its `cdx` wrapper.
 - When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` with `cdx` on store and once per UTC day; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically.
 
 ## From manual logins to central sync
@@ -40,96 +40,47 @@ Think of a very common starting point:
 
 With this project in place:
 
-1. **Run the auth server once.** Bring up the Docker stack (see "Quick Start") and choose an `INVITATION_KEY` in `.env`.
-2. **Log into Codex on one trusted machine.** Use the normal Codex CLI sign-in so you get a local `~/.codex/auth.json`. This will become your starting canonical auth.
-3. **Enroll each host with `bin/codex-install`.**
-
-   From this repo (or any clone that has `bin/codex-install`), on your trusted machine:
-
-   ```bash
-   # Point the installer at your auth server
-   export CODEX_SYNC_BASE_URL="https://codex-auth.example.com"   # or http://localhost:8488 during testing
-   export CODEX_SYNC_INVITE_KEY="<INVITATION_KEY from the server .env>"
-
-   # Install Codex + wrapper + sync on a host
-   ./bin/codex-install my-server-01.example.com
-   ```
-
-   What this does behind the scenes:
-
-   - SSHes into `my-server-01.example.com` (default user is `root`, override with `-u ubuntu`).
-   - Installs or upgrades the Codex CLI and the `cdx` wrapper.
-   - Registers the host with this API using the invitation key and gets a per-host API key.
-   - Uploads your local `~/.codex/auth.json` and makes it the canonical `auth.json` for that host.
-   - Writes a small sync config so future Codex runs talk to this server automatically.
-
-   To tweak SSH details:
-
-   ```bash
-   ./bin/codex-install -u ubuntu -p 2222 my-server-02.example.com
-   ```
-
-   To keep the wrapper auto-updated on the host, add:
-
-   ```bash
-   ./bin/codex-install --install-systemd-timer my-server-03.example.com
-   ```
-
-4. **Repeat for all your machines.** Every call to `codex-install` enrolls another host with the same central auth service; you no longer have to log in interactively on each box.
-5. **Clean up when a host is retired.**
-
-   ```bash
-   ./bin/codex-uninstall my-server-01.example.com
-   ```
-
-   This removes Codex binaries/configs on the target host and calls `DELETE /auth` using the stored sync config so the host disappears from the registry.
+1. **Run the auth server once.** Bring up the Docker stack (see "Quick Start"). No invitation key needed.
+2. **Log into Codex on one trusted machine.** Use the normal Codex CLI sign-in so you get a local `~/.codex/auth.json`. This becomes your starting canonical auth.
+3. **Mint an API key from the dashboard.** Open `/admin/` (mTLS) and click **New Host**. Copy the one-time installer command (`curl …/install/{token} | bash`) or the API key itself.
+4. **Seed the canonical auth.** On the trusted machine, either run the installer command or use the dashboard "Upload auth.json" to push your existing `~/.codex/auth.json` to the server.
+5. **Install on other hosts.** For each host, generate a fresh installer token in the dashboard and run the provided `curl …/install/{token} | bash` command on that host. It installs `cdx`, grabs Codex, and embeds the API key/base URL directly into the wrapper.
+6. **Clean up when a host is retired.** Use the dashboard "Remove" button or run `cdx --uninstall` on the host to delete binaries/configs and call `DELETE /auth`.
 
 ## Commands you'll actually type
 
 On the **auth server host**:
 
 - `cp .env.example .env`
-- Edit `.env` and set `INVITATION_KEY` and `DB_*` (or use the defaults from `docker-compose.yml`). Add `VERSION_ADMIN_KEY` if you plan to publish wrapper/client versions via `bin/push-wrapper`.
+- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx`; bump `WRAPPER_VERSION` in that file when you change it, then rebuild/redeploy. `VERSION_ADMIN_KEY` remains optional for admin uploads but isn’t needed for routine updates.
 - `docker compose up --build`
 
 On your **laptop or admin box** (the one where you already use Codex):
 
 - `codex login` (or whichever flow creates `~/.codex/auth.json`).
-- `export CODEX_SYNC_BASE_URL="https://codex-auth.example.com"` (or `http://localhost:8488`).
-- `export CODEX_SYNC_INVITE_KEY="<INVITATION_KEY from the server .env>"`.
-- `./bin/codex-install my-server-01.example.com` to enroll a host.
-- `./bin/codex-uninstall my-server-01.example.com` to remove a host and deregister it from the auth server.
-- `./bin/local-bootstrap full` to prep the current workstation without SSH (installs `cdx`, registers using the `.env` invitation key, and writes the sync env locally).
+- Visit the admin dashboard (`/admin/`, mTLS) and click **New Host** to mint an API key + one-time installer command.
+- Seed canonical auth from your trusted machine: use the dashboard "Upload auth.json" with your `~/.codex/auth.json`.
+- Run the installer command on a target host (generate a fresh token per host).
+- `cdx --uninstall` on a host to remove Codex bits and deregister it from the auth server (uses baked config).
 
 ## FAQ
 
-- **Do I still need to log into Codex on every host?** No. Log in once on a trusted machine to create `~/.codex/auth.json`, then use `bin/codex-install` to enroll other hosts; they will pull the canonical auth automatically.
-- **How do I rotate tokens or update `auth.json`?** Log in again on the trusted machine to refresh `~/.codex/auth.json`, then rerun `./bin/codex-install <an-enrolled-host>`; it re-registers and pushes the canonical auth so other hosts pull it on their next `/auth` call.
-- **What if my auth server uses a private CA or self-signed cert?** Pass `--sync-ca-file /path/to/ca.pem` (or set `CODEX_SYNC_CA_FILE`) when running `codex-install` so the host trusts your TLS.
-- **How do I remove a host cleanly?** Run `./bin/codex-uninstall <host>`; it deletes Codex bits on the target and calls `DELETE /auth` using the stored sync config.
+- **Do I still need to log into Codex on every host?** No. Log in once on a trusted machine to create `~/.codex/auth.json`, then use the dashboard-generated installer commands for the rest of the fleet (and upload the canonical auth via the dashboard when it changes).
+- **How do I rotate tokens or update `auth.json`?** Refresh `~/.codex/auth.json` on the trusted machine, then upload it through the dashboard (Upload auth.json) or let any host with a valid API key call `/auth` with `command: "store"` after the refresh.
+- **What if my auth server uses a private CA or self-signed cert?** The CA path is baked into `cdx` when downloaded; ensure the dashboard upload is done from a host that trusts the CA or use your proxy to terminate TLS.
+- **How do I remove a host cleanly?** Run `cdx --uninstall`; it deletes Codex bits on the target and calls `DELETE /auth` using the baked config.
 - **Where is the host-side sync config stored?** Global installs use `/usr/local/etc/codex-sync.env`; user installs use `~/.codex/sync.env`. They contain only the sync base URL, API key, and optional CA path.
-
-### Local bootstrap helper (`bin/local-bootstrap`)
-
-Use `bin/local-bootstrap` when you want to configure this machine directly:
-
-- `./bin/local-bootstrap full` installs/updates `/usr/local/bin/cdx`, registers the host via `/register` using the `INVITATION_KEY` from `.env`, and writes `/usr/local/etc/codex-sync.env` (use `--local-env` to target `~/.codex/sync.env`).
-- `./bin/local-bootstrap cdx` refreshes the wrapper only (no API calls).
-- `./bin/local-bootstrap register --invite-key <key>` rotates just the API key and rewrites the sync env.
-
-The script accepts the same environment variables as the Codex wrapper (`CODEX_SYNC_BASE_URL`, `CODEX_SYNC_INVITE_KEY`, etc.), reads `INVITATION_KEY` from `.env` by default (falling back to `--invite-key` only when you override it), auto-detects the key from `API.md` when `.env` is missing, and ensures the generated env file is owned by the invoking user so `cdx` can read it without sudo.
 
 ## Quick Start
 
 ```bash
-cp .env.example .env          # set INVITATION_KEY and DB_* creds (match docker-compose)
+cp .env.example .env          # set DB_* creds (match docker-compose)
 docker compose up --build     # runs API on http://localhost:8488 with a mysql sidecar
 ```
 
 ### CLI helpers (bin/)
 
-- `bin/codex-install`: registers the host (or re-rotates the API key), pushes `auth.json` via `/auth`, and installs the wrapper; supports overriding invite/API/base URL via flags or env.
-- `bin/codex-uninstall`: uses any existing sync config (`/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`) to call `DELETE /auth`, then removes Codex binaries/configs. The legacy registry file is no longer used or updated.
+- `cdx --uninstall`: removes Codex binaries/configs, legacy sync env/auth files, npm `codex-cli`, and calls `DELETE /auth` with the baked API key.
 
 For details on the optional runner container that validates `auth.json` using `cdx`, see `runner/README.md`.
 
@@ -147,9 +98,8 @@ docker-compose.yml
 
 1. **Environment**
    - Copy `.env.example` to `.env`.
-   - Set a strong `INVITATION_KEY`.
    - Configure the MySQL credentials via `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD` (defaults line up with `docker-compose.yml`).
-   - Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes.
+   - Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes and `DASHBOARD_ADMIN_KEY` for an extra header check on admin routes.
 
 2. **Docker**
   - `docker compose up --build`
@@ -168,31 +118,10 @@ docker-compose.yml
 
 > Full, code-accurate contracts live in `interface-api.md`, `interface-db.md`, and `interface-cdx.md`. Highlights below stay in sync with those specs.
 
-### `POST /register`
+### Host provisioning (admin)
 
-Registers a new host when provided with the correct invitation key. Re-registering a known FQDN rotates the API key immediately, invalidating the previous one.
-
-```json
-{
-  "fqdn": "host.example.com",
-  "invitation_key": "<shared-secret>"
-}
-```
-
-**Response**
-
-```json
-{
-  "status": "ok",
-  "host": {
-    "fqdn": "host.example.com",
-    "status": "active",
-    "last_refresh": null,
-    "updated_at": "2024-05-01T12:00:00Z",
-    "api_key": "<copy-me>"
-  }
-}
-```
+- `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returns its API key, and mints a single-use installer token.
+- `GET /install/{token}` is public but the token is one-time and expires (controlled by `INSTALL_TOKEN_TTL_SECONDS`, default 1800s). Response is a bash script that installs `cdx`, downloads Codex, and writes `~/.codex/sync.env` with the baked API key, FQDN, and base URL. Tokens are marked used immediately after download.
 
 ### `POST /auth`
 
@@ -298,7 +227,7 @@ Notes:
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`).
   - `POST /admin/hosts/{id}/clear`: clear the stored IP and recent digests for a host so the next `/auth` call can re-bind cleanly.
   - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
-  - `POST /admin/hosts/register`: register or rotate a host using the server’s configured `INVITATION_KEY` without exposing it to clients.
+  - `POST /admin/hosts/register`: create or rotate a host and mint a single-use installer token (used by the dashboard “New Host” button).
   - `GET /admin/api/state`: read whether `/auth` is currently disabled.
   - `POST /admin/api/state`: toggle the `api_disabled` flag that makes `/auth` return `503 API disabled by administrator`.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
@@ -321,12 +250,11 @@ The legacy `host-status.txt` export has been removed; use the admin dashboard (`
 
 ## Notes
 
-- Every API call except `/register` requires a valid API key.
-- Set a strong `INVITATION_KEY`; without it, registration is blocked.
-- Hosts that have not checked in (no sync or register) for 30 days are automatically pruned and must re-register.
-- Uninstallers should call `DELETE /auth` (handled automatically by `bin/codex-uninstall` when a sync config is present) to remove the host record cleanly.
+- Host-facing APIs require a valid API key; installer downloads are guarded by single-use tokens minted from the dashboard and bake the API key into `cdx`.
+- Hosts that have not checked in for 30 days are automatically pruned and must be re-created.
+- Uninstallers should call `DELETE /auth` (handled automatically by `cdx --uninstall`) to remove the host record cleanly.
 - The server normalizes timestamps with fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` compare correctly.
-- API keys are IP-bound after the first successful authenticated call; use `POST /admin/hosts/{id}/roaming` or re-register to move a host cleanly.
+- API keys are IP-bound after the first successful authenticated call; use `POST /admin/hosts/{id}/roaming` or mint a new host/API key to move a host cleanly.
 - When the admin toggle marks the API as disabled (`/admin/api/state`), `POST /auth` returns `503 API disabled by administrator` and the `cdx` wrapper refuses to start Codex until the flag is cleared.
 - Extendable: add admin/reporting endpoints by introducing more routes in `public/index.php` and new repository methods.
 - Refer to `AGENTS.md` when you need a walkthrough of how each class collaborates within the request pipeline.

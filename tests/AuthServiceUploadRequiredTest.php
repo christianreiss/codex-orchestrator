@@ -177,6 +177,18 @@ class StubWrapperService extends WrapperService
     {
         return '';
     }
+
+    public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
+    {
+        return [
+            'version' => null,
+            'sha256' => null,
+            'size_bytes' => null,
+            'updated_at' => null,
+            'url' => '/wrapper/download',
+            'content' => null,
+        ];
+    }
 }
 
 final class AuthServiceUploadRequiredTest extends TestCase
@@ -204,7 +216,6 @@ final class AuthServiceUploadRequiredTest extends TestCase
             new NullLogRepository(),
             new NullTokenUsageRepository(),
             new InMemoryVersionRepository(['canonical_payload_id' => 99]),
-            'invite-key',
             new StubWrapperService()
         );
 
@@ -216,7 +227,8 @@ final class AuthServiceUploadRequiredTest extends TestCase
             ],
             $host,
             '1.0.0',
-            '2025.11.22-6'
+            '2025.11.22-6',
+            'http://api'
         );
 
         $this->assertSame('upload_required', $response['status'] ?? null);

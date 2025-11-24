@@ -6,7 +6,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 ## Operational Checklist (humans)
 
-- When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the loaded sync env, masked API key, and base URL. The user-level `~/.codex/sync.env` now overrides system paths.
+- When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the baked base URL and masked API key.
 - Before letting Codex start, open `~/.codex/auth.json` and confirm it has `last_refresh` plus either a non-empty `auths` map (each with `token`) or a `tokens.access_token`; the server hashes the reconstructed auth.json (normalized `auths` + preserved extras) so missing top-level fields will cause digest mismatches.
 - If the API is in emergency stop mode, `/auth` returns `503 API disabled by administrator` and cdx will refuse to start. Toggle it in the dashboard.
 - Dashboard URL (mTLS required): https://codex.uggs.io/admin/
@@ -15,13 +15,12 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 1. **`public/index.php` (HTTP Router)**
    - Bootstraps the environment, loads `.env`, and runs MySQL migrations.
-   - Parses incoming JSON and matches routes: `/register`, `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin).
-   - Resolves API keys from `X-API-Key` or `Authorization: Bearer` headers.
+   - Parses incoming JSON and matches routes: `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin), `/install/{token}` (one-time installer), and admin-only endpoints (e.g., `/admin/hosts/register`).
+   - Resolves API keys from `X-API-Key` or `Authorization: Bearer` headers (installer tokens are handled separately).
    - Returns JSON responses using `App\Http\Response`.
 
 2. **`App\Services\AuthService` (Coordinator)**
-   - Validates registration requests against the configured invitation key.
-   - Issues per-host API keys (random 64-hex chars) and normalizes host payloads.
+   - Issues per-host API keys (random 64-hex chars) and normalizes host payloads for admin-driven provisioning.
 - Handles unified `/auth` commands: `retrieve` (statuses: `valid`, `upload_required` when client is newer, `outdated`, `missing`) and `store` (`updated`, `unchanged`, `outdated`) while merging `/versions` data into the response.
 - Synthesizes `auths` from `tokens.access_token` or `OPENAI_API_KEY` when the map is missing/empty; still enforces token quality and timestamp sanity.
 - Supports host self-removal via `deleteHost()` (wired to `DELETE /auth`), clearing recent digests and regenerating the status report; `DELETE /auth?force=1` bypasses IP binding (used by uninstall/clean scripts).
@@ -55,13 +54,8 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 ## CLI & Ops Scripts (`bin/`)
 
-- `cdx` (local wrapper/launcher) — Loads sync env from `/etc`→`/usr/local/etc`→`~/.codex`; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`.
-- `codex-install` (remote installer) — SSHes to a host, ensures curl/tar/python, optionally registers the host via `/register` (invitation key discovery from env or repo `.env`/API doc), writes remote `codex-sync.env`/CA, installs `cdx` (and optional systemd timer) globally or per-user (sudo aware), then port-forwards 1455 to run Codex login and capture the auth URL sentinel. Local auth validation now accepts either `auths.*.token` or `tokens.access_token` so auth.json files that follow the ChatGPT layout work.
-- `codex-uninstall` (remote remover) — SSH cleanup that DELETEs the host from the API when sync creds exist, removes cdx/codex binaries, `/opt/codex`, sync env/CA files, and per-user `~/.codex` auth (root/chris/current user). Optional sudo; dedupes multiple targets.
-- `codex-clean` (local nuke) — Optionally DELETEs `/auth?force=1`, then removes local `~/.codex/{auth.json,sync.env}`, system-level sync env files, and `/usr/local/bin/{cdx,codex}`. Prompted unless `--yes`; `--no-api` skips deregistration.
-- `local-bootstrap` (local setup) — Modes: `full` (install cdx + register), `cdx` (wrapper only), `register` (write env). Picks invitation key from env, repo `.env`, or API.md; registers via `/register` when needed; writes `codex-sync.env` to `/usr/local/etc` or `~/.codex`; supports custom CA and wrapper target path.
-- `force-push-auth` (emergency canonicalizer) — Ensures an API key (or registers with invitation key) and force-POSTs the local `auth.json` to `/auth` as the canonical store, preserving tokens and last_refresh.
-- `push-wrapper` (admin publish) — Uploads the current `cdx` script to `/wrapper` with SHA-256 and version using `VERSION_ADMIN_KEY`; can also POST `/versions` to bump published Codex client or wrapper version.
+- `cdx` (local wrapper/launcher) — Baked per host with API key + base URL at download time; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`. `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and sends `DELETE /auth`.
+- Wrapper publishing: the API auto-seeds/refreshes from the bundled `bin/cdx` inside the container; bump `WRAPPER_VERSION` there and rebuild the image to ship a new wrapper. Admin upload (`POST /wrapper`) remains available when `VERSION_ADMIN_KEY` is set.
 - `migrate-sqlite-to-mysql.php` (one-time migration) — Copies SQLite data to MySQL using `App\Database::migrate()` for schema, backs up the SQLite file, truncates target tables when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
 
 ## Extension Tips

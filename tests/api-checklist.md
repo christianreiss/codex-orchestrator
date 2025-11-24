@@ -1,10 +1,10 @@
 # API Smoke Checklist (local http://localhost:8488)
 
-All commands assume `API_KEY` is set from a prior successful register response and that MySQL is seeded by `docker compose up`. Add `-k` for self-signed TLS when testing remote HTTPS.
+All commands assume `API_KEY` is set from a prior successful `/admin/hosts/register` response and that MySQL is seeded by `docker compose up`. Add `-k` for self-signed TLS when testing remote HTTPS.
 
-1) Register
-- Wrong invitation key → `401`: `curl -s -X POST http://localhost:8488/register -H 'Content-Type: application/json' -d '{"fqdn":"bad.test","invitation_key":"nope"}'`
-- Success → `200 ok` with `api_key`: `curl -s -X POST http://localhost:8488/register -H 'Content-Type: application/json' -d '{"fqdn":"host.test","invitation_key":"change-me"}'`
+1) Host provisioning
+- Create host + installer → `200 ok` with `api_key` and `installer`: `curl -s -X POST http://localhost:8488/admin/hosts/register -H 'Content-Type: application/json' -H 'X-mTLS-Present: 1' -d '{"fqdn":"host.test"}'`
+- Installer download works once: `curl -I http://localhost:8488/install/<token>` (expect `200` and `X-Installer-Expires-At` header); reuse should return `410 Installer already used`.
 
 2) Auth retrieve paths
 - Missing canonical (fresh DB) → `status=missing`: `curl -s -X POST http://localhost:8488/auth -H "X-API-Key:$API_KEY" -H 'Content-Type: application/json' -d '{"command":"retrieve","digest":"aa...","last_refresh":"2025-11-23T00:00:00Z","client_version":"0.0.0"}'`

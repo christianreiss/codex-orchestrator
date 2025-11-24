@@ -65,10 +65,8 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0)
     );
 }
-$invitationKey = Config::get('INVITATION_KEY', '');
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $invitationKey, $wrapperService, $runnerVerifier);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
 $wrapperService->ensureSeeded();
-unset($invitationKey);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -92,18 +90,6 @@ if ($rawBody !== false && $rawBody !== '') {
 }
 
 try {
-    if ($method === 'POST' && $normalizedPath === '/register') {
-        $result = $service->register(
-            trim((string) ($payload['fqdn'] ?? '')),
-            (string) ($payload['invitation_key'] ?? '')
-        );
-
-        Response::json([
-            'status' => 'ok',
-            'host' => $result,
-        ]);
-    }
-
     if ($method === 'GET' && $normalizedPath === '/versions') {
         $versions = $service->versionSummary();
 
@@ -181,6 +167,7 @@ try {
             ], 422);
         }
 
+        unset($meta['content']);
         Response::json([
             'status' => 'ok',
             'data' => $meta,
@@ -190,10 +177,10 @@ try {
     if ($method === 'GET' && $normalizedPath === '/wrapper') {
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
-        $service->authenticate($apiKey, $clientIp);
-
-        $meta = $wrapperService->metadata();
-        if ($meta['url'] === null || $meta['version'] === null) {
+        $host = $service->authenticate($apiKey, $clientIp);
+        $baseUrl = resolveBaseUrl();
+        $meta = $wrapperService->bakedForHost($host, $baseUrl);
+        if ($meta['content'] === null || $meta['version'] === null) {
             Response::json([
                 'status' => 'error',
                 'message' => 'Wrapper not available',
@@ -209,11 +196,10 @@ try {
     if ($method === 'GET' && $normalizedPath === '/wrapper/download') {
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
-        $service->authenticate($apiKey, $clientIp);
-
-        $meta = $wrapperService->metadata();
-        $pathToFile = $wrapperService->contentPath();
-        if ($meta['version'] === null || !is_file($pathToFile)) {
+        $host = $service->authenticate($apiKey, $clientIp);
+        $baseUrl = resolveBaseUrl();
+        $meta = $wrapperService->bakedForHost($host, $baseUrl);
+        if ($meta['version'] === null || $meta['content'] === null) {
             Response::json([
                 'status' => 'error',
                 'message' => 'Wrapper not available',
@@ -227,11 +213,10 @@ try {
             header('X-SHA256: ' . $meta['sha256']);
             header('ETag: "' . $meta['sha256'] . '"');
         }
-        $size = $meta['size_bytes'];
-        if ($size !== null) {
-            header('Content-Length: ' . $size);
+        if ($meta['size_bytes'] !== null) {
+            header('Content-Length: ' . $meta['size_bytes']);
         }
-        readfile($pathToFile);
+        echo $meta['content'];
         exit;
     }
 
@@ -285,8 +270,9 @@ try {
         $host = $service->authenticate($apiKey, $clientIp);
         $clientVersion = extractClientVersion($payload);
         $wrapperVersion = extractWrapperVersion($payload);
+        $baseUrl = resolveBaseUrl();
 
-        $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion);
+        $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
 
         Response::json([
             'status' => 'ok',
@@ -461,8 +447,7 @@ try {
             ], 422);
         }
 
-        // Reuse invitation-gated registration with the server's configured key.
-        $hostPayload = $service->register($fqdn, Config::get('INVITATION_KEY', ''));
+        $hostPayload = $service->register($fqdn);
         $host = $hostRepository->findByFqdn($fqdn);
         if (!$host) {
             Response::json([
@@ -588,6 +573,81 @@ try {
                 'message' => $exception->getMessage(),
             ], $exception->getStatusCode());
             return;
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    if ($method === 'POST' && $normalizedPath === '/admin/auth/upload') {
+        requireAdminAccess();
+
+        $hostId = isset($payload['host_id']) ? (int) $payload['host_id'] : null;
+        $host = null;
+        if ($hostId !== null) {
+            $host = $hostRepository->findById($hostId);
+            if ($host === null) {
+                Response::json([
+                    'status' => 'error',
+                    'message' => 'Host not found',
+                ], 404);
+            }
+        } else {
+            $hosts = $hostRepository->all();
+            $host = $hosts[0] ?? null;
+            if ($host === null) {
+                Response::json([
+                    'status' => 'error',
+                    'message' => 'No hosts available to attribute upload',
+                ], 422);
+            }
+        }
+
+        // Accept JSON auth payload directly or from uploaded file.
+        $authPayload = $payload['auth'] ?? null;
+        if ($authPayload === null && isset($_FILES['file']) && is_array($_FILES['file']) && ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $contents = file_get_contents((string) $_FILES['file']['tmp_name']);
+            if ($contents !== false) {
+                $decoded = json_decode($contents, true);
+                if (is_array($decoded)) {
+                    $authPayload = $decoded;
+                }
+            }
+        } elseif (is_string($authPayload)) {
+            $decoded = json_decode($authPayload, true);
+            if (is_array($decoded)) {
+                $authPayload = $decoded;
+            }
+        }
+
+        if (!is_array($authPayload)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'auth payload must be valid JSON',
+            ], 422);
+        }
+
+        try {
+            $result = $service->handleAuth(
+                ['command' => 'store', 'auth' => $authPayload],
+                $host,
+                'admin-upload',
+                'admin-upload',
+                resolveBaseUrl()
+            );
+        } catch (ValidationException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $exception->getErrors(),
+            ], 422);
+        } catch (HttpException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], $exception->getStatusCode());
         }
 
         Response::json([
@@ -1085,14 +1145,8 @@ if ! install -m 755 "$codex_bin" "$codex_path" 2>/dev/null; then
 fi
 
 mkdir -p "$HOME/.codex"
-cat > "$HOME/.codex/sync.env" <<EOF
-CODEX_SYNC_BASE_URL=__BASE__
-CODEX_SYNC_API_KEY=__API__
-CODEX_SYNC_FQDN=__FQDN__
-EOF
-
-CODEX_SYNC_BASE_URL=__BASE__ CODEX_SYNC_API_KEY=__API__ CODEX_SYNC_FQDN=__FQDN__ "$install_path" --version
-CODEX_SYNC_BASE_URL=__BASE__ CODEX_SYNC_API_KEY=__API__ CODEX_SYNC_FQDN=__FQDN__ "$codex_path" -V || true
+"$install_path" --version
+"$codex_path" -V || true
 echo "Install complete for __FQDN__"
 SCRIPT;
 

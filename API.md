@@ -6,17 +6,12 @@ All responses are JSON unless noted. Request bodies must be `application/json` u
 
 ## Authentication
 
-- `POST /register` is public but guarded by a shared invitation key.
-- `POST /auth` is the unified retrieve/store sync call; `DELETE /auth` lets the same host deregister itself.
-- Every other endpoint requires the per-host API key via either:
+- Hosts are provisioned via the admin dashboard: `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) returns a host API key and a single-use installer token.
+- Host endpoints (`/auth`, `/usage`, `/wrapper*`, `DELETE /auth`) require the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
-- API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-register to rotate the key and reset the binding, or let an operator mark the host as “allow roaming IPs” via the dashboard / `POST /admin/hosts/{id}/roaming`.
-- Wrapper metadata/downloads use the same API key + IP binding; there is no public wrapper URL.
-
-### Invitation Key
-
-- Onboarding key is configured via the `INVITATION_KEY` environment variable (not published here); rotate as needed and distribute out-of-band.
+- API keys are IP-bound after the first auth call: the first successful `/auth` stores the caller's IP; later calls from a different IP return `403`. Re-mint the host (new API key) to reset the binding, or let an operator mark the host as “allow roaming IPs” via the dashboard / `POST /admin/hosts/{id}/roaming`.
+- Wrapper metadata/downloads use the same API key + IP binding; the installer script is the only public artifact and is guarded by a one-time token.
 
 Errors return:
 
@@ -26,37 +21,13 @@ Errors return:
 
 ## Endpoints
 
-### `POST /register`
+### Host provisioning (admin)
 
-Registers a host with the invitation key. Re-registering the same FQDN rotates the API key immediately.
-
-**Request**
-
-```http
-POST /register HTTP/1.1
-Host: codex-auth.uggs.io
-Content-Type: application/json
-
-{ "fqdn": "ci01.example.net", "invitation_key": "<shared-secret>" }
-```
-
-**Success**
-
-```json
-{
-  "status": "ok",
-  "host": {
-    "fqdn": "ci01.example.net",
-    "status": "active",
-    "last_refresh": null,
-    "updated_at": "2025-01-04T09:15:30Z",
-    "client_version": null,
-    "api_key": "8a63...f0"
-  }
-}
-```
-
-Errors: `422` for missing fields, `401` for wrong invitation key.
+- `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token.
+- `GET /install/{token}` is public but token-gated and expires after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s). The response is a bash installer that:
+  - Downloads the latest `cdx` wrapper (`/wrapper/download`) baked with the host’s API key and base URL.
+  - Fetches the Codex CLI from GitHub.
+  - Prints progress and exits non-zero on failure. Tokens are marked used immediately after download.
 
 ### `POST /auth` (single-call sync)
 
@@ -218,11 +189,11 @@ Public, single-use endpoint that returns a self-contained bash installer for a p
 curl -fsSL https://codex-auth.uggs.io/install/3b1a8c21-fa4e-4191-9670-f508eeb0b292 | bash
 ```
 
-Response: `text/plain` shell script that bakes in `BASE_URL`, `API_KEY`, and `FQDN`, installs the wrapper + Codex binary, and writes `~/.codex/sync.env`. Errors emit a short shell snippet that prints the failure and exits non-zero.
+Response: `text/plain` shell script that bakes `BASE_URL`, `API_KEY`, and `FQDN` into the downloaded wrapper and installs the wrapper + Codex binary. Errors emit a short shell snippet that prints the failure and exits non-zero.
 
 ### `GET /wrapper`
 
-Returns metadata about the latest cdx wrapper (only one copy is retained). Requires the per-host API key; IP binding enforced.
+Returns metadata about the latest cdx wrapper, baked for the calling host (per-host hash). Requires the per-host API key; IP binding enforced.
 
 ```json
 {
@@ -239,7 +210,7 @@ Returns metadata about the latest cdx wrapper (only one copy is retained). Requi
 
 ### `GET /wrapper/download`
 
-Downloads the current cdx wrapper script. Requires the per-host API key; IP binding enforced. Response headers include `X-SHA256` and `ETag` for hash verification.
+Downloads the current cdx wrapper script already baked with the caller's API key, base URL, and FQDN. Requires the per-host API key; IP binding enforced. Response headers include `X-SHA256` and `ETag` for hash verification (per-host hash).
 
 ### `POST /wrapper` (admin)
 

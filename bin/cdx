@@ -44,18 +44,14 @@ mask_key() {
 
 CODEX_DEBUG=${CODEX_DEBUG:-0}
 
-# Default sync API endpoint; can be overridden via env or config files.
-CODEX_SYNC_BASE_URL_DEFAULT="https://codex-auth.uggs.io"
-CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-$CODEX_SYNC_BASE_URL_DEFAULT}"
-CODEX_SYNC_API_KEY="${CODEX_SYNC_API_KEY:-}"
-CODEX_SYNC_FQDN="${CODEX_SYNC_FQDN:-}"
-CODEX_SYNC_CA_FILE="${CODEX_SYNC_CA_FILE:-}"
+# Per-host baked configuration (populated by the server at download time).
+CODEX_SYNC_BAKED=1
+CODEX_SYNC_BASE_URL_DEFAULT="__CODEX_SYNC_BASE_URL__"
+CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
+CODEX_SYNC_API_KEY="__CODEX_SYNC_API_KEY__"
+CODEX_SYNC_FQDN="__CODEX_SYNC_FQDN__"
+CODEX_SYNC_CA_FILE="__CODEX_SYNC_CA_FILE__"
 CODEX_SYNC_CONFIG_PATHS=()
-if [[ -n "${CODEX_SYNC_CONFIG_PATH:-}" ]]; then
-  CODEX_SYNC_CONFIG_PATHS+=("$CODEX_SYNC_CONFIG_PATH")
-else
-  CODEX_SYNC_CONFIG_PATHS+=("/etc/codex-sync.env" "/usr/local/etc/codex-sync.env" "$HOME/.codex/sync.env")
-fi
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
@@ -73,7 +69,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.22-5"
+WRAPPER_VERSION="2025.11.24-1"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -87,11 +83,17 @@ elif command -v sudo >/dev/null 2>&1; then
 fi
 
 CURRENT_USER="$(id -un 2>/dev/null || echo unknown)"
-# Expose wrapper version quickly
-if [[ "${1-}" == "--wrapper-version" || "${1-}" == "-W" ]]; then
-  printf 'cdx wrapper %s\n' "$WRAPPER_VERSION"
-  exit 0
-fi
+
+# Early one-shot commands
+case "${1-}" in
+  --wrapper-version|-W)
+    printf 'cdx wrapper %s\n' "$WRAPPER_VERSION"
+    exit 0
+    ;;
+  --uninstall)
+    cmd_uninstall
+    ;;
+esac
 
 case "${1-}" in
   --debug|--verbose)
@@ -149,6 +151,109 @@ detect_linux_package_manager() {
     return 0
   fi
   return 1
+}
+
+with_sudo() {
+  if (( EUID == 0 )); then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    return 1
+  fi
+}
+
+remove_path() {
+  local path="$1"
+  local label="$2"
+  [[ -z "$path" || "$path" == "/" ]] && return 0
+  if rm -rf "$path" 2>/dev/null; then
+    log_info "Removed $label ($path)"
+    return 0
+  fi
+  if with_sudo rm -rf "$path" 2>/dev/null; then
+    log_info "Removed $label ($path) with sudo"
+    return 0
+  fi
+  log_warn "Unable to remove $label ($path)"
+  return 1
+}
+
+maybe_home() {
+  local user="$1"
+  local home=""
+  if command -v getent >/dev/null 2>&1; then
+    home="$(getent passwd "$user" | cut -d: -f6 2>/dev/null || true)"
+  fi
+  [[ -z "$home" ]] && home="/home/$user"
+  printf '%s\n' "$home"
+}
+
+uninstall_api_deregister() {
+  local base="${CODEX_SYNC_BASE_URL%/}"
+  local key="$CODEX_SYNC_API_KEY"
+  local cafile="$CODEX_SYNC_CA_FILE"
+  if [[ -z "$base" || -z "$key" ]]; then
+    log_warn "Skipping API deregistration (missing base URL or API key)"
+    return
+  fi
+  local url="${base}/auth?force=1"
+  local args=(-fsS -X DELETE -H "X-API-Key: ${key}")
+  [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
+  if curl "${args[@]}" "$url" >/dev/null 2>&1; then
+    log_info "API deregistration succeeded"
+  else
+    log_warn "API deregistration failed (continuing cleanup)"
+  fi
+}
+
+cmd_uninstall() {
+  log_info "Starting Codex uninstall"
+  uninstall_api_deregister
+
+  # Legacy env/config files
+  remove_path "/usr/local/etc/codex-sync.env" "sync env (system)"
+  remove_path "/etc/codex-sync.env" "sync env (system-legacy)"
+  remove_path "$HOME/.codex/sync.env" "sync env (user)"
+
+  # Auth + state per user (current, chris, root)
+  local users=("$CURRENT_USER" "chris" "root")
+  local seen=()
+  local u home
+  for u in "${users[@]}"; do
+    local skip=0
+    for existing in "${seen[@]}"; do
+      [[ "$existing" == "$u" ]] && skip=1 && break
+    done
+    (( skip )) && continue
+    seen+=("$u")
+    home="$(maybe_home "$u")"
+    [[ ! -d "$home" ]] && continue
+    remove_path "$home/.codex/auth.json" "auth.json for $u"
+    remove_path "$home/.codex" ".codex dir for $u"
+  done
+
+  # Binaries and install dirs
+  remove_path "/usr/local/bin/cdx" "cdx binary"
+  remove_path "$HOME/.local/bin/cdx" "cdx binary (user)"
+  remove_path "/usr/local/bin/codex" "codex binary"
+  remove_path "$HOME/.local/bin/codex" "codex binary (user)"
+  remove_path "/opt/codex" "/opt/codex directory"
+
+  # NPM global package (best effort)
+  if command -v npm >/dev/null 2>&1; then
+    if npm list -g codex-cli --depth=0 >/dev/null 2>&1; then
+      if (( EUID == 0 )); then
+        npm uninstall -g codex-cli >/dev/null 2>&1 || log_warn "npm uninstall codex-cli failed"
+      else
+        with_sudo npm uninstall -g codex-cli >/dev/null 2>&1 || npm uninstall -g codex-cli >/dev/null 2>&1 || log_warn "npm uninstall codex-cli failed"
+      fi
+      log_info "Removed npm codex-cli (if present)"
+    fi
+  fi
+
+  log_info "Codex uninstall complete"
+  exit 0
 }
 
 ensure_commands() {
@@ -400,6 +505,11 @@ load_sync_config() {
   if (( SYNC_CONFIG_LOADED )); then
     return 0
   fi
+  if [[ "${CODEX_SYNC_BAKED:-0}" -eq 1 ]]; then
+    log_debug "config (baked) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none}"
+    SYNC_CONFIG_LOADED=1
+    return 0
+  fi
   local path=""
   for path in "${CODEX_SYNC_CONFIG_PATHS[@]}"; do
     [[ -z "$path" ]] && continue
@@ -419,7 +529,7 @@ sync_auth_with_api() {
   local phase="$1"
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    log_error "Sync config missing API key or base URL; create ~/.codex/sync.env or set CODEX_SYNC_*"
+    log_error "Sync config missing API key or base URL; download a fresh cdx wrapper from the server."
     AUTH_PULL_STATUS="missing-config"
     AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
     return 1
