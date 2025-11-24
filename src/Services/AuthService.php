@@ -476,7 +476,7 @@ class AuthService
 
         $hostId = (int) ($host['id'] ?? 0);
         try {
-            $validation = $this->runnerVerifier->verify($canonicalAuth);
+            $validation = $this->runnerVerifier->verify($canonicalAuth, null, null, $host);
             $this->logs->log($hostId, 'auth.validate', [
                 'status' => $validation['status'] ?? null,
                 'reason' => $validation['reason'] ?? null,

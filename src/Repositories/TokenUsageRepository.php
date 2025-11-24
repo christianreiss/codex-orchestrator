@@ -114,4 +114,30 @@ class TokenUsageRepository
             'total' => isset($row['total']) ? (int) $row['total'] : 0,
         ];
     }
+
+    public function latestForHost(int $hostId): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT total, input_tokens AS input, output_tokens AS output, cached_tokens AS cached, model, line, created_at
+             FROM token_usages
+             WHERE host_id = :host_id
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1'
+        );
+        $statement->execute(['host_id' => $hostId]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+
+        return [
+            'total' => isset($row['total']) ? (int) $row['total'] : null,
+            'input' => isset($row['input']) ? (int) $row['input'] : null,
+            'output' => isset($row['output']) ? (int) $row['output'] : null,
+            'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
+            'model' => $row['model'] ?? null,
+            'line' => $row['line'] ?? null,
+            'created_at' => $row['created_at'] ?? null,
+        ];
+    }
 }

@@ -19,6 +19,8 @@ DEFAULT_TIMEOUT = 8.0
 class VerifyRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload to test")
     base_url: Optional[str] = Field(None, description="Override CODEX_SYNC_BASE_URL")
+    api_key: Optional[str] = Field(None, description="API key for sync (if provided)")
+    fqdn: Optional[str] = Field(None, description="Host FQDN for telemetry")
     probe: Optional[str] = Field("login", description="cdx subcommand to run after --")
     probe_args: Optional[List[str]] = Field(
         None, description="Additional args for the probe command"
@@ -60,6 +62,11 @@ def _run_probe(payload: VerifyRequest) -> dict:
         env["CODEX_SYNC_BASE_URL"] = payload.base_url or env.get(
             "CODEX_SYNC_BASE_URL", "http://api"
         )
+        env["CODEX_SYNC_BAKED"] = "0"
+        if payload.api_key:
+            env["CODEX_SYNC_API_KEY"] = payload.api_key
+        if payload.fqdn:
+            env["CODEX_SYNC_FQDN"] = payload.fqdn
         env.setdefault("CODEX_SYNC_ALLOW_INSECURE", "1")
         env.setdefault("CODEX_SYNC_OPTIONAL", "1")
 

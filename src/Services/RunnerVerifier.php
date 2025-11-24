@@ -13,12 +13,20 @@ class RunnerVerifier
     ) {
     }
 
-    public function verify(array $authPayload, ?string $baseUrl = null, ?float $timeoutSeconds = null): array
+    public function verify(array $authPayload, ?string $baseUrl = null, ?float $timeoutSeconds = null, ?array $host = null): array
     {
         $payload = [
             'auth_json' => $authPayload,
             'base_url' => $baseUrl ?: $this->defaultBaseUrl,
         ];
+        if ($host !== null) {
+            if (isset($host['api_key']) && is_string($host['api_key'])) {
+                $payload['api_key'] = $host['api_key'];
+            }
+            if (isset($host['fqdn']) && is_string($host['fqdn'])) {
+                $payload['fqdn'] = $host['fqdn'];
+            }
+        }
 
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($body === false) {
