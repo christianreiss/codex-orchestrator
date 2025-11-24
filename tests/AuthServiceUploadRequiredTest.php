@@ -77,15 +77,15 @@ class InMemoryHostAuthDigestRepository extends HostAuthDigestRepository
     {
     }
 
-    public function recentDigests(int $hostId): array
+    public function recentDigests(int $hostId, int $limit = 3): array
     {
-        return $this->digests;
+        return array_slice($this->digests, 0, $limit);
     }
 
-    public function rememberDigests(int $hostId, array $digests): void
+    public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
     {
         $merged = array_values(array_unique(array_merge($digests, $this->digests)));
-        $this->digests = array_slice($merged, 0, 3);
+        $this->digests = array_slice($merged, 0, $retain);
     }
 }
 
@@ -131,9 +131,10 @@ class InMemoryVersionRepository extends VersionRepository
         $this->store = $store;
     }
 
-    public function get(string $key): mixed
+    public function get(string $key): ?string
     {
-        return $this->store[$key] ?? null;
+        $value = $this->store[$key] ?? null;
+        return is_string($value) ? $value : null;
     }
 
     public function getWithMetadata(string $key): ?array
@@ -142,7 +143,7 @@ class InMemoryVersionRepository extends VersionRepository
             return null;
         }
         return [
-            'value' => $this->store[$key],
+            'version' => (string) $this->store[$key],
             'updated_at' => gmdate(DATE_ATOM),
         ];
     }
@@ -150,6 +151,11 @@ class InMemoryVersionRepository extends VersionRepository
     public function set(string $key, string $value): void
     {
         $this->store[$key] = $value;
+    }
+
+    public function all(): array
+    {
+        return $this->store;
     }
 }
 
@@ -195,10 +201,31 @@ final class AuthServiceUploadRequiredTest extends TestCase
 {
     public function testRetrieveRespondsWithUploadRequiredWhenClientIsNewer(): void
     {
+        $canonicalAuth = [
+            'last_refresh' => '2025-11-20T00:00:00Z',
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => 'tok-1234567890abcdef-XYZ987654',
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $canonicalDigest = hash('sha256', json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $canonicalPayload = [
             'id' => 99,
-            'last_refresh' => '2025-11-20T00:00:00Z',
-            'sha256' => str_repeat('a', 64),
+            'last_refresh' => $canonicalAuth['last_refresh'],
+            'sha256' => $canonicalDigest,
+            'entries' => [
+                [
+                    'target' => 'api.openai.com',
+                    'token' => $canonicalAuth['auths']['api.openai.com']['token'],
+                    'token_type' => 'bearer',
+                    'organization' => null,
+                    'project' => null,
+                    'api_base' => null,
+                    'meta' => null,
+                ],
+            ],
         ];
 
         $host = [
@@ -233,6 +260,6 @@ final class AuthServiceUploadRequiredTest extends TestCase
 
         $this->assertSame('upload_required', $response['status'] ?? null);
         $this->assertSame('store', $response['action'] ?? null);
-        $this->assertSame($canonicalPayload['sha256'], $response['canonical_digest'] ?? null);
+        $this->assertSame($canonicalDigest, $response['canonical_digest'] ?? null);
     }
 }

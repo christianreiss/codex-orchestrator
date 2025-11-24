@@ -192,7 +192,7 @@
     .info-value {
       margin-top: 6px;
       font-weight: 800;
-      font-size: 16px;
+      font-size: 18px;
       letter-spacing: -0.2px;
       display: flex;
       align-items: center;
@@ -202,7 +202,7 @@
     .info-subtext {
       margin-top: 4px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 13px;
     }
     .panel { margin-top: 20px; background: var(--panel); border-radius: 16px; border: 1px solid var(--panel-strong); box-shadow: var(--shadow); }
     .panel-head {
@@ -263,6 +263,27 @@
       border-color: rgba(13,132,86,0.3);
       color: #0c7a4f;
     }
+    .runner-log {
+      background: #0b1521;
+      color: #e2f3ff;
+      border-radius: 12px;
+      padding: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid rgba(16,163,127,0.2);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+      background-image: radial-gradient(circle at 20% 20%, rgba(16,163,127,0.12), transparent 40%),
+        radial-gradient(circle at 80% 0%, rgba(13,132,86,0.18), transparent 45%);
+    }
+    .runner-log .line { display: block; margin: 0; padding: 2px 0; }
+    .runner-log .line.ok { color: #22c55e; }
+    .runner-log .line.warn { color: #f59e0b; }
+    .runner-log .line.err { color: #f87171; }
+    .runner-meta { display: grid; gap: 6px; margin-top: 10px; font-size: 14px; }
+    .runner-meta .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
     button.secondary {
       background: #eef2f7;
       color: #0f172a;
@@ -521,6 +542,17 @@
             </div>
           </div>
         </div>
+        <div class="modal-backdrop" id="runnerModal">
+          <div class="modal">
+            <h3>Auth runner</h3>
+            <p class="muted">Manual runner invocation with live output and the final decision.</p>
+            <div class="runner-meta" id="runnerMeta"></div>
+            <div class="runner-log" id="runnerLog" aria-live="polite"></div>
+            <div class="actions">
+              <button class="ghost" id="runnerClose">Close</button>
+            </div>
+          </div>
+        </div>
 
         <section class="grid metrics" id="stats"></section>
 
@@ -582,6 +614,10 @@
     const uploadStatus = document.getElementById('uploadStatus');
     const apiToggleBtn = document.getElementById('api-toggle-btn');
     const runnerRunnerBtn = document.getElementById('runner-runner');
+    const runnerModal = document.getElementById('runnerModal');
+    const runnerLogEl = document.getElementById('runnerLog');
+    const runnerMetaEl = document.getElementById('runnerMeta');
+    const runnerCloseBtn = document.getElementById('runnerClose');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
@@ -1066,19 +1102,97 @@
       }
     }
 
-    async function runRunnerNow() {
+    async function runRunnerNow(logFn = null) {
       if (!runnerRunnerBtn) return;
       const original = runnerRunnerBtn.textContent;
       runnerRunnerBtn.disabled = true;
       runnerRunnerBtn.textContent = 'Running…';
       try {
-        await api('/admin/runner/run', { method: 'POST' });
+        if (logFn) logFn('Invoking auth runner…');
+        const res = await api('/admin/runner/run', { method: 'POST' });
+        if (logFn) logFn(`Runner completed (applied=${res?.data?.applied ? 'yes' : 'no'})`, res?.data?.applied ? 'ok' : null);
         await loadAll();
+        return res?.data ?? null;
       } catch (err) {
-        alert(`Runner failed: ${err.message}`);
+        if (logFn) logFn(`Runner failed: ${err.message}`, 'err');
+        else alert(`Runner failed: ${err.message}`);
+        throw err;
       } finally {
         runnerRunnerBtn.disabled = false;
         runnerRunnerBtn.textContent = original;
+      }
+    }
+
+    function showRunnerModal(show) {
+      if (!runnerModal) return;
+      if (show) {
+        runnerModal.classList.add('show');
+        resetRunnerLog();
+        setRunnerMeta(runnerSummary, null);
+      } else {
+        runnerModal.classList.remove('show');
+      }
+    }
+
+    function resetRunnerLog() {
+      if (runnerLogEl) runnerLogEl.innerHTML = '';
+    }
+
+    function appendRunnerLog(message, tone = null) {
+      if (!runnerLogEl) return;
+      const line = document.createElement('div');
+      line.className = 'line' + (tone ? ` ${tone}` : '');
+      const ts = new Date().toLocaleTimeString();
+      line.textContent = `${ts} · ${message}`;
+      runnerLogEl.appendChild(line);
+      runnerLogEl.scrollTop = runnerLogEl.scrollHeight;
+    }
+
+    function setRunnerMeta(info, runResult) {
+      if (!runnerMetaEl) return;
+      const validation = info?.latest_validation || null;
+      const runnerStore = info?.latest_runner_store || null;
+      const applied = runResult?.applied === true;
+      const digest = runResult?.canonical_digest
+        || validation?.digest
+        || runnerStore?.digest
+        || '—';
+      const lastRefresh = runResult?.canonical_last_refresh
+        || runnerStore?.last_refresh
+        || validation?.last_refresh
+        || '—';
+      const lastCheck = runResult?.runner_last_check
+        || info?.last_daily_check
+        || '—';
+      const status = validation?.status ?? (info?.enabled ? '—' : 'disabled');
+      const latency = validation?.latency_ms ? `${validation.latency_ms}ms` : '';
+      const reason = validation?.reason || runnerStore?.reason || '';
+      runnerMetaEl.innerHTML = `
+        <div><div class="label">Applied</div><div>${applied ? 'Yes (new auth)' : 'No change'}</div></div>
+        <div><div class="label">Validation</div><div>${status}${latency ? ` · ${latency}` : ''}</div></div>
+        <div><div class="label">Digest</div><div>${digest ? `<code>${digest}</code>` : '—'}</div></div>
+        <div><div class="label">Last refresh</div><div>${lastRefresh ? formatTimestamp(lastRefresh) : '—'}</div></div>
+        <div><div class="label">Runner last check</div><div>${lastCheck ? formatTimestamp(lastCheck) : '—'}</div></div>
+        <div><div class="label">Notes</div><div>${reason || '—'}</div></div>
+      `;
+    }
+
+    async function handleRunnerClick() {
+      if (!runnerModal || !runnerLogEl) {
+        await runRunnerNow();
+        return;
+      }
+      showRunnerModal(true);
+      appendRunnerLog('Preparing runner invocation…');
+      try {
+        const runResult = await runRunnerNow((msg, tone) => appendRunnerLog(msg, tone));
+        appendRunnerLog('Fetching latest runner status…');
+        const latestRunner = await api('/admin/runner');
+        runnerSummary = latestRunner?.data || runnerSummary;
+        setRunnerMeta(runnerSummary, runResult);
+        appendRunnerLog('Runner finished', runResult?.applied ? 'ok' : null);
+      } catch (err) {
+        appendRunnerLog(`Runner error: ${err.message}`, 'err');
       }
     }
 
@@ -1086,7 +1200,7 @@
       refreshBtn.addEventListener('click', loadAll);
     }
     if (runnerRunnerBtn) {
-      runnerRunnerBtn.addEventListener('click', runRunnerNow);
+      runnerRunnerBtn.addEventListener('click', handleRunnerClick);
     }
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
@@ -1127,6 +1241,14 @@
       deleteHostModal.addEventListener('click', (e) => {
         if (e.target === deleteHostModal) closeDeleteModal();
       });
+    }
+    if (runnerModal) {
+      runnerModal.addEventListener('click', (e) => {
+        if (e.target === runnerModal) showRunnerModal(false);
+      });
+    }
+    if (runnerCloseBtn) {
+      runnerCloseBtn.addEventListener('click', () => showRunnerModal(false));
     }
     if (cancelDeleteHostBtn) {
       cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);

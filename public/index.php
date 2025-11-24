@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Config;
 use App\Database;
 use App\Exceptions\HttpException;
+use App\Exceptions\ValidationException;
 use App\Http\Response;
+use App\Http\Router;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
@@ -68,7 +70,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
 $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
 $wrapperService->ensureSeeded();
 
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 $normalizedPath = rtrim($path, '/');
 if ($normalizedPath === '') {
@@ -89,871 +91,788 @@ if ($rawBody !== false && $rawBody !== '') {
     }
 }
 
-try {
-    if ($method === 'GET' && $normalizedPath === '/versions') {
-        $versions = $service->versionSummary();
+$router = new Router();
 
+$router->add('GET', '#^/versions$#', function () use ($service) {
+    $versions = $service->versionSummary();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $versions,
+    ]);
+});
+
+$router->add('POST', '#^/versions$#', function () use ($payload, $service) {
+    $adminKey = resolveAdminKey();
+    if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
         Response::json([
-            'status' => 'ok',
-            'data' => $versions,
-        ]);
+            'status' => 'error',
+            'message' => 'Admin key required',
+        ], 401);
     }
 
-    if ($method === 'POST' && $normalizedPath === '/versions') {
-        $adminKey = resolveAdminKey();
-        if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Admin key required',
-            ], 401);
-        }
+    $clientVersion = normalizeVersionValue($payload['client_version'] ?? null);
+    $wrapperVersion = normalizeVersionValue($payload['wrapper_version'] ?? null);
 
-        $clientVersion = normalizeVersionValue($payload['client_version'] ?? null);
-        $wrapperVersion = normalizeVersionValue($payload['wrapper_version'] ?? null);
-
-        if ($clientVersion === null && $wrapperVersion === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'At least one of client_version or wrapper_version is required',
-            ], 422);
-        }
-
-        $service->updatePublishedVersions($clientVersion, $wrapperVersion);
-        $versions = $service->versionSummary();
-
+    if ($clientVersion === null && $wrapperVersion === null) {
         Response::json([
-            'status' => 'ok',
-            'data' => $versions,
-        ]);
+            'status' => 'error',
+            'message' => 'At least one of client_version or wrapper_version is required',
+        ], 422);
     }
 
-    if ($method === 'POST' && $normalizedPath === '/wrapper') {
-        $adminKey = resolveAdminKey();
-        if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Admin key required',
-            ], 401);
-        }
+    $service->updatePublishedVersions($clientVersion, $wrapperVersion);
+    $versions = $service->versionSummary();
 
-        if (!isset($_FILES['file']) || !is_array($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'file is required (multipart/form-data)',
-            ], 422);
-        }
+    Response::json([
+        'status' => 'ok',
+        'data' => $versions,
+    ]);
+});
 
-        $version = normalizeVersionValue($_POST['version'] ?? null);
-        if ($version === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'version is required',
-            ], 422);
-        }
-
-        $expectedSha = normalizeVersionValue($_POST['sha256'] ?? null);
-
-        try {
-            $meta = $wrapperService->replaceFromUpload(
-                (string) $_FILES['file']['tmp_name'],
-                $version,
-                $expectedSha,
-                true
-            );
-        } catch (Throwable $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => $exception->getMessage(),
-            ], 422);
-        }
-
-        unset($meta['content']);
+$router->add('POST', '#^/wrapper$#', function () use ($wrapperService) {
+    $adminKey = resolveAdminKey();
+    if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
         Response::json([
-            'status' => 'ok',
-            'data' => $meta,
-        ]);
+            'status' => 'error',
+            'message' => 'Admin key required',
+        ], 401);
     }
 
-    if ($method === 'GET' && $normalizedPath === '/wrapper') {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
-        $host = $service->authenticate($apiKey, $clientIp);
-        $baseUrl = resolveBaseUrl();
-        $meta = $wrapperService->bakedForHost($host, $baseUrl);
-        if ($meta['content'] === null || $meta['version'] === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Wrapper not available',
-            ], 404);
-        }
-
+    if (!isset($_FILES['file']) || !is_array($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         Response::json([
-            'status' => 'ok',
-            'data' => $meta,
-        ]);
+            'status' => 'error',
+            'message' => 'file is required (multipart/form-data)',
+        ], 422);
     }
 
-    if ($method === 'GET' && $normalizedPath === '/wrapper/download') {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
-        $host = $service->authenticate($apiKey, $clientIp);
-        $baseUrl = resolveBaseUrl();
-        $meta = $wrapperService->bakedForHost($host, $baseUrl);
-        if ($meta['version'] === null || $meta['content'] === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Wrapper not available',
-            ], 404);
-        }
-
-        $fileName = 'cdx-' . ($meta['version'] ?? 'latest') . '.sh';
-        header('Content-Type: text/x-shellscript');
-        header('Content-Disposition: attachment; filename="' . $fileName . '"');
-        if ($meta['sha256']) {
-            header('X-SHA256: ' . $meta['sha256']);
-            header('ETag: "' . $meta['sha256'] . '"');
-        }
-        if ($meta['size_bytes'] !== null) {
-            header('Content-Length: ' . $meta['size_bytes']);
-        }
-        echo $meta['content'];
-        exit;
-    }
-
-    if ($method === 'GET' && preg_match('#^/install/([a-f0-9\\-]{36})$#i', $normalizedPath, $matches)) {
-        $tokenValue = $matches[1];
-        $tokenRow = $installTokenRepository->findByToken($tokenValue);
-        if (!$tokenRow) {
-            installerError('Installer not found', 404);
-        }
-
-        if (!empty($tokenRow['used_at'])) {
-            installerError('Installer already used', 410);
-        }
-
-        if (installerTokenExpired($tokenRow)) {
-            installerError('Installer expired', 410);
-        }
-
-        $hostId = isset($tokenRow['host_id']) ? (int) $tokenRow['host_id'] : null;
-        $host = $hostId ? $hostRepository->findById($hostId) : null;
-        if (!$host) {
-            installerError('Installer host missing', 404);
-        }
-
-        $versions = $service->versionSummary();
-        $baseUrl = resolveInstallerBaseUrl($tokenRow);
-        if ($baseUrl === '') {
-            installerError('Installer base URL invalid', 500, $tokenRow['expires_at'] ?? null);
-        }
-        $script = buildInstallerScript($host, $tokenRow, $baseUrl, $versions);
-
-        $installTokenRepository->markUsed((int) $tokenRow['id']);
-        $logRepository->log($hostId, 'install.token.consume', [
-            'fqdn' => $tokenRow['fqdn'] ?? ($host['fqdn'] ?? null),
-            'token' => substr((string) $tokenValue, 0, 8) . '…',
-            'base_url' => $baseUrl,
-        ]);
-
-        emitInstaller($script, 200, $tokenRow['expires_at'] ?? null);
-    }
-
-    if ($method === 'POST' && $normalizedPath === '/auth') {
-        if ($versionRepository->getFlag('api_disabled', false)) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'API disabled by administrator',
-            ], 503);
-        }
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
-        $host = $service->authenticate($apiKey, $clientIp);
-        $clientVersion = extractClientVersion($payload);
-        $wrapperVersion = extractWrapperVersion($payload);
-        $baseUrl = resolveBaseUrl();
-
-        $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
-
+    $version = normalizeVersionValue($_POST['version'] ?? null);
+    if ($version === null) {
         Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
+            'status' => 'error',
+            'message' => 'version is required',
+        ], 422);
     }
 
-    if ($method === 'POST' && $normalizedPath === '/usage') {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
-        $host = $service->authenticate($apiKey, $clientIp);
+    $expectedSha = normalizeVersionValue($_POST['sha256'] ?? null);
 
-        $result = $service->recordTokenUsage($host, is_array($payload) ? $payload : []);
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
-    }
-
-    if ($method === 'DELETE' && $normalizedPath === '/auth') {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
-        $forceDelete = ($_GET['force'] ?? '') === '1' || ($_SERVER['HTTP_X_CODEX_SELF_DESTRUCT'] ?? '') === '1';
-        $host = $service->authenticate($apiKey, $clientIp, $forceDelete);
-
-        $result = $service->deleteHost($host);
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
-    }
-
-    // Admin-only, mTLS-gated routes.
-    if ($method === 'GET' && $normalizedPath === '/admin/overview') {
-        requireAdminAccess();
-
-        $hosts = $hostRepository->all();
-        $totalHosts = count($hosts);
-        $activeHosts = count(array_filter($hosts, static fn (array $host) => ($host['status'] ?? '') === 'active'));
-
-        $refreshAges = [];
-        $now = time();
-        foreach ($hosts as $h) {
-            $lr = $h['last_refresh'] ?? null;
-            if (!$lr) {
-                continue;
-            }
-            $ts = strtotime($lr);
-            if ($ts === false) {
-                continue;
-            }
-            if ($ts < MIN_LAST_REFRESH_EPOCH) {
-                continue;
-            }
-            $days = max(0, ($now - $ts) / 86400);
-            $refreshAges[] = $days;
-        }
-
-        $avgRefreshAgeDays = $refreshAges ? array_sum($refreshAges) / count($refreshAges) : null;
-
-        $latestLog = $logRepository->latestCreatedAt();
-        $versions = $service->versionSummary();
-        $tokenTotals = $tokenUsageRepository->totals();
-        $topToken = $tokenUsageRepository->topHost();
-
-        $mtlsContext = [
-            'subject' => $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null,
-            'issuer' => $_SERVER['HTTP_X_MTLS_ISSUER'] ?? null,
-            'serial' => $_SERVER['HTTP_X_MTLS_SERIAL'] ?? null,
-            'fingerprint' => $_SERVER['HTTP_X_MTLS_PRESENT'] ?? null,
-        ];
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'totals' => [
-                    'hosts' => $totalHosts,
-                    'active' => $activeHosts,
-                ],
-                'avg_refresh_age_days' => $avgRefreshAgeDays,
-                'latest_log_at' => $latestLog,
-                'versions' => $versions,
-                'tokens' => [
-                    'total' => $tokenTotals['total'],
-                    'input' => $tokenTotals['input'],
-                    'output' => $tokenTotals['output'],
-                    'cached' => $tokenTotals['cached'],
-                    'events' => $tokenTotals['events'],
-                    'top_host' => $topToken ? [
-                        'id' => $topToken['host_id'],
-                        'fqdn' => $topToken['fqdn'],
-                        'total' => $topToken['total'],
-                    ] : null,
-                ],
-                'mtls' => $mtlsContext,
-            ],
-        ]);
-    }
-
-    if ($method === 'POST' && $normalizedPath === '/admin/versions/check') {
-        requireAdminAccess();
-
-        // Force refresh the available client version from upstream
-        $available = $service->availableClientVersion(true);
-        $versions = $service->versionSummary();
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'available' => $available,
-                'versions' => $versions,
-            ],
-        ]);
-    }
-
-    if ($method === 'GET' && $normalizedPath === '/admin/hosts') {
-        requireAdminAccess();
-
-        $hosts = $hostRepository->all();
-        $tokenTotalsByHost = $tokenUsageRepository->totalsByHost();
-        $items = [];
-
-        foreach ($hosts as $host) {
-            $hostId = (int) $host['id'];
-            $state = $hostStateRepository->findByHostId($hostId);
-            $usageTotals = $tokenTotalsByHost[$hostId] ?? null;
-
-            $items[] = [
-                'id' => $hostId,
-                'fqdn' => $host['fqdn'],
-                'status' => $host['status'],
-                'last_refresh' => $host['last_refresh'] ?? null,
-                'updated_at' => $host['updated_at'] ?? null,
-                'client_version' => $host['client_version'] ?? null,
-                'wrapper_version' => $host['wrapper_version'] ?? null,
-                'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
-                'ip' => $host['ip'] ?? null,
-                'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
-                'canonical_digest' => $state['seen_digest'] ?? ($host['auth_digest'] ?? null),
-                'authed' => ($state['seen_digest'] ?? null) !== null
-                    && ($host['auth_digest'] ?? null) !== null
-                    && ($state['seen_digest'] === $host['auth_digest']),
-                'recent_digests' => $digestRepository->recentDigests((int) $host['id']),
-                'token_usage' => $usageTotals ? [
-                    'total' => $usageTotals['total'],
-                    'input' => $usageTotals['input'],
-                    'output' => $usageTotals['output'],
-                    'cached' => $usageTotals['cached'],
-                    'events' => $usageTotals['events'],
-                ] : null,
-            ];
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'hosts' => $items,
-            ],
-        ]);
-    }
-
-    if ($method === 'POST' && $normalizedPath === '/admin/hosts/register') {
-        requireAdminAccess();
-
-        $fqdn = trim((string) ($payload['fqdn'] ?? ''));
-        if ($fqdn === '') {
-            Response::json([
-                'status' => 'error',
-                'message' => 'fqdn is required',
-            ], 422);
-        }
-
-        $hostPayload = $service->register($fqdn);
-        $host = $hostRepository->findByFqdn($fqdn);
-        if (!$host) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Host could not be loaded after registration',
-            ], 500);
-        }
-
-        $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));
-
-        $ttlSeconds = (int) Config::get('INSTALL_TOKEN_TTL_SECONDS', 1800);
-        if ($ttlSeconds <= 0) {
-            $ttlSeconds = 1800;
-        }
-
-        $expiresAt = gmdate(DATE_ATOM, time() + $ttlSeconds);
-        $baseUrl = resolveInstallerBaseUrl();
-        if ($baseUrl === '') {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Unable to determine public base URL for installer. Set PUBLIC_BASE_URL or ensure Host/X-Forwarded-Proto headers are forwarded.',
-            ], 500);
-        }
-        $tokenRow = $installTokenRepository->create(
-            generateUuid(),
-            (int) $host['id'],
-            (string) $host['api_key'],
-            (string) $host['fqdn'],
-            $expiresAt,
-            $baseUrl
+    try {
+        $meta = $wrapperService->replaceFromUpload(
+            (string) $_FILES['file']['tmp_name'],
+            $version,
+            $expectedSha,
+            true
         );
-
-        $logRepository->log((int) $host['id'], 'admin.install_token.create', [
-            'fqdn' => $host['fqdn'],
-            'expires_at' => $expiresAt,
-            'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
-        ]);
-
+    } catch (Throwable $exception) {
         Response::json([
-            'status' => 'ok',
-            'data' => [
-                'host' => array_merge($hostPayload, ['id' => (int) $host['id']]),
-                'installer' => [
-                    'token' => $tokenRow['token'],
-                    'url' => rtrim($baseUrl, '/') . '/install/' . $tokenRow['token'],
-                    'command' => installerCommand($baseUrl, $tokenRow['token']),
-                    'expires_at' => $expiresAt,
-                ],
-            ],
-        ]);
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], 422);
     }
 
-    if ($method === 'GET' && $normalizedPath === '/admin/runner') {
-        requireAdminAccess();
+    unset($meta['content']);
+    Response::json([
+        'status' => 'ok',
+        'data' => $meta,
+    ]);
+});
 
-        $runnerUrl = (string) Config::get('AUTH_RUNNER_URL', '');
-        $enabled = trim($runnerUrl) !== '';
-        $defaultBaseUrl = (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api');
-        $timeoutSeconds = (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0);
-
-        $since = gmdate(DATE_ATOM, time() - 86400);
-        $latestValidationRow = $logRepository->recentByActions(['auth.validate'], 1);
-        $latestRunnerStoreRow = $logRepository->recentByActions(['auth.runner_store'], 1);
-
-        $formatLog = static function (?array $row) use ($hostRepository): ?array {
-            if (!$row) {
-                return null;
-            }
-            $detailsRaw = $row['details'] ?? null;
-            $details = null;
-            if (is_array($detailsRaw)) {
-                $details = $detailsRaw;
-            } elseif (is_string($detailsRaw) && $detailsRaw !== '') {
-                $decoded = json_decode($detailsRaw, true);
-                if (is_array($decoded)) {
-                    $details = $decoded;
-                }
-            }
-            $hostId = isset($row['host_id']) ? (int) $row['host_id'] : null;
-            $host = $hostId ? $hostRepository->findById($hostId) : null;
-
-            return [
-                'id' => (int) $row['id'],
-                'created_at' => $row['created_at'] ?? null,
-                'host' => $host ? [
-                    'id' => (int) $host['id'],
-                    'fqdn' => $host['fqdn'],
-                ] : null,
-                'status' => $details['status'] ?? null,
-                'reason' => $details['reason'] ?? null,
-                'latency_ms' => isset($details['latency_ms']) ? (int) $details['latency_ms'] : null,
-                'digest' => $details['incoming_digest'] ?? null,
-                'last_refresh' => $details['incoming_last_refresh'] ?? null,
-            ];
-        };
-
+$router->add('GET', '#^/wrapper$#', function () use ($service, $wrapperService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $baseUrl = resolveBaseUrl();
+    $meta = $wrapperService->bakedForHost($host, $baseUrl);
+    if ($meta['content'] === null || $meta['version'] === null) {
         Response::json([
-            'status' => 'ok',
-            'data' => [
-                'enabled' => $enabled,
-                'runner_url' => $runnerUrl,
-                'base_url' => $defaultBaseUrl,
-                'timeout_seconds' => $timeoutSeconds,
-                'last_daily_check' => $versionRepository->get('runner_last_check', null),
-                'counts' => [
-                    'validations_24h' => $logRepository->countActionsSince(['auth.validate'], $since),
-                    'runner_store_24h' => $logRepository->countActionsSince(['auth.runner_store'], $since),
-                ],
-                'latest_validation' => $formatLog($latestValidationRow[0] ?? null),
-                'latest_runner_store' => $formatLog($latestRunnerStoreRow[0] ?? null),
-            ],
-        ]);
+            'status' => 'error',
+            'message' => 'Wrapper not available',
+        ], 404);
     }
 
-    if ($method === 'POST' && $normalizedPath === '/admin/runner/run') {
-        requireAdminAccess();
+    unset($meta['content']);
+    Response::json([
+        'status' => 'ok',
+        'data' => $meta,
+    ]);
+});
 
-        try {
-            $result = $service->triggerRunnerRefresh();
-        } catch (HttpException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => $exception->getMessage(),
-            ], $exception->getStatusCode());
-            return;
+$router->add('GET', '#^/wrapper/download$#', function () use ($service, $wrapperService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $baseUrl = resolveBaseUrl();
+    $meta = $wrapperService->bakedForHost($host, $baseUrl);
+    if ($meta['version'] === null || $meta['content'] === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Wrapper not available',
+        ], 404);
+    }
+
+    $fileName = 'cdx-' . ($meta['version'] ?? 'latest') . '.sh';
+    header('Content-Type: text/x-shellscript');
+    header('Content-Disposition: attachment; filename="' . $fileName . '"');
+    if ($meta['sha256']) {
+        header('X-SHA256: ' . $meta['sha256']);
+        header('ETag: "' . $meta['sha256'] . '"');
+    }
+    if ($meta['size_bytes'] !== null) {
+        header('Content-Length: ' . $meta['size_bytes']);
+    }
+    echo $meta['content'];
+    exit;
+});
+
+$router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($installTokenRepository, $hostRepository, $logRepository, $service) {
+    $tokenValue = $matches[1];
+    $tokenRow = $installTokenRepository->findByToken($tokenValue);
+    if (!$tokenRow) {
+        installerError('Installer not found', 404);
+    }
+    if ($tokenRow['used_at'] ?? null) {
+        installerError('Installer already used', 410);
+    }
+    if (installerTokenExpired($tokenRow)) {
+        installerError('Installer expired', 410);
+    }
+
+    $hostId = (int) ($tokenRow['host_id'] ?? 0);
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        installerError('Installer host missing', 404);
+    }
+
+    $baseUrl = resolveInstallerBaseUrl($tokenRow);
+    if ($baseUrl === '') {
+        installerError('Installer base URL invalid', 500, $tokenRow['expires_at'] ?? null);
+    }
+
+    $installTokenRepository->markUsed((int) $tokenRow['id']);
+    $logRepository->log($hostId, 'install.token.consume', [
+        'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+    ]);
+
+    $body = buildInstallerBody($host, $tokenRow, $baseUrl, $service->versionSummary());
+    emitInstaller($body, 200, $tokenRow['expires_at'] ?? null);
+});
+
+$router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $service, $installTokenRepository, $logRepository, $hostRepository) {
+    requireAdminAccess();
+
+    $fqdn = trim((string) ($payload['fqdn'] ?? ''));
+    if ($fqdn === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'fqdn is required',
+        ], 422);
+    }
+
+    $hostPayload = $service->register($fqdn);
+    $host = $hostRepository->findByFqdn($fqdn);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host could not be loaded after registration',
+        ], 500);
+    }
+
+    $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));
+
+    $ttlSeconds = (int) Config::get('INSTALL_TOKEN_TTL_SECONDS', 1800);
+    if ($ttlSeconds <= 0) {
+        $ttlSeconds = 1800;
+    }
+
+    $expiresAt = gmdate(DATE_ATOM, time() + $ttlSeconds);
+    $baseUrl = resolveInstallerBaseUrl();
+    if ($baseUrl === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Unable to determine public base URL for installer. Set PUBLIC_BASE_URL or ensure Host/X-Forwarded-Proto headers are forwarded.',
+        ], 500);
+    }
+    $tokenRow = $installTokenRepository->create(
+        generateUuid(),
+        (int) $host['id'],
+        (string) $host['api_key'],
+        (string) $host['fqdn'],
+        $expiresAt,
+        $baseUrl
+    );
+
+    $logRepository->log((int) $host['id'], 'admin.install_token.create', [
+        'fqdn' => $host['fqdn'],
+        'expires_at' => $expiresAt,
+        'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => array_merge($hostPayload, ['id' => (int) $host['id']]),
+            'installer' => [
+                'token' => $tokenRow['token'],
+                'url' => rtrim($baseUrl, '/') . '/install/' . $tokenRow['token'],
+                'command' => installerCommand($baseUrl, $tokenRow['token']),
+                'expires_at' => $expiresAt,
+            ],
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostRepository, $versionRepository) {
+    requireAdminAccess();
+
+    $runnerUrl = (string) Config::get('AUTH_RUNNER_URL', '');
+    $enabled = trim($runnerUrl) !== '';
+    $defaultBaseUrl = (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api');
+    $timeoutSeconds = (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0);
+
+    $since = gmdate(DATE_ATOM, time() - 86400);
+    $latestValidationRow = $logRepository->recentByActions(['auth.validate'], 1);
+    $latestRunnerStoreRow = $logRepository->recentByActions(['auth.runner_store'], 1);
+
+    $formatLog = static function (?array $row) use ($hostRepository): ?array {
+        if (!$row) {
+            return null;
         }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
-    }
-
-    if ($method === 'POST' && $normalizedPath === '/admin/auth/upload') {
-        requireAdminAccess();
-
-        $hostId = isset($payload['host_id']) ? (int) $payload['host_id'] : null;
+        $detailsRaw = $row['details'] ?? null;
+        $details = null;
+        if (is_string($detailsRaw)) {
+            $decoded = json_decode($detailsRaw, true);
+            if (is_array($decoded)) {
+                $details = $decoded;
+            }
+        } elseif (is_array($detailsRaw)) {
+            $details = $detailsRaw;
+        }
+        $hostId = isset($row['host_id']) ? (int) $row['host_id'] : null;
         $host = null;
         if ($hostId !== null) {
             $host = $hostRepository->findById($hostId);
-            if ($host === null) {
-                Response::json([
-                    'status' => 'error',
-                    'message' => 'Host not found',
-                ], 404);
-            }
-        } else {
-            $hosts = $hostRepository->all();
-            $host = $hosts[0] ?? null;
-            if ($host === null) {
-                Response::json([
-                    'status' => 'error',
-                    'message' => 'No hosts available to attribute upload',
-                ], 422);
-            }
         }
+        return [
+            'id' => isset($row['id']) ? (int) $row['id'] : null,
+            'created_at' => $row['created_at'] ?? null,
+            'details' => $details,
+            'status' => $details['status'] ?? null,
+            'reason' => $details['reason'] ?? null,
+            'digest' => $details['digest'] ?? null,
+            'last_refresh' => $details['last_refresh'] ?? null,
+            'host' => $host,
+        ];
+    };
 
-        // Accept JSON auth payload directly or from uploaded file.
-        $authPayload = $payload['auth'] ?? null;
-        if ($authPayload === null && isset($_FILES['file']) && is_array($_FILES['file']) && ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-            $contents = file_get_contents((string) $_FILES['file']['tmp_name']);
-            if ($contents !== false) {
-                $decoded = json_decode($contents, true);
-                if (is_array($decoded)) {
-                    $authPayload = $decoded;
-                }
-            }
-        } elseif (is_string($authPayload)) {
-            $decoded = json_decode($authPayload, true);
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'enabled' => $enabled,
+            'runner_url' => $runnerUrl,
+            'last_daily_check' => $versionRepository->get('runner_last_check', null),
+            'base_url' => Config::get('AUTH_RUNNER_CODEX_BASE_URL', $defaultBaseUrl),
+            'timeout_seconds' => $timeoutSeconds,
+            'counts' => [
+                'validations_24h' => $logRepository->countActionsSince(['auth.validate'], $since),
+                'runner_store_24h' => $logRepository->countActionsSince(['auth.runner_store'], $since),
+            ],
+            'latest_validation' => $formatLog($latestValidationRow[0] ?? null),
+            'latest_runner_store' => $formatLog($latestRunnerStoreRow[0] ?? null),
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/runner/run$#', function () use ($service) {
+    requireAdminAccess();
+
+    try {
+        $result = $service->triggerRunnerRefresh();
+    } catch (HttpException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
+        return;
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostRepository, $service) {
+    requireAdminAccess();
+
+    $hostId = isset($payload['host_id']) ? (int) $payload['host_id'] : null;
+    $host = null;
+    if ($hostId !== null) {
+        $host = $hostRepository->findById($hostId);
+        if ($host === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+    } else {
+        $hosts = $hostRepository->all();
+        $host = $hosts[0] ?? null;
+        if ($host === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'No hosts available to attribute upload',
+            ], 422);
+        }
+    }
+
+    $authPayload = $payload['auth'] ?? null;
+    if ($authPayload === null && isset($_FILES['file']) && is_array($_FILES['file']) && ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $contents = file_get_contents((string) $_FILES['file']['tmp_name']);
+        if ($contents !== false) {
+            $decoded = json_decode($contents, true);
             if (is_array($decoded)) {
                 $authPayload = $decoded;
             }
         }
-
-        if (!is_array($authPayload)) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'auth payload must be valid JSON',
-            ], 422);
+    } elseif (is_string($authPayload)) {
+        $decoded = json_decode($authPayload, true);
+        if (is_array($decoded)) {
+            $authPayload = $decoded;
         }
-
-        try {
-            $result = $service->handleAuth(
-                ['command' => 'store', 'auth' => $authPayload],
-                $host,
-                'admin-upload',
-                'admin-upload',
-                resolveBaseUrl()
-            );
-        } catch (ValidationException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Validation failed',
-                'errors' => $exception->getErrors(),
-            ], 422);
-        } catch (HttpException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => $exception->getMessage(),
-            ], $exception->getStatusCode());
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
     }
 
-    if ($method === 'GET' && $normalizedPath === '/admin/api/state') {
-        requireAdminAccess();
-
-        $disabled = $versionRepository->getFlag('api_disabled', false);
-
+    if (!is_array($authPayload)) {
         Response::json([
-            'status' => 'ok',
-            'data' => ['disabled' => $disabled],
-        ]);
+            'status' => 'error',
+            'message' => 'auth payload must be valid JSON',
+        ], 422);
     }
 
-    if ($method === 'POST' && $normalizedPath === '/admin/api/state') {
-        requireAdminAccess();
-
-        $disabledRaw = $payload['disabled'] ?? null;
-        $disabled = normalizeBoolean($disabledRaw);
-        if ($disabled === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'disabled must be boolean',
-            ], 422);
-        }
-
-        $versionRepository->set('api_disabled', $disabled ? '1' : '0');
-
+    try {
+        $result = $service->handleAuth(
+            ['command' => 'store', 'auth' => $authPayload],
+            $host,
+            'admin-upload',
+            'admin-upload',
+            resolveBaseUrl()
+        );
+    } catch (ValidationException $exception) {
         Response::json([
-            'status' => 'ok',
-            'data' => ['disabled' => $disabled],
-        ]);
-    }
-
-    if ($method === 'GET' && preg_match('#^/admin/hosts/(\d+)/auth$#', $normalizedPath, $matches)) {
-        requireAdminAccess();
-        $hostId = (int) $matches[1];
-        $host = $hostRepository->findById($hostId);
-        if (!$host) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Host not found',
-            ], 404);
-        }
-
-        $includeBody = filter_var($_GET['include_body'] ?? null, FILTER_VALIDATE_BOOLEAN);
-        $state = $hostStateRepository->findByHostId($hostId);
-
-        $payloadRow = null;
-        if ($state && isset($state['payload_id'])) {
-            $payloadRow = $authPayloadRepository->findByIdWithEntries((int) $state['payload_id']);
-        }
-        if ($payloadRow === null) {
-            $payloadRow = $authPayloadRepository->latest();
-        }
-
-        $validated = $payloadRow ? $service->validateCanonicalPayload($payloadRow) : null;
-
-        $auth = null;
-        if ($includeBody && $validated !== null) {
-            $auth = $validated['auth'];
-        }
-
-        $canonicalLastRefresh = $validated['last_refresh']
-            ?? ($host['last_refresh'] ?? ($state['seen_at'] ?? null));
-        $canonicalDigest = $validated['digest']
-            ?? ($state['seen_digest'] ?? ($host['auth_digest'] ?? null));
-
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    } catch (HttpException $exception) {
         Response::json([
-            'status' => 'ok',
-            'data' => [
-                'host' => [
-                    'id' => (int) $host['id'],
-                    'fqdn' => $host['fqdn'],
-                    'status' => $host['status'],
-                    'last_refresh' => $host['last_refresh'] ?? ($state['seen_at'] ?? null),
-                    'updated_at' => $host['updated_at'] ?? null,
-                    'client_version' => $host['client_version'] ?? null,
-                    'wrapper_version' => $host['wrapper_version'] ?? null,
-                    'ip' => $host['ip'] ?? null,
-                    'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
-                ],
-                'canonical_last_refresh' => $canonicalLastRefresh,
-                'canonical_digest' => $canonicalDigest,
-                'recent_digests' => $digestRepository->recentDigests($hostId),
-                'auth' => $auth,
-                'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
-            ],
-        ]);
-    }
-
-    if ($method === 'DELETE' && preg_match('#^/admin/hosts/(\d+)$#', $normalizedPath, $matches)) {
-        requireAdminAccess();
-        $hostId = (int) $matches[1];
-        $host = $hostRepository->findById($hostId);
-        if (!$host) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Host not found',
-            ], 404);
-        }
-
-        // Log before delete so the FK can null out the host_id when the row is removed.
-        $logRepository->log($hostId, 'admin.host.delete', ['fqdn' => $host['fqdn']]);
-        $hostRepository->deleteById($hostId);
-
-        Response::json([
-            'status' => 'ok',
-            'data' => ['deleted' => $hostId],
-        ]);
-    }
-
-    if ($method === 'POST' && preg_match('#^/admin/hosts/(\d+)/clear$#', $normalizedPath, $matches)) {
-        requireAdminAccess();
-        $hostId = (int) $matches[1];
-        $host = $hostRepository->findById($hostId);
-        if (!$host) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Host not found',
-            ], 404);
-        }
-
-        $hostRepository->clearIp($hostId);
-        $digestRepository->deleteByHostId($hostId);
-        $logRepository->log($hostId, 'admin.host.clear', ['fqdn' => $host['fqdn']]);
-
-        Response::json([
-            'status' => 'ok',
-            'data' => ['cleared' => $hostId],
-        ]);
-    }
-
-    if ($method === 'POST' && preg_match('#^/admin/hosts/(\d+)/roaming$#', $normalizedPath, $matches)) {
-        requireAdminAccess();
-        $hostId = (int) $matches[1];
-        $host = $hostRepository->findById($hostId);
-        if (!$host) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Host not found',
-            ], 404);
-        }
-
-        $rawAllow = $payload['allow'] ?? ($payload['allow_roaming_ips'] ?? null);
-        $allow = normalizeBoolean($rawAllow);
-        if ($allow === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'allow must be a boolean',
-            ], 422);
-        }
-
-        $hostRepository->updateAllowRoaming($hostId, $allow);
-        $logRepository->log($hostId, 'admin.host.roaming', [
-            'fqdn' => $host['fqdn'],
-            'allow_roaming_ips' => $allow,
-        ]);
-
-        $updated = $hostRepository->findById($hostId) ?? $host;
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'host' => [
-                    'id' => (int) $updated['id'],
-                    'fqdn' => $updated['fqdn'],
-                    'allow_roaming_ips' => isset($updated['allow_roaming_ips']) ? (bool) (int) $updated['allow_roaming_ips'] : false,
-                ],
-            ],
-        ]);
-    }
-
-    if ($method === 'GET' && $normalizedPath === '/admin/logs') {
-        requireAdminAccess();
-
-        $limit = resolveIntQuery('limit') ?? 50;
-        $hostFilter = resolveIntQuery('host_id');
-        $rows = $logRepository->recent($limit, $hostFilter);
-
-        $logs = [];
-        foreach ($rows as $row) {
-            $details = $row['details'] ?? null;
-            if (is_string($details)) {
-                $decoded = json_decode($details, true);
-                if (json_last_error() === JSON_ERROR_NONE) {
-                    $details = $decoded;
-                }
-            }
-
-            $logs[] = [
-                'id' => (int) $row['id'],
-                'host_id' => $row['host_id'] !== null ? (int) $row['host_id'] : null,
-                'action' => $row['action'],
-                'details' => $details,
-                'created_at' => $row['created_at'],
-            ];
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'logs' => $logs,
-            ],
-        ]);
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
     }
 
     Response::json([
-        'status' => 'error',
-        'message' => 'Not found',
-    ], 404);
-} catch (HttpException $exception) {
-    $response = [
-        'status' => 'error',
-        'message' => $exception->getMessage(),
-    ];
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
 
-    if ($exception->context()) {
-        $response['details'] = $exception->context();
+$router->add('GET', '#^/admin/api/state$#', function () use ($versionRepository) {
+    requireAdminAccess();
+
+    $disabled = $versionRepository->getFlag('api_disabled', false);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['disabled' => $disabled],
+    ]);
+});
+
+$router->add('POST', '#^/admin/api/state$#', function () use ($payload, $versionRepository) {
+    requireAdminAccess();
+
+    $disabledRaw = $payload['disabled'] ?? null;
+    $disabled = normalizeBoolean($disabledRaw);
+    if ($disabled === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'disabled must be boolean',
+        ], 422);
     }
 
-    Response::json($response, $exception->statusCode());
+    $versionRepository->set('api_disabled', $disabled ? '1' : '0');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['disabled' => $disabled],
+    ]);
+});
+
+$router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hostRepository, $hostStateRepository, $authPayloadRepository, $service, $digestRepository) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $includeBody = filter_var($_GET['include_body'] ?? null, FILTER_VALIDATE_BOOLEAN);
+    $state = $hostStateRepository->findByHostId($hostId);
+
+    $payloadRow = null;
+    if ($state && isset($state['payload_id'])) {
+        $payloadRow = $authPayloadRepository->findByIdWithEntries((int) $state['payload_id']);
+    }
+    if ($payloadRow === null) {
+        $payloadRow = $authPayloadRepository->latest();
+    }
+
+    $validated = $payloadRow ? $service->validateCanonicalPayload($payloadRow) : null;
+
+    $auth = null;
+    if ($includeBody && $validated !== null) {
+        $auth = $validated['auth'];
+    }
+
+    $canonicalLastRefresh = $validated['last_refresh']
+        ?? ($host['last_refresh'] ?? ($state['seen_at'] ?? null));
+    $canonicalDigest = $validated['digest']
+        ?? ($state['seen_digest'] ?? ($host['auth_digest'] ?? null));
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'status' => $host['status'],
+                'last_refresh' => $host['last_refresh'] ?? ($state['seen_at'] ?? null),
+                'updated_at' => $host['updated_at'] ?? null,
+                'client_version' => $host['client_version'] ?? null,
+                'wrapper_version' => $host['wrapper_version'] ?? null,
+                'ip' => $host['ip'] ?? null,
+                'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+            ],
+            'canonical_last_refresh' => $canonicalLastRefresh,
+            'canonical_digest' => $canonicalDigest,
+            'recent_digests' => $digestRepository->recentDigests($hostId),
+            'auth' => $auth,
+            'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
+        ],
+    ]);
+});
+
+$router->add('DELETE', '#^/admin/hosts/(\d+)$#', function ($matches) use ($hostRepository, $digestRepository, $logRepository) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $logRepository->log($hostId, 'admin.host.delete', ['fqdn' => $host['fqdn']]);
+    $hostRepository->deleteById($hostId);
+    $digestRepository->deleteByHostId($hostId);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['deleted' => $hostId],
+    ]);
+});
+
+$router->add('POST', '#^/admin/hosts/(\d+)/clear$#', function ($matches) use ($hostRepository, $digestRepository, $logRepository) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $digestRepository->deleteByHostId($hostId);
+    $hostRepository->clearHostAuth($hostId);
+    $logRepository->log($hostId, 'admin.host.clear', ['fqdn' => $host['fqdn']]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'status' => $host['status'],
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $allow = normalizeBoolean($payload['allow'] ?? null);
+    if ($allow === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'allow must be boolean',
+        ], 422);
+    }
+
+    $hostRepository->updateRoaming($hostId, $allow);
+    $logRepository->log($hostId, 'admin.host.roaming', [
+        'fqdn' => $host['fqdn'],
+        'allow_roaming' => $allow,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'allow_roaming_ips' => $allow,
+            ],
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository) {
+    requireAdminAccess();
+
+    $hosts = $hostRepository->all();
+    $countHosts = count($hosts);
+    $latestLog = $logRepository->recent(1);
+    $versions = $service->versionSummary();
+    $lastRefresh = null;
+    $avgRefreshDays = null;
+
+    $sumSeconds = 0;
+    $countSeconds = 0;
+    foreach ($hosts as $host) {
+        $lr = $host['last_refresh'] ?? null;
+        if ($lr) {
+            $lastRefresh = $lastRefresh ? max($lastRefresh, $lr) : $lr;
+            $timestamp = strtotime($lr);
+            if ($timestamp) {
+                $sumSeconds += time() - $timestamp;
+                $countSeconds++;
+            }
+        }
+    }
+    if ($countSeconds > 0) {
+        $avgRefreshDays = ($sumSeconds / $countSeconds) / 86400;
+    }
+
+    $tokens = $tokenUsageRepository->aggregateTotals();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'mtls' => resolveMtls(),
+            'totals' => [
+                'hosts' => $countHosts,
+            ],
+            'latest_log_at' => $latestLog ? ($latestLog[0]['created_at'] ?? null) : null,
+            'last_refresh' => $lastRefresh,
+            'avg_refresh_age_days' => $avgRefreshDays,
+            'versions' => $versions,
+            'tokens' => $tokens,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository) {
+    requireAdminAccess();
+
+    $hosts = $hostRepository->all();
+    $digests = $digestRepository->byHostId();
+
+    $items = [];
+    foreach ($hosts as $host) {
+        $hostDigests = $digests[$host['id']] ?? [];
+        $items[] = [
+            'id' => (int) $host['id'],
+            'fqdn' => $host['fqdn'],
+            'status' => $host['status'],
+            'last_refresh' => $host['last_refresh'] ?? null,
+            'updated_at' => $host['updated_at'] ?? null,
+            'client_version' => $host['client_version'] ?? null,
+            'wrapper_version' => $host['wrapper_version'] ?? null,
+            'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
+            'ip' => $host['ip'] ?? null,
+            'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+            'canonical_digest' => $host['auth_digest'] ?? null,
+            'recent_digests' => array_values(array_unique($hostDigests)),
+            'authed' => ($host['auth_digest'] ?? '') !== '',
+            'token_usage' => $tokenUsageRepository->latestForHost((int) $host['id']),
+        ];
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'hosts' => $items,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/logs$#', function () use ($logRepository) {
+    requireAdminAccess();
+
+    $limit = resolveIntQuery('limit') ?? 50;
+    if ($limit < 1) {
+        $limit = 50;
+    }
+
+    $logs = $logRepository->recent($limit);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'logs' => $logs,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/usage$#', function () use ($tokenUsageRepository) {
+    requireAdminAccess();
+
+    $limit = resolveIntQuery('limit') ?? 50;
+    if ($limit < 1) {
+        $limit = 50;
+    }
+
+    $usages = $tokenUsageRepository->recent($limit);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'usages' => $usages,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
+    requireAdminAccess();
+
+    $limit = resolveIntQuery('limit') ?? 50;
+    if ($limit < 1) {
+        $limit = 50;
+    }
+
+    $tokens = $tokenUsageRepository->topTokens($limit);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'tokens' => $tokens,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/auth$#', function () use ($payload, $service) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $clientVersion = extractClientVersion($payload);
+    $wrapperVersion = extractWrapperVersion($payload);
+    $baseUrl = resolveBaseUrl();
+
+    $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('DELETE', '#^/auth$#', function () use ($service) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $force = isset($_GET['force']) && $_GET['force'] !== '0';
+
+    $host = $service->authenticate($apiKey, $clientIp, $force);
+    $service->deleteHost($host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'deleted' => $host['fqdn'],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/usage$#', function () use ($payload, $service) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $total = isset($payload['total']) ? (int) $payload['total'] : null;
+    $inputTokens = isset($payload['input']) ? (int) $payload['input'] : null;
+    $outputTokens = isset($payload['output']) ? (int) $payload['output'] : null;
+    $cachedTokens = isset($payload['cached']) ? (int) $payload['cached'] : null;
+    $model = isset($payload['model']) && is_string($payload['model']) ? $payload['model'] : null;
+    $line = isset($payload['line']) && is_string($payload['line']) ? trim($payload['line']) : null;
+
+    if ($line === null && $total === null && $inputTokens === null && $outputTokens === null && $cachedTokens === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'line or numeric fields are required',
+        ], 422);
+    }
+
+    $data = $service->logUsage(
+        $host,
+        $line,
+        $total,
+        $inputTokens,
+        $outputTokens,
+        $cachedTokens,
+        $model
+    );
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $data,
+    ]);
+});
+
+try {
+    $handled = $router->dispatch($method, $normalizedPath);
+    if (!$handled) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Route not found',
+        ], 404);
+    }
+} catch (ValidationException $exception) {
+    Response::json([
+        'status' => 'error',
+        'message' => 'Validation failed',
+        'errors' => $exception->getErrors(),
+    ], 422);
+} catch (HttpException $exception) {
+    Response::json([
+        'status' => 'error',
+        'message' => $exception->getMessage(),
+    ], $exception->getStatusCode());
 } catch (Throwable $exception) {
     Response::json([
         'status' => 'error',
-        'message' => 'Unexpected server error',
+        'message' => 'Unexpected error',
     ], 500);
-}
-
-function resolveApiKey(): ?string
-{
-    $header = $_SERVER['HTTP_X_API_KEY'] ?? null;
-    if ($header) {
-        return $header;
-    }
-
-    $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
-    if ($authorization && str_starts_with($authorization, 'Bearer ')) {
-        return substr($authorization, 7);
-    }
-
-    return null;
-}
-
-function resolveClientIp(): ?string
-{
-    // Preserve client IP even when behind simple reverse proxies that forward the address.
-    $headers = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'];
-    foreach ($headers as $header) {
-        $value = $_SERVER[$header] ?? null;
-        if ($value) {
-            // X-Forwarded-For may contain a list; take the first non-empty token.
-            $parts = array_filter(array_map('trim', explode(',', $value)));
-            if ($parts) {
-                return $parts[0];
-            }
-        }
-    }
-
-    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
-    return $remote ?: null;
-}
-
-function extractClientVersion(mixed $payload): ?string
-{
-    if (is_array($payload) && array_key_exists('client_version', $payload)) {
-        $value = normalizeVersionValue($payload['client_version']);
-        if ($value !== null) {
-            return $value;
-        }
-    }
-
-    $aliases = ['client_version', 'cdx_version'];
-    foreach ($aliases as $alias) {
-        $fromQuery = resolveQueryParam($alias);
-        if ($fromQuery !== null) {
-            return $fromQuery;
-        }
-    }
-
-    return null;
-}
-
-function extractWrapperVersion(mixed $payload): ?string
-{
-    if (is_array($payload) && array_key_exists('wrapper_version', $payload)) {
-        $value = normalizeVersionValue($payload['wrapper_version']);
-        if ($value !== null) {
-            return $value;
-        }
-    }
-
-    $aliases = ['wrapper_version', 'cdx_wrapper_version'];
-    foreach ($aliases as $alias) {
-        $fromQuery = resolveQueryParam($alias);
-        if ($fromQuery !== null) {
-            return $fromQuery;
-        }
-    }
-
-    return null;
 }
 
 function resolveQueryParam(string $key): ?string

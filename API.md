@@ -3,6 +3,7 @@
 Base URL: `https://codex-auth.uggs.io`
 
 All responses are JSON unless noted. Request bodies must be `application/json` unless otherwise stated.
+The front controller (`public/index.php`) dispatches requests via a small route table (`src/Http/Router.php`), so each path below maps to a single handler.
 
 ## Authentication
 

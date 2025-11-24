@@ -84,6 +84,22 @@ docker compose up --build     # runs API on http://localhost:8488 with a mysql s
 
 For details on the optional runner container that validates `auth.json` using `cdx`, see `runner/README.md`.
 
+### Lifecycle smoke test
+
+Run a full host lifecycle against a running stack (register → installer download → baked wrapper → `/auth` → cleanup):
+
+```bash
+BASE_URL=http://localhost:8488 \
+ADMIN_KEY=... \  # optional; required if DASHBOARD_ADMIN_KEY is set
+tests/e2e-agent-lifecycle.sh
+```
+
+The script creates a temporary host and deletes it (unless `KEEP_HOST=1`). No canonical auth is modified; it only exercises registration, installer issuance, wrapper baking, and `/auth` retrieve.
+
+### Routing
+
+`public/index.php` now wires endpoints through a tiny `Router` (`src/Http/Router.php`) with a route table, so each path is handled in an isolated closure. Add new endpoints by registering a route near the top of `public/index.php` rather than extending the old nested `if` chain.
+
 ## Project Structure
 
 ```

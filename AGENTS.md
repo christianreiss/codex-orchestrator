@@ -15,7 +15,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 1. **`public/index.php` (HTTP Router)**
    - Bootstraps the environment, loads `.env`, and runs MySQL migrations.
-   - Parses incoming JSON and matches routes: `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin), `/install/{token}` (one-time installer), and admin-only endpoints (e.g., `/admin/hosts/register`).
+   - Declares a route table (see `src/Http/Router.php`) and dispatches to per-path handlers: `/auth` (retrieve/store), `DELETE /auth` (self-deregister), `/versions` (read + admin), `/install/{token}` (one-time installer), and admin-only endpoints (e.g., `/admin/hosts/register`).
    - Resolves API keys from `X-API-Key` or `Authorization: Bearer` headers (installer tokens are handled separately).
    - Returns JSON responses using `App\Http\Response`.
 
