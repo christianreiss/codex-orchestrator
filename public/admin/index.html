@@ -248,6 +248,28 @@
       border: 1px solid var(--panel-strong);
       box-shadow: none;
     }
+    .api-enabled {
+      background: #d9f6e6;
+      color: #0f5132;
+      border-color: rgba(16,163,127,0.5);
+      box-shadow: none;
+    }
+    .api-enabled:hover:not(:disabled) {
+      background: #c3efd8;
+      border-color: rgba(16,163,127,0.7);
+      box-shadow: none;
+    }
+    .api-disabled {
+      background: #fff6d9;
+      color: #8a5300;
+      border-color: #fcd34d;
+      box-shadow: none;
+    }
+    .api-disabled:hover:not(:disabled) {
+      background: #ffeeb4;
+      border-color: #f59e0b;
+      box-shadow: none;
+    }
     .runner-accent {
       background: #0d8456;
       color: #ffffff;
@@ -483,7 +505,7 @@
           <div id="mtls" class="pill" style="display:none;">mTLS Status</div>
         </div>
         <div class="action-line">
-          <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API: loading…</button>
+          <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API</button>
           <button class="ghost runner-ghost" id="uploadAuthBtn">Seed</button>
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
           <button class="ghost tiny-btn runner-ghost" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
@@ -706,9 +728,10 @@
         const res = await api('/admin/api/state');
         apiDisabled = !!res.data?.disabled;
         if (apiToggleBtn) {
-          apiToggleBtn.textContent = apiDisabled ? 'API: disabled' : 'API: active';
-          apiToggleBtn.classList.toggle('danger', apiDisabled);
-          apiToggleBtn.classList.toggle('ghost', !apiDisabled);
+          apiToggleBtn.textContent = 'API';
+          apiToggleBtn.title = apiDisabled ? 'API disabled — click to enable' : 'API enabled — click to disable';
+          apiToggleBtn.classList.remove('danger', 'ghost', 'api-enabled', 'api-disabled');
+          apiToggleBtn.classList.add(apiDisabled ? 'api-disabled' : 'api-enabled');
         }
       } catch (err) {
         console.error('api state', err);
