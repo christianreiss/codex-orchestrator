@@ -630,7 +630,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
         ], 422);
     }
 
-    $hostRepository->updateRoaming($hostId, $allow);
+    $hostRepository->updateAllowRoaming($hostId, $allow);
     $logRepository->log($hostId, 'admin.host.roaming', [
         'fqdn' => $host['fqdn'],
         'allow_roaming' => $allow,
