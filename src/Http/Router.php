@@ -39,7 +39,26 @@ class Router
             }
 
             $handler = $route['handler'];
-            $handler($matches, ...$args);
+
+            $needsArgs = true;
+            try {
+                if (is_array($handler) && count($handler) === 2 && is_object($handler[0])) {
+                    $ref = new \ReflectionMethod($handler[0], $handler[1]);
+                } elseif (is_array($handler) && count($handler) === 2 && is_string($handler[0])) {
+                    $ref = new \ReflectionMethod($handler[0], $handler[1]);
+                } else {
+                    $ref = new \ReflectionFunction($handler);
+                }
+                $needsArgs = $ref->getNumberOfParameters() > 0;
+            } catch (\Throwable) {
+                $needsArgs = true;
+            }
+
+            if ($needsArgs) {
+                $handler($matches, ...$args);
+            } else {
+                $handler();
+            }
 
             return true;
         }

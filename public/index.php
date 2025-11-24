@@ -675,7 +675,8 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
         $avgRefreshDays = ($sumSeconds / $countSeconds) / 86400;
     }
 
-    $tokens = $tokenUsageRepository->aggregateTotals();
+    $tokens = $tokenUsageRepository->totals();
+    $tokens['top_host'] = $tokenUsageRepository->topHost();
 
     Response::json([
         'status' => 'ok',
@@ -869,10 +870,83 @@ try {
         'message' => $exception->getMessage(),
     ], $exception->getStatusCode());
 } catch (Throwable $exception) {
+    error_log('Unhandled exception: ' . $exception->getMessage());
+    error_log($exception->getTraceAsString());
     Response::json([
         'status' => 'error',
         'message' => 'Unexpected error',
     ], 500);
+}
+
+function resolveMtls(): array
+{
+    $fingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
+    if ($fingerprint !== '') {
+        return [
+            'fingerprint' => $fingerprint,
+            'subject' => $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null,
+            'issuer' => $_SERVER['HTTP_X_MTLS_ISSUER'] ?? null,
+        ];
+    }
+
+    return [];
+}
+
+function resolveClientIp(): ?string
+{
+    $headers = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'];
+    foreach ($headers as $header) {
+        $value = $_SERVER[$header] ?? null;
+        if ($value) {
+            $parts = array_filter(array_map('trim', explode(',', $value)));
+            if ($parts) {
+                return $parts[0];
+            }
+        }
+    }
+
+    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
+    return $remote ?: null;
+}
+
+function extractClientVersion(mixed $payload): ?string
+{
+    if (is_array($payload) && array_key_exists('client_version', $payload)) {
+        $value = normalizeVersionValue($payload['client_version']);
+        if ($value !== null) {
+            return $value;
+        }
+    }
+
+    $aliases = ['client_version', 'cdx_version'];
+    foreach ($aliases as $alias) {
+        $fromQuery = resolveQueryParam($alias);
+        if ($fromQuery !== null) {
+            return $fromQuery;
+        }
+    }
+
+    return null;
+}
+
+function extractWrapperVersion(mixed $payload): ?string
+{
+    if (is_array($payload) && array_key_exists('wrapper_version', $payload)) {
+        $value = normalizeVersionValue($payload['wrapper_version']);
+        if ($value !== null) {
+            return $value;
+        }
+    }
+
+    $aliases = ['wrapper_version', 'cdx_wrapper_version'];
+    foreach ($aliases as $alias) {
+        $fromQuery = resolveQueryParam($alias);
+        if ($fromQuery !== null) {
+            return $fromQuery;
+        }
+    }
+
+    return null;
 }
 
 function resolveQueryParam(string $key): ?string
