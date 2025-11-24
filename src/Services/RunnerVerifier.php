@@ -50,10 +50,18 @@ class RunnerVerifier
 
             $response = file_get_contents($this->runnerUrl, false, $context);
             $latencyMs = (int) ((microtime(true) - $start) * 1000);
-            if ($response === false) {
+            if ($response === false || $response === '') {
+                $status = null;
+                if (isset($http_response_header[0])) {
+                    if (preg_match('#\s(\d{3})\s#', (string) $http_response_header[0], $m)) {
+                        $status = (int) $m[1];
+                    }
+                }
                 return [
                     'status' => 'fail',
-                    'reason' => 'runner returned empty response',
+                    'reason' => $status !== null
+                        ? 'runner returned empty response (status ' . $status . ')'
+                        : 'runner returned empty response',
                     'latency_ms' => $latencyMs,
                 ];
             }
