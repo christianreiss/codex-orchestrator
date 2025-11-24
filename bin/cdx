@@ -69,7 +69,7 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 
-WRAPPER_VERSION="2025.11.24-3"
+WRAPPER_VERSION="2025.11.24-4"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -1555,20 +1555,54 @@ run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
   set +e
-  if command -v script >/dev/null 2>&1 && [[ -t 1 ]]; then
-    local typescript="${tmp_output}.tty"
+  if [[ -t 1 ]]; then
     local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
-    script -qefc "$(printf '%q ' "${cmd_line[@]}")" "$typescript"
-    status=$?
-    cat "$typescript" >"$tmp_output" 2>/dev/null || true
-    rm -f "$typescript"
+    if command -v script >/dev/null 2>&1; then
+      # Run Codex inside a PTY via script, then tee for token parsing without breaking TTY expectations.
+      script -qefc "$(printf '%q ' "${cmd_line[@]}")" /dev/null | tee "$tmp_output"
+      status=${PIPESTATUS[0]}
+    elif command -v python3 >/dev/null 2>&1; then
+      # Fallback PTY using Python's pty module when script is unavailable.
+      status=0
+      python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
+import os, sys, pty
+log_path = sys.argv[1]
+cmd = sys.argv[2:]
+with open(log_path, "wb") as log:
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execvp(cmd[0], cmd)
+    try:
+        while True:
+            try:
+                data = os.read(fd, 1024)
+            except OSError:
+                break
+            if not data:
+                break
+            os.write(sys.stdout.fileno(), data)
+            log.write(data)
+            log.flush()
+    except KeyboardInterrupt:
+        pass
+    _, status = os.waitpid(pid, 0)
+    sys.exit(os.WEXITSTATUS(status))
+PY
+      status=$?
+    else
+      # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
+      "${cmd_line[@]}"
+      status=$?
+    fi
   else
     "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
     status=${PIPESTATUS[0]}
   fi
   set -e
-  send_token_usage_if_present "$tmp_output"
-  rm -f "$tmp_output"
+  if [[ -f "$tmp_output" ]]; then
+    send_token_usage_if_present "$tmp_output"
+    rm -f "$tmp_output"
+  fi
   return "$status"
 }
 
