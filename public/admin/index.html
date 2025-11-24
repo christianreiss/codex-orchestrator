@@ -924,10 +924,7 @@
       if (!info) return '';
       const baseUrl = info.base_url || 'n/a';
       const runnerUrl = info.runner_url || baseUrl;
-      const lastDaily = info.last_daily_check ? formatRelative(info.last_daily_check) : 'never';
-      const counts = info.counts || {};
       const validation = info.latest_validation || null;
-      const runnerStore = info.latest_runner_store || null;
       const hasValidation = !!validation;
       const validationStatus = hasValidation
         ? (validation.status ?? 'unknown')
@@ -939,52 +936,27 @@
           : normalizedStatus === 'unchanged' ? 'neutral'
           : 'warn');
       const validationWhen = validation?.created_at ? formatRelative(validation.created_at) : '—';
-      const validationHost = validation?.host?.fqdn ? ` on ${validation.host.fqdn}` : '';
       const validationLatency = validation?.latency_ms ? `${validation.latency_ms}ms` : null;
       const validationReason = validation?.reason ? validation.reason : null;
-      const validationDigest = validation?.digest ? `digest ${validation.digest.slice(0, 8)}…` : null;
-      const validationNotes = [validationReason, validationDigest].filter(Boolean).join(' · ');
-      const hasRunnerStore = !!runnerStore;
-      const runnerStoreAt = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
+      const runnerStore = info.latest_runner_store || null;
       const runnerStoreLabel = runnerStore?.last_refresh ? formatTimestamp(runnerStore.last_refresh) : '—';
-      const runnerStoreHost = runnerStore?.host?.fqdn ? ` · ${runnerStore.host.fqdn}` : '';
-      const countsValidations = counts.validations_24h ?? 0;
-      const countsStore = counts.runner_store_24h ?? 0;
+      const runnerStoreWhen = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
+      const runnerHost = validation?.host?.fqdn || runnerStore?.host?.fqdn || '';
       return `
         <div class="card runner-card">
           <div class="stat-head">
             <span class="stat-label">Auth Runner</span>
             <span class="stat-badge">${runnerUrl}</span>
           </div>
-          <div class="stat-value" style="font-size:28px;">${info.enabled ? 'Enabled' : 'Disabled'}</div>
-          <small class="muted">Base ${baseUrl} · Timeout ${info.timeout_seconds ?? '—'}s · Daily check ${lastDaily}</small>
-          <div class="info-grid">
-            <div class="info-box">
-              <div class="info-label">Last run</div>
-              <div class="info-value">
-                <span class="chip ${validationTone}">${validationStatus}</span>
-                ${validationLatency ? `<span class="muted" style="font-size:12px;">${validationLatency}</span>` : ''}
-              </div>
-              <div class="info-subtext">
-                ${!hasValidation ? 'No runs yet' : `Ran ${validationWhen}${validationHost}`}
-                ${validationNotes ? ` · ${validationNotes}` : ''}
-              </div>
-            </div>
-            <div class="info-box">
-              <div class="info-label">Last apply</div>
-              <div class="info-value">${runnerStoreLabel}</div>
-              <div class="info-subtext">${!hasRunnerStore ? 'No updates yet' : `Pushed ${runnerStoreAt}${runnerStoreHost}`}</div>
-            </div>
-            <div class="info-box">
-              <div class="info-label">Heartbeat</div>
-              <div class="info-value">${lastDaily}</div>
-              <div class="info-subtext">Daily runner check-in</div>
-            </div>
-            <div class="info-box">
-              <div class="info-label">24h activity</div>
-              <div class="info-value">${countsValidations} validations</div>
-              <div class="info-subtext">${countsStore} updates pushed</div>
-            </div>
+          <div class="stat-value" style="font-size:28px; display:flex; gap:8px; align-items:center;">
+            <span class="chip ${info.enabled ? 'ok' : 'warn'}">${info.enabled ? 'Enabled' : 'Disabled'}</span>
+            ${validationLatency ? `<span class="muted" style="font-size:13px;">${validationLatency}</span>` : ''}
+          </div>
+          <small class="muted">Base ${baseUrl} · Timeout ${info.timeout_seconds ?? '—'}s${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
+          <div class="runner-meta" style="margin-top:12px;">
+            <div><div class="label">Last run</div><div>${validationStatus} · ${validationWhen}</div></div>
+            <div><div class="label">Last apply</div><div>${runnerStoreLabel} · ${runnerStoreWhen}</div></div>
+            ${validationReason ? `<div><div class="label">Notes</div><div>${validationReason}</div></div>` : ''}
           </div>
         </div>
       `;
@@ -994,13 +966,8 @@
       lastOverview = data;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
       const latestLog = formatRelative(data.latest_log_at);
-      const validationAgo = runnerInfo?.latest_validation?.created_at
-        ? formatRelative(runnerInfo.latest_validation.created_at)
-        : 'never';
-      const validationStatus = runnerInfo?.latest_validation?.status ?? null;
-      const validationTone = validationStatus === 'ok' || validationStatus === 'valid'
-        ? 'ok'
-        : (validationStatus ? 'warn' : 'neutral');
+      const lastRefresh = data.last_refresh ? formatRelative(data.last_refresh) : 'n/a';
+      const avgRefresh = data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2) + ' d' : 'n/a';
       latestVersions = {
         client: typeof data.versions.client_version === 'string'
           ? data.versions.client_version.trim().replace(/^v/i, '')
@@ -1023,7 +990,7 @@
               <span class="stat-label">Hosts</span>
             </div>
             <div class="stat-value">${data.totals.hosts}</div>
-            <small>Total registered</small>
+            <small>Total registered · Avg refresh ${avgRefresh} · Last refresh ${lastRefresh}</small>
           </div>
         `,
         `
@@ -1034,17 +1001,6 @@
             </div>
             <div class="stat-value">CLI ${data.versions.client_version ?? 'n/a'}</div>
             <small>Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
-          </div>
-        `,
-        `
-          <div class="card">
-            <div class="stat-head">
-              <span class="stat-label">Refresh Cadence</span>
-              <span class="stat-badge">${latestLog}</span>
-            </div>
-            <div class="stat-value" style="font-size:28px;">${data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2)+' d' : 'n/a'}</div>
-            <small>Average since last auth · Runner ${validationAgo}</small>
-            ${validationStatus ? `<div style="margin-top:8px;"><span class="chip ${validationTone}">Runner ${validationStatus}</span></div>` : ''}
           </div>
         `,
         `
