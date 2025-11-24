@@ -55,7 +55,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 ## CLI & Ops Scripts (`bin/`)
 
 - `cdx` (local wrapper/launcher) — Baked per host with API key + base URL at download time; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`. `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and sends `DELETE /auth`.
-- Wrapper publishing: the API auto-seeds/refreshes from the bundled `bin/cdx` inside the container; bump `WRAPPER_VERSION` there and rebuild the image to ship a new wrapper. Admin upload (`POST /wrapper`) remains available when `VERSION_ADMIN_KEY` is set.
+- Wrapper publishing: the API seeds the wrapper from the bundled `bin/cdx` only once; ongoing updates should use `POST /wrapper` (with `VERSION_ADMIN_KEY`) so no rebuild is needed. Rebuild only if you want to change that baked seed for fresh deployments.
 - `migrate-sqlite-to-mysql.php` (one-time migration) — Copies SQLite data to MySQL using `App\Database::migrate()` for schema, backs up the SQLite file, truncates target tables when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
 
 ## Extension Tips

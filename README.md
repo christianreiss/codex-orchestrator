@@ -52,7 +52,7 @@ With this project in place:
 On the **auth server host**:
 
 - `cp .env.example .env`
-- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx`; bump `WRAPPER_VERSION` in that file when you change it, then rebuild/redeploy. `VERSION_ADMIN_KEY` remains optional for admin uploads but isn’t needed for routine updates.
+- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx` only on first boot; to roll a new wrapper, prefer `POST /wrapper` (with `VERSION_ADMIN_KEY`) instead of rebuilding. Rebuilds are only needed if you want to change the baked seed that ships in the image.
 - `docker compose up --build`
 
 On your **laptop or admin box** (the one where you already use Codex):
