@@ -834,15 +834,25 @@ $router->add('POST', '#^/usage$#', function () use ($payload, $service) {
         ], 422);
     }
 
-    $data = $service->logUsage(
-        $host,
-        $line,
-        $total,
-        $inputTokens,
-        $outputTokens,
-        $cachedTokens,
-        $model
-    );
+    try {
+        $data = $service->recordTokenUsage($host, [
+            'line' => $line,
+            'total' => $total,
+            'input' => $inputTokens,
+            'output' => $outputTokens,
+            'cached' => $cachedTokens,
+            'model' => $model,
+        ]);
+    } catch (Throwable $exception) {
+        error_log('Usage ingestion failed: ' . $exception->getMessage());
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'recorded' => false,
+                'reason' => 'usage ingestion failed',
+            ],
+        ]);
+    }
 
     Response::json([
         'status' => 'ok',

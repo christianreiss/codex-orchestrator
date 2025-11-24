@@ -43,6 +43,8 @@ mask_key() {
 }
 
 CODEX_DEBUG=${CODEX_DEBUG:-0}
+CODEX_NO_PTY=${CODEX_NO_PTY:-0}
+CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 
 # Per-host baked configuration (populated by the server at download time).
 CODEX_SYNC_BAKED=${CODEX_SYNC_BAKED:-1}
@@ -68,8 +70,9 @@ SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
+last_usage_payload=""
 
-WRAPPER_VERSION="2025.11.24-7"
+WRAPPER_VERSION="2025.11.24-8"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -1011,7 +1014,20 @@ try:
 except Exception:  # noqa: BLE001
     sys.exit(0)
 
-lines = [ln.strip() for ln in content.splitlines() if "Token usage" in ln]
+ansi_csi = re.compile(r"\x1B\[[0-9;?]*[ -/]*[@-~]")
+ansi_osc = re.compile(r"\x1B\][^\a\x1b]*[\a\x1b\\]")
+control = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def strip_noise(text: str) -> str:
+    text = ansi_osc.sub("", text)
+    text = ansi_csi.sub("", text)
+    text = control.sub("", text)
+    return text
+
+
+cleaned = strip_noise(content)
+lines = [ln.strip() for ln in cleaned.splitlines() if "Token usage" in ln]
 if not lines:
     sys.exit(0)
 
@@ -1020,7 +1036,11 @@ pattern = re.compile(
     r"Token usage:\s*total=([\d,]+)\s+input=([\d,]+)(?:\s*\(\+\s*([\d,]+)\s*cached\))?\s+output=([\d,]+)",
     re.IGNORECASE,
 )
-data = {"line": line}
+safe_line = line
+if len(safe_line) > 240:
+    safe_line = safe_line[:240] + "…"
+
+data: dict[str, object] = {}
 match = pattern.search(line)
 if match:
     def clean(val: str | None):
@@ -1032,6 +1052,8 @@ if match:
     cached = clean(match.group(3))
     if cached is not None:
         data["cached"] = cached
+else:
+    data["line"] = safe_line
 
 print(json.dumps(data, separators=(",", ":")))
 PY
@@ -1051,7 +1073,7 @@ post_token_usage_payload() {
     return 1
   fi
 
-  local summary
+  local summary=""
   if summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json, ssl, sys, urllib.error, urllib.request
 
@@ -1109,14 +1131,22 @@ for ctx in build_contexts():
             print(format_summary(payload))
             sys.exit(0)
     except urllib.error.HTTPError as exc:
-        last_err = f"HTTP {exc.code}"
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        body_snip = (body or "").replace("\n", " ").strip()
+        if len(body_snip) > 160:
+            body_snip = body_snip[:160] + "…"
+        last_err = f"HTTP {exc.code}" + (f": {body_snip}" if body_snip else "")
         continue
     except Exception as exc:  # noqa: BLE001
         last_err = str(exc)
         continue
 
 if last_err:
-    print(last_err, file=sys.stderr)
+    print(last_err)
 sys.exit(1)
 PY
   )"; then
@@ -1124,8 +1154,96 @@ PY
     return 0
   fi
 
-  log_warn "Usage push | failed"
+  local primary_err="$summary"
+
+  # Fallback: retry without the freeform line if present (avoid bad payloads/escape debris)
+  if [[ "$payload_json" == *'"line"'* ]]; then
+    local fallback_payload=""
+    fallback_payload="$(python3 - "$payload_json" <<'PY'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+if "line" in data:
+    data.pop("line", None)
+print(json.dumps(data, separators=(",", ":")))
+PY
+    )" || fallback_payload=""
+    if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
+      summary=""
+      if summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+api_key = sys.argv[2]
+payload_raw = sys.argv[3]
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+
+payload = json.loads(payload_raw)
+body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+url = f"{base}/usage"
+req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+
+ctx = ssl.create_default_context()
+if cafile:
+    try:
+        ctx.load_verify_locations(cafile)
+    except Exception:
+        pass
+try:
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
+        resp.read(512)
+        print("fallback")
+        sys.exit(0)
+except Exception as exc:  # noqa: BLE001
+    print(str(exc))
+    sys.exit(1)
+PY
+      )"; then
+        log_info "Usage push | ok (fallback) | ${summary}"
+        return 0
+      else
+        [[ -z "$primary_err" ]] && primary_err="$summary"
+      fi
+    fi
+  fi
+
+  if [[ -z "$primary_err" ]]; then
+    primary_err="unknown error"
+  fi
+  log_warn "Usage push | failed | ${primary_err}"
   return 1
+}
+
+parse_usage_summary() {
+  local payload_json="$1"
+  local summary=""
+  summary="$(python3 - "$payload_json" <<'PY'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:  # noqa: BLE001
+    sys.exit(0)
+parts = []
+total = data.get("total")
+inp = data.get("input")
+out = data.get("output")
+cached = data.get("cached")
+if isinstance(total, int):
+    parts.append(f"sent={total}")
+if isinstance(inp, int):
+    parts.append(f"input={inp}")
+if isinstance(out, int):
+    parts.append(f"output={out}")
+if isinstance(cached, int):
+    parts.append(f"cached={cached}")
+if parts:
+    print(", ".join(parts))
+PY
+  )" || summary=""
+  printf "%s" "$summary"
 }
 
 send_token_usage_if_present() {
@@ -1136,6 +1254,7 @@ send_token_usage_if_present() {
     return 0
   fi
 
+  last_usage_payload="$payload"
   post_token_usage_payload "$payload" || true
 }
 
@@ -1401,49 +1520,77 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   fi
 fi
 
-version_status=""
-status_warn=0
+codex_update_attempted=0
+codex_updated=0
+codex_update_failed=0
+codex_status_label=""
+codex_status_note=""
+codex_target_label=""
+codex_installed_label="${LOCAL_VERSION:-unknown}"
 
 if (( skip_update_check )); then
-  version_status="status ok | local ${LOCAL_VERSION:-unknown} | update check skipped (not root)"
-  if (( IS_ROOT )); then
-    status_warn=1
-  fi
+  codex_target_label="${remote_version:-${LOCAL_VERSION:-unknown}}"
+  codex_status_label="Check skipped"
+  codex_status_note="not permitted to manage Codex (need root)"
 elif (( need_update )) && [[ -n "$remote_url" ]]; then
   display_local="${LOCAL_VERSION:-unknown}"
+  codex_target_label="$norm_remote"
+  codex_update_attempted=1
   if (( prefer_npm_update )) && update_codex_via_npm "$norm_remote"; then
     hash -r
     CODEX_REAL_BIN="$(resolve_real_codex)"
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
     LOCAL_VERSION="$(normalize_version "$LOCAL_VERSION_RAW")"
     LOCAL_VERSION_UNKNOWN=0
-    version_status="status updated | ${display_local} → ${LOCAL_VERSION} (npm codex-cli @${norm_remote})"
+    codex_updated=1
+    codex_status_label="Updated"
+    codex_status_note="npm codex-cli @${norm_remote}"
   elif perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote"; then
     hash -r
     CODEX_REAL_BIN="$(resolve_real_codex)"
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
     LOCAL_VERSION="$(normalize_version "$LOCAL_VERSION_RAW")"
     LOCAL_VERSION_UNKNOWN=0
-    version_status="status updated | ${display_local} → ${LOCAL_VERSION} (from API ${remote_tag:-latest})"
+    codex_updated=1
+    codex_status_label="Updated"
+    codex_status_note="from API ${remote_tag:-latest}"
   else
-    status_warn=1
-    version_status="status warn | local ${display_local} | update to ${norm_remote} failed"
+    codex_update_failed=1
+    codex_status_label="Update failed"
+    codex_status_note="to ${norm_remote}"
+    log_warn "Codex update failed (wanted ${norm_remote}, local ${display_local})"
   fi
 else
   if [[ -n "$remote_version" ]]; then
     final_label="${remote_tag:-${remote_version}}"
-    version_status="status ok | local ${LOCAL_VERSION:-unknown} | api ${final_label}"
+    codex_target_label="$final_label"
+    local_norm="$(normalize_version "$LOCAL_VERSION")"
+    remote_norm="$(normalize_version "$final_label")"
+    if [[ -n "$local_norm" && -n "$remote_norm" && "$local_norm" != "$remote_norm" ]]; then
+      codex_status_label="Update available"
+    else
+      codex_status_label="Current"
+    fi
   else
-    status_warn=1
-    version_status="status warn | local ${LOCAL_VERSION:-unknown} | API unavailable"
+    codex_status_label="API unavailable"
+    codex_target_label="n/a"
+    codex_update_failed=1
+    log_warn "Codex update check unavailable"
   fi
 fi
 
-if (( status_warn )); then
-  log_warn "$version_status"
-else
-  log_info "$version_status"
+if [[ -z "$codex_status_label" ]]; then
+  codex_status_label="Current"
 fi
+codex_installed_label="${LOCAL_VERSION:-unknown}"
+
+WRAPPER_VERSION_INITIAL="$WRAPPER_VERSION"
+wrapper_update_attempted=0
+wrapper_updated=0
+wrapper_update_failed=0
+wrapper_status_label="Current"
+wrapper_status_note=""
+wrapper_target_label="$WRAPPER_VERSION"
 
 # Wrapper self-update (single latest version only)
 wrapper_state="current (${WRAPPER_VERSION})"
@@ -1451,6 +1598,7 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
   target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
+  wrapper_target_label="${target_wrapper:-$WRAPPER_VERSION}"
   if [[ -n "$target_wrapper_url" && "$target_wrapper_url" != http* ]]; then
     target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${target_wrapper_url}"
   fi
@@ -1467,8 +1615,12 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
   fi
 
   if (( need_wrapper_update )) && [[ -n "$target_wrapper_url" ]]; then
+    wrapper_update_attempted=1
     if [[ -z "$CODEX_SYNC_API_KEY" ]]; then
       log_warn "Wrapper update skipped: API key missing"
+      wrapper_update_failed=1
+      wrapper_status_label="Update skipped"
+      wrapper_status_note="API key missing"
     else
       tmpdir="$(mktemp -d)"
       tmpwrapper="$tmpdir/cdx"
@@ -1480,55 +1632,284 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
         dl_sha="$(sha256sum "$tmpwrapper" | awk '{print $1}')"
         if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
           log_warn "Wrapper update skipped: hash mismatch (expected ${target_wrapper_sha}, got ${dl_sha})"
+          wrapper_update_failed=1
+          wrapper_status_label="Update skipped"
+          wrapper_status_note="hash mismatch"
         else
           chmod +x "$tmpwrapper"
           if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
             install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
             WRAPPER_VERSION="$target_wrapper"
             wrapper_state="updated (${WRAPPER_VERSION})"
+            wrapper_updated=1
+            wrapper_status_label="Updated"
+            if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
+              wrapper_status_note="from ${WRAPPER_VERSION_INITIAL}"
+            fi
           elif (( CAN_SUDO )); then
             if $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
               WRAPPER_VERSION="$target_wrapper"
               wrapper_state="updated (${WRAPPER_VERSION})"
+              wrapper_updated=1
+              wrapper_status_label="Updated"
+              if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
+                wrapper_status_note="from ${WRAPPER_VERSION_INITIAL}"
+              fi
             else
               log_warn "Wrapper update failed: sudo install denied"
+              wrapper_update_failed=1
+              wrapper_status_label="Update failed"
+              wrapper_status_note="sudo install denied"
             fi
           else
             log_warn "Wrapper update skipped: insufficient permissions to write $(dirname "$SCRIPT_REAL")"
+            wrapper_update_failed=1
+            wrapper_status_label="Update skipped"
+            wrapper_status_note="no permission"
           fi
         fi
       else
         log_warn "Wrapper update failed: download error"
+        wrapper_update_failed=1
+        wrapper_status_label="Update failed"
+        wrapper_status_note="download error"
       fi
       rm -rf "$tmpdir"
     fi
   elif (( need_wrapper_update )) && [[ -z "$target_wrapper_url" ]]; then
     log_warn "Wrapper update skipped: API did not provide download URL"
+    wrapper_update_failed=1
+    wrapper_status_label="Update skipped"
+    wrapper_status_note="missing download URL"
   fi
 fi
 
-# Condensed summary: always emit if auth pull succeeded (no verbose per-step lines)
-build_status_summary() {
-  local api_state="$1" codex_state="$2" cdx_state="$3"
-  printf "Api %s | codex %s | cdx %s" "$api_state" "$codex_state" "$cdx_state"
+human_join() {
+  local items=("$@")
+  local count=${#items[@]}
+  if (( count == 0 )); then
+    printf ''
+  elif (( count == 1 )); then
+    printf '%s' "${items[0]}"
+  elif (( count == 2 )); then
+    printf '%s and %s' "${items[0]}" "${items[1]}"
+  else
+    local last="${items[count-1]}"
+    items=("${items[@]:0:count-1}")
+    printf '%s, and %s' "$(printf '%s, ' "${items[@]}" | sed 's/, $//')" "$last"
+  fi
 }
 
-if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
-  target_version="${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}"
-  target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
-  codex_state="current (${LOCAL_VERSION})"
-  if [[ "$LOCAL_VERSION" != "$target_version" ]]; then
-    codex_state="needs update (${target_version}, local ${LOCAL_VERSION:-unknown})"
-  fi
-  cdx_state="current (${WRAPPER_VERSION}/${target_wrapper})"
-  if [[ -n "$AUTH_STATUS" || -n "$AUTH_ACTION" || -n "$AUTH_MESSAGE" ]]; then
-    log_info "Auth | ${AUTH_STATUS:-ok} | action=${AUTH_ACTION:-n/a}${AUTH_MESSAGE:+ | ${AUTH_MESSAGE}}"
-  fi
-  summary_text="$(build_status_summary "OK" "$codex_state" "$cdx_state")"
-  log_info "$summary_text"
+join_with_semicolon() {
+  local out=""
+  local part
+  for part in "$@"; do
+    [[ -z "$part" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+="; "
+    fi
+    out+="$part"
+  done
+  printf "%s" "$out"
+}
+
+colorize() {
+  local text="$1" tone="$2"
+  case "$tone" in
+    green) printf "%b%s%b" "${GREEN}${BOLD}" "$text" "${RESET}" ;;
+    yellow) printf "%b%s%b" "${YELLOW}${BOLD}" "$text" "${RESET}" ;;
+    red) printf "%b%s%b" "${RED}${BOLD}" "$text" "${RESET}" ;;
+    *) printf "%s" "$text" ;;
+  esac
+}
+
+format_status_row() {
+  local label="$1" col1="$2" col2="$3" col3="$4"
+  printf "%-8s | %-24s | %-24s | %s" "$label" "$col1" "$col2" "$col3"
+}
+
+format_simple_row() {
+  local label="$1" text="$2"
+  printf "%-8s | %s" "$label" "$text"
+}
+
+format_auth_label() {
+  local status="$1" action="$2" msg="$3"
+  local parts=()
+  case "$status" in
+    valid) parts+=("status valid (matches server)") ;;
+    outdated) parts+=("status outdated (server newer)") ;;
+    missing) parts+=("status missing (upload needed)") ;;
+    upload_required) parts+=("status upload required (client newer)") ;;
+    *)
+      [[ -n "$status" ]] && parts+=("status ${status}")
+      ;;
+  esac
+  case "$action" in
+    valid) parts+=("no update needed") ;;
+    store) parts+=("stored latest auth on server") ;;
+    retrieve) parts+=("pulled latest auth from server") ;;
+    *)
+      [[ -n "$action" ]] && parts+=("action ${action}")
+      ;;
+  esac
+  [[ -n "$msg" ]] && parts+=("$msg")
+  printf "%s" "$(join_with_semicolon "${parts[@]}")"
+}
+
+codex_target_label="${codex_target_label:-${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}}"
+wrapper_target_label="${wrapper_target_label:-${WRAPPER_VERSION}}"
+wrapper_installed_label="${WRAPPER_VERSION:-unknown}"
+codex_installed_label="${codex_installed_label:-${LOCAL_VERSION:-unknown}}"
+
+codex_status_display="$codex_status_label"
+if [[ -n "$codex_status_note" ]]; then
+  codex_status_display="${codex_status_display} (${codex_status_note})"
+fi
+wrapper_status_display="$wrapper_status_label"
+if [[ -n "$wrapper_status_note" ]]; then
+  wrapper_status_display="${wrapper_status_display} (${wrapper_status_note})"
+fi
+
+codex_installed_display="$codex_installed_label"
+if [[ -n "$codex_installed_display" ]]; then
+  codex_installed_display+=" installed"
+fi
+codex_target_display="$codex_target_label"
+if [[ -n "$codex_target_display" && "$codex_target_display" != "n/a" && "$codex_target_display" != "unknown" ]]; then
+  codex_target_display+=" available"
+fi
+wrapper_installed_display="$wrapper_installed_label"
+if [[ -n "$wrapper_installed_display" ]]; then
+  wrapper_installed_display+=" installed"
+fi
+wrapper_target_display="$wrapper_target_label"
+if [[ -n "$wrapper_target_display" && "$wrapper_target_display" != "n/a" && "$wrapper_target_display" != "unknown" ]]; then
+  wrapper_target_display+=" available"
+fi
+
+api_label="Unavailable"
+case "$AUTH_PULL_STATUS" in
+  ok) api_label="Up and working" ;;
+  invalid) api_label="Invalid API key" ;;
+esac
+
+api_tone="red"
+[[ "$AUTH_PULL_STATUS" == "ok" ]] && api_tone="green"
+
+auth_label="n/a"
+if [[ -n "$AUTH_STATUS" ]]; then
+  auth_label="$(format_auth_label "$AUTH_STATUS" "$AUTH_ACTION" "$AUTH_MESSAGE")"
+elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+  auth_label="auth sync failed"
+fi
+
+auth_tone="yellow"
+case "$AUTH_STATUS" in
+  valid|"")
+    [[ "$AUTH_PULL_STATUS" == "ok" ]] && auth_tone="green"
+    ;;
+  outdated|missing|upload_required)
+    auth_tone="yellow"
+    ;;
+  *)
+    auth_tone="yellow"
+    ;;
+esac
+[[ "$AUTH_PULL_STATUS" != "ok" ]] && auth_tone="red"
+
+command_actions=()
+if (( codex_update_attempted )); then command_actions+=("codex"); fi
+if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
+if [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then command_actions+=("auth"); fi
+command_label="launching codex"
+if (( ${#command_actions[@]} )); then
+  command_label="updating $(human_join "${command_actions[@]}")"
+fi
+
+result_parts=()
+if (( codex_updated )); then
+  result_parts+=("codex updated")
+elif (( codex_update_failed )); then
+  result_parts+=("codex update failed")
 else
-  summary_text="$(build_status_summary "FAIL" "auth unavailable" "current (${WRAPPER_VERSION}/${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}})")"
-  log_warn "$summary_text"
+  result_parts+=("codex ${codex_status_label,,}")
+fi
+  if (( wrapper_updated )); then
+    result_parts+=("wrapper updated")
+  elif (( wrapper_update_failed )); then
+    result_parts+=("wrapper update failed")
+  else
+    result_parts+=("wrapper ${wrapper_status_label,,}")
+  fi
+  if [[ -n "$AUTH_STATUS" ]]; then
+    auth_result="auth ${AUTH_STATUS}"
+    if [[ -n "$AUTH_ACTION" ]]; then
+      auth_result+=", ${AUTH_ACTION}"
+    fi
+    result_parts+=("$auth_result")
+  elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+    result_parts+=("auth unavailable")
+  fi
+  result_label="$(human_join "${result_parts[@]}")"
+
+  usage_summary=""
+  if [[ -n "$last_usage_payload" ]]; then
+    usage_summary="$(parse_usage_summary "$last_usage_payload")"
+  fi
+
+  codex_tone="green"
+  case "${codex_status_label,,}" in
+    update\ available|check\ skipped|update\ skipped)
+      codex_tone="yellow"
+      ;;
+  update\ failed|api\ unavailable)
+    codex_tone="red"
+    ;;
+esac
+(( codex_update_failed )) && codex_tone="red"
+
+wrapper_tone="green"
+case "${wrapper_status_label,,}" in
+  update\ available|update\ skipped|check\ skipped)
+    wrapper_tone="yellow"
+    ;;
+  update\ failed)
+    wrapper_tone="red"
+    ;;
+esac
+(( wrapper_update_failed )) && wrapper_tone="red"
+
+result_tone="green"
+if (( codex_update_failed )) || (( wrapper_update_failed )) || [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+  result_tone="red"
+elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
+  result_tone="yellow"
+elif [[ "${codex_status_label,,}" == "update available" ]] || [[ "${wrapper_status_label,,}" == "update available" ]]; then
+  result_tone="yellow"
+fi
+
+command_tone=""
+if (( ${#command_actions[@]} )); then
+  command_tone="yellow"
+  fi
+
+  log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+  log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
+  log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
+  log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  if [[ -n "$usage_summary" ]]; then
+    log_info "$(format_simple_row "tokens" "$usage_summary")"
+  fi
+  log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
+  log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+
+if (( wrapper_updated )); then
+  log_warn "Wrapper updated; restart cdx to use the new wrapper."
+  exit 0
+fi
+
+if [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   log_error "Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth."
   exit 1
 fi
@@ -1555,9 +1936,9 @@ run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
   set +e
-  if [[ -t 1 ]]; then
+  if [[ -t 1 && "$CODEX_NO_PTY" != "1" ]]; then
     local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
-    if command -v script >/dev/null 2>&1; then
+    if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
       # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
       local cmd_str
       cmd_str="$(printf '%q ' "${cmd_line[@]}")"
@@ -1595,6 +1976,11 @@ PY
       # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
       "${cmd_line[@]}"
       status=$?
+    fi
+    if [[ ${status:-1} -ne 0 ]]; then
+      # Fallback: run without PTY to avoid terminal quirks (e.g., notebooks).
+      "${cmd_line[@]}" 2>&1 | tee "$tmp_output"
+      status=${PIPESTATUS[0]}
     fi
   else
     "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"

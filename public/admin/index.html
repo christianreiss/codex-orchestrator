@@ -1037,20 +1037,18 @@
           <div class="card">
             <div class="stat-head">
               <span class="stat-label">Versions</span>
-              <span class="stat-badge">${checkedAt}</span>
             </div>
             <div class="stat-value">CLI ${data.versions.client_version ?? 'n/a'}</div>
-            <small>Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
+            <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
           </div>
         `,
         `
           <div class="card">
             <div class="stat-head">
               <span class="stat-label">Tokens</span>
-              <span class="stat-badge">Usage</span>
             </div>
             <div class="stat-value">${totalTokens}</div>
-            <small>Total tokens reported</small>
+            <small>Usage · Total tokens reported</small>
           </div>
         `,
       ];
@@ -1264,21 +1262,31 @@
     }
     loadApiState();
 
-    function showNewHostModal(show) {
+    function resetNewHostForm({ focusInput = false } = {}) {
+      if (commandField) {
+        commandField.style.display = 'none';
+      }
+      if (installerMeta) {
+        installerMeta.style.display = 'none';
+        installerMeta.textContent = '';
+      }
+      if (bootstrapCmdEl) {
+        bootstrapCmdEl.textContent = '';
+      }
+      if (newHostName) {
+        newHostName.value = '';
+        if (focusInput) newHostName.focus();
+      }
+    }
+
+    function showNewHostModal(show, { reset = show, focusInput = reset } = {}) {
+      if (!newHostModal) return;
       if (show) {
         newHostModal.classList.add('show');
-        commandField.style.display = 'none';
-        if (installerMeta) {
-          installerMeta.style.display = 'none';
-          installerMeta.textContent = '';
-        }
-        if (bootstrapCmdEl) {
-          bootstrapCmdEl.textContent = '';
-        }
-        newHostName.value = '';
-        newHostName.focus();
+        if (reset) resetNewHostForm({ focusInput });
       } else {
         newHostModal.classList.remove('show');
+        if (reset) resetNewHostForm();
       }
     }
 
@@ -1334,7 +1342,10 @@
             : `One-time installer ready. Base: ${installer.base_url || 'n/a'}.`;
           installerMeta.style.display = 'block';
         }
-        showNewHostModal(true);
+        if (newHostName) {
+          newHostName.value = targetFqdn;
+        }
+        showNewHostModal(true, { reset: false });
         await loadAll();
       } catch (err) {
         const msg = err?.message || String(err);
