@@ -284,6 +284,12 @@
     .runner-log .line.err { color: #f87171; }
     .runner-meta { display: grid; gap: 6px; margin-top: 10px; font-size: 14px; }
     .runner-meta .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .runner-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0 6px; }
+    .runner-actions .ok-btn[aria-pressed="true"] { background: rgba(16,163,127,0.14); border-color: rgba(16,163,127,0.4); color: #0f5132; }
+    .runner-actions .fail-btn[aria-pressed="true"] { background: rgba(229,72,77,0.14); border-color: rgba(229,72,77,0.35); color: #7f1d1d; }
+    .runner-actions button { font-weight: 800; letter-spacing: 0.03em; }
+    .runner-status-row { display: flex; gap: 8px; align-items: center; }
+    .runner-status-row .muted { font-size: 13px; }
     button.secondary {
       background: #eef2f7;
       color: #0f172a;
@@ -795,6 +801,16 @@
       return `<div class="digest-cell" title="${hint}"><span class="chip ${tone}">${label}</span></div>`;
     }
 
+    function formatMinutesAgo(value) {
+      const date = parseTimestamp(value);
+      if (!date) return '—';
+      const delta = Date.now() - date.getTime();
+      const future = delta < 0;
+      const minutes = Math.round(Math.abs(delta) / 60000);
+      const suffix = future ? 'from now' : 'ago';
+      return `${minutes} min ${suffix}`;
+    }
+
     function formatRelative(value) {
       const date = parseTimestamp(value);
       if (!date) return '—';
@@ -923,7 +939,6 @@
     function renderRunnerCard(info) {
       if (!info) return '';
       const baseUrl = info.base_url || 'n/a';
-      const runnerUrl = info.runner_url || baseUrl;
       const validation = info.latest_validation || null;
       const hasValidation = !!validation;
       const validationStatus = hasValidation
@@ -935,26 +950,38 @@
         : (['ok', 'valid'].includes(normalizedStatus) ? 'ok'
           : normalizedStatus === 'unchanged' ? 'neutral'
           : 'warn');
-      const validationWhen = validation?.created_at ? formatRelative(validation.created_at) : '—';
+      const validationWhen = validation?.created_at ? formatMinutesAgo(validation.created_at) : '—';
       const validationLatency = validation?.latency_ms ? `${validation.latency_ms}ms` : null;
       const validationReason = validation?.reason ? validation.reason : null;
       const runnerStore = info.latest_runner_store || null;
       const runnerStoreLabel = runnerStore?.last_refresh ? formatTimestamp(runnerStore.last_refresh) : '—';
       const runnerStoreWhen = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
       const runnerHost = validation?.host?.fqdn || runnerStore?.host?.fqdn || '';
+      const lastRun = hasValidation ? validationWhen : (info.enabled ? 'No runs yet' : '—');
+      const okPressed = hasValidation && ['ok', 'valid', 'unchanged'].includes(normalizedStatus);
+      const failPressed = hasValidation && !okPressed;
+      const statusChip = info.enabled
+        ? `<span class="chip ${validationTone}">${validationStatus}</span>`
+        : '<span class="chip warn">Disabled</span>';
+      const toggleLabel = info.enabled ? 'Enabled' : 'Disabled';
       return `
         <div class="card runner-card">
           <div class="stat-head">
-            <span class="stat-label">Auth Runner</span>
-            <span class="stat-badge">${runnerUrl}</span>
+            <span class="stat-label">Validation Service</span>
+            <span class="stat-badge">${baseUrl}</span>
           </div>
-          <div class="stat-value" style="font-size:28px; display:flex; gap:8px; align-items:center;">
-            <span class="chip ${info.enabled ? 'ok' : 'warn'}">${info.enabled ? 'Enabled' : 'Disabled'}</span>
+          <div class="stat-value runner-status-row">
+            ${statusChip}
             ${validationLatency ? `<span class="muted" style="font-size:13px;">${validationLatency}</span>` : ''}
           </div>
-          <small class="muted">Base ${baseUrl} · Timeout ${info.timeout_seconds ?? '—'}s${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
+          <div class="runner-actions">
+            <button class="ghost runner-ghost tiny-btn ok-btn" id="runner-ok" aria-pressed="${okPressed}">OK</button>
+            <button class="ghost runner-ghost tiny-btn fail-btn" id="runner-fail" aria-pressed="${failPressed}">FAIL</button>
+            <button class="ghost runner-ghost tiny-btn" id="runner-toggle" aria-label="Toggle validation service">${toggleLabel}</button>
+          </div>
+          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
           <div class="runner-meta" style="margin-top:12px;">
-            <div><div class="label">Last run</div><div>${validationStatus} · ${validationWhen}</div></div>
+            <div><div class="label">Last run</div><div>${lastRun}</div></div>
             <div><div class="label">Last apply</div><div>${runnerStoreLabel} · ${runnerStoreWhen}</div></div>
             ${validationReason ? `<div><div class="label">Notes</div><div>${validationReason}</div></div>` : ''}
           </div>
@@ -1009,7 +1036,7 @@
               <span class="stat-label">Tokens</span>
               <span class="stat-badge">Usage</span>
             </div>
-            <div class="stat-value" style="font-size:28px;">${totalTokens}</div>
+            <div class="stat-value">${totalTokens}</div>
             <small>Total tokens reported</small>
           </div>
         `,
@@ -1020,6 +1047,19 @@
       }
 
       statsEl.innerHTML = cards.join('\n');
+      wireRunnerCardControls();
+    }
+
+    function wireRunnerCardControls() {
+      ['runner-toggle', 'runner-ok', 'runner-fail'].forEach((id) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+          btn.onclick = (ev) => {
+            ev.preventDefault();
+            handleRunnerClick();
+          };
+        }
+      });
     }
 
     async function loadAll() {
@@ -1059,10 +1099,6 @@
     }
 
     async function runRunnerNow(logFn = null) {
-      if (!runnerRunnerBtn) return;
-      const original = runnerRunnerBtn.textContent;
-      runnerRunnerBtn.disabled = true;
-      runnerRunnerBtn.textContent = 'Running…';
       try {
         if (logFn) logFn('Invoking auth runner…');
         const res = await api('/admin/runner/run', { method: 'POST' });
@@ -1073,9 +1109,6 @@
         if (logFn) logFn(`Runner failed: ${err.message}`, 'err');
         else alert(`Runner failed: ${err.message}`);
         throw err;
-      } finally {
-        runnerRunnerBtn.disabled = false;
-        runnerRunnerBtn.textContent = original;
       }
     }
 
@@ -1155,11 +1188,11 @@
     if (refreshBtn) {
       refreshBtn.addEventListener('click', loadAll);
     }
-    if (runnerRunnerBtn) {
-      runnerRunnerBtn.addEventListener('click', handleRunnerClick);
-    }
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
+    }
+    if (runnerRunnerBtn) {
+      runnerRunnerBtn.addEventListener('click', handleRunnerClick);
     }
     if (filterInput) {
       filterInput.addEventListener('input', (event) => {

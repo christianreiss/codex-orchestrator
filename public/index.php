@@ -253,7 +253,7 @@ $router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($
         'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
     ]);
 
-    $body = buildInstallerBody($host, $tokenRow, $baseUrl, $service->versionSummary());
+    $body = buildInstallerScript($host, $tokenRow, $baseUrl, $service->versionSummary());
     emitInstaller($body, 200, $tokenRow['expires_at'] ?? null);
 });
 

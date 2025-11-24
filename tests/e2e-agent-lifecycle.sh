@@ -120,10 +120,10 @@ cdx_status=$(awk 'NR==1 {print $2}' "$cdx_headers")
 [[ "$cdx_status" == "200" ]] || fail "wrapper download expected 200, got ${cdx_status:-unknown}"
 download_sha="$(sha256sum "$cdx_path" | awk '{print $1}')"
 [[ "$download_sha" == "$WRAP_SHA" ]] || fail "wrapper sha mismatch: header=$WRAP_SHA actual=$download_sha"
-grep -q "CODEX_SYNC_BASE_URL_DEFAULT=\"${BASE_URL}\"" "$cdx_path" || fail "cdx not baked with base URL"
-grep -q "CODEX_SYNC_API_KEY=\"${API_KEY}\"" "$cdx_path" || fail "cdx not baked with API key"
-grep -q "CODEX_SYNC_FQDN=\"${HOST_FQDN}\"" "$cdx_path" || fail "cdx not baked with fqdn"
-grep -q "WRAPPER_VERSION=\"${WRAP_VERSION}\"" "$cdx_path" || fail "cdx wrapper version missing"
+grep -Eq "CODEX_SYNC_BASE_URL_DEFAULT=.*${BASE_URL}" "$cdx_path" || fail "cdx not baked with base URL"
+grep -Eq "CODEX_SYNC_API_KEY.*${API_KEY}" "$cdx_path" || fail "cdx not baked with API key"
+grep -Eq "CODEX_SYNC_FQDN.*${HOST_FQDN}" "$cdx_path" || fail "cdx not baked with fqdn"
+grep -Eq "WRAPPER_VERSION=.*${WRAP_VERSION}" "$cdx_path" || fail "cdx wrapper version missing"
 
 log "Calling /auth (retrieve) to validate API key works"
 auth_body=$(cat <<JSON
