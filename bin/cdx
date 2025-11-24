@@ -1555,8 +1555,17 @@ run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
   set +e
-  "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
-  status=${PIPESTATUS[0]}
+  if command -v script >/dev/null 2>&1 && [[ -t 1 ]]; then
+    local typescript="${tmp_output}.tty"
+    local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
+    script -qefc "$(printf '%q ' "${cmd_line[@]}")" "$typescript"
+    status=$?
+    cat "$typescript" >"$tmp_output" 2>/dev/null || true
+    rm -f "$typescript"
+  else
+    "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
+  fi
   set -e
   send_token_usage_if_present "$tmp_output"
   rm -f "$tmp_output"
