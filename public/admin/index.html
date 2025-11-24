@@ -999,14 +999,14 @@
             <span class="stat-label">Validation Service</span>
             <span class="stat-badge">${baseUrl}</span>
           </div>
-          <div class="stat-value runner-status-row">
-            ${statusChip}
-            ${validationLatency ? `<span class="muted" style="font-size:13px;">${validationLatency}</span>` : ''}
-          </div>
           <div class="runner-actions">
             <button class="ghost runner-ghost tiny-btn ok-btn" id="runner-ok" aria-pressed="${okPressed}">OK</button>
             <button class="ghost runner-ghost tiny-btn fail-btn" id="runner-fail" aria-pressed="${failPressed}">FAIL</button>
             <button class="ghost runner-ghost tiny-btn" id="runner-toggle" aria-label="Toggle validation service">${toggleLabel}</button>
+          </div>
+          <div class="runner-status-row" style="margin-top:-4px; margin-bottom:6px;">
+            ${statusChip}
+            ${validationLatency ? `<span class="muted" style="font-size:13px;">${validationLatency}</span>` : ''}
           </div>
           <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
           <div class="runner-meta" style="margin-top:12px;">
