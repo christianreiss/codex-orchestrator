@@ -988,12 +988,10 @@
       const runnerHost = '';
       const lastRun = hasValidation ? validationWhen : (info.enabled ? 'No runs yet' : '—');
       const statusLabel = (hasValidation ? validationStatus : (info.enabled ? 'VALID' : 'DISABLED')).toString().toUpperCase();
-      const toggleLabel = info.enabled ? 'Run now' : 'Disabled';
       return `
         <div class="card runner-card">
           <div class="stat-head">
             <span class="stat-label">Validation Service</span>
-            <span class="stat-badge">${baseUrl}</span>
           </div>
           <div class="stat-value">${statusLabel}</div>
           <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}</small>
