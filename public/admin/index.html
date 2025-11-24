@@ -603,12 +603,12 @@
                   <th>IP / Mode</th>
                   <th>Valid Auth</th>
                   <th>Usage</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
         </section>
 
       </main>
@@ -917,6 +917,7 @@
             </div>
           </td>
           <td class="actions-cell" data-label="Actions">
+            <button data-id="${host.id}" data-fqdn="${host.fqdn}" class="ghost secondary reinstall-btn">Install</button>
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>
           </td>
@@ -936,7 +937,13 @@
         btn.addEventListener('click', ev => {
           ev.stopPropagation();
           const id = parseInt(btn.getAttribute('data-id'), 10);
-          confirmClear(id);
+          const isInstall = btn.classList.contains('reinstall-btn');
+          if (isInstall) {
+            const fqdn = btn.getAttribute('data-fqdn') || '';
+            regenerateInstaller(id, fqdn);
+          } else {
+            confirmClear(id);
+          }
         });
       });
 
@@ -1312,12 +1319,23 @@
         alert('Please enter a host name');
         return;
       }
-      createHostBtn.disabled = true;
-      createHostBtn.textContent = 'Generating…';
+      await regenerateInstaller(fqdn);
+    }
+
+    async function regenerateInstaller(fqdn) {
+      const targetFqdn = fqdn || newHostName.value.trim();
+      if (!targetFqdn) {
+        alert('Please enter a host name');
+        return;
+      }
+      if (createHostBtn) {
+        createHostBtn.disabled = true;
+        createHostBtn.textContent = 'Generating…';
+      }
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn },
+          json: { fqdn: targetFqdn },
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
@@ -1334,13 +1352,16 @@
             : `One-time installer ready. Base: ${installer.base_url || 'n/a'}.`;
           installerMeta.style.display = 'block';
         }
+        showNewHostModal(true);
         await loadAll();
       } catch (err) {
         const msg = err?.message || String(err);
         alert(`Installer generation failed: ${msg}`);
       } finally {
-        createHostBtn.disabled = false;
-        createHostBtn.textContent = 'Generate';
+        if (createHostBtn) {
+          createHostBtn.disabled = false;
+          createHostBtn.textContent = 'Generate';
+        }
       }
     }
 
