@@ -997,11 +997,7 @@
           </div>
           <div class="stat-value">${statusLabel}</div>
           <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}${runnerHost ? ` · Host ${runnerHost}` : ''}</small>
-          <div class="runner-actions" style="margin-top:10px;">
-            <button class="ghost runner-ghost tiny-btn" id="runner-toggle" aria-label="Run validation now">${toggleLabel}</button>
-          </div>
           <div class="runner-meta" style="margin-top:12px;">
-            <div><div class="label">Last run</div><div>${lastRun}</div></div>
             <div><div class="label">Last apply</div><div>${runnerStoreLabel} · ${runnerStoreWhen}</div></div>
             ${validationReason ? `<div><div class="label">Notes</div><div>${validationReason}</div></div>` : ''}
           </div>
