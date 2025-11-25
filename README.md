@@ -166,15 +166,14 @@ Auth payload fallbacks: if `auths` is missing/empty but `tokens.access_token` or
 
 ### `POST /usage`
 
-Token-usage reporting endpoint. The `cdx` wrapper automatically parses Codex “Token usage: …” lines after each run and posts a compact summary here for the current host.
+Token-usage reporting endpoint. The `cdx` wrapper automatically parses **all** Codex “Token usage: …” lines (including reasoning tokens when present) after each run and posts them to the API for the current host.
 
-Body fields (all optional, but at least one of `line` or a numeric field is required):
-- `line`: raw usage line from Codex (for example `Token usage: total=985 input=969 (+ 6,912 cached) output=16`).
-- `total`, `input`, `output`: integer token counts.
-- `cached`: integer count of cached tokens, when present.
-- `model`: Codex model identifier, if available.
+Body options (at least one of `line` or a numeric field per usage is required):
+- `usages`: array of usage entries to record in one call.
+- Single-entry compatibility: `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` at the top level.
+- Usage entry fields: `line` (raw usage line), numeric `total`/`input`/`output`, optional `cached`, optional `reasoning`, optional `model`.
 
-Responses return the recorded values plus a timestamp and `host_id`, which feed the token-usage aggregates shown in the admin dashboard.
+Responses include `recorded` (count) and an array of recorded usages with timestamps and `host_id`, which feed the token-usage aggregates shown in the admin dashboard.
 
 ### `DELETE /auth`
 
@@ -252,6 +251,7 @@ Notes:
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
   - `GET /admin/usage?limit=50` and `GET /admin/tokens?limit=50`: recent usage rows and token aggregates.
 - A basic dashboard lives at `/admin/` (served by this container); it calls the endpoints above and will only work when mTLS is presented.
+  - `GET /admin/chatgpt/usage[?force=1]` and `POST /admin/chatgpt/usage/refresh`: fetch/cache the account-level ChatGPT `/wham/usage` snapshot (plan, rate windows, credits) using the canonical `auth.json` token; 5-minute cooldown unless forced.
 
 ## Data & Logging
 
@@ -259,6 +259,8 @@ Notes:
 - **auth_payloads** / **auth_entries**: canonical `auth.json` snapshots plus per-target token entries; the canonical payload is what `/auth` uses for digests and hydration.
 - **host_auth_states** / **host_auth_digests**: last-seen canonical payload per host and up to three recent digests for quick matching.
 - **token_usages**: per-host token usage rows created by `/usage`, used for aggregates in the admin views.
+- **chatgpt_usage_snapshots**: host-agnostic ChatGPT usage snapshots (plan, rate-limit windows, credits, raw body) refreshed at most every 5 minutes.
+- **pricing_snapshots**: pricing for GPT-5.1 (input/output/cached per 1k, currency, source URL/raw, timestamps) refreshed daily.
 - **logs**: registration/auth/usage/version/admin events with timestamps and a JSON details blob.
 - All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.uggs.io/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
 

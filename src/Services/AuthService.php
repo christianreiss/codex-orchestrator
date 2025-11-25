@@ -646,47 +646,113 @@ class AuthService
             throw new HttpException('Host not found', 404);
         }
 
+        $usageRows = $this->normalizeUsagePayloads($payload);
+        $hostId = (int) $host['id'];
+        $records = [];
+
+        foreach ($usageRows as $usage) {
+            $details = array_filter([
+                'line' => $usage['line'],
+                'total' => $usage['total'],
+                'input' => $usage['input'],
+                'output' => $usage['output'],
+                'cached' => $usage['cached'],
+                'reasoning' => $usage['reasoning'],
+                'model' => $usage['model'],
+            ], static fn ($value) => $value !== null && $value !== '');
+
+            $this->tokenUsages->record(
+                $hostId,
+                $usage['total'],
+                $usage['input'],
+                $usage['output'],
+                $usage['cached'],
+                $usage['reasoning'],
+                $usage['model'],
+                $usage['line']
+            );
+            $this->logs->log($hostId, 'token.usage', $details);
+
+            $records[] = [
+                'recorded_at' => gmdate(DATE_ATOM),
+                'line' => $usage['line'],
+                'total' => $usage['total'],
+                'input' => $usage['input'],
+                'output' => $usage['output'],
+                'cached' => $usage['cached'],
+                'reasoning' => $usage['reasoning'],
+                'model' => $usage['model'],
+            ];
+        }
+
+        $response = [
+            'host_id' => $hostId,
+            'recorded' => count($records),
+            'usages' => $records,
+        ];
+
+        if (count($records) === 1) {
+            $response = array_merge($response, $records[0]);
+        }
+
+        return $response;
+    }
+
+    private function normalizeUsagePayloads(array $payload): array
+    {
+        $entries = [];
+
+        if (isset($payload['usages']) && is_array($payload['usages'])) {
+            foreach ($payload['usages'] as $idx => $usage) {
+                if (!is_array($usage)) {
+                    continue;
+                }
+                $entries[] = $this->normalizeUsageEntry($usage, 'usages.' . $idx);
+            }
+        } else {
+            $entries[] = $this->normalizeUsageEntry($payload, 'usage');
+        }
+
+        if (!$entries) {
+            throw new ValidationException(['line' => ['line or numeric fields are required']]);
+        }
+
+        return $entries;
+    }
+
+    private function normalizeUsageEntry(array $usage, string $path): array
+    {
         $line = '';
-        if (array_key_exists('line', $payload) && is_string($payload['line'])) {
-            $line = trim($payload['line']);
+        if (array_key_exists('line', $usage) && is_string($usage['line'])) {
+            $line = trim($usage['line']);
         }
 
-        $total = $this->normalizeUsageInt($payload['total'] ?? null, 'total');
-        $input = $this->normalizeUsageInt($payload['input'] ?? null, 'input');
-        $output = $this->normalizeUsageInt($payload['output'] ?? null, 'output');
-        $cached = $this->normalizeUsageInt($payload['cached'] ?? null, 'cached', true);
+        $total = $this->normalizeUsageInt($usage['total'] ?? null, $path . '.total');
+        $input = $this->normalizeUsageInt($usage['input'] ?? null, $path . '.input');
+        $output = $this->normalizeUsageInt($usage['output'] ?? null, $path . '.output');
+        $cached = $this->normalizeUsageInt($usage['cached'] ?? null, $path . '.cached', true);
+        $reasoning = $this->normalizeUsageInt($usage['reasoning'] ?? null, $path . '.reasoning', true);
+
         $model = null;
-        if (isset($payload['model']) && is_string($payload['model'])) {
-            $model = trim($payload['model']);
+        if (isset($usage['model']) && is_string($usage['model'])) {
+            $model = trim($usage['model']);
         }
 
-        if ($line === '' && $total === null && $input === null && $output === null && $cached === null) {
+        if ($line === '' && $total === null && $input === null && $output === null && $cached === null && $reasoning === null) {
             throw new ValidationException([
-                'line' => ['line or at least one numeric field is required'],
+                $path => ['line or at least one numeric field is required'],
             ]);
         }
 
-        $details = array_filter([
+        return [
             'line' => $line !== '' ? $line : null,
             'total' => $total,
             'input' => $input,
             'output' => $output,
             'cached' => $cached,
+            'reasoning' => $reasoning,
             'model' => $model !== '' ? $model : null,
-        ], static fn ($value) => $value !== null);
-
-        $this->tokenUsages->record((int) $host['id'], $total, $input, $output, $cached, $model !== '' ? $model : null, $line !== '' ? $line : null);
-        $this->logs->log((int) $host['id'], 'token.usage', $details);
-
-        return array_merge([
-            'host_id' => (int) $host['id'],
-            'recorded_at' => gmdate(DATE_ATOM),
-            'line' => $line !== '' ? $line : null,
-            'total' => $total,
-            'input' => $input,
-            'output' => $output,
-            'cached' => $cached,
-        ], $model !== null ? ['model' => $model === '' ? null : $model] : []);
+        ];
     }
 
     private function versionSnapshot(?array $wrapperMetaOverride = null): array
@@ -1153,6 +1219,16 @@ class AuthService
         }
 
         return $this->payloads->latest();
+    }
+
+    public function canonicalAuthSnapshot(): ?array
+    {
+        $payload = $this->resolveCanonicalPayload();
+        if ($payload === null) {
+            return null;
+        }
+
+        return $this->canonicalAuthFromPayload($payload);
     }
 
     public function latestReportedVersions(): array

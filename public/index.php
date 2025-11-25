@@ -15,11 +15,15 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\InstallTokenRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
+use App\Repositories\PricingSnapshotRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
+use App\Services\ChatGptUsageService;
+use App\Services\PricingService;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -53,8 +57,10 @@ $installTokenRepository = new InstallTokenRepository($database);
 $authEntryRepository = new AuthEntryRepository($database);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository);
 $logRepository = new LogRepository($database);
+$chatGptUsageRepository = new ChatGptUsageRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $versionRepository = new VersionRepository($database);
+$pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
@@ -68,6 +74,20 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
+$chatGptUsageService = new ChatGptUsageService(
+    $service,
+    $chatGptUsageRepository,
+    $logRepository,
+    (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
+    (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0)
+);
+$pricingService = new PricingService(
+    $pricingSnapshotRepository,
+    $logRepository,
+    'gpt-5.1',
+    (string) Config::get('PRICING_URL', ''),
+    null
+);
 $wrapperService->ensureSeeded();
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -664,7 +684,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
     ]);
 });
 
-$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository) {
+$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService) {
     requireAdminAccess();
 
     $hosts = $hostRepository->all();
@@ -693,6 +713,12 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
 
     $tokens = $tokenUsageRepository->totals();
     $tokens['top_host'] = $tokenUsageRepository->topHost();
+    $monthStart = gmdate('Y-m-01\T00:00:00\Z');
+    $monthEnd = gmdate('Y-m-01\T00:00:00\Z', strtotime('+1 month'));
+    $tokensMonth = $tokenUsageRepository->totalsForRange($monthStart, $monthEnd);
+    $pricing = $pricingService->latestPricing('gpt-5.1', false);
+    $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
+    $chatgpt = $chatGptUsageService->fetchLatest(false);
 
     Response::json([
         'status' => 'ok',
@@ -706,6 +732,12 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'avg_refresh_age_days' => $avgRefreshDays,
             'versions' => $versions,
             'tokens' => $tokens,
+            'tokens_month' => $tokensMonth,
+            'pricing' => $pricing,
+            'pricing_month_cost' => $monthlyCost,
+            'chatgpt_usage' => $chatgpt['snapshot'] ?? null,
+            'chatgpt_cached' => $chatgpt['cached'] ?? false,
+            'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
         ],
     ]);
 });
@@ -781,6 +813,27 @@ $router->add('GET', '#^/admin/usage$#', function () use ($tokenUsageRepository) 
     ]);
 });
 
+$router->add('GET', '#^/admin/chatgpt/usage$#', function () use ($chatGptUsageService) {
+    requireAdminAccess();
+    $force = isset($_GET['force']) && $_GET['force'] !== '0';
+    $result = $chatGptUsageService->fetchLatest($force);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/admin/chatgpt/usage/refresh$#', function () use ($chatGptUsageService) {
+    requireAdminAccess();
+    $result = $chatGptUsageService->fetchLatest(true);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
     requireAdminAccess();
 
@@ -836,29 +889,8 @@ $router->add('POST', '#^/usage$#', function () use ($payload, $service) {
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);
 
-    $total = isset($payload['total']) ? (int) $payload['total'] : null;
-    $inputTokens = isset($payload['input']) ? (int) $payload['input'] : null;
-    $outputTokens = isset($payload['output']) ? (int) $payload['output'] : null;
-    $cachedTokens = isset($payload['cached']) ? (int) $payload['cached'] : null;
-    $model = isset($payload['model']) && is_string($payload['model']) ? $payload['model'] : null;
-    $line = isset($payload['line']) && is_string($payload['line']) ? trim($payload['line']) : null;
-
-    if ($line === null && $total === null && $inputTokens === null && $outputTokens === null && $cachedTokens === null) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'line or numeric fields are required',
-        ], 422);
-    }
-
     try {
-        $data = $service->recordTokenUsage($host, [
-            'line' => $line,
-            'total' => $total,
-            'input' => $inputTokens,
-            'output' => $outputTokens,
-            'cached' => $cachedTokens,
-            'model' => $model,
-        ]);
+        $data = $service->recordTokenUsage($host, is_array($payload) ? $payload : []);
     } catch (Throwable $exception) {
         error_log('Usage ingestion failed: ' . $exception->getMessage());
         Response::json([

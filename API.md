@@ -77,12 +77,16 @@ Allows a host to send the Codex CLI token-usage line after a run. Uses the same 
 
 **Body fields**
 
-- `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16`).
-- `total`, `input`, `output` (optional integers): parsed token counts.
-- `cached` (optional integer): cached tokens count when present.
-- `model` (optional string): Codex model name, if available.
+- `usages` (optional array): list of usage entries to record in a single call.
+- Single-entry compatibility: `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` at the top level are accepted and wrapped as one usage.
+- Each usage entry may include:
+  - `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16 (reasoning 256)`).
+  - `total`, `input`, `output` (optional integers): parsed token counts.
+  - `cached` (optional integer): cached tokens count when present.
+  - `reasoning` (optional integer): reasoning tokens when reported by Codex.
+  - `model` (optional string): Codex model name, if available.
 
-At least one of `line` or a numeric field must be provided. The payload is stored as a log entry (`token.usage`) for the calling host.
+At least one of `line` or a numeric field must be provided in each usage. Every entry is stored as a `token.usage` log row for the calling host.
 
 **Example**
 
@@ -92,11 +96,23 @@ X-API-Key: 8a63...f0
 Content-Type: application/json
 
 {
-  "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
-  "total": 985,
-  "input": 969,
-  "cached": 6912,
-  "output": 16
+  "usages": [
+    {
+      "line": "Token usage: total=4,880 input=4,320 (+ 120 cached) output=560 (reasoning 160)",
+      "total": 4880,
+      "input": 4320,
+      "cached": 120,
+      "output": 560,
+      "reasoning": 160
+    },
+    {
+      "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
+      "total": 985,
+      "input": 969,
+      "cached": 6912,
+      "output": 16
+    }
+  ]
 }
 ```
 
@@ -107,12 +123,26 @@ Content-Type: application/json
   "status": "ok",
   "data": {
     "host_id": 12,
-    "recorded_at": "2025-11-20T20:40:00Z",
-    "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
-    "total": 985,
-    "input": 969,
-    "cached": 6912,
-    "output": 16
+    "recorded": 2,
+    "usages": [
+      {
+        "recorded_at": "2025-11-20T20:40:00Z",
+        "line": "Token usage: total=4,880 input=4,320 (+ 120 cached) output=560 (reasoning 160)",
+        "total": 4880,
+        "input": 4320,
+        "cached": 120,
+        "output": 560,
+        "reasoning": 160
+      },
+      {
+        "recorded_at": "2025-11-20T20:40:00Z",
+        "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
+        "total": 985,
+        "input": 969,
+        "cached": 6912,
+        "output": 16
+      }
+    ]
   }
 }
 ```
@@ -245,5 +275,15 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
   - `GET /admin/usage?limit=50`: recent token usage rows.
   - `GET /admin/tokens?limit=50`: token usage totals per token line.
+  - `GET /admin/chatgpt/usage[?force=1]`: account-level ChatGPT usage snapshot (5 min cooldown; `force=1` bypasses).
+  - `POST /admin/chatgpt/usage/refresh`: force-refresh the ChatGPT usage snapshot (ignores cooldown).
+  - `/admin/overview` also returns `tokens_month` (month-to-date token sums), `pricing` (latest GPT-5.1 pricing), and `pricing_month_cost` (estimated month-to-date cost).
 - Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
 - Legacy `host-status.txt` exports have been removed; use admin endpoints instead.
+
+### ChatGPT usage snapshot (admin)
+
+- Host agnostic: uses canonical `auth.json` (`tokens.access_token` + optional `tokens.account_id`) to call `GET {CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}/wham/usage`.
+- Tokens are never persisted or logged. The raw JSON body plus parsed fields are stored in `chatgpt_usage_snapshots`.
+- A 5-minute cooldown is enforced between fetches unless `force=1` or `POST /admin/chatgpt/usage/refresh` is used.
+- Response fields mirror the upstream payload: `plan_type`, `rate_limit.allowed/limit_reached`, primary/secondary window usage percentages and reset timing, credit flags/balance, approximate local/cloud message counts, timestamps (`fetched_at`, `next_eligible_at`), and any error.

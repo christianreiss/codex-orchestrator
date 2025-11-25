@@ -164,12 +164,66 @@ class Database
                 input_tokens BIGINT UNSIGNED NULL,
                 output_tokens BIGINT UNSIGNED NULL,
                 cached_tokens BIGINT UNSIGNED NULL,
+                reasoning_tokens BIGINT UNSIGNED NULL,
                 model VARCHAR(128) NULL,
                 line TEXT NULL,
                 created_at VARCHAR(100) NOT NULL,
                 INDEX idx_token_usage_host (host_id),
                 INDEX idx_token_usage_created_at (created_at),
                 CONSTRAINT fk_token_usage_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS chatgpt_usage_snapshots (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                host_id BIGINT UNSIGNED NULL,
+                status VARCHAR(16) NOT NULL,
+                plan_type VARCHAR(64) NULL,
+                rate_allowed TINYINT(1) NULL,
+                rate_limit_reached TINYINT(1) NULL,
+                primary_used_percent INT UNSIGNED NULL,
+                primary_limit_seconds BIGINT UNSIGNED NULL,
+                primary_reset_after_seconds BIGINT UNSIGNED NULL,
+                primary_reset_at VARCHAR(100) NULL,
+                secondary_used_percent INT UNSIGNED NULL,
+                secondary_limit_seconds BIGINT UNSIGNED NULL,
+                secondary_reset_after_seconds BIGINT UNSIGNED NULL,
+                secondary_reset_at VARCHAR(100) NULL,
+                has_credits TINYINT(1) NULL,
+                unlimited TINYINT(1) NULL,
+                credit_balance VARCHAR(128) NULL,
+                approx_local_messages TEXT NULL,
+                approx_cloud_messages TEXT NULL,
+                raw LONGTEXT NULL,
+                error TEXT NULL,
+                fetched_at VARCHAR(100) NOT NULL,
+                next_eligible_at VARCHAR(100) NOT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_chatgpt_usage_host (host_id),
+                INDEX idx_chatgpt_usage_fetched (fetched_at),
+                CONSTRAINT fk_chatgpt_usage_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS pricing_snapshots (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                model VARCHAR(128) NOT NULL,
+                currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+                input_price_per_1k DECIMAL(12,6) NOT NULL DEFAULT 0,
+                output_price_per_1k DECIMAL(12,6) NOT NULL DEFAULT 0,
+                cached_price_per_1k DECIMAL(12,6) NOT NULL DEFAULT 0,
+                source_url TEXT NULL,
+                raw LONGTEXT NULL,
+                fetched_at VARCHAR(100) NOT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_pricing_model (model),
+                INDEX idx_pricing_fetched (fetched_at)
             ) ENGINE=InnoDB {$collation};
             SQL
         );
@@ -208,6 +262,7 @@ class Database
         $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
+        $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
 
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid

@@ -37,7 +37,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`), records last-seen per host (`host_auth_states`), keeps up to 3 recent digests per host (`host_auth_digests`), and updates host `last_refresh`/`auth_digest`/versions/API call counters.
    - Versions block (per response): client version prefers published (`versions.client`) else cached GitHub latest (3h TTL), wrapper version is the max of stored wrapper metadata, published wrapper, or latest reported by any host. Seeds `versions.wrapper` the first time a host reports one. Wrapper metadata comes from `WrapperService`.
    - Runner integration (optional): once per UTC day (or on manual trigger) runs the auth runner against canonical auth before responding; applies runner-returned `updated_auth` when newer/different and logs `auth.runner_store`. Every store also logs `auth.validate` result. Manual trigger: `POST /admin/runner/run`.
-   - Token usage: `recordTokenUsage()` logs `token.usage` and writes to `token_usages`; aggregates are surfaced in admin endpoints.
+  - Token usage: `recordTokenUsage()` logs `token.usage` and writes per-entry rows (totals/input/output/cached/reasoning) to `token_usages`; aggregates are surfaced in admin endpoints.
    - Host deletion: `deleteHost()` removes host row + digests; uninstall flow uses `DELETE /auth`.
 
 3. **`App\Repositories\HostRepository` (Persistence)**
@@ -86,7 +86,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - `host_auth_states`: host_id → payload_id/digest/seen_at (last canonical served to that host).
    - `logs`: host_id, action, details, created_at.
    - `versions`: published/seen versions with updated_at.
-   - `token_usages`: per-host token usage rows for dashboard aggregates.
+  - `token_usages`: per-host token usage rows (including reasoning tokens) for dashboard aggregates.
 
 ## CLI & Ops Scripts (`bin/`)
 

@@ -72,7 +72,7 @@ AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 last_usage_payload=""
 
-WRAPPER_VERSION="2025.11.24-8"
+WRAPPER_VERSION="2025.11.24-9"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -1027,35 +1027,65 @@ def strip_noise(text: str) -> str:
 
 
 cleaned = strip_noise(content)
-lines = [ln.strip() for ln in cleaned.splitlines() if "Token usage" in ln]
+lines = [ln.strip() for ln in cleaned.splitlines() if "token usage" in ln.lower()]
 if not lines:
     sys.exit(0)
 
-line = lines[-1]
 pattern = re.compile(
-    r"Token usage:\s*total=([\d,]+)\s+input=([\d,]+)(?:\s*\(\+\s*([\d,]+)\s*cached\))?\s+output=([\d,]+)",
+    r"Token usage:\s*total=(?P<total>[\d,]+)\s+input=(?P<input>[\d,]+)(?:\s*\(\+\s*(?P<cached>[\d,]+)\s*cached\))?\s+output=(?P<output>[\d,]+)(?:\s*\(reasoning\s*(?P<reasoning>[\d,]+)\))?",
     re.IGNORECASE,
 )
-safe_line = line
-if len(safe_line) > 240:
-    safe_line = safe_line[:240] + "…"
+kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
 
-data: dict[str, object] = {}
-match = pattern.search(line)
-if match:
-    def clean(val: str | None):
-        return int(val.replace(",", "")) if val else None
 
-    data["total"] = clean(match.group(1))
-    data["input"] = clean(match.group(2))
-    data["output"] = clean(match.group(4))
-    cached = clean(match.group(3))
-    if cached is not None:
-        data["cached"] = cached
-else:
-    data["line"] = safe_line
+def clean_int(val: str | None) -> int | None:
+    if val is None:
+        return None
+    try:
+        return int(val.replace(",", ""))
+    except Exception:
+        return None
 
-print(json.dumps(data, separators=(",", ":")))
+
+entries: list[dict[str, object]] = []
+for raw in lines:
+    entry: dict[str, object] = {}
+    safe_line = raw.strip()
+    if len(safe_line) > 240:
+        safe_line = safe_line[:240] + "…"
+
+    match = pattern.search(raw)
+    if match:
+        entry["total"] = clean_int(match.group("total"))
+        entry["input"] = clean_int(match.group("input"))
+        entry["output"] = clean_int(match.group("output"))
+        cached_val = clean_int(match.group("cached"))
+        if cached_val is not None:
+            entry["cached"] = cached_val
+        reasoning_val = clean_int(match.group("reasoning"))
+        if reasoning_val is not None:
+            entry["reasoning"] = reasoning_val
+    else:
+        for key, value in kv_pattern.findall(raw):
+            cleaned_val = clean_int(value)
+            if cleaned_val is not None:
+                entry[key.lower()] = cleaned_val
+        cached_match = re.search(r"\(\+\s*([\d,]+)\s*cached", raw, re.IGNORECASE)
+        if cached_match:
+            cached_val = clean_int(cached_match.group(1))
+            if cached_val is not None:
+                entry["cached"] = cached_val
+
+    if safe_line:
+        entry["line"] = safe_line
+
+    if entry:
+        entries.append(entry)
+
+if not entries:
+    sys.exit(0)
+
+print(json.dumps({"usages": entries}, separators=(",", ":")))
 PY
 }
 
@@ -1114,8 +1144,25 @@ def build_contexts():
 
 
 def format_summary(data: dict) -> str:
+    def summarize(entry: dict) -> str:
+        parts = []
+        for key in ("total", "input", "output", "cached", "reasoning"):
+            if isinstance(entry.get(key), int):
+                parts.append(f"{key}={entry[key]}")
+        if not parts and entry.get("line"):
+            return entry["line"]
+        return " ".join(parts)
+
+    usages = data.get("usages")
+    if isinstance(usages, list) and usages:
+        latest = usages[-1] if isinstance(usages[-1], dict) else {}
+        summary = summarize(latest if isinstance(latest, dict) else {})
+        if len(usages) > 1:
+            return f"{len(usages)} rows" + (f" | {summary}" if summary else "")
+        return summary
+
     parts = []
-    for key in ("total", "input", "output", "cached"):
+    for key in ("total", "input", "output", "cached", "reasoning"):
         if key in data and data[key] is not None:
             parts.append(f"{key}={data[key]}")
     if not parts and data.get("line"):
@@ -1167,6 +1214,15 @@ except Exception:  # noqa: BLE001
     sys.exit(1)
 if "line" in data:
     data.pop("line", None)
+usages = data.get("usages")
+if isinstance(usages, list):
+    cleaned = []
+    for entry in usages:
+        if isinstance(entry, dict):
+            entry.pop("line", None)
+            if entry:
+                cleaned.append(entry)
+    data["usages"] = cleaned
 print(json.dumps(data, separators=(",", ":")))
 PY
     )" || fallback_payload=""
@@ -1226,11 +1282,22 @@ try:
     data = json.loads(sys.argv[1])
 except Exception:  # noqa: BLE001
     sys.exit(0)
+
+usages = data.get("usages")
+entry = {}
+if isinstance(usages, list) and usages:
+    last = usages[-1]
+    if isinstance(last, dict):
+        entry = last
+else:
+    entry = data if isinstance(data, dict) else {}
+
 parts = []
-total = data.get("total")
-inp = data.get("input")
-out = data.get("output")
-cached = data.get("cached")
+total = entry.get("total")
+inp = entry.get("input")
+out = entry.get("output")
+cached = entry.get("cached")
+reasoning = entry.get("reasoning")
 if isinstance(total, int):
     parts.append(f"sent={total}")
 if isinstance(inp, int):
@@ -1239,6 +1306,10 @@ if isinstance(out, int):
     parts.append(f"output={out}")
 if isinstance(cached, int):
     parts.append(f"cached={cached}")
+if isinstance(reasoning, int):
+    parts.append(f"reasoning={reasoning}")
+if isinstance(usages, list) and len(usages) > 1:
+    parts.append(f"rows={len(usages)}")
 if parts:
     print(", ".join(parts))
 PY
