@@ -93,10 +93,11 @@ class HostRepository
     public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET client_version = :client_version, wrapper_version = NULL, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET client_version = :client_version, wrapper_version = :wrapper_version, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
             'client_version' => $clientVersion,
+            'wrapper_version' => $wrapperVersion,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);

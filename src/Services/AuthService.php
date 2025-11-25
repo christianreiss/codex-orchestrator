@@ -131,6 +131,7 @@ class AuthService
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null): array
     {
         $normalizedClientVersion = $this->normalizeClientVersion($clientVersion);
+        $normalizedWrapperVersion = $this->normalizeClientVersion($wrapperVersion);
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
@@ -139,8 +140,7 @@ class AuthService
         $logHostId = $trackHost ? $hostId : null;
 
         if ($trackHost) {
-            // We no longer trust wrapper versions reported by clients; persist only the client build.
-            $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, null);
+            $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
             $this->hosts->incrementApiCalls($hostId);
             $host = $this->hosts->findById($hostId) ?? $host;
         }

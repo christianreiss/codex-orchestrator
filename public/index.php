@@ -782,9 +782,10 @@ $router->add('POST', '#^/auth$#', function () use ($payload, $service) {
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);
     $clientVersion = extractClientVersion($payload);
+    $wrapperVersion = extractWrapperVersion($payload);
     $baseUrl = resolveBaseUrl();
 
-    $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, null, $baseUrl);
+    $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
 
     Response::json([
         'status' => 'ok',
@@ -906,6 +907,23 @@ function extractClientVersion(mixed $payload): ?string
         if ($fromQuery !== null) {
             return $fromQuery;
         }
+    }
+
+    return null;
+}
+
+function extractWrapperVersion(mixed $payload): ?string
+{
+    if (is_array($payload) && array_key_exists('wrapper_version', $payload)) {
+        $value = normalizeVersionValue($payload['wrapper_version']);
+        if ($value !== null) {
+            return $value;
+        }
+    }
+
+    $fromQuery = resolveQueryParam('wrapper_version');
+    if ($fromQuery !== null) {
+        return $fromQuery;
     }
 
     return null;
