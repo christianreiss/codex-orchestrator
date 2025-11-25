@@ -1280,10 +1280,7 @@
         ? data.versions.client_version.trim()
         : null;
       const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion : 'n/a';
-      const versionInfoBtn = codexVersion
-        ? `<button class="ghost tiny-btn info-btn" id="upgrade-notes-btn" data-version="${codexVersion}" title="Upgrade notes for Codex ${codexVersion}"></button>`
-        : '';
-
+      const versionInfoBtn = '';
       const topHost = tokensSummary?.top_host;
       const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
       const totalTokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
@@ -1304,7 +1301,7 @@
             <div class="stat-head">
               <span class="stat-label">Versions</span>
             </div>
-            <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>CLI ${codexVersionDisplay}${versionInfoBtn ? ` ${versionInfoBtn}` : ''}</div>
+            <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>CLI ${codexVersionDisplay}</div>
             <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
           </div>
         `,
@@ -1346,12 +1343,7 @@
     }
 
     function wireUpgradeNotesControls() {
-      const triggers = [];
-      const btn = document.getElementById('upgrade-notes-btn');
-      if (btn) triggers.push(btn);
-      document.querySelectorAll('.upgrade-trigger[data-version]').forEach((el) => triggers.push(el));
-
-      triggers.forEach((el) => {
+      document.querySelectorAll('.upgrade-trigger[data-version]').forEach((el) => {
         el.onclick = (ev) => {
           ev.preventDefault();
           const version = el.getAttribute('data-version') || (lastOverview?.versions?.client_version ?? '');
