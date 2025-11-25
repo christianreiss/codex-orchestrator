@@ -15,7 +15,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 - When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the baked base URL and masked API key.
 - Before letting Codex start, open `~/.codex/auth.json` and confirm it has `last_refresh` plus either a non-empty `auths` map (each with `token`) or a `tokens.access_token`; the server hashes the reconstructed auth.json (normalized `auths` + preserved extras) so missing top-level fields will cause digest mismatches. Fallbacks: if `auths` is empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the API will synthesize `auths = {"api.openai.com": {...}}` during validation.
 - Admin API toggle (`/admin/api/state`) currently only stores a flag; `/auth` does not read it yet. Add a guard if you need a real kill-switch.
-- Dashboard URL (mTLS required): https://codex.uggs.io/admin/
+- Dashboard URL (mTLS required): https://codex.example.com/admin/
 - Inactivity pruning: every authenticate/register call deletes hosts inactive for 30 days (`host.pruned` logs). Re-register to restore.
 - The admin “clear” endpoint currently calls an undefined `HostRepository::clearHostAuth()`; expect a 500 until that method is added.
 
@@ -23,7 +23,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 
 1. **`public/index.php` (HTTP Router)**
    - Bootstraps env, runs migrations, seeds the wrapper from `bin/cdx` if missing, and (optionally) wires the auth runner (`AUTH_RUNNER_URL`, `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`).
-   - Declares routes in `src/Http/Router.php`: host endpoints (`/auth`, `DELETE /auth`, `/usage`, `/wrapper`, `/wrapper/download`), installer (`/install/{token}`), versions + wrapper publish (`/versions`, `/wrapper`), and admin endpoints (runner status/run, auth upload, API flag, hosts CRUD, roaming toggle, overview, logs, usage, tokens).
+   - Declares routes in `src/Http/Router.php`: host endpoints (`/auth`, `DELETE /auth`, `/usage`, `/wrapper`, `/wrapper/download`), installer (`/install/{token}`), versions (`/versions`), and admin endpoints (runner status/run, auth upload, API flag, hosts CRUD, roaming toggle, overview, logs, usage, tokens).
    - Resolves API keys from `X-API-Key` or `Authorization: Bearer`; admin keys from `X-Admin-Key`/Bearer/query; installer tokens are separate.
    - Emits JSON via `App\Http\Response`; installer responses are shell scripts with `text/x-shellscript`.
 
@@ -35,7 +35,7 @@ This project is small, but each class has a clear role in the orchestration pipe
      - `store` statuses: `updated` (incoming newer or different digest), `unchanged`, `outdated` (server newer). Canonicalizes auths (sorted, token quality enforced, fallback from tokens/OPENAI_API_KEY) and stores compact JSON plus per-target entries.
      - Validations: RFC3339 `last_refresh` (>= 2000-01-01, <= now+300s), `digest` must be 64-hex, tokens checked for entropy/min length (`TOKEN_MIN_LENGTH`, default 24).
    - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`), records last-seen per host (`host_auth_states`), keeps up to 3 recent digests per host (`host_auth_digests`), and updates host `last_refresh`/`auth_digest`/versions/API call counters.
-   - Versions block (per response): client version prefers published (`versions.client`) else cached GitHub latest (3h TTL), wrapper version is the max of stored wrapper metadata, published wrapper, or latest reported by any host. Seeds `versions.wrapper` the first time a host reports one. Wrapper metadata comes from `WrapperService`.
+   - Versions block (per response): client version comes from GitHub latest (cached 3h with stale fallback); wrapper version is always read from the baked wrapper on the server (client-reported/admin-supplied wrapper versions are ignored). Wrapper metadata comes from `WrapperService`.
    - Runner integration (optional): once per UTC day (or on manual trigger) runs the auth runner against canonical auth before responding; applies runner-returned `updated_auth` when newer/different and logs `auth.runner_store`. Every store also logs `auth.validate` result. Manual trigger: `POST /admin/runner/run`.
   - Token usage: `recordTokenUsage()` logs `token.usage` and writes per-entry rows (totals/input/output/cached/reasoning) to `token_usages`; aggregates are surfaced in admin endpoints.
    - Host deletion: `deleteHost()` removes host row + digests; uninstall flow uses `DELETE /auth`.
@@ -70,7 +70,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 10. **`App\Services\WrapperService` (Wrapper distribution)**
     - Seeds stored wrapper from `bin/cdx` on boot if missing or changed; stores version in `versions.wrapper`.
     - `metadata()` returns version/sha/size/updated_at; `bakedForHost()` injects base URL, API key, FQDN, CA file, and wrapper version, returning content + per-host sha256/size.
-    - `replaceFromUpload()` handles admin-published wrapper uploads (optional sha256 check).
+    - `replaceFromUpload()` is legacy; `/wrapper` uploads have been removed from the API. Wrapper changes come from the baked script at boot.
 
 11. **`App\Services\RunnerVerifier` (Auth validator)**
     - POSTs auth payloads to `AUTH_RUNNER_URL` with base URL override and optional host telemetry; returns status/latency/reason and optional `updated_auth`.
@@ -79,19 +79,19 @@ This project is small, but each class has a clear role in the orchestration pipe
    - Opens the MySQL connection (configured via `DB_*`), enforces foreign keys, and runs migrations.
    - Creates tables:
      - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
-       - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (cdx wrapper build when supplied), and `api_calls`.
+      - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (legacy; now ignored/NULL), and `api_calls`.
    - `auth_payloads`: last_refresh, sha256, source_host_id, created_at, **body (compact canonical auth.json as uploaded)**.
    - `auth_entries`: per-target token rows for each payload.
    - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
    - `host_auth_states`: host_id → payload_id/digest/seen_at (last canonical served to that host).
    - `logs`: host_id, action, details, created_at.
-   - `versions`: published/seen versions with updated_at.
+  - `versions`: cached client version from GitHub, wrapper version, canonical pointer, runner metadata, and flags with updated_at.
   - `token_usages`: per-host token usage rows (including reasoning tokens) for dashboard aggregates.
 
 ## CLI & Ops Scripts (`bin/`)
 
 - `cdx` (local wrapper/launcher) — Baked per host with API key + base URL at download time; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`. `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and sends `DELETE /auth`.
-- Wrapper publishing: the API seeds the wrapper from the bundled `bin/cdx` only once; ongoing updates should use `POST /wrapper` (with `VERSION_ADMIN_KEY`) so no rebuild is needed. Rebuild only if you want to change that baked seed for fresh deployments.
+- Wrapper publishing: the API seeds the wrapper from the bundled `bin/cdx` only once; to change it, rebuild the image (or replace the stored file before boot). `/wrapper` uploads have been removed.
 - Any change to the wrapper script (`bin/cdx`) must bump `WRAPPER_VERSION` so hosts refresh; new builds push the updated script into `storage/wrapper/cdx`.
 - `migrate-sqlite-to-mysql.php` (one-time migration) — Copies SQLite data to MySQL using `App\Database::migrate()` for schema, backs up the SQLite file, truncates target tables when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
 

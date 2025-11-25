@@ -27,7 +27,7 @@ class InMemoryHostRepository extends HostRepository
     public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
     {
         $this->host['client_version'] = $clientVersion;
-        $this->host['wrapper_version'] = $wrapperVersion;
+        $this->host['wrapper_version'] = null;
     }
 
     public function incrementApiCalls(int $hostId, int $by = 1): void

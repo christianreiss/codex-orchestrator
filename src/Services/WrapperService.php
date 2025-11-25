@@ -45,11 +45,9 @@ class WrapperService
 
     public function metadata(): array
     {
-        $version = $this->versions->get('wrapper');
-
         if (!is_file($this->storagePath)) {
             return [
-                'version' => $version,
+                'version' => null,
                 'sha256' => null,
                 'size_bytes' => null,
                 'updated_at' => null,
@@ -57,10 +55,8 @@ class WrapperService
             ];
         }
 
-        if ($version === null) {
-            $version = $this->computeVersionForPath($this->storagePath);
-            $this->versions->set('wrapper', $version);
-        }
+        $version = $this->computeVersionForPath($this->storagePath);
+        $this->versions->set('wrapper', $version);
 
         $sha = hash_file('sha256', $this->storagePath) ?: null;
         $size = filesize($this->storagePath) ?: null;
@@ -157,7 +153,9 @@ class WrapperService
         }
 
         @chmod($this->storagePath, 0644);
-        $this->versions->set('wrapper', $normalizedVersion);
+        // Version is derived from the stored wrapper content (container source of truth).
+        $detected = $this->computeVersionForPath($this->storagePath);
+        $this->versions->set('wrapper', $detected);
 
         return $this->metadata();
     }

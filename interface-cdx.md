@@ -7,4 +7,4 @@
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`.
   - After Codex runs, pushes updated auth if changed and sends token-usage metrics.
 - `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
-- Wrapper publishing: the bundled `bin/cdx` seeds storage once; subsequent updates should use `POST /wrapper` (with `VERSION_ADMIN_KEY`). Any change to `bin/cdx` must bump `WRAPPER_VERSION`.
+- Wrapper publishing: the bundled `bin/cdx` in the Docker image is the source of truth. Rebuilds seed storage automatically; there is no `/wrapper` upload endpoint. Any change to `bin/cdx` must bump `WRAPPER_VERSION`.

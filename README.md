@@ -52,7 +52,7 @@ With this project in place:
 On the **auth server host**:
 
 - `cp .env.example .env`
-- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx` only on first boot; to roll a new wrapper, prefer `POST /wrapper` (with `VERSION_ADMIN_KEY`) instead of rebuilding. Rebuilds are only needed if you want to change the baked seed that ships in the image.
+- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx` only on first boot; to roll a new wrapper, rebuild the image or replace the baked script in storage before start-up.
 - `docker compose up --build`
 
 On your **laptop or admin box** (the one where you already use Codex):
@@ -115,13 +115,13 @@ docker-compose.yml
 1. **Environment**
    - Copy `.env.example` to `.env`.
    - Configure the MySQL credentials via `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD` (defaults line up with `docker-compose.yml`).
-   - Optionally set `VERSION_ADMIN_KEY` to authorize `POST /versions` publishes and `DASHBOARD_ADMIN_KEY` for an extra header check on admin routes.
+   - Optionally set `DASHBOARD_ADMIN_KEY` for an extra header check on admin routes.
 
 2. **Docker**
   - `docker compose up --build`
   - Services: `api` (PHP) and `mysql` (MySQL 8). Both join the `codex_auth` network.
   - API listens on `http://localhost:8488`.
-  - MySQL data persists in `/var/docker_data/codex-auth.uggs.io/mysql_data` (bind-mounted one level above the repo); SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
+- MySQL data persists in `/var/docker_data/codex-auth.example.com/mysql_data` (bind-mounted one level above the repo); SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
   - Optional runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); disable by clearing that env or removing the service from compose.
   - Admin dashboard routes live at `/admin/*`; they require mTLS (`X-mTLS-Present` header is set by your proxy) and optionally `DASHBOARD_ADMIN_KEY`.
 
@@ -146,10 +146,10 @@ Single-call endpoint for both checking and updating auth. Every response include
 Body fields:
 - `command`: `retrieve` (default) or `store`.
 - `client_version`: optional but recommended (JSON or `client_version`/`cdx_version` query param); when omitted, the server records `unknown`.
-- `wrapper_version`: optional (JSON or `wrapper_version`/`cdx_wrapper_version` query param).
 - `digest`: required for `retrieve`; the client’s current SHA-256 auth digest (hash of the exact JSON).
 - `last_refresh`: required for `retrieve`.
 - `auth`: required for `store`; must include `last_refresh`. The server preserves every top-level field (e.g., `tokens`, `OPENAI_API_KEY`, custom metadata), normalizes only the `auths` map, and stores the resulting compact JSON blob; responses return that same canonical JSON.
+- `wrapper_version` values sent by clients are ignored; the server always reports the version baked into its own wrapper.
 
 Retrieve responses:
 - `valid` → canonical digest matches the supplied digest; returns canonical digest + versions only.
@@ -181,15 +181,11 @@ Self-service deregistration for the calling host (identified by API key + IP bin
 
 ### `GET /wrapper` and `GET /wrapper/download`
 
-Both require the same API key + IP binding as `/auth`. `/wrapper` returns metadata (version, sha256, size, download URL); `/wrapper/download` streams the latest cdx wrapper script with `X-SHA256` and `ETag` headers. Only the latest wrapper copy is retained.
-
-### `POST /wrapper` (admin)
-
-Authenticated with `VERSION_ADMIN_KEY`; accepts `multipart/form-data` (`file`, `version`, optional `sha256`) to replace the wrapper without rebuilding the image. Metadata feeds `/auth` and `/versions`.
+Both require the same API key + IP binding as `/auth`. `/wrapper` returns metadata (version, sha256, size, download URL); `/wrapper/download` streams the latest cdx wrapper script with `X-SHA256` and `ETag` headers. Only the latest wrapper copy is retained. Admin wrapper uploads are removed—update the wrapper by rebuilding the image (or swapping the stored file before boot).
 
 ### `GET /versions`
 
-Optional (primarily for ops). Returns the cached Codex CLI version (fetched from GitHub when stale), published wrapper version, and the highest values reported by any host. `/auth` already embeds the same structure in its responses.
+Optional (primarily for ops). Returns the cached Codex CLI version (fetched from GitHub when stale) and the wrapper version derived from the baked script on the server. `/auth` already embeds the same structure in its responses.
 
 ```http
 GET /versions HTTP/1.1
@@ -204,38 +200,22 @@ Host: localhost:8080
   "data": {
     "client_version": "0.60.1",
     "client_version_checked_at": "2025-11-20T09:00:00Z",
-    "wrapper_version": "2025.11.19-4",
+    "wrapper_version": "2025.11.24-9",
     "wrapper_sha256": "…",
     "wrapper_url": "/wrapper/download",
-    "reported_client_version": "0.60.1",
-    "reported_wrapper_version": "2025.11.19-4"
+    "reported_client_version": "0.60.1"
   }
 }
 ```
 
-### `POST /versions` (admin)
-
-Allows an operator to publish the authoritative Codex CLI and/or cdx wrapper versions. Protect this endpoint with `VERSION_ADMIN_KEY` (sent via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query param).
-
-```http
-POST /versions HTTP/1.1
-Host: localhost:8080
-X-Admin-Key: <admin-secret>
-Content-Type: application/json
-
-{ "client_version": "0.60.1", "wrapper_version": "2025.11.19-4" }
-```
-
-Response mirrors `GET /versions`.
-
 Notes:
-- `versions.client` (published override) wins when set; otherwise the server refreshes `client_version` from the GitHub “latest release” endpoint when the cache is older than **3 hours**, falling back to the last cached value on failure.
-- The `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists). You can still override it via `POST /versions` when `VERSION_ADMIN_KEY` is set.
+- The server refreshes `client_version` from the GitHub “latest release” endpoint when the cache is older than **3 hours**, falling back to the last cached value on failure.
+- The `wrapper_version` is read directly from the server’s baked wrapper script; client-reported values and admin overrides are ignored.
 
 ### Admin (mTLS-only)
 
 - `/admin/*` routes require an mTLS client certificate; requests without one are rejected (Caddy forwards `X-mTLS-Present`).
-- If `DASHBOARD_ADMIN_KEY` is set, the admin key must also be provided (same header rules as `/versions`).
+- If `DASHBOARD_ADMIN_KEY` is set, the admin key must also be provided on admin routes.
 - Endpoints:
   - `GET /admin/overview`: versions, host counts, average refresh age, latest log timestamp, token totals, mTLS metadata.
   - `GET /admin/hosts`: list hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, latest token usage.
@@ -255,14 +235,14 @@ Notes:
 
 ## Data & Logging
 
-- **hosts**: FQDN, API key, status, last refresh time, canonical digest, IP binding, latest `client_version`, optional `wrapper_version`, roaming flag, and API call counts.
+- **hosts**: FQDN, API key, status, last refresh time, canonical digest, IP binding, latest `client_version`, roaming flag, and API call counts. `wrapper_version` is no longer recorded from clients and will generally be `NULL`.
 - **auth_payloads** / **auth_entries**: canonical `auth.json` snapshots plus per-target token entries; the canonical payload is what `/auth` uses for digests and hydration.
 - **host_auth_states** / **host_auth_digests**: last-seen canonical payload per host and up to three recent digests for quick matching.
 - **token_usages**: per-host token usage rows created by `/usage`, used for aggregates in the admin views.
 - **chatgpt_usage_snapshots**: host-agnostic ChatGPT usage snapshots (plan, rate-limit windows, credits, raw body) refreshed at most every 5 minutes.
 - **pricing_snapshots**: pricing for GPT-5.1 (input/output/cached per 1k, currency, source URL/raw, timestamps) refreshed daily.
 - **logs**: registration/auth/usage/version/admin events with timestamps and a JSON details blob.
-- All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.uggs.io/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
+- All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.example.com/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
 
 Access logs manually with `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`.
 

@@ -130,7 +130,7 @@ class AuthService
 
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null): array
     {
-        [$normalizedClientVersion, $normalizedWrapperVersion] = $this->normalizeVersions($clientVersion, $wrapperVersion);
+        $normalizedClientVersion = $this->normalizeClientVersion($clientVersion);
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
@@ -139,7 +139,8 @@ class AuthService
         $logHostId = $trackHost ? $hostId : null;
 
         if ($trackHost) {
-            $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
+            // We no longer trust wrapper versions reported by clients; persist only the client build.
+            $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, null);
             $this->hosts->incrementApiCalls($hostId);
             $host = $this->hosts->findById($hostId) ?? $host;
         }
@@ -366,7 +367,6 @@ class AuthService
             'stored_last_refresh' => $canonicalLastRefresh,
             'stored_digest' => $canonicalDigest,
             'client_version' => $normalizedClientVersion,
-            'wrapper_version' => $normalizedWrapperVersion,
         ]);
 
         $validation = null;
@@ -760,36 +760,14 @@ class AuthService
         $available = $this->availableClientVersion();
         $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata();
         $reported = $this->latestReportedVersions();
-        $this->seedWrapperVersionFromReported($reported['wrapper_version']);
 
         // Only trust GitHub (cached for 3h). If unavailable, client_version will be null.
         $clientVersion = $this->canonicalVersion($available['version'] ?? null);
         $clientCheckedAt = $available['updated_at'] ?? null;
         $clientSource = $available['source'] ?? null;
 
-        $published = $this->publishedVersions();
-        // Wrapper: take the highest of stored metadata, published, or reported.
-        $wrapperCandidates = [];
-        foreach ([
-            ['version' => $wrapperMeta['version'] ?? null, 'source' => 'stored'],
-            ['version' => $published['wrapper_version'] ?? null, 'source' => 'published'],
-            ['version' => $reported['wrapper_version'] ?? null, 'source' => 'reported'],
-        ] as $candidate) {
-            if (empty($candidate['version'])) {
-                continue;
-            }
-            $wrapperCandidates[] = $candidate;
-        }
-
-        $wrapperVersion = null;
-        if ($wrapperCandidates) {
-            $wrapperVersion = $wrapperCandidates[0]['version'];
-            foreach ($wrapperCandidates as $candidate) {
-                if ($this->isVersionGreater((string) $candidate['version'], (string) $wrapperVersion)) {
-                    $wrapperVersion = $candidate['version'];
-                }
-            }
-        }
+        // Wrapper is sourced exclusively from the baked file on the server.
+        $wrapperVersion = $this->canonicalVersion($wrapperMeta['version'] ?? null);
 
         return [
             'client_version' => $clientVersion,
@@ -799,7 +777,6 @@ class AuthService
             'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
             'wrapper_url' => $wrapperMeta['url'] ?? null,
             'reported_client_version' => $reported['client_version'],
-            'reported_wrapper_version' => $reported['wrapper_version'],
         ];
     }
 
@@ -1236,7 +1213,6 @@ class AuthService
         $hosts = $this->hosts->all();
 
         $latestClient = null;
-        $latestWrapper = null;
 
         foreach ($hosts as $host) {
             $client = $host['client_version'] ?? null;
@@ -1245,18 +1221,11 @@ class AuthService
                     $latestClient = $client;
                 }
             }
-
-            $wrapper = $host['wrapper_version'] ?? null;
-            if (is_string($wrapper) && $wrapper !== '') {
-                if ($latestWrapper === null || $this->isVersionGreater($wrapper, $latestWrapper)) {
-                    $latestWrapper = $wrapper;
-                }
-            }
         }
 
         return [
             'client_version' => $this->canonicalVersion($latestClient),
-            'wrapper_version' => $this->canonicalVersion($latestWrapper),
+            'wrapper_version' => null,
         ];
     }
 
@@ -1267,17 +1236,6 @@ class AuthService
 
     public function availableClientVersion(bool $forceRefresh = false): array
     {
-        // 1) Prefer published (admin-set) version if present.
-        $published = $this->versions->get('client');
-        if ($published !== null && $published !== '') {
-            $normalized = $this->canonicalVersion($published) ?? $published;
-            return [
-                'version' => $normalized,
-                'updated_at' => gmdate(DATE_ATOM),
-                'source' => 'published',
-            ];
-        }
-
         $cached = $this->versions->getWithMetadata('client_available');
         $now = time();
         $cacheFresh = false;
@@ -1335,43 +1293,6 @@ class AuthService
         ];
     }
 
-    public function updatePublishedVersions(?string $clientVersion, ?string $wrapperVersion): array
-    {
-        if ($clientVersion !== null) {
-            $normalizedClient = $this->canonicalVersion($clientVersion);
-            $this->versions->set('client', $normalizedClient ?? trim($clientVersion));
-        }
-        if ($wrapperVersion !== null) {
-            $this->versions->set('wrapper', trim($wrapperVersion));
-        }
-
-        $this->logs->log(null, 'version.publish', [
-            'client_version' => $clientVersion,
-            'wrapper_version' => $wrapperVersion,
-        ]);
-
-        return $this->publishedVersions();
-    }
-
-    public function seedWrapperVersionFromReported(?string $wrapperVersion): void
-    {
-        if ($wrapperVersion === null || trim($wrapperVersion) === '') {
-            return;
-        }
-
-        $published = $this->publishedVersions();
-        if ($published['wrapper_version'] !== null) {
-            return;
-        }
-
-        $normalized = trim($wrapperVersion);
-        $this->versions->set('wrapper', $normalized);
-        $this->logs->log(null, 'version.seed', [
-            'wrapper_version' => $normalized,
-            'source' => 'reported_fallback',
-        ]);
-    }
-
     private function pruneInactiveHosts(): void
     {
         $cutoff = (new DateTimeImmutable(sprintf('-%d days', self::INACTIVITY_WINDOW_DAYS)));
@@ -1399,20 +1320,14 @@ class AuthService
     /**
      * @return array{0:string,1:?string}
      */
-    private function normalizeVersions(?string $clientVersion, ?string $wrapperVersion): array
+    private function normalizeClientVersion(?string $clientVersion): string
     {
-        $normalizedClientVersion = $this->canonicalVersion(is_string($clientVersion) ? $clientVersion : '');
-        if ($normalizedClientVersion === null || $normalizedClientVersion === '') {
-            $normalizedClientVersion = 'unknown';
+        $normalized = $this->canonicalVersion(is_string($clientVersion) ? $clientVersion : '');
+        if ($normalized === null || $normalized === '') {
+            $normalized = 'unknown';
         }
 
-        $normalizedWrapperVersion = null;
-        if (is_string($wrapperVersion)) {
-            $trimmed = trim($wrapperVersion);
-            $normalizedWrapperVersion = $trimmed === '' ? null : $trimmed;
-        }
-
-        return [$normalizedClientVersion, $normalizedWrapperVersion];
+        return $normalized;
     }
 
     private function isVersionGreater(string $left, string $right): bool

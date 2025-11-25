@@ -122,34 +122,6 @@ $router->add('GET', '#^/versions$#', function () use ($service) {
     ]);
 });
 
-$router->add('POST', '#^/versions$#', function () use ($payload, $service) {
-    $adminKey = resolveAdminKey();
-    if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'Admin key required',
-        ], 401);
-    }
-
-    $clientVersion = normalizeVersionValue($payload['client_version'] ?? null);
-    $wrapperVersion = normalizeVersionValue($payload['wrapper_version'] ?? null);
-
-    if ($clientVersion === null && $wrapperVersion === null) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'At least one of client_version or wrapper_version is required',
-        ], 422);
-    }
-
-    $service->updatePublishedVersions($clientVersion, $wrapperVersion);
-    $versions = $service->versionSummary();
-
-    Response::json([
-        'status' => 'ok',
-        'data' => $versions,
-    ]);
-});
-
 $router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
     requireAdminAccess();
 
@@ -162,53 +134,6 @@ $router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
             'available_client' => $available,
             'versions' => $versions,
         ],
-    ]);
-});
-
-$router->add('POST', '#^/wrapper$#', function () use ($wrapperService) {
-    $adminKey = resolveAdminKey();
-    if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'Admin key required',
-        ], 401);
-    }
-
-    if (!isset($_FILES['file']) || !is_array($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'file is required (multipart/form-data)',
-        ], 422);
-    }
-
-    $version = normalizeVersionValue($_POST['version'] ?? null);
-    if ($version === null) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'version is required',
-        ], 422);
-    }
-
-    $expectedSha = normalizeVersionValue($_POST['sha256'] ?? null);
-
-    try {
-        $meta = $wrapperService->replaceFromUpload(
-            (string) $_FILES['file']['tmp_name'],
-            $version,
-            $expectedSha,
-            true
-        );
-    } catch (Throwable $exception) {
-        Response::json([
-            'status' => 'error',
-            'message' => $exception->getMessage(),
-        ], 422);
-    }
-
-    unset($meta['content']);
-    Response::json([
-        'status' => 'ok',
-        'data' => $meta,
     ]);
 });
 
@@ -489,7 +414,7 @@ $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostR
             ['command' => 'store', 'auth' => $authPayload],
             $host,
             'admin-upload',
-            'admin-upload',
+            null,
             $systemUpload ? null : resolveBaseUrl()
         );
     } catch (ValidationException $exception) {
@@ -857,10 +782,9 @@ $router->add('POST', '#^/auth$#', function () use ($payload, $service) {
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);
     $clientVersion = extractClientVersion($payload);
-    $wrapperVersion = extractWrapperVersion($payload);
     $baseUrl = resolveBaseUrl();
 
-    $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
+    $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, null, $baseUrl);
 
     Response::json([
         'status' => 'ok',
@@ -977,26 +901,6 @@ function extractClientVersion(mixed $payload): ?string
     }
 
     $aliases = ['client_version', 'cdx_version'];
-    foreach ($aliases as $alias) {
-        $fromQuery = resolveQueryParam($alias);
-        if ($fromQuery !== null) {
-            return $fromQuery;
-        }
-    }
-
-    return null;
-}
-
-function extractWrapperVersion(mixed $payload): ?string
-{
-    if (is_array($payload) && array_key_exists('wrapper_version', $payload)) {
-        $value = normalizeVersionValue($payload['wrapper_version']);
-        if ($value !== null) {
-            return $value;
-        }
-    }
-
-    $aliases = ['wrapper_version', 'cdx_wrapper_version'];
     foreach ($aliases as $alias) {
         $fromQuery = resolveQueryParam($alias);
         if ($fromQuery !== null) {

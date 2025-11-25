@@ -28,10 +28,8 @@ All commands assume `API_KEY` is set from a prior successful `/admin/hosts/regis
 6) Wrapper endpoints
 - Metadata: `curl -s -H "X-API-Key:$API_KEY" http://localhost:8488/wrapper`
 - Download: `curl -I -H "X-API-Key:$API_KEY" http://localhost:8488/wrapper/download` (expect `X-SHA256`).
-- Admin upload failure: missing file → `422`: `curl -s -X POST http://localhost:8488/wrapper -H 'X-Admin-Key: bad'`
 
 7) Versions
-- Publish: `curl -s -X POST http://localhost:8488/versions -H 'Content-Type: application/json' -H 'X-Admin-Key: ${VERSION_ADMIN_KEY}' -d '{"client_version":"v1.2.3","wrapper_version":"2025.11.22-6"}'`
 - Read: `curl -s http://localhost:8488/versions`
 
 8) Usage logging

@@ -1,6 +1,6 @@
 # Codex Auth Central API
 
-Base URL: `https://codex-auth.uggs.io`
+Base URL: `https://codex-auth.example.com`
 
 All responses are JSON unless noted. Request bodies must be `application/json` unless otherwise stated.
 The front controller (`public/index.php`) dispatches requests via a small route table (`src/Http/Router.php`), so each path below maps to a single handler.
@@ -28,7 +28,7 @@ Errors return:
 - `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token. Expired/used tokens are pruned on each call. Base URL comes from request headers or `PUBLIC_BASE_URL`; call fails if a usable base cannot be determined.
 - `GET /install/{token}` is public but token-gated and expires after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s). The handler marks the token used before emitting the script. The bash installer:
   - Downloads the latest stored `cdx` wrapper (`/wrapper/download`) baked with the host’s API key, base URL, FQDN, and wrapper version.
-  - Detects arch, fetches Codex CLI from GitHub (falls back to `0.63.0` when server has no published version), and installs to `/usr/local/bin` or `$HOME/.local/bin`.
+  - Detects arch, fetches Codex CLI from GitHub (falls back to `0.63.0` when the server has no cached version), and installs to `/usr/local/bin` or `$HOME/.local/bin`.
   - Prints progress and exits non-zero on failure. Tokens cannot be reused.
 
 ### `POST /auth` (single-call sync)
@@ -41,7 +41,6 @@ Unified endpoint for both checking and updating auth. Each response includes the
 
 - `command`: `retrieve` (default) or `store`.
 - `client_version`: optional (JSON or query param `client_version`/`cdx_version`); when omitted the server records `unknown`.
-- `wrapper_version`: optional (JSON or query param `wrapper_version`/`cdx_wrapper_version`).
 - `digest`: required for `retrieve`; the client’s current auth SHA-256 (digest of the exact JSON sent to Codex).
 - `last_refresh`: required when `command` is `retrieve`; must be RFC3339, not in the future (>300s skew), and not before `2000-01-01T00:00:00Z`.
 - `auth`: required when `command` is `store`; must include `last_refresh` (same rules). `auths` must contain at least one entry; if missing/empty but `tokens.access_token` or `OPENAI_API_KEY` is present, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation. Tokens are rejected when too short (`TOKEN_MIN_LENGTH`, default 24), low-entropy, placeholder, or containing whitespace.
@@ -166,7 +165,7 @@ If the host record does not exist or the API key is invalid, the response is `40
 Public, single-use endpoint that returns a self-contained bash installer for a pre-registered host. Tokens are minted by operators (see `/admin/hosts/register`), expire after `INSTALL_TOKEN_TTL_SECONDS` (default: 1800 seconds), and are invalidated on first download.
 
 ```
-curl -fsSL https://codex-auth.uggs.io/install/3b1a8c21-fa4e-4191-9670-f508eeb0b292 | bash
+curl -fsSL https://codex-auth.example.com/install/3b1a8c21-fa4e-4191-9670-f508eeb0b292 | bash
 ```
 
 Response: `text/plain` shell script that bakes `BASE_URL`, `API_KEY`, and `FQDN` into the downloaded wrapper and installs the wrapper + Codex binary. Errors emit a short shell snippet that prints the failure and exits non-zero.
@@ -192,19 +191,9 @@ Returns metadata about the latest cdx wrapper, baked for the calling host (per-h
 
 Downloads the current cdx wrapper script already baked with the caller's API key, base URL, and FQDN. Requires the per-host API key; IP binding enforced. Response headers include `X-SHA256` and `ETag` for hash verification (per-host hash).
 
-### `POST /wrapper` (admin)
-
-Publishes/replaces the wrapper without rebuilding the image. Requires `VERSION_ADMIN_KEY` and `multipart/form-data`:
-
-- `file` (required): wrapper script.
-- `version` (required): version string to publish.
-- `sha256` (optional): hash to verify before accepting.
-
-Only the latest wrapper is kept; this updates metadata used by `/auth` and `/versions`.
-
 ### `GET /versions` (optional)
 
-Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` prefers the published override (`versions.client`); otherwise it uses the cached GitHub “latest release” value (3h TTL), falling back to a stale cache if GitHub is unreachable. `wrapper_version` is chosen as the highest of the stored wrapper metadata, any operator-published value, or the highest wrapper reported by a host (the first report seeds `versions.wrapper` when none exists).
+Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` uses the GitHub “latest release” value (cached for 3h, falls back to stale cache on failure). `wrapper_version` is read directly from the baked wrapper script on the server; client-reported values and admin overrides are ignored.
 
 ```json
 {
@@ -212,19 +201,14 @@ Provided for observability; clients do not need it because `/auth` responses alr
   "data": {
     "client_version": "0.60.1",
     "client_version_checked_at": "2025-11-20T09:00:00Z",
-    "client_version_source": "published",
-    "wrapper_version": "2025.11.19-4",
+    "client_version_source": "github",
+    "wrapper_version": "2025.11.24-9",
     "wrapper_sha256": "…",
     "wrapper_url": "/wrapper/download",
-    "reported_client_version": "0.60.1",
-    "reported_wrapper_version": "2025.11.19-4"
+    "reported_client_version": "0.60.1"
   }
 }
 ```
-
-### `POST /versions` (admin)
-
-Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query). Body accepts `client_version` and/or `wrapper_version`. Response mirrors `GET /versions`.
 
 ### `POST /admin/versions/check` (admin)
 
@@ -239,11 +223,10 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
       "client_version": "0.64.0",
       "client_version_checked_at": "2025-11-20T09:00:00Z",
       "client_version_source": "github",
-      "wrapper_version": "2025.11.19-4",
+      "wrapper_version": "2025.11.24-9",
       "wrapper_sha256": "…",
       "wrapper_url": "/wrapper/download",
-      "reported_client_version": "0.64.0",
-      "reported_wrapper_version": "2025.11.19-4"
+      "reported_client_version": "0.64.0"
     }
   }
 }
@@ -251,14 +234,14 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
 
 ## Logs & Housekeeping
 
-- Every `register`, `auth` retrieve/store, runner validation, token usage, and version publish is logged in `logs` (JSON details).
+- Every `register`, `auth` retrieve/store, runner validation, and token usage is logged in `logs` (JSON details).
 - Canonical auth is stored as a compact body in `auth_payloads.body` plus per-target rows in `auth_entries`; `host_auth_states` tracks the last canonical payload per host; `host_auth_digests` keeps the last 3 digests per host.
 - Hosts inactive for 30 days are pruned during auth/register (logged as `host.pruned`).
 
 ## Admin (mTLS-only)
 
 - `/admin/*` requires an mTLS client certificate (Caddy forwards `X-mTLS-Present`; requests without it are rejected).
-- If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query (same as `/versions`).
+- If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query on admin routes.
 - Endpoints:
   - `GET /admin/overview`: versions, host counts, avg refresh age, latest log timestamp, mTLS metadata, token aggregates.
   - `GET /admin/hosts`: hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, and latest token usage.
