@@ -216,4 +216,26 @@ class HostRepository
             'id' => $hostId,
         ]);
     }
+
+    /**
+     * Clear canonical auth state for a host without deleting the host record.
+     * Resets the stored digest/last_refresh and removes any host->payload pointer
+     * so the next sync behaves like a first-time upload.
+     */
+    public function clearHostAuth(int $hostId): void
+    {
+        $pdo = $this->database->connection();
+
+        $statement = $pdo->prepare(
+            'UPDATE hosts SET last_refresh = NULL, auth_digest = NULL, updated_at = :updated_at WHERE id = :id'
+        );
+        $statement->execute([
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+
+        // Remove host -> canonical payload pointer to avoid serving stale digests.
+        $stmtState = $pdo->prepare('DELETE FROM host_auth_states WHERE host_id = :host_id');
+        $stmtState->execute(['host_id' => $hostId]);
+    }
 }

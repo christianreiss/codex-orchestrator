@@ -2,7 +2,7 @@
 
 - `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, and optional CA file.
 - On launch it:
-  - Pulls `auth.json` from `/auth` (store/retrieve) and refuses to start Codex if sync fails.
+  - Pulls `auth.json` from `/auth` (store/retrieve); if the API is unreachable it now proceeds with the cached `auth.json` when present, but still refuses to start when the key is invalid or no auth is available.
   - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`.
   - After Codex runs, pushes updated auth if changed and sends token-usage metrics.

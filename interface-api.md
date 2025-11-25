@@ -20,7 +20,7 @@
 - `POST /admin/hosts/register` — mint a host + single-use installer token for a given FQDN; calling it again for the same FQDN rotates that host’s API key and issues a fresh installer.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last refresh, recent digests, optional `auth` body (`?include_body=1`).
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips`.
-- `POST /admin/hosts/{id}/clear` — intended to clear auth/digests (currently 500 until `clearHostAuth` is implemented).
+- `POST /admin/hosts/{id}/clear` — clears canonical auth state for the host (resets `last_refresh`/`auth_digest`, deletes `host_auth_states`, and prunes recent digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — validate/store canonical `auth.json` (system or host-scoped).
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (not enforced by `/auth`).

@@ -17,7 +17,7 @@ This project is small, but each class has a clear role in the orchestration pipe
 - Admin API toggle (`/admin/api/state`) currently only stores a flag; `/auth` does not read it yet. Add a guard if you need a real kill-switch.
 - Dashboard URL (mTLS required): https://codex.example.com/admin/
 - Inactivity pruning: every authenticate/register call deletes hosts inactive for 30 days (`host.pruned` logs). Re-register to restore.
-- The admin “clear” endpoint currently calls an undefined `HostRepository::clearHostAuth()`; expect a 500 until that method is added.
+- The admin “clear” endpoint resets a host’s canonical auth state (`auth_digest`/`last_refresh` + host auth state + digests) without deleting the host.
 
 ## Request Flow
 
@@ -44,7 +44,7 @@ This project is small, but each class has a clear role in the orchestration pipe
    - CRUD operations on the `hosts` table (find by fqdn/api_key, create, update auth).
    - Maintains metadata fields like `updated_at`, `status`, IP bindings, canonical auth digest, client versions, and optional wrapper versions.
    - `incrementApiCalls()` bumps per-host counters on every `/auth`.
-   - Note: `clearHostAuth()` is not implemented; `/admin/hosts/{id}/clear` currently fails.
+   - `/admin/hosts/{id}/clear` resets canonical auth metadata for a host and deletes digests without removing the host record.
 
 4. **`App\Repositories\HostAuthStateRepository` (Per-host canonical pointer)**
    - Stores the last canonical payload ID/digest/seen_at per host for admin inspection.

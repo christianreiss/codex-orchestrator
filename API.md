@@ -248,7 +248,7 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
   - `POST /admin/hosts/register`: mint a host + single-use installer token for a given FQDN. Response includes `installer.url`, `installer.command` (`curl …/install/{token} | bash`), and `installer.expires_at` (TTL default 1800s).
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include `auth` body with `?include_body=1`), recent digests, last seen timestamp.
   - `DELETE /admin/hosts/{id}`: remove a host and its digests.
-  - `POST /admin/hosts/{id}/clear`: intended to clear digests + host auth, but currently 500s because `HostRepository::clearHostAuth()` is missing.
+  - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
   - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`). If `host_id` is omitted (or set to `0`/`"system"`), the payload is stored without host attribution; otherwise it is tagged to the specified host.
   - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; not enforced by `/auth`).

@@ -72,7 +72,7 @@ AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 last_usage_payload=""
 
-WRAPPER_VERSION="2025.11.24-9"
+WRAPPER_VERSION="2025.11.25-1"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -885,6 +885,16 @@ PY
       log_warn "Auth sync failed: API key missing/invalid"
       return 1
       ;;
+    2|3)
+      if [[ -n "$phase" ]]; then
+        log_warn "Auth API sync (${phase}) unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
+      else
+        log_warn "Auth API sync unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
+      fi
+      AUTH_PULL_STATUS="offline"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      return 1
+      ;;
     40)
       log_warn "Auth sync blocked: API disabled by administrator"
       AUTH_PULL_STATUS="disabled"
@@ -897,7 +907,6 @@ PY
       else
         log_warn "Auth API sync failed (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
       fi
-      rm -f "$auth_path" 2>/dev/null || true
       AUTH_PULL_STATUS="fail"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
@@ -1480,6 +1489,8 @@ fi
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
+HAS_LOCAL_AUTH=0
+[[ -f "$HOME/.codex/auth.json" ]] && HAS_LOCAL_AUTH=1
 
 os_name="$(uname -s)"
 arch_name="$(uname -m)"
@@ -1860,17 +1871,40 @@ if [[ -n "$wrapper_target_display" && "$wrapper_target_display" != "n/a" && "$wr
 fi
 
 api_label="Unavailable"
-case "$AUTH_PULL_STATUS" in
-  ok) api_label="Up and working" ;;
-  invalid) api_label="Invalid API key" ;;
-esac
-
 api_tone="red"
-[[ "$AUTH_PULL_STATUS" == "ok" ]] && api_tone="green"
+case "$AUTH_PULL_STATUS" in
+  ok)
+    api_label="Up and working"
+    api_tone="green"
+    ;;
+  offline)
+    api_label="Unavailable (offline)"
+    api_tone="yellow"
+    ;;
+  disabled)
+    api_label="API disabled"
+    api_tone="red"
+    ;;
+  invalid)
+    api_label="Invalid API key"
+    api_tone="red"
+    ;;
+  missing-config)
+    api_label="Missing API config"
+    api_tone="red"
+    ;;
+esac
 
 auth_label="n/a"
 if [[ -n "$AUTH_STATUS" ]]; then
   auth_label="$(format_auth_label "$AUTH_STATUS" "$AUTH_ACTION" "$AUTH_MESSAGE")"
+elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+  if (( HAS_LOCAL_AUTH )); then
+    cached_lr="${ORIGINAL_LAST_REFRESH:-unknown}"
+    auth_label="using cached auth (api offline; last_refresh ${cached_lr})"
+  else
+    auth_label="auth unavailable (api offline)"
+  fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_label="auth sync failed"
 fi
@@ -1887,7 +1921,15 @@ case "$AUTH_STATUS" in
     auth_tone="yellow"
     ;;
 esac
-[[ "$AUTH_PULL_STATUS" != "ok" ]] && auth_tone="red"
+if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+  if (( HAS_LOCAL_AUTH )); then
+    auth_tone="yellow"
+  else
+    auth_tone="red"
+  fi
+elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+  auth_tone="red"
+fi
 
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
@@ -1906,23 +1948,29 @@ elif (( codex_update_failed )); then
 else
   result_parts+=("codex ${codex_status_label,,}")
 fi
-  if (( wrapper_updated )); then
-    result_parts+=("wrapper updated")
-  elif (( wrapper_update_failed )); then
-    result_parts+=("wrapper update failed")
+if (( wrapper_updated )); then
+  result_parts+=("wrapper updated")
+elif (( wrapper_update_failed )); then
+  result_parts+=("wrapper update failed")
+else
+  result_parts+=("wrapper ${wrapper_status_label,,}")
+fi
+if [[ -n "$AUTH_STATUS" ]]; then
+  auth_result="auth ${AUTH_STATUS}"
+  if [[ -n "$AUTH_ACTION" ]]; then
+    auth_result+=", ${AUTH_ACTION}"
+  fi
+  result_parts+=("$auth_result")
+elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+  if (( HAS_LOCAL_AUTH )); then
+    result_parts+=("auth cached (api offline)")
   else
-    result_parts+=("wrapper ${wrapper_status_label,,}")
+    result_parts+=("auth unavailable (api offline)")
   fi
-  if [[ -n "$AUTH_STATUS" ]]; then
-    auth_result="auth ${AUTH_STATUS}"
-    if [[ -n "$AUTH_ACTION" ]]; then
-      auth_result+=", ${AUTH_ACTION}"
-    fi
-    result_parts+=("$auth_result")
-  elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
-    result_parts+=("auth unavailable")
-  fi
-  result_label="$(human_join "${result_parts[@]}")"
+elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+  result_parts+=("auth unavailable")
+fi
+result_label="$(human_join "${result_parts[@]}")"
 
   usage_summary=""
   if [[ -n "$last_usage_payload" ]]; then
@@ -1952,8 +2000,14 @@ esac
 (( wrapper_update_failed )) && wrapper_tone="red"
 
 result_tone="green"
-if (( codex_update_failed )) || (( wrapper_update_failed )) || [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+if (( codex_update_failed )) || (( wrapper_update_failed )) || { [[ "$AUTH_PULL_STATUS" != "ok" ]] && [[ "$AUTH_PULL_STATUS" != "offline" ]]; }; then
   result_tone="red"
+elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+  if (( HAS_LOCAL_AUTH )); then
+    result_tone="yellow"
+  else
+    result_tone="red"
+  fi
 elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
 elif [[ "${codex_status_label,,}" == "update available" ]] || [[ "${wrapper_status_label,,}" == "update available" ]]; then
@@ -1980,9 +2034,42 @@ if (( wrapper_updated )); then
   exit 0
 fi
 
-if [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
-  log_error "Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth."
+AUTH_LAUNCH_ALLOWED=0
+AUTH_LAUNCH_REASON=""
+case "$AUTH_PULL_STATUS" in
+  ok)
+    AUTH_LAUNCH_ALLOWED=1
+    ;;
+  offline)
+    if (( HAS_LOCAL_AUTH )); then
+      AUTH_LAUNCH_ALLOWED=1
+      AUTH_LAUNCH_REASON="API offline; using cached auth.json"
+    else
+      AUTH_LAUNCH_REASON="API offline and no cached auth.json"
+    fi
+    ;;
+  invalid)
+    AUTH_LAUNCH_REASON="Invalid API key; download a fresh wrapper or rotate the key."
+    ;;
+  missing-config)
+    AUTH_LAUNCH_REASON="Auth configuration missing (base URL or API key)."
+    ;;
+  disabled)
+    AUTH_LAUNCH_REASON="Auth API disabled by administrator."
+    ;;
+  fail)
+    AUTH_LAUNCH_REASON="Auth sync failed; check API connectivity."
+    ;;
+  *)
+    AUTH_LAUNCH_REASON="Auth unavailable; fix sync before retrying."
+    ;;
+esac
+
+if (( AUTH_LAUNCH_ALLOWED == 0 )); then
+  log_error "${AUTH_LAUNCH_REASON:-Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth.}"
   exit 1
+elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+  log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
 fi
 
 cleanup() {
@@ -1999,7 +2086,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
+if (( AUTH_LAUNCH_ALLOWED == 0 )); then
   exit 1
 fi
 

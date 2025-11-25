@@ -222,7 +222,7 @@ Notes:
   - `POST /admin/hosts/register`: create or rotate a host and mint a single-use installer token (used by the dashboard “New Host” button).
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include auth body with `?include_body=1`), recent digests, last-seen timestamp.
   - `DELETE /admin/hosts/{id}`: remove a host and its digests.
-  - `POST /admin/hosts/{id}/clear`: intended to clear digests/host auth, but currently 500s because `HostRepository::clearHostAuth()` is missing.
+  - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
   - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
   - `POST /admin/auth/upload`: upload a canonical auth JSON (body or `file`); omit `host_id` (or set `0`/`"system"`) to keep it un-attributed, or provide a host id to tag it.
   - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; `/auth` does not check it yet).
