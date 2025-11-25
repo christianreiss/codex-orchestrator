@@ -502,6 +502,25 @@
     .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
     .digest-cell { display: flex; flex-direction: column; gap: 6px; }
     .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
+    .usage-card { margin-top: 10px; }
+    .usage-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .usage-plan { font-size: 20px; font-weight: 800; letter-spacing: -0.2px; }
+    .usage-meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .usage-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
+    .usage-bar { padding: 12px; border: 1px solid var(--panel-strong); border-radius: 12px; background: var(--frost); }
+    .usage-bar .label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .usage-bar .value { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-weight: 800; font-size: 18px; }
+    .usage-bar .meter { height: 8px; background: var(--panel-strong); border-radius: 999px; overflow: hidden; }
+    .usage-bar .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .usage-bar small { color: var(--muted); }
+    .usage-credits { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid var(--panel-strong); background: var(--card-strong); }
+    .usage-error { color: var(--danger); font-weight: 700; margin-top: 10px; }
+    .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+    .cost-card { padding: 12px; border-radius: 12px; border: 1px solid var(--panel-strong); background: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
+    .cost-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+    .cost-card .value { font-size: 20px; font-weight: 800; letter-spacing: -0.2px; margin: 4px 0; }
+    .cost-card small { color: var(--muted); display: block; }
+    .cost-card.total { background: linear-gradient(135deg, rgba(16,163,127,0.08), rgba(16,163,127,0.16)); border-color: rgba(16,163,127,0.3); }
 
     @media (max-width: 960px) {
       .content { padding: 16px 12px 52px; }
@@ -539,7 +558,7 @@
           <button class="ghost runner-ghost" id="version-check">Check versions</button>
         </div>
       </header>
-      <main class="main">
+    <main class="main">
         <div class="modal-backdrop" id="newHostModal">
           <div class="modal">
             <h3>New Host</h3>
@@ -621,6 +640,10 @@
 
         <section class="grid metrics" id="stats"></section>
 
+        <section class="card usage-card" id="chatgpt-usage-card">
+          <div class="muted">Loading ChatGPT usage…</div>
+        </section>
+
         <section class="card panel" id="hosts-panel">
           <div class="panel-head">
             <div>
@@ -690,6 +713,7 @@
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
+    const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -700,6 +724,7 @@
     let hostFilterText = '';
     let hostStatusFilter = ''; // maintained for clarity
     let lastOverview = null;
+    let chatgptUsage = null;
     let apiDisabled = null;
     let mtlsMeta = null;
     let uploadFileContent = '';
@@ -884,6 +909,36 @@
       return formatTimestamp(value);
     }
 
+    function formatDurationSeconds(value) {
+      if (!Number.isFinite(value)) return null;
+      const seconds = Math.max(0, Math.floor(value));
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const parts = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0) parts.push(`${hours}h`);
+      if (minutes > 0) parts.push(`${minutes}m`);
+      if (parts.length) return parts.join(' ');
+      return `${seconds || 1}s`;
+    }
+
+    function formatResetLabel(seconds, resetAt) {
+      if (Number.isFinite(seconds)) {
+        const duration = formatDurationSeconds(seconds);
+        return duration ? `${duration} to reset` : 'reset time unknown';
+      }
+      if (resetAt) {
+        return `resets ${formatRelative(resetAt)}`;
+      }
+      return 'reset time unknown';
+    }
+
+    function formatMoney(amount, currency = 'USD') {
+      if (!Number.isFinite(amount)) return `${currency} —`;
+      return `${currency} ${amount.toFixed(2)}`;
+    }
+
     function hostPruneMeta(host) {
       const last = host?.last_refresh || host?.updated_at || null;
       const lastTs = parseTimestamp(last);
@@ -1063,6 +1118,140 @@
       `;
     }
 
+    function renderUsageWindow(label, data) {
+      const used = Number.isFinite(data?.used_percent) ? Math.min(100, Math.max(0, data.used_percent)) : null;
+      const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
+      const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
+      const meter = `<div class="meter"><span style="width:${used !== null ? used : 0}%"></span></div>`;
+      return `
+        <div class="usage-bar">
+          <div class="label">${label}</div>
+          <div class="value">
+            <span>${used !== null ? `${used}% used` : 'n/a'}</span>
+            <small>${limitLabel}</small>
+          </div>
+          ${meter}
+          <small>${resetLabel}</small>
+        </div>
+      `;
+    }
+
+    function renderChatGptUsage(usage) {
+      if (!chatgptUsageCard) return;
+      if (!usage || !usage.snapshot) {
+        chatgptUsageCard.innerHTML = '<div class="muted">ChatGPT usage not available yet.</div>';
+        return;
+      }
+
+      const snapshot = usage.snapshot;
+      const status = snapshot.status || 'unknown';
+      const plan = snapshot.plan_type || 'Unknown plan';
+      const fetched = snapshot.fetched_at ? formatRelative(snapshot.fetched_at) : 'never';
+      const next = usage.next_eligible_at ? formatRelative(usage.next_eligible_at) : null;
+      const primary = {
+        used_percent: snapshot.primary_used_percent ?? null,
+        limit_seconds: snapshot.primary_limit_seconds ?? null,
+        reset_after_seconds: snapshot.primary_reset_after_seconds ?? null,
+        reset_at: snapshot.primary_reset_at ?? null,
+      };
+      const secondary = {
+        used_percent: snapshot.secondary_used_percent ?? null,
+        limit_seconds: snapshot.secondary_limit_seconds ?? null,
+        reset_after_seconds: snapshot.secondary_reset_after_seconds ?? null,
+        reset_at: snapshot.secondary_reset_at ?? null,
+      };
+      const monthly = (lastOverview?.tokens_month) || { input: 0, output: 0, cached: 0, total: 0 };
+      const pricing = lastOverview?.pricing || { currency: 'EUR', input_price_per_1k: 0, output_price_per_1k: 0, cached_price_per_1k: 0 };
+      const monthCost = lastOverview?.pricing_month_cost ?? null;
+      const currency = pricing.currency || 'EUR';
+      const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
+      const inputCost = hasPricing ? (monthly.input / 1000) * (pricing.input_price_per_1k ?? 0) : null;
+      const outputCost = hasPricing ? (monthly.output / 1000) * (pricing.output_price_per_1k ?? 0) : null;
+      const cachedCost = hasPricing ? (monthly.cached / 1000) * (pricing.cached_price_per_1k ?? 0) : null;
+      const totalCost = hasPricing ? (monthCost ?? ((inputCost ?? 0) + (outputCost ?? 0) + (cachedCost ?? 0))) : null;
+
+      chatgptUsageCard.innerHTML = `
+        <div class="usage-head">
+          <div>
+            <div class="stat-label">ChatGPT Account</div>
+            <div class="usage-plan">${plan}</div>
+            <div class="usage-meta">
+              <span>Last check ${fetched}</span>
+              ${next ? `<span>Next ${next}</span>` : ''}
+              ${usage.cached ? '<span class="chip neutral">Cached</span>' : ''}
+              ${snapshot.rate_limit_reached ? '<span class="chip warn">Limit reached</span>' : ''}
+            </div>
+          </div>
+          <div class="usage-actions">
+            <button class="ghost tiny-btn" id="chatgpt-refresh">Refresh</button>
+          </div>
+        </div>
+        ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
+        <div class="usage-bars">
+          ${renderUsageWindow('5-hour limit', primary)}
+          ${renderUsageWindow('Weekly limit', secondary)}
+        </div>
+        <div class="usage-credits">
+          <strong>Month to date (${currency})</strong>
+          <div class="cost-grid">
+            <div class="cost-card">
+              <div class="label">Input</div>
+              <div class="value">${formatNumber(monthly.input)}</div>
+              <small>${pricing.input_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(inputCost ?? 0, currency) : 'pricing missing'}</small>
+            </div>
+            <div class="cost-card">
+              <div class="label">Output</div>
+              <div class="value">${formatNumber(monthly.output)}</div>
+              <small>${pricing.output_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(outputCost ?? 0, currency) : 'pricing missing'}</small>
+            </div>
+            <div class="cost-card">
+              <div class="label">Cached</div>
+              <div class="value">${formatNumber(monthly.cached)}</div>
+              <small>${pricing.cached_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(cachedCost ?? 0, currency) : 'pricing missing'}</small>
+            </div>
+            <div class="cost-card total">
+              <div class="label">Estimated Total</div>
+              <div class="value">${hasPricing && totalCost !== null ? formatMoney(totalCost, currency) : 'Pricing missing'}</div>
+              <small>${hasPricing ? 'Includes input/output/cached' : 'Set PRICING_URL or GPT51_* env vars'}</small>
+            </div>
+          </div>
+        </div>
+      `;
+
+      wireChatGptControls();
+    }
+
+    async function refreshChatGptUsage() {
+      const btn = document.getElementById('chatgpt-refresh');
+      const original = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Refreshing…';
+      }
+      try {
+        const res = await api('/admin/chatgpt/usage/refresh', { method: 'POST' });
+        chatgptUsage = res?.data || null;
+        renderChatGptUsage(chatgptUsage);
+      } catch (err) {
+        alert(`Refresh failed: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original || 'Refresh';
+        }
+      }
+    }
+
+    function wireChatGptControls() {
+      const btn = document.getElementById('chatgpt-refresh');
+      if (btn) {
+        btn.onclick = (ev) => {
+          ev.preventDefault();
+          refreshChatGptUsage();
+        };
+      }
+    }
+
     function renderStats(data, runnerInfo = null) {
       lastOverview = data;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
@@ -1105,10 +1294,9 @@
           <div class="card version-card">
             <div class="stat-head">
               <span class="stat-label">Versions</span>
-              ${versionInfoBtn}
             </div>
             <div class="stat-value">CLI ${codexVersionDisplay}</div>
-            <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
+            <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'} ${versionInfoBtn}</small>
           </div>
         `,
         `
@@ -1129,6 +1317,13 @@
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();
       wireUpgradeNotesControls();
+
+      chatgptUsage = {
+        snapshot: data.chatgpt_usage || null,
+        cached: data.chatgpt_cached || false,
+        next_eligible_at: data.chatgpt_next_eligible_at || null,
+      };
+      renderChatGptUsage(chatgptUsage);
     }
 
     function wireRunnerCardControls() {
