@@ -512,6 +512,8 @@
     .usage-bar .value { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-weight: 800; font-size: 18px; }
     .usage-bar .meter { height: 8px; background: var(--panel-strong); border-radius: 999px; overflow: hidden; }
     .usage-bar .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .usage-bar .meter.time { margin-top: 6px; background: rgba(0,0,0,0.05); }
+    .usage-bar .meter.time span { background: linear-gradient(90deg, #64748b, #94a3b8); }
     .usage-bar small { color: var(--muted); }
     .usage-credits { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid var(--panel-strong); background: var(--card-strong); }
     .usage-error { color: var(--danger); font-weight: 700; margin-top: 10px; }
@@ -1122,7 +1124,13 @@
       const used = Number.isFinite(data?.used_percent) ? Math.min(100, Math.max(0, data.used_percent)) : null;
       const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
       const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
+      const timePercent = Number.isFinite(data?.limit_seconds) && Number.isFinite(data?.reset_after_seconds)
+        ? Math.min(100, Math.max(0, Math.round(((data.limit_seconds - data.reset_after_seconds) / data.limit_seconds) * 100)))
+        : null;
       const meter = `<div class="meter"><span style="width:${used !== null ? used : 0}%"></span></div>`;
+      const timeMeter = timePercent !== null
+        ? `<div class="meter time"><span style="width:${timePercent}%"></span></div>`
+        : '';
       return `
         <div class="usage-bar">
           <div class="label">${label}</div>
@@ -1131,6 +1139,7 @@
             <small>${limitLabel}</small>
           </div>
           ${meter}
+          ${timeMeter}
           <small>${resetLabel}</small>
         </div>
       `;
