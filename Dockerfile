@@ -11,9 +11,14 @@ RUN docker-php-ext-install pdo_mysql pdo_sqlite
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/000-default.conf /etc/apache2/apache2.conf
 RUN set -eux; \
-    printf '<Directory %s>\n    Require all granted\n    FallbackResource /index.php\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-fallback.conf; \
-    printf '<Directory %s/admin>\n    DirectoryIndex index.php index.html\n    Require expr %%{HTTP:X-MTLS-FINGERPRINT} =~ \"^[A-Fa-f0-9]{64}$\"\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-admin-mtls.conf; \
-    a2enconf app-fallback app-admin-mtls
+    printf '<Directory %s>\n    Require all granted\n    FallbackResource /index.php\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-fallback.conf
+RUN set -eux; \
+    cat > /etc/apache2/conf-available/app-admin-mtls.conf <<'EOF' && a2enconf app-fallback app-admin-mtls
+<Directory ${APACHE_DOCUMENT_ROOT}/admin>
+    DirectoryIndex index.php index.html
+    Require expr "%{HTTP:X-MTLS-FINGERPRINT} =~ m#^[A-Fa-f0-9]{64}$#"
+</Directory>
+EOF
 WORKDIR /var/www/html
 COPY . .
 COPY --from=vendor /app/vendor ./vendor
