@@ -4,6 +4,12 @@ Source of truth docs: keep `interface-api.md`, `interface-db.md`, and `interface
 
 This project is small, but each class has a clear role in the orchestration pipeline that keeps Codex `auth.json` files synchronized between servers. Use this guide when extending or debugging the service.
 
+## Process & Ops Rules
+
+- Before any task, run `git pull`.
+- When changes require a server restart or touch `cdx`, rebuild and restart the Docker services.
+- For every set of changes, always `git commit` and push.
+
 ## Operational Checklist (humans)
 
 - When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the baked base URL and masked API key.

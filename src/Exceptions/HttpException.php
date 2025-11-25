@@ -19,6 +19,14 @@ class HttpException extends RuntimeException
         return $this->statusCode;
     }
 
+    /**
+     * Alias used by callers expecting a PSR-style accessor.
+     */
+    public function getStatusCode(): int
+    {
+        return $this->statusCode();
+    }
+
     public function context(): array
     {
         return $this->context;
