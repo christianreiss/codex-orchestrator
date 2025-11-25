@@ -4,18 +4,6 @@ $mtlsPresent = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
 $mtlsFingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
 $mtlsSubject = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? '';
 $mtlsIssuer = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? '';
-$remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
-$userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
-
-error_log(sprintf(
-    'admin access mtls_present=%s fingerprint=%s subject="%s" issuer="%s" ip=%s ua="%s"',
-    $mtlsPresent === '' ? 'absent' : $mtlsPresent,
-    $mtlsFingerprint === '' ? 'absent' : $mtlsFingerprint,
-    $mtlsSubject,
-    $mtlsIssuer,
-    $remoteAddr,
-    $userAgent
-));
 
 $hasValidFingerprint = is_string($mtlsFingerprint) && preg_match('/^[A-Fa-f0-9]{64}$/', $mtlsFingerprint) === 1;
 
