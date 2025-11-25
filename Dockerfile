@@ -12,7 +12,7 @@ ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/000-default.conf /etc/apache2/apache2.conf
 RUN set -eux; \
     printf '<Directory %s>\n    Require all granted\n    FallbackResource /index.php\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-fallback.conf; \
-    printf '<Directory %s/admin>\n    Require expr %%{HTTP:X-MTLS-PRESENT} != ""\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-admin-mtls.conf; \
+    printf '<Directory %s/admin>\n    DirectoryIndex index.php index.html\n    Require expr %%{HTTP:X-MTLS-PRESENT} != \"\"\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-admin-mtls.conf; \
     a2enconf app-fallback app-admin-mtls
 WORKDIR /var/www/html
 COPY . .
