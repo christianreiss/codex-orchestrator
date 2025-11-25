@@ -110,6 +110,12 @@ class AuthService
                         'ip' => $ip,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
+                } elseif ($this->shouldAllowRunnerIpBypass($ip)) {
+                    // Runner needs to validate auth without rebinding host IP; do not update stored IP.
+                    $this->logs->log($hostId, 'auth.runner_ip_bypass', [
+                        'expected_ip' => $storedIp,
+                        'ip' => $ip,
+                    ]);
                 } else {
                     throw new HttpException('API key not allowed from this IP', 403, [
                         'expected_ip' => $storedIp,
@@ -1399,5 +1405,64 @@ class AuthService
         }
 
         return hash('sha256', $authJson);
+    }
+
+    private function shouldAllowRunnerIpBypass(string $ip): bool
+    {
+        $enabledRaw = Config::get('AUTH_RUNNER_IP_BYPASS', '0');
+        $enabled = in_array(strtolower((string) $enabledRaw), ['1', 'true', 'yes', 'on'], true);
+        if (!$enabled) {
+            return false;
+        }
+
+        $subnetsRaw = Config::get('AUTH_RUNNER_BYPASS_SUBNETS', '');
+        $subnets = array_filter(array_map('trim', explode(',', (string) $subnetsRaw)));
+        if (!$subnets) {
+            return false;
+        }
+
+        foreach ($subnets as $subnet) {
+            if ($this->ipInCidr($ip, $subnet)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function ipInCidr(string $ip, string $cidr): bool
+    {
+        if (!str_contains($cidr, '/')) {
+            return false;
+        }
+
+        [$network, $mask] = explode('/', $cidr, 2);
+        $maskLength = (int) $mask;
+
+        $ipBin = @inet_pton($ip);
+        $netBin = @inet_pton($network);
+
+        if ($ipBin === false || $netBin === false || strlen($ipBin) !== strlen($netBin)) {
+            return false;
+        }
+
+        $bits = strlen($ipBin) * 8;
+        if ($maskLength < 0 || $maskLength > $bits) {
+            return false;
+        }
+
+        $bytes = intdiv($maskLength, 8);
+        $remainder = $maskLength % 8;
+
+        if ($bytes && substr($ipBin, 0, $bytes) !== substr($netBin, 0, $bytes)) {
+            return false;
+        }
+
+        if ($remainder === 0) {
+            return true;
+        }
+
+        $maskByte = chr(0xFF << (8 - $remainder) & 0xFF);
+        return (ord($ipBin[$bytes]) & ord($maskByte)) === (ord($netBin[$bytes]) & ord($maskByte));
     }
 }
