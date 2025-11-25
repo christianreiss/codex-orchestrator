@@ -134,14 +134,18 @@ class AuthService
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
-        $hostId = (int) $host['id'];
+        $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
+        $trackHost = $hostId > 0;
+        $logHostId = $trackHost ? $hostId : null;
 
-        $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
-        $this->hosts->incrementApiCalls($hostId);
-        $host = $this->hosts->findById($hostId) ?? $host;
+        if ($trackHost) {
+            $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
+            $this->hosts->incrementApiCalls($hostId);
+            $host = $this->hosts->findById($hostId) ?? $host;
+        }
 
         $bakedWrapperMeta = null;
-        if ($baseUrl !== null && $baseUrl !== '') {
+        if ($trackHost && $baseUrl !== null && $baseUrl !== '') {
             $bakedWrapperMeta = $this->wrapperService->bakedForHost($host, $baseUrl);
         }
 
@@ -184,8 +188,8 @@ class AuthService
             }
         }
 
-        $recentDigests = $this->digests->recentDigests($hostId);
-        if ($canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
+        $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];
+        if ($trackHost && $canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
             $this->digests->rememberDigests($hostId, [$canonicalDigest]);
             $recentDigests = $this->digests->recentDigests($hostId);
         }
@@ -219,8 +223,10 @@ class AuthService
                         'versions' => $versions,
                     ];
 
-                    $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
-                    $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                    if ($trackHost) {
+                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
+                        $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                    }
                 } elseif ($comparison === 1) {
                     // Client claims a newer payload; ask it to upload.
                     $status = 'upload_required';
@@ -233,8 +239,10 @@ class AuthService
                         'versions' => $versions,
                     ];
 
-                    $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
-                    $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                    if ($trackHost) {
+                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
+                        $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                    }
                 } else {
                     // Always hand back canonical to allow hydration, even if client claims newer.
                     $status = 'outdated';
@@ -243,18 +251,20 @@ class AuthService
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
                         'canonical_digest' => $canonicalDigest,
-                        'host' => $this->buildHostPayload($host),
+                        'host' => $trackHost ? $this->buildHostPayload($host) : null,
                         'auth' => $authArray,
                         'api_calls' => (int) ($host['api_calls'] ?? 0),
                         'versions' => $versions,
                     ];
 
-                    $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
-                    $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                    if ($trackHost) {
+                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
+                        $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                    }
                 }
             }
 
-            $this->logs->log($hostId, 'auth.retrieve', [
+            $this->logs->log($logHostId, 'auth.retrieve', [
                 'status' => $status,
                 'incoming_last_refresh' => $incomingLastRefresh,
                 'incoming_digest' => $providedDigest,
@@ -283,7 +293,9 @@ class AuthService
         }
 
         $incomingDigest = $this->calculateDigest($encodedAuth);
-        $this->digests->rememberDigests($hostId, [$incomingDigest]);
+        if ($trackHost) {
+            $this->digests->rememberDigests($hostId, [$incomingDigest]);
+        }
 
         $comparison = $canonicalLastRefresh !== null ? Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh) : 1;
         $shouldUpdate = !$canonicalPayload || $comparison === 1;
@@ -291,40 +303,46 @@ class AuthService
 
         if ($shouldUpdate) {
             // Persist normalized entries alongside the raw canonical body so older callers can still rehydrate.
-            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $hostId, $entries, $encodedAuth);
+            $payloadRow = $this->payloads->create($incomingLastRefresh, $incomingDigest, $trackHost ? $hostId : null, $entries, $encodedAuth);
             $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
             $canonicalPayload = $payloadRow;
             $canonicalDigest = $incomingDigest;
             $canonicalLastRefresh = $incomingLastRefresh;
 
-            $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $incomingDigest);
-            $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
-            $host = $this->hosts->findById($hostId) ?? $host;
+            if ($trackHost) {
+                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $incomingDigest);
+                $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                $host = $this->hosts->findById($hostId) ?? $host;
+            }
 
             $response = [
                 'status' => $status,
-                'host' => $this->buildHostPayload($host),
                 'auth' => $canonicalizedAuth,
                 'canonical_last_refresh' => $canonicalLastRefresh,
                 'canonical_digest' => $canonicalDigest,
                 'api_calls' => (int) ($host['api_calls'] ?? 0),
                 'versions' => $versions,
             ];
+            if ($trackHost) {
+                $response['host'] = $this->buildHostPayload($host);
+            }
 
         } else {
-            $host = $this->hosts->findById($hostId) ?? $host;
+            $host = $trackHost ? ($this->hosts->findById($hostId) ?? $host) : $host;
 
             if ($status === 'outdated' && $canonicalPayload) {
                 $authArray = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
                 $response = [
                     'status' => $status,
-                    'host' => $this->buildHostPayload($host),
                     'auth' => $authArray,
                     'canonical_last_refresh' => $canonicalLastRefresh,
                     'canonical_digest' => $canonicalDigest,
                     'api_calls' => (int) ($host['api_calls'] ?? 0),
                     'versions' => $versions,
                 ];
+                if ($trackHost) {
+                    $response['host'] = $this->buildHostPayload($host);
+                }
             } else {
                 $response = [
                     'status' => $status,
@@ -335,13 +353,13 @@ class AuthService
                 ];
             }
 
-            if ($canonicalPayload) {
+            if ($trackHost && $canonicalPayload) {
                 $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest ?? $incomingDigest);
                 $this->hosts->updateSyncState($hostId, $canonicalLastRefresh ?? $incomingLastRefresh, $canonicalDigest ?? $incomingDigest);
             }
         }
 
-        $this->logs->log($hostId, 'auth.store', [
+        $this->logs->log($logHostId, 'auth.store', [
             'status' => $status,
             'incoming_last_refresh' => $incomingLastRefresh,
             'incoming_digest' => $incomingDigest,
@@ -363,7 +381,7 @@ class AuthService
 
             if ($authToValidate !== null) {
                 $validation = $this->runnerVerifier->verify($authToValidate);
-                $this->logs->log($hostId, 'auth.validate', [
+                $this->logs->log($logHostId, 'auth.validate', [
                     'status' => $validation['status'] ?? null,
                     'reason' => $validation['reason'] ?? null,
                     'latency_ms' => $validation['latency_ms'] ?? null,
@@ -391,33 +409,37 @@ class AuthService
                             || ($comparisonRunner === 0 && $runnerDigest !== $canonicalDigest);
 
                         if ($runnerShouldUpdate) {
-                            $payloadRow = $this->payloads->create($runnerLastRefresh, $runnerDigest, $hostId, $runnerEntries, $runnerEncoded);
+                            $payloadRow = $this->payloads->create($runnerLastRefresh, $runnerDigest, $trackHost ? $hostId : null, $runnerEntries, $runnerEncoded);
                             $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
                             $canonicalPayload = $payloadRow;
                             $canonicalDigest = $runnerDigest;
                             $canonicalLastRefresh = $runnerLastRefresh;
 
-                            $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
-                            $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
-                            $host = $this->hosts->findById($hostId) ?? $host;
+                            if ($trackHost) {
+                                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
+                                $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                                $host = $this->hosts->findById($hostId) ?? $host;
+                            }
 
                             $response = [
                                 'status' => 'updated',
-                                'host' => $this->buildHostPayload($host),
                                 'auth' => $this->canonicalAuthFromPayload($canonicalPayload),
                                 'canonical_last_refresh' => $canonicalLastRefresh,
                                 'canonical_digest' => $canonicalDigest,
                                 'api_calls' => (int) ($host['api_calls'] ?? 0),
                                 'versions' => $versions,
                             ];
+                            if ($trackHost) {
+                                $response['host'] = $this->buildHostPayload($host);
+                            }
                             $runnerApplied = true;
-                            $this->logs->log($hostId, 'auth.runner_store', [
+                            $this->logs->log($logHostId, 'auth.runner_store', [
                                 'status' => 'applied',
                                 'incoming_last_refresh' => $runnerLastRefresh,
                                 'incoming_digest' => $runnerDigest,
                             ]);
                         } else {
-                            $this->logs->log($hostId, 'auth.runner_store', [
+                            $this->logs->log($logHostId, 'auth.runner_store', [
                                 'status' => 'skipped',
                                 'reason' => 'runner auth not newer or identical',
                                 'incoming_last_refresh' => $runnerLastRefresh,
@@ -427,7 +449,7 @@ class AuthService
                             ]);
                         }
                     } catch (\Throwable $exception) {
-                        $this->logs->log($hostId, 'auth.runner_store', [
+                        $this->logs->log($logHostId, 'auth.runner_store', [
                             'status' => 'failed',
                             'reason' => $exception->getMessage(),
                         ]);
@@ -481,9 +503,11 @@ class AuthService
         }
 
         $hostId = (int) ($host['id'] ?? 0);
+        $trackHost = $hostId > 0;
+        $logHostId = $trackHost ? $hostId : null;
         try {
             $validation = $this->runnerVerifier->verify($canonicalAuth, null, null, $host);
-            $this->logs->log($hostId, 'auth.validate', [
+            $this->logs->log($logHostId, 'auth.validate', [
                 'status' => $validation['status'] ?? null,
                 'reason' => $validation['reason'] ?? null,
                 'latency_ms' => $validation['latency_ms'] ?? null,
@@ -512,20 +536,22 @@ class AuthService
                     || ($comparison === 0 && $runnerDigest !== $currentDigest);
 
                 if ($shouldUpdate) {
-                    $payloadRow = $this->payloads->create((string) $runnerLastRefresh, $runnerDigest, $hostId, $runnerEntries, $runnerEncoded);
+                    $payloadRow = $this->payloads->create((string) $runnerLastRefresh, $runnerDigest, $trackHost ? $hostId : null, $runnerEntries, $runnerEncoded);
                     $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
                     $canonicalPayload = $payloadRow;
 
-                    $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
-                    $this->hosts->updateSyncState($hostId, (string) $runnerLastRefresh, $runnerDigest);
-                    $this->logs->log($hostId, 'auth.runner_store', [
+                    if ($trackHost) {
+                        $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
+                        $this->hosts->updateSyncState($hostId, (string) $runnerLastRefresh, $runnerDigest);
+                    }
+                    $this->logs->log($logHostId, 'auth.runner_store', [
                         'status' => 'applied',
                         'trigger' => $trigger,
                         'incoming_last_refresh' => $runnerLastRefresh,
                         'incoming_digest' => $runnerDigest,
                     ]);
                 } else {
-                    $this->logs->log($hostId, 'auth.runner_store', [
+                    $this->logs->log($logHostId, 'auth.runner_store', [
                         'status' => 'skipped',
                         'trigger' => $trigger,
                         'reason' => 'runner auth not newer or identical',
@@ -533,7 +559,7 @@ class AuthService
                 }
             }
         } catch (\Throwable $exception) {
-            $this->logs->log($hostId, 'auth.runner_store', [
+            $this->logs->log($logHostId, 'auth.runner_store', [
                 'status' => 'failed',
                 'trigger' => $trigger,
                 'reason' => $exception->getMessage(),

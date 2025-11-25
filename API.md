@@ -196,6 +196,29 @@ Provided for observability; clients do not need it because `/auth` responses alr
 
 Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `Authorization: Bearer`, or `admin_key` query). Body accepts `client_version` and/or `wrapper_version`. Response mirrors `GET /versions`.
 
+### `POST /admin/versions/check` (admin)
+
+Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3h cache) and returns the current version snapshot shown in `/versions` plus the fetched client version source/checked-at metadata. Requires mTLS + optional `DASHBOARD_ADMIN_KEY`.
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "available_client": { "version": "0.64.0", "updated_at": "2025-11-20T09:00:00Z", "source": "github" },
+    "versions": {
+      "client_version": "0.64.0",
+      "client_version_checked_at": "2025-11-20T09:00:00Z",
+      "client_version_source": "github",
+      "wrapper_version": "2025.11.19-4",
+      "wrapper_sha256": "…",
+      "wrapper_url": "/wrapper/download",
+      "reported_client_version": "0.64.0",
+      "reported_wrapper_version": "2025.11.19-4"
+    }
+  }
+}
+```
+
 ## Logs & Housekeeping
 
 - Every `register`, `auth` retrieve/store, runner validation, token usage, and version publish is logged in `logs` (JSON details).
@@ -214,10 +237,11 @@ Publishes operator versions. Requires `VERSION_ADMIN_KEY` (via `X-Admin-Key`, `A
   - `DELETE /admin/hosts/{id}`: remove a host and its digests.
   - `POST /admin/hosts/{id}/clear`: intended to clear digests + host auth, but currently 500s because `HostRepository::clearHostAuth()` is missing.
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
-  - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`) and attribute it to a host (first host when `host_id` omitted).
+  - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`). If `host_id` is omitted (or set to `0`/`"system"`), the payload is stored without host attribution; otherwise it is tagged to the specified host.
   - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; not enforced by `/auth`).
   - `GET /admin/runner`: runner configuration/telemetry (last validations, counts, configured URL, timeouts, last daily check).
   - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
+  - `POST /admin/versions/check`: bypass version cache and refresh the latest Codex release metadata.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
   - `GET /admin/usage?limit=50`: recent token usage rows.
   - `GET /admin/tokens?limit=50`: token usage totals per token line.

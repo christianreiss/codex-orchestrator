@@ -130,6 +130,21 @@ $router->add('POST', '#^/versions$#', function () use ($payload, $service) {
     ]);
 });
 
+$router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
+    requireAdminAccess();
+
+    $available = $service->availableClientVersion(true);
+    $versions = $service->versionSummary();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'available_client' => $available,
+            'versions' => $versions,
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/wrapper$#', function () use ($wrapperService) {
     $adminKey = resolveAdminKey();
     if (!hash_equals(Config::get('VERSION_ADMIN_KEY', ''), $adminKey ?? '')) {
@@ -404,9 +419,11 @@ $router->add('POST', '#^/admin/runner/run$#', function () use ($service) {
 $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostRepository, $service) {
     requireAdminAccess();
 
-    $hostId = isset($payload['host_id']) ? (int) $payload['host_id'] : null;
+    $hostIdRaw = $payload['host_id'] ?? null;
+    $systemUpload = $hostIdRaw === null || $hostIdRaw === '' || $hostIdRaw === 'system' || (is_numeric($hostIdRaw) && (int) $hostIdRaw === 0);
     $host = null;
-    if ($hostId !== null) {
+    if (!$systemUpload) {
+        $hostId = (int) $hostIdRaw;
         $host = $hostRepository->findById($hostId);
         if ($host === null) {
             Response::json([
@@ -415,14 +432,13 @@ $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostR
             ], 404);
         }
     } else {
-        $hosts = $hostRepository->all();
-        $host = $hosts[0] ?? null;
-        if ($host === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'No hosts available to attribute upload',
-            ], 422);
-        }
+        $host = [
+            'id' => 0,
+            'fqdn' => '[system]',
+            'status' => 'active',
+            'api_calls' => 0,
+            'allow_roaming_ips' => true,
+        ];
     }
 
     $authPayload = $payload['auth'] ?? null;
@@ -454,7 +470,7 @@ $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostR
             $host,
             'admin-upload',
             'admin-upload',
-            resolveBaseUrl()
+            $systemUpload ? null : resolveBaseUrl()
         );
     } catch (ValidationException $exception) {
         Response::json([

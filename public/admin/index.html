@@ -360,10 +360,14 @@
     thead { background: rgba(255,255,255,0.08); }
     th, td { padding: 14px 12px; text-align: left; font-size: 13px; white-space: nowrap; }
     th { color: var(--muted); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
-    tbody tr { transition: background 0.12s ease; }
-    tbody tr:nth-child(odd) { background: var(--table-row); }
-    tbody tr:nth-child(even) { background: var(--table-row-alt); }
-    tbody tr:hover { background: rgba(255,255,255,0.06); }
+    tbody tr { transition: background 0.12s ease, transform 0.1s ease; }
+    tbody tr:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.05); }
+    .status-ok { background: linear-gradient(90deg, rgba(16,163,127,0.12), rgba(16,163,127,0.04)); }
+    .status-warning { background: linear-gradient(90deg, rgba(245,158,11,0.16), rgba(245,158,11,0.05)); }
+    .status-critical { background: linear-gradient(90deg, rgba(229,72,77,0.16), rgba(229,72,77,0.05)); }
+    .status-ok:nth-child(even),
+    .status-warning:nth-child(even),
+    .status-critical:nth-child(even) { filter: saturate(0.92); }
     .inline-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
     .ip-toggle {
       display: inline-flex;
@@ -532,7 +536,6 @@
           <button class="ghost runner-ghost" id="uploadAuthBtn">Seed</button>
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
           <button class="ghost tiny-btn runner-ghost" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
-          <button class="ghost runner-ghost" id="refresh">Refresh</button>
           <button class="ghost runner-ghost" id="version-check">Check versions</button>
         </div>
       </header>
@@ -565,7 +568,7 @@
             <h3>Seed auth.json</h3>
             <p>Paste or choose an auth.json; it will be validated via the runner and stored as canonical.</p>
             <div class="field">
-              <label for="uploadHostSelect" style="font-weight:600;">Attribute to host (optional)</label>
+              <label for="uploadHostSelect" style="font-weight:600;">Store scope</label>
               <select id="uploadHostSelect"></select>
             </div>
             <div class="field">
@@ -636,10 +639,9 @@
                   <th>Client</th>
                   <th>Wrapper</th>
                   <th>IP / Mode</th>
-                  <th>Valid Auth</th>
                   <th>Usage</th>
-          <th>Actions</th>
-        </tr>
+                  <th>Actions</th>
+                </tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -654,7 +656,6 @@
     const statsEl = document.getElementById('stats');
     const hostsTbody = document.querySelector('#hosts tbody');
     const mtlsEl = document.getElementById('mtls');
-    const refreshBtn = document.getElementById('refresh');
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
@@ -854,16 +855,6 @@
       return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
     }
 
-    function renderAuthedTag(host) {
-      const authed = host.authed === true;
-      const tone = authed ? 'ok' : 'warn';
-      const label = authed ? 'yes' : 'no';
-      const hint = host.canonical_digest
-        ? `Digest: ${host.canonical_digest.slice(0,8)}…`
-        : 'No canonical digest';
-      return `<div class="digest-cell" title="${hint}"><span class="chip ${tone}">${label}</span></div>`;
-    }
-
     function formatMinutesAgo(value) {
       const date = parseTimestamp(value);
       if (!date) return '—';
@@ -891,6 +882,30 @@
       if (delta < 36 * 60 * 60 * 1000) return `${hours} h ${suffix}`;
       if (delta < 14 * 24 * 60 * 60 * 1000) return `${days} d ${suffix}`;
       return formatTimestamp(value);
+    }
+
+    function hostPruneMeta(host) {
+      const last = host?.last_refresh || host?.updated_at || null;
+      const lastTs = parseTimestamp(last);
+      if (!lastTs) return { daysLeft: null };
+      const cutoff = lastTs.getTime() + (30 * 24 * 60 * 60 * 1000);
+      const daysLeft = (cutoff - Date.now()) / 86400000;
+      return { daysLeft };
+    }
+
+    function hostHealth(host) {
+      const status = (host?.status || '').toLowerCase();
+      const authed = host?.authed === true;
+      const canLogin = status === 'active' && authed;
+      const { daysLeft } = hostPruneMeta(host);
+      if (daysLeft !== null && daysLeft <= 3) {
+        return { tone: 'critical', label: 'Pruning in ≤3d' };
+      }
+      if (!canLogin || (daysLeft !== null && daysLeft <= 10)) {
+        const reason = !canLogin ? 'Cannot login' : `Pruning in ${Math.max(0, Math.ceil(daysLeft))}d`;
+        return { tone: 'warning', label: reason };
+      }
+      return { tone: 'ok', label: 'Can login' };
     }
 
     function renderTokenCell(host) {
@@ -922,18 +937,23 @@
       const filtered = applyHostFilters(currentHosts);
       hostsTbody.innerHTML = '';
       if (!filtered.length) {
-        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="9">No hosts match your filters yet.</td></tr>';
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No hosts match your filters yet.</td></tr>';
         return;
       }
       filtered.forEach(host => {
         const tr = document.createElement('tr');
         const addedAt = host.created_at ?? host.updated_at ?? host.last_refresh ?? null;
         const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
+        const health = hostHealth(host);
+        tr.classList.add(`status-${health.tone}`);
         tr.innerHTML = `
           <td data-label="Host">
-            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
               <strong>${host.fqdn}</strong>
-              <span class="muted" style="font-size:12px;">added ${formatRelative(addedAt)}</span>
+              <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
+                <span class="muted" style="font-size:12px;">added ${formatRelative(addedAt)}</span>
+                <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
+              </div>
             </div>
           </td>
           <td data-label="Last Seen">
@@ -950,7 +970,6 @@
               ${host.ip ? `<span class="ip-toggle" data-id="${host.id}" title="Toggle IP lock" role="button" aria-label="Toggle IP lock">${ipIcon}</span>` : ''}
             </div>
           </td>
-          <td data-label="Digest">${renderAuthedTag(host)}</td>
           <td data-label="Usage">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
               <span class="muted">Calls ${formatNumber(host.api_calls ?? 0)}</span>
@@ -1001,7 +1020,8 @@
       currentHosts = Array.isArray(hosts) ? hosts : [];
       // Populate upload host select
       if (uploadHostSelect) {
-        uploadHostSelect.innerHTML = '<option value="">Auto (first host)</option>' + currentHosts.map(h => `<option value="${h.id}">${h.fqdn}</option>`).join('');
+        uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${h.fqdn}</option>`).join('');
+        uploadHostSelect.value = 'system';
       }
       paintHosts();
     }
@@ -1314,9 +1334,6 @@
       }
     }
 
-    if (refreshBtn) {
-      refreshBtn.addEventListener('click', loadAll);
-    }
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
     }
@@ -1425,6 +1442,9 @@
         uploadAuthText.value = '';
         uploadAuthFile.value = '';
         uploadFileContent = '';
+        if (uploadHostSelect) {
+          uploadHostSelect.value = 'system';
+        }
         if (uploadStatus) uploadStatus.textContent = '';
       } else {
         uploadModal.classList.remove('show');
@@ -1514,7 +1534,8 @@
         alert(`Invalid JSON: ${err.message}`);
         return;
       }
-      const hostId = uploadHostSelect?.value ? Number(uploadHostSelect.value) : null;
+      const selectedHost = uploadHostSelect?.value || 'system';
+      const hostId = selectedHost === 'system' ? null : Number(selectedHost);
       const originalText = uploadAuthSubmit.textContent;
       uploadAuthSubmit.disabled = true;
       uploadAuthSubmit.textContent = 'Uploading…';
