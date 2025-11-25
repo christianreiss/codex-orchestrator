@@ -204,6 +204,30 @@
       color: var(--muted);
       font-size: 13px;
     }
+    .ghost.info-btn {
+      width: 36px;
+      height: 32px;
+      min-height: 32px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      line-height: 1;
+      background: var(--card-strong);
+      color: var(--text);
+    }
+    .ghost.info-btn:hover { background: var(--panel-strong); }
+    .upgrade-notes {
+      margin: 8px 0 12px;
+      padding: 12px;
+      background: var(--frost);
+      border: 1px solid var(--panel-strong);
+      border-radius: 10px;
+      white-space: pre-wrap;
+      max-height: 360px;
+      overflow: auto;
+    }
+    .upgrade-notes.error { color: var(--danger); }
     .panel { margin-top: 20px; background: var(--panel); border-radius: 16px; border: 1px solid var(--panel-strong); box-shadow: var(--shadow); }
     .panel-head {
       display: flex;
@@ -580,6 +604,17 @@
             </div>
           </div>
         </div>
+        <div class="modal-backdrop" id="upgradeModal">
+          <div class="modal">
+            <h3>Codex Upgrade Notes</h3>
+            <p class="muted" id="upgradeVersionLabel"></p>
+            <div class="upgrade-notes" id="upgradeNotes">Loading…</div>
+            <div class="actions">
+              <button class="ghost" id="upgradeGithubLink" type="button">Open on GitHub</button>
+              <button class="ghost" id="upgradeClose">Close</button>
+            </div>
+          </div>
+        </div>
 
         <section class="grid metrics" id="stats"></section>
 
@@ -645,12 +680,18 @@
     const runnerLogEl = document.getElementById('runnerLog');
     const runnerMetaEl = document.getElementById('runnerMeta');
     const runnerCloseBtn = document.getElementById('runnerClose');
+    const upgradeModal = document.getElementById('upgradeModal');
+    const upgradeNotesEl = document.getElementById('upgradeNotes');
+    const upgradeVersionEl = document.getElementById('upgradeVersionLabel');
+    const upgradeGithubLink = document.getElementById('upgradeGithubLink');
+    const upgradeCloseBtn = document.getElementById('upgradeClose');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
     let pendingDeleteId = null;
 
+    const upgradeNotesCache = {};
     let currentHosts = [];
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
@@ -1017,6 +1058,13 @@
           : null,
       };
       tokensSummary = data.tokens || null;
+      const codexVersion = typeof data.versions.client_version === 'string'
+        ? data.versions.client_version.trim()
+        : null;
+      const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion : 'n/a';
+      const versionInfoBtn = codexVersion
+        ? `<button class="ghost tiny-btn info-btn" id="upgrade-notes-btn" data-version="${codexVersion}" title="Upgrade notes for Codex ${codexVersion}">ℹ️</button>`
+        : '';
 
       const topHost = tokensSummary?.top_host;
       const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
@@ -1034,11 +1082,12 @@
           </div>
         `,
         `
-          <div class="card">
+          <div class="card version-card">
             <div class="stat-head">
               <span class="stat-label">Versions</span>
+              ${versionInfoBtn}
             </div>
-            <div class="stat-value">CLI ${data.versions.client_version ?? 'n/a'}</div>
+            <div class="stat-value">CLI ${codexVersionDisplay}</div>
             <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
           </div>
         `,
@@ -1059,6 +1108,7 @@
 
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();
+      wireUpgradeNotesControls();
     }
 
     function wireRunnerCardControls() {
@@ -1068,6 +1118,76 @@
           ev.preventDefault();
           handleRunnerClick();
         };
+      }
+    }
+
+    function wireUpgradeNotesControls() {
+      const btn = document.getElementById('upgrade-notes-btn');
+      if (!btn) return;
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const version = btn.getAttribute('data-version') || (lastOverview?.versions?.client_version ?? '');
+        openUpgradeNotes(version);
+      };
+    }
+
+    function showUpgradeNotesModal(show) {
+      if (!upgradeModal) return;
+      if (show) {
+        upgradeModal.classList.add('show');
+      } else {
+        upgradeModal.classList.remove('show');
+      }
+    }
+
+    function setUpgradeNotes(text, isError = false) {
+      if (!upgradeNotesEl) return;
+      upgradeNotesEl.textContent = text;
+      upgradeNotesEl.classList.toggle('error', !!isError);
+    }
+
+    async function openUpgradeNotes(version) {
+      if (!upgradeModal) return;
+      const cleanVersion = typeof version === 'string' ? version.trim().replace(/^v/i, '') : '';
+      if (upgradeVersionEl) {
+        upgradeVersionEl.textContent = cleanVersion ? `Codex v${cleanVersion}` : 'Codex version unavailable';
+      }
+      if (upgradeGithubLink) {
+        const link = cleanVersion
+          ? `https://github.com/openai/codex/releases/tag/rust-v${cleanVersion}`
+          : 'https://github.com/openai/codex/releases';
+        upgradeGithubLink.onclick = () => {
+          window.open(link, '_blank', 'noopener,noreferrer');
+        };
+      }
+      showUpgradeNotesModal(true);
+      if (!cleanVersion) {
+        setUpgradeNotes('No Codex version detected yet.', true);
+        return;
+      }
+      const cached = upgradeNotesCache[cleanVersion];
+      if (cached) {
+        setUpgradeNotes(cached.text, cached.isError);
+        return;
+      }
+      setUpgradeNotes('Loading upgrade notes…');
+      try {
+        const resp = await fetch(`https://api.github.com/repos/openai/codex/releases/tags/rust-v${cleanVersion}`, {
+          headers: { 'Accept': 'application/vnd.github+json' },
+        });
+        if (!resp.ok) {
+          throw new Error(`GitHub ${resp.status}`);
+        }
+        const json = await resp.json();
+        const notes = typeof json.body === 'string' && json.body.trim() !== ''
+          ? json.body.trim()
+          : 'No release notes published for this version.';
+        upgradeNotesCache[cleanVersion] = { text: notes, isError: false };
+        setUpgradeNotes(notes);
+      } catch (err) {
+        const message = `Unable to load notes: ${err.message}`;
+        upgradeNotesCache[cleanVersion] = { text: message, isError: true };
+        setUpgradeNotes(message, true);
       }
     }
 
@@ -1247,6 +1367,14 @@
     }
     if (runnerCloseBtn) {
       runnerCloseBtn.addEventListener('click', () => showRunnerModal(false));
+    }
+    if (upgradeModal) {
+      upgradeModal.addEventListener('click', (e) => {
+        if (e.target === upgradeModal) showUpgradeNotesModal(false);
+      });
+    }
+    if (upgradeCloseBtn) {
+      upgradeCloseBtn.addEventListener('click', () => showUpgradeNotesModal(false));
     }
     if (cancelDeleteHostBtn) {
       cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);
