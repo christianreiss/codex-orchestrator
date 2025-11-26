@@ -761,7 +761,7 @@
   </div>
         </section>
 
-        <section class="card panel" id="prompts-panel" style="display:none;">
+        <section class="card panel" id="prompts-panel">
           <div class="panel-head">
             <div>
               <h2>Slash Commands</h2>
@@ -1227,12 +1227,9 @@
 
     function renderPrompts(prompts) {
       currentPrompts = Array.isArray(prompts) ? prompts : [];
-      if (promptsPanel) {
-        promptsPanel.style.display = currentPrompts.length > 0 ? 'block' : 'none';
-      }
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = '';
+        promptsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
         return;
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
@@ -1637,10 +1634,7 @@
             console.warn('Runner status unavailable', err);
             return null;
           }),
-          api('/admin/slash-commands').catch(err => {
-            console.warn('Slash commands unavailable', err);
-            return null;
-          }),
+          api('/admin/slash-commands'),
         ]);
         setMtls(overview.data.mtls);
         renderStats(overview.data, runner?.data || null);
