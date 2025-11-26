@@ -117,8 +117,16 @@ HOST_TOKENS_MONTH_OUTPUT=""
 HOST_TOKENS_MONTH_CACHED=""
 HOST_TOKENS_MONTH_REASONING=""
 HOST_TOKENS_MONTH_EVENTS=""
+PROMPT_DIR="$HOME/.codex/prompts"
+PROMPT_BASELINE_FILE="$HOME/.codex/.prompt-baseline.json"
+PROMPT_SYNC_STATUS="skip"
+PROMPT_PULL_UPDATED=0
+PROMPT_PULL_ERRORS=0
+PROMPT_PUSHED=0
+PROMPT_PUSH_ERRORS=0
+PROMPT_PUSH_STATUS=""
 
-WRAPPER_VERSION="2025.11.26-11"
+WRAPPER_VERSION="2025.11.26-12"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -1209,6 +1217,320 @@ push_auth_if_changed() {
   return 1
 }
 
+prompt_sync_python() {
+  local mode="$1"
+  local base="$2"
+  local api_key="$3"
+  local prompt_dir="$4"
+  local cafile="$5"
+  local baseline_file="$6"
+  python3 - "$mode" "$base" "$api_key" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
+import hashlib, json, pathlib, ssl, sys, urllib.error, urllib.request
+
+mode = sys.argv[1] if len(sys.argv) > 1 else ""
+base = (sys.argv[2] or "").rstrip("/")
+api_key = sys.argv[3] if len(sys.argv) > 3 else ""
+prompt_dir = pathlib.Path(sys.argv[4]).expanduser()
+cafile = sys.argv[5] if len(sys.argv) > 5 else ""
+baseline_file = pathlib.Path(sys.argv[6]).expanduser() if len(sys.argv) > 6 else prompt_dir.parent / ".prompt-baseline.json"
+
+
+def contexts():
+    ctxs = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        ctxs.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctxs.append(fallback)
+    except Exception:
+        pass
+    try:
+        ctxs.append(ssl._create_unverified_context())
+    except Exception:
+        pass
+    return ctxs or [None]
+
+
+def request_json(method: str, url: str, payload=None):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    last_err = None
+    for ctx in contexts():
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:  # noqa: PERF203
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+
+def parse_front_matter(text: str):
+    description = None
+    argument_hint = None
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return description, argument_hint
+    end_idx = None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            end_idx = idx
+            break
+    if end_idx is None:
+        return description, argument_hint
+    for idx in range(1, end_idx):
+        line = lines[idx].strip()
+        if not line or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "description":
+            description = value
+        elif key == "argument-hint":
+            argument_hint = value
+    return description, argument_hint
+
+
+def load_local(include_content: bool = False):
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    prompts = {}
+    for path in prompt_dir.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            continue
+        sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        entry = {"filename": path.name, "sha": sha}
+        if include_content:
+            entry["content"] = content
+        prompts[path.name] = entry
+    return prompts
+
+
+def save_baseline(prompts: dict):
+    try:
+        baseline_file.parent.mkdir(parents=True, exist_ok=True)
+        baseline_file.write_text(json.dumps(prompts, indent=2) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+if not base:
+    print("error reason=missing-base")
+    sys.exit(1)
+if not api_key:
+    print("error reason=missing-api-key")
+    sys.exit(1)
+
+prompt_dir.mkdir(parents=True, exist_ok=True)
+
+if mode == "pull":
+    try:
+        list_resp = request_json("GET", f"{base}/slash-commands")
+    except Exception as exc:  # noqa: BLE001
+        print(f"error reason={str(exc).replace(' ', '_')}")
+        sys.exit(1)
+
+    commands = []
+    if isinstance(list_resp, dict):
+        data = list_resp.get("data") or {}
+        commands = data.get("commands") or []
+    downloaded = 0
+    errors = 0
+    local = load_local()
+
+    for cmd in commands:
+        if not isinstance(cmd, dict):
+            continue
+        fname = cmd.get("filename")
+        rsha = cmd.get("sha256")
+        if not fname or not rsha:
+            continue
+        local_sha = (local.get(fname) or {}).get("sha")
+        if local_sha and local_sha == rsha:
+            continue
+        payload = {"filename": fname}
+        if local_sha:
+            payload["sha256"] = local_sha
+        try:
+            resp = request_json("POST", f"{base}/slash-commands/retrieve", payload)
+        except Exception as exc:  # noqa: BLE001
+            errors += 1
+            continue
+        data = resp.get("data") if isinstance(resp, dict) else {}
+        status = (data or {}).get("status")
+        prompt = (data or {}).get("prompt")
+        if status == "unchanged":
+            continue
+        if not isinstance(prompt, str):
+            errors += 1
+            continue
+        try:
+            (prompt_dir / fname).write_text(prompt, encoding="utf-8")
+            downloaded += 1
+        except Exception:  # noqa: BLE001
+            errors += 1
+
+    baseline = {name: entry["sha"] for name, entry in load_local().items()}
+    save_baseline(baseline)
+    print(f"ok updated={downloaded} errors={errors}")
+    sys.exit(0)
+
+if mode == "push":
+    if not baseline_file.exists():
+        print("skip reason=no-baseline errors=0")
+        sys.exit(0)
+    try:
+        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        baseline_data = {}
+    if not isinstance(baseline_data, dict):
+        baseline_data = {}
+
+    current = load_local(include_content=True)
+    changes = []
+    for name, entry in current.items():
+        if baseline_data.get(name) != entry.get("sha"):
+            changes.append(entry)
+
+    if not changes:
+        print("ok pushed=0 errors=0")
+        sys.exit(0)
+
+    errors = 0
+    pushed = 0
+    for entry in changes:
+        fname = entry.get("filename")
+        content = entry.get("content")
+        sha = entry.get("sha")
+        if not fname or not content or not sha:
+            continue
+        desc, arg_hint = parse_front_matter(content)
+        payload = {
+            "filename": fname,
+            "prompt": content,
+            "sha256": sha,
+        }
+        if desc:
+            payload["description"] = desc
+        if arg_hint:
+            payload["argument_hint"] = arg_hint
+        try:
+            resp = request_json("POST", f"{base}/slash-commands/store", payload)
+        except Exception:  # noqa: BLE001
+            errors += 1
+            continue
+        data = resp.get("data") if isinstance(resp, dict) else {}
+        status = (data or {}).get("status")
+        if status in ("created", "updated", "unchanged"):
+            pushed += 1
+        else:
+            errors += 1
+
+    if errors == 0:
+        latest_baseline = {name: entry["sha"] for name, entry in current.items()}
+        save_baseline(latest_baseline)
+
+    print(f"ok pushed={pushed} errors={errors}")
+    sys.exit(0)
+
+print("skip reason=unknown-mode errors=0")
+PY
+}
+
+sync_slash_commands_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    PROMPT_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    PROMPT_SYNC_STATUS="no-python"
+    log_warn "python3 is required for slash command sync; skipping."
+    return 1
+  fi
+  local summary status_code
+  set +e
+  summary="$(prompt_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$PROMPT_DIR" "$CODEX_SYNC_CA_FILE" "$PROMPT_BASELINE_FILE")"
+  status_code=$?
+  set -e
+  PROMPT_SYNC_STATUS="error"
+  if (( status_code != 0 )); then
+    [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
+    PROMPT_PULL_ERRORS=1
+    return 1
+  fi
+  local part
+  PROMPT_SYNC_STATUS="${summary%% *}"
+  for part in $summary; do
+    case "$part" in
+      updated=*) PROMPT_PULL_UPDATED="${part#updated=}" ;;
+      errors=*) PROMPT_PULL_ERRORS="${part#errors=}" ;;
+    esac
+  done
+  return 0
+}
+
+push_slash_commands_if_changed() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    PROMPT_PUSH_STATUS="missing-config"
+    return 0
+  fi
+  if [[ ! -f "$PROMPT_BASELINE_FILE" ]]; then
+    PROMPT_PUSH_STATUS="no-baseline"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    PROMPT_PUSH_STATUS="no-python"
+    return 0
+  fi
+  local summary status_code
+  set +e
+  summary="$(prompt_sync_python push "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$PROMPT_DIR" "$CODEX_SYNC_CA_FILE" "$PROMPT_BASELINE_FILE")"
+  status_code=$?
+  set -e
+  PROMPT_PUSH_STATUS="error"
+  if (( status_code != 0 )); then
+    [[ -n "$summary" ]] && log_warn "Slash command push failed: $summary" || log_warn "Slash command push failed."
+    PROMPT_PUSH_ERRORS=1
+    return 1
+  fi
+  local part
+  PROMPT_PUSH_STATUS="${summary%% *}"
+  for part in $summary; do
+    case "$part" in
+      pushed=*) PROMPT_PUSHED="${part#pushed=}" ;;
+      errors=*) PROMPT_PUSH_ERRORS="${part#errors=}" ;;
+    esac
+  done
+  return 0
+}
+
 extract_token_usage_payload() {
   local log_path="$1"
   if [[ ! -f "$log_path" ]]; then
@@ -1691,6 +2013,7 @@ fi
 
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
+sync_slash_commands_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -2234,6 +2557,56 @@ elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_tone="red"
 fi
 
+prompt_label="sync skipped"
+prompt_tone="yellow"
+if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
+  prompt_label="synced"
+  if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
+    prompt_label+=" (${PROMPT_PULL_UPDATED} updated)"
+  fi
+  if [[ "$PROMPT_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_ERRORS > 0 )); then
+    prompt_label+=" (${PROMPT_PULL_ERRORS} fetch errors)"
+    prompt_tone="yellow"
+  else
+    prompt_tone="green"
+  fi
+elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
+  prompt_label="sync config missing"
+  prompt_tone="red"
+elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
+  prompt_label="sync requires python3"
+  prompt_tone="yellow"
+elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
+  prompt_label="sync failed"
+  prompt_tone="red"
+fi
+
+case "$PROMPT_PUSH_STATUS" in
+  ok)
+    if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
+      prompt_label+="; pushed ${PROMPT_PUSHED}"
+    fi
+    if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
+      prompt_label+="; push errors ${PROMPT_PUSH_ERRORS}"
+      prompt_tone="yellow"
+    fi
+    ;;
+  no-baseline)
+    prompt_label+="; push skipped (no baseline)"
+    ;;
+  no-python)
+    prompt_label+="; push skipped (python missing)"
+    ;;
+  missing-config)
+    prompt_label+="; push skipped (config missing)"
+    prompt_tone="red"
+    ;;
+  error)
+    prompt_label+="; push failed"
+    prompt_tone="red"
+    ;;
+esac
+
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
@@ -2274,6 +2647,28 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   result_parts+=("auth unavailable")
+fi
+if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
+  prompt_result="prompts synced"
+  if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
+    prompt_result+=" (${PROMPT_PULL_UPDATED} updated)"
+  fi
+  if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
+    prompt_result+="; pushed ${PROMPT_PUSHED}"
+  fi
+  if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
+    prompt_result+="; push errors ${PROMPT_PUSH_ERRORS}"
+  fi
+  result_parts+=("$prompt_result")
+elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("prompts config missing")
+elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("prompts python missing")
+elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("prompts sync failed")
+fi
+if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
+  result_parts+=("prompts push failed")
 fi
 result_label="$(human_join "${result_parts[@]}")"
 
@@ -2317,6 +2712,12 @@ elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
 elif [[ "${codex_status_label,,}" == "update available" ]] || [[ "${wrapper_status_label,,}" == "update available" ]]; then
   result_tone="yellow"
+elif [[ "$PROMPT_SYNC_STATUS" == "error" || "$PROMPT_PUSH_STATUS" == "error" ]]; then
+  result_tone="red"
+elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; then
+  result_tone="yellow"
+elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
+  result_tone="yellow"
 fi
 
 command_tone=""
@@ -2328,6 +2729,7 @@ fi
   log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  log_info "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   host_usage_parts=()
   if [[ -n "$HOST_API_CALLS" ]]; then
     host_usage_parts+=("api calls ${HOST_API_CALLS}")
@@ -2416,6 +2818,7 @@ fi
 cleanup() {
   local exit_status=$?
   trap - EXIT
+  push_slash_commands_if_changed || true
   if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
     push_auth_if_changed "push" || true
   fi

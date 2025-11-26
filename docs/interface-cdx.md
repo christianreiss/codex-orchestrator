@@ -3,6 +3,7 @@
 - `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, and optional CA file.
 - On launch it:
   - Pulls `auth.json` from `/auth` (store/retrieve); if the API is unreachable it now proceeds with the cached `auth.json` when present and fresher than 24 hours, but still refuses to start when the key is invalid or no fresh auth is available.
+  - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`.
   - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`.
   - When `/auth` returns a `chatgpt_usage` block, surfaces 5-hour and weekly ChatGPT quota bars during boot (with reset ETA) for operator visibility.

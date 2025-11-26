@@ -30,6 +30,7 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 - The admin dashboard mints per-host API keys and one-time installer tokens; each token maps to `/install/{uuid}` which returns a self-contained bash script that installs/updates `cdx`, fetches Codex, and bakes the API key/base URL directly into the wrapper (no sync env file needed).
 - Each host keeps only `~/.codex/auth.json`; connection details are embedded in its `cdx` wrapper.
 - When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` with `cdx` on store and once per UTC day; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically.
+- The `cdx` wrapper also syncs slash command prompts in `~/.codex/prompts` via `/slash-commands`, pulling new/updated prompts on launch and pushing local changes on exit.
 
 ## From manual logins to central sync
 

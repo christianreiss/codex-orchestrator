@@ -7,6 +7,9 @@
 - `POST /usage` — token usage telemetry from `cdx`. Body accepts either a single usage entry or `usages` array; each entry may include numeric `total`/`input`/`output` plus optional `cached`, `reasoning`, `model`, or freeform `line` (at least one numeric field or `line` required). Stores one `token_usages` row per entry and logs `token.usage` for each.
 - `GET /wrapper` — wrapper metadata baked for host (version, sha256, `size_bytes`, `url`). Auth required.
 - `GET /wrapper/download` — downloads baked `cdx` wrapper (per-host hash). Auth required.
+- `GET /slash-commands` — list server-known slash command prompts (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`). Auth required.
+- `POST /slash-commands/retrieve` — body: `filename` (required) and optional `sha256` (64-hex). Returns `status` (`missing` | `unchanged` | `updated`) plus metadata and `prompt` when the server copy differs from the provided digest.
+- `POST /slash-commands/store` — body: `filename`, `prompt` (full file content, e.g., markdown with `---` front matter), optional `description`/`argument_hint`, optional `sha256` (validated against `prompt`). Stores/updates canonical prompt row, logs `slash.store`, and echoes `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
 - `GET /versions` — current client version (GitHub latest, cached 3h with stale fallback) and wrapper version from the baked script; no publish endpoint.
 
 ## Installer

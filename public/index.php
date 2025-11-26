@@ -19,11 +19,13 @@ use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
+use App\Repositories\SlashCommandRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
+use App\Services\SlashCommandService;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
@@ -67,6 +69,7 @@ $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $logRepository = new LogRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
+$slashCommandRepository = new SlashCommandRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $versionRepository = new VersionRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
@@ -83,6 +86,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
+$slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -821,6 +825,49 @@ $router->add('DELETE', '#^/auth$#', function () use ($service) {
         'data' => [
             'deleted' => $host['fqdn'],
         ],
+    ]);
+});
+
+$router->add('GET', '#^/slash-commands$#', function () use ($service, $slashCommandService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $commands = $slashCommandService->listCommands($host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'commands' => $commands,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/slash-commands/retrieve$#', function () use ($payload, $service, $slashCommandService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $filename = is_array($payload) ? (string) ($payload['filename'] ?? '') : '';
+    $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
+    $result = $slashCommandService->retrieve($filename, $sha, $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/slash-commands/store$#', function () use ($payload, $service, $slashCommandService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $result = $slashCommandService->store(is_array($payload) ? $payload : [], $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
     ]);
 });
 
