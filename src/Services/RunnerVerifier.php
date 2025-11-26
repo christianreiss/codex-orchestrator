@@ -45,18 +45,24 @@ class RunnerVerifier
                     'header' => "Content-Type: application/json\r\n",
                     'content' => $body,
                     'timeout' => $timeout,
+                    'ignore_errors' => true, // allow reading response bodies on non-200
                 ],
             ]);
 
             $response = file_get_contents($this->runnerUrl, false, $context);
             $latencyMs = (int) ((microtime(true) - $start) * 1000);
-            if ($response === false || $response === '') {
-                $status = null;
-                if (isset($http_response_header[0])) {
-                    if (preg_match('#\s(\d{3})\s#', (string) $http_response_header[0], $m)) {
-                        $status = (int) $m[1];
-                    }
-                }
+            $status = $this->extractStatus($http_response_header ?? []);
+            if ($response === false) {
+                return [
+                    'status' => 'fail',
+                    'reason' => $status !== null
+                        ? 'runner request failed (status ' . $status . ')'
+                        : 'runner request failed',
+                    'latency_ms' => $latencyMs,
+                ];
+            }
+
+            if ($response === '') {
                 return [
                     'status' => 'fail',
                     'reason' => $status !== null
@@ -70,7 +76,9 @@ class RunnerVerifier
             if (!is_array($decoded)) {
                 return [
                     'status' => 'fail',
-                    'reason' => 'invalid runner response',
+                    'reason' => $status !== null
+                        ? 'invalid runner response (status ' . $status . ')'
+                        : 'invalid runner response',
                     'latency_ms' => $latencyMs,
                 ];
             }
@@ -86,5 +94,14 @@ class RunnerVerifier
                 'reason' => $exception->getMessage(),
             ];
         }
+    }
+
+    private function extractStatus(array $httpResponseHeader): ?int
+    {
+        if (isset($httpResponseHeader[0]) && preg_match('#\s(\d{3})\s#', (string) $httpResponseHeader[0], $m)) {
+            return (int) $m[1];
+        }
+
+        return null;
     }
 }

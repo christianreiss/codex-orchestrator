@@ -83,7 +83,7 @@ CHATGPT_SECONDARY_LIMIT=""
 CHATGPT_SECONDARY_RESET_AFTER=""
 CHATGPT_SECONDARY_RESET_AT=""
 
-WRAPPER_VERSION="2025.11.26-1"
+WRAPPER_VERSION="2025.11.26-2"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -2174,17 +2174,16 @@ if (( ${#command_actions[@]} )); then
   log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
-  local qline
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
   if [[ -n "$qline" ]]; then
-    local qtone="${qline%%$'\t'*}"
-    local qtext="${qline#*$'\t'}"
+    qtone="${qline%%$'\t'*}"
+    qtext="${qline#*$'\t'}"
     log_info "$(format_simple_row "5h quota" "$(colorize "$qtext" "$qtone")")"
   fi
   qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
   if [[ -n "$qline" ]]; then
-    local qtone2="${qline%%$'\t'*}"
-    local qtext2="${qline#*$'\t'}"
+    qtone2="${qline%%$'\t'*}"
+    qtext2="${qline#*$'\t'}"
     log_info "$(format_simple_row "week quota" "$(colorize "$qtext2" "$qtone2")")"
   fi
   if [[ -n "$usage_summary" ]]; then
