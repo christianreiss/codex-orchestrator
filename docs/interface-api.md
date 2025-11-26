@@ -35,6 +35,8 @@
 - `GET /admin/chatgpt/usage[?force=1]` — account-level ChatGPT `/wham/usage` snapshot using canonical `auth.json` token (5-minute cooldown unless `force`).
 - `POST /admin/chatgpt/usage/refresh` — force-refresh ChatGPT usage snapshot (bypasses cooldown).
 - `GET /admin/slash-commands` — list server-stored slash command prompts (filename, sha256, description, argument hint, timestamps).
+- `GET /admin/slash-commands/{filename}` — fetch a single slash command (includes full prompt body).
+- `POST /admin/slash-commands/store` — create/update a slash command (body: `filename`, `prompt`, optional `description`/`argument_hint`/`sha256`; sha is computed if omitted).
 - Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_month`, `pricing`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations.
 
 ## Auth + IP rules

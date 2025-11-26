@@ -785,6 +785,56 @@ $router->add('GET', '#^/admin/slash-commands$#', function () use ($slashCommandR
     ]);
 });
 
+$router->add('GET', '#^/admin/slash-commands/([^/]+)$#', function ($matches) use ($slashCommandService) {
+    requireAdminAccess();
+    $filename = urldecode($matches[1]);
+    try {
+        $command = $slashCommandService->find($filename);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    if ($command === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Slash command not found',
+        ], 404);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $command,
+    ]);
+});
+
+$router->add('POST', '#^/admin/slash-commands/store$#', function () use ($payload, $slashCommandService) {
+    requireAdminAccess();
+
+    try {
+        $result = $slashCommandService->store(is_array($payload) ? $payload : [], null);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    } catch (HttpException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
     requireAdminAccess();
 

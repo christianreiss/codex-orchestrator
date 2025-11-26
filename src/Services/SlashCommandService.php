@@ -69,6 +69,24 @@ class SlashCommandService
         return $result;
     }
 
+    public function find(string $filename): ?array
+    {
+        $normalized = $this->normalizeFilename($filename);
+        $row = $this->commands->findByFilename($normalized);
+        if ($row === null) {
+            return null;
+        }
+
+        return [
+            'filename' => $normalized,
+            'sha256' => $row['sha256'] ?? hash('sha256', (string) ($row['prompt'] ?? '')),
+            'description' => $row['description'] ?? null,
+            'argument_hint' => $row['argument_hint'] ?? null,
+            'prompt' => $row['prompt'] ?? '',
+            'updated_at' => $row['updated_at'] ?? null,
+        ];
+    }
+
     public function store(array $payload, ?array $host = null): array
     {
         $filenameRaw = is_array($payload) ? ($payload['filename'] ?? '') : '';
@@ -85,7 +103,7 @@ class SlashCommandService
             $errors['prompt'][] = 'prompt is required';
         }
 
-        $this->assertSha256($providedSha, false, $errors);
+        $this->assertSha256($providedSha, true, $errors);
 
         if ($errors) {
             throw new ValidationException($errors);

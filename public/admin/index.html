@@ -642,8 +642,35 @@
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="cancelNewHost">Cancel</button>
               <button id="createHost">Generate</button>
+      </div>
+    </div>
+
+        <div class="modal-backdrop" id="promptModal">
+          <div class="modal">
+            <h3>Edit Slash Command</h3>
+            <div class="field">
+              <label style="font-weight:600;">Filename</label>
+              <input id="promptFilename" type="text" readonly>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Description</label>
+              <input id="promptDescription" type="text" placeholder="Short description">
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Argument hint</label>
+              <input id="promptArgument" type="text" placeholder='e.g. [MESSAGE="<commit message>"]'>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Prompt</label>
+              <textarea id="promptBody" rows="12" placeholder="Full prompt content"></textarea>
+            </div>
+            <div id="promptStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+              <button class="ghost" id="promptCancel">Cancel</button>
+              <button id="promptSave">Save</button>
             </div>
           </div>
+        </div>
         </div>
         <div class="modal-backdrop" id="uploadModal">
           <div class="modal">
@@ -802,6 +829,14 @@
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const promptsTbody = document.querySelector('#prompts tbody');
+    const promptModal = document.getElementById('promptModal');
+    const promptFilename = document.getElementById('promptFilename');
+    const promptDescription = document.getElementById('promptDescription');
+    const promptArgument = document.getElementById('promptArgument');
+    const promptBody = document.getElementById('promptBody');
+    const promptSave = document.getElementById('promptSave');
+    const promptCancel = document.getElementById('promptCancel');
+    const promptStatus = document.getElementById('promptStatus');
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -1200,17 +1235,19 @@
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
         const desc = (p.description || '').replace(/</g, '&lt;');
-        const hint = (p.argument_hint || '').replace(/</g, '&lt;');
-        const sha = p.sha256 ? String(p.sha256).slice(0, 12) + '…' : '—';
-        const updated = p.updated_at ? formatTimestamp(p.updated_at) : '—';
         return `<tr>
           <td data-label="Filename"><code>${p.filename}</code></td>
           <td data-label="Description">${desc || '—'}</td>
-          <td data-label="Argument hint"><code>${hint || '—'}</code></td>
-          <td data-label="SHA256"><code>${sha}</code></td>
-          <td data-label="Updated">${updated}</td>
+          <td data-label="Actions"><button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button></td>
         </tr>`;
       }).join('');
+
+      promptsTbody.querySelectorAll('.prompt-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const name = btn.getAttribute('data-filename');
+          openPromptModal(name);
+        });
+      });
     }
 
     function renderRunnerCard(info) {
@@ -1683,6 +1720,74 @@
       } catch (err) {
         appendRunnerLog(`Runner error: ${err.message}`, 'err');
       }
+    }
+
+    function showPromptModal(show) {
+      if (!promptModal) return;
+      if (show) {
+        promptModal.classList.add('show');
+      } else {
+        promptModal.classList.remove('show');
+        if (promptStatus) promptStatus.textContent = '';
+      }
+    }
+
+    async function openPromptModal(filename) {
+      if (!promptFilename || !promptDescription || !promptBody) return;
+      promptFilename.value = filename || '';
+      promptDescription.value = '';
+      promptArgument.value = '';
+      promptBody.value = '';
+      if (promptStatus) promptStatus.textContent = 'Loading…';
+      showPromptModal(true);
+      try {
+        const resp = await api(`/admin/slash-commands/${encodeURIComponent(filename)}`);
+        const data = resp?.data || {};
+        promptFilename.value = data.filename || filename || '';
+        promptDescription.value = data.description || '';
+        promptArgument.value = data.argument_hint || '';
+        promptBody.value = data.prompt || '';
+        if (promptStatus) promptStatus.textContent = '';
+      } catch (err) {
+        if (promptStatus) promptStatus.textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    async function savePrompt() {
+      if (!promptFilename || !promptBody) return;
+      const payload = {
+        filename: promptFilename.value.trim(),
+        description: promptDescription?.value ?? '',
+        argument_hint: promptArgument?.value ?? '',
+        prompt: promptBody.value,
+      };
+      if (!payload.filename) {
+        if (promptStatus) promptStatus.textContent = 'Filename is required';
+        return;
+      }
+      if (!payload.prompt.trim()) {
+        if (promptStatus) promptStatus.textContent = 'Prompt is required';
+        return;
+      }
+      if (promptStatus) promptStatus.textContent = 'Saving…';
+      try {
+        await api('/admin/slash-commands/store', {
+          method: 'POST',
+          json: payload,
+        });
+        if (promptStatus) promptStatus.textContent = 'Saved';
+        await loadAll();
+        showPromptModal(false);
+      } catch (err) {
+        if (promptStatus) promptStatus.textContent = `Save failed: ${err.message}`;
+      }
+    }
+
+    if (promptCancel) {
+      promptCancel.addEventListener('click', () => showPromptModal(false));
+    }
+    if (promptSave) {
+      promptSave.addEventListener('click', () => savePrompt());
     }
 
     if (versionCheckBtn) {
