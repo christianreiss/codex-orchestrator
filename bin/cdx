@@ -130,7 +130,7 @@ PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
 
-WRAPPER_VERSION="2025.11.26-13"
+WRAPPER_VERSION="2025.11.26-14"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -2475,6 +2475,24 @@ render_quota_line() {
   printf "%s\t%s\t%s" "$tone" "$text" "$note"
 }
 
+project_quota_usage() {
+  local used_pct="$1" limit_seconds="$2" reset_after="$3"
+  [[ "$used_pct" =~ ^[0-9]+$ ]] || return
+  [[ "$limit_seconds" =~ ^[0-9]+$ ]] || return
+  (( limit_seconds > 0 )) || return
+  local remaining=0
+  if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
+    remaining="$reset_after"
+  fi
+  (( remaining < 0 )) && remaining=0
+  local elapsed=$(( limit_seconds - remaining ))
+  (( elapsed < 1 )) && return
+  (( elapsed > limit_seconds )) && elapsed=limit_seconds
+  local projected=$(( (used_pct * limit_seconds + elapsed / 2) / elapsed ))
+  (( projected > 999 )) && projected=999
+  printf "%d" "$projected"
+}
+
 format_auth_label() {
   local status="$1" action="$2" msg="$3"
   local parts=()
@@ -2821,7 +2839,13 @@ if [[ -n "$qline" ]]; then
   rest2="${qline#*$'\t'}"
   qtext2="${rest2%%$'\t'*}"
   qnote2="${rest2#*$'\t'}"
-  log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote2" "$qtone2")")"
+  projection_note=""
+  projection_pct="$(project_quota_usage "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER")"
+  if [[ -n "$projection_pct" ]]; then
+    projection_note="proj ~${projection_pct}% at reset"
+  fi
+  qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
+  log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
 fi
 if [[ -n "$usage_summary" ]]; then
   log_info "$(format_simple_row "tokens" "$usage_summary")"
