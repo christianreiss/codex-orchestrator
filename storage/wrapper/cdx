@@ -110,6 +110,8 @@ CHATGPT_SECONDARY_USED=""
 CHATGPT_SECONDARY_LIMIT=""
 CHATGPT_SECONDARY_RESET_AFTER=""
 CHATGPT_SECONDARY_RESET_AT=""
+QUOTA_BLOCKED=0
+QUOTA_BLOCK_REASON=""
 HOST_API_CALLS=""
 HOST_TOKENS_MONTH_TOTAL=""
 HOST_TOKENS_MONTH_INPUT=""
@@ -130,7 +132,7 @@ PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
 
-WRAPPER_VERSION="2025.11.26-14"
+WRAPPER_VERSION="2025.11.26-15"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -2747,6 +2749,9 @@ fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
 fi
+if (( QUOTA_BLOCKED )); then
+  result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
+fi
 result_label="$(human_join "${result_parts[@]}")"
 
   usage_summary=""
@@ -2795,11 +2800,16 @@ elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; the
   result_tone="yellow"
 elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
   result_tone="yellow"
+elif (( QUOTA_BLOCKED )); then
+  result_tone="red"
 fi
 
 command_tone=""
 if (( ${#command_actions[@]} )); then
   command_tone="yellow"
+fi
+if (( QUOTA_BLOCKED )); then
+  command_tone="red"
 fi
 
   log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
@@ -2825,33 +2835,60 @@ fi
     host_usage_text="$(join_with_semicolon "${host_usage_parts[@]}")"
     log_info "$(format_simple_row "host usage" "$host_usage_text")"
   fi
+  primary_reset_hint=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
   if [[ -n "$qline" ]]; then
     qtone="${qline%%$'\t'*}"
-  rest="${qline#*$'\t'}"
-  qtext="${rest%%$'\t'*}"
-  qnote="${rest#*$'\t'}"
-  log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$(colorize "$qnote" "$qtone")")"
-fi
-qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
-if [[ -n "$qline" ]]; then
-  qtone2="${qline%%$'\t'*}"
-  rest2="${qline#*$'\t'}"
-  qtext2="${rest2%%$'\t'*}"
-  qnote2="${rest2#*$'\t'}"
-  projection_note=""
-  projection_pct="$(project_quota_usage "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER")"
-  if [[ -n "$projection_pct" ]]; then
-    projection_note="proj ~${projection_pct}% at reset"
+    rest="${qline#*$'\t'}"
+    qtext="${rest%%$'\t'*}"
+    qnote="${rest#*$'\t'}"
+    primary_reset_hint="$qnote"
+    log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$(colorize "$qnote" "$qtone")")"
   fi
-  qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
-  log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
-fi
-if [[ -n "$usage_summary" ]]; then
-  log_info "$(format_simple_row "tokens" "$usage_summary")"
-fi
-log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
-log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
+
+  secondary_reset_hint=""
+  qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
+  if [[ -n "$qline" ]]; then
+    qtone2="${qline%%$'\t'*}"
+    rest2="${qline#*$'\t'}"
+    qtext2="${rest2%%$'\t'*}"
+    qnote2="${rest2#*$'\t'}"
+    projection_note=""
+    projection_pct="$(project_quota_usage "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER")"
+    if [[ -n "$projection_pct" ]]; then
+      projection_note="proj ~${projection_pct}% at reset"
+    fi
+    qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
+    secondary_reset_hint="$qnote_full"
+    log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
+  fi
+
+  quota_reasons=()
+  if [[ "${CHATGPT_STATUS,,}" == "limit_reached" ]]; then
+    quota_reasons+=("ChatGPT status limit_reached")
+  fi
+  if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]] && (( CHATGPT_PRIMARY_USED >= 100 )); then
+    reason="5h quota reached (${CHATGPT_PRIMARY_USED}% used"
+    [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
+    reason+=")"
+    quota_reasons+=("$reason")
+  fi
+  if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]] && (( CHATGPT_SECONDARY_USED >= 100 )); then
+    reason="week quota reached (${CHATGPT_SECONDARY_USED}% used"
+    [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
+    reason+=")"
+    quota_reasons+=("$reason")
+  fi
+  if (( ${#quota_reasons[@]} )); then
+    QUOTA_BLOCKED=1
+    QUOTA_BLOCK_REASON="$(human_join "${quota_reasons[@]}")"
+  fi
+
+  if [[ -n "$usage_summary" ]]; then
+    log_info "$(format_simple_row "tokens" "$usage_summary")"
+  fi
+  log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+  log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
@@ -2890,6 +2927,11 @@ case "$AUTH_PULL_STATUS" in
     AUTH_LAUNCH_REASON="Auth unavailable; fix sync before retrying."
     ;;
 esac
+
+if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
+  AUTH_LAUNCH_ALLOWED=0
+  AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
+fi
 
 if (( AUTH_LAUNCH_ALLOWED == 0 )); then
   log_error "${AUTH_LAUNCH_REASON:-Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth.}"
