@@ -70,6 +70,8 @@ mask_key() {
 CODEX_DEBUG=${CODEX_DEBUG:-0}
 CODEX_NO_PTY=${CODEX_NO_PTY:-0}
 CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
+CODEX_FORCE_WRAPPER_UPDATE=0
+CODEX_EXIT_AFTER_UPDATE=0
 
 # Per-host baked configuration (populated by the server at download time).
 CODEX_SYNC_BAKED=${CODEX_SYNC_BAKED:-1}
@@ -95,6 +97,7 @@ SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
+LOCAL_AUTH_IS_FRESH=0
 last_usage_payload=""
 CHATGPT_STATUS=""
 CHATGPT_PLAN=""
@@ -115,7 +118,8 @@ HOST_TOKENS_MONTH_CACHED=""
 HOST_TOKENS_MONTH_REASONING=""
 HOST_TOKENS_MONTH_EVENTS=""
 
-WRAPPER_VERSION="2025.11.26-9"
+WRAPPER_VERSION="2025.11.26-11"
+MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -138,6 +142,11 @@ case "${1-}" in
     ;;
   --uninstall)
     cmd_uninstall
+    ;;
+  --update|-U)
+    CODEX_FORCE_WRAPPER_UPDATE=1
+    CODEX_EXIT_AFTER_UPDATE=1
+    shift
     ;;
 esac
 
@@ -1084,7 +1093,7 @@ get_auth_last_refresh() {
   if ! command -v python3 >/dev/null 2>&1; then
     return 0
   fi
-  python3 - "$path" <<'PY'
+ python3 - "$path" <<'PY'
 import json, sys, pathlib
 path = pathlib.Path(sys.argv[1])
 try:
@@ -1095,6 +1104,39 @@ if isinstance(data, dict):
     lr = data.get("last_refresh")
     if isinstance(lr, str):
         print(lr, end="")
+PY
+}
+
+is_last_refresh_recent() {
+  local last_refresh="$1"
+  local max_age_seconds="${2:-$MAX_LOCAL_AUTH_AGE_SECONDS}"
+  if [[ -z "$last_refresh" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$last_refresh" "$max_age_seconds" <<'PY'
+import sys, datetime
+from datetime import timezone
+
+value = sys.argv[1]
+max_age_seconds = int(sys.argv[2])
+max_future_skew = 300
+try:
+    dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    now = datetime.datetime.now(timezone.utc)
+    delta = now - dt
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+
+if delta.total_seconds() < -max_future_skew:
+    sys.exit(1)
+if delta.total_seconds() <= max_age_seconds:
+    sys.exit(0)
+sys.exit(1)
 PY
 }
 
@@ -1650,6 +1692,10 @@ fi
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
+LOCAL_AUTH_IS_FRESH=0
+if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
+  LOCAL_AUTH_IS_FRESH=1
+fi
 HAS_LOCAL_AUTH=0
 [[ -f "$HOME/.codex/auth.json" ]] && HAS_LOCAL_AUTH=1
 
@@ -1837,14 +1883,24 @@ wrapper_target_label="$WRAPPER_VERSION"
 
 # Wrapper self-update (single latest version only)
 wrapper_state="current (${WRAPPER_VERSION})"
-if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
+target_wrapper=""
+target_wrapper_sha=""
+target_wrapper_url=""
+wrapper_target_label="$WRAPPER_VERSION"
+
+if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
   target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
   wrapper_target_label="${target_wrapper:-$WRAPPER_VERSION}"
+
+  if [[ -z "$target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
+    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
   if [[ -n "$target_wrapper_url" && "$target_wrapper_url" != http* ]]; then
     target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${target_wrapper_url}"
   fi
+
   need_wrapper_update=0
   if [[ -n "$target_wrapper" && "$target_wrapper" != "$WRAPPER_VERSION" ]]; then
     need_wrapper_update=1
@@ -1855,6 +1911,10 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
         need_wrapper_update=1
       fi
     fi
+  fi
+  if (( CODEX_FORCE_WRAPPER_UPDATE )); then
+    need_wrapper_update=1
+    wrapper_status_note="forced update requested"
   fi
 
   if (( need_wrapper_update )) && [[ -n "$target_wrapper_url" ]]; then
@@ -1887,7 +1947,7 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
             wrapper_updated=1
             wrapper_status_label="Updated"
             if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-              wrapper_status_note="from ${WRAPPER_VERSION_INITIAL}"
+              wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
             fi
           elif (( CAN_SUDO )); then
             if $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
@@ -1896,7 +1956,7 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
               wrapper_updated=1
               wrapper_status_label="Updated"
               if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-                wrapper_status_note="from ${WRAPPER_VERSION_INITIAL}"
+                wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
               fi
             else
               log_warn "Wrapper update failed: sudo install denied"
@@ -1925,6 +1985,19 @@ if [[ "$AUTH_PULL_STATUS" == "ok" ]]; then
     wrapper_status_label="Update skipped"
     wrapper_status_note="missing download URL"
   fi
+fi
+
+if (( CODEX_EXIT_AFTER_UPDATE )); then
+  if (( wrapper_updated )); then
+    log_info "Wrapper update completed (version ${WRAPPER_VERSION})."
+    exit 0
+  fi
+  if (( wrapper_update_failed )); then
+    log_error "Wrapper update failed (${wrapper_status_note:-unknown})."
+    exit 1
+  fi
+  log_warn "Wrapper update not attempted (status ${wrapper_status_label})."
+  exit 1
 fi
 
 human_join() {
@@ -2127,9 +2200,11 @@ auth_label="n/a"
 if [[ -n "$AUTH_STATUS" ]]; then
   auth_label="$(format_auth_label "$AUTH_STATUS" "$AUTH_ACTION" "$AUTH_MESSAGE")"
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )); then
-    cached_lr="${ORIGINAL_LAST_REFRESH:-unknown}"
+  cached_lr="${ORIGINAL_LAST_REFRESH:-unknown}"
+  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
     auth_label="using cached auth (api offline; last_refresh ${cached_lr})"
+  elif (( HAS_LOCAL_AUTH )); then
+    auth_label="cached auth stale (api offline; last_refresh ${cached_lr})"
   else
     auth_label="auth unavailable (api offline)"
   fi
@@ -2150,7 +2225,7 @@ case "$AUTH_STATUS" in
     ;;
 esac
 if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )); then
+  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
     auth_tone="yellow"
   else
     auth_tone="red"
@@ -2190,8 +2265,10 @@ if [[ -n "$AUTH_STATUS" ]]; then
   fi
   result_parts+=("$auth_result")
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )); then
+  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
     result_parts+=("auth cached (api offline)")
+  elif (( HAS_LOCAL_AUTH )); then
+    result_parts+=("auth stale (api offline)")
   else
     result_parts+=("auth unavailable (api offline)")
   fi
@@ -2303,9 +2380,11 @@ case "$AUTH_PULL_STATUS" in
     AUTH_LAUNCH_ALLOWED=1
     ;;
   offline)
-    if (( HAS_LOCAL_AUTH )); then
+    if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
       AUTH_LAUNCH_ALLOWED=1
       AUTH_LAUNCH_REASON="API offline; using cached auth.json"
+    elif (( HAS_LOCAL_AUTH )); then
+      AUTH_LAUNCH_REASON="API offline; cached auth.json older than 24h"
     else
       AUTH_LAUNCH_REASON="API offline and no cached auth.json"
     fi
