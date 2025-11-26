@@ -1,6 +1,6 @@
 # Agents & Responsibilities
 
-Source of truth docs: keep `interface-api.md`, `interface-db.md`, and `interface-cdx.md` aligned with code. Use them when auditing or extending behavior.
+Source of truth docs: keep `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md` aligned with code. Use them when auditing or extending behavior.
 
 This project is small, but each class has a clear role in the orchestration pipeline that keeps Codex `auth.json` files synchronized between servers. Use this guide when extending or debugging the service.
 

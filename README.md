@@ -133,7 +133,7 @@ docker-compose.yml
 
 ## API Reference
 
-> Full, code-accurate contracts live in `interface-api.md`, `interface-db.md`, and `interface-cdx.md`. Highlights below stay in sync with those specs.
+> Full, code-accurate contracts live in `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md`. Highlights below stay in sync with those specs.
 
 ### Host provisioning (admin)
 
