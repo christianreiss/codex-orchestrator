@@ -8,4 +8,9 @@ class ValidationException extends HttpException
     {
         parent::__construct('Validation failed', 422, $errors);
     }
+
+    public function getErrors(): array
+    {
+        return $this->context();
+    }
 }
