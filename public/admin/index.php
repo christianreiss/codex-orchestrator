@@ -5,6 +5,11 @@ $mtlsFingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
 $mtlsSubject = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? '';
 $mtlsIssuer = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? '';
 
+function isMobileUserAgent(string $userAgent): bool
+{
+    return preg_match('/android|iphone|ipad|ipod|mobile|blackberry|phone|opera mini|windows phone/i', $userAgent) === 1;
+}
+
 $hasValidFingerprint = is_string($mtlsFingerprint) && preg_match('/^[A-Fa-f0-9]{64}$/', $mtlsFingerprint) === 1;
 
 if (!$hasValidFingerprint) {
@@ -20,5 +25,29 @@ if (!is_file($html)) {
     exit;
 }
 
+$viewParam = $_GET['view'] ?? '';
+if (is_array($viewParam)) {
+    $viewParam = '';
+}
+$viewParam = strtolower(trim((string) $viewParam));
+$forceMobile = $viewParam === 'mobile';
+$forceDesktop = $viewParam === 'desktop';
+$shouldServeMobile = !$forceDesktop && ($forceMobile || isMobileUserAgent($_SERVER['HTTP_USER_AGENT'] ?? ''));
+
+$content = file_get_contents($html);
+if ($content === false) {
+    header('Content-Type: text/plain; charset=utf-8', true, 500);
+    echo 'Unable to load admin UI';
+    exit;
+}
+
+if ($shouldServeMobile) {
+    $content = str_replace('data-view="desktop"', 'data-view="mobile"', $content, $count);
+    if ($count === 0) {
+        $content = preg_replace('/<body(\\s*)>/', '<body data-view="mobile">', $content, 1);
+    }
+}
+
 header('Content-Type: text/html; charset=utf-8');
-readfile($html);
+header('X-Dashboard-View: ' . ($shouldServeMobile ? 'mobile' : 'desktop'));
+echo $content;

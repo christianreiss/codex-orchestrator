@@ -1,0 +1,1326 @@
+const statsEl = document.getElementById('stats');
+    const hostsTbody = document.querySelector('#hosts tbody');
+    const mtlsEl = document.getElementById('mtls');
+    const versionCheckBtn = document.getElementById('version-check');
+    const filterInput = document.getElementById('host-filter');
+    const newHostBtn = document.getElementById('newHostBtn');
+    const newHostModal = document.getElementById('newHostModal');
+    const newHostName = document.getElementById('new-host-name');
+    const insecureToggle = document.getElementById('insecureToggle');
+    const createHostBtn = document.getElementById('createHost');
+    const cancelNewHostBtn = document.getElementById('cancelNewHost');
+    const commandField = document.getElementById('commandField');
+    const bootstrapCmdEl = document.getElementById('bootstrapCmd');
+    const copyCmdBtn = document.getElementById('copyCmd');
+    const installerMeta = document.getElementById('installerMeta');
+    const uploadAuthBtn = document.getElementById('uploadAuthBtn');
+    const uploadModal = document.getElementById('uploadModal');
+    const uploadAuthText = document.getElementById('uploadAuthText');
+    const uploadAuthFile = document.getElementById('uploadAuthFile');
+    const uploadAuthSubmit = document.getElementById('uploadAuthSubmit');
+    const uploadAuthCancel = document.getElementById('uploadAuthCancel');
+    const uploadHostSelect = document.getElementById('uploadHostSelect');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const apiToggleBtn = document.getElementById('api-toggle-btn');
+    const runnerRunnerBtn = document.getElementById('runner-runner');
+    const runnerModal = document.getElementById('runnerModal');
+    const runnerLogEl = document.getElementById('runnerLog');
+    const runnerMetaEl = document.getElementById('runnerMeta');
+    const runnerCloseBtn = document.getElementById('runnerClose');
+    const upgradeModal = document.getElementById('upgradeModal');
+    const upgradeNotesEl = document.getElementById('upgradeNotes');
+    const upgradeVersionEl = document.getElementById('upgradeVersionLabel');
+    const upgradeGithubLink = document.getElementById('upgradeGithubLink');
+    const upgradeCloseBtn = document.getElementById('upgradeClose');
+    const deleteHostModal = document.getElementById('deleteHostModal');
+    const deleteHostText = document.getElementById('delete-host-text');
+    const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
+    const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
+    const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
+    const promptsTbody = document.querySelector('#prompts tbody');
+    const promptModal = document.getElementById('promptModal');
+    const promptFilename = document.getElementById('promptFilename');
+    const promptDescription = document.getElementById('promptDescription');
+    const promptArgument = document.getElementById('promptArgument');
+    const promptBody = document.getElementById('promptBody');
+    const promptSave = document.getElementById('promptSave');
+    const promptCancel = document.getElementById('promptCancel');
+    const promptStatus = document.getElementById('promptStatus');
+    const promptsPanel = document.getElementById('prompts-panel');
+    let pendingDeleteId = null;
+
+    const upgradeNotesCache = {};
+    let currentHosts = [];
+    let currentPrompts = [];
+    let latestVersions = { client: null, wrapper: null };
+    let tokensSummary = null;
+    let runnerSummary = null;
+    let hostFilterText = '';
+    let hostStatusFilter = ''; // maintained for clarity
+    let lastOverview = null;
+    let chatgptUsage = null;
+    let apiDisabled = null;
+    let mtlsMeta = null;
+    let uploadFileContent = '';
+
+    function parseTimestamp(value) {
+      if (!value) return null;
+      const raw = String(value).trim();
+      const normalized = raw.replace(/\.(\d{3})\d*(Z?)/, '.$1$2');
+      const date = new Date(normalized);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function formatTimestamp(value) {
+      const date = parseTimestamp(value);
+      if (!date) return value || '—';
+      const dd = String(date.getDate()).padStart(2, '0');
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const yy = String(date.getFullYear()).slice(-2);
+      const hh = String(date.getHours()).padStart(2, '0');
+      const min = String(date.getMinutes()).padStart(2, '0');
+      return `${dd}.${mm}.${yy}, ${hh}:${min}`;
+    }
+
+    function formatNumber(value) {
+      if (value === null || value === undefined) return '—';
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      return num.toLocaleString('en-US');
+    }
+
+    function api(path, opts = {}) {
+      const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
+      const init = {
+        cache: 'no-store',
+        headers,
+        method: opts.method || 'GET',
+      };
+      if (Object.prototype.hasOwnProperty.call(opts, 'json')) {
+        init.body = JSON.stringify(opts.json);
+        headers['Content-Type'] = 'application/json';
+      } else if (Object.prototype.hasOwnProperty.call(opts, 'body')) {
+        init.body = opts.body;
+      }
+
+      return fetch(path, init).then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+        return res.json();
+      });
+    }
+
+    function copyToClipboard(text) {
+      return navigator.clipboard?.writeText(text).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      });
+    }
+
+    async function loadApiState() {
+      try {
+        const res = await api('/admin/api/state');
+        apiDisabled = !!res.data?.disabled;
+        if (apiToggleBtn) {
+          apiToggleBtn.textContent = 'API';
+          apiToggleBtn.title = apiDisabled ? 'API disabled — click to enable' : 'API enabled — click to disable';
+          apiToggleBtn.classList.remove('danger', 'ghost', 'api-enabled', 'api-disabled');
+          apiToggleBtn.classList.add(apiDisabled ? 'api-disabled' : 'api-enabled');
+        }
+      } catch (err) {
+        console.error('api state', err);
+        if (apiToggleBtn) {
+          apiToggleBtn.textContent = 'API: unavailable';
+          apiToggleBtn.classList.add('danger');
+        }
+      }
+    }
+
+    async function setApiState(enabled) {
+      if (!apiToggleBtn) return;
+      const original = apiToggleBtn.textContent;
+      apiToggleBtn.disabled = true;
+      apiToggleBtn.textContent = enabled ? 'Enabling…' : 'Disabling…';
+      try {
+        await api('/admin/api/state', {
+          method: 'POST',
+          json: { disabled: !enabled },
+        });
+        apiDisabled = !enabled;
+      } catch (err) {
+        alert(`API toggle failed: ${err.message}`);
+      } finally {
+        apiToggleBtn.disabled = false;
+        apiToggleBtn.textContent = original;
+        loadApiState();
+      }
+    }
+
+    function setMtls(meta) {
+      mtlsMeta = meta;
+      if (!mtlsEl) return;
+      mtlsEl.style.display = 'inline-flex';
+      if (meta && meta.fingerprint) {
+        mtlsEl.textContent = 'mTLS: presented';
+        mtlsEl.classList.add('success');
+        mtlsEl.classList.remove('error');
+      } else {
+        mtlsEl.textContent = 'mTLS: missing (admin blocked)';
+        mtlsEl.classList.remove('success');
+        mtlsEl.classList.add('error');
+      }
+    }
+
+    function compareVersions(a, b) {
+      const normalize = (v) => {
+        if (typeof v !== 'string') return null;
+        let n = v.trim();
+        n = n.replace(/^(codex-cli|codex|rust-)/i, '');
+        n = n.replace(/^v/i, '');
+        return n;
+      };
+      const left = normalize(a);
+      const right = normalize(b);
+      if (!left || !right) return null;
+      const leftParts = left.split(/[^0-9]+/).map(Number).filter(n => !Number.isNaN(n));
+      const rightParts = right.split(/[^0-9]+/).map(Number).filter(n => !Number.isNaN(n));
+      const len = Math.max(leftParts.length, rightParts.length);
+      for (let i = 0; i < len; i++) {
+        const l = leftParts[i] ?? 0;
+        const r = rightParts[i] ?? 0;
+        if (l > r) return 1;
+        if (l < r) return -1;
+      }
+      return 0;
+    }
+
+    function renderVersionTag(version, current) {
+      const normalized = typeof version === 'string' ? version.trim().replace(/^v/i, '') : null;
+      if (!normalized) return '—';
+      const cmp = compareVersions(normalized, current);
+      const tone = cmp === -1 ? 'warn' : cmp === 1 ? 'neutral' : 'ok';
+      return `<span class="chip ${tone}">${normalized}</span>`;
+    }
+
+    function renderStatusPill(status) {
+      const normalized = typeof status === 'string' ? status.toLowerCase() : 'unknown';
+      const slug = ['active', 'suspended'].includes(normalized) ? normalized : 'unknown';
+      return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
+    }
+
+    function formatMinutesAgo(value) {
+      const date = parseTimestamp(value);
+      if (!date) return '—';
+      const delta = Date.now() - date.getTime();
+      const future = delta < 0;
+      const minutes = Math.round(Math.abs(delta) / 60000);
+      const suffix = future ? 'from now' : 'ago';
+      return `${minutes} min ${suffix}`;
+    }
+
+    function formatRelative(value) {
+      const date = parseTimestamp(value);
+      if (!date) return '—';
+      const now = Date.now();
+      const diff = now - date.getTime();
+      const future = diff < 0;
+      const delta = Math.abs(diff);
+      const minutes = Math.round(delta / 60000);
+      const hours = Math.round(delta / 3600000);
+      const days = Math.round(delta / 86400000);
+      const suffix = future ? 'from now' : 'ago';
+      if (delta < 45 * 1000) return future ? 'in a few seconds' : 'just now';
+      if (delta < 90 * 1000) return future ? 'in 1 minute' : '1 minute ago';
+      if (delta < 45 * 60 * 1000) return `${minutes} min ${suffix}`;
+      if (delta < 36 * 60 * 60 * 1000) return `${hours} h ${suffix}`;
+      if (delta < 14 * 24 * 60 * 60 * 1000) return `${days} d ${suffix}`;
+      return formatTimestamp(value);
+    }
+
+    function formatUntil(value) {
+      const date = parseTimestamp(value);
+      if (!date) return 'soon';
+      const diff = date.getTime() - Date.now();
+      if (diff <= 0) return 'imminently';
+      const minutes = Math.round(diff / 60000);
+      if (minutes < 90) return `${minutes} min`;
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      if (hours < 48) return `${hours}h ${mins}m`;
+      const days = Math.floor(hours / 24);
+      const hrs = hours % 24;
+      return `${days}d ${hrs}h`;
+    }
+
+    function formatDurationSeconds(value) {
+      if (!Number.isFinite(value)) return null;
+      const seconds = Math.max(0, Math.floor(value));
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const parts = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0) parts.push(`${hours}h`);
+      if (minutes > 0) parts.push(`${minutes}m`);
+      if (parts.length) return parts.join(' ');
+      return `${seconds || 1}s`;
+    }
+
+    function formatResetLabel(seconds, resetAt) {
+      if (Number.isFinite(seconds)) {
+        const duration = formatDurationSeconds(seconds);
+        return duration ? `${duration} to reset` : 'reset time unknown';
+      }
+      if (resetAt) {
+        return `resets ${formatRelative(resetAt)}`;
+      }
+      return 'reset time unknown';
+    }
+
+    function formatMoney(amount, currency = 'USD') {
+      if (!Number.isFinite(amount)) return `${currency} —`;
+      return `${currency} ${amount.toFixed(2)}`;
+    }
+
+    function hostPruneMeta(host) {
+      const last = host?.last_refresh || host?.updated_at || null;
+      const lastTs = parseTimestamp(last);
+      if (!lastTs) return { daysLeft: null };
+      const cutoff = lastTs.getTime() + (30 * 24 * 60 * 60 * 1000);
+      const daysLeft = (cutoff - Date.now()) / 86400000;
+      return { daysLeft };
+    }
+
+    function hostHealth(host) {
+      const status = (host?.status || '').toLowerCase();
+      const authed = host?.authed === true;
+      const canLogin = status === 'active' && authed;
+      const { daysLeft } = hostPruneMeta(host);
+      if (daysLeft !== null && daysLeft <= 3) {
+        return { tone: 'critical', label: 'Pruning in ≤3d' };
+      }
+      if (daysLeft !== null && daysLeft <= 10) {
+        return { tone: 'warning', label: `Pruning in ${Math.max(0, Math.ceil(daysLeft))}d` };
+      }
+      if (!canLogin) {
+        return { tone: 'ok', label: 'Not provisioned yet' };
+      }
+      return { tone: 'ok', label: 'Can login' };
+    }
+
+    function renderTokenCell(host) {
+      const total = host?.token_usage?.total ?? null;
+      if (total === null) return '—';
+      const runs = host?.token_usage?.events;
+      const percent = tokensSummary?.total
+        ? Math.min(100, Math.round((total / tokensSummary.total) * 100))
+        : 0;
+      return `
+        <div class="token-cell">
+          <span>${formatNumber(total)}${runs ? ` · ${formatNumber(runs)} runs` : ''}</span>
+          ${percent ? `<div class="meter"><span style="width:${percent}%"></span></div>` : ''}
+        </div>
+      `;
+    }
+
+    function applyHostFilters(list) {
+      return list.filter(host => {
+        if (!hostFilterText) return true;
+        const haystacks = [host.fqdn, host.ip, host.client_version, host.wrapper_version]
+          .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
+        return haystacks.some(text => text.includes(hostFilterText));
+      });
+    }
+
+    function paintHosts() {
+      if (!Array.isArray(currentHosts)) return;
+      const filtered = applyHostFilters(currentHosts);
+      hostsTbody.innerHTML = '';
+      if (!filtered.length) {
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No hosts match your filters yet.</td></tr>';
+        return;
+      }
+      filtered.forEach(host => {
+        const tr = document.createElement('tr');
+        const addedAt = host.created_at ?? host.updated_at ?? host.last_refresh ?? null;
+        const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
+        const addedDate = parseTimestamp(addedAt);
+        const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
+        const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
+        const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
+        const health = hostHealth(host);
+        tr.classList.add(`status-${health.tone}`);
+        tr.innerHTML = `
+          <td data-label="Host">
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
+              <strong>${host.fqdn}</strong>
+              <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
+                <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
+                <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
+              </div>
+            </div>
+          </td>
+          <td data-label="Last Seen">
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <span>${formatRelative(host.updated_at)}</span>
+              <span class="muted" style="font-size:12px;">auth ${formatRelative(host.last_refresh)}</span>
+            </div>
+          </td>
+          <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
+          <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
+          <td data-label="IP / Mode">
+            <div class="inline-cell" style="gap:6px; align-items:center;">
+              <span>${host.ip ?? '—'}</span>
+              ${host.ip ? `<span class="ip-toggle" data-id="${host.id}" title="Toggle IP lock" role="button" aria-label="Toggle IP lock">${ipIcon}</span>` : ''}
+            </div>
+          </td>
+          <td data-label="Usage">
+            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
+              <span class="muted">Calls ${formatNumber(host.api_calls ?? 0)}</span>
+              ${renderTokenCell(host)}
+            </div>
+          </td>
+          <td class="actions-cell" data-label="Actions">
+            <button data-id="${host.id}" data-fqdn="${host.fqdn}" class="ghost secondary reinstall-btn">Install</button>
+            <button data-id="${host.id}" class="ghost">Clear</button>
+            <button data-id="${host.id}" class="danger">Remove</button>
+          </td>
+        `;
+        hostsTbody.appendChild(tr);
+      });
+
+      hostsTbody.querySelectorAll('button.danger').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          openDeleteModal(id);
+        });
+      });
+
+      hostsTbody.querySelectorAll('button.ghost').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          const isInstall = btn.classList.contains('reinstall-btn');
+          if (isInstall) {
+            const fqdn = btn.getAttribute('data-fqdn') || '';
+            regenerateInstaller(fqdn, id);
+          } else {
+            confirmClear(id);
+          }
+        });
+      });
+
+      hostsTbody.querySelectorAll('.ip-toggle').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          toggleRoaming(id);
+        });
+      });
+    }
+
+    function renderHosts(hosts) {
+      currentHosts = Array.isArray(hosts) ? hosts : [];
+      // Populate upload host select
+      if (uploadHostSelect) {
+        uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${h.fqdn}</option>`).join('');
+        uploadHostSelect.value = 'system';
+      }
+      paintHosts();
+    }
+
+    function renderPrompts(prompts) {
+      currentPrompts = Array.isArray(prompts) ? prompts : [];
+      if (promptsPanel) {
+        promptsPanel.style.display = currentPrompts.length > 0 ? 'block' : 'none';
+      }
+      if (!promptsTbody) return;
+      if (currentPrompts.length === 0) {
+        promptsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
+        return;
+      }
+      promptsTbody.innerHTML = currentPrompts.map((p) => {
+        const desc = (p.description || '').replace(/</g, '&lt;');
+        const retired = p.deleted_at ? '<span class="muted">(retired)</span>' : '';
+        return `<tr>
+          <td data-label="Filename"><code>${p.filename}</code> ${retired}</td>
+          <td data-label="Description">${desc || '—'}</td>
+          <td data-label="Actions">
+            <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
+            <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      promptsTbody.querySelectorAll('.prompt-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const name = btn.getAttribute('data-filename');
+          openPromptModal(name);
+        });
+      });
+      promptsTbody.querySelectorAll('.prompt-delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const name = btn.getAttribute('data-filename');
+          retirePrompt(name);
+        });
+      });
+    }
+
+    function renderRunnerCard(info) {
+      if (!info) return '';
+      const baseUrl = info.base_url || 'n/a';
+      const validation = info.latest_validation || null;
+      const hasValidation = !!validation;
+      const validationStatus = hasValidation
+        ? (validation.status ?? 'unknown')
+        : (info.enabled ? 'No runs yet' : 'Disabled');
+      const normalizedStatus = typeof validationStatus === 'string' ? validationStatus.toLowerCase() : '';
+      const validationTone = !hasValidation
+        ? (info.enabled ? 'neutral' : 'warn')
+        : (['ok', 'valid'].includes(normalizedStatus) ? 'ok'
+          : normalizedStatus === 'unchanged' ? 'neutral'
+          : 'warn');
+      const validationWhen = validation?.created_at ? formatMinutesAgo(validation.created_at) : '—';
+      const validationLatency = validation?.latency_ms ? `${validation.latency_ms}ms` : null;
+      const validationReason = validation?.reason ? validation.reason : null;
+      const runnerStore = info.latest_runner_store || null;
+      const runnerStoreLabel = runnerStore?.last_refresh ? formatTimestamp(runnerStore.last_refresh) : '—';
+      const runnerStoreWhen = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
+      const runnerHost = '';
+      const lastRun = hasValidation ? validationWhen : (info.enabled ? 'No runs yet' : '—');
+      const statusLabel = (hasValidation ? validationStatus : (info.enabled ? 'VALID' : 'DISABLED')).toString().toUpperCase();
+      return `
+        <div class="card runner-card">
+          <div class="stat-head">
+            <span class="stat-label">Validation Service</span>
+          </div>
+          <div class="stat-value">${statusLabel}</div>
+          <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}</small>
+          <div class="runner-meta" style="margin-top:12px;">
+            ${validationReason ? `<div><div class="label">Notes</div><div>${validationReason}</div></div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderUsageWindow(label, data) {
+      const used = Number.isFinite(data?.used_percent) ? Math.min(100, Math.max(0, data.used_percent)) : null;
+      const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
+      const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
+      const timePercent = Number.isFinite(data?.limit_seconds) && Number.isFinite(data?.reset_after_seconds)
+        ? Math.min(100, Math.max(0, Math.round(((data.limit_seconds - data.reset_after_seconds) / data.limit_seconds) * 100)))
+        : null;
+      const tone = (() => {
+        if (used === null || timePercent === null) return 'neutral';
+        const ahead = used <= timePercent;
+        if (ahead && (timePercent - used) >= 15) return 'ok';
+        if (ahead) return 'warn';
+        return 'critical';
+      })();
+      const meter = `<div class="meter ${tone}"><span style="width:${used !== null ? used : 0}%"></span></div>`;
+      const timeMeter = timePercent !== null
+        ? `<div class="meter time"><span style="width:${timePercent}%"></span></div>`
+        : '';
+      return `
+        <div class="usage-bar">
+          <div class="label">${label}</div>
+          <div class="value">
+            <span>${used !== null ? `${used}% used` : 'n/a'}</span>
+            <small>${limitLabel}</small>
+          </div>
+          ${meter}
+          ${timeMeter}
+          <small>${resetLabel}</small>
+        </div>
+      `;
+    }
+
+    function renderChatGptUsage(usage) {
+      if (!chatgptUsageCard) return;
+      if (!usage || !usage.snapshot) {
+        chatgptUsageCard.innerHTML = '<div class="muted">ChatGPT usage not available yet.</div>';
+        return;
+      }
+
+      const snapshot = usage.snapshot;
+      const status = snapshot.status || 'unknown';
+      const plan = snapshot.plan_type || 'Unknown plan';
+      const fetched = snapshot.fetched_at ? formatRelative(snapshot.fetched_at) : 'never';
+      const next = usage.next_eligible_at ? formatRelative(usage.next_eligible_at) : null;
+      const primary = {
+        used_percent: snapshot.primary_used_percent ?? null,
+        limit_seconds: snapshot.primary_limit_seconds ?? null,
+        reset_after_seconds: snapshot.primary_reset_after_seconds ?? null,
+        reset_at: snapshot.primary_reset_at ?? null,
+      };
+      const secondary = {
+        used_percent: snapshot.secondary_used_percent ?? null,
+        limit_seconds: snapshot.secondary_limit_seconds ?? null,
+        reset_after_seconds: snapshot.secondary_reset_after_seconds ?? null,
+        reset_at: snapshot.secondary_reset_at ?? null,
+      };
+      const monthly = (lastOverview?.tokens_month) || { input: 0, output: 0, cached: 0, total: 0 };
+      const pricing = lastOverview?.pricing || { currency: 'EUR', input_price_per_1k: 0, output_price_per_1k: 0, cached_price_per_1k: 0 };
+      const monthCost = lastOverview?.pricing_month_cost ?? null;
+      const currency = pricing.currency || 'EUR';
+      const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
+      const planLabel = plan;
+      const dayOfMonth = new Date().getUTCDate();
+      const estimatedDayCost = monthCost !== null && dayOfMonth > 0 ? (monthCost / dayOfMonth) : null;
+      const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
+      const inputCost = hasPricing ? (monthly.input / 1000) * (pricing.input_price_per_1k ?? 0) : null;
+      const outputCost = hasPricing ? (monthly.output / 1000) * (pricing.output_price_per_1k ?? 0) : null;
+      const cachedCost = hasPricing ? (monthly.cached / 1000) * (pricing.cached_price_per_1k ?? 0) : null;
+      const totalCost = hasPricing ? (monthCost ?? ((inputCost ?? 0) + (outputCost ?? 0) + (cachedCost ?? 0))) : null;
+
+      chatgptUsageCard.innerHTML = `
+        <div class="usage-head">
+          <div>
+            <div class="stat-label">ChatGPT Account</div>
+            <div class="usage-plan ${isPro ? 'pro-plan' : ''}">${planLabel} ${isPro ? '🎉' : ''}</div>
+            <div class="usage-meta">
+              <span>Last check ${fetched}</span>
+              ${next ? `<span>Next ${next}</span>` : ''}
+              ${snapshot.rate_limit_reached ? '<span class="chip warn">Limit reached</span>' : ''}
+            </div>
+          </div>
+          <div class="usage-actions">
+            <button class="ghost tiny-btn" id="chatgpt-refresh">Refresh</button>
+          </div>
+        </div>
+        ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
+        <div class="usage-bars">
+          ${renderUsageWindow('5-hour limit', primary)}
+          ${renderUsageWindow('Weekly limit', secondary)}
+        </div>
+        <div class="usage-credits">
+          <strong>Month to date (${currency})</strong>
+          <div class="cost-grid">
+            <div class="cost-card">
+              <div class="label">Input</div>
+              <div class="value">${formatNumber(monthly.input)}</div>
+              <small>${pricing.input_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(inputCost ?? 0, currency) : 'pricing missing'}</small>
+            </div>
+            <div class="cost-card">
+              <div class="label">Output</div>
+              <div class="value">${formatNumber(monthly.output)}</div>
+              <small>${pricing.output_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(outputCost ?? 0, currency) : 'pricing missing'}</small>
+            </div>
+            <div class="cost-card">
+              <div class="label">Cached</div>
+              <div class="value">${formatNumber(monthly.cached)}</div>
+              <small>${pricing.cached_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(cachedCost ?? 0, currency) : 'pricing missing'}</small>
+            </div>
+            <div class="cost-card total">
+              <div class="label">Estimated Total</div>
+              <div class="value">
+                ${hasPricing && totalCost !== null ? formatMoney(totalCost, currency) : 'Pricing missing'}
+                ${hasPricing && estimatedDayCost !== null ? `<small class="daily-note">(today ${formatMoney(estimatedDayCost, currency)})</small>` : ''}
+              </div>
+              <small>${hasPricing ? 'Includes input/output/cached' : 'Set PRICING_URL or GPT51_* env vars'}</small>
+            </div>
+          </div>
+        </div>
+      `;
+
+      wireChatGptControls();
+    }
+
+    async function refreshChatGptUsage() {
+      const btn = document.getElementById('chatgpt-refresh');
+      const original = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Refreshing…';
+      }
+      try {
+        const res = await api('/admin/chatgpt/usage/refresh', { method: 'POST' });
+        chatgptUsage = res?.data || null;
+        renderChatGptUsage(chatgptUsage);
+      } catch (err) {
+        alert(`Refresh failed: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original || 'Refresh';
+        }
+      }
+    }
+
+    function wireChatGptControls() {
+      const btn = document.getElementById('chatgpt-refresh');
+      if (btn) {
+        btn.onclick = (ev) => {
+          ev.preventDefault();
+          refreshChatGptUsage();
+        };
+      }
+    }
+
+    function renderStats(data, runnerInfo = null) {
+      lastOverview = data;
+      const checkedAt = formatRelative(data.versions.client_version_checked_at);
+      const latestLog = formatRelative(data.latest_log_at);
+      const lastRefresh = data.last_refresh ? formatRelative(data.last_refresh) : 'n/a';
+      const avgRefresh = data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2) + ' d' : 'n/a';
+      latestVersions = {
+        client: typeof data.versions.client_version === 'string'
+          ? data.versions.client_version.trim().replace(/^v/i, '')
+          : null,
+        wrapper: typeof data.versions.wrapper_version === 'string'
+          ? data.versions.wrapper_version.trim().replace(/^v/i, '')
+          : null,
+      };
+      tokensSummary = data.tokens || null;
+      const codexVersion = typeof data.versions.client_version === 'string'
+        ? data.versions.client_version.trim()
+        : null;
+      const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion : 'n/a';
+      const versionInfoBtn = '';
+      const topHost = tokensSummary?.top_host;
+      const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
+      const totalTokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
+
+      runnerSummary = runnerInfo;
+      const cards = [
+        `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">Hosts</span>
+            </div>
+            <div class="stat-value">${data.totals.hosts}</div>
+            <small>Total registered · Avg refresh ${avgRefresh} · Last refresh ${lastRefresh}</small>
+          </div>
+        `,
+        `
+          <div class="card version-card">
+            <div class="stat-head">
+              <span class="stat-label">Versions</span>
+            </div>
+            <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>CLI ${codexVersionDisplay}</div>
+            <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
+          </div>
+        `,
+        `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">Tokens</span>
+            </div>
+            <div class="stat-value">${totalTokens}</div>
+            <small>Usage · Total tokens reported</small>
+          </div>
+        `,
+      ];
+
+      if (runnerInfo) {
+        cards.push(renderRunnerCard(runnerInfo));
+      }
+
+      statsEl.innerHTML = cards.join('\n');
+      wireRunnerCardControls();
+      wireUpgradeNotesControls();
+
+      chatgptUsage = {
+        snapshot: data.chatgpt_usage || null,
+        cached: data.chatgpt_cached || false,
+        next_eligible_at: data.chatgpt_next_eligible_at || null,
+      };
+      renderChatGptUsage(chatgptUsage);
+    }
+
+    function wireRunnerCardControls() {
+      const btn = document.getElementById('runner-toggle');
+      if (btn) {
+        btn.onclick = (ev) => {
+          ev.preventDefault();
+          handleRunnerClick();
+        };
+      }
+    }
+
+    function wireUpgradeNotesControls() {
+      document.querySelectorAll('.upgrade-trigger[data-version]').forEach((el) => {
+        el.onclick = (ev) => {
+          ev.preventDefault();
+          const version = el.getAttribute('data-version') || (lastOverview?.versions?.client_version ?? '');
+          openUpgradeNotes(version);
+        };
+      });
+    }
+
+    function showUpgradeNotesModal(show) {
+      if (!upgradeModal) return;
+      if (show) {
+        upgradeModal.classList.add('show');
+      } else {
+        upgradeModal.classList.remove('show');
+      }
+    }
+
+    function setUpgradeNotes(text, isError = false) {
+      if (!upgradeNotesEl) return;
+      upgradeNotesEl.textContent = text;
+      upgradeNotesEl.classList.toggle('error', !!isError);
+    }
+
+    async function openUpgradeNotes(version) {
+      if (!upgradeModal) return;
+      const cleanVersion = typeof version === 'string' ? version.trim().replace(/^v/i, '') : '';
+      if (upgradeVersionEl) {
+        upgradeVersionEl.textContent = cleanVersion ? `Codex v${cleanVersion}` : 'Codex version unavailable';
+      }
+      if (upgradeGithubLink) {
+        const link = cleanVersion
+          ? `https://github.com/openai/codex/releases/tag/rust-v${cleanVersion}`
+          : 'https://github.com/openai/codex/releases';
+        upgradeGithubLink.onclick = () => {
+          window.open(link, '_blank', 'noopener,noreferrer');
+        };
+      }
+      showUpgradeNotesModal(true);
+      if (!cleanVersion) {
+        setUpgradeNotes('No Codex version detected yet.', true);
+        return;
+      }
+      const cached = upgradeNotesCache[cleanVersion];
+      if (cached) {
+        setUpgradeNotes(cached.text, cached.isError);
+        return;
+      }
+      setUpgradeNotes('Loading upgrade notes…');
+      try {
+        const resp = await fetch(`https://api.github.com/repos/openai/codex/releases/tags/rust-v${cleanVersion}`, {
+          headers: { 'Accept': 'application/vnd.github+json' },
+        });
+        if (!resp.ok) {
+          throw new Error(`GitHub ${resp.status}`);
+        }
+        const json = await resp.json();
+        const notes = typeof json.body === 'string' && json.body.trim() !== ''
+          ? json.body.trim()
+          : 'No release notes published for this version.';
+        upgradeNotesCache[cleanVersion] = { text: notes, isError: false };
+        setUpgradeNotes(notes);
+      } catch (err) {
+        const message = `Unable to load notes: ${err.message}`;
+        upgradeNotesCache[cleanVersion] = { text: message, isError: true };
+        setUpgradeNotes(message, true);
+      }
+    }
+
+    async function loadAll() {
+      try {
+        const [overview, hosts, runner, prompts] = await Promise.all([
+          api('/admin/overview'),
+          api('/admin/hosts'),
+          api('/admin/runner').catch(err => {
+            console.warn('Runner status unavailable', err);
+            return null;
+          }),
+          api('/admin/slash-commands').catch(err => {
+            console.warn('Slash commands unavailable', err);
+            return null;
+          }),
+        ]);
+        setMtls(overview.data.mtls);
+        renderStats(overview.data, runner?.data || null);
+        renderHosts(hosts.data.hosts);
+        renderPrompts(prompts?.data?.commands || []);
+      } catch (err) {
+        mtlsEl.textContent = 'mTLS / Admin access failed';
+        mtlsEl.classList.add('error');
+        statsEl.innerHTML = `<div class="card"><div class="error">Error: ${err.message}</div></div>`;
+      }
+    }
+
+    async function runVersionCheck() {
+      if (!versionCheckBtn) return;
+      const original = versionCheckBtn.textContent;
+      versionCheckBtn.disabled = true;
+      versionCheckBtn.textContent = 'Checking…';
+      try {
+        await api('/admin/versions/check', { method: 'POST' });
+        await loadAll();
+      } catch (err) {
+        alert(`Version check failed: ${err.message}`);
+      } finally {
+        versionCheckBtn.disabled = false;
+        versionCheckBtn.textContent = original;
+      }
+    }
+
+    async function runRunnerNow(logFn = null) {
+      try {
+        if (logFn) logFn('Invoking auth runner…');
+        const res = await api('/admin/runner/run', { method: 'POST' });
+        if (logFn) logFn(`Runner completed (applied=${res?.data?.applied ? 'yes' : 'no'})`, res?.data?.applied ? 'ok' : null);
+        await loadAll();
+        return res?.data ?? null;
+      } catch (err) {
+        if (logFn) logFn(`Runner failed: ${err.message}`, 'err');
+        else alert(`Runner failed: ${err.message}`);
+        throw err;
+      }
+    }
+
+    function showRunnerModal(show) {
+      if (!runnerModal) return;
+      if (show) {
+        runnerModal.classList.add('show');
+        resetRunnerLog();
+        setRunnerMeta(runnerSummary, null);
+      } else {
+        runnerModal.classList.remove('show');
+      }
+    }
+
+    function showPromptModal(show) {
+      if (!promptModal) return;
+      if (show) {
+        promptModal.classList.add('show');
+      } else {
+        promptModal.classList.remove('show');
+        if (promptStatus) promptStatus.textContent = '';
+      }
+    }
+
+    async function openPromptModal(filename) {
+      if (!promptFilename || !promptDescription || !promptBody) return;
+      promptFilename.value = filename || '';
+      promptDescription.value = '';
+      promptArgument.value = '';
+      promptBody.value = '';
+      if (promptStatus) promptStatus.textContent = 'Loading…';
+      showPromptModal(true);
+      try {
+        const resp = await api(`/admin/slash-commands/${encodeURIComponent(filename)}`);
+        const data = resp?.data || {};
+        promptFilename.value = data.filename || filename || '';
+        promptDescription.value = data.description || '';
+        promptArgument.value = data.argument_hint || '';
+        promptBody.value = data.prompt || '';
+        if (promptStatus) promptStatus.textContent = '';
+      } catch (err) {
+        if (promptStatus) promptStatus.textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    async function retirePrompt(filename) {
+      if (!filename) return;
+      if (!confirm(`Retire slash command "${filename}"? This removes it from hosts on next sync.`)) {
+        return;
+      }
+      try {
+        await api(`/admin/slash-commands/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        await loadAll();
+      } catch (err) {
+        alert(`Retire failed: ${err.message}`);
+      }
+    }
+
+    async function savePrompt() {
+      if (!promptFilename || !promptBody) return;
+      const payload = {
+        filename: promptFilename.value.trim(),
+        description: promptDescription?.value ?? '',
+        argument_hint: promptArgument?.value ?? '',
+        prompt: promptBody.value,
+      };
+      if (!payload.filename) {
+        if (promptStatus) promptStatus.textContent = 'Filename is required';
+        return;
+      }
+      if (!payload.prompt.trim()) {
+        if (promptStatus) promptStatus.textContent = 'Prompt is required';
+        return;
+      }
+      if (promptStatus) promptStatus.textContent = 'Saving…';
+      try {
+        await api('/admin/slash-commands/store', {
+          method: 'POST',
+          json: payload,
+        });
+        if (promptStatus) promptStatus.textContent = 'Saved';
+        await loadAll();
+        showPromptModal(false);
+      } catch (err) {
+        if (promptStatus) promptStatus.textContent = `Save failed: ${err.message}`;
+      }
+    }
+
+    function resetRunnerLog() {
+      if (runnerLogEl) runnerLogEl.innerHTML = '';
+    }
+
+    function appendRunnerLog(message, tone = null) {
+      if (!runnerLogEl) return;
+      const line = document.createElement('div');
+      line.className = 'line' + (tone ? ` ${tone}` : '');
+      const ts = new Date().toLocaleTimeString();
+      line.textContent = `${ts} · ${message}`;
+      runnerLogEl.appendChild(line);
+      runnerLogEl.scrollTop = runnerLogEl.scrollHeight;
+    }
+
+    function setRunnerMeta(info, runResult) {
+      if (!runnerMetaEl) return;
+      const validation = info?.latest_validation || null;
+      const runnerStore = info?.latest_runner_store || null;
+      const applied = runResult?.applied === true;
+      const digest = runResult?.canonical_digest
+        || validation?.digest
+        || runnerStore?.digest
+        || '—';
+      const lastRefresh = runResult?.canonical_last_refresh
+        || runnerStore?.last_refresh
+        || validation?.last_refresh
+        || '—';
+      const lastCheck = runResult?.runner_last_check
+        || info?.last_daily_check
+        || '—';
+      const status = validation?.status ?? (info?.enabled ? '—' : 'disabled');
+      const latency = validation?.latency_ms ? `${validation.latency_ms}ms` : '';
+      const reason = validation?.reason || runnerStore?.reason || '';
+      runnerMetaEl.innerHTML = `
+        <div><div class="label">Applied</div><div>${applied ? 'Yes (new auth)' : 'No change'}</div></div>
+        <div><div class="label">Validation</div><div>${status}${latency ? ` · ${latency}` : ''}</div></div>
+        <div><div class="label">Digest</div><div>${digest ? `<code>${digest}</code>` : '—'}</div></div>
+        <div><div class="label">Last refresh</div><div>${lastRefresh ? formatTimestamp(lastRefresh) : '—'}</div></div>
+        <div><div class="label">Runner last check</div><div>${lastCheck ? formatTimestamp(lastCheck) : '—'}</div></div>
+        <div><div class="label">Notes</div><div>${reason || '—'}</div></div>
+      `;
+    }
+
+    async function handleRunnerClick() {
+      if (!runnerModal || !runnerLogEl) {
+        await runRunnerNow();
+        return;
+      }
+      showRunnerModal(true);
+      appendRunnerLog('Preparing runner invocation…');
+      try {
+        const runResult = await runRunnerNow((msg, tone) => appendRunnerLog(msg, tone));
+        appendRunnerLog('Fetching latest runner status…');
+        const latestRunner = await api('/admin/runner');
+        runnerSummary = latestRunner?.data || runnerSummary;
+        setRunnerMeta(runnerSummary, runResult);
+        appendRunnerLog('Runner finished', runResult?.applied ? 'ok' : null);
+      } catch (err) {
+        appendRunnerLog(`Runner error: ${err.message}`, 'err');
+      }
+    }
+
+    if (versionCheckBtn) {
+      versionCheckBtn.addEventListener('click', runVersionCheck);
+    }
+    if (runnerRunnerBtn) {
+      runnerRunnerBtn.addEventListener('click', handleRunnerClick);
+    }
+    if (filterInput) {
+      filterInput.addEventListener('input', (event) => {
+        hostFilterText = event.target.value.trim().toLowerCase();
+        paintHosts();
+      });
+    }
+    if (newHostBtn) {
+      newHostBtn.addEventListener('click', () => showNewHostModal(true));
+    }
+    if (uploadAuthBtn) {
+      uploadAuthBtn.addEventListener('click', () => showUploadModal(true));
+    }
+    if (cancelNewHostBtn) {
+      cancelNewHostBtn.addEventListener('click', () => showNewHostModal(false));
+    }
+    if (createHostBtn) {
+      createHostBtn.addEventListener('click', createHost);
+    }
+    if (uploadAuthCancel) {
+      uploadAuthCancel.addEventListener('click', () => showUploadModal(false));
+    }
+    if (uploadAuthFile) {
+      uploadAuthFile.addEventListener('change', handleAuthFile);
+    }
+    if (uploadAuthSubmit) {
+      uploadAuthSubmit.addEventListener('click', submitAuthUpload);
+    }
+    if (newHostModal) {
+      newHostModal.addEventListener('click', (e) => {
+        if (e.target === newHostModal) showNewHostModal(false);
+      });
+    }
+    if (promptModal) {
+      promptModal.addEventListener('click', (e) => {
+        if (e.target === promptModal) showPromptModal(false);
+      });
+    }
+    if (promptCancel) {
+      promptCancel.addEventListener('click', () => showPromptModal(false));
+    }
+    if (promptSave) {
+      promptSave.addEventListener('click', () => savePrompt());
+    }
+    if (deleteHostModal) {
+      deleteHostModal.addEventListener('click', (e) => {
+        if (e.target === deleteHostModal) closeDeleteModal();
+      });
+    }
+    if (runnerModal) {
+      runnerModal.addEventListener('click', (e) => {
+        if (e.target === runnerModal) showRunnerModal(false);
+      });
+    }
+    if (runnerCloseBtn) {
+      runnerCloseBtn.addEventListener('click', () => showRunnerModal(false));
+    }
+    if (upgradeModal) {
+      upgradeModal.addEventListener('click', (e) => {
+        if (e.target === upgradeModal) showUpgradeNotesModal(false);
+      });
+    }
+    if (upgradeCloseBtn) {
+      upgradeCloseBtn.addEventListener('click', () => showUpgradeNotesModal(false));
+    }
+    if (cancelDeleteHostBtn) {
+      cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);
+    }
+    if (confirmDeleteHostBtn) {
+      confirmDeleteHostBtn.addEventListener('click', confirmRemove);
+    }
+    if (apiToggleBtn) {
+      apiToggleBtn.addEventListener('click', () => {
+        if (apiDisabled === null) return;
+        setApiState(!apiDisabled);
+      });
+    }
+    loadApiState();
+
+    function resetNewHostForm({ focusInput = false } = {}) {
+      if (commandField) {
+        commandField.style.display = 'none';
+      }
+      if (installerMeta) {
+        installerMeta.style.display = 'none';
+        installerMeta.textContent = '';
+      }
+      if (bootstrapCmdEl) {
+        bootstrapCmdEl.textContent = '';
+      }
+      if (newHostName) {
+        newHostName.value = '';
+        if (focusInput) newHostName.focus();
+      }
+      if (insecureToggle) {
+        insecureToggle.checked = false;
+      }
+    }
+
+    function showNewHostModal(show, { reset = show, focusInput = reset } = {}) {
+      if (!newHostModal) return;
+      if (show) {
+        newHostModal.classList.add('show');
+        if (reset) resetNewHostForm({ focusInput });
+      } else {
+        newHostModal.classList.remove('show');
+        if (reset) resetNewHostForm();
+      }
+    }
+
+    function showUploadModal(show) {
+      if (!uploadModal) return;
+      if (show) {
+        uploadModal.classList.add('show');
+        uploadAuthText.value = '';
+        uploadAuthFile.value = '';
+        uploadFileContent = '';
+        if (uploadHostSelect) {
+          uploadHostSelect.value = 'system';
+        }
+        if (uploadStatus) uploadStatus.textContent = '';
+      } else {
+        uploadModal.classList.remove('show');
+      }
+    }
+
+    async function createHost() {
+      const fqdn = newHostName.value.trim();
+      if (!fqdn) {
+        alert('Please enter a host name');
+        return;
+      }
+      await regenerateInstaller(fqdn);
+    }
+
+    async function regenerateInstaller(fqdn, hostId = null) {
+      const targetFqdn = fqdn || newHostName.value.trim();
+      if (!targetFqdn) {
+        alert('Please enter a host name');
+        return;
+      }
+      if (createHostBtn) {
+        createHostBtn.disabled = true;
+        createHostBtn.textContent = 'Generating…';
+      }
+      try {
+        const res = await api('/admin/hosts/register', {
+          method: 'POST',
+          json: { fqdn: targetFqdn, host_id: hostId ?? undefined },
+        });
+        const installer = res.data?.installer;
+        if (!installer || !installer.command) throw new Error('Missing installer command in response');
+        let cmd = installer.command;
+        if (insecureToggle?.checked) {
+          cmd = cmd.replace('curl ', 'curl -k ');
+        }
+        bootstrapCmdEl.textContent = cmd;
+        commandField.style.display = 'block';
+        if (copyCmdBtn) {
+          copyCmdBtn.onclick = () => copyToClipboard(cmd);
+        }
+        if (installerMeta) {
+          const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
+          installerMeta.textContent = expires
+            ? `One-time installer (expires ${expires}).`
+            : `One-time installer ready.`;
+          installerMeta.style.display = 'block';
+        }
+        if (newHostName) {
+          newHostName.value = targetFqdn;
+        }
+        showNewHostModal(true, { reset: false });
+        await loadAll();
+      } catch (err) {
+        const msg = err?.message || String(err);
+        alert(`Installer generation failed: ${msg}`);
+      } finally {
+        if (createHostBtn) {
+          createHostBtn.disabled = false;
+          createHostBtn.textContent = 'Generate';
+        }
+      }
+    }
+
+    loadAll();
+
+    function handleAuthFile() {
+      const file = uploadAuthFile?.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        uploadFileContent = String(e.target?.result || '');
+        if (uploadAuthText) {
+          uploadAuthText.value = uploadFileContent;
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    async function submitAuthUpload() {
+      const raw = uploadAuthText?.value?.trim() || uploadFileContent || '';
+      if (!raw) {
+        alert('Paste auth.json or choose a file first');
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (err) {
+        alert(`Invalid JSON: ${err.message}`);
+        return;
+      }
+      const selectedHost = uploadHostSelect?.value || 'system';
+      const hostId = selectedHost === 'system' ? null : Number(selectedHost);
+      const originalText = uploadAuthSubmit.textContent;
+      uploadAuthSubmit.disabled = true;
+      uploadAuthSubmit.textContent = 'Uploading…';
+      try {
+        const res = await api('/admin/auth/upload', {
+          method: 'POST',
+          json: { auth: parsed, host_id: hostId || undefined },
+        });
+        const data = res.data || {};
+        const digest = data.canonical_digest || data.digest || 'n/a';
+        const status = data.status || 'unknown';
+        const validation = data.validation ? data.validation.status : null;
+        const runnerApplied = data.runner_applied ? 'applied' : 'skipped';
+        const message = `Upload ${status}; digest ${digest}; runner ${validation || 'n/a'} (${runnerApplied})`;
+        if (uploadStatus) uploadStatus.textContent = message;
+        await loadAll();
+      } catch (err) {
+        alert(`Upload failed: ${err.message}`);
+      } finally {
+        uploadAuthSubmit.disabled = false;
+        uploadAuthSubmit.textContent = originalText;
+      }
+    }
+
+    function openDeleteModal(id) {
+      pendingDeleteId = id;
+      const host = currentHosts.find(h => h.id === id);
+      const name = host ? host.fqdn : `host #${id}`;
+      if (deleteHostText) {
+        deleteHostText.textContent = `Remove ${name}? This cannot be undone.`;
+      }
+      deleteHostModal?.classList.add('show');
+    }
+
+    function closeDeleteModal() {
+      deleteHostModal?.classList.remove('show');
+      pendingDeleteId = null;
+    }
+
+    async function confirmRemove() {
+      if (pendingDeleteId === null) return;
+      const btn = confirmDeleteHostBtn;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+      }
+      try {
+        await api(`/admin/hosts/${pendingDeleteId}`, { method: 'DELETE' });
+        await loadAll();
+        closeDeleteModal();
+      } catch (err) {
+        alert(`Remove failed: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Remove';
+        }
+      }
+    }
+
+    async function confirmClear(id) {
+      const host = currentHosts.find(h => h.id === id);
+      const name = host ? host.fqdn : `id ${id}`;
+      try {
+        await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    async function toggleRoaming(id) {
+      const host = currentHosts.find(h => h.id === id);
+      if (!host) {
+        alert('Host not found');
+        return;
+      }
+      const targetState = !host.allow_roaming_ips;
+      try {
+        await api(`/admin/hosts/${id}/roaming`, {
+          method: 'POST',
+          json: { allow: targetState },
+        });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }

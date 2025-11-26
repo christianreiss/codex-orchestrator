@@ -1,0 +1,177 @@
+body[data-view="mobile"] {
+  font-family: 'Space Grotesk', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: radial-gradient(circle at 14% 12%, rgba(16,163,127,0.16), transparent 38%), radial-gradient(circle at 82% 8%, rgba(46,125,255,0.14), transparent 36%), linear-gradient(180deg, #f7f9fb 0%, #eef3f6 100%);
+  color: #0f172a;
+}
+
+body[data-view="mobile"] .app {
+  padding: 0;
+}
+
+body[data-view="mobile"] .content {
+  padding: 18px 14px 72px;
+  max-width: 940px;
+}
+
+body[data-view="mobile"] .topbar {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px 8px;
+  margin-bottom: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 40px rgba(12, 74, 110, 0.08);
+}
+
+body[data-view="mobile"] .title-line h2 {
+  font-size: 22px;
+}
+
+body[data-view="mobile"] .action-line {
+  justify-content: flex-start;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+body[data-view="mobile"] .action-line button {
+  flex: 1 0 140px;
+  white-space: nowrap;
+}
+
+body[data-view="mobile"] .metrics {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+}
+
+body[data-view="mobile"] .metrics .card {
+  min-width: 240px;
+  scroll-snap-align: start;
+}
+
+body[data-view="mobile"] .card {
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+}
+
+body[data-view="mobile"] .panel {
+  margin-top: 14px;
+  border-radius: 14px;
+}
+
+body[data-view="mobile"] .panel-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+body[data-view="mobile"] .panel-actions {
+  width: 100%;
+}
+
+body[data-view="mobile"] .panel-actions input,
+body[data-view="mobile"] .panel-actions select,
+body[data-view="mobile"] .panel-actions button {
+  width: 100%;
+  min-width: 0;
+}
+
+body[data-view="mobile"] #chatgpt-usage-card {
+  margin-top: 14px;
+}
+
+body[data-view="mobile"] .usage-bars {
+  grid-template-columns: 1fr;
+}
+
+body[data-view="mobile"] .table-wrap {
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+
+body[data-view="mobile"] table {
+  min-width: 0;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 12px;
+}
+
+body[data-view="mobile"] thead {
+  display: none;
+}
+
+body[data-view="mobile"] tbody tr {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.1);
+}
+
+body[data-view="mobile"] tbody td {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+body[data-view="mobile"] tbody td::before {
+  content: attr(data-label);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+body[data-view="mobile"] .actions-cell {
+  width: 100%;
+}
+
+body[data-view="mobile"] .actions-cell button {
+  flex: 1;
+  width: 100%;
+}
+
+body[data-view="mobile"] .usage-card {
+  border-radius: 14px;
+}
+
+body[data-view="mobile"] .usage-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+body[data-view="mobile"] .usage-actions {
+  width: 100%;
+}
+
+body[data-view="mobile"] .usage-actions button {
+  width: 100%;
+}
+
+body[data-view="mobile"] .cost-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+body[data-view="mobile"] .modal-backdrop {
+  padding: 12px;
+}
+
+body[data-view="mobile"] .modal {
+  max-width: none;
+  border-radius: 18px;
+}
+
+body[data-view="mobile"] .command-box {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+body[data-view="mobile"] #prompts-panel .table-wrap {
+  margin-top: 8px;
+}
