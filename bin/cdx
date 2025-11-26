@@ -125,8 +125,11 @@ PROMPT_PULL_ERRORS=0
 PROMPT_PUSHED=0
 PROMPT_PUSH_ERRORS=0
 PROMPT_PUSH_STATUS=""
+PROMPT_REMOTE_COUNT=""
+PROMPT_LOCAL_COUNT=""
+PROMPT_LOCAL_CHANGED=""
 
-WRAPPER_VERSION="2025.11.26-12"
+WRAPPER_VERSION="2025.11.26-13"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -1395,11 +1398,18 @@ if mode == "pull":
         except Exception:  # noqa: BLE001
             errors += 1
 
-    baseline = {name: entry["sha"] for name, entry in load_local().items()}
+    updated_local = load_local()
+    baseline = {name: entry["sha"] for name, entry in updated_local.items()}
     remote_names = {cmd["filename"] for cmd in commands if isinstance(cmd, dict) and cmd.get("filename")}
     filtered_baseline = {name: sha for name, sha in baseline.items() if name in remote_names}
     save_baseline(filtered_baseline)
-    print(f"ok updated={downloaded} errors={errors}")
+    print(
+        "ok "
+        f"updated={downloaded} "
+        f"errors={errors} "
+        f"remote={len(commands)} "
+        f"local={len(updated_local)}"
+    )
     sys.exit(0)
 
 if mode == "push":
@@ -1457,7 +1467,13 @@ if mode == "push":
         latest_baseline = {name: entry["sha"] for name, entry in current.items()}
         save_baseline(latest_baseline)
 
-    print(f"ok pushed={pushed} errors={errors}")
+    print(
+        "ok "
+        f"pushed={pushed} "
+        f"errors={errors} "
+        f"changes={len(changes)} "
+        f"local={len(current)}"
+    )
     sys.exit(0)
 
 print("skip reason=unknown-mode errors=0")
@@ -1492,6 +1508,8 @@ sync_slash_commands_pull() {
     case "$part" in
       updated=*) PROMPT_PULL_UPDATED="${part#updated=}" ;;
       errors=*) PROMPT_PULL_ERRORS="${part#errors=}" ;;
+      remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
+      local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
     esac
   done
   return 0
@@ -1528,6 +1546,8 @@ push_slash_commands_if_changed() {
     case "$part" in
       pushed=*) PROMPT_PUSHED="${part#pushed=}" ;;
       errors=*) PROMPT_PUSH_ERRORS="${part#errors=}" ;;
+      changes=*) PROMPT_LOCAL_CHANGED="${part#changes=}" ;;
+      local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
     esac
   done
   return 0
@@ -2563,6 +2583,16 @@ prompt_label="sync skipped"
 prompt_tone="yellow"
 if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
   prompt_label="synced"
+  counts=()
+  if [[ "$PROMPT_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
+    counts+=("local ${PROMPT_LOCAL_COUNT}")
+  fi
+  if [[ "$PROMPT_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
+    counts+=("remote ${PROMPT_REMOTE_COUNT}")
+  fi
+  if (( ${#counts[@]} )); then
+    prompt_label+=" ($(join_with_semicolon "${counts[@]}"))"
+  fi
   if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
     prompt_label+=" (${PROMPT_PULL_UPDATED} updated)"
   fi
@@ -2652,6 +2682,13 @@ elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
 fi
 if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
   prompt_result="prompts synced"
+  if [[ "$PROMPT_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
+    prompt_result+=" (local ${PROMPT_LOCAL_COUNT}"
+    if [[ "$PROMPT_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
+      prompt_result+=", remote ${PROMPT_REMOTE_COUNT}"
+    fi
+    prompt_result+=")"
+  fi
   if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
     prompt_result+=" (${PROMPT_PULL_UPDATED} updated)"
   fi
