@@ -175,6 +175,14 @@ class AuthService
             $bakedWrapperMeta = $this->wrapperService->bakedForHost($host, $baseUrl);
         }
 
+        $monthStart = gmdate('Y-m-01\T00:00:00\Z');
+        $monthEnd = gmdate('Y-m-01\T00:00:00\Z', strtotime('+1 month'));
+        $hostTokenMonth = $trackHost ? $this->tokenUsages->totalsForHostRange($hostId, $monthStart, $monthEnd) : null;
+        $hostStats = [
+            'api_calls' => (int) ($host['api_calls'] ?? 0),
+            'token_usage_month' => $hostTokenMonth,
+        ];
+
         $versions = $this->versionSnapshot($bakedWrapperMeta);
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
@@ -231,7 +239,8 @@ class AuthService
                 'canonical_last_refresh' => $canonicalLastRefresh,
                 'canonical_digest' => $canonicalDigest,
                 'action' => 'store',
-                'api_calls' => (int) ($host['api_calls'] ?? 0),
+                'api_calls' => $hostStats['api_calls'],
+                'token_usage_month' => $hostStats['token_usage_month'],
                 'versions' => $versions,
             ];
 
@@ -245,7 +254,8 @@ class AuthService
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
                         'canonical_digest' => $canonicalDigest,
-                        'api_calls' => (int) ($host['api_calls'] ?? 0),
+                        'api_calls' => $hostStats['api_calls'],
+                        'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
                     ];
 
@@ -260,7 +270,8 @@ class AuthService
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
                         'canonical_digest' => $canonicalDigest,
-                        'api_calls' => (int) ($host['api_calls'] ?? 0),
+                        'api_calls' => $hostStats['api_calls'],
+                        'token_usage_month' => $hostStats['token_usage_month'],
                         'action' => 'store',
                         'versions' => $versions,
                     ];
@@ -279,7 +290,8 @@ class AuthService
                         'canonical_digest' => $canonicalDigest,
                         'host' => $trackHost ? $this->buildHostPayload($host) : null,
                         'auth' => $authArray,
-                        'api_calls' => (int) ($host['api_calls'] ?? 0),
+                        'api_calls' => $hostStats['api_calls'],
+                        'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
                     ];
 
@@ -346,7 +358,8 @@ class AuthService
                 'auth' => $canonicalizedAuth,
                 'canonical_last_refresh' => $canonicalLastRefresh,
                 'canonical_digest' => $canonicalDigest,
-                'api_calls' => (int) ($host['api_calls'] ?? 0),
+                'api_calls' => $hostStats['api_calls'],
+                'token_usage_month' => $hostStats['token_usage_month'],
                 'versions' => $versions,
             ];
             if ($trackHost) {
@@ -363,7 +376,8 @@ class AuthService
                     'auth' => $authArray,
                     'canonical_last_refresh' => $canonicalLastRefresh,
                     'canonical_digest' => $canonicalDigest,
-                    'api_calls' => (int) ($host['api_calls'] ?? 0),
+                    'api_calls' => $hostStats['api_calls'],
+                    'token_usage_month' => $hostStats['token_usage_month'],
                     'versions' => $versions,
                 ];
                 if ($trackHost) {
@@ -374,7 +388,8 @@ class AuthService
                     'status' => $status,
                     'canonical_last_refresh' => $canonicalLastRefresh,
                     'canonical_digest' => $canonicalDigest,
-                    'api_calls' => (int) ($host['api_calls'] ?? 0),
+                    'api_calls' => $hostStats['api_calls'],
+                    'token_usage_month' => $hostStats['token_usage_month'],
                     'versions' => $versions,
                 ];
             }

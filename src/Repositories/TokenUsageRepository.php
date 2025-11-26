@@ -133,6 +133,35 @@ class TokenUsageRepository
         ];
     }
 
+    public function totalsForHostRange(int $hostId, string $startIso, string $endIso): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT COALESCE(SUM(total), 0) AS total,
+                    COALESCE(SUM(input_tokens), 0) AS input,
+                    COALESCE(SUM(output_tokens), 0) AS output,
+                    COALESCE(SUM(cached_tokens), 0) AS cached,
+                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COUNT(*) AS events
+             FROM token_usages
+             WHERE host_id = :host_id AND created_at >= :start AND created_at < :end'
+        );
+        $statement->execute([
+            'host_id' => $hostId,
+            'start' => $startIso,
+            'end' => $endIso,
+        ]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'total' => isset($row['total']) ? (int) $row['total'] : 0,
+            'input' => isset($row['input']) ? (int) $row['input'] : 0,
+            'output' => isset($row['output']) ? (int) $row['output'] : 0,
+            'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
+            'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+            'events' => isset($row['events']) ? (int) $row['events'] : 0,
+        ];
+    }
+
     public function topHost(): ?array
     {
         $statement = $this->database->connection()->query(

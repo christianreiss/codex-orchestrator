@@ -82,8 +82,15 @@ CHATGPT_SECONDARY_USED=""
 CHATGPT_SECONDARY_LIMIT=""
 CHATGPT_SECONDARY_RESET_AFTER=""
 CHATGPT_SECONDARY_RESET_AT=""
+HOST_API_CALLS=""
+HOST_TOKENS_MONTH_TOTAL=""
+HOST_TOKENS_MONTH_INPUT=""
+HOST_TOKENS_MONTH_OUTPUT=""
+HOST_TOKENS_MONTH_CACHED=""
+HOST_TOKENS_MONTH_REASONING=""
+HOST_TOKENS_MONTH_EVENTS=""
 
-WRAPPER_VERSION="2025.11.26-4"
+WRAPPER_VERSION="2025.11.26-5"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -814,6 +821,8 @@ print(
             "chatgpt_secondary_limit": secondary_window.get("limit_seconds"),
             "chatgpt_secondary_reset_after": secondary_window.get("reset_after_seconds"),
             "chatgpt_secondary_reset_at": secondary_window.get("reset_at"),
+            "api_calls": payload_data.get("api_calls"),
+            "token_usage_month": payload_data.get("token_usage_month"),
         },
         separators=(",", ":"),
     )
@@ -888,6 +897,19 @@ _emit_int(cs_r, "cgsr")
 cs_a = parsed.get("chatgpt_secondary_reset_at")
 if isinstance(cs_a, str) and cs_a.strip():
     print(f"cgsa={cs_a.strip()}")
+api_calls = parsed.get("api_calls")
+_emit_int(api_calls, "hac")
+month_usage = parsed.get("token_usage_month")
+if isinstance(month_usage, dict):
+    def _emit_month(key, prefix):
+        val = month_usage.get(key)
+        _emit_int(val, prefix)
+    _emit_month("total", "hmtotal")
+    _emit_month("input", "hminput")
+    _emit_month("output", "hmoutput")
+    _emit_month("cached", "hmcached")
+    _emit_month("reasoning", "hmreason")
+    _emit_month("events", "hmevents")
 PY
 )" || true
       if [[ -n "$parsed" ]]; then
@@ -947,6 +969,27 @@ PY
               ;;
             cgsa=*)
               CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
+              ;;
+            hac=*)
+              HOST_API_CALLS="${line#hac=}"
+              ;;
+            hmtotal=*)
+              HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
+              ;;
+            hminput=*)
+              HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
+              ;;
+            hmoutput=*)
+              HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
+              ;;
+            hmcached=*)
+              HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
+              ;;
+            hmreason=*)
+              HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
+              ;;
+            hmevents=*)
+              HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
               ;;
           esac
         done <<<"$parsed"
@@ -2179,13 +2222,30 @@ if (( ${#command_actions[@]} )); then
   command_tone="yellow"
 fi
 
-log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
-log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
-log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
-log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
-qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
-if [[ -n "$qline" ]]; then
-  qtone="${qline%%$'\t'*}"
+  log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+  log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
+  log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
+  log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  host_usage_parts=()
+  if [[ -n "$HOST_API_CALLS" ]]; then
+    host_usage_parts+=("api calls ${HOST_API_CALLS}")
+  fi
+  if [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]]; then
+    token_bits=("tokens ${HOST_TOKENS_MONTH_TOTAL}")
+    [[ -n "$HOST_TOKENS_MONTH_INPUT" ]] && token_bits+=("in ${HOST_TOKENS_MONTH_INPUT}")
+    [[ -n "$HOST_TOKENS_MONTH_OUTPUT" ]] && token_bits+=("out ${HOST_TOKENS_MONTH_OUTPUT}")
+    [[ -n "$HOST_TOKENS_MONTH_CACHED" ]] && token_bits+=("cached ${HOST_TOKENS_MONTH_CACHED}")
+    [[ -n "$HOST_TOKENS_MONTH_REASONING" ]] && token_bits+=("reason ${HOST_TOKENS_MONTH_REASONING}")
+    token_line="$(join_with_semicolon "${token_bits[@]}")"
+    host_usage_parts+=("$token_line this month")
+  fi
+  if (( ${#host_usage_parts[@]} )); then
+    host_usage_text="$(join_with_semicolon "${host_usage_parts[@]}")"
+    log_info "$(format_simple_row "host usage" "$host_usage_text")"
+  fi
+  qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
+  if [[ -n "$qline" ]]; then
+    qtone="${qline%%$'\t'*}"
   rest="${qline#*$'\t'}"
   qtext="${rest%%$'\t'*}"
   qnote="${rest#*$'\t'}"
