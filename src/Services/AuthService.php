@@ -20,6 +20,7 @@ use App\Services\RunnerVerifier;
 class AuthService
 {
     private const INACTIVITY_WINDOW_DAYS = 30;
+    private const PROVISIONING_WINDOW_MINUTES = 30;
     private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
@@ -1338,13 +1339,16 @@ class AuthService
         $cutoff = (new DateTimeImmutable(sprintf('-%d days', self::INACTIVITY_WINDOW_DAYS)));
         $cutoffTimestamp = $cutoff->format(DATE_ATOM);
         $staleHosts = $this->hosts->findInactiveBefore($cutoffTimestamp);
+        $provisionCutoff = (new DateTimeImmutable(sprintf('-%d minutes', self::PROVISIONING_WINDOW_MINUTES)))->format(DATE_ATOM);
+        $unprovisionedHosts = $this->hosts->findUnprovisionedBefore($provisionCutoff);
 
-        if (!$staleHosts) {
-            return;
-        }
+        $deleteIds = [];
+        $logged = [];
 
         foreach ($staleHosts as $host) {
             $hostId = (int) $host['id'];
+            $deleteIds[] = $hostId;
+            $logged[$hostId] = true;
             $this->logs->log($hostId, 'host.pruned', [
                 'reason' => 'inactive',
                 'cutoff' => $cutoffTimestamp,
@@ -1353,8 +1357,23 @@ class AuthService
             ]);
         }
 
-        $ids = array_map(static fn (array $host) => (int) $host['id'], $staleHosts);
-        $this->hosts->deleteByIds($ids);
+        foreach ($unprovisionedHosts as $host) {
+            $hostId = (int) $host['id'];
+            if (isset($logged[$hostId])) {
+                continue;
+            }
+            $deleteIds[] = $hostId;
+            $this->logs->log($hostId, 'host.pruned', [
+                'reason' => 'unprovisioned',
+                'cutoff' => $provisionCutoff,
+                'created_at' => $host['created_at'] ?? null,
+                'fqdn' => $host['fqdn'],
+            ]);
+        }
+
+        if ($deleteIds) {
+            $this->hosts->deleteByIds(array_values(array_unique($deleteIds)));
+        }
     }
 
     /**

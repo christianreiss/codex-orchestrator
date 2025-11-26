@@ -147,6 +147,20 @@ class HostRepository
         return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
+    public function findUnprovisionedBefore(string $cutoff): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT * FROM hosts
+             WHERE (last_refresh IS NULL OR last_refresh = \'\')
+               AND (auth_digest IS NULL OR auth_digest = \'\')
+               AND COALESCE(api_calls, 0) = 0
+               AND created_at < :cutoff'
+        );
+        $statement->execute(['cutoff' => $cutoff]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
     public function deleteByIds(array $ids): void
     {
         if (!$ids) {
