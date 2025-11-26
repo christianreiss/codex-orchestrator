@@ -1191,7 +1191,7 @@
       const monthCost = lastOverview?.pricing_month_cost ?? null;
       const currency = pricing.currency || 'EUR';
       const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
-      const planLabel = isPro ? `${plan} — Pro. Bro. PRO!` : plan;
+      const planLabel = plan;
       const dayOfMonth = new Date().getUTCDate();
       const estimatedDayCost = monthCost !== null && dayOfMonth > 0 ? (monthCost / dayOfMonth) : null;
       const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
