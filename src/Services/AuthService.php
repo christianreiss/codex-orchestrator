@@ -89,12 +89,16 @@ class AuthService
         $hostId = (int) $host['id'];
         $allowsRoaming = isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false;
 
+        $ipAuthorized = true;
+        $ipLogReason = 'none';
+
         if ($ip !== null && $ip !== '') {
             $storedIp = $host['ip'] ?? null;
             if ($storedIp === null || $storedIp === '') {
                 $this->hosts->updateIp($hostId, $ip);
                 $this->logs->log($hostId, 'auth.bind_ip', ['ip' => $ip]);
                 $host = $this->hosts->findById($hostId) ?? $host;
+                $ipLogReason = 'bound';
             } elseif (!hash_equals($storedIp, $ip)) {
                 if ($allowsRoaming) {
                     $this->hosts->updateIp($hostId, $ip);
@@ -103,6 +107,7 @@ class AuthService
                         'ip' => $ip,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
+                    $ipLogReason = 'roaming';
                 } elseif ($allowIpBypass) {
                     $this->hosts->updateIp($hostId, $ip);
                     $this->logs->log($hostId, 'auth.force_ip_override', [
@@ -110,19 +115,39 @@ class AuthService
                         'ip' => $ip,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
+                    $ipLogReason = 'force';
                 } elseif ($this->shouldAllowRunnerIpBypass($ip)) {
                     // Runner needs to validate auth without rebinding host IP; do not update stored IP.
                     $this->logs->log($hostId, 'auth.runner_ip_bypass', [
                         'expected_ip' => $storedIp,
                         'ip' => $ip,
                     ]);
+                    $ipLogReason = 'runner_bypass';
                 } else {
+                    $ipAuthorized = false;
+                    $ipLogReason = 'mismatch';
+                    error_log(sprintf(
+                        '[auth] ip authorization=denied host=%s stored_ip=%s incoming_ip=%s reason=%s',
+                        $host['fqdn'] ?? 'unknown',
+                        $storedIp ?? 'none',
+                        $ip,
+                        $ipLogReason
+                    ));
                     throw new HttpException('API key not allowed from this IP', 403, [
                         'expected_ip' => $storedIp,
                         'received_ip' => $ip,
                     ]);
                 }
             }
+        }
+
+        if ($ip !== null && $ip !== '' && $ipAuthorized) {
+            error_log(sprintf(
+                '[auth] ip authorization=ok host=%s ip=%s reason=%s',
+                $host['fqdn'] ?? 'unknown',
+                $ip,
+                $ipLogReason
+            ));
         }
 
         return $host;
