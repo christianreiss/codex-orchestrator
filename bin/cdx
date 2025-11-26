@@ -1396,7 +1396,9 @@ if mode == "pull":
             errors += 1
 
     baseline = {name: entry["sha"] for name, entry in load_local().items()}
-    save_baseline(baseline)
+    remote_names = {cmd["filename"] for cmd in commands if isinstance(cmd, dict) and cmd.get("filename")}
+    filtered_baseline = {name: sha for name, sha in baseline.items() if name in remote_names}
+    save_baseline(filtered_baseline)
     print(f"ok updated={downloaded} errors={errors}")
     sys.exit(0)
 
