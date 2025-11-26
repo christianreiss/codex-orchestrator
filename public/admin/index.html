@@ -1705,8 +1705,8 @@
         if (installerMeta) {
           const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
           installerMeta.textContent = expires
-            ? `One-time installer (expires ${expires}). Base: ${installer.base_url || 'n/a'}.`
-            : `One-time installer ready. Base: ${installer.base_url || 'n/a'}.`;
+            ? `One-time installer (expires ${expires}).`
+            : `One-time installer ready.`;
           installerMeta.style.display = 'block';
         }
         if (newHostName) {
