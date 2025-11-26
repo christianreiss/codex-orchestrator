@@ -642,8 +642,9 @@
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="cancelNewHost">Cancel</button>
               <button id="createHost">Generate</button>
+            </div>
+          </div>
         </div>
-      </div>
 
         <div class="modal-backdrop" id="promptModal">
           <div class="modal">
@@ -760,7 +761,7 @@
   </div>
         </section>
 
-        <section class="card panel" id="prompts-panel">
+        <section class="card panel" id="prompts-panel" style="display:none;">
           <div class="panel-head">
             <div>
               <h2>Slash Commands</h2>
@@ -1261,6 +1262,28 @@
       });
     }
 
+    function renderPrompts(prompts) {
+      currentPrompts = Array.isArray(prompts) ? prompts : [];
+      if (!promptsTbody) return;
+      if (currentPrompts.length === 0) {
+        promptsTbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
+        return;
+      }
+      promptsTbody.innerHTML = currentPrompts.map((p) => {
+        const desc = (p.description || '').replace(/</g, '&lt;');
+        const hint = (p.argument_hint || '').replace(/</g, '&lt;');
+        const sha = p.sha256 ? String(p.sha256).slice(0, 12) + '…' : '—';
+        const updated = p.updated_at ? formatTimestamp(p.updated_at) : '—';
+        return `<tr>
+          <td data-label="Filename"><code>${p.filename}</code></td>
+          <td data-label="Description">${desc || '—'}</td>
+          <td data-label="Argument hint"><code>${hint || '—'}</code></td>
+          <td data-label="SHA256"><code>${sha}</code></td>
+          <td data-label="Updated">${updated}</td>
+        </tr>`;
+      }).join('');
+    }
+
     function renderRunnerCard(info) {
       if (!info) return '';
       const baseUrl = info.base_url || 'n/a';
@@ -1671,68 +1694,6 @@
       }
     }
 
-    function resetRunnerLog() {
-      if (runnerLogEl) runnerLogEl.innerHTML = '';
-    }
-
-    function appendRunnerLog(message, tone = null) {
-      if (!runnerLogEl) return;
-      const line = document.createElement('div');
-      line.className = 'line' + (tone ? ` ${tone}` : '');
-      const ts = new Date().toLocaleTimeString();
-      line.textContent = `${ts} · ${message}`;
-      runnerLogEl.appendChild(line);
-      runnerLogEl.scrollTop = runnerLogEl.scrollHeight;
-    }
-
-    function setRunnerMeta(info, runResult) {
-      if (!runnerMetaEl) return;
-      const validation = info?.latest_validation || null;
-      const runnerStore = info?.latest_runner_store || null;
-      const applied = runResult?.applied === true;
-      const digest = runResult?.canonical_digest
-        || validation?.digest
-        || runnerStore?.digest
-        || '—';
-      const lastRefresh = runResult?.canonical_last_refresh
-        || runnerStore?.last_refresh
-        || validation?.last_refresh
-        || '—';
-      const lastCheck = runResult?.runner_last_check
-        || info?.last_daily_check
-        || '—';
-      const status = validation?.status ?? (info?.enabled ? '—' : 'disabled');
-      const latency = validation?.latency_ms ? `${validation.latency_ms}ms` : '';
-      const reason = validation?.reason || runnerStore?.reason || '';
-      runnerMetaEl.innerHTML = `
-        <div><div class="label">Applied</div><div>${applied ? 'Yes (new auth)' : 'No change'}</div></div>
-        <div><div class="label">Validation</div><div>${status}${latency ? ` · ${latency}` : ''}</div></div>
-        <div><div class="label">Digest</div><div>${digest ? `<code>${digest}</code>` : '—'}</div></div>
-        <div><div class="label">Last refresh</div><div>${lastRefresh ? formatTimestamp(lastRefresh) : '—'}</div></div>
-        <div><div class="label">Runner last check</div><div>${lastCheck ? formatTimestamp(lastCheck) : '—'}</div></div>
-        <div><div class="label">Notes</div><div>${reason || '—'}</div></div>
-      `;
-    }
-
-    async function handleRunnerClick() {
-      if (!runnerModal || !runnerLogEl) {
-        await runRunnerNow();
-        return;
-      }
-      showRunnerModal(true);
-      appendRunnerLog('Preparing runner invocation…');
-      try {
-        const runResult = await runRunnerNow((msg, tone) => appendRunnerLog(msg, tone));
-        appendRunnerLog('Fetching latest runner status…');
-        const latestRunner = await api('/admin/runner');
-        runnerSummary = latestRunner?.data || runnerSummary;
-        setRunnerMeta(runnerSummary, runResult);
-        appendRunnerLog('Runner finished', runResult?.applied ? 'ok' : null);
-      } catch (err) {
-        appendRunnerLog(`Runner error: ${err.message}`, 'err');
-      }
-    }
-
     function showPromptModal(show) {
       if (!promptModal) return;
       if (show) {
@@ -1807,16 +1768,66 @@
       }
     }
 
-    if (promptCancel) {
-      promptCancel.addEventListener('click', () => showPromptModal(false));
+    function resetRunnerLog() {
+      if (runnerLogEl) runnerLogEl.innerHTML = '';
     }
-    if (promptSave) {
-      promptSave.addEventListener('click', () => savePrompt());
+
+    function appendRunnerLog(message, tone = null) {
+      if (!runnerLogEl) return;
+      const line = document.createElement('div');
+      line.className = 'line' + (tone ? ` ${tone}` : '');
+      const ts = new Date().toLocaleTimeString();
+      line.textContent = `${ts} · ${message}`;
+      runnerLogEl.appendChild(line);
+      runnerLogEl.scrollTop = runnerLogEl.scrollHeight;
     }
-    if (promptModal) {
-      promptModal.addEventListener('click', (e) => {
-        if (e.target === promptModal) showPromptModal(false);
-      });
+
+    function setRunnerMeta(info, runResult) {
+      if (!runnerMetaEl) return;
+      const validation = info?.latest_validation || null;
+      const runnerStore = info?.latest_runner_store || null;
+      const applied = runResult?.applied === true;
+      const digest = runResult?.canonical_digest
+        || validation?.digest
+        || runnerStore?.digest
+        || '—';
+      const lastRefresh = runResult?.canonical_last_refresh
+        || runnerStore?.last_refresh
+        || validation?.last_refresh
+        || '—';
+      const lastCheck = runResult?.runner_last_check
+        || info?.last_daily_check
+        || '—';
+      const status = validation?.status ?? (info?.enabled ? '—' : 'disabled');
+      const latency = validation?.latency_ms ? `${validation.latency_ms}ms` : '';
+      const reason = validation?.reason || runnerStore?.reason || '';
+      runnerMetaEl.innerHTML = `
+        <div><div class="label">Applied</div><div>${applied ? 'Yes (new auth)' : 'No change'}</div></div>
+        <div><div class="label">Validation</div><div>${status}${latency ? ` · ${latency}` : ''}</div></div>
+        <div><div class="label">Digest</div><div>${digest ? `<code>${digest}</code>` : '—'}</div></div>
+        <div><div class="label">Last refresh</div><div>${lastRefresh ? formatTimestamp(lastRefresh) : '—'}</div></div>
+        <div><div class="label">Runner last check</div><div>${lastCheck ? formatTimestamp(lastCheck) : '—'}</div></div>
+        <div><div class="label">Notes</div><div>${reason || '—'}</div></div>
+      `;
+    }
+
+    async function handleRunnerClick() {
+      if (!runnerModal || !runnerLogEl) {
+        await runRunnerNow();
+        return;
+      }
+      showRunnerModal(true);
+      appendRunnerLog('Preparing runner invocation…');
+      try {
+        const runResult = await runRunnerNow((msg, tone) => appendRunnerLog(msg, tone));
+        appendRunnerLog('Fetching latest runner status…');
+        const latestRunner = await api('/admin/runner');
+        runnerSummary = latestRunner?.data || runnerSummary;
+        setRunnerMeta(runnerSummary, runResult);
+        appendRunnerLog('Runner finished', runResult?.applied ? 'ok' : null);
+      } catch (err) {
+        appendRunnerLog(`Runner error: ${err.message}`, 'err');
+      }
     }
 
     if (versionCheckBtn) {
@@ -1856,6 +1867,17 @@
       newHostModal.addEventListener('click', (e) => {
         if (e.target === newHostModal) showNewHostModal(false);
       });
+    }
+    if (promptModal) {
+      promptModal.addEventListener('click', (e) => {
+        if (e.target === promptModal) showPromptModal(false);
+      });
+    }
+    if (promptCancel) {
+      promptCancel.addEventListener('click', () => showPromptModal(false));
+    }
+    if (promptSave) {
+      promptSave.addEventListener('click', () => savePrompt());
     }
     if (deleteHostModal) {
       deleteHostModal.addEventListener('click', (e) => {
