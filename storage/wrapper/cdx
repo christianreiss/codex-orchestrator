@@ -7,6 +7,7 @@ if [[ -t 1 ]]; then
   DIM="\033[2m"
   GREEN="\033[32m"
   YELLOW="\033[33m"
+  ORANGE="\033[38;5;208m"
   BLUE="\033[36m"
   RED="\033[31m"
   RESET="\033[0m"
@@ -15,6 +16,7 @@ else
   DIM=""
   GREEN=""
   YELLOW=""
+  ORANGE=""
   BLUE=""
   RED=""
   RESET=""
@@ -47,7 +49,7 @@ EOF
 
 print_motd() {
   while IFS= read -r line; do
-    printf "%b» %s%b\n" "${YELLOW}${BOLD}" "$line" "${RESET}"
+    printf "%b %s%b\n" "${ORANGE}${BOLD}" "$line" "${RESET}"
   done <<<"$MOTD_TEXT"
 }
 
@@ -113,7 +115,7 @@ HOST_TOKENS_MONTH_CACHED=""
 HOST_TOKENS_MONTH_REASONING=""
 HOST_TOKENS_MONTH_EVENTS=""
 
-WRAPPER_VERSION="2025.11.26-7"
+WRAPPER_VERSION="2025.11.26-8"
 
 IS_ROOT=0
 CAN_SUDO=0
