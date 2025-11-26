@@ -83,7 +83,7 @@ CHATGPT_SECONDARY_LIMIT=""
 CHATGPT_SECONDARY_RESET_AFTER=""
 CHATGPT_SECONDARY_RESET_AT=""
 
-WRAPPER_VERSION="2025.11.26-2"
+WRAPPER_VERSION="2025.11.26-3"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -1558,7 +1558,7 @@ fi
 
 platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
-log_info "cdx ${WRAPPER_VERSION} | user ${CURRENT_USER} | ${platform_os}/${platform_arch}"
+log_info "C O D E X  C O O R D I N A T O R"
 
 can_manage_codex=0
 if (( IS_ROOT )); then
@@ -1898,14 +1898,23 @@ colorize() {
   esac
 }
 
+ROW_LABEL_WIDTH=12
+ROW_VALUE_WIDTH=32
+QUOTA_BAR_WIDTH=24
+
 format_status_row() {
   local label="$1" col1="$2" col2="$3" col3="$4"
-  printf "%-8s | %-24s | %-24s | %s" "$label" "$col1" "$col2" "$col3"
+  printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$col1" "$col2" "$col3"
 }
 
 format_simple_row() {
   local label="$1" text="$2"
-  printf "%-12s | %s" "$label" "$text"
+  printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
+}
+
+format_quota_row() {
+  local label="$1" text="$2" note="$3"
+  printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$text" "$note"
 }
 
 format_duration_short() {
@@ -1929,9 +1938,10 @@ format_duration_short() {
 
 render_quota_line() {
   local used="$1" reset_after="$2" reset_at="$3"
-  local width=20
+  local width=${QUOTA_BAR_WIDTH:-24}
   local tone="yellow"
   local text="n/a"
+  local note=""
 
   if [[ "$used" =~ ^[0-9]+$ ]]; then
     local pct=$used
@@ -1943,7 +1953,6 @@ render_quota_line() {
     local bar_empty
     bar_filled=$(printf '%*s' "$filled" "" | tr ' ' '#')
     bar_empty=$(printf '%*s' $(( width - filled )) "" | tr ' ' '.')
-    local note=""
     if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
       local dur
       dur=$(format_duration_short "$reset_after")
@@ -1960,10 +1969,10 @@ render_quota_line() {
       tone="green"
     fi
 
-    text=$(printf "%3d%% [%s%s]%s" "$pct" "$bar_filled" "$bar_empty" "${note:+ | $note}")
+    text=$(printf "%3d%% [%s%s]" "$pct" "$bar_filled" "$bar_empty")
   fi
 
-  printf "%s\t%s" "$tone" "$text"
+  printf "%s\t%s\t%s" "$tone" "$text" "$note"
 }
 
 format_auth_label() {
@@ -2168,29 +2177,33 @@ fi
 command_tone=""
 if (( ${#command_actions[@]} )); then
   command_tone="yellow"
-  fi
+fi
 
-  log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
-  log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
-  log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
-  log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
-  qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
-  if [[ -n "$qline" ]]; then
-    qtone="${qline%%$'\t'*}"
-    qtext="${qline#*$'\t'}"
-    log_info "$(format_simple_row "5h quota" "$(colorize "$qtext" "$qtone")")"
-  fi
-  qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
-  if [[ -n "$qline" ]]; then
-    qtone2="${qline%%$'\t'*}"
-    qtext2="${qline#*$'\t'}"
-    log_info "$(format_simple_row "week quota" "$(colorize "$qtext2" "$qtone2")")"
-  fi
-  if [[ -n "$usage_summary" ]]; then
-    log_info "$(format_simple_row "tokens" "$usage_summary")"
-  fi
-  log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-  log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
+log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
+log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
+if [[ -n "$qline" ]]; then
+  qtone="${qline%%$'\t'*}"
+  rest="${qline#*$'\t'}"
+  qtext="${rest%%$'\t'*}"
+  qnote="${rest#*$'\t'}"
+  log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$(colorize "$qnote" "$qtone")")"
+fi
+qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
+if [[ -n "$qline" ]]; then
+  qtone2="${qline%%$'\t'*}"
+  rest2="${qline#*$'\t'}"
+  qtext2="${rest2%%$'\t'*}"
+  qnote2="${rest2#*$'\t'}"
+  log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote2" "$qtone2")")"
+fi
+if [[ -n "$usage_summary" ]]; then
+  log_info "$(format_simple_row "tokens" "$usage_summary")"
+fi
+log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
+log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
