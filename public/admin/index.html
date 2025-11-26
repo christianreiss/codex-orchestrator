@@ -982,7 +982,7 @@
         return { tone: 'critical', label: 'Pruning in ≤3d' };
       }
       if (!canLogin || (daysLeft !== null && daysLeft <= 10)) {
-        const reason = !canLogin ? 'Cannot login' : `Pruning in ${Math.max(0, Math.ceil(daysLeft))}d`;
+        const reason = !canLogin ? 'Pending login' : `Pruning in ${Math.max(0, Math.ceil(daysLeft))}d`;
         return { tone: 'warning', label: reason };
       }
       return { tone: 'ok', label: 'Can login' };
