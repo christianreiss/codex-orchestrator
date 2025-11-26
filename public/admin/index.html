@@ -572,6 +572,10 @@
               <label for="new-host-name" style="font-weight:600;">Host FQDN</label>
               <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
             </div>
+            <div class="field" style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" id="insecureToggle">
+              <label for="insecureToggle" class="muted" style="font-weight:600; cursor:pointer;">Allow insecure curl (-k)</label>
+            </div>
             <div class="field" id="commandField" style="display:none;">
               <label style="font-weight:600;">Run on the target host</label>
               <div class="command-box">
@@ -689,6 +693,7 @@
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
     const newHostName = document.getElementById('new-host-name');
+    const insecureToggle = document.getElementById('insecureToggle');
     const createHostBtn = document.getElementById('createHost');
     const cancelNewHostBtn = document.getElementById('cancelNewHost');
     const commandField = document.getElementById('commandField');
@@ -1641,6 +1646,9 @@
         newHostName.value = '';
         if (focusInput) newHostName.focus();
       }
+      if (insecureToggle) {
+        insecureToggle.checked = false;
+      }
     }
 
     function showNewHostModal(show, { reset = show, focusInput = reset } = {}) {
@@ -1696,7 +1704,10 @@
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
-        const cmd = installer.command;
+        let cmd = installer.command;
+        if (insecureToggle?.checked) {
+          cmd = cmd.replace('curl ', 'curl -k ');
+        }
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
         if (copyCmdBtn) {
