@@ -112,6 +112,8 @@ CHATGPT_SECONDARY_RESET_AFTER=""
 CHATGPT_SECONDARY_RESET_AT=""
 QUOTA_BLOCKED=0
 QUOTA_BLOCK_REASON=""
+QUOTA_WARNING=0
+QUOTA_WARNING_REASON=""
 HOST_API_CALLS=""
 HOST_TOKENS_MONTH_TOTAL=""
 HOST_TOKENS_MONTH_INPUT=""
@@ -132,7 +134,7 @@ PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
 
-WRAPPER_VERSION="2025.11.26-15"
+WRAPPER_VERSION="2025.11.26-16"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -2800,12 +2802,17 @@ elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; the
   result_tone="yellow"
 elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
   result_tone="yellow"
+elif (( QUOTA_WARNING )); then
+  result_tone="yellow"
 elif (( QUOTA_BLOCKED )); then
   result_tone="red"
 fi
 
 command_tone=""
 if (( ${#command_actions[@]} )); then
+  command_tone="yellow"
+fi
+if (( QUOTA_WARNING )); then
   command_tone="yellow"
 fi
 if (( QUOTA_BLOCKED )); then
@@ -2864,24 +2871,43 @@ fi
   fi
 
   quota_reasons=()
+  quota_warnings=()
   if [[ "${CHATGPT_STATUS,,}" == "limit_reached" ]]; then
     quota_reasons+=("ChatGPT status limit_reached")
   fi
-  if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]] && (( CHATGPT_PRIMARY_USED >= 100 )); then
-    reason="5h quota reached (${CHATGPT_PRIMARY_USED}% used"
-    [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
-    reason+=")"
-    quota_reasons+=("$reason")
+  if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]]; then
+    if (( CHATGPT_PRIMARY_USED >= 100 )); then
+      reason="5h quota reached (${CHATGPT_PRIMARY_USED}% used"
+      [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
+      reason+=")"
+      quota_reasons+=("$reason")
+    elif (( CHATGPT_PRIMARY_USED >= 90 )); then
+      reason="5h quota high (${CHATGPT_PRIMARY_USED}% used"
+      [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
+      reason+=")"
+      quota_warnings+=("$reason")
+    fi
   fi
-  if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]] && (( CHATGPT_SECONDARY_USED >= 100 )); then
-    reason="week quota reached (${CHATGPT_SECONDARY_USED}% used"
-    [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
-    reason+=")"
-    quota_reasons+=("$reason")
+  if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]]; then
+    if (( CHATGPT_SECONDARY_USED >= 100 )); then
+      reason="week quota reached (${CHATGPT_SECONDARY_USED}% used"
+      [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
+      reason+=")"
+      quota_reasons+=("$reason")
+    elif (( CHATGPT_SECONDARY_USED >= 90 )); then
+      reason="week quota high (${CHATGPT_SECONDARY_USED}% used"
+      [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
+      reason+=")"
+      quota_warnings+=("$reason")
+    fi
   fi
   if (( ${#quota_reasons[@]} )); then
     QUOTA_BLOCKED=1
     QUOTA_BLOCK_REASON="$(human_join "${quota_reasons[@]}")"
+  fi
+  if (( ${#quota_warnings[@]} )); then
+    QUOTA_WARNING=1
+    QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
 
   if [[ -n "$usage_summary" ]]; then
@@ -2931,6 +2957,10 @@ esac
 if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
   AUTH_LAUNCH_ALLOWED=0
   AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
+fi
+
+if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )); then
+  log_warn "ChatGPT quota near limit: ${QUOTA_WARNING_REASON:-see usage above}."
 fi
 
 if (( AUTH_LAUNCH_ALLOWED == 0 )); then
