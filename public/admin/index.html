@@ -1232,7 +1232,7 @@
       }
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = '';
+        promptsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
         return;
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
@@ -1260,28 +1260,6 @@
           retirePrompt(name);
         });
       });
-    }
-
-    function renderPrompts(prompts) {
-      currentPrompts = Array.isArray(prompts) ? prompts : [];
-      if (!promptsTbody) return;
-      if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
-        return;
-      }
-      promptsTbody.innerHTML = currentPrompts.map((p) => {
-        const desc = (p.description || '').replace(/</g, '&lt;');
-        const hint = (p.argument_hint || '').replace(/</g, '&lt;');
-        const sha = p.sha256 ? String(p.sha256).slice(0, 12) + '…' : '—';
-        const updated = p.updated_at ? formatTimestamp(p.updated_at) : '—';
-        return `<tr>
-          <td data-label="Filename"><code>${p.filename}</code></td>
-          <td data-label="Description">${desc || '—'}</td>
-          <td data-label="Argument hint"><code>${hint || '—'}</code></td>
-          <td data-label="SHA256"><code>${sha}</code></td>
-          <td data-label="Updated">${updated}</td>
-        </tr>`;
-      }).join('');
     }
 
     function renderRunnerCard(info) {
