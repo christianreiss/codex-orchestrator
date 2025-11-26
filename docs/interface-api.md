@@ -34,6 +34,7 @@
 - `POST /admin/versions/check` — refresh GitHub client release cache.
 - `GET /admin/chatgpt/usage[?force=1]` — account-level ChatGPT `/wham/usage` snapshot using canonical `auth.json` token (5-minute cooldown unless `force`).
 - `POST /admin/chatgpt/usage/refresh` — force-refresh ChatGPT usage snapshot (bypasses cooldown).
+- `GET /admin/slash-commands` — list server-stored slash command prompts (filename, sha256, description, argument hint, timestamps).
 - Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_month`, `pricing`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations.
 
 ## Auth + IP rules

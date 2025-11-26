@@ -774,6 +774,17 @@ $router->add('POST', '#^/admin/chatgpt/usage/refresh$#', function () use ($chatG
     ]);
 });
 
+$router->add('GET', '#^/admin/slash-commands$#', function () use ($slashCommandRepository) {
+    requireAdminAccess();
+
+    $commands = $slashCommandRepository->all();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['commands' => $commands],
+    ]);
+});
+
 $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
     requireAdminAccess();
 
