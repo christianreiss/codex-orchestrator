@@ -981,9 +981,11 @@
       if (daysLeft !== null && daysLeft <= 3) {
         return { tone: 'critical', label: 'Pruning in ≤3d' };
       }
-      if (!canLogin || (daysLeft !== null && daysLeft <= 10)) {
-        const reason = !canLogin ? 'Pending login' : `Pruning in ${Math.max(0, Math.ceil(daysLeft))}d`;
-        return { tone: 'warning', label: reason };
+      if (daysLeft !== null && daysLeft <= 10) {
+        return { tone: 'warning', label: `Pruning in ${Math.max(0, Math.ceil(daysLeft))}d` };
+      }
+      if (!canLogin) {
+        return { tone: 'ok', label: 'Not provisioned yet' };
       }
       return { tone: 'ok', label: 'Can login' };
     }
