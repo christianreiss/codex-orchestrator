@@ -1816,6 +1816,11 @@
     if (promptSave) {
       promptSave.addEventListener('click', () => savePrompt());
     }
+    if (promptModal) {
+      promptModal.addEventListener('click', (e) => {
+        if (e.target === promptModal) showPromptModal(false);
+      });
+    }
 
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
