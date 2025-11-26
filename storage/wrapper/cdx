@@ -83,7 +83,7 @@ CHATGPT_SECONDARY_LIMIT=""
 CHATGPT_SECONDARY_RESET_AFTER=""
 CHATGPT_SECONDARY_RESET_AT=""
 
-WRAPPER_VERSION="2025.11.26-3"
+WRAPPER_VERSION="2025.11.26-4"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -2202,8 +2202,8 @@ fi
 if [[ -n "$usage_summary" ]]; then
   log_info "$(format_simple_row "tokens" "$usage_summary")"
 fi
-log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
 log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
