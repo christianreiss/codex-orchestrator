@@ -3,13 +3,15 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Security\SecretBox;
 use PDO;
 
 class AuthPayloadRepository
 {
     public function __construct(
         private readonly Database $database,
-        private readonly AuthEntryRepository $entries
+        private readonly AuthEntryRepository $entries,
+        private readonly SecretBox $encrypter
     ) {
     }
 
@@ -24,7 +26,7 @@ class AuthPayloadRepository
             'last_refresh' => $lastRefresh,
             'sha256' => $sha256,
             'source_host_id' => $sourceHostId,
-            'body' => $extrasJson,
+            'body' => $extrasJson !== null ? $this->encrypter->encrypt($extrasJson) : null,
             'created_at' => gmdate(DATE_ATOM),
         ]);
 
@@ -46,6 +48,7 @@ class AuthPayloadRepository
             return null;
         }
 
+        $payload['body'] = $this->decryptBody($payload['body'] ?? null);
         $payload['entries'] = $this->entries->listByPayload((int) $payload['id']);
 
         return $payload;
@@ -61,8 +64,20 @@ class AuthPayloadRepository
             return null;
         }
 
+        $payload['body'] = $this->decryptBody($payload['body'] ?? null);
         $payload['entries'] = $this->entries->listByPayload((int) $payload['id']);
 
         return $payload;
+    }
+
+    private function decryptBody(?string $body): ?string
+    {
+        if ($body === null || $body === '') {
+            return $body;
+        }
+
+        $decrypted = $this->encrypter->decrypt($body);
+
+        return $decrypted ?? null;
     }
 }

@@ -3,3 +3,4 @@
 /storage/*.sqlite
 /storage/*.db
 /vendor
+/storage/backups/

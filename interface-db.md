@@ -3,8 +3,8 @@
 All tables are migrated on boot (MySQL only).
 
 - **hosts** — `id`, `fqdn`, `api_key`, `status`, `allow_roaming_ips`, `last_refresh`, `auth_digest`, `ip`, `client_version`, `wrapper_version` (legacy/unused), `api_calls`, `created_at`, `updated_at`.
-- **auth_payloads** — canonical auth snapshots (`id`, `last_refresh`, `sha256`, `source_host_id`, `body` canonical `auth.json`, `created_at`).
-- **auth_entries** — per-target tokens for each payload (`payload_id` FK, `target`, `token`, `token_type`, `organization`, `project`, `api_base`, `meta` JSON, `created_at`).
+- **auth_payloads** — canonical auth snapshots (`id`, `last_refresh`, `sha256`, `source_host_id`, `body` canonical `auth.json`, `created_at`); `body` is stored as a libsodium `secretbox` ciphertext (`sbox:v1:{base64}`) using `AUTH_ENCRYPTION_KEY`.
+- **auth_entries** — per-target tokens for each payload (`payload_id` FK, `target`, `token`, `token_type`, `organization`, `project`, `api_base`, `meta` JSON, `created_at`); `token` is encrypted with the same `sbox:v1` secretbox key.
 - **host_auth_states** — last canonical payload served per host (`host_id` FK, `payload_id`, `seen_digest`, `seen_at`).
 - **host_auth_digests** — up to three recent digests per host (`host_id` FK, `digest`, `last_seen`, `created_at`; unique per host/digest).
 - **token_usages** — per-host token usage rows from `/usage` (`host_id` FK nullable, `total`, `input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens`, `model`, `line`, `created_at`). `/usage` can submit multiple rows at once; admin aggregations surface these as `total`/`input`/`output`/`cached`/`reasoning`.

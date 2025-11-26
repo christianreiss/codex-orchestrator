@@ -17,6 +17,7 @@ Welcome! If you were searching for a "Codex auth.json sync server / Codex wrappe
 - Per-host API keys are minted from the admin dashboard (New Host) and IP-bound on first use; hosts can self-deregister via `DELETE /auth` when decommissioned.
 - Captures host metadata (IP, client version, optional wrapper version) so you know which machines are on which build.
 - MySQL-backed persistence and audit logs out of the box; storage lives in the compose volume by default.
+- Canonical `auth.json` payloads and per-target tokens are stored encrypted-at-rest with libsodium `secretbox`; the symmetric key is auto-generated into `.env` on first boot.
 - The dashboard "New Host" action generates a single-use installer token (`curl …/install/{token} | bash`) that bakes the API key into the downloaded `cdx`; `cdx --uninstall` handles clean removal.
 - The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
 - Runs in `php:8.2-apache` with automatic migrations; host endpoints enforce API-key auth (`X-API-Key` or `Authorization: Bearer`), and installer downloads are guarded by single-use tokens created via the dashboard.
@@ -114,7 +115,7 @@ docker-compose.yml
 
 1. **Environment**
    - Copy `.env.example` to `.env`.
-   - Configure the MySQL credentials via `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD` (defaults line up with `docker-compose.yml`).
+   - Configure the MySQL credentials via `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD` (defaults line up with `docker-compose.yml`). `AUTH_ENCRYPTION_KEY` is optional; a new secretbox key will be written into `.env` automatically when missing.
    - Optionally set `DASHBOARD_ADMIN_KEY` for an extra header check on admin routes.
 
 2. **Docker**

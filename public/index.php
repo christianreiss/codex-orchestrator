@@ -24,6 +24,9 @@ use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
+use App\Security\EncryptionKeyManager;
+use App\Security\SecretBox;
+use App\Services\AuthEncryptionMigrator;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -38,6 +41,9 @@ if (file_exists($root . '/.env')) {
     Dotenv::createImmutable($root)->safeLoad();
 }
 
+$keyManager = new EncryptionKeyManager($root);
+$secretBox = new SecretBox($keyManager->getKey());
+
 $dbConfig = [
     'driver' => Config::get('DB_DRIVER', 'mysql'),
     'host' => Config::get('DB_HOST', 'mysql'),
@@ -50,12 +56,15 @@ $dbConfig = [
 $database = new Database($dbConfig);
 $database->migrate();
 
+$encryptionMigrator = new AuthEncryptionMigrator($database, $secretBox);
+$encryptionMigrator->migrate();
+
 $hostRepository = new HostRepository($database);
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $installTokenRepository = new InstallTokenRepository($database);
-$authEntryRepository = new AuthEntryRepository($database);
-$authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository);
+$authEntryRepository = new AuthEntryRepository($database, $secretBox);
+$authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $logRepository = new LogRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);

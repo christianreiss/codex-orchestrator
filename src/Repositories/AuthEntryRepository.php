@@ -3,12 +3,15 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Security\SecretBox;
 use PDO;
 
 class AuthEntryRepository
 {
-    public function __construct(private readonly Database $database)
-    {
+    public function __construct(
+        private readonly Database $database,
+        private readonly SecretBox $encrypter
+    ) {
     }
 
     public function replaceEntries(int $payloadId, array $entries): void
@@ -32,7 +35,7 @@ class AuthEntryRepository
             $insert->execute([
                 'payload_id' => $payloadId,
                 'target' => $entry['target'],
-                'token' => $entry['token'],
+                'token' => $this->encrypter->encrypt($entry['token']),
                 'token_type' => $entry['token_type'] ?? 'bearer',
                 'organization' => $entry['organization'] ?? null,
                 'project' => $entry['project'] ?? null,
@@ -57,6 +60,9 @@ class AuthEntryRepository
                 $decoded = json_decode($row['meta'], true);
                 $row['meta'] = is_array($decoded) ? $decoded : null;
             }
+
+            $decrypted = $this->encrypter->decrypt($row['token']);
+            $row['token'] = $decrypted ?? '';
         }
 
         return $rows;
