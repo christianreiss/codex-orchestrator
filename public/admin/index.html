@@ -761,7 +761,7 @@
   </div>
         </section>
 
-        <section class="card panel" id="prompts-panel">
+        <section class="card panel" id="prompts-panel" style="display:none;">
           <div class="panel-head">
             <div>
               <h2>Slash Commands</h2>
@@ -876,14 +876,6 @@
       const num = Number(value);
       if (!Number.isFinite(num)) return '—';
       return num.toLocaleString('en-US');
-    }
-
-    function escapeText(value) {
-      return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
     }
 
     function api(path, opts = {}) {
@@ -1235,21 +1227,23 @@
 
     function renderPrompts(prompts) {
       currentPrompts = Array.isArray(prompts) ? prompts : [];
+      if (promptsPanel) {
+        promptsPanel.style.display = currentPrompts.length > 0 ? 'block' : 'none';
+      }
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
+        promptsTbody.innerHTML = '';
         return;
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
-        const desc = escapeText(p.description || '');
+        const desc = (p.description || '').replace(/</g, '&lt;');
         const retired = p.deleted_at ? '<span class="muted">(retired)</span>' : '';
-        const filename = escapeText(p.filename || '');
         return `<tr>
-          <td data-label="Filename"><code>${filename}</code> ${retired}</td>
+          <td data-label="Filename"><code>${p.filename}</code> ${retired}</td>
           <td data-label="Description">${desc || '—'}</td>
           <td data-label="Actions">
-            <button class="ghost tiny-btn prompt-edit" data-filename="${filename}">Edit</button>
-            <button class="ghost tiny-btn danger prompt-delete" data-filename="${filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
+            <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
+            <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
           </td>
         </tr>`;
       }).join('');
@@ -1643,7 +1637,10 @@
             console.warn('Runner status unavailable', err);
             return null;
           }),
-          api('/admin/slash-commands'),
+          api('/admin/slash-commands').catch(err => {
+            console.warn('Slash commands unavailable', err);
+            return null;
+          }),
         ]);
         setMtls(overview.data.mtls);
         renderStats(overview.data, runner?.data || null);
