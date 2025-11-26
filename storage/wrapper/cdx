@@ -47,7 +47,7 @@ EOF
 
 print_motd() {
   while IFS= read -r line; do
-    log_info "$line"
+    printf "%b» %s%b\n" "${YELLOW}${BOLD}" "$line" "${RESET}"
   done <<<"$MOTD_TEXT"
 }
 
@@ -113,7 +113,7 @@ HOST_TOKENS_MONTH_CACHED=""
 HOST_TOKENS_MONTH_REASONING=""
 HOST_TOKENS_MONTH_EVENTS=""
 
-WRAPPER_VERSION="2025.11.26-6"
+WRAPPER_VERSION="2025.11.26-7"
 
 IS_ROOT=0
 CAN_SUDO=0
