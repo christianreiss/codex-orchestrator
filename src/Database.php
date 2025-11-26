@@ -120,6 +120,7 @@ class Database
                 source_host_id BIGINT UNSIGNED NULL,
                 created_at VARCHAR(100) NOT NULL,
                 updated_at VARCHAR(100) NOT NULL,
+                deleted_at VARCHAR(100) NULL,
                 INDEX idx_slash_commands_updated_at (updated_at),
                 CONSTRAINT fk_slash_commands_host FOREIGN KEY (source_host_id) REFERENCES hosts(id) ON DELETE SET NULL
             ) ENGINE=InnoDB {$collation};
@@ -281,6 +282,7 @@ class Database
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
         $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
 
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid

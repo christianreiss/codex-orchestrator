@@ -128,6 +128,7 @@ PROMPT_PUSH_STATUS=""
 PROMPT_REMOTE_COUNT=""
 PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
+PROMPT_REMOVED=0
 
 WRAPPER_VERSION="2025.11.26-13"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
@@ -1364,6 +1365,7 @@ if mode == "pull":
         commands = data.get("commands") or []
     downloaded = 0
     errors = 0
+    removed = 0
     local = load_local()
 
     for cmd in commands:
@@ -1371,7 +1373,17 @@ if mode == "pull":
             continue
         fname = cmd.get("filename")
         rsha = cmd.get("sha256")
-        if not fname or not rsha:
+        deleted = bool(cmd.get("deleted_at"))
+        if not fname:
+            continue
+        if deleted:
+            try:
+                (prompt_dir / fname).unlink(missing_ok=True)
+                removed += 1
+            except Exception:
+                pass
+            continue
+        if not rsha:
             continue
         local_sha = (local.get(fname) or {}).get("sha")
         if local_sha and local_sha == rsha:
@@ -1400,7 +1412,7 @@ if mode == "pull":
 
     updated_local = load_local()
     baseline = {name: entry["sha"] for name, entry in updated_local.items()}
-    remote_names = {cmd["filename"] for cmd in commands if isinstance(cmd, dict) and cmd.get("filename")}
+    remote_names = {cmd["filename"] for cmd in commands if isinstance(cmd, dict) and cmd.get("filename") and not cmd.get("deleted_at")}
     filtered_baseline = {name: sha for name, sha in baseline.items() if name in remote_names}
     save_baseline(filtered_baseline)
     print(
@@ -1408,7 +1420,8 @@ if mode == "pull":
         f"updated={downloaded} "
         f"errors={errors} "
         f"remote={len(commands)} "
-        f"local={len(updated_local)}"
+        f"local={len(updated_local)} "
+        f"removed={removed}"
     )
     sys.exit(0)
 
@@ -1510,6 +1523,7 @@ sync_slash_commands_pull() {
       errors=*) PROMPT_PULL_ERRORS="${part#errors=}" ;;
       remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
+      removed=*) PROMPT_REMOVED="${part#removed=}" ;;
     esac
   done
   return 0
@@ -2596,6 +2610,9 @@ if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
   if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
     prompt_label+=" (${PROMPT_PULL_UPDATED} updated)"
   fi
+  if [[ "$PROMPT_REMOVED" =~ ^[0-9]+$ ]] && (( PROMPT_REMOVED > 0 )); then
+    prompt_label+=" (${PROMPT_REMOVED} removed)"
+  fi
   if [[ "$PROMPT_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_ERRORS > 0 )); then
     prompt_label+=" (${PROMPT_PULL_ERRORS} fetch errors)"
     prompt_tone="yellow"
@@ -2694,6 +2711,9 @@ if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
   fi
   if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
     prompt_result+="; pushed ${PROMPT_PUSHED}"
+  fi
+  if [[ "$PROMPT_REMOVED" =~ ^[0-9]+$ ]] && (( PROMPT_REMOVED > 0 )); then
+    prompt_result+="; removed ${PROMPT_REMOVED}"
   fi
   if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
     prompt_result+="; push errors ${PROMPT_PUSH_ERRORS}"

@@ -11,11 +11,15 @@ class SlashCommandRepository
     {
     }
 
-    public function all(): array
+    public function all(bool $includeDeleted = false): array
     {
-        $statement = $this->database->connection()->query(
-            'SELECT id, filename, sha256, description, argument_hint, updated_at FROM slash_commands ORDER BY filename ASC'
-        );
+        $sql = 'SELECT id, filename, sha256, description, argument_hint, updated_at, deleted_at FROM slash_commands';
+        if (!$includeDeleted) {
+            $sql .= ' WHERE deleted_at IS NULL';
+        }
+        $sql .= ' ORDER BY filename ASC';
+
+        $statement = $this->database->connection()->query($sql);
 
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
 
@@ -48,14 +52,15 @@ class SlashCommandRepository
         $now = gmdate(DATE_ATOM);
 
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO slash_commands (filename, sha256, description, argument_hint, prompt, source_host_id, created_at, updated_at)
-             VALUES (:filename, :sha256, :description, :argument_hint, :prompt, :source_host_id, :created_at, :updated_at)
+            'INSERT INTO slash_commands (filename, sha256, description, argument_hint, prompt, source_host_id, created_at, updated_at, deleted_at)
+             VALUES (:filename, :sha256, :description, :argument_hint, :prompt, :source_host_id, :created_at, :updated_at, NULL)
              ON DUPLICATE KEY UPDATE
                 sha256 = VALUES(sha256),
                 description = VALUES(description),
                 argument_hint = VALUES(argument_hint),
                 prompt = VALUES(prompt),
                 source_host_id = VALUES(source_host_id),
+                deleted_at = NULL,
                 updated_at = VALUES(updated_at)'
         );
 
@@ -71,5 +76,19 @@ class SlashCommandRepository
         ]);
 
         return $this->findByFilename($filename) ?? [];
+    }
+
+    public function delete(string $filename): bool
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE slash_commands SET deleted_at = :deleted_at WHERE filename = :filename'
+        );
+
+        $statement->execute([
+            'deleted_at' => gmdate(DATE_ATOM),
+            'filename' => $filename,
+        ]);
+
+        return $statement->rowCount() > 0;
     }
 }

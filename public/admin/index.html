@@ -1230,15 +1230,19 @@
       currentPrompts = Array.isArray(prompts) ? prompts : [];
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
+        promptsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
         return;
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
         const desc = (p.description || '').replace(/</g, '&lt;');
+        const retired = p.deleted_at ? '<span class="muted">(retired)</span>' : '';
         return `<tr>
-          <td data-label="Filename"><code>${p.filename}</code></td>
+          <td data-label="Filename"><code>${p.filename}</code> ${retired}</td>
           <td data-label="Description">${desc || '—'}</td>
-          <td data-label="Actions"><button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button></td>
+          <td data-label="Actions">
+            <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
+            <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
+          </td>
         </tr>`;
       }).join('');
 
@@ -1246,6 +1250,12 @@
         btn.addEventListener('click', () => {
           const name = btn.getAttribute('data-filename');
           openPromptModal(name);
+        });
+      });
+      promptsTbody.querySelectorAll('.prompt-delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const name = btn.getAttribute('data-filename');
+          retirePrompt(name);
         });
       });
     }
@@ -1750,6 +1760,19 @@
         if (promptStatus) promptStatus.textContent = '';
       } catch (err) {
         if (promptStatus) promptStatus.textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    async function retirePrompt(filename) {
+      if (!filename) return;
+      if (!confirm(`Retire slash command "${filename}"? This removes it from hosts on next sync.`)) {
+        return;
+      }
+      try {
+        await api(`/admin/slash-commands/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        await loadAll();
+      } catch (err) {
+        alert(`Retire failed: ${err.message}`);
       }
     }
 

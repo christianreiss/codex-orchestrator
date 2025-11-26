@@ -835,6 +835,34 @@ $router->add('POST', '#^/admin/slash-commands/store$#', function () use ($payloa
     ]);
 });
 
+$router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', function ($matches) use ($slashCommandService) {
+    requireAdminAccess();
+    $filename = urldecode($matches[1]);
+    try {
+        $deleted = $slashCommandService->delete($filename);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    if (!$deleted) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Slash command not found',
+        ], 404);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'deleted' => $filename,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
     requireAdminAccess();
 
@@ -894,7 +922,7 @@ $router->add('GET', '#^/slash-commands$#', function () use ($service, $slashComm
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);
 
-    $commands = $slashCommandService->listCommands($host);
+    $commands = $slashCommandService->listCommands($host, true);
 
     Response::json([
         'status' => 'ok',

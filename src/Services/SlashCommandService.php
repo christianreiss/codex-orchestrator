@@ -14,9 +14,9 @@ class SlashCommandService
     ) {
     }
 
-    public function listCommands(?array $host = null): array
+    public function listCommands(?array $host = null, bool $includeDeleted = false): array
     {
-        $rows = $this->commands->all();
+        $rows = $this->commands->all($includeDeleted);
         $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
         $this->logs->log($hostId, 'slash.list', ['count' => count($rows)]);
 
@@ -40,6 +40,21 @@ class SlashCommandService
             return [
                 'status' => 'missing',
                 'filename' => $normalizedFilename,
+            ];
+        }
+
+        $isDeleted = !empty($row['deleted_at']);
+
+        if ($isDeleted) {
+            $this->logs->log($hostId, 'slash.retrieve', [
+                'filename' => $normalizedFilename,
+                'status' => 'deleted',
+            ]);
+
+            return [
+                'status' => 'deleted',
+                'filename' => $normalizedFilename,
+                'deleted_at' => $row['deleted_at'] ?? gmdate(DATE_ATOM),
             ];
         }
 
@@ -146,6 +161,18 @@ class SlashCommandService
             'sha256' => $saved['sha256'] ?? $sha,
             'updated_at' => $saved['updated_at'] ?? gmdate(DATE_ATOM),
         ];
+    }
+
+    public function delete(string $filename, ?array $host = null): bool
+    {
+        $normalized = $this->normalizeFilename($filename);
+        $deleted = $this->commands->delete($normalized);
+        $this->logs->log($this->hostId($host), 'slash.delete', [
+            'filename' => $normalized,
+            'deleted' => $deleted,
+        ]);
+
+        return $deleted;
     }
 
     private function normalizeFilename(string $filename): string
