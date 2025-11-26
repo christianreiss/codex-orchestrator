@@ -611,6 +611,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
 
 $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService) {
     requireAdminAccess();
+    $service->pruneStaleHosts();
 
     $hosts = $hostRepository->all();
     $countHosts = count($hosts);
@@ -667,8 +668,9 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     ]);
 });
 
-$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository) {
+$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service) {
     requireAdminAccess();
+    $service->pruneStaleHosts();
 
     $hosts = $hostRepository->all();
     $digests = $digestRepository->byHostId();

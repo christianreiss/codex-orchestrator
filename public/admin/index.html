@@ -919,6 +919,21 @@
       return formatTimestamp(value);
     }
 
+    function formatUntil(value) {
+      const date = parseTimestamp(value);
+      if (!date) return 'soon';
+      const diff = date.getTime() - Date.now();
+      if (diff <= 0) return 'imminently';
+      const minutes = Math.round(diff / 60000);
+      if (minutes < 90) return `${minutes} min`;
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      if (hours < 48) return `${hours}h ${mins}m`;
+      const days = Math.floor(hours / 24);
+      const hrs = hours % 24;
+      return `${days}d ${hrs}h`;
+    }
+
     function formatDurationSeconds(value) {
       if (!Number.isFinite(value)) return null;
       const seconds = Math.max(0, Math.floor(value));
@@ -1009,7 +1024,9 @@
         const tr = document.createElement('tr');
         const addedAt = host.created_at ?? host.updated_at ?? host.last_refresh ?? null;
         const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
-        const willPruneAt = shouldPruneSoon && addedAt ? formatRelative(new Date(Date.parse(addedAt) + 30 * 60 * 1000).toISOString()) : null;
+        const addedDate = parseTimestamp(addedAt);
+        const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
+        const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
         const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
         const health = hostHealth(host);
         tr.classList.add(`status-${health.tone}`);
@@ -1018,7 +1035,7 @@
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
               <strong>${host.fqdn}</strong>
               <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
-                <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `will be removed ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
+                <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
                 <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
               </div>
             </div>

@@ -1376,6 +1376,11 @@ class AuthService
         }
     }
 
+    public function pruneStaleHosts(): void
+    {
+        $this->pruneInactiveHosts();
+    }
+
     /**
      * @return array{0:string,1:?string}
      */
