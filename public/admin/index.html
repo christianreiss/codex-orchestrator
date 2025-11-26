@@ -368,6 +368,7 @@
     .status-warning:nth-child(even) { background: linear-gradient(90deg, rgba(217,119,6,0.24), rgba(217,119,6,0.08)); }
     .status-critical { background: linear-gradient(90deg, rgba(229,72,77,0.2), rgba(229,72,77,0.06)); }
     .status-critical:nth-child(even) { background: linear-gradient(90deg, rgba(190,40,45,0.24), rgba(190,40,45,0.08)); }
+    .usage-plan.pro-plan { color: var(--success); font-weight: 800; letter-spacing: 0.02em; }
     .inline-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
     .ip-toggle {
       display: inline-flex;
@@ -435,6 +436,7 @@
     .chip.ok { color: var(--success); border-color: rgba(95,247,194,0.35); background: rgba(95,247,194,0.12); }
     .chip.warn { color: var(--warning); border-color: rgba(255,200,87,0.35); background: rgba(255,200,87,0.12); }
     .chip.neutral { color: var(--muted); border-color: rgba(155,179,217,0.35); background: rgba(155,179,217,0.12); }
+    .chip.pro { color: #0f5132; border-color: rgba(16,163,127,0.5); background: rgba(16,163,127,0.14); box-shadow: 0 6px 16px rgba(16,163,127,0.18); }
     .error { color: var(--danger); font-weight: 700; }
     /* Modal */
     .modal-backdrop {
@@ -1173,6 +1175,8 @@
       const pricing = lastOverview?.pricing || { currency: 'EUR', input_price_per_1k: 0, output_price_per_1k: 0, cached_price_per_1k: 0 };
       const monthCost = lastOverview?.pricing_month_cost ?? null;
       const currency = pricing.currency || 'EUR';
+      const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
+      const planLabel = isPro ? `${plan} — Pro. Bro. PRO!` : plan;
       const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
       const inputCost = hasPricing ? (monthly.input / 1000) * (pricing.input_price_per_1k ?? 0) : null;
       const outputCost = hasPricing ? (monthly.output / 1000) * (pricing.output_price_per_1k ?? 0) : null;
@@ -1183,10 +1187,11 @@
         <div class="usage-head">
           <div>
             <div class="stat-label">ChatGPT Account</div>
-            <div class="usage-plan">${plan}</div>
+            <div class="usage-plan ${isPro ? 'pro-plan' : ''}">${planLabel}</div>
             <div class="usage-meta">
               <span>Last check ${fetched}</span>
               ${next ? `<span>Next ${next}</span>` : ''}
+              ${isPro ? '<span class="chip pro">PRO! PRO!</span>' : ''}
               ${usage.cached ? '<span class="chip neutral">Cached</span>' : ''}
               ${snapshot.rate_limit_reached ? '<span class="chip warn">Limit reached</span>' : ''}
             </div>
