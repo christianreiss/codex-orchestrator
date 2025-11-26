@@ -777,7 +777,7 @@ $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository)
     ]);
 });
 
-$router->add('POST', '#^/auth$#', function () use ($payload, $service) {
+$router->add('POST', '#^/auth$#', function () use ($payload, $service, $chatGptUsageService) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);
@@ -785,7 +785,11 @@ $router->add('POST', '#^/auth$#', function () use ($payload, $service) {
     $wrapperVersion = extractWrapperVersion($payload);
     $baseUrl = resolveBaseUrl();
 
+    // Opportunistically refresh ChatGPT usage if stale (respects cooldown inside service).
+    $chatGptUsageService->fetchLatest(false);
+
     $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
+    $result['chatgpt_usage'] = $chatGptUsageService->latestWindowSummary();
 
     Response::json([
         'status' => 'ok',

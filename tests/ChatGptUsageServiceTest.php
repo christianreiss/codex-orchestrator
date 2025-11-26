@@ -145,4 +145,37 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertSame([0, 0], $snapshot['approx_local_messages']);
         $this->assertFalse($result['cached']);
     }
+
+    public function testLatestWindowSummaryReturnsPrimaryAndSecondaryWindows(): void
+    {
+        $repo = new InMemoryChatGptUsageRepository();
+        $repo->record([
+            'status' => 'ok',
+            'plan_type' => 'team',
+            'rate_allowed' => true,
+            'rate_limit_reached' => false,
+            'primary_used_percent' => 45,
+            'primary_limit_seconds' => 18000,
+            'primary_reset_after_seconds' => 600,
+            'primary_reset_at' => '2025-11-26T15:00:00Z',
+            'secondary_used_percent' => 12,
+            'secondary_limit_seconds' => 604800,
+            'secondary_reset_after_seconds' => 7200,
+            'secondary_reset_at' => '2025-12-02T00:00:00Z',
+            'fetched_at' => '2025-11-26T10:00:00Z',
+            'next_eligible_at' => '2025-11-26T10:05:00Z',
+        ]);
+
+        $auth = $this->getMockBuilder(AuthService::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+        $service = new ChatGptUsageService($auth, $repo, $logs);
+
+        $summary = $service->latestWindowSummary();
+
+        $this->assertNotNull($summary);
+        $this->assertSame('team', $summary['plan_type']);
+        $this->assertSame(45, $summary['primary_window']['used_percent']);
+        $this->assertSame(604800, $summary['secondary_window']['limit_seconds']);
+        $this->assertSame('2025-12-02T00:00:00Z', $summary['secondary_window']['reset_at']);
+    }
 }

@@ -24,6 +24,39 @@ class ChatGptUsageService
         return $this->repository->latest();
     }
 
+    public function latestWindowSummary(): ?array
+    {
+        $snapshot = $this->latestSnapshot();
+        if ($snapshot === null) {
+            return null;
+        }
+
+        $primary = [
+            'used_percent' => $snapshot['primary_used_percent'] ?? null,
+            'limit_seconds' => $snapshot['primary_limit_seconds'] ?? null,
+            'reset_after_seconds' => $snapshot['primary_reset_after_seconds'] ?? null,
+            'reset_at' => $snapshot['primary_reset_at'] ?? null,
+        ];
+
+        $secondary = [
+            'used_percent' => $snapshot['secondary_used_percent'] ?? null,
+            'limit_seconds' => $snapshot['secondary_limit_seconds'] ?? null,
+            'reset_after_seconds' => $snapshot['secondary_reset_after_seconds'] ?? null,
+            'reset_at' => $snapshot['secondary_reset_at'] ?? null,
+        ];
+
+        return [
+            'status' => $snapshot['status'] ?? null,
+            'plan_type' => $snapshot['plan_type'] ?? null,
+            'rate_allowed' => $snapshot['rate_allowed'] ?? null,
+            'rate_limit_reached' => $snapshot['rate_limit_reached'] ?? null,
+            'fetched_at' => $snapshot['fetched_at'] ?? null,
+            'next_eligible_at' => $snapshot['next_eligible_at'] ?? null,
+            'primary_window' => $primary,
+            'secondary_window' => $secondary,
+        ];
+    }
+
     public function fetchLatest(bool $force = false): array
     {
         $now = time();

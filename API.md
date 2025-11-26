@@ -61,6 +61,10 @@ The service stores the canonical auth JSON plus an `auth_digest` and keeps the l
 - `unchanged`: timestamps match; returns canonical digest and versions only.
 - `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
 
+**Usage snapshot**
+
+When a ChatGPT `/wham/usage` snapshot is present, every `/auth` response also includes `chatgpt_usage` with the latest windows: `primary_window` (5-hour) and `secondary_window` (weekly) each expose `used_percent`, `limit_seconds`, and reset timing (`reset_after_seconds`, `reset_at`), alongside plan/status and `next_eligible_at` metadata. The server will refresh the snapshot on-demand when the cooldown has expired (similar to version checks) so API callers see fresh quotas without a separate admin refresh.
+
 **Runner validation**
 
 When `AUTH_RUNNER_URL` is configured, the server:

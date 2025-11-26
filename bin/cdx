@@ -71,8 +71,19 @@ SYNC_REMOTE_WRAPPER_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 last_usage_payload=""
+CHATGPT_STATUS=""
+CHATGPT_PLAN=""
+CHATGPT_NEXT=""
+CHATGPT_PRIMARY_USED=""
+CHATGPT_PRIMARY_LIMIT=""
+CHATGPT_PRIMARY_RESET_AFTER=""
+CHATGPT_PRIMARY_RESET_AT=""
+CHATGPT_SECONDARY_USED=""
+CHATGPT_SECONDARY_LIMIT=""
+CHATGPT_SECONDARY_RESET_AFTER=""
+CHATGPT_SECONDARY_RESET_AT=""
 
-WRAPPER_VERSION="2025.11.25-1"
+WRAPPER_VERSION="2025.11.26-1"
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -701,6 +712,7 @@ status = (payload_data or {}).get("status")
 versions_block = payload_data.get("versions") if isinstance(payload_data, dict) else {}
 canonical_digest = payload_data.get("canonical_digest") or payload_data.get("digest")
 auth_to_write = None
+chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}
 
 
 def record_versions(vblock):
@@ -721,6 +733,10 @@ def record_versions(vblock):
     return out
 
 
+def window(value):
+    return value if isinstance(value, dict) else {}
+
+
 versions_out = record_versions(versions_block)
 if versions_out.get("client_version"):
     SYNC_REMOTE_CLIENT_VERSION = versions_out.get("client_version")
@@ -730,6 +746,9 @@ if versions_out.get("wrapper_sha256"):
     SYNC_REMOTE_WRAPPER_SHA256 = versions_out.get("wrapper_sha256")
 if versions_out.get("wrapper_url"):
     SYNC_REMOTE_WRAPPER_URL = versions_out.get("wrapper_url")
+
+primary_window = window(chatgpt_usage.get("primary_window"))
+secondary_window = window(chatgpt_usage.get("secondary_window"))
 
 if status == "valid":
     auth_to_write = current
@@ -784,6 +803,17 @@ print(
                 "uploaded current auth" if status in ("missing", "upload_required") else
                 status
             ),
+            "chatgpt_status": chatgpt_usage.get("status"),
+            "chatgpt_plan": chatgpt_usage.get("plan_type"),
+            "chatgpt_next": chatgpt_usage.get("next_eligible_at"),
+            "chatgpt_primary_used": primary_window.get("used_percent"),
+            "chatgpt_primary_limit": primary_window.get("limit_seconds"),
+            "chatgpt_primary_reset_after": primary_window.get("reset_after_seconds"),
+            "chatgpt_primary_reset_at": primary_window.get("reset_at"),
+            "chatgpt_secondary_used": secondary_window.get("used_percent"),
+            "chatgpt_secondary_limit": secondary_window.get("limit_seconds"),
+            "chatgpt_secondary_reset_after": secondary_window.get("reset_after_seconds"),
+            "chatgpt_secondary_reset_at": secondary_window.get("reset_at"),
         },
         separators=(",", ":"),
     )
@@ -828,6 +858,36 @@ if isinstance(aact, str) and aact.strip():
 amsg = parsed.get("auth_message")
 if isinstance(amsg, str) and amsg.strip():
     print(f"am={amsg.strip()}")
+cgst = parsed.get("chatgpt_status")
+if isinstance(cgst, str) and cgst.strip():
+    print(f"cgs={cgst.strip()}")
+cgpl = parsed.get("chatgpt_plan")
+if isinstance(cgpl, str) and cgpl.strip():
+    print(f"cgp={cgpl.strip()}")
+cgnx = parsed.get("chatgpt_next")
+if isinstance(cgnx, str) and cgnx.strip():
+    print(f"cgn={cgnx.strip()}")
+def _emit_int(key, prefix):
+    if isinstance(key, (int, float)):
+        print(f"{prefix}={int(key)}")
+cp_u = parsed.get("chatgpt_primary_used")
+_emit_int(cp_u, "cgu")
+cp_l = parsed.get("chatgpt_primary_limit")
+_emit_int(cp_l, "cgl")
+cp_r = parsed.get("chatgpt_primary_reset_after")
+_emit_int(cp_r, "cgr")
+cp_a = parsed.get("chatgpt_primary_reset_at")
+if isinstance(cp_a, str) and cp_a.strip():
+    print(f"cga={cp_a.strip()}")
+cs_u = parsed.get("chatgpt_secondary_used")
+_emit_int(cs_u, "cgsu")
+cs_l = parsed.get("chatgpt_secondary_limit")
+_emit_int(cs_l, "cgsl")
+cs_r = parsed.get("chatgpt_secondary_reset_after")
+_emit_int(cs_r, "cgsr")
+cs_a = parsed.get("chatgpt_secondary_reset_at")
+if isinstance(cs_a, str) and cs_a.strip():
+    print(f"cgsa={cs_a.strip()}")
 PY
 )" || true
       if [[ -n "$parsed" ]]; then
@@ -854,6 +914,39 @@ PY
               ;;
             am=*)
               AUTH_MESSAGE="${line#am=}"
+              ;;
+            cgs=*)
+              CHATGPT_STATUS="${line#cgs=}"
+              ;;
+            cgp=*)
+              CHATGPT_PLAN="${line#cgp=}"
+              ;;
+            cgn=*)
+              CHATGPT_NEXT="${line#cgn=}"
+              ;;
+            cgu=*)
+              CHATGPT_PRIMARY_USED="${line#cgu=}"
+              ;;
+            cgl=*)
+              CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
+              ;;
+            cgr=*)
+              CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
+              ;;
+            cga=*)
+              CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
+              ;;
+            cgsu=*)
+              CHATGPT_SECONDARY_USED="${line#cgsu=}"
+              ;;
+            cgsl=*)
+              CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
+              ;;
+            cgsr=*)
+              CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
+              ;;
+            cgsa=*)
+              CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
               ;;
           esac
         done <<<"$parsed"
@@ -1812,7 +1905,65 @@ format_status_row() {
 
 format_simple_row() {
   local label="$1" text="$2"
-  printf "%-8s | %s" "$label" "$text"
+  printf "%-12s | %s" "$label" "$text"
+}
+
+format_duration_short() {
+  local seconds="$1"
+  [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
+  local s=$seconds
+  local days=$(( s / 86400 ))
+  s=$(( s % 86400 ))
+  local hours=$(( s / 3600 ))
+  s=$(( s % 3600 ))
+  local mins=$(( s / 60 ))
+  local parts=()
+  (( days > 0 )) && parts+=("${days}d")
+  (( hours > 0 )) && parts+=("${hours}h")
+  (( mins > 0 )) && parts+=("${mins}m")
+  if (( ${#parts[@]} == 0 )); then
+    parts=("<1m")
+  fi
+  printf "%s" "${parts[*]}"
+}
+
+render_quota_line() {
+  local used="$1" reset_after="$2" reset_at="$3"
+  local width=20
+  local tone="yellow"
+  local text="n/a"
+
+  if [[ "$used" =~ ^[0-9]+$ ]]; then
+    local pct=$used
+    (( pct < 0 )) && pct=0
+    (( pct > 100 )) && pct=100
+    local filled=$(( (pct * width + 50) / 100 ))
+    (( filled > width )) && filled=$width
+    local bar_filled
+    local bar_empty
+    bar_filled=$(printf '%*s' "$filled" "" | tr ' ' '#')
+    bar_empty=$(printf '%*s' $(( width - filled )) "" | tr ' ' '.')
+    local note=""
+    if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
+      local dur
+      dur=$(format_duration_short "$reset_after")
+      [[ -n "$dur" ]] && note="resets in ${dur}"
+    elif [[ -n "$reset_at" ]]; then
+      note="resets @ ${reset_at}"
+    fi
+
+    if (( pct >= 95 )); then
+      tone="red"
+    elif (( pct >= 80 )); then
+      tone="yellow"
+    else
+      tone="green"
+    fi
+
+    text=$(printf "%3d%% [%s%s]%s" "$pct" "$bar_filled" "$bar_empty" "${note:+ | $note}")
+  fi
+
+  printf "%s\t%s" "$tone" "$text"
 }
 
 format_auth_label() {
@@ -2023,6 +2174,19 @@ if (( ${#command_actions[@]} )); then
   log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  local qline
+  qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
+  if [[ -n "$qline" ]]; then
+    local qtone="${qline%%$'\t'*}"
+    local qtext="${qline#*$'\t'}"
+    log_info "$(format_simple_row "5h quota" "$(colorize "$qtext" "$qtone")")"
+  fi
+  qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
+  if [[ -n "$qline" ]]; then
+    local qtone2="${qline%%$'\t'*}"
+    local qtext2="${qline#*$'\t'}"
+    log_info "$(format_simple_row "week quota" "$(colorize "$qtext2" "$qtone2")")"
+  fi
   if [[ -n "$usage_summary" ]]; then
     log_info "$(format_simple_row "tokens" "$usage_summary")"
   fi
