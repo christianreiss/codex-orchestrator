@@ -878,6 +878,14 @@
       return num.toLocaleString('en-US');
     }
 
+    function escapeText(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     function api(path, opts = {}) {
       const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
       const init = {
@@ -1233,14 +1241,15 @@
         return;
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
-        const desc = (p.description || '').replace(/</g, '&lt;');
+        const desc = escapeText(p.description || '');
         const retired = p.deleted_at ? '<span class="muted">(retired)</span>' : '';
+        const filename = escapeText(p.filename || '');
         return `<tr>
-          <td data-label="Filename"><code>${p.filename}</code> ${retired}</td>
+          <td data-label="Filename"><code>${filename}</code> ${retired}</td>
           <td data-label="Description">${desc || '—'}</td>
           <td data-label="Actions">
-            <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
-            <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
+            <button class="ghost tiny-btn prompt-edit" data-filename="${filename}">Edit</button>
+            <button class="ghost tiny-btn danger prompt-delete" data-filename="${filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
           </td>
         </tr>`;
       }).join('');
