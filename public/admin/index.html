@@ -1130,7 +1130,14 @@
       const timePercent = Number.isFinite(data?.limit_seconds) && Number.isFinite(data?.reset_after_seconds)
         ? Math.min(100, Math.max(0, Math.round(((data.limit_seconds - data.reset_after_seconds) / data.limit_seconds) * 100)))
         : null;
-      const meter = `<div class="meter"><span style="width:${used !== null ? used : 0}%"></span></div>`;
+      const tone = (() => {
+        if (used === null || timePercent === null) return 'neutral';
+        const ahead = used <= timePercent;
+        if (ahead && (timePercent - used) >= 15) return 'ok';
+        if (ahead) return 'warn';
+        return 'critical';
+      })();
+      const meter = `<div class="meter ${tone}"><span style="width:${used !== null ? used : 0}%"></span></div>`;
       const timeMeter = timePercent !== null
         ? `<div class="meter time"><span style="width:${timePercent}%"></span></div>`
         : '';
