@@ -14,6 +14,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Support\Timestamp;
+use App\Security\RateLimiter;
 use DateTimeImmutable;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -25,6 +26,9 @@ class AuthService
     private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
+    private const AUTH_FAIL_LIMIT = 20;
+    private const AUTH_FAIL_WINDOW_SECONDS = 600;
+    private const AUTH_FAIL_BLOCK_SECONDS = 1800;
 
     public function __construct(
         private readonly HostRepository $hosts,
@@ -36,7 +40,8 @@ class AuthService
         private readonly TokenUsageRepository $tokenUsages,
         private readonly VersionRepository $versions,
         private readonly WrapperService $wrapperService,
-        private readonly ?RunnerVerifier $runnerVerifier = null
+        private readonly ?RunnerVerifier $runnerVerifier = null,
+        private readonly ?RateLimiter $rateLimiter = null
     ) {
     }
 
@@ -77,11 +82,13 @@ class AuthService
         $this->pruneInactiveHosts();
 
         if ($apiKey === null || $apiKey === '') {
+            $this->throttleAuthFailures($ip, 'missing_api_key');
             throw new HttpException('API key missing', 401);
         }
 
         $host = $this->hosts->findByApiKey($apiKey);
         if (!$host) {
+            $this->throttleAuthFailures($ip, 'invalid_api_key');
             throw new HttpException('Invalid API key', 401);
         }
 
@@ -1521,6 +1528,38 @@ class AuthService
         }
 
         return hash('sha256', $authJson);
+    }
+
+    private function throttleAuthFailures(?string $ip, string $reason): void
+    {
+        if ($this->rateLimiter === null || $ip === null || $ip === '') {
+            return;
+        }
+
+        $limit = (int) (Config::get('RATE_LIMIT_AUTH_FAIL_COUNT', self::AUTH_FAIL_LIMIT));
+        $window = (int) (Config::get('RATE_LIMIT_AUTH_FAIL_WINDOW', self::AUTH_FAIL_WINDOW_SECONDS));
+        $block = (int) (Config::get('RATE_LIMIT_AUTH_FAIL_BLOCK', self::AUTH_FAIL_BLOCK_SECONDS));
+
+        $limit = $limit > 0 ? $limit : self::AUTH_FAIL_LIMIT;
+        $window = $window > 0 ? $window : self::AUTH_FAIL_WINDOW_SECONDS;
+        $blockSeconds = $block > 0 ? $block : self::AUTH_FAIL_BLOCK_SECONDS;
+
+        $result = $this->rateLimiter->hit($ip, 'auth-fail', $limit, $window, $blockSeconds);
+        if ($result['allowed']) {
+            return;
+        }
+
+        $this->logs->log(null, 'security.rate_limit', [
+            'bucket' => 'auth-fail',
+            'ip' => $ip,
+            'reason' => $reason,
+            'reset_at' => $result['reset_at'],
+        ]);
+
+        throw new HttpException('Too many failed authentication attempts', 429, [
+            'reset_at' => $result['reset_at'],
+            'bucket' => 'auth-fail',
+        ]);
     }
 
     private function shouldAllowRunnerIpBypass(string $ip): bool

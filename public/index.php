@@ -17,6 +17,7 @@ use App\Repositories\HostUserRepository;
 use App\Repositories\InstallTokenRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
+use App\Repositories\IpRateLimitRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
@@ -30,6 +31,7 @@ use App\Services\SlashCommandService;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
+use App\Security\RateLimiter;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -73,6 +75,7 @@ $authPayloadRepository = new AuthPayloadRepository($database, $authEntryReposito
 $logRepository = new LogRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
+$ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $versionRepository = new VersionRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
@@ -88,7 +91,8 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0)
     );
 }
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
+$rateLimiter = new RateLimiter($ipRateLimitRepository);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
@@ -126,6 +130,9 @@ if ($rawBody !== false && $rawBody !== '') {
         ], 400);
     }
 }
+
+$clientIp = resolveClientIp();
+enforceGlobalRateLimit($rateLimiter, $clientIp, $method, $normalizedPath);
 
 $router = new Router();
 
@@ -1085,6 +1092,38 @@ try {
         'status' => 'error',
         'message' => 'Unexpected error',
     ], 500);
+}
+
+function enforceGlobalRateLimit(?RateLimiter $rateLimiter, ?string $clientIp, string $method, string $path): void
+{
+    if ($rateLimiter === null || $clientIp === null || $clientIp === '') {
+        return;
+    }
+
+    if (str_starts_with($path, '/admin')) {
+        return;
+    }
+
+    $limit = (int) Config::get('RATE_LIMIT_GLOBAL_PER_MINUTE', 120);
+    $windowSeconds = (int) Config::get('RATE_LIMIT_GLOBAL_WINDOW', 60);
+    if ($limit <= 0 || $windowSeconds <= 0) {
+        return;
+    }
+
+    $result = $rateLimiter->hit($clientIp, 'global', $limit, $windowSeconds);
+    if ($result['allowed']) {
+        return;
+    }
+
+    Response::json([
+        'status' => 'error',
+        'message' => 'Rate limit exceeded',
+        'data' => [
+            'bucket' => 'global',
+            'reset_at' => $result['reset_at'],
+            'limit' => $result['limit'],
+        ],
+    ], 429);
 }
 
 function resolveMtls(): array

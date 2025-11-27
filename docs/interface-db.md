@@ -15,3 +15,4 @@ All tables are migrated on boot (MySQL only).
 - **install_tokens** — single-use installer tokens (`token` UUID, `host_id` FK, `fqdn`, `api_key`, `base_url`, `expires_at`, `used_at`, `created_at`).
 - **versions** — key/value version store (`name`, `version`, `updated_at`) used for the cached client version from GitHub, canonical payload pointer, runner metadata, and flags such as `api_disabled` and `quota_hard_fail`.
 - **logs** — audit events (`id`, `host_id` nullable FK, `action`, `details` JSON, `created_at`).
+- **ip_rate_limits** — per-IP buckets for request throttling (`ip`, `bucket`, `count`, `reset_at`, `last_hit`, `created_at`; unique by `ip` + `bucket`, opportunistically pruned once expired).

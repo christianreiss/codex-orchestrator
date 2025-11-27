@@ -159,6 +159,22 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS ip_rate_limits (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                ip VARCHAR(64) NOT NULL,
+                bucket VARCHAR(64) NOT NULL,
+                count INT UNSIGNED NOT NULL DEFAULT 0,
+                reset_at VARCHAR(100) NOT NULL,
+                last_hit VARCHAR(100) NOT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                UNIQUE KEY uniq_ip_bucket (ip, bucket),
+                INDEX idx_rate_limits_reset_at (reset_at)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS install_tokens (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 token CHAR(36) NOT NULL UNIQUE,
