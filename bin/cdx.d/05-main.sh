@@ -971,6 +971,9 @@ cleanup() {
   if [[ -n "$AUTH_PUSH_RESULT" ]]; then
     log_info "Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}"
   fi
+  if (( PURGE_AUTH_AFTER_RUN )) && (( CODEX_COMMAND_STARTED )) && [[ -f "$HOME/.codex/auth.json" ]]; then
+    remove_path "$HOME/.codex/auth.json" "auth.json (insecure host)"
+  fi
   exit "$exit_status"
 }
 trap cleanup EXIT

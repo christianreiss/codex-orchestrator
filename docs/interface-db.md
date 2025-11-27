@@ -2,7 +2,7 @@
 
 All tables are migrated on boot (MySQL only).
 
-- **hosts** — `id`, `fqdn`, `api_key`, `status`, `allow_roaming_ips`, `last_refresh`, `auth_digest`, `ip`, `client_version`, `wrapper_version` (legacy/unused), `api_calls`, `created_at`, `updated_at`.
+- **hosts** — `id`, `fqdn`, `api_key`, `status`, `secure` (default `1`), `allow_roaming_ips`, `last_refresh`, `auth_digest`, `ip`, `client_version`, `wrapper_version` (legacy/unused), `api_calls`, `created_at`, `updated_at`.
 - **auth_payloads** — canonical auth snapshots (`id`, `last_refresh`, `sha256`, `source_host_id`, `body` canonical `auth.json`, `created_at`); `body` is stored as a libsodium `secretbox` ciphertext (`sbox:v1:{base64}`) using `AUTH_ENCRYPTION_KEY`.
 - **auth_entries** — per-target tokens for each payload (`payload_id` FK, `target`, `token`, `token_type`, `organization`, `project`, `api_base`, `meta` JSON, `created_at`); `token` is encrypted with the same `sbox:v1` secretbox key.
 - **host_auth_states** — last canonical payload served per host (`host_id` FK, `payload_id`, `seen_digest`, `seen_at`).

@@ -249,7 +249,7 @@ load_sync_config() {
     return 0
   fi
   if [[ "${CODEX_SYNC_BAKED:-0}" -eq 1 ]]; then
-    log_debug "config (baked) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none}"
+    log_debug "config (baked) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
     SYNC_CONFIG_LOADED=1
     return 0
   fi
@@ -264,7 +264,6 @@ load_sync_config() {
   if [[ -z "$CODEX_SYNC_BASE_URL" ]]; then
     CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
   fi
-  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none}"
+  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
   SYNC_CONFIG_LOADED=1
 }
-

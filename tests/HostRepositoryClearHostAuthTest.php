@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Database;
 use App\Repositories\HostRepository;
+use App\Security\SecretBox;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -25,6 +26,7 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 fqdn TEXT NOT NULL,
                 api_key TEXT NOT NULL,
                 status TEXT,
+                secure INTEGER DEFAULT 1,
                 allow_roaming_ips INTEGER DEFAULT 0,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
@@ -47,17 +49,19 @@ final class HostRepositoryClearHostAuthTest extends TestCase
         );
 
         $database = $this->fakeDatabase($this->pdo);
-        $this->repository = new HostRepository($database);
+        $secretBox = new SecretBox(str_repeat('k', SODIUM_CRYPTO_SECRETBOX_KEYBYTES));
+        $this->repository = new HostRepository($database, $secretBox);
 
         $now = gmdate(DATE_ATOM);
         $seedHost = $this->pdo->prepare(
-            'INSERT INTO hosts (fqdn, api_key, status, allow_roaming_ips, last_refresh, auth_digest, ip, client_version, wrapper_version, api_calls, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :status, :allow_roaming_ips, :last_refresh, :auth_digest, :ip, :client_version, :wrapper_version, :api_calls, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, last_refresh, auth_digest, ip, client_version, wrapper_version, api_calls, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :last_refresh, :auth_digest, :ip, :client_version, :wrapper_version, :api_calls, :created_at, :updated_at)'
         );
         $seedHost->execute([
             'fqdn' => 'host.test',
             'api_key' => str_repeat('a', 64),
             'status' => 'active',
+            'secure' => 1,
             'allow_roaming_ips' => 0,
             'last_refresh' => '2024-01-01T00:00:00Z',
             'auth_digest' => str_repeat('b', 64),

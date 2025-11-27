@@ -95,11 +95,13 @@ class WrapperService
 
         $apiKey = (string) ($host['api_key'] ?? '');
         $fqdn = (string) ($host['fqdn'] ?? '');
+        $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $replacements = [
             '__CODEX_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
             '__CODEX_SYNC_API_KEY__' => $apiKey,
             '__CODEX_SYNC_FQDN__' => $fqdn,
             '__CODEX_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
+            '__CODEX_HOST_SECURE__' => $secure ? '1' : '0',
             '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
         ];
 

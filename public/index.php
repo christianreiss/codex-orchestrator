@@ -260,7 +260,16 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         ], 422);
     }
 
-    $hostPayload = $service->register($fqdn);
+    $secureRaw = $payload['secure'] ?? true;
+    $secure = $secureRaw === null ? true : normalizeBoolean($secureRaw);
+    if ($secure === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'secure must be boolean',
+        ], 422);
+    }
+
+    $hostPayload = $service->register($fqdn, $secure);
     $host = $hostRepository->findByFqdn($fqdn);
     if (!$host) {
         Response::json([
@@ -415,6 +424,7 @@ $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostR
             'status' => 'active',
             'api_calls' => 0,
             'allow_roaming_ips' => true,
+            'secure' => true,
         ];
     }
 
@@ -577,6 +587,7 @@ $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hos
                 'wrapper_version' => $host['wrapper_version'] ?? null,
                 'ip' => $host['ip'] ?? null,
                 'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+                'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             ],
             'canonical_last_refresh' => $canonicalLastRefresh,
             'canonical_digest' => $canonicalDigest,
@@ -667,6 +678,43 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
                 'id' => (int) $host['id'],
                 'fqdn' => $host['fqdn'],
                 'allow_roaming_ips' => $allow,
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $secure = normalizeBoolean($payload['secure'] ?? null);
+    if ($secure === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'secure must be boolean',
+        ], 422);
+    }
+
+    $hostRepository->updateSecure($hostId, $secure);
+    $logRepository->log($hostId, 'admin.host.secure', [
+        'fqdn' => $host['fqdn'],
+        'secure' => $secure,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'secure' => $secure,
             ],
         ],
     ]);
@@ -765,6 +813,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'ip' => $host['ip'] ?? null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+            'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',

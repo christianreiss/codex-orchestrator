@@ -31,6 +31,9 @@ class HostRepository
         if (!isset($host['api_key_hash']) && isset($host['api_key']) && is_string($host['api_key'])) {
             $host['api_key_hash'] = $host['api_key'];
         }
+        if (!array_key_exists('secure', $host)) {
+            $host['secure'] = 1;
+        }
         return $host;
     }
 
@@ -119,13 +122,14 @@ class HostRepository
         return $host ?: null;
     }
 
-    public function create(string $fqdn, string $apiKey): array
+    public function create(string $fqdn, string $apiKey, bool $secure = true): array
     {
         $hash = $this->hashApiKey($apiKey);
         $encrypted = $this->encryptApiKey($apiKey);
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, created_at, updated_at) VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :created_at, :updated_at)'
         );
         $statement->execute([
             'fqdn' => $fqdn,
@@ -133,6 +137,7 @@ class HostRepository
             'api_key_hash' => $hash,
             'api_key_enc' => $encrypted,
             'status' => 'active',
+            'secure' => $secure ? 1 : 0,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -317,6 +322,18 @@ class HostRepository
 
         $statement->execute([
             'allow' => $allow ? 1 : 0,
+            'id' => $hostId,
+        ]);
+    }
+
+    public function updateSecure(int $hostId, bool $secure): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET secure = :secure WHERE id = :id'
+        );
+
+        $statement->execute([
+            'secure' => $secure ? 1 : 0,
             'id' => $hostId,
         ]);
     }

@@ -6,6 +6,7 @@ const statsEl = document.getElementById('stats');
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
     const newHostName = document.getElementById('new-host-name');
+    const secureHostToggle = document.getElementById('secureHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
     const createHostBtn = document.getElementById('createHost');
     const cancelNewHostBtn = document.getElementById('cancelNewHost');
@@ -47,6 +48,13 @@ const statsEl = document.getElementById('stats');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
+    const hostDetailModal = document.getElementById('hostDetailModal');
+    const hostDetailTitle = document.getElementById('hostDetailTitle');
+    const hostDetailPills = document.getElementById('hostDetailPills');
+    const hostDetailGrid = document.getElementById('hostDetailGrid');
+    const hostDetailActions = document.getElementById('hostDetailActions');
+    const hostDetailSummary = document.getElementById('hostDetailSummary');
+    const closeHostDetailBtn = document.getElementById('closeHostDetail');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const promptsTbody = document.querySelector('#prompts tbody');
     const promptModal = document.getElementById('promptModal');
@@ -79,6 +87,7 @@ const statsEl = document.getElementById('stats');
     let quotaHardFail = true;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
+    let activeHostId = null;
 
     function escapeHtml(str) {
       return String(str)
@@ -358,6 +367,13 @@ const statsEl = document.getElementById('stats');
       return { tone: 'ok', label: 'Can login' };
     }
 
+    function isHostSecure(host) {
+      if (!host) return true;
+      if (typeof host.secure === 'boolean') return host.secure;
+      if (typeof host.secure === 'number') return host.secure !== 0;
+      return true;
+    }
+
     function renderTokenCell(host) {
       const total = host?.token_usage?.total ?? null;
       if (total === null) return '—';
@@ -382,12 +398,202 @@ const statsEl = document.getElementById('stats');
       });
     }
 
+    function shortDigest(digest) {
+      if (!digest) return '—';
+      const clean = String(digest).trim();
+      if (clean.length <= 14) return clean;
+      return `${clean.slice(0, 8)}…${clean.slice(-6)}`;
+    }
+
+    function formatRelativeWithTimestamp(value) {
+      if (!value) return '—';
+      const relative = formatRelative(value);
+      const absolute = formatTimestamp(value);
+      return `${relative} (${absolute})`;
+    }
+
+    function renderDigestPills(list) {
+      if (!Array.isArray(list) || list.length === 0) return '—';
+      return `<div class="host-modal-digests">${list.map(d => `<span class="digest-pill" title="${escapeHtml(d)}">${escapeHtml(shortDigest(d))}</span>`).join('')}</div>`;
+    }
+
+    function renderTokenUsageValue(usage) {
+      if (!usage || usage.total === null || usage.total === undefined) return 'No usage yet';
+      const parts = [];
+      if (usage.total !== null && usage.total !== undefined) parts.push(`${formatNumber(usage.total)} tokens`);
+      if (usage.model) parts.push(escapeHtml(usage.model));
+      const breakdown = ['input', 'output', 'cached', 'reasoning'].map(key => {
+        const val = usage[key];
+        if (val === null || val === undefined) return '';
+        return `<span class="chip neutral"><small style="text-transform:uppercase; letter-spacing:0.08em;">${key}</small> ${formatNumber(val)}</span>`;
+      }).filter(Boolean).join('');
+      const when = usage.created_at ? `reported ${formatRelative(usage.created_at)}` : '';
+      const line = usage.line ? usage.line : '';
+      return `
+        <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
+          <span>${parts.join(' · ')}</span>
+          ${breakdown ? `<div class="chip-row">${breakdown}</div>` : ''}
+          ${when || line ? `<span class="muted" style="font-size:12px;">${escapeHtml(when)}${line ? ` · ${escapeHtml(line)}` : ''}</span>` : ''}
+        </div>
+      `;
+    }
+
+    function renderHostActionButtons(host) {
+      const roamingLabel = host.allow_roaming_ips ? 'Lock to IP' : 'Allow roaming';
+      const securityLabel = isHostSecure(host) ? 'Mark insecure' : 'Mark secure';
+      return `
+        <button class="ghost secondary" data-action="install">Install script</button>
+        <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
+        <button class="ghost" data-action="toggle-security">${securityLabel}</button>
+        <button class="ghost" data-action="clear">Clear auth</button>
+        <button class="danger" data-action="remove">Remove</button>
+      `;
+    }
+
+    function bindHostDetailActions(host) {
+      if (!hostDetailActions) return;
+      hostDetailActions.querySelectorAll('button').forEach(btn => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const action = btn.getAttribute('data-action');
+          if (action === 'install') {
+            showHostDetailModal(false);
+            regenerateInstaller(host.fqdn, host.id);
+          } else if (action === 'toggle-roaming') {
+            toggleRoaming(host.id);
+          } else if (action === 'toggle-security') {
+            toggleSecurity(host.id);
+          } else if (action === 'clear') {
+            confirmClear(host.id);
+          } else if (action === 'remove') {
+            showHostDetailModal(false);
+            openDeleteModal(host.id);
+          }
+        };
+      });
+    }
+
+    function renderHostSummary(host) {
+      if (!hostDetailSummary) return;
+      const health = hostHealth(host);
+      const summaryItems = [
+        {
+          label: 'Health',
+          value: health.label,
+          meta: host.authed ? 'Canonical auth stored' : 'Not provisioned yet',
+        },
+        {
+          label: 'Last Seen',
+          value: host.updated_at ? formatRelative(host.updated_at) : 'Never',
+          meta: host.updated_at ? formatTimestamp(host.updated_at) : 'No API calls yet',
+        },
+        {
+          label: 'Auth Refresh',
+          value: host.last_refresh ? formatRelative(host.last_refresh) : 'No auth yet',
+          meta: host.last_refresh ? formatTimestamp(host.last_refresh) : 'Seed or first sync pending',
+        },
+        {
+          label: 'Tokens',
+          value: host.token_usage?.total !== null && host.token_usage?.total !== undefined
+            ? `${formatNumber(host.token_usage.total)}`
+            : '—',
+          meta: host.token_usage?.created_at ? `reported ${formatRelative(host.token_usage.created_at)}` : 'No usage yet',
+        },
+      ];
+      hostDetailSummary.innerHTML = summaryItems.map(item => `
+        <div class="summary-card">
+          <div class="label">${escapeHtml(item.label)}</div>
+          <div class="value">${escapeHtml(item.value ?? '—')}</div>
+          ${item.meta ? `<div class="meta">${escapeHtml(item.meta)}</div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function hostDetailRows(host) {
+      const health = hostHealth(host);
+      const recentDigests = Array.isArray(host.recent_digests) ? host.recent_digests : [];
+      return [
+        { key: 'Status', value: renderStatusPill(host.status), desc: 'Host entry state; suspended hosts cannot authenticate.' },
+        { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: 'Provisioning and pruning signal for this host.' },
+        { key: 'Canonical digest', value: host.canonical_digest ? `<code>${escapeHtml(shortDigest(host.canonical_digest))}</code>` : '—', desc: 'Digest of stored canonical auth.json for this host.' },
+        { key: 'Recent digests', value: renderDigestPills(recentDigests), desc: 'Most recent digests seen from this host (max 3).' },
+        { key: 'Last seen', value: formatRelativeWithTimestamp(host.updated_at), desc: 'Timestamp of the most recent API call from this host.' },
+        { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
+        { key: 'IP binding', value: host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound', desc: host.allow_roaming_ips ? 'Roaming enabled; host may authenticate from any IP.' : 'First caller IP is locked; toggle roaming to permit moves.' },
+        { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip ok">Roaming</span>' : '<span class="chip warn">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
+        { key: 'Security', value: isHostSecure(host) ? '<span class="chip ok">Secure</span>' : '<span class="chip warn">Insecure</span>', desc: 'Insecure hosts purge auth.json after each run.' },
+        { key: 'Client version', value: renderVersionTag(host.client_version, latestVersions.client), desc: 'Codex build reported by the host.' },
+        { key: 'Wrapper version', value: renderVersionTag(host.wrapper_version, latestVersions.wrapper), desc: 'Baked wrapper version last reported by this host.' },
+        { key: 'API calls', value: formatNumber(host.api_calls ?? 0), desc: 'Total /auth calls recorded; used for activity tracking.' },
+        { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: 'Latest token metrics reported from Codex runs on this host.' },
+        { key: 'Auth state', value: host.authed ? 'Canonical auth present' : 'Not provisioned yet', desc: 'Indicates whether a canonical auth.json has been stored server-side.' },
+      ];
+    }
+
+    function showHostDetailModal(show) {
+      if (!hostDetailModal) return;
+      if (show) {
+        hostDetailModal.classList.add('show');
+      } else {
+        hostDetailModal.classList.remove('show');
+        activeHostId = null;
+        if (hostDetailGrid) hostDetailGrid.innerHTML = '';
+        if (hostDetailSummary) hostDetailSummary.innerHTML = '';
+        if (hostDetailPills) hostDetailPills.innerHTML = '';
+      }
+    }
+
+    function closeHostDetail() {
+      showHostDetailModal(false);
+    }
+
+    function renderHostDetail(host, { keepOpen = false } = {}) {
+      if (!host) return;
+      activeHostId = host.id;
+      if (hostDetailTitle) {
+        hostDetailTitle.textContent = host.fqdn || `Host #${host.id}`;
+      }
+      if (hostDetailPills) {
+        const pills = [];
+        pills.push(renderStatusPill(host.status));
+        const health = hostHealth(host);
+        pills.push(`<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`);
+        pills.push(`<span class="chip ${isHostSecure(host) ? 'ok' : 'warn'}">${isHostSecure(host) ? 'Secure' : 'Insecure'}</span>`);
+        pills.push(`<span class="chip ${host.allow_roaming_ips ? 'neutral' : 'warn'}">${host.allow_roaming_ips ? 'Roaming' : 'IP locked'}</span>`);
+        hostDetailPills.innerHTML = pills.filter(Boolean).join('');
+      }
+      renderHostSummary(host);
+      if (hostDetailGrid) {
+        const rows = hostDetailRows(host);
+        hostDetailGrid.innerHTML = rows.map(row => `
+          <div class="kv-row">
+            <div class="kv-key">${escapeHtml(row.key)}</div>
+            <div class="kv-value">${row.value}</div>
+            <div class="kv-desc">${row.desc}</div>
+          </div>
+        `).join('');
+      }
+      if (hostDetailActions) {
+        hostDetailActions.innerHTML = renderHostActionButtons(host);
+        bindHostDetailActions(host);
+      }
+      if (!keepOpen) {
+        showHostDetailModal(true);
+      }
+    }
+
+    function openHostDetail(hostId) {
+      const host = currentHosts.find(h => h.id === hostId);
+      if (!host) return;
+      renderHostDetail(host);
+    }
+
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
       const filtered = applyHostFilters(currentHosts);
       hostsTbody.innerHTML = '';
       if (!filtered.length) {
-        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No hosts match your filters yet.</td></tr>';
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No hosts match your filters yet.</td></tr>';
         return;
       }
       filtered.forEach(host => {
@@ -398,8 +604,13 @@ const statsEl = document.getElementById('stats');
         const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
         const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
         const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
+        const isSecure = isHostSecure(host);
+        const securityChip = `<span class="chip ${isSecure ? 'ok' : 'warn'}" title="${isSecure ? 'Secure host: keep auth.json on disk' : 'Insecure host: cdx will remove auth.json after runs'}">${isSecure ? 'Secure' : 'Insecure'}</span>`;
         const health = hostHealth(host);
         tr.classList.add(`status-${health.tone}`);
+        tr.classList.add('host-row');
+        tr.setAttribute('data-id', host.id);
+        tr.tabIndex = 0;
         tr.innerHTML = `
           <td data-label="Host">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
@@ -407,6 +618,7 @@ const statsEl = document.getElementById('stats');
               <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
                 <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
                 <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
+                ${securityChip}
               </div>
             </div>
           </td>
@@ -421,53 +633,21 @@ const statsEl = document.getElementById('stats');
           <td data-label="IP / Mode">
             <div class="inline-cell" style="gap:6px; align-items:center;">
               <span>${escapeHtml(host.ip ?? '—')}</span>
-              ${host.ip ? `<span class="ip-toggle" data-id="${host.id}" title="Toggle IP lock" role="button" aria-label="Toggle IP lock">${ipIcon}</span>` : ''}
+              ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
             </div>
           </td>
-          <td data-label="Usage">
-            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
-              <span class="muted">Calls ${formatNumber(host.api_calls ?? 0)}</span>
-              ${renderTokenCell(host)}
-            </div>
-          </td>
-          <td class="actions-cell" data-label="Actions">
-            <button data-id="${host.id}" class="ghost secondary reinstall-btn">Install</button>
-            <button data-id="${host.id}" class="ghost">Clear</button>
-            <button data-id="${host.id}" class="danger">Remove</button>
+          <td class="actions-cell details-cell" data-label="Details">
+            <span class="details-chip">Open</span>
           </td>
         `;
-        hostsTbody.appendChild(tr);
-      });
-
-      hostsTbody.querySelectorAll('button.danger').forEach(btn => {
-        btn.addEventListener('click', ev => {
-          ev.stopPropagation();
-          const id = parseInt(btn.getAttribute('data-id'), 10);
-          openDeleteModal(id);
-        });
-      });
-
-      hostsTbody.querySelectorAll('button.ghost').forEach(btn => {
-        btn.addEventListener('click', ev => {
-          ev.stopPropagation();
-          const id = parseInt(btn.getAttribute('data-id'), 10);
-          const isInstall = btn.classList.contains('reinstall-btn');
-          if (isInstall) {
-            const host = currentHosts.find(h => h.id === id);
-            const fqdn = host?.fqdn || '';
-            regenerateInstaller(fqdn, id);
-          } else {
-            confirmClear(id);
+        tr.addEventListener('click', () => openHostDetail(host.id));
+        tr.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            openHostDetail(host.id);
           }
         });
-      });
-
-      hostsTbody.querySelectorAll('.ip-toggle').forEach(btn => {
-        btn.addEventListener('click', ev => {
-          ev.stopPropagation();
-          const id = parseInt(btn.getAttribute('data-id'), 10);
-          toggleRoaming(id);
-        });
+        hostsTbody.appendChild(tr);
       });
     }
 
@@ -477,6 +657,14 @@ const statsEl = document.getElementById('stats');
       if (uploadHostSelect) {
         uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`).join('');
         uploadHostSelect.value = 'system';
+      }
+      if (hostDetailModal?.classList.contains('show') && activeHostId) {
+        const active = currentHosts.find(h => h.id === activeHostId);
+        if (active) {
+          renderHostDetail(active, { keepOpen: true });
+        } else {
+          closeHostDetail();
+        }
       }
       paintHosts();
     }
@@ -1344,6 +1532,14 @@ const statsEl = document.getElementById('stats');
         if (e.target === deleteHostModal) closeDeleteModal();
       });
     }
+    if (hostDetailModal) {
+      hostDetailModal.addEventListener('click', (e) => {
+        if (e.target === hostDetailModal) closeHostDetail();
+      });
+    }
+    if (closeHostDetailBtn) {
+      closeHostDetailBtn.addEventListener('click', () => closeHostDetail());
+    }
     if (runnerModal) {
       runnerModal.addEventListener('click', (e) => {
         if (e.target === runnerModal) showRunnerModal(false);
@@ -1402,6 +1598,9 @@ const statsEl = document.getElementById('stats');
         newHostName.value = '';
         if (focusInput) newHostName.focus();
       }
+      if (secureHostToggle) {
+        secureHostToggle.checked = true;
+      }
       if (insecureToggle) {
         insecureToggle.checked = false;
       }
@@ -1449,6 +1648,11 @@ const statsEl = document.getElementById('stats');
         alert('Please enter a host name');
         return;
       }
+      const existingHost = hostId ? currentHosts.find(h => h.id === hostId) : null;
+      if (secureHostToggle && existingHost) {
+        secureHostToggle.checked = isHostSecure(existingHost);
+      }
+      const secure = secureHostToggle ? secureHostToggle.checked : true;
       if (createHostBtn) {
         createHostBtn.disabled = true;
         createHostBtn.textContent = 'Generating…';
@@ -1456,7 +1660,7 @@ const statsEl = document.getElementById('stats');
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn: targetFqdn, host_id: hostId ?? undefined },
+          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure },
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
@@ -1604,6 +1808,24 @@ const statsEl = document.getElementById('stats');
         await api(`/admin/hosts/${id}/roaming`, {
           method: 'POST',
           json: { allow: targetState },
+        });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    async function toggleSecurity(id, secureState = null) {
+      const host = currentHosts.find(h => h.id === id);
+      if (!host) {
+        alert('Host not found');
+        return;
+      }
+      const targetSecure = typeof secureState === 'boolean' ? secureState : !isHostSecure(host);
+      try {
+        await api(`/admin/hosts/${id}/secure`, {
+          method: 'POST',
+          json: { secure: targetSecure },
         });
         await loadAll();
       } catch (err) {

@@ -1,6 +1,6 @@
 # cdx Wrapper Interface (Source of Truth)
 
-- `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, and optional CA file.
+- `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, optional CA file, and the host security flag (`secure`, defaults to on).
 - Source is organized under `bin/cdx.d/*.sh`; run `scripts/build-cdx.sh` to assemble the shipped `bin/cdx`. Edit fragments, not the built file, and bump `WRAPPER_VERSION` whenever `bin/cdx` changes.
 - On launch it:
   - Pulls `auth.json` from `/auth` (store/retrieve); if the API is unreachable it now proceeds with the cached `auth.json` when present and fresher than 24 hours, but still refuses to start when the key is invalid or no fresh auth is available.
@@ -10,7 +10,7 @@
   - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`.
   - When `/auth` returns a `chatgpt_usage` block, surfaces 5-hour and weekly ChatGPT quota bars during boot (with reset ETA) for operator visibility.
-  - After Codex runs, pushes updated auth if changed and sends token-usage metrics.
+  - After Codex runs, pushes updated auth if changed and sends token-usage metrics. When the host is marked **insecure** (API `host.secure=false` or baked flag), `cdx` purges `~/.codex/auth.json` after the push so credentials are not left on disk.
 - `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
 - `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
 - The API can return HTTP 429 when IP rate limits trip (global bucket or repeated invalid API keys). Responses include `bucket`, `limit`, and `reset_at`; callers should back off until `reset_at` before retrying.

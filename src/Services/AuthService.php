@@ -45,7 +45,7 @@ class AuthService
     ) {
     }
 
-    public function register(string $fqdn): array
+    public function register(string $fqdn, bool $secure = true): array
     {
         $this->pruneInactiveHosts();
 
@@ -60,6 +60,11 @@ class AuthService
 
         $existing = $this->hosts->findByFqdn($fqdn);
         if ($existing) {
+            $existingSecure = isset($existing['secure']) ? (bool) (int) $existing['secure'] : true;
+            if ($existingSecure !== $secure) {
+                $this->hosts->updateSecure((int) $existing['id'], $secure);
+                $existing = $this->hosts->findByFqdn($fqdn) ?? $existing;
+            }
             $apiKey = bin2hex(random_bytes(32));
             $host = $this->hosts->rotateApiKey((int) $existing['id'], $apiKey);
             $this->logs->log((int) $existing['id'], 'register', ['result' => 'rotated']);
@@ -68,7 +73,7 @@ class AuthService
         }
 
         $apiKey = bin2hex(random_bytes(32));
-        $host = $this->hosts->create($fqdn, $apiKey);
+        $host = $this->hosts->create($fqdn, $apiKey, $secure);
         $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
 
         $payload = $this->buildHostPayload($host, true);
@@ -249,6 +254,7 @@ class AuthService
                 'status' => $status,
                 'canonical_last_refresh' => $canonicalLastRefresh,
                 'canonical_digest' => $canonicalDigest,
+                'host' => $trackHost ? $this->buildHostPayload($host) : null,
                 'action' => 'store',
                 'api_calls' => $hostStats['api_calls'],
                 'token_usage_month' => $hostStats['token_usage_month'],
@@ -266,6 +272,7 @@ class AuthService
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
                         'canonical_digest' => $canonicalDigest,
+                        'host' => $trackHost ? $this->buildHostPayload($host) : null,
                         'api_calls' => $hostStats['api_calls'],
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
@@ -283,6 +290,7 @@ class AuthService
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
                         'canonical_digest' => $canonicalDigest,
+                        'host' => $trackHost ? $this->buildHostPayload($host) : null,
                         'api_calls' => $hostStats['api_calls'],
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'action' => 'store',
@@ -416,6 +424,10 @@ class AuthService
                 $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest ?? $incomingDigest);
                 $this->hosts->updateSyncState($hostId, $canonicalLastRefresh ?? $incomingLastRefresh, $canonicalDigest ?? $incomingDigest);
             }
+        }
+
+        if ($trackHost) {
+            $response['host'] = $response['host'] ?? $this->buildHostPayload($host);
         }
 
         $this->logs->log($logHostId, 'auth.store', [
@@ -1028,6 +1040,7 @@ class AuthService
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+            'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
         ];
 
         if ($includeApiKey) {

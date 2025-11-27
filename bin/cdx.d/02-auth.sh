@@ -100,6 +100,14 @@ def parse_error_body(body: str):
     return msg, details
 
 
+def normalize_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return None
+
+
 def fail_with_http(exc: urllib.error.HTTPError, action: str):
     body = exc.read().decode("utf-8", "ignore")
     msg, details = parse_error_body(body)
@@ -172,6 +180,8 @@ versions_block = payload_data.get("versions") if isinstance(payload_data, dict) 
 canonical_digest = payload_data.get("canonical_digest") or payload_data.get("digest")
 auth_to_write = None
 chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}
+host_info = payload_data.get("host") if isinstance(payload_data, dict) else {}
+host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
 
 
 def record_versions(vblock):
@@ -234,6 +244,8 @@ if status in ("missing", "upload_required"):
     update_data = post_json(f"{base}/auth", store_payload, "auth store")
     payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
     versions_out = record_versions(payload_data.get("versions", {})) or versions_out
+    host_info = payload_data.get("host") if isinstance(payload_data, dict) else host_info
+    host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else host_secure
     auth_to_write = payload_data.get("auth") or current
     lr = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
     if isinstance(lr, str):
@@ -262,6 +274,7 @@ print(
                 "uploaded current auth" if status in ("missing", "upload_required") else
                 status
             ),
+            "host_secure": host_secure,
             "chatgpt_status": chatgpt_usage.get("status"),
             "chatgpt_plan": chatgpt_usage.get("plan_type"),
             "chatgpt_next": chatgpt_usage.get("next_eligible_at"),
@@ -325,6 +338,9 @@ if isinstance(qh, bool):
     print("qh=1" if qh else "qh=0")
 elif isinstance(qh, (int, float)):
     print(f"qh={int(qh)}")
+hs = parsed.get("host_secure")
+if isinstance(hs, bool):
+    print("hs=1" if hs else "hs=0")
 cgst = parsed.get("chatgpt_status")
 if isinstance(cgst, str) and cgst.strip():
     print(f"cgs={cgst.strip()}")
@@ -398,6 +414,9 @@ PY
             qh=*)
               QUOTA_HARD_FAIL="${line#qh=}"
               ;;
+            hs=*)
+              HOST_SECURE="${line#hs=}"
+              ;;
             cgs=*)
               CHATGPT_STATUS="${line#cgs=}"
               ;;
@@ -454,6 +473,16 @@ PY
               ;;
           esac
         done <<<"$parsed"
+
+        if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
+          PURGE_AUTH_AFTER_RUN=1
+          if (( HOST_SECURITY_NOTICE_EMITTED == 0 )); then
+            log_warn "Host marked insecure; auth.json will be removed after this run."
+            HOST_SECURITY_NOTICE_EMITTED=1
+          fi
+        else
+          PURGE_AUTH_AFTER_RUN=0
+        fi
       fi
     fi
     AUTH_PULL_STATUS="ok"

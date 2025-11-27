@@ -382,6 +382,7 @@
       line-height: 1;
       color: var(--text);
     }
+    .ip-indicator { font-size: 16px; line-height: 1; opacity: 0.8; }
     .pill {
       padding: 6px 12px;
       border-radius: 999px;
@@ -418,7 +419,7 @@
     .status-suspended { background: rgba(255,93,122,0.14); color: var(--danger); border-color: rgba(255,93,122,0.35); }
     .status-suspended::before { background: var(--danger); }
     .status-unknown { background: rgba(155,179,217,0.14); color: var(--muted); border-color: rgba(155,179,217,0.3); }
-    .actions-cell { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .actions-cell { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
     .actions-cell button { padding: 9px 12px; font-size: 12px; }
     .chip {
       display: inline-flex;
@@ -437,6 +438,8 @@
     .chip.neutral { color: var(--muted); border-color: rgba(155,179,217,0.35); background: rgba(155,179,217,0.12); }
     .chip.pro { color: #0f5132; border-color: rgba(16,163,127,0.5); background: rgba(16,163,127,0.14); box-shadow: 0 6px 16px rgba(16,163,127,0.18); }
     .daily-note { font-size: 11px; color: var(--muted); margin-left: 6px; }
+    .overline { margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
     /* Slash commands table follows shared palette */
     #prompts-panel table thead tr {
       background: var(--table-header);
@@ -653,4 +656,85 @@
       transform: translateX(22px);
       box-shadow: 0 6px 14px rgba(0,0,0,0.3);
       background: linear-gradient(135deg, #5b86e5, #36d1dc);
+    }
+    /* Host details */
+    tbody tr.host-row { cursor: pointer; }
+    tbody tr.host-row:hover { background: var(--table-hover); }
+    .details-cell { text-align: right; }
+    .details-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: rgba(16,163,127,0.14);
+      color: #0f5132;
+      font-weight: 700;
+      font-size: 12px;
+      border: 1px solid rgba(16,163,127,0.25);
+    }
+    .details-chip::after { content: '›'; font-weight: 800; }
+    .host-detail-modal { max-width: 920px; }
+    .host-detail-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .host-detail-head h3 { margin: 2px 0 6px; }
+    .host-detail-head-actions { display: flex; align-items: center; gap: 8px; }
+    .host-detail-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin: 12px 0 6px;
+    }
+    .summary-card {
+      padding: 12px;
+      border: 1px solid var(--panel-strong);
+      border-radius: 12px;
+      background: var(--surface-tint);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+    .summary-card .label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .summary-card .value {
+      margin-top: 6px;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .summary-card .meta { margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .kv-grid { display: grid; gap: 12px; }
+    .kv-row {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 6px 14px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-strong);
+      background: var(--frost);
+    }
+    .kv-key { font-weight: 700; letter-spacing: 0.02em; color: #0f172a; }
+    .kv-value { font-weight: 600; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .kv-desc { grid-column: 1 / span 2; color: var(--muted); font-size: 13px; }
+    .host-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; }
+    .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
+    .digest-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--panel-strong);
+      background: rgba(15,23,42,0.05);
+      color: #0f172a;
     }
