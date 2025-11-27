@@ -437,25 +437,6 @@ const statsEl = document.getElementById('stats');
       `;
     }
 
-    function renderHostUsers(users) {
-      if (!Array.isArray(users) || users.length === 0) return 'No usernames reported yet';
-      return `
-        <div class="chip-row host-users">
-          ${users.map(user => {
-            const username = user?.username ? escapeHtml(user.username) : 'unknown';
-            const hostname = user?.hostname ? ` @ ${escapeHtml(user.hostname)}` : '';
-            const firstSeen = user?.first_seen ? formatTimestamp(user.first_seen) : null;
-            const lastSeen = user?.last_seen ? formatTimestamp(user.last_seen) : null;
-            const titleParts = [];
-            if (firstSeen) titleParts.push(`first ${firstSeen}`);
-            if (lastSeen) titleParts.push(`last ${lastSeen}`);
-            const titleAttr = titleParts.length ? ` title="${escapeHtml(titleParts.join(' · '))}"` : '';
-            return `<span class="chip neutral"${titleAttr}>${username}${hostname}</span>`;
-          }).join('')}
-        </div>
-      `;
-    }
-
     function renderHostActionButtons(host) {
       const roamingLabel = host.allow_roaming_ips ? 'Lock to IP' : 'Allow roaming';
       const securityLabel = isHostSecure(host) ? 'Mark insecure' : 'Mark secure';
@@ -541,7 +522,18 @@ const statsEl = document.getElementById('stats');
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
         { key: 'IP binding', value: host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound', desc: host.allow_roaming_ips ? 'Roaming enabled; host may authenticate from any IP.' : 'First caller IP is locked; toggle roaming to permit moves.' },
         { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
-        { key: 'Security', value: isHostSecure(host) ? '<span class="chip ok">Secure</span>' : '<span class="chip warn">Insecure</span>', desc: 'Insecure hosts purge auth.json after each run.' },
+        {
+          key: 'Security',
+          value: `
+            <div class="kv-security">
+              <span class="chip ${isHostSecure(host) ? 'ok' : 'warn'}">${isHostSecure(host) ? 'Secure' : 'Insecure'}</span>
+              ${Array.isArray(host.users) && host.users.length
+                ? `<span class="muted" title="Reported users">${escapeHtml(host.users.map(u => u.username).filter(Boolean).join(', '))}</span>`
+                : ''}
+            </div>
+          `,
+          desc: 'Insecure hosts purge auth.json after each run. Users are reported by the host.',
+        },
         {
           key: 'Versions',
           value: `
@@ -558,7 +550,6 @@ const statsEl = document.getElementById('stats');
           `,
           desc: 'Client and wrapper builds reported by this host.',
         },
-        { key: 'Users', value: renderHostUsers(host.users), desc: 'Usernames reported from this host during Codex runs.' },
         { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: 'Latest token metrics reported from Codex runs on this host.' },
       ];
     }

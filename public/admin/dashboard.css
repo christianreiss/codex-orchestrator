@@ -731,6 +731,7 @@
     .kv-key { font-weight: 700; letter-spacing: 0.02em; color: #0f172a; }
     .kv-value { font-weight: 600; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .kv-desc { grid-column: 1 / span 2; color: var(--muted); font-size: 13px; }
+    .kv-security { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .kv-version {
       display: flex;
       gap: 12px;
@@ -766,8 +767,8 @@
       font-weight: 800;
       letter-spacing: -0.2px;
     }
-    .token-usage-bars { display: flex; flex-direction: column; gap: 8px; }
-    .token-usage-bar { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; align-items: center; }
+    .token-usage-bars { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+    .token-usage-bar { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; align-items: center; width: 100%; }
     .token-usage-label {
       text-transform: uppercase;
       letter-spacing: 0.08em;
