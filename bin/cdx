@@ -2850,6 +2850,10 @@ if (( QUOTA_BLOCKED )); then
 fi
 result_label="$(human_join "${result_parts[@]}")"
 
+if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
+  result_label="System good to go!"
+fi
+
   usage_summary=""
   if [[ -n "$last_usage_payload" ]]; then
     usage_summary="$(parse_usage_summary "$last_usage_payload")"
