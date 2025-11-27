@@ -424,7 +424,8 @@ const statsEl = document.getElementById('stats');
         `;
       }).filter(Boolean).join('');
       const when = usage.created_at ? `reported ${formatRelative(usage.created_at)}` : '';
-      const line = usage.line && !/^token usage:/i.test(usage.line) ? usage.line : '';
+      const rawLine = typeof usage.line === 'string' ? usage.line.trim() : '';
+      const line = rawLine && !/^token usage:/i.test(rawLine) ? rawLine : '';
       return `
         <div class="token-usage">
           <div class="token-usage-head">
