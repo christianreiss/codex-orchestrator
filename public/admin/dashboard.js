@@ -176,7 +176,6 @@ const statsEl = document.getElementById('stats');
 
     async function setQuotaMode(hardFail) {
       if (!quotaToggle) return;
-      const original = quotaModeLabel ? quotaModeLabel.textContent : '';
       quotaToggle.disabled = true;
       try {
         await api('/admin/quota-mode', {
@@ -185,14 +184,9 @@ const statsEl = document.getElementById('stats');
         });
         quotaHardFail = !!hardFail;
         renderQuotaMode();
-        const statusEl = document.getElementById('quotaModeStatus');
-        if (statusEl) {
-          statusEl.textContent = quotaHardFail ? 'Denying launches on quota hit' : 'Warning only on quota hit';
-        }
       } catch (err) {
         alert(`Quota policy update failed: ${err.message}`);
         quotaToggle.checked = quotaHardFail;
-        if (quotaModeLabel) quotaModeLabel.textContent = original || (quotaHardFail ? 'Deny launches' : 'Warn only');
       } finally {
         quotaToggle.disabled = false;
       }
