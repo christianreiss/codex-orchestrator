@@ -4,6 +4,7 @@
 
 - `POST /auth` — retrieve/store canonical `auth.json` for the calling host. Requires API key (`X-API-Key` or `Authorization: Bearer`). Accepts `command: "retrieve" | "store"`; for `retrieve` the body must include top-level `last_refresh` and `digest` (64-hex), while `store` requires an `auth` object with RFC3339 `last_refresh` and `auths` (synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing; `digest` is optional for `store`). Responses include status (`valid`/`upload_required`/`outdated`/`missing` for `retrieve`; `updated`/`unchanged`/`outdated` for `store`) plus versions, API call counts, and (when available) `chatgpt_usage` containing the latest `/wham/usage` snapshot: `primary_window` (5-hour) and `secondary_window` (weekly) blocks with `used_percent`, `limit_seconds`, and reset info alongside plan/status metadata. The server refreshes the snapshot if the cooldown has expired, similar to how client versions are refreshed on demand.
 - `DELETE /auth` — deregister host; IP binding enforced unless `?force=1`.
+- `POST /host/users` — record the calling host’s current `username`/`hostname` and return all known users for that host. Requires host API key (`X-API-Key` or `Authorization: Bearer`) and IP binding. Response: `{ users: [{ username, hostname, first_seen, last_seen }, ...] }`. Rows are deleted automatically when the host is removed.
 - `POST /usage` — token usage telemetry from `cdx`. Body accepts either a single usage entry or `usages` array; each entry may include numeric `total`/`input`/`output` plus optional `cached`, `reasoning`, `model`, or freeform `line` (at least one numeric field or `line` required). Stores one `token_usages` row per entry and logs `token.usage` for each.
 - `GET /wrapper` — wrapper metadata baked for host (version, sha256, `size_bytes`, `url`). Auth required.
 - `GET /wrapper/download` — downloads baked `cdx` wrapper (per-host hash). Auth required.
@@ -27,6 +28,7 @@
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — validate/store canonical `auth.json` (system or host-scoped).
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (not enforced by `/auth`).
+- `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean). When `false`, `cdx` warns on quota exhaustion but still launches Codex.
 - `GET /admin/logs?limit=` — recent audit events.
 - `GET /admin/usage?limit=` — recent token usage rows (with host + reasoning tokens when present).
 - `GET /admin/tokens?limit=` — token usage aggregates per token line (sums total/input/output/cached/reasoning).

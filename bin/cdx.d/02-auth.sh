@@ -8,11 +8,11 @@ sync_auth_with_api() {
     return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
-    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
-      log_warn "python3 is required for Codex auth sync; skipping API synchronization."
-      SYNC_WARNED_NO_PYTHON=1
-    fi
-    return 1
+    log_error "python3 is required for Codex auth sync; install python3 and retry."
+    exit 1
+  fi
+  if (( HOST_USERS_FETCHED == 0 )); then
+    record_host_user_with_api || true
   fi
   local auth_path="$HOME/.codex/auth.json"
    # Drop a malformed local auth.json so we can hydrate cleanly.
@@ -275,6 +275,7 @@ print(
             "chatgpt_secondary_reset_at": secondary_window.get("reset_at"),
             "api_calls": payload_data.get("api_calls"),
             "token_usage_month": payload_data.get("token_usage_month"),
+            "quota_hard_fail": payload_data.get("quota_hard_fail"),
         },
         separators=(",", ":"),
     )
@@ -319,6 +320,11 @@ if isinstance(aact, str) and aact.strip():
 amsg = parsed.get("auth_message")
 if isinstance(amsg, str) and amsg.strip():
     print(f"am={amsg.strip()}")
+qh = parsed.get("quota_hard_fail")
+if isinstance(qh, bool):
+    print("qh=1" if qh else "qh=0")
+elif isinstance(qh, (int, float)):
+    print(f"qh={int(qh)}")
 cgst = parsed.get("chatgpt_status")
 if isinstance(cgst, str) and cgst.strip():
     print(f"cgs={cgst.strip()}")
@@ -388,6 +394,9 @@ PY
               ;;
             am=*)
               AUTH_MESSAGE="${line#am=}"
+              ;;
+            qh=*)
+              QUOTA_HARD_FAIL="${line#qh=}"
               ;;
             cgs=*)
               CHATGPT_STATUS="${line#cgs=}"

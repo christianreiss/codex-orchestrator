@@ -9,6 +9,7 @@ use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
+use App\Repositories\HostUserRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
@@ -30,6 +31,7 @@ class AuthService
         private readonly AuthPayloadRepository $payloads,
         private readonly HostAuthStateRepository $hostStates,
         private readonly HostAuthDigestRepository $digests,
+        private readonly HostUserRepository $hostUsers,
         private readonly LogRepository $logs,
         private readonly TokenUsageRepository $tokenUsages,
         private readonly VersionRepository $versions,
@@ -185,6 +187,7 @@ class AuthService
         ];
 
         $versions = $this->versionSnapshot($bakedWrapperMeta);
+        $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
@@ -243,6 +246,7 @@ class AuthService
                 'api_calls' => $hostStats['api_calls'],
                 'token_usage_month' => $hostStats['token_usage_month'],
                 'versions' => $versions,
+                'quota_hard_fail' => $quotaHardFail,
             ];
 
             if ($canonicalPayload) {
@@ -258,6 +262,7 @@ class AuthService
                         'api_calls' => $hostStats['api_calls'],
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
+                        'quota_hard_fail' => $quotaHardFail,
                     ];
 
                     if ($trackHost) {
@@ -275,6 +280,7 @@ class AuthService
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'action' => 'store',
                         'versions' => $versions,
+                        'quota_hard_fail' => $quotaHardFail,
                     ];
 
                     if ($trackHost) {
@@ -294,6 +300,7 @@ class AuthService
                         'api_calls' => $hostStats['api_calls'],
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
+                        'quota_hard_fail' => $quotaHardFail,
                     ];
 
                     if ($trackHost) {
@@ -362,6 +369,7 @@ class AuthService
                 'api_calls' => $hostStats['api_calls'],
                 'token_usage_month' => $hostStats['token_usage_month'],
                 'versions' => $versions,
+                'quota_hard_fail' => $quotaHardFail,
             ];
             if ($trackHost) {
                 $response['host'] = $this->buildHostPayload($host);
@@ -380,6 +388,7 @@ class AuthService
                     'api_calls' => $hostStats['api_calls'],
                     'token_usage_month' => $hostStats['token_usage_month'],
                     'versions' => $versions,
+                    'quota_hard_fail' => $quotaHardFail,
                 ];
                 if ($trackHost) {
                     $response['host'] = $this->buildHostPayload($host);
@@ -392,6 +401,7 @@ class AuthService
                     'api_calls' => $hostStats['api_calls'],
                     'token_usage_month' => $hostStats['token_usage_month'],
                     'versions' => $versions,
+                    'quota_hard_fail' => $quotaHardFail,
                 ];
             }
 
@@ -469,6 +479,7 @@ class AuthService
                                 'canonical_digest' => $canonicalDigest,
                                 'api_calls' => (int) ($host['api_calls'] ?? 0),
                                 'versions' => $versions,
+                                'quota_hard_fail' => $quotaHardFail,
                             ];
                             if ($trackHost) {
                                 $response['host'] = $this->buildHostPayload($host);
@@ -681,6 +692,29 @@ class AuthService
         ];
     }
 
+    public function recordHostUser(array $host, ?string $username, ?string $hostname = null): array
+    {
+        if (!isset($host['id'])) {
+            throw new HttpException('Host not found', 404);
+        }
+
+        $hostId = (int) $host['id'];
+        $normalizedUser = trim((string) ($username ?? ''));
+        $normalizedHost = $hostname !== null ? trim((string) $hostname) : null;
+
+        if ($normalizedUser !== '') {
+            $safeUser = substr($normalizedUser, 0, 255);
+            $safeHost = $normalizedHost !== null && $normalizedHost !== '' ? substr($normalizedHost, 0, 255) : null;
+            $this->hostUsers->record($hostId, $safeUser, $safeHost);
+            $this->logs->log($hostId, 'host.user', [
+                'username' => $safeUser,
+                'hostname' => $safeHost,
+            ]);
+        }
+
+        return $this->hostUsers->listByHost($hostId);
+    }
+
     public function recordTokenUsage(array $host, array $payload): array
     {
         if (!isset($host['id'])) {
@@ -818,6 +852,7 @@ class AuthService
             'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
             'wrapper_url' => $wrapperMeta['url'] ?? null,
             'reported_client_version' => $reported['client_version'],
+            'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
         ];
     }
 

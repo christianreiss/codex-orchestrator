@@ -1,136 +1,31 @@
 # Codex Auth Central API
 
-Welcome! If you were searching for a "Codex auth.json sync server / Codex wrapper backend / multi-host auth.json manager," you landed in the right place. This is a small PHP service that keeps one canonical Codex `auth.json` for your fleet, so hosts either pull the official copy or publish a newer one in a single API call.
+🔒 Keep one canonical Codex `auth.json` for your whole fleet. 🚀 Mint per-host API keys from the dashboard, bake them into the `cdx` wrapper, and let hosts pull/push auth + usage with a single call.
 
-## Use case (start here)
+## Why you might like it
 
-- You run Codex across multiple hosts and want a single source of truth for `auth.json`.
-- Hosts are created from the admin dashboard ("New Host"), then install via a one-time command that bakes in the issued API key.
-- You want lightweight auditing (who registered, who synced, which versions) without babysitting machines.
-- You are fine with a containerized PHP + MySQL service and a couple of helper scripts to wire it up.
+- 🌐 One `/auth` flow to keep every host in sync (retrieve/store with version metadata).
+- 🗝️ Per-host API keys, IP-bound on first contact; single-use installer tokens bake config into `cdx`.
+- 📊 Auditing and usage: token usage, versions, IPs, and runner validation logs.
+- 🔒 Canonical auth + tokens encrypted at rest (libsodium).
 
-**Search terms:** codex auth.json sync, codex wrapper server, codex central auth backend, php codex auth api, multi-host auth.json manager.
-
-## Why teams use it
-
-- One `/auth` flow: register once, then a unified retrieve/store call that decides whether to accept the client's auth or return the canonical copy (with versions attached).
-- Per-host API keys are minted from the admin dashboard (New Host) and IP-bound on first use; hosts can self-deregister via `DELETE /auth` when decommissioned.
-- Captures host metadata (IP, client version, optional wrapper version) so you know which machines are on which build.
-- MySQL-backed persistence and audit logs out of the box; storage lives in the compose volume by default.
-- Canonical `auth.json` payloads and per-target tokens are stored encrypted-at-rest with libsodium `secretbox`; the symmetric key is auto-generated into `.env` on first boot.
-- The dashboard "New Host" action generates a single-use installer token (`curl …/install/{token} | bash`) that bakes the API key into the downloaded `cdx`; `cdx --uninstall` handles clean removal.
-- The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
-- Runs in `php:8.2-apache` with automatic migrations; host endpoints enforce API-key auth (`X-API-Key` or `Authorization: Bearer`), and installer downloads are guarded by single-use tokens created via the dashboard.
-- Stores the canonical `auth.json` as a compact JSON blob (sha256 over that exact text); only the `auths` map is normalized, everything else is preserved verbatim.
-- The “auth runner” sidecar (`auth-runner`, enabled by default in `docker-compose.yml`) validates canonical auth by running `cdx` in an isolated temp `$HOME` on every store and once per UTC day; if Codex refreshes tokens, the runner’s updated auth is auto-applied. Admins can also force a run via `POST /admin/runner/run`.
-
-## How it works (big picture)
-
-- This container exposes a small PHP API + MySQL database that act as the "auth.json registry" for all of your Codex hosts.
-- The admin dashboard mints per-host API keys and one-time installer tokens; each token maps to `/install/{uuid}` which returns a self-contained bash script that installs/updates `cdx`, fetches Codex, and bakes the API key/base URL directly into the wrapper (no sync env file needed).
-- Each host keeps only `~/.codex/auth.json`; connection details are embedded in its `cdx` wrapper.
-- When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` with `cdx` on store and once per UTC day; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically.
-- The `cdx` wrapper also syncs slash command prompts in `~/.codex/prompts` via `/slash-commands`, pulling new/updated prompts on launch and pushing local changes on exit.
-
-## From manual logins to central sync
-
-Think of a very common starting point:
-
-- You have several servers (or laptops, CI runners, etc.).
-- On each one, you log into Codex by hand and end up with a separate `~/.codex/auth.json`.
-- When a token rotates, you have to remember which machines to fix.
-
-With this project in place:
-
-1. **Run the auth server once.** Bring up the Docker stack (see "Quick Start"). No invitation key needed.
-2. **Log into Codex on one trusted machine.** Use the normal Codex CLI sign-in so you get a local `~/.codex/auth.json`. This becomes your starting canonical auth.
-3. **Mint an API key from the dashboard.** Open `/admin/` (mTLS) and click **New Host**. Copy the one-time installer command (`curl …/install/{token} | bash`) or the API key itself.
-4. **Seed the canonical auth.** On the trusted machine, either run the installer command or use the dashboard "Upload auth.json" to push your existing `~/.codex/auth.json` to the server.
-5. **Install on other hosts.** For each host, generate a fresh installer token in the dashboard and run the provided `curl …/install/{token} | bash` command on that host. It installs `cdx`, grabs Codex, and embeds the API key/base URL directly into the wrapper.
-6. **Clean up when a host is retired.** Use the dashboard "Remove" button or run `cdx --uninstall` on the host to delete binaries/configs and call `DELETE /auth`.
-
-## Commands you'll actually type
-
-On the **auth server host**:
-
-- `cp .env.example .env`
-- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx` only on first boot; to roll a new wrapper, rebuild the image or replace the baked script in storage before start-up.
-- `docker compose up --build`
-
-On your **laptop or admin box** (the one where you already use Codex):
-
-- `codex login` (or whichever flow creates `~/.codex/auth.json`).
-- Visit the admin dashboard (`/admin/`, mTLS) and click **New Host** to mint an API key + one-time installer command.
-- Seed canonical auth from your trusted machine: use the dashboard "Upload auth.json" with your `~/.codex/auth.json`.
-- Run the installer command on a target host (generate a fresh token per host).
-- `cdx --uninstall` on a host to remove Codex bits and deregister it from the auth server (uses baked config).
-
-## FAQ
-
-- **Do I still need to log into Codex on every host?** No. Log in once on a trusted machine to create `~/.codex/auth.json`, then use the dashboard-generated installer commands for the rest of the fleet (and upload the canonical auth via the dashboard when it changes).
-- **How do I rotate tokens or update `auth.json`?** Refresh `~/.codex/auth.json` on the trusted machine, then upload it through the dashboard (Upload auth.json) or let any host with a valid API key call `/auth` with `command: "store"` after the refresh.
-- **What if my auth server uses a private CA or self-signed cert?** The CA path is baked into `cdx` when downloaded; ensure the dashboard upload is done from a host that trusts the CA or use your proxy to terminate TLS.
-- **How do I remove a host cleanly?** Run `cdx --uninstall`; it deletes Codex bits on the target and calls `DELETE /auth` using the baked config.
-- **Where is the host-side sync config stored?** Global installs use `/usr/local/etc/codex-sync.env`; user installs use `~/.codex/sync.env`. They contain only the sync base URL, API key, and optional CA path.
-
-## Quick Start
+## Get going fast
 
 ```bash
 cp .env.example .env          # set DB_* creds (match docker-compose)
-docker compose up --build     # runs API on http://localhost:8488 with a mysql sidecar
+docker compose up --build     # API on http://localhost:8488 with MySQL sidecar
 ```
 
-### CLI helpers (bin/)
+📖 Full setup (mTLS/proxy, env, volumes): `docs/INSTALL.md`  
+🧭 Deep dive / FAQs / flow: `docs/OVERVIEW.md`  
+🛡️ Security policy: `docs/SECURITY.md`  
+🧪 Interface contracts: `docs/interface-api.md`, `docs/interface-cdx.md`, `docs/interface-db.md`
 
-- `cdx --uninstall`: removes Codex binaries/configs, legacy sync env/auth files, npm `codex-cli`, and calls `DELETE /auth` with the baked API key.
+## Contributing / local dev
 
-For details on the optional runner container that validates `auth.json` using `cdx`, see `runner/README.md`.
-
-### Lifecycle smoke test
-
-Run a full host lifecycle against a running stack (register → installer download → baked wrapper → `/auth` → cleanup):
-
-```bash
-BASE_URL=http://localhost:8488 \
-ADMIN_KEY=... \  # optional; required if DASHBOARD_ADMIN_KEY is set
-tests/e2e-agent-lifecycle.sh
-```
-
-The script creates a temporary host and deletes it (unless `KEEP_HOST=1`). No canonical auth is modified; it only exercises registration, installer issuance, wrapper baking, and `/auth` retrieve.
-
-### Routing
-
-`public/index.php` now wires endpoints through a tiny `Router` (`src/Http/Router.php`) with a route table, so each path is handled in an isolated closure. Add new endpoints by registering a route near the top of `public/index.php` rather than extending the old nested `if` chain.
-
-## Project Structure
-
-```
-public/           # Single entrypoint (index.php)
-src/              # Core classes: database, repositories, services, support
-storage/          # Mounted volume for host status/wrapper assets and SQL backups (storage/sql)
-Dockerfile        # Production image
-docker-compose.yml
-```
-
-## Getting Started
-
-1. **Environment**
-   - Copy `.env.example` to `.env`.
-   - Configure the MySQL credentials via `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD` (defaults line up with `docker-compose.yml`). `AUTH_ENCRYPTION_KEY` is optional; a new secretbox key will be written into `.env` automatically when missing.
-   - Optionally set `DASHBOARD_ADMIN_KEY` for an extra header check on admin routes.
-
-2. **Docker**
-  - `docker compose up --build`
-  - Services: `api` (PHP) and `mysql` (MySQL 8). Both join the `codex_auth` network.
-  - API listens on `http://localhost:8488`.
-- MySQL data persists in `/var/docker_data/codex-auth.example.com/mysql_data` (bind-mounted one level above the repo); SQL exports and the SQLite migration backups live under `storage/sql` on your mounted storage path.
-  - Optional runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); disable by clearing that env or removing the service from compose.
-  - Admin dashboard routes live at `/admin/*`; they require mTLS (`X-mTLS-Present` header is set by your proxy) and optionally `DASHBOARD_ADMIN_KEY`.
-
-3. **Local (optional)**
-   - `composer install`
-   - `php -S localhost:8080 -t public`
-   - Ensure `storage/` is writable by PHP.
+- `composer install`
+- `php -S localhost:8080 -t public`
+- Ensure `storage/` is writable by PHP.
 
 ## API Reference
 
@@ -139,7 +34,7 @@ docker-compose.yml
 ### Host provisioning (admin)
 
 - `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returns its API key, and mints a single-use installer token.
-- `GET /install/{token}` is public but the token is one-time and expires (controlled by `INSTALL_TOKEN_TTL_SECONDS`, default 1800s). Response is a bash script that installs `cdx`, downloads Codex, and writes `~/.codex/sync.env` with the baked API key, FQDN, and base URL. Tokens are marked used immediately after download.
+- `GET /install/{token}` is public but the token is one-time and expires (controlled by `INSTALL_TOKEN_TTL_SECONDS`, default 1800s). Response is a bash script that installs `cdx`, downloads Codex, and bakes the API key/FQDN/base URL directly into the wrapper. Tokens are marked used immediately after download.
 
 ### `POST /auth`
 

@@ -4,6 +4,8 @@
 - Source is organized under `bin/cdx.d/*.sh`; run `scripts/build-cdx.sh` to assemble the shipped `bin/cdx`. Edit fragments, not the built file, and bump `WRAPPER_VERSION` whenever `bin/cdx` changes.
 - On launch it:
   - Pulls `auth.json` from `/auth` (store/retrieve); if the API is unreachable it now proceeds with the cached `auth.json` when present and fresher than 24 hours, but still refuses to start when the key is invalid or no fresh auth is available.
+  - Reports the current user + hostname to `/host/users` (API key + IP binding) and receives the known user list for the host; `--uninstall` removes `~/.codex` for those users (fallback: current user only if the API call fails).
+  - Honors the server-side ChatGPT quota policy (`quota_hard_fail`); default is deny-on-quota, but admins can flip to warn-only in the dashboard (or set `CODEX_QUOTA_HARD_FAIL=0` before running `cdx`).
 - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`. Server-retired prompts are removed locally.
   - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`.

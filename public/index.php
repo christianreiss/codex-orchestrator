@@ -13,6 +13,7 @@ use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
+use App\Repositories\HostUserRepository;
 use App\Repositories\InstallTokenRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
@@ -64,6 +65,7 @@ $encryptionMigrator->migrate();
 $hostRepository = new HostRepository($database);
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
+$hostUserRepository = new HostUserRepository($database);
 $installTokenRepository = new InstallTokenRepository($database);
 $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
@@ -85,7 +87,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0)
     );
 }
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
@@ -480,6 +482,37 @@ $router->add('POST', '#^/admin/api/state$#', function () use ($payload, $version
     ]);
 });
 
+$router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository) {
+    requireAdminAccess();
+
+    $hardFail = $versionRepository->getFlag('quota_hard_fail', true);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['hard_fail' => $hardFail],
+    ]);
+});
+
+$router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versionRepository) {
+    requireAdminAccess();
+
+    $modeRaw = $payload['hard_fail'] ?? null;
+    $hardFail = normalizeBoolean($modeRaw);
+    if ($hardFail === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'hard_fail must be boolean',
+        ], 422);
+    }
+
+    $versionRepository->set('quota_hard_fail', $hardFail ? '1' : '0');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['hard_fail' => $hardFail],
+    ]);
+});
+
 $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hostRepository, $hostStateRepository, $authPayloadRepository, $service, $digestRepository) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
@@ -622,7 +655,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
     ]);
 });
 
-$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService) {
+$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
 
@@ -658,6 +691,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $pricing = $pricingService->latestPricing('gpt-5.1', false);
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
     $chatgpt = $chatGptUsageService->fetchLatest(false);
+    $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
 
     Response::json([
         'status' => 'ok',
@@ -677,6 +711,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'chatgpt_usage' => $chatgpt['snapshot'] ?? null,
             'chatgpt_cached' => $chatgpt['cached'] ?? false,
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
+            'quota_hard_fail' => $quotaHardFail,
         ],
     ]);
 });
@@ -957,6 +992,23 @@ $router->add('POST', '#^/slash-commands/store$#', function () use ($payload, $se
     Response::json([
         'status' => 'ok',
         'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/host/users$#', function () use ($payload, $service) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $username = is_array($payload) ? (string) ($payload['username'] ?? '') : '';
+    $hostname = is_array($payload) ? (string) ($payload['hostname'] ?? '') : '';
+    $users = $service->recordHostUser($host, $username, $hostname);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'users' => $users,
+        ],
     ]);
 });
 
@@ -1333,11 +1385,6 @@ function resolveAdminKey(): ?string
                 return $value;
             }
         }
-    }
-
-    $fromQuery = resolveQueryParam('admin_key');
-    if ($fromQuery !== null) {
-        return $fromQuery;
     }
 
     return null;

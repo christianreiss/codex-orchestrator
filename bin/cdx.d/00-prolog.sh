@@ -115,6 +115,7 @@ QUOTA_BLOCKED=0
 QUOTA_BLOCK_REASON=""
 QUOTA_WARNING=0
 QUOTA_WARNING_REASON=""
+QUOTA_HARD_FAIL="${CODEX_QUOTA_HARD_FAIL:-1}"
 HOST_API_CALLS=""
 HOST_TOKENS_MONTH_TOTAL=""
 HOST_TOKENS_MONTH_INPUT=""
@@ -135,7 +136,7 @@ PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
 
-WRAPPER_VERSION="2025.11.27-17"
+WRAPPER_VERSION="2025.11.27-19"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -150,6 +151,9 @@ elif command -v sudo >/dev/null 2>&1; then
 fi
 
 CURRENT_USER="$(id -un 2>/dev/null || echo unknown)"
+LOCAL_HOSTNAME="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+HOST_USERS_CACHE=()
+HOST_USERS_FETCHED=0
 
 # Early one-shot commands
 case "${1-}" in
@@ -279,8 +283,71 @@ uninstall_api_deregister() {
   fi
 }
 
+record_host_user_with_api() {
+  load_sync_config
+  local base="${CODEX_SYNC_BASE_URL%/}"
+  local key="$CODEX_SYNC_API_KEY"
+  local cafile="$CODEX_SYNC_CA_FILE"
+  if [[ -z "$base" || -z "$key" ]]; then
+    return 1
+  fi
+  local hostname="$LOCAL_HOSTNAME"
+  [[ -z "$hostname" || "$hostname" == "unknown" ]] && hostname="$(hostname 2>/dev/null || echo unknown)"
+
+  local payload
+  if ! payload="$(USERNAME="$CURRENT_USER" HOSTNAME="$hostname" python3 - <<'PY' 2>/dev/null
+import json, os, sys
+user = os.environ.get("USERNAME", "").strip()
+host = os.environ.get("HOSTNAME", "").strip()
+print(json.dumps({"username": user, "hostname": host}, ensure_ascii=False))
+PY
+)"; then
+    return 1
+  fi
+
+  local url="${base}/host/users"
+  local args=(-fsS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" --data "$payload")
+  [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
+  local response=""
+  if ! response="$(curl "${args[@]}" "$url" 2>/dev/null)"; then
+    return 1
+  fi
+
+  local parsed_users=()
+  if mapfile -t parsed_users < <(API_RESPONSE="$response" python3 - <<'PY' 2>/dev/null
+import json, os
+data = os.environ.get("API_RESPONSE", "")
+parsed = json.loads(data)
+users = parsed.get("data", {}).get("users")
+if not isinstance(users, list):
+    raise SystemExit(1)
+seen = set()
+for entry in users:
+    username = None
+    if isinstance(entry, dict):
+        username = entry.get("username")
+    elif isinstance(entry, str):
+        username = entry
+    if not username:
+        continue
+    username = str(username).strip()
+    if not username or username in seen:
+        continue
+    seen.add(username)
+    print(username)
+PY
+); then
+    parsed_users=()
+  fi
+  HOST_USERS_CACHE=("${parsed_users[@]}")
+  HOST_USERS_FETCHED=1
+  return 0
+}
+
 cmd_uninstall() {
   log_info "Starting Codex uninstall"
+  load_sync_config
+  record_host_user_with_api || true
   uninstall_api_deregister
 
   # Legacy env/config files
@@ -288,10 +355,22 @@ cmd_uninstall() {
   remove_path "/etc/codex-sync.env" "sync env (system-legacy)"
   remove_path "$HOME/.codex/sync.env" "sync env (user)"
 
-  # Auth + state per user (current, chris, root)
-  local users=("$CURRENT_USER" "chris" "root")
+  # Auth + state per user (from API fallback to current user)
+  local users=()
+  if (( ${#HOST_USERS_CACHE[@]} == 0 )); then
+    users+=("$CURRENT_USER")
+  else
+    users+=("${HOST_USERS_CACHE[@]}")
+  fi
+  local ensured_current=0
+  local u
+  for u in "${users[@]}"; do
+    [[ "$u" == "$CURRENT_USER" ]] && ensured_current=1 && break
+  done
+  (( ensured_current )) || users+=("$CURRENT_USER")
+
   local seen=()
-  local u home
+  local home
   for u in "${users[@]}"; do
     local skip=0
     for existing in "${seen[@]}"; do

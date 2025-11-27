@@ -1,0 +1,58 @@
+services:
+  api:
+    build: .
+    depends_on:
+      - mysql
+    ports:
+      - "8488:80"
+    environment:
+      DB_DRIVER: mysql
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE:-codex_auth}
+      DB_USERNAME: ${DB_USERNAME:-codex}
+      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      AUTH_RUNNER_URL: ${AUTH_RUNNER_URL:-http://auth-runner:8080/verify}
+      AUTH_RUNNER_CODEX_BASE_URL: ${AUTH_RUNNER_CODEX_BASE_URL:-https://codex-auth.example.com}
+      AUTH_RUNNER_TIMEOUT: ${AUTH_RUNNER_TIMEOUT:-8}
+      AUTH_RUNNER_IP_BYPASS: ${AUTH_RUNNER_IP_BYPASS:-1}
+      AUTH_RUNNER_BYPASS_SUBNETS: ${AUTH_RUNNER_BYPASS_SUBNETS:-172.28.0.0/16,172.30.0.0/16}
+    volumes:
+      - ${ENV_FILE:-./.env}:/var/www/html/.env
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
+    networks:
+      - codex_auth
+    restart: unless-stopped
+
+  auth-runner:
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    depends_on:
+      - api
+    environment:
+      CODEX_SYNC_BASE_URL: ${CODEX_SYNC_BASE_URL:-https://codex-auth.example.com}
+      CODEX_DEBUG: ${CODEX_DEBUG:-0}
+    expose:
+      - "8080"
+    networks:
+      - codex_auth
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-codex_auth}
+      MYSQL_USER: ${DB_USERNAME:-codex}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root-pass}
+    volumes:
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/mysql_data:/var/lib/mysql
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store/sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - codex_auth
+    restart: unless-stopped
+
+networks:
+  codex_auth:

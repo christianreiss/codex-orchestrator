@@ -47,6 +47,8 @@ const statsEl = document.getElementById('stats');
     const promptCancel = document.getElementById('promptCancel');
     const promptStatus = document.getElementById('promptStatus');
     const promptsPanel = document.getElementById('prompts-panel');
+    const quotaToggle = document.getElementById('quotaHardFailToggle');
+    const quotaModeLabel = document.getElementById('quotaModeLabel');
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -62,6 +64,16 @@ const statsEl = document.getElementById('stats');
     let apiDisabled = null;
     let mtlsMeta = null;
     let uploadFileContent = '';
+    let quotaHardFail = true;
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     function parseTimestamp(value) {
       if (!value) return null;
@@ -162,6 +174,30 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    async function setQuotaMode(hardFail) {
+      if (!quotaToggle) return;
+      const original = quotaModeLabel ? quotaModeLabel.textContent : '';
+      quotaToggle.disabled = true;
+      try {
+        await api('/admin/quota-mode', {
+          method: 'POST',
+          json: { hard_fail: !!hardFail },
+        });
+        quotaHardFail = !!hardFail;
+        renderQuotaMode();
+        const statusEl = document.getElementById('quotaModeStatus');
+        if (statusEl) {
+          statusEl.textContent = quotaHardFail ? 'Denying launches on quota hit' : 'Warning only on quota hit';
+        }
+      } catch (err) {
+        alert(`Quota policy update failed: ${err.message}`);
+        quotaToggle.checked = quotaHardFail;
+        if (quotaModeLabel) quotaModeLabel.textContent = original || (quotaHardFail ? 'Deny launches' : 'Warn only');
+      } finally {
+        quotaToggle.disabled = false;
+      }
+    }
+
     function setMtls(meta) {
       mtlsMeta = meta;
       if (!mtlsEl) return;
@@ -205,7 +241,7 @@ const statsEl = document.getElementById('stats');
       if (!normalized) return '—';
       const cmp = compareVersions(normalized, current);
       const tone = cmp === -1 ? 'warn' : cmp === 1 ? 'neutral' : 'ok';
-      return `<span class="chip ${tone}">${normalized}</span>`;
+      return `<span class="chip ${tone}">${escapeHtml(normalized)}</span>`;
     }
 
     function renderStatusPill(status) {
@@ -359,7 +395,7 @@ const statsEl = document.getElementById('stats');
         tr.innerHTML = `
           <td data-label="Host">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
-              <strong>${host.fqdn}</strong>
+              <strong>${escapeHtml(host.fqdn)}</strong>
               <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
                 <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
                 <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
@@ -376,7 +412,7 @@ const statsEl = document.getElementById('stats');
           <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
           <td data-label="IP / Mode">
             <div class="inline-cell" style="gap:6px; align-items:center;">
-              <span>${host.ip ?? '—'}</span>
+              <span>${escapeHtml(host.ip ?? '—')}</span>
               ${host.ip ? `<span class="ip-toggle" data-id="${host.id}" title="Toggle IP lock" role="button" aria-label="Toggle IP lock">${ipIcon}</span>` : ''}
             </div>
           </td>
@@ -387,7 +423,7 @@ const statsEl = document.getElementById('stats');
             </div>
           </td>
           <td class="actions-cell" data-label="Actions">
-            <button data-id="${host.id}" data-fqdn="${host.fqdn}" class="ghost secondary reinstall-btn">Install</button>
+            <button data-id="${host.id}" class="ghost secondary reinstall-btn">Install</button>
             <button data-id="${host.id}" class="ghost">Clear</button>
             <button data-id="${host.id}" class="danger">Remove</button>
           </td>
@@ -409,7 +445,8 @@ const statsEl = document.getElementById('stats');
           const id = parseInt(btn.getAttribute('data-id'), 10);
           const isInstall = btn.classList.contains('reinstall-btn');
           if (isInstall) {
-            const fqdn = btn.getAttribute('data-fqdn') || '';
+            const host = currentHosts.find(h => h.id === id);
+            const fqdn = host?.fqdn || '';
             regenerateInstaller(fqdn, id);
           } else {
             confirmClear(id);
@@ -430,7 +467,7 @@ const statsEl = document.getElementById('stats');
       currentHosts = Array.isArray(hosts) ? hosts : [];
       // Populate upload host select
       if (uploadHostSelect) {
-        uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${h.fqdn}</option>`).join('');
+        uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`).join('');
         uploadHostSelect.value = 'system';
       }
       paintHosts();
@@ -664,6 +701,21 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    function renderQuotaMode() {
+      if (!quotaToggle || !quotaModeLabel) return;
+      quotaToggle.checked = !!quotaHardFail;
+      quotaModeLabel.textContent = quotaHardFail ? 'Deny launches' : 'Warn only';
+      const quotaPanel = document.getElementById('quota-panel');
+      if (quotaPanel) {
+        const desc = quotaPanel.querySelector('.quota-desc');
+        if (desc) {
+          desc.textContent = quotaHardFail
+            ? 'ChatGPT quota hit: deny Codex launch.'
+            : 'ChatGPT quota hit: warn and continue.';
+        }
+      }
+    }
+
     function renderStats(data, runnerInfo = null) {
       lastOverview = data;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
@@ -833,6 +885,10 @@ const statsEl = document.getElementById('stats');
         renderStats(overview.data, runner?.data || null);
         renderHosts(hosts.data.hosts);
         renderPrompts(prompts?.data?.commands || []);
+        if (typeof overview.data.quota_hard_fail !== 'undefined') {
+          quotaHardFail = !!overview.data.quota_hard_fail;
+          renderQuotaMode();
+        }
       } catch (err) {
         mtlsEl.textContent = 'mTLS / Admin access failed';
         mtlsEl.classList.add('error');
@@ -1097,6 +1153,11 @@ const statsEl = document.getElementById('stats');
       apiToggleBtn.addEventListener('click', () => {
         if (apiDisabled === null) return;
         setApiState(!apiDisabled);
+      });
+    }
+    if (quotaToggle) {
+      quotaToggle.addEventListener('change', () => {
+        setQuotaMode(quotaToggle.checked);
       });
     }
     loadApiState();

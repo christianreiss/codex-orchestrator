@@ -197,6 +197,21 @@
           </div>
         </section>
 
+        <section class="card panel" id="quota-panel">
+          <div class="panel-head" style="align-items:center; gap:12px;">
+            <div>
+              <h2>Quota Policy</h2>
+              <p class="muted quota-desc" style="margin:4px 0 0;">ChatGPT quota hit: deny Codex launch.</p>
+            </div>
+            <label class="toggle" for="quotaHardFailToggle" style="margin-left:auto;">
+              <input type="checkbox" id="quotaHardFailToggle">
+              <span class="track"><span class="thumb"></span></span>
+              <span class="toggle-text" id="quotaModeLabel">Deny launches</span>
+            </label>
+          </div>
+          <p class="muted" id="quotaModeStatus" style="margin:0;">Denying launches on quota hit.</p>
+        </section>
+
       </main>
     </div>
   </div>

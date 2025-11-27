@@ -935,8 +935,12 @@ case "$AUTH_PULL_STATUS" in
 esac
 
 if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
-  AUTH_LAUNCH_ALLOWED=0
-  AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
+  if (( QUOTA_HARD_FAIL )); then
+    AUTH_LAUNCH_ALLOWED=0
+    AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
+  else
+    log_warn "ChatGPT quota reached: ${QUOTA_BLOCK_REASON:-see details above}. Continuing (warn mode)."
+  fi
 fi
 
 if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )); then
