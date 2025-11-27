@@ -889,6 +889,11 @@ class AuthService
             return '';
         }
 
+        $usagePos = stripos($clean, 'token usage:');
+        if ($usagePos !== false) {
+            $clean = trim(substr($clean, $usagePos));
+        }
+
         // Limit to printable ASCII to avoid stray control glyphs.
         $clean = preg_replace('/[^\x20-\x7E]/', '', $clean);
 
