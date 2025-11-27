@@ -550,7 +550,7 @@ const statsEl = document.getElementById('stats');
           `,
           desc: 'Client and wrapper builds reported by this host.',
         },
-        { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: 'Latest token metrics reported from Codex runs on this host.' },
+        { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: 'Latest token metrics reported from Codex runs on this host.', full: true },
       ];
     }
 
@@ -584,7 +584,7 @@ const statsEl = document.getElementById('stats');
       if (hostDetailGrid) {
         const rows = hostDetailRows(host);
         hostDetailGrid.innerHTML = rows.map(row => `
-          <div class="kv-row">
+          <div class="kv-row${row.full ? ' kv-row-full' : ''}">
             <div class="kv-key">${escapeHtml(row.key)}</div>
             <div class="kv-value">${row.value}</div>
             <div class="kv-desc">${row.desc}</div>

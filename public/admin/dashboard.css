@@ -731,6 +731,8 @@
     .kv-key { font-weight: 700; letter-spacing: 0.02em; color: #0f172a; }
     .kv-value { font-weight: 600; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .kv-desc { grid-column: 1 / span 2; color: var(--muted); font-size: 13px; }
+    .kv-row-full { grid-column: 1 / -1; }
+    .kv-row-full .kv-desc { grid-column: 1 / -1; }
     .kv-security { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .kv-version {
       display: flex;
