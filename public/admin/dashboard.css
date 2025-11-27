@@ -526,7 +526,7 @@
     .usage-meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .usage-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
     .usage-bar { padding: 12px; border: 1px solid var(--panel-strong); border-radius: 12px; background: var(--frost); }
-    .usage-bar .label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .usage-bar .label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .usage-bar .value { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-weight: 800; font-size: 18px; }
     .usage-bar .meter { height: 8px; background: var(--panel-strong); border-radius: 999px; overflow: hidden; }
     .usage-bar .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
@@ -535,6 +535,16 @@
     .usage-bar small { color: var(--muted); }
     .usage-credits { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid var(--panel-strong); background: var(--card-strong); }
     .usage-error { color: var(--danger); font-weight: 700; margin-top: 10px; }
+    .usage-history-btn { min-width: 0; padding: 6px 8px; line-height: 1; font-size: 13px; }
+    .usage-history-modal { max-width: 860px; }
+    .usage-history-modal .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .usage-history-chart { border: 1px solid var(--panel-strong); background: var(--surface-tint); border-radius: 14px; padding: 12px; min-height: 280px; }
+    .usage-history-chart svg { width: 100%; height: 260px; }
+    .usage-history-chart .grid line { stroke: rgba(15,23,42,0.08); stroke-width: 1; }
+    .usage-history-chart .grid .tick { fill: #475569; font-size: 11px; }
+    .usage-history-chart .line { fill: none; stroke: var(--accent-2); stroke-width: 3; }
+    .usage-history-chart .area { fill: rgba(16,163,127,0.12); }
+    .usage-history-chart .dot { fill: #0f172a; stroke: var(--accent-2); stroke-width: 2; }
     .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
     .cost-card { padding: 12px; border-radius: 12px; border: 1px solid var(--panel-strong); background: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
     .cost-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }

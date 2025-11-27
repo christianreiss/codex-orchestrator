@@ -158,6 +158,14 @@ body[data-view="mobile"] .cost-grid {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+body[data-view="mobile"] .usage-history-modal {
+  max-width: none;
+}
+
+body[data-view="mobile"] .usage-history-chart svg {
+  height: 220px;
+}
+
 body[data-view="mobile"] .modal-backdrop {
   padding: 12px;
 }

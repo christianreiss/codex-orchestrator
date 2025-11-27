@@ -32,6 +32,11 @@ const statsEl = document.getElementById('stats');
     const upgradeVersionEl = document.getElementById('upgradeVersionLabel');
     const upgradeGithubLink = document.getElementById('upgradeGithubLink');
     const upgradeCloseBtn = document.getElementById('upgradeClose');
+    const usageHistoryModal = document.getElementById('usageHistoryModal');
+    const usageHistoryChart = document.getElementById('usageHistoryChart');
+    const usageHistorySubtitle = document.getElementById('usageHistorySubtitle');
+    const usageHistoryMeta = document.getElementById('usageHistoryMeta');
+    const usageHistoryCloseBtn = document.getElementById('usageHistoryClose');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
@@ -49,6 +54,7 @@ const statsEl = document.getElementById('stats');
     const promptsPanel = document.getElementById('prompts-panel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
+    const USAGE_HISTORY_DAYS = 60;
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -65,6 +71,8 @@ const statsEl = document.getElementById('stats');
     let mtlsMeta = null;
     let uploadFileContent = '';
     let quotaHardFail = true;
+    let chatgptUsageHistory = null;
+    let chatgptUsageHistoryPromise = null;
 
     function escapeHtml(str) {
       return String(str)
@@ -541,7 +549,7 @@ const statsEl = document.getElementById('stats');
       `;
     }
 
-    function renderUsageWindow(label, data) {
+    function renderUsageWindow(label, data, windowKey = null) {
       const used = Number.isFinite(data?.used_percent) ? Math.min(100, Math.max(0, data.used_percent)) : null;
       const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
       const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
@@ -555,13 +563,19 @@ const statsEl = document.getElementById('stats');
         if (ahead) return 'warn';
         return 'critical';
       })();
+      const chartBtn = windowKey
+        ? `<button class="ghost tiny-btn usage-history-btn" data-window="${windowKey}" title="Show last 60 days">📊</button>`
+        : '';
       const meter = `<div class="meter ${tone}"><span style="width:${used !== null ? used : 0}%"></span></div>`;
       const timeMeter = timePercent !== null
         ? `<div class="meter time"><span style="width:${timePercent}%"></span></div>`
         : '';
       return `
         <div class="usage-bar">
-          <div class="label">${label}</div>
+          <div class="label">
+            <span>${label}</span>
+            ${chartBtn}
+          </div>
           <div class="value">
             <span>${used !== null ? `${used}% used` : 'n/a'}</span>
             <small>${limitLabel}</small>
@@ -628,8 +642,8 @@ const statsEl = document.getElementById('stats');
         </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
         <div class="usage-bars">
-          ${renderUsageWindow('5-hour limit', primary)}
-          ${renderUsageWindow('Weekly limit', secondary)}
+          ${renderUsageWindow('5-hour limit', primary, 'primary')}
+          ${renderUsageWindow('Weekly limit', secondary, 'secondary')}
         </div>
         <div class="usage-credits">
           <strong>Month to date (${currency})</strong>
@@ -674,6 +688,8 @@ const statsEl = document.getElementById('stats');
       try {
         const res = await api('/admin/chatgpt/usage/refresh', { method: 'POST' });
         chatgptUsage = res?.data || null;
+        chatgptUsageHistory = null;
+        chatgptUsageHistoryPromise = null;
         renderChatGptUsage(chatgptUsage);
       } catch (err) {
         alert(`Refresh failed: ${err.message}`);
@@ -692,6 +708,150 @@ const statsEl = document.getElementById('stats');
           ev.preventDefault();
           refreshChatGptUsage();
         };
+      }
+      document.querySelectorAll('.usage-history-btn').forEach((el) => {
+        el.onclick = (ev) => {
+          ev.preventDefault();
+          const key = el.getAttribute('data-window') === 'secondary' ? 'secondary' : 'primary';
+          openUsageHistory(key);
+        };
+      });
+    }
+
+    function showUsageHistoryModal(show) {
+      if (!usageHistoryModal) return;
+      if (show) {
+        usageHistoryModal.classList.add('show');
+      } else {
+        usageHistoryModal.classList.remove('show');
+      }
+    }
+
+    function formatShortDate(date, includeTime = false) {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '—';
+      const dateText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+      if (!includeTime) return dateText;
+      const timeText = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      return `${dateText} ${timeText} UTC`;
+    }
+
+    function buildUsageSeries(points, windowKey) {
+      const key = windowKey === 'secondary' ? 'secondary_used_percent' : 'primary_used_percent';
+      const series = [];
+      (points || []).forEach((p) => {
+        const ts = parseTimestamp(p?.fetched_at);
+        const val = Number(p?.[key]);
+        if (!ts || Number.isNaN(val)) return;
+        const clamped = Math.max(0, Math.min(130, val));
+        series.push({ x: ts.getTime(), y: clamped, raw: val, iso: p.fetched_at });
+      });
+      series.sort((a, b) => a.x - b.x);
+      return series;
+    }
+
+    function renderUsageHistoryChart(series, windowKey) {
+      if (!usageHistoryChart) return;
+      if (!Array.isArray(series) || series.length === 0) {
+        usageHistoryChart.innerHTML = '<div class="muted">No quota history yet.</div>';
+        return;
+      }
+
+      const width = 800;
+      const height = 260;
+      const minX = series[0].x;
+      const maxX = series[series.length - 1].x;
+      const spanX = Math.max(1, maxX - minX);
+      const maxY = Math.max(100, Math.max(...series.map((s) => s.y)));
+
+      const coords = series.map((pt) => {
+        const x = ((pt.x - minX) / spanX) * width;
+        const y = height - ((pt.y / maxY) * height);
+        return { x, y };
+      });
+      const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
+      const firstX = coords[0]?.x ?? 0;
+      const lastX = coords[coords.length - 1]?.x ?? width;
+      const areaPath = path
+        ? `${path} L ${lastX.toFixed(2)},${height} L ${firstX.toFixed(2)},${height} Z`
+        : '';
+
+      const latest = coords[coords.length - 1];
+      const gridLines = [0, 25, 50, 75, 100].map((pct) => {
+        const y = height - ((Math.min(pct, maxY) / maxY) * height);
+        return `<g class="grid-row"><line x1="0" y1="${y.toFixed(2)}" x2="${width}" y2="${y.toFixed(2)}"></line><text x="${width}" y="${(y - 4).toFixed(2)}" text-anchor="end" class="tick">${pct}%</text></g>`;
+      }).join('');
+
+      usageHistoryChart.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${windowKey === 'secondary' ? 'Weekly quota history' : '5-hour quota history'}">
+          <g class="grid">${gridLines}</g>
+          ${areaPath ? `<path d="${areaPath}" class="area"></path>` : ''}
+          ${path ? `<path d="${path}" class="line"></path>` : ''}
+          ${latest ? `<circle cx="${latest.x.toFixed(2)}" cy="${latest.y.toFixed(2)}" r="4" class="dot"></circle>` : ''}
+        </svg>
+      `;
+    }
+
+    async function loadUsageHistory(force = false) {
+      if (!force && chatgptUsageHistory) return chatgptUsageHistory;
+      if (!force && chatgptUsageHistoryPromise) return chatgptUsageHistoryPromise;
+      const url = `/admin/chatgpt/usage/history?days=${USAGE_HISTORY_DAYS}`;
+      chatgptUsageHistoryPromise = api(url).then((res) => {
+        const data = res?.data || {};
+        const result = {
+          points: Array.isArray(data.points) ? data.points : [],
+          days: data.days ?? USAGE_HISTORY_DAYS,
+          since: data.since || null,
+        };
+        chatgptUsageHistory = result;
+        return result;
+      }).finally(() => {
+        chatgptUsageHistoryPromise = null;
+      });
+      return chatgptUsageHistoryPromise;
+    }
+
+    async function openUsageHistory(windowKey = 'primary') {
+      if (!usageHistoryModal) return;
+      const label = windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota';
+      if (usageHistorySubtitle) {
+        usageHistorySubtitle.textContent = `${label} · loading…`;
+      }
+      if (usageHistoryMeta) usageHistoryMeta.textContent = '';
+      if (usageHistoryChart) {
+        usageHistoryChart.innerHTML = '<div class="muted">Loading…</div>';
+      }
+      showUsageHistoryModal(true);
+      try {
+        const history = await loadUsageHistory();
+        const series = buildUsageSeries(history.points, windowKey);
+        if (series.length === 0) {
+          if (usageHistorySubtitle) {
+            usageHistorySubtitle.textContent = `${label} · no history yet`;
+          }
+          if (usageHistoryChart) {
+            usageHistoryChart.innerHTML = '<div class="muted">No recorded quota data.</div>';
+          }
+          return;
+        }
+
+        renderUsageHistoryChart(series, windowKey);
+        const start = new Date(series[0].x);
+        const end = new Date(series[series.length - 1].x);
+        const latest = series[series.length - 1];
+        const latestLabel = `${Math.round(latest.raw ?? latest.y)}% on ${formatShortDate(new Date(latest.x), true)}`;
+        if (usageHistorySubtitle) {
+          usageHistorySubtitle.textContent = `${label} · last ${history.days ?? USAGE_HISTORY_DAYS} days`;
+        }
+        if (usageHistoryMeta) {
+          usageHistoryMeta.textContent = `Showing ${series.length} points from ${formatShortDate(start)} to ${formatShortDate(end)}. Latest: ${latestLabel}.`;
+        }
+      } catch (err) {
+        if (usageHistorySubtitle) {
+          usageHistorySubtitle.textContent = `${label} · error`;
+        }
+        if (usageHistoryChart) {
+          usageHistoryChart.innerHTML = `<div class="error">Unable to load history: ${escapeHtml(err.message)}</div>`;
+        }
       }
     }
 
@@ -1136,6 +1296,14 @@ const statsEl = document.getElementById('stats');
     }
     if (upgradeCloseBtn) {
       upgradeCloseBtn.addEventListener('click', () => showUpgradeNotesModal(false));
+    }
+    if (usageHistoryModal) {
+      usageHistoryModal.addEventListener('click', (e) => {
+        if (e.target === usageHistoryModal) showUsageHistoryModal(false);
+      });
+    }
+    if (usageHistoryCloseBtn) {
+      usageHistoryCloseBtn.addEventListener('click', () => showUsageHistoryModal(false));
     }
     if (cancelDeleteHostBtn) {
       cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);

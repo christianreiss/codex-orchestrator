@@ -35,6 +35,7 @@
 - `GET /admin/runner` — runner config/telemetry; `POST /admin/runner/run` — manual runner execution.
 - `POST /admin/versions/check` — refresh GitHub client release cache.
 - `GET /admin/chatgpt/usage[?force=1]` — account-level ChatGPT `/wham/usage` snapshot using canonical `auth.json` token (5-minute cooldown unless `force`).
+- `GET /admin/chatgpt/usage/history?days=60` — quota history for dashboard graphs (5-hour + weekly `used_percent` with `fetched_at`), capped to the past 180 days; default window is 60 days or since the first data point.
 - `POST /admin/chatgpt/usage/refresh` — force-refresh ChatGPT usage snapshot (bypasses cooldown).
 - `GET /admin/slash-commands` — list server-stored slash command prompts (filename, sha256, description, argument hint, timestamps).
 - `GET /admin/slash-commands/{filename}` — fetch a single slash command (includes full prompt body).

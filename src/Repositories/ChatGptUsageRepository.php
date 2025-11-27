@@ -118,6 +118,30 @@ class ChatGptUsageRepository implements ChatGptUsageStore
         return $row ? $this->normalizeRow($row) : null;
     }
 
+    public function history(?string $since = null): array
+    {
+        $params = [];
+        $sql = 'SELECT fetched_at, primary_used_percent, secondary_used_percent, primary_limit_seconds, secondary_limit_seconds FROM chatgpt_usage_snapshots';
+        if ($since !== null) {
+            $sql .= ' WHERE fetched_at >= :since';
+            $params['since'] = $since;
+        }
+        $sql .= ' ORDER BY fetched_at ASC';
+
+        $statement = $this->database->connection()->prepare($sql);
+        $statement->execute($params);
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(static function (array $row): array {
+            foreach (['primary_used_percent', 'secondary_used_percent', 'primary_limit_seconds', 'secondary_limit_seconds'] as $key) {
+                if (array_key_exists($key, $row) && $row[$key] !== null) {
+                    $row[$key] = (int) $row[$key];
+                }
+            }
+            return $row;
+        }, $rows ?: []);
+    }
+
     private function encodeArrayField(mixed $value): ?string
     {
         if (is_array($value)) {

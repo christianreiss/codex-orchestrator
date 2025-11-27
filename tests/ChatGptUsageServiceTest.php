@@ -26,6 +26,22 @@ class InMemoryChatGptUsageRepository implements ChatGptUsageStore
     {
         return $this->items ? $this->items[array_key_last($this->items)] : null;
     }
+
+    public function history(?string $since = null): array
+    {
+        if ($since === null) {
+            return $this->items;
+        }
+        $cutoff = strtotime($since);
+        if ($cutoff === false) {
+            return $this->items;
+        }
+
+        return array_values(array_filter($this->items, static function (array $item) use ($cutoff): bool {
+            $ts = isset($item['fetched_at']) ? strtotime((string) $item['fetched_at']) : false;
+            return $ts !== false && $ts >= $cutoff;
+        }));
+    }
 }
 
 final class ChatGptUsageServiceTest extends TestCase
@@ -177,5 +193,27 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertSame(45, $summary['primary_window']['used_percent']);
         $this->assertSame(604800, $summary['secondary_window']['limit_seconds']);
         $this->assertSame('2025-12-02T00:00:00Z', $summary['secondary_window']['reset_at']);
+    }
+
+    public function testHistoryReturnsPointsWithinWindow(): void
+    {
+        $repo = new InMemoryChatGptUsageRepository();
+        $now = time();
+        $repo->items = [
+            ['fetched_at' => gmdate(DATE_ATOM, $now - (70 * 86400)), 'primary_used_percent' => 10],
+            ['fetched_at' => gmdate(DATE_ATOM, $now - (40 * 86400)), 'primary_used_percent' => 20],
+            ['fetched_at' => gmdate(DATE_ATOM, $now - (5 * 86400)), 'primary_used_percent' => 30],
+        ];
+
+        $auth = $this->getMockBuilder(AuthService::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+        $service = new ChatGptUsageService($auth, $repo, $logs);
+
+        $history = $service->history(60);
+
+        $this->assertSame(60, $history['days']);
+        $this->assertCount(2, $history['points']);
+        $this->assertSame(20, $history['points'][0]['primary_used_percent']);
+        $this->assertSame(30, $history['points'][1]['primary_used_percent']);
     }
 }

@@ -57,6 +57,23 @@ class ChatGptUsageService
         ];
     }
 
+    public function history(int $days = 60): array
+    {
+        if ($days < 1) {
+            $days = 60;
+        }
+        $days = min(180, $days);
+        $since = gmdate(DATE_ATOM, strtotime('-' . $days . ' days'));
+
+        $points = $this->repository->history($since);
+
+        return [
+            'days' => $days,
+            'since' => $since,
+            'points' => $points,
+        ];
+    }
+
     public function fetchLatest(bool $force = false): array
     {
         $now = time();

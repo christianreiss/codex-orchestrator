@@ -800,6 +800,21 @@ $router->add('GET', '#^/admin/chatgpt/usage$#', function () use ($chatGptUsageSe
     ]);
 });
 
+$router->add('GET', '#^/admin/chatgpt/usage/history$#', function () use ($chatGptUsageService) {
+    requireAdminAccess();
+    $days = resolveIntQuery('days') ?? 60;
+    if ($days < 1) {
+        $days = 60;
+    }
+
+    $history = $chatGptUsageService->history($days);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $history,
+    ]);
+});
+
 $router->add('POST', '#^/admin/chatgpt/usage/refresh$#', function () use ($chatGptUsageService) {
     requireAdminAccess();
     $result = $chatGptUsageService->fetchLatest(true);
