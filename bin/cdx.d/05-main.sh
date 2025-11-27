@@ -908,7 +908,8 @@ fi
   fi
 log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
 log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-log_info "$(format_simple_row "quota policy" "$(colorize "$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "deny" || echo "warn")" "$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "warn" || echo "neutral")")")"
+  quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
+  log_info "$(format_simple_row "policy" "$quota_summary")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
