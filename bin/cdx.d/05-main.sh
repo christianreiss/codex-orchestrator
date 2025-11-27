@@ -809,7 +809,6 @@ fi
   log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
   log_info "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
-  log_info "$(format_simple_row "Policy" "$quota_summary")"
   host_usage_parts=()
   if [[ -n "$HOST_API_CALLS" ]]; then
     host_usage_parts+=("api calls ${HOST_API_CALLS}")
@@ -897,12 +896,11 @@ fi
   fi
 
   if [[ -n "$usage_summary" ]]; then
-    log_info "$(format_simple_row "tokens" "$usage_summary")"
-  fi
-  log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
-  log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-  quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
-  log_info "$(format_simple_row "Policy" "$quota_summary")"
+  log_info "$(format_simple_row "tokens" "$usage_summary")"
+fi
+log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
+log_info "$(format_simple_row "Policy" "$quota_summary")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
