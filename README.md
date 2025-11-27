@@ -122,7 +122,7 @@ Notes:
   - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
   - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
   - `POST /admin/auth/upload`: upload a canonical auth JSON (body or `file`); omit `host_id` (or set `0`/`"system"`) to keep it un-attributed, or provide a host id to tag it.
-  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (enforced by `/auth`, returns 503 when disabled).
+  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` remains accessible so the flag can be cleared).
   - `GET /admin/runner`: runner config + recent validation/runner_store logs.
   - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
@@ -155,6 +155,6 @@ The legacy `host-status.txt` export has been removed; use the admin dashboard (`
 - The server normalizes timestamps with fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` compare correctly.
 - API keys are IP-bound after the first successful authenticated call; use `POST /admin/hosts/{id}/roaming` or mint a new host/API key to move a host cleanly.
 - Auth payload validation synthesizes `auths` from `tokens.access_token` / `OPENAI_API_KEY` when missing, then sorts them; tokens must pass quality checks (`TOKEN_MIN_LENGTH` env, no whitespace/placeholder/low-entropy values).
-- `/admin/api/state` only stores a flag today; `/auth` does not enforce it. Add a guard if you need a kill-switch.
+- `/admin/api/state` stores a global kill-switch flag; when enabled the API returns HTTP 503 for all routes except `/admin/api/state` (so it can be cleared).
 - Extendable: add admin/reporting endpoints by introducing more routes in `public/index.php` and new repository methods.
 - Refer to `AGENTS.md` when you need a walkthrough of how each class collaborates within the request pipeline.

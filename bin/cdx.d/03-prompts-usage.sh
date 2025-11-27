@@ -452,7 +452,8 @@ post_token_usage_payload() {
   fi
 
   local summary=""
-  if summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
+  local status=0
+  summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
@@ -519,6 +520,7 @@ def format_summary(data: dict) -> str:
 
 
 last_err = None
+last_code = 1
 for ctx in build_contexts():
     try:
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
@@ -531,10 +533,14 @@ for ctx in build_contexts():
             body = exc.read().decode("utf-8", "replace")
         except Exception:
             body = ""
+        if exc.code == 503 and "disabled" in body.lower():
+            print("api disabled")
+            sys.exit(40)
         body_snip = (body or "").replace("\n", " ").strip()
         if len(body_snip) > 160:
             body_snip = body_snip[:160] + "…"
         last_err = f"HTTP {exc.code}" + (f": {body_snip}" if body_snip else "")
+        last_code = exc.code or 1
         continue
     except Exception as exc:  # noqa: BLE001
         last_err = str(exc)
@@ -542,10 +548,16 @@ for ctx in build_contexts():
 
 if last_err:
     print(last_err)
-sys.exit(1)
+sys.exit(last_code)
 PY
-  )"; then
+  )" || status=$?
+  if (( status == 0 )); then
     log_info "Usage push | ok | ${summary}"
+    return 0
+  fi
+
+  if (( status == 40 )); then
+    log_warn "Usage push skipped: API disabled by administrator"
     return 0
   fi
 
@@ -576,7 +588,8 @@ PY
     )" || fallback_payload=""
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       summary=""
-      if summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
+      status=0
+      summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
@@ -601,16 +614,30 @@ try:
         resp.read(512)
         print("fallback")
         sys.exit(0)
+except urllib.error.HTTPError as exc:  # noqa: PERF203
+    body = ""
+    try:
+        body = exc.read().decode("utf-8", "replace")
+    except Exception:
+        body = ""
+    if exc.code == 503 and "disabled" in body.lower():
+        print("api disabled")
+        sys.exit(40)
+    print(str(exc))
+    sys.exit(1)
 except Exception as exc:  # noqa: BLE001
     print(str(exc))
     sys.exit(1)
 PY
-      )"; then
+      )" || status=$?
+      if (( status == 0 )); then
         log_info "Usage push | ok (fallback) | ${summary}"
         return 0
-      else
-        [[ -z "$primary_err" ]] && primary_err="$summary"
+      elif (( status == 40 )); then
+        log_warn "Usage push skipped: API disabled by administrator"
+        return 0
       fi
+      [[ -z "$primary_err" ]] && primary_err="$summary"
     fi
   fi
 

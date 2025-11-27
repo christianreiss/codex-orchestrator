@@ -13,7 +13,7 @@ The front controller (`public/index.php`) dispatches requests via a small route 
   - `Authorization: Bearer <key>`
 - IP binding: the first successful auth stores the caller IP. Later calls from a different IP return `403` unless the host has `allow_roaming_ips` (admin toggle) or `DELETE /auth?force=1` is used during uninstall. The stored IP is updated (and logged) on allowed moves.
 - Wrapper metadata/downloads use the same API key + IP binding; the installer script is the only public artifact and is guarded by a one-time token.
-- Admin API toggle (`/admin/api/state`) persists a flag but is not currently enforced by `/auth`—add a guard if you need a kill-switch.
+- Admin API toggle (`/admin/api/state`) persists a flag that, when enabled, returns HTTP 503 for all API routes except `/admin/api/state` (so operators can re-enable).
 
 Errors return:
 
@@ -255,7 +255,7 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
   - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
   - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`). If `host_id` is omitted (or set to `0`/`"system"`), the payload is stored without host attribution; otherwise it is tagged to the specified host.
-  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (when true, `/auth` returns 503).
+- `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` stays reachable to clear the flag).
   - `GET /admin/runner`: runner configuration/telemetry (last validations, counts, configured URL, timeouts, last daily check).
   - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `POST /admin/versions/check`: bypass version cache and refresh the latest Codex release metadata.

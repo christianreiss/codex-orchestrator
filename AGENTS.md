@@ -100,4 +100,4 @@ This project is small, but each class has a clear role in the orchestration pipe
 - Add new endpoints by expanding `public/index.php` and delegating to `AuthService` or a new service class.
 - Additional background tasks (cleanup, retention) should live in their own service but reuse the repositories.
 - When adding new columns, extend `Database::migrate()` and keep repositories in sync.
-- Wire new admin toggles into `AuthService` or request guards; `api_disabled` is currently persisted but not enforced—if you need the kill-switch, add a guard around `/auth`.
+- Wire new admin toggles into `AuthService` or request guards; `api_disabled` is enforced globally (all routes return 503 when set, except `/admin/api/state` so it can be cleared).

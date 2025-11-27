@@ -131,6 +131,15 @@ if ($rawBody !== false && $rawBody !== '') {
     }
 }
 
+$apiDisabled = $versionRepository->getFlag('api_disabled', false);
+$apiDisableBypass = $normalizedPath === '/admin/api/state';
+if ($apiDisabled && !$apiDisableBypass) {
+    Response::json([
+        'status' => 'error',
+        'message' => 'API disabled by administrator',
+    ], 503);
+}
+
 $clientIp = resolveClientIp();
 enforceGlobalRateLimit($rateLimiter, $clientIp, $method, $normalizedPath);
 
@@ -673,6 +682,14 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $versions = $service->versionSummary();
     $lastRefresh = null;
     $avgRefreshDays = null;
+    $hasCanonicalAuth = $service->hasCanonicalAuth();
+    $seedReasons = [];
+    if ($countHosts === 0) {
+        $seedReasons[] = 'no_hosts';
+    }
+    if (!$hasCanonicalAuth) {
+        $seedReasons[] = 'missing_auth';
+    }
 
     $sumSeconds = 0;
     $countSeconds = 0;
@@ -712,6 +729,9 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'last_refresh' => $lastRefresh,
             'avg_refresh_age_days' => $avgRefreshDays,
             'versions' => $versions,
+            'has_canonical_auth' => $hasCanonicalAuth,
+            'seed_required' => count($seedReasons) > 0,
+            'seed_reasons' => $seedReasons,
             'tokens' => $tokens,
             'tokens_month' => $tokensMonth,
             'pricing' => $pricing,
