@@ -916,7 +916,14 @@ $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository)
     ]);
 });
 
-$router->add('POST', '#^/auth$#', function () use ($payload, $service, $chatGptUsageService) {
+$router->add('POST', '#^/auth$#', function () use ($payload, $service, $chatGptUsageService, $versionRepository) {
+    if ($versionRepository->getFlag('api_disabled', false)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'API disabled by administrator',
+        ], 503);
+    }
+
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);

@@ -255,7 +255,7 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
   - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
   - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
   - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`). If `host_id` is omitted (or set to `0`/`"system"`), the payload is stored without host attribution; otherwise it is tagged to the specified host.
-  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; not enforced by `/auth`).
+  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (when true, `/auth` returns 503).
   - `GET /admin/runner`: runner configuration/telemetry (last validations, counts, configured URL, timeouts, last daily check).
   - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `POST /admin/versions/check`: bypass version cache and refresh the latest Codex release metadata.

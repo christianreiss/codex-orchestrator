@@ -27,7 +27,7 @@
 - `POST /admin/hosts/{id}/clear` — clears canonical auth state for the host (resets `last_refresh`/`auth_digest`, deletes `host_auth_states`, and prunes recent digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — validate/store canonical `auth.json` (system or host-scoped).
-- `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (not enforced by `/auth`).
+- `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (when true, `/auth` returns 503).
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean). When `false`, `cdx` warns on quota exhaustion but still launches Codex.
 - `GET /admin/logs?limit=` — recent audit events.
 - `GET /admin/usage?limit=` — recent token usage rows (with host + reasoning tokens when present).

@@ -122,7 +122,7 @@ Notes:
   - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
   - `POST /admin/hosts/{id}/roaming`: toggle whether a host is allowed to roam across IPs without being blocked.
   - `POST /admin/auth/upload`: upload a canonical auth JSON (body or `file`); omit `host_id` (or set `0`/`"system"`) to keep it un-attributed, or provide a host id to tag it.
-  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (persisted only; `/auth` does not check it yet).
+  - `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (enforced by `/auth`, returns 503 when disabled).
   - `GET /admin/runner`: runner config + recent validation/runner_store logs.
   - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
