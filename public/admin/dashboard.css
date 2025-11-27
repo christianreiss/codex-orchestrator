@@ -14,8 +14,14 @@
       --success: #10a37f;
       --warning: #f59e0b;
       --shadow: 0 10px 26px rgba(15, 23, 42, 0.1);
-      --table-row: #f9fafb;
+      --table-row: #f3f8f6;
       --table-row-alt: #ffffff;
+      --accent-soft: #e6f6f1;
+      --accent-soft-2: #d5efe6;
+      --accent-ring: rgba(16, 163, 127, 0.2);
+      --surface-tint: linear-gradient(180deg, #f9fbfa 0%, #f3f7f5 100%);
+      --table-header: linear-gradient(135deg, rgba(16, 163, 127, 0.12), rgba(13, 140, 109, 0.2));
+      --table-hover: rgba(16, 163, 127, 0.08);
     }
     * { box-sizing: border-box; }
     body {
@@ -77,11 +83,11 @@
       letter-spacing: 0.1px;
     }
     .nav-link:hover { background: var(--panel); border-color: var(--panel-strong); }
-    .nav-link.active { background: linear-gradient(135deg, rgba(58,214,255,0.22), rgba(111,124,255,0.22)); border-color: rgba(255,255,255,0.25); box-shadow: 0 8px 28px rgba(58,214,255,0.25); }
+    .nav-link.active { background: linear-gradient(135deg, var(--accent-soft-2), var(--accent-soft)); border-color: var(--accent-ring); box-shadow: 0 8px 28px rgba(16,163,127,0.2); }
     .nav-icon {
       width: 14px; height: 14px; border-radius: 4px;
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      box-shadow: 0 0 0 6px rgba(58,214,255,0.12);
+      box-shadow: 0 0 0 6px var(--accent-ring);
     }
     .content { padding: 32px 18px 56px; width: 100%; max-width: 1220px; margin: 0 auto; }
     .topbar {
@@ -169,11 +175,12 @@
     .info-box {
       padding: 12px;
       border-radius: 12px;
-      border: 1px solid var(--panel-strong);
-      background: var(--frost);
+      border: 1px solid var(--accent-ring);
+      background: var(--accent-soft);
+      box-shadow: 0 8px 20px rgba(16,163,127,0.12);
     }
     .info-label {
-      color: var(--muted);
+      color: var(--accent-2);
       text-transform: uppercase;
       letter-spacing: 0.08em;
       font-size: 11px;
@@ -345,13 +352,15 @@
       min-width: 0;
       line-height: 1.1;
     }
-    .table-wrap { margin-top: 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--panel-strong); background: rgba(0,0,0,0.12); }
+    .table-wrap { margin-top: 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--accent-ring); background: var(--surface-tint); box-shadow: var(--shadow); }
     table { width: 100%; min-width: 960px; border-collapse: collapse; }
-    thead { background: rgba(255,255,255,0.08); }
+    thead { background: var(--table-header); border-bottom: 1px solid var(--accent-ring); }
     th, td { padding: 14px 12px; text-align: left; font-size: 13px; white-space: nowrap; }
-    th { color: var(--muted); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
-    tbody tr { transition: background 0.12s ease; }
-    tbody tr:hover { box-shadow: 0 6px 16px rgba(0,0,0,0.05); }
+    th { color: var(--accent-2); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
+    tbody tr { transition: background 0.12s ease, box-shadow 0.12s ease; background: var(--table-row-alt); }
+    tbody tr:nth-child(odd) { background: var(--table-row); }
+    tbody tr:hover { box-shadow: 0 6px 16px rgba(16,163,127,0.12); }
+    tbody tr:not(.status-ok):not(.status-warning):not(.status-critical):hover { background: var(--table-hover); }
     .status-ok { background: linear-gradient(90deg, rgba(16,163,127,0.16), rgba(16,163,127,0.06)); }
     .status-ok:nth-child(even) { background: linear-gradient(90deg, rgba(13,132,86,0.22), rgba(13,132,86,0.08)); }
     .status-warning { background: linear-gradient(90deg, rgba(245,158,11,0.2), rgba(245,158,11,0.06)); }
@@ -428,21 +437,21 @@
     .chip.neutral { color: var(--muted); border-color: rgba(155,179,217,0.35); background: rgba(155,179,217,0.12); }
     .chip.pro { color: #0f5132; border-color: rgba(16,163,127,0.5); background: rgba(16,163,127,0.14); box-shadow: 0 6px 16px rgba(16,163,127,0.18); }
     .daily-note { font-size: 11px; color: var(--muted); margin-left: 6px; }
-    /* Slash commands table palette (ChatGPT greens) */
+    /* Slash commands table follows shared palette */
     #prompts-panel table thead tr {
-      background: linear-gradient(135deg, rgba(16,163,127,0.12), rgba(16,163,127,0.24));
-      border-bottom: 1px solid rgba(16,163,127,0.35);
+      background: var(--table-header);
+      border-bottom: 1px solid var(--accent-ring);
     }
     #prompts-panel table th {
-      color: #065f46;
+      color: var(--accent-2);
       letter-spacing: 0.08em;
     }
-    #prompts-panel tbody tr:nth-child(odd) { background: #e8fff5; }
-    #prompts-panel tbody tr:nth-child(even) { background: #f5fffb; }
-    #prompts-panel tbody tr { border-bottom: 1px solid rgba(16,163,127,0.12); }
+    #prompts-panel tbody tr:nth-child(odd) { background: var(--table-row); }
+    #prompts-panel tbody tr:nth-child(even) { background: var(--table-row-alt); }
+    #prompts-panel tbody tr { border-bottom: 1px solid var(--panel-strong); }
     #prompts-panel tbody td code {
-      background: rgba(16,163,127,0.12);
-      color: #065f46;
+      background: rgba(16,163,127,0.08);
+      color: var(--accent-2);
     }
     .error { color: var(--danger); font-weight: 700; }
     /* Modal */
