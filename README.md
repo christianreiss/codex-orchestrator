@@ -16,6 +16,8 @@ cp .env.example .env          # set DB_* creds (match docker-compose)
 docker compose up --build     # API on http://localhost:8488 with MySQL sidecar
 ```
 
+No external proxy? Enable the bundled Caddy TLS/mTLS frontend (serves 443, optional LE or custom cert): `docker compose --profile caddy up --build -d` after setting the `CADDY_*` vars. Details: `docs/INSTALL.md`.
+
 📖 Full setup (mTLS/proxy, env, volumes): `docs/INSTALL.md`  
 🧭 Deep dive / FAQs / flow: `docs/OVERVIEW.md`  
 🛡️ Security policy: `docs/SECURITY.md`  
@@ -140,6 +142,7 @@ Notes:
 - **pricing_snapshots**: pricing for GPT-5.1 (input/output/cached per 1k, currency, source URL/raw, timestamps) refreshed daily.
 - **logs**: registration/auth/usage/version/admin events with timestamps and a JSON details blob.
 - All data is stored in MySQL (configured via `DB_*`). The default compose file runs a `mysql` service with data under `/var/docker_data/codex-auth.example.com/mysql_data`; use `storage/sql` for exports/backups or one-off imports during migrations.
+- A `quota-cron` sidecar in `docker-compose.yml` runs `scripts/refresh-chatgpt-usage.php` on a timer (default hourly) to keep ChatGPT quota snapshots warm even when no hosts are calling `/auth`; set `CHATGPT_USAGE_CRON_INTERVAL` (seconds) to adjust the cadence.
 
 Access logs manually with `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`.
 

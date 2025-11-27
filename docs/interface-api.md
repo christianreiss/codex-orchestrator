@@ -19,7 +19,7 @@
 
 ## Admin (mTLS + optional `DASHBOARD_ADMIN_KEY`)
 
-- `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions, token totals (including reasoning tokens), ChatGPT usage snapshot (cached ≤5m), and mTLS metadata.
+- `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions, token totals (including reasoning tokens), ChatGPT usage snapshot (cached ≤5m), mTLS metadata, plus seed signals for new installs (`has_canonical_auth`, `seed_required`, `seed_reasons`).
 - `GET /admin/hosts` — list hosts with canonical digest, digests history, versions, API calls, IP, roaming flag, latest token usage (including reasoning tokens).
 - `POST /admin/hosts/register` — mint a host + single-use installer token for a given FQDN; calling it again for the same FQDN rotates that host’s API key and issues a fresh installer.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last refresh, recent digests, optional `auth` body (`?include_body=1`).

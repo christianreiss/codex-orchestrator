@@ -5,13 +5,14 @@ This doc walks through setting up the Codex Auth stack with Docker, mTLS, and a 
 ## Prerequisites
 
 - Docker + docker compose.
-- Reverse proxy/ingress that terminates TLS **and** forwards mTLS headers to the app:
-  - Set `X-mTLS-Present: 1` (and optionally `X-MTLS-FINGERPRINT`, `X-MTLS-SUBJECT`, `X-MTLS-ISSUER`) for authenticated admin clients.
-  - Forward `X-Forwarded-For` and `X-Real-IP` accurately; strip untrusted versions.
+- TLS/mTLS termination:
+  - Preferred: your own reverse proxy/ingress that terminates TLS **and** forwards mTLS headers (`X-mTLS-Present`, `X-MTLS-FINGERPRINT`, `X-MTLS-SUBJECT`, `X-MTLS-ISSUER`) plus accurate `X-Forwarded-For`/`X-Real-IP`.
+  - Alternate: enable the bundled Caddy profile in `docker-compose.yml` (disabled by default) to serve 443 with ACME **or** supplied certs and enforce admin mTLS there.
 - MySQL 8 (the compose file runs a MySQL sidecar).
 - Host paths for persistent data (default in `docker-compose.yml`):
   - `/var/docker_data/codex-auth.example.com/mysql_data`
   - `/var/docker_data/codex-auth.example.com/store` (wrapper, storage/sql exports)
+  - When using the bundled Caddy frontend: `/var/docker_data/codex-auth.example.com/caddy/tls` for custom cert/key, `/var/docker_data/codex-auth.example.com/caddy/mtls` for the admin CA, plus named volumes `caddy_data` and `caddy_config` (ACME + Caddy state).
 
 ## Environment
 
@@ -21,6 +22,7 @@ This doc walks through setting up the Codex Auth stack with Docker, mTLS, and a 
    - `AUTH_ENCRYPTION_KEY` (leave empty to auto-generate on first boot).
    - `DATA_ROOT` if you want a different bind-mount root.
    - Optional: `DASHBOARD_ADMIN_KEY` (second factor for admin APIs).
+   - Optional: `CHATGPT_USAGE_CRON_INTERVAL` (seconds between background ChatGPT quota refreshes; default 3600).
 3. Ensure `.env` is kept out of git and treated as a secret.
 
 ## Build and Run
@@ -32,6 +34,16 @@ docker compose up --build
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (requires mTLS + optional `DASHBOARD_ADMIN_KEY`).
 - Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable.
+- A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds).
+
+## Optional: bundled Caddy frontend (no existing proxy)
+
+1. Populate the `CADDY_*` env vars in `.env` (domain, ACME email, TLS fragment, cert/key paths). Defaults point at `/var/docker_data/codex-auth.example.com/caddy/*`.
+2. Place your admin mTLS CA at `${CADDY_MTLS_DIR}/ca.crt` (or adjust `CADDY_MTLS_CA_FILE`). Caddy requests client certs for all requests and blocks `/admin*` unless a validated certificate is present; it forwards `X-MTLS-*` headers for the app.
+3. Pick a cert source:
+   - **Let's Encrypt/ZeroSSL**: keep `CADDY_TLS_FRAGMENT=/etc/caddy/tls-acme.caddy`, set `CADDY_DOMAIN` + `CADDY_ACME_EMAIL`, and ensure ports 80/443 reach this host.
+   - **Custom cert**: set `CADDY_TLS_FRAGMENT=/etc/caddy/tls-custom.caddy` and drop `tls.crt` / `tls.key` (or update `CADDY_TLS_CERT_FILE`/`CADDY_TLS_KEY_FILE`) into `${CADDY_TLS_DIR}`.
+4. Start the stack with Caddy: `docker compose --profile caddy up --build -d`. External clients should use `https://<CADDY_DOMAIN>`; the API is still reachable on `8488` inside the compose network.
 
 ## First-Time Flow
 

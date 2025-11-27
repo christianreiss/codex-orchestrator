@@ -1,0 +1,6 @@
+tls {$CADDY_TLS_CERT_FILE} {$CADDY_TLS_KEY_FILE} {
+    client_auth {
+        mode verify_if_given
+        trusted_ca_cert_file {$CADDY_MTLS_CA_FILE}
+    }
+}

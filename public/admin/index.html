@@ -30,6 +30,20 @@
         </div>
       </header>
     <main class="main">
+        <div class="modal-backdrop" id="seedModal">
+          <div class="modal seed-modal">
+            <h3>Initial seeding required</h3>
+            <p class="muted" id="seedModalCopy">This installation has no hosts or canonical auth.json yet. Seed auth.json before issuing installers.</p>
+            <div class="seed-status">
+              <div class="seed-chip warn" id="seedHostsStatus"><span class="dot"></span>No hosts registered</div>
+              <div class="seed-chip warn" id="seedAuthStatus"><span class="dot"></span>Canonical auth.json missing</div>
+            </div>
+            <div class="actions">
+              <button class="ghost" id="seedDismissBtn">Close</button>
+              <button id="seedUploadBtn">Seed auth.json</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-backdrop" id="newHostModal">
           <div class="modal">
             <h3>New Host</h3>

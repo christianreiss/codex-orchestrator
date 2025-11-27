@@ -1,0 +1,8 @@
+tls {
+    email {$CADDY_ACME_EMAIL}
+
+    client_auth {
+        mode verify_if_given
+        trusted_ca_cert_file {$CADDY_MTLS_CA_FILE}
+    }
+}

@@ -22,6 +22,12 @@ const statsEl = document.getElementById('stats');
     const uploadHostSelect = document.getElementById('uploadHostSelect');
     const uploadStatus = document.getElementById('uploadStatus');
     const apiToggleBtn = document.getElementById('api-toggle-btn');
+    const seedModal = document.getElementById('seedModal');
+    const seedUploadBtn = document.getElementById('seedUploadBtn');
+    const seedDismissBtn = document.getElementById('seedDismissBtn');
+    const seedModalCopy = document.getElementById('seedModalCopy');
+    const seedHostsStatus = document.getElementById('seedHostsStatus');
+    const seedAuthStatus = document.getElementById('seedAuthStatus');
     const runnerRunnerBtn = document.getElementById('runner-runner');
     const runnerModal = document.getElementById('runnerModal');
     const runnerLogEl = document.getElementById('runnerLog');
@@ -870,6 +876,48 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    function showSeedModal(show) {
+      if (!seedModal) return;
+      if (show) {
+        seedModal.classList.add('show');
+      } else {
+        seedModal.classList.remove('show');
+      }
+    }
+
+    function setSeedStatus(hasHosts, hasAuth, reasons = []) {
+      if (seedHostsStatus) {
+        seedHostsStatus.textContent = hasHosts ? 'Hosts detected' : 'No hosts registered';
+        seedHostsStatus.classList.toggle('ok', hasHosts);
+        seedHostsStatus.classList.toggle('warn', !hasHosts);
+      }
+      if (seedAuthStatus) {
+        seedAuthStatus.textContent = hasAuth ? 'Canonical auth.json present' : 'Canonical auth.json missing';
+        seedAuthStatus.classList.toggle('ok', hasAuth);
+        seedAuthStatus.classList.toggle('warn', !hasAuth);
+      }
+      if (seedModalCopy) {
+        const missing = [];
+        if (!hasHosts) missing.push('no hosts or API keys exist');
+        if (!hasAuth) missing.push('canonical auth.json is missing');
+        seedModalCopy.textContent = missing.length
+          ? `Setup incomplete: ${missing.join(' · ')}. Seed auth.json before issuing installers.`
+          : 'Setup already initialized.';
+      }
+    }
+
+    function evaluateSeedRequirement(overviewData, hostsList) {
+      const hasHosts = Array.isArray(hostsList) && hostsList.length > 0;
+      const hasAuth = !!(overviewData && overviewData.has_canonical_auth);
+      const reasons = Array.isArray(overviewData?.seed_reasons) ? overviewData.seed_reasons : [];
+      const required = (overviewData && overviewData.seed_required === true)
+        || !hasHosts
+        || !hasAuth;
+
+      setSeedStatus(hasHosts, hasAuth, reasons);
+      showSeedModal(required);
+    }
+
     function renderStats(data, runnerInfo = null) {
       lastOverview = data;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
@@ -1043,6 +1091,7 @@ const statsEl = document.getElementById('stats');
           quotaHardFail = !!overview.data.quota_hard_fail;
           renderQuotaMode();
         }
+        evaluateSeedRequirement(overview.data, hosts.data.hosts);
       } catch (err) {
         mtlsEl.textContent = 'mTLS / Admin access failed';
         mtlsEl.classList.add('error');
@@ -1245,6 +1294,15 @@ const statsEl = document.getElementById('stats');
     if (uploadAuthBtn) {
       uploadAuthBtn.addEventListener('click', () => showUploadModal(true));
     }
+    if (seedUploadBtn) {
+      seedUploadBtn.addEventListener('click', () => {
+        showSeedModal(false);
+        showUploadModal(true);
+      });
+    }
+    if (seedDismissBtn) {
+      seedDismissBtn.addEventListener('click', () => showSeedModal(false));
+    }
     if (cancelNewHostBtn) {
       cancelNewHostBtn.addEventListener('click', () => showNewHostModal(false));
     }
@@ -1263,6 +1321,11 @@ const statsEl = document.getElementById('stats');
     if (newHostModal) {
       newHostModal.addEventListener('click', (e) => {
         if (e.target === newHostModal) showNewHostModal(false);
+      });
+    }
+    if (seedModal) {
+      seedModal.addEventListener('click', (e) => {
+        if (e.target === seedModal) showSeedModal(false);
       });
     }
     if (promptModal) {

@@ -487,6 +487,42 @@
     }
     .modal input:focus { outline: 1px solid var(--accent); }
     .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+    .seed-modal { border: 1px solid var(--border); }
+    .seed-status {
+      margin: 12px 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--accent-ring);
+      background: var(--accent-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .seed-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .seed-chip .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--warning);
+      box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.15);
+    }
+    .seed-chip.ok { color: var(--accent-2); }
+    .seed-chip.ok .dot {
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(16, 163, 127, 0.16);
+    }
+    .seed-chip.warn { color: var(--danger); }
+    .seed-chip.warn .dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 6px rgba(229, 72, 77, 0.18);
+    }
     .command-box {
       background: rgba(0,0,0,0.6);
       color: #e2e8f0;

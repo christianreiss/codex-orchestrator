@@ -24,6 +24,34 @@ services:
       - codex_auth
     restart: unless-stopped
 
+  quota-cron:
+    build: .
+    depends_on:
+      - mysql
+    environment:
+      DB_DRIVER: mysql
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE:-codex_auth}
+      DB_USERNAME: ${DB_USERNAME:-codex}
+      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-3600}
+    volumes:
+      - ${ENV_FILE:-./.env}:/var/www/html/.env
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
+    networks:
+      - codex_auth
+    command: >
+      bash -c "interval=${CHATGPT_USAGE_CRON_INTERVAL:-3600}; while true; do
+        if php /var/www/html/scripts/refresh-chatgpt-usage.php; then
+          sleep \"$interval\";
+        else
+          echo '[quota-cron] refresh failed; retrying in 60s' >&2;
+          sleep 60;
+        fi
+      done"
+    restart: unless-stopped
+
   auth-runner:
     build:
       context: .
@@ -35,6 +63,34 @@ services:
       CODEX_DEBUG: ${CODEX_DEBUG:-0}
     expose:
       - "8080"
+    networks:
+      - codex_auth
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8
+    profiles:
+      - caddy
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-codex-auth.example.com}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-ops@example.com}
+      CADDY_TLS_FRAGMENT: ${CADDY_TLS_FRAGMENT:-/etc/caddy/tls-acme.caddy}
+      CADDY_TLS_CERT_FILE: ${CADDY_TLS_CERT_FILE:-/etc/caddy/tls/tls.crt}
+      CADDY_TLS_KEY_FILE: ${CADDY_TLS_KEY_FILE:-/etc/caddy/tls/tls.key}
+      CADDY_MTLS_CA_FILE: ${CADDY_MTLS_CA_FILE:-/etc/caddy/mtls/ca.crt}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/tls-acme.caddy:/etc/caddy/tls-acme.caddy:ro
+      - ./caddy/tls-custom.caddy:/etc/caddy/tls-custom.caddy:ro
+      - ${CADDY_TLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/tls}:/etc/caddy/tls:ro
+      - ${CADDY_MTLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/mtls}:/etc/caddy/mtls:ro
+      - caddy_data:/data
+      - caddy_config:/config
     networks:
       - codex_auth
     restart: unless-stopped
@@ -75,3 +131,7 @@ services:
 
 networks:
   codex_auth:
+
+volumes:
+  caddy_data:
+  caddy_config:

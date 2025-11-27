@@ -1291,6 +1291,11 @@ class AuthService
         return $this->canonicalAuthFromPayload($payload);
     }
 
+    public function hasCanonicalAuth(): bool
+    {
+        return $this->resolveCanonicalPayload() !== null;
+    }
+
     public function latestReportedVersions(): array
     {
         $hosts = $this->hosts->all();
