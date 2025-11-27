@@ -83,10 +83,10 @@ Allows a host to send the Codex CLI token-usage line after a run. Uses the same 
 - `usages` (optional array): list of usage entries to record in a single call.
 - Single-entry compatibility: `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` at the top level are accepted and wrapped as one usage.
 - Each usage entry may include:
-  - `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16 (reasoning 256)`).
-  - `total`, `input`, `output` (optional integers): parsed token counts.
-  - `cached` (optional integer): cached tokens count when present.
-  - `reasoning` (optional integer): reasoning tokens when reported by Codex.
+- `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16 (reasoning 256)`). ANSI/escape codes are stripped and the text is capped before storing.
+- `total`, `input`, `output` (optional integers): parsed token counts. Commas in strings (`"10,000"`) are allowed; all values must be non-negative numbers.
+- `cached` (optional integer): cached tokens count when present.
+- `reasoning` (optional integer): reasoning tokens when reported by Codex.
   - `model` (optional string): Codex model name, if available.
 
 At least one of `line` or a numeric field must be provided in each usage. Every entry is stored as a `token.usage` log row for the calling host.
@@ -248,7 +248,7 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
 - If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query on admin routes.
 - Endpoints:
   - `GET /admin/overview`: versions, host counts, avg refresh age, latest log timestamp, mTLS metadata, token aggregates.
-  - `GET /admin/hosts`: hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, and latest token usage.
+  - `GET /admin/hosts`: hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, recorded users (username/hostname/first/last seen), and latest token usage.
   - `POST /admin/hosts/register`: mint a host + single-use installer token for a given FQDN. Response includes `installer.url`, `installer.command` (`curl …/install/{token} | bash`), and `installer.expires_at` (TTL default 1800s).
   - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include `auth` body with `?include_body=1`), recent digests, last seen timestamp.
   - `DELETE /admin/hosts/{id}`: remove a host and its digests.

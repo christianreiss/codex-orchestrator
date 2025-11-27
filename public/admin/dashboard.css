@@ -714,7 +714,11 @@
       flex-wrap: wrap;
     }
     .summary-card .meta { margin-top: 2px; color: var(--muted); font-size: 12px; }
-    .kv-grid { display: grid; gap: 12px; }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 10px;
+    }
     .kv-row {
       display: grid;
       grid-template-columns: 160px 1fr;
@@ -727,6 +731,70 @@
     .kv-key { font-weight: 700; letter-spacing: 0.02em; color: #0f172a; }
     .kv-value { font-weight: 600; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .kv-desc { grid-column: 1 / span 2; color: var(--muted); font-size: 13px; }
+    .kv-version {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .kv-version .version-block { display: inline-flex; align-items: center; gap: 6px; }
+    .kv-version .version-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .token-usage {
+      width: 100%;
+      border: 1px dashed var(--panel-strong);
+      border-radius: 12px;
+      padding: 12px;
+      background: linear-gradient(135deg, rgba(14,165,233,0.08), rgba(99,102,241,0.08));
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .token-usage-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .token-usage-total {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+    }
+    .token-usage-bars { display: flex; flex-direction: column; gap: 8px; }
+    .token-usage-bar { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; align-items: center; }
+    .token-usage-label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .token-usage-track {
+      position: relative;
+      height: 10px;
+      background: rgba(15,23,42,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .token-usage-fill {
+      position: absolute;
+      inset: 0;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #06b6d4, #6366f1);
+    }
+    .token-usage-input { background: linear-gradient(90deg, #0ea5e9, #22d3ee); }
+    .token-usage-output { background: linear-gradient(90deg, #a855f7, #6366f1); }
+    .token-usage-cached { background: linear-gradient(90deg, #10b981, #34d399); }
+    .token-usage-reasoning { background: linear-gradient(90deg, #f59e0b, #f97316); }
+    .token-usage-count { font-weight: 700; font-size: 13px; }
+    .token-usage-meta { font-size: 12px; }
     .host-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; }
     .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
     .digest-pill {

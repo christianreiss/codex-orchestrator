@@ -792,7 +792,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     ]);
 });
 
-$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service) {
+$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service, $hostUserRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
 
@@ -818,6 +818,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
             'token_usage' => $tokenUsageRepository->latestForHost((int) $host['id']),
+            'users' => $hostUserRepository->listByHost((int) $host['id']),
         ];
     }
 

@@ -398,13 +398,6 @@ const statsEl = document.getElementById('stats');
       });
     }
 
-    function shortDigest(digest) {
-      if (!digest) return '—';
-      const clean = String(digest).trim();
-      if (clean.length <= 14) return clean;
-      return `${clean.slice(0, 8)}…${clean.slice(-6)}`;
-    }
-
     function formatRelativeWithTimestamp(value) {
       if (!value) return '—';
       const relative = formatRelative(value);
@@ -412,28 +405,53 @@ const statsEl = document.getElementById('stats');
       return `${relative} (${absolute})`;
     }
 
-    function renderDigestPills(list) {
-      if (!Array.isArray(list) || list.length === 0) return '—';
-      return `<div class="host-modal-digests">${list.map(d => `<span class="digest-pill" title="${escapeHtml(d)}">${escapeHtml(shortDigest(d))}</span>`).join('')}</div>`;
-    }
-
     function renderTokenUsageValue(usage) {
       if (!usage || usage.total === null || usage.total === undefined) return 'No usage yet';
-      const parts = [];
-      if (usage.total !== null && usage.total !== undefined) parts.push(`${formatNumber(usage.total)} tokens`);
-      if (usage.model) parts.push(escapeHtml(usage.model));
-      const breakdown = ['input', 'output', 'cached', 'reasoning'].map(key => {
-        const val = usage[key];
-        if (val === null || val === undefined) return '';
-        return `<span class="chip neutral"><small style="text-transform:uppercase; letter-spacing:0.08em;">${key}</small> ${formatNumber(val)}</span>`;
+      const total = Number(usage.total) || 0;
+      const breakdownKeys = ['input', 'output', 'cached', 'reasoning'];
+      const bars = breakdownKeys.map(key => {
+        const val = Number(usage[key]);
+        if (!Number.isFinite(val) || val <= 0) return '';
+        const pct = total > 0 ? Math.min(100, Math.max(6, Math.round((val / total) * 100))) : 0;
+        return `
+          <div class="token-usage-bar">
+            <span class="token-usage-label">${key}</span>
+            <div class="token-usage-track">
+              <span class="token-usage-fill token-usage-${key}" style="width:${pct}%;"></span>
+            </div>
+            <span class="token-usage-count">${formatNumber(val)}</span>
+          </div>
+        `;
       }).filter(Boolean).join('');
       const when = usage.created_at ? `reported ${formatRelative(usage.created_at)}` : '';
       const line = usage.line ? usage.line : '';
       return `
-        <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
-          <span>${parts.join(' · ')}</span>
-          ${breakdown ? `<div class="chip-row">${breakdown}</div>` : ''}
-          ${when || line ? `<span class="muted" style="font-size:12px;">${escapeHtml(when)}${line ? ` · ${escapeHtml(line)}` : ''}</span>` : ''}
+        <div class="token-usage">
+          <div class="token-usage-head">
+            <div class="token-usage-total">${formatNumber(total)} tokens</div>
+            ${usage.model ? `<span class="chip neutral">${escapeHtml(usage.model)}</span>` : ''}
+          </div>
+          ${bars ? `<div class="token-usage-bars">${bars}</div>` : ''}
+          ${when || line ? `<div class="token-usage-meta muted">${escapeHtml(when)}${line ? ` · ${escapeHtml(line)}` : ''}</div>` : ''}
+        </div>
+      `;
+    }
+
+    function renderHostUsers(users) {
+      if (!Array.isArray(users) || users.length === 0) return 'No usernames reported yet';
+      return `
+        <div class="chip-row host-users">
+          ${users.map(user => {
+            const username = user?.username ? escapeHtml(user.username) : 'unknown';
+            const hostname = user?.hostname ? ` @ ${escapeHtml(user.hostname)}` : '';
+            const firstSeen = user?.first_seen ? formatTimestamp(user.first_seen) : null;
+            const lastSeen = user?.last_seen ? formatTimestamp(user.last_seen) : null;
+            const titleParts = [];
+            if (firstSeen) titleParts.push(`first ${firstSeen}`);
+            if (lastSeen) titleParts.push(`last ${lastSeen}`);
+            const titleAttr = titleParts.length ? ` title="${escapeHtml(titleParts.join(' · '))}"` : '';
+            return `<span class="chip neutral"${titleAttr}>${username}${hostname}</span>`;
+          }).join('')}
         </div>
       `;
     }
@@ -511,22 +529,37 @@ const statsEl = document.getElementById('stats');
 
     function hostDetailRows(host) {
       const health = hostHealth(host);
-      const recentDigests = Array.isArray(host.recent_digests) ? host.recent_digests : [];
+      const clientTag = renderVersionTag(host.client_version, latestVersions.client);
+      const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
+      const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
+        ? ` (${formatNumber(host.api_calls)} api calls)`
+        : '';
       return [
         { key: 'Status', value: renderStatusPill(host.status), desc: 'Host entry state; suspended hosts cannot authenticate.' },
         { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: 'Provisioning and pruning signal for this host.' },
-        { key: 'Canonical digest', value: host.canonical_digest ? `<code>${escapeHtml(shortDigest(host.canonical_digest))}</code>` : '—', desc: 'Digest of stored canonical auth.json for this host.' },
-        { key: 'Recent digests', value: renderDigestPills(recentDigests), desc: 'Most recent digests seen from this host (max 3).' },
-        { key: 'Last seen', value: formatRelativeWithTimestamp(host.updated_at), desc: 'Timestamp of the most recent API call from this host.' },
+        { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
         { key: 'IP binding', value: host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound', desc: host.allow_roaming_ips ? 'Roaming enabled; host may authenticate from any IP.' : 'First caller IP is locked; toggle roaming to permit moves.' },
-        { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip ok">Roaming</span>' : '<span class="chip warn">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
+        { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
         { key: 'Security', value: isHostSecure(host) ? '<span class="chip ok">Secure</span>' : '<span class="chip warn">Insecure</span>', desc: 'Insecure hosts purge auth.json after each run.' },
-        { key: 'Client version', value: renderVersionTag(host.client_version, latestVersions.client), desc: 'Codex build reported by the host.' },
-        { key: 'Wrapper version', value: renderVersionTag(host.wrapper_version, latestVersions.wrapper), desc: 'Baked wrapper version last reported by this host.' },
-        { key: 'API calls', value: formatNumber(host.api_calls ?? 0), desc: 'Total /auth calls recorded; used for activity tracking.' },
+        {
+          key: 'Versions',
+          value: `
+            <div class="kv-version">
+              <div class="version-block">
+                <span class="version-label">Codex</span>
+                ${clientTag}
+              </div>
+              <div class="version-block">
+                <span class="version-label">Wrapper</span>
+                ${wrapperTag}
+              </div>
+            </div>
+          `,
+          desc: 'Client and wrapper builds reported by this host.',
+        },
+        { key: 'Users', value: renderHostUsers(host.users), desc: 'Usernames reported from this host during Codex runs.' },
         { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: 'Latest token metrics reported from Codex runs on this host.' },
-        { key: 'Auth state', value: host.authed ? 'Canonical auth present' : 'Not provisioned yet', desc: 'Indicates whether a canonical auth.json has been stored server-side.' },
       ];
     }
 
@@ -554,13 +587,7 @@ const statsEl = document.getElementById('stats');
         hostDetailTitle.textContent = host.fqdn || `Host #${host.id}`;
       }
       if (hostDetailPills) {
-        const pills = [];
-        pills.push(renderStatusPill(host.status));
-        const health = hostHealth(host);
-        pills.push(`<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`);
-        pills.push(`<span class="chip ${isHostSecure(host) ? 'ok' : 'warn'}">${isHostSecure(host) ? 'Secure' : 'Insecure'}</span>`);
-        pills.push(`<span class="chip ${host.allow_roaming_ips ? 'neutral' : 'warn'}">${host.allow_roaming_ips ? 'Roaming' : 'IP locked'}</span>`);
-        hostDetailPills.innerHTML = pills.filter(Boolean).join('');
+        hostDetailPills.innerHTML = '';
       }
       renderHostSummary(host);
       if (hostDetailGrid) {
@@ -1537,6 +1564,12 @@ const statsEl = document.getElementById('stats');
         if (e.target === hostDetailModal) closeHostDetail();
       });
     }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && hostDetailModal?.classList.contains('show')) {
+        e.preventDefault();
+        closeHostDetail();
+      }
+    });
     if (closeHostDetailBtn) {
       closeHostDetailBtn.addEventListener('click', () => closeHostDetail());
     }

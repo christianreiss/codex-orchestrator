@@ -818,7 +818,7 @@ class AuthService
     {
         $line = '';
         if (array_key_exists('line', $usage) && is_string($usage['line'])) {
-            $line = trim($usage['line']);
+            $line = $this->sanitizeUsageLine($usage['line']);
         }
 
         $total = $this->normalizeUsageInt($usage['total'] ?? null, $path . '.total');
@@ -875,10 +875,46 @@ class AuthService
         ];
     }
 
+    private function sanitizeUsageLine(string $line): string
+    {
+        // Strip ANSI escape sequences (CSI + OSC) and control chars, then collapse whitespace.
+        $clean = preg_replace('/\x1B\[[0-9;?]*[ -\\/]*[@-~]/', '', $line);
+        $clean = preg_replace('/\x1B\][^\x07\x1B]*(\x07|\x1B\\\\)/', '', (string) $clean);
+        $clean = preg_replace('/[\x00-\x1F\x7F]/', ' ', (string) $clean);
+        $clean = preg_replace('/\\\\{2,}/', '\\\\', (string) $clean);
+        $clean = preg_replace('/\s+/', ' ', (string) $clean);
+        $clean = trim((string) $clean);
+        if ($clean === '') {
+            return '';
+        }
+
+        // Limit to printable ASCII to avoid stray control glyphs.
+        $clean = preg_replace('/[^\x20-\x7E]/', '', $clean);
+
+        // Hard cap to avoid oversized payloads in DB/UI.
+        if (strlen($clean) > 1000) {
+            $clean = substr($clean, 0, 1000) . '…';
+        }
+
+        return $clean;
+    }
+
     private function normalizeUsageInt(mixed $value, string $field, bool $optional = false): ?int
     {
         if ($value === null || $value === '') {
             return null;
+        }
+
+        if (is_string($value)) {
+            $normalized = preg_replace('/[,_\\s]/', '', $value);
+            if ($normalized === '') {
+                return null;
+            }
+            if (ctype_digit($normalized)) {
+                $value = (int) $normalized;
+            } else {
+                throw new ValidationException([$field => [$field . ' must be a number (digits, optional commas)']]);
+            }
         }
 
         if (is_int($value)) {

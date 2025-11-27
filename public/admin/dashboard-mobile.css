@@ -189,6 +189,10 @@ body[data-view="mobile"] .host-detail-summary {
   grid-template-columns: 1fr;
 }
 
+body[data-view="mobile"] .kv-grid {
+  grid-template-columns: 1fr;
+}
+
 body[data-view="mobile"] .kv-row {
   grid-template-columns: 1fr;
 }
