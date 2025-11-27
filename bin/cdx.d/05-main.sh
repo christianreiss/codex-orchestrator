@@ -15,7 +15,7 @@ print_motd
 can_manage_codex=0
 if (( IS_ROOT )); then
   can_manage_codex=1
-elif (( CAN_SUDO )) && [[ "$CURRENT_USER" == "chris" ]]; then
+elif (( CAN_SUDO )); then
   can_manage_codex=1
 fi
 

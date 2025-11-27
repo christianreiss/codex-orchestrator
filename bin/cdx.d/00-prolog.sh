@@ -136,7 +136,7 @@ PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
 
-WRAPPER_VERSION="2025.11.27-21"
+WRAPPER_VERSION="2025.11.27-22"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -178,13 +178,10 @@ case "${1-}" in
     ;;
 esac
 
-if (( ! IS_ROOT )); then
-  # Only auto-install when we can sudo and we're the expected user (chris)
-  if (( CAN_SUDO == 0 )) || [[ "$CURRENT_USER" != "chris" ]]; then
-    log_info "Non-root execution detected; skipping automatic Codex install/update."
-  fi
+if (( ! IS_ROOT )) && (( CAN_SUDO == 0 )); then
+  log_info "Non-root execution detected; skipping automatic Codex install/update (passwordless sudo required)."
 fi
-log_debug "starting | user=${CURRENT_USER} | can_manage=${CAN_SUDO} | path=$PATH"
+log_debug "starting | user=${CURRENT_USER} | is_root=${IS_ROOT} | can_sudo=${CAN_SUDO} | path=$PATH"
 
 detect_linux_package_manager() {
   local tokens=()
