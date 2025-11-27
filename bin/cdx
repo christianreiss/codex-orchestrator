@@ -328,6 +328,7 @@ cmd_uninstall() {
   exit 0
 }
 
+
 ensure_commands() {
   local missing=()
   local cmd
@@ -596,6 +597,7 @@ load_sync_config() {
   log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none}"
   SYNC_CONFIG_LOADED=1
 }
+
 
 sync_auth_with_api() {
   local phase="$1"
@@ -1225,6 +1227,7 @@ push_auth_if_changed() {
   AUTH_PUSH_REASON="api sync error"
   return 1
 }
+
 
 prompt_sync_python() {
   local mode="$1"
@@ -1904,6 +1907,7 @@ send_token_usage_if_present() {
   post_token_usage_payload "$payload" || true
 }
 
+
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
@@ -2019,6 +2023,7 @@ perform_update() (
   fi
   log_info "Codex updated to ${new_version}"
 )
+
 
 API_RELEASES_URL="https://api.github.com/repos/openai/codex/releases"
 
@@ -3060,3 +3065,4 @@ else
 fi
 push_auth_if_changed "push" || true
 exit "$cmd_status"
+

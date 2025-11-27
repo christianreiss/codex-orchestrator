@@ -20,6 +20,11 @@ tmp_file="${OUT_FILE}.tmp"
 : > "$tmp_file"
 for part in "${PARTS[@]}"; do
   cat "$part" >> "$tmp_file"
+  # Ensure a newline boundary between fragments if the source lacked one.
+  if [[ -s "$tmp_file" ]]; then
+    last_char="$(tail -c 1 "$tmp_file" 2>/dev/null || true)"
+    [[ "$last_char" != $'\n' ]] && printf '\n' >> "$tmp_file"
+  fi
 done
 
 chmod +x "$tmp_file"
