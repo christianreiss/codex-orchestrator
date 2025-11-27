@@ -476,10 +476,7 @@ PY
 
         if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
           PURGE_AUTH_AFTER_RUN=1
-          if (( HOST_SECURITY_NOTICE_EMITTED == 0 )); then
-            log_warn "Host marked insecure; auth.json will be removed after this run."
-            HOST_SECURITY_NOTICE_EMITTED=1
-          fi
+          emit_insecure_notice
         else
           PURGE_AUTH_AFTER_RUN=0
         fi
