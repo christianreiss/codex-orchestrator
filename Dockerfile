@@ -22,6 +22,7 @@ EOF
 WORKDIR /var/www/html
 COPY . .
 COPY --from=vendor /app/vendor ./vendor
+RUN ./scripts/build-cdx.sh
 RUN chown -R www-data:www-data storage
 EXPOSE 80
 CMD ["apache2-foreground"]
