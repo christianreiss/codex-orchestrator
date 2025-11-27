@@ -550,7 +550,7 @@ const statsEl = document.getElementById('stats');
           `,
           desc: 'Client and wrapper builds reported by this host.',
         },
-        { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: 'Latest token metrics reported from Codex runs on this host.', full: true },
+        { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: '', full: true },
       ];
     }
 
