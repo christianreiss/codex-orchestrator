@@ -83,7 +83,7 @@ Allows a host to send the Codex CLI token-usage line after a run. Uses the same 
 - `usages` (optional array): list of usage entries to record in a single call.
 - Single-entry compatibility: `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` at the top level are accepted and wrapped as one usage.
 - Each usage entry may include:
-- `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16 (reasoning 256)`). ANSI/escape codes are stripped and the text is capped before storing.
+- `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16 (reasoning 256)`). ANSI/escape/brace sequences are stripped, control chars removed, and the text is capped before storing.
 - `total`, `input`, `output` (optional integers): parsed token counts. Commas in strings (`"10,000"`) are allowed; all values must be non-negative numbers.
 - `cached` (optional integer): cached tokens count when present.
 - `reasoning` (optional integer): reasoning tokens when reported by Codex.

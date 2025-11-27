@@ -882,6 +882,7 @@ class AuthService
         $clean = preg_replace('/\x1B\][^\x07\x1B]*(\x07|\x1B\\\\)/', '', (string) $clean);
         $clean = preg_replace('/[\x00-\x1F\x7F]/', ' ', (string) $clean);
         $clean = preg_replace('/\\\\{2,}/', '\\\\', (string) $clean);
+        $clean = preg_replace('/\\[<\\d+\\w?/', '', (string) $clean);
         $clean = preg_replace('/\s+/', ' ', (string) $clean);
         $clean = trim((string) $clean);
         if ($clean === '') {
