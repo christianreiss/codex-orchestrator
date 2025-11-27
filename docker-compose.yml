@@ -54,5 +54,24 @@ services:
       - codex_auth
     restart: unless-stopped
 
+  mysql-backup:
+    image: databack/mysql-backup
+    environment:
+      DB_SERVER: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USERNAME:-codex}
+      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      DB_NAMES: ${DB_DATABASE:-codex_auth}
+      CRON_TIME: ${DB_BACKUP_CRON:-0 2 * * *}
+      MAX_BACKUPS: ${DB_BACKUP_MAX:-30}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store/sql:/backup
+    depends_on:
+      - mysql
+    networks:
+      - codex_auth
+    restart: unless-stopped
+
 networks:
   codex_auth:
