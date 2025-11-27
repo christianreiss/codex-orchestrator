@@ -3,24 +3,96 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Security\SecretBox;
 use PDO;
 
 class HostRepository
 {
-    public function __construct(private readonly Database $database)
+    public function __construct(
+        private readonly Database $database,
+        private readonly SecretBox $secretBox
+    )
     {
+    }
+
+    private function hashApiKey(string $apiKey): string
+    {
+        return hash('sha256', $apiKey);
+    }
+
+    private function encryptApiKey(string $apiKey): string
+    {
+        return $this->secretBox->encrypt($apiKey);
+    }
+
+    private function normalizeStoredHost(array $host): array
+    {
+        // For backwards compatibility, populate api_key_hash if missing but api_key exists (legacy plaintext/hash).
+        if (!isset($host['api_key_hash']) && isset($host['api_key']) && is_string($host['api_key'])) {
+            $host['api_key_hash'] = $host['api_key'];
+        }
+        return $host;
+    }
+
+    public function backfillApiKeyEncryption(): void
+    {
+        $statement = $this->database->connection()->query(
+            'SELECT id, api_key, api_key_hash, api_key_enc FROM hosts'
+        );
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $stored = $row['api_key'] ?? '';
+            $hasHash = isset($row['api_key_hash']) && $row['api_key_hash'] !== null && $row['api_key_hash'] !== '';
+            $hasEnc = isset($row['api_key_enc']) && $row['api_key_enc'] !== null && $row['api_key_enc'] !== '';
+
+            if ($stored === '' || ($hasHash && $hasEnc)) {
+                continue;
+            }
+
+            $hash = $this->hashApiKey($stored);
+            $enc = $this->encryptApiKey($stored);
+
+            $update = $this->database->connection()->prepare(
+                'UPDATE hosts SET api_key = :api_key, api_key_hash = :api_key_hash, api_key_enc = :api_key_enc WHERE id = :id'
+            );
+            $update->execute([
+                'api_key' => $hash,
+                'api_key_hash' => $hash,
+                'api_key_enc' => $enc,
+                'id' => $id,
+            ]);
+        }
     }
 
     public function findByApiKey(string $apiKey): ?array
     {
+        $hash = $this->hashApiKey($apiKey);
+
         $statement = $this->database->connection()->prepare(
-            'SELECT * FROM hosts WHERE api_key = :api_key LIMIT 1'
+            'SELECT * FROM hosts WHERE api_key_hash = :hash LIMIT 1'
         );
-        $statement->execute(['api_key' => $apiKey]);
+        $statement->execute(['hash' => $hash]);
 
         $host = $statement->fetch(PDO::FETCH_ASSOC);
 
-        return $host ?: null;
+        // Fallback to legacy column if hash not found.
+        if (!$host) {
+            $legacy = $this->database->connection()->prepare(
+                'SELECT * FROM hosts WHERE api_key = :api_key LIMIT 1'
+            );
+            $legacy->execute(['api_key' => $apiKey]);
+            $host = $legacy->fetch(PDO::FETCH_ASSOC);
+        }
+
+        return $host ? $this->normalizeStoredHost($host) : null;
     }
 
     public function findById(int $id): ?array
@@ -49,33 +121,50 @@ class HostRepository
 
     public function create(string $fqdn, string $apiKey): array
     {
+        $hash = $this->hashApiKey($apiKey);
+        $encrypted = $this->encryptApiKey($apiKey);
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO hosts (fqdn, api_key, status, created_at, updated_at) VALUES (:fqdn, :api_key, :status, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, created_at, updated_at) VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :created_at, :updated_at)'
         );
         $statement->execute([
             'fqdn' => $fqdn,
-            'api_key' => $apiKey,
+            'api_key' => $hash,
+            'api_key_hash' => $hash,
+            'api_key_enc' => $encrypted,
             'status' => 'active',
             'created_at' => $now,
             'updated_at' => $now,
         ]);
 
-        return $this->findByFqdn($fqdn);
+        $host = $this->findByFqdn($fqdn);
+        if ($host) {
+            $host['api_key_plain'] = $apiKey;
+        }
+
+        return $host;
     }
 
     public function rotateApiKey(int $hostId, string $apiKey): ?array
     {
+        $hash = $this->hashApiKey($apiKey);
+        $encrypted = $this->encryptApiKey($apiKey);
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET api_key = :api_key, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET api_key = :api_key, api_key_hash = :api_key_hash, api_key_enc = :api_key_enc, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
-            'api_key' => $apiKey,
+            'api_key' => $hash,
+            'api_key_hash' => $hash,
+            'api_key_enc' => $encrypted,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
 
-        return $this->findById($hostId);
+        $host = $this->findById($hostId);
+        if ($host) {
+            $host['api_key_plain'] = $apiKey;
+        }
+        return $host;
     }
 
     public function updateIp(int $hostId, string $ip): void

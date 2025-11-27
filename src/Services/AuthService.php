@@ -1024,7 +1024,7 @@ class AuthService
         ];
 
         if ($includeApiKey) {
-            $payload['api_key'] = $host['api_key'];
+            $payload['api_key'] = $host['api_key_plain'] ?? null;
         }
 
         return $payload;

@@ -62,7 +62,8 @@ $database->migrate();
 $encryptionMigrator = new AuthEncryptionMigrator($database, $secretBox);
 $encryptionMigrator->migrate();
 
-$hostRepository = new HostRepository($database);
+$hostRepository = new HostRepository($database, $secretBox);
+$hostRepository->backfillApiKeyEncryption();
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $hostUserRepository = new HostUserRepository($database);
