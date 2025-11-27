@@ -3004,6 +3004,15 @@ fi
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
 
+  if (( QUOTA_HARD_FAIL )); then
+    log_info "ChatGPT quota policy: deny launch when quota is reached."
+  else
+    log_info "ChatGPT quota policy: warn only; continue even if quota is reached."
+  fi
+  if (( QUOTA_BLOCKED )); then
+    log_warn "ChatGPT quota status: ${QUOTA_BLOCK_REASON:-limit reached}."
+  fi
+
   if [[ -n "$usage_summary" ]]; then
     log_info "$(format_simple_row "tokens" "$usage_summary")"
   fi
