@@ -679,7 +679,7 @@ const statsEl = document.getElementById('stats');
       }
       filtered.forEach(host => {
         const tr = document.createElement('tr');
-        const addedAt = host.created_at ?? host.updated_at ?? host.last_refresh ?? null;
+        const addedAt = host.created_at ?? host.last_refresh ?? host.updated_at ?? null;
         const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
         const addedDate = parseTimestamp(addedAt);
         const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;

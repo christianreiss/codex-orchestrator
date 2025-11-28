@@ -893,6 +893,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'status' => $host['status'],
             'last_refresh' => $host['last_refresh'] ?? null,
             'updated_at' => $host['updated_at'] ?? null,
+            'created_at' => $host['created_at'] ?? null,
             'client_version' => $host['client_version'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
