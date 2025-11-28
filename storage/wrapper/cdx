@@ -156,7 +156,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.28-02"
+WRAPPER_VERSION="2025.11.28-04"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
@@ -807,6 +807,10 @@ def normalize_bool(value):
 def fail_with_http(exc: urllib.error.HTTPError, action: str):
     body = exc.read().decode("utf-8", "ignore")
     msg, details = parse_error_body(body)
+    msg_lower = msg.lower() if isinstance(msg, str) else ""
+    detail_code = ""
+    if isinstance(details, dict):
+        detail_code = str(details.get("code") or "").lower()
     expected_ip = details.get("expected_ip") if isinstance(details, dict) else None
     received_ip = details.get("received_ip") if isinstance(details, dict) else None
     extra = ""
@@ -818,14 +822,17 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
             parts.append(f"received {received_ip}")
         extra = " (" + ", ".join(parts) + ")"
     if exc.code == 401:
-        if "Invalid API key" in msg:
+        if isinstance(msg, str) and "Invalid API key" in msg:
             sys.exit(10)
-        if "API key missing" in msg:
+        if isinstance(msg, str) and "API key missing" in msg:
             sys.exit(21)
         sys.exit(22)
     if exc.code == 403:
-        if "Host is disabled" in msg:
+        if "host is disabled" in msg_lower:
             sys.exit(11)
+        if detail_code == "insecure_api_disabled" or "insecure host api access disabled" in msg_lower:
+            print("insecure host API access disabled", file=sys.stderr)
+            sys.exit(24)
         if "not allowed from this IP" in msg or expected_ip or received_ip:
             print(f"{action} denied (IP bound){extra}", file=sys.stderr)
             sys.exit(12)
@@ -1217,6 +1224,12 @@ PY
     40)
       log_warn "Auth sync blocked: API disabled by administrator"
       AUTH_PULL_STATUS="disabled"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      return 1
+      ;;
+    24)
+      log_warn "Auth sync blocked: insecure host window is closed; enable it in the admin dashboard and retry."
+      AUTH_PULL_STATUS="insecure"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
       ;;
@@ -2738,6 +2751,10 @@ case "$AUTH_PULL_STATUS" in
     api_label="Missing API config"
     api_tone="red"
     ;;
+  insecure)
+    api_label="Insecure host blocked"
+    api_tone="red"
+    ;;
 esac
 
 auth_label="n/a"
@@ -2752,6 +2769,8 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   else
     auth_label="auth unavailable (api offline)"
   fi
+elif [[ "$AUTH_PULL_STATUS" == "insecure" ]]; then
+  auth_label="insecure host window closed"
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_label="auth sync failed"
 fi
@@ -2983,7 +3002,7 @@ if (( QUOTA_BLOCKED )); then
 fi
 
 if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
-  result_label="System good to go!"
+  result_label="Codex go Brrrr!"
 fi
 
   log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
@@ -3114,6 +3133,9 @@ case "$AUTH_PULL_STATUS" in
     ;;
   disabled)
     AUTH_LAUNCH_REASON="Auth API disabled by administrator."
+    ;;
+  insecure)
+    AUTH_LAUNCH_REASON="Insecure host API disabled; enable the host window in the admin dashboard."
     ;;
   fail)
     AUTH_LAUNCH_REASON="Auth sync failed; check API connectivity."

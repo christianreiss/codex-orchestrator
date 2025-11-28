@@ -30,6 +30,8 @@ class AuthService
     private const AUTH_FAIL_WINDOW_SECONDS = 600;
     private const AUTH_FAIL_BLOCK_SECONDS = 1800;
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
+    private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
+    private const RUNNER_STALE_OK_SECONDS = 21600; // 6 hours
 
     public function __construct(
         private readonly HostRepository $hosts,
@@ -177,7 +179,7 @@ class AuthService
         return $host;
     }
 
-    public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null): array
+    public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null, bool $skipRunner = false): array
     {
         $normalizedClientVersion = $this->normalizeClientVersion($clientVersion);
         $normalizedWrapperVersion = $this->normalizeClientVersion($wrapperVersion);
@@ -233,7 +235,7 @@ class AuthService
         }
 
         // Daily runner preflight: once per UTC day, refresh canonical via runner before responding.
-        if ($this->runnerVerifier !== null) {
+        if ($this->runnerVerifier !== null && !$skipRunner) {
             [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerDailyCheck($canonicalPayload, $host, $versions);
             if ($canonicalPayload !== null) {
                 $validated = $this->validateCanonicalPayload($canonicalPayload);
@@ -250,6 +252,15 @@ class AuthService
             } else {
                 $canonicalAuthArray = null;
             }
+        }
+
+        if ($this->runnerVerifier !== null && !$skipRunner) {
+            [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh] = $this->enforceRunnerValidationOnFailure(
+                $canonicalPayload,
+                $canonicalAuthArray,
+                $host,
+                $versions
+            );
         }
 
         $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];
@@ -455,7 +466,7 @@ class AuthService
 
         $validation = null;
         $runnerApplied = false;
-        if ($this->runnerVerifier !== null) {
+        if ($this->runnerVerifier !== null && !$skipRunner) {
             $authToValidate = null;
             if ($canonicalPayload) {
                 $authToValidate = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
@@ -544,13 +555,7 @@ class AuthService
         }
 
         if ($validation !== null) {
-            $response['validation'] = $validation;
-        }
-        if ($runnerApplied) {
-            $response['runner_applied'] = true;
-        }
-
-        if ($validation !== null) {
+            $this->recordRunnerOutcome($validation, (bool) ($validation['reachable'] ?? true), 'store');
             $response['validation'] = $validation;
         }
         $response['runner_applied'] = $runnerApplied;
@@ -565,16 +570,34 @@ class AuthService
     public function runDailyPreflight(?array $hostContext = null): void
     {
         $today = gmdate('Y-m-d');
+        $bootChanged = $this->recordCurrentBootId();
         $lastPreflight = $this->versions->get('daily_preflight') ?? '';
-        if ($lastPreflight === $today) {
-            return;
+        $needsVersionRefresh = $lastPreflight !== $today || $bootChanged;
+
+        if ($needsVersionRefresh) {
+            // Always refresh the cached GitHub client version on the first request of the day or boot.
+            $this->availableClientVersion(true);
         }
 
-        // Always refresh the cached GitHub client version on the first request of the day.
-        $this->availableClientVersion(true);
+        $shouldRunRunner = false;
+        $runnerReason = 'daily_first_request';
+        if ($bootChanged || $lastPreflight !== $today) {
+            $shouldRunRunner = true;
+        } elseif ($this->runnerVerifier !== null) {
+            // If the runner is in a failed state, allow recovery attempts based on backoff/boot/state.
+            [$shouldRun, $recoveryReason] = $this->shouldTriggerRunnerRecovery();
+            if ($shouldRun) {
+                $shouldRunRunner = true;
+                if (is_string($recoveryReason) && $recoveryReason !== '') {
+                    $runnerReason = $recoveryReason;
+                } else {
+                    $runnerReason = 'fail_recovery';
+                }
+            }
+        }
 
-        // Opportunistically run the auth runner once per day alongside the version refresh.
-        if ($this->runnerVerifier !== null) {
+        // Opportunistically run the auth runner when warranted.
+        if ($shouldRunRunner && $this->runnerVerifier !== null) {
             $canonicalPayload = $this->resolveCanonicalPayload();
             if ($canonicalPayload !== null) {
                 $runnerHost = $this->resolveRunnerHost($hostContext, $canonicalPayload);
@@ -585,7 +608,7 @@ class AuthService
                         $runnerHost,
                         $versions,
                         true,
-                        'daily_first_request'
+                        $runnerReason
                     );
                 }
             }
@@ -608,38 +631,57 @@ class AuthService
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
         }
 
+        $today = gmdate('Y-m-d');
+        $lastCheck = $this->versions->get('runner_last_check') ?? '';
+        $lastFailure = $this->versions->get('runner_last_fail') ?? '';
+        $now = time();
+        $runnerFailing = $this->isRunnerFailing();
+
+        if (!$forceRun && $lastCheck === $today) {
+            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
+        }
+
+        if (
+            !$forceRun
+            && $runnerFailing
+            && $lastFailure !== ''
+            && ($lastFailureTs = strtotime($lastFailure)) !== false
+            && ($now - $lastFailureTs) < self::RUNNER_FAILURE_BACKOFF_SECONDS
+        ) {
+            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
+        }
+
+        [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runRunnerValidationAttempt(
+            $canonicalPayload,
+            $host,
+            $versions,
+            $trigger
+        );
+
+        return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
+    }
+
+    /**
+     * Run the runner once and apply any returned auth updates.
+     *
+     * @return array{0: ?array, 1: ?string, 2: ?string, 3: ?array|null}
+     */
+    private function runRunnerValidationAttempt(array $canonicalPayload, array $host, array $versions, string $trigger): array
+    {
         $validatedCanonical = $this->validateCanonicalPayload($canonicalPayload);
         if ($validatedCanonical === null) {
-            return [null, null, null];
+            return [null, null, null, null];
         }
 
         $canonicalAuth = $validatedCanonical['auth'];
         $currentDigest = $validatedCanonical['digest'];
         $currentLastRefresh = $validatedCanonical['last_refresh'];
 
-        $today = gmdate('Y-m-d');
-        $lastCheck = $this->versions->get('runner_last_check') ?? '';
-        $lastFailure = $this->versions->get('runner_last_fail') ?? '';
-        $now = time();
-
-        if (!$forceRun && $lastCheck === $today) {
-            return [$canonicalPayload, $currentDigest, $currentLastRefresh];
-        }
-
-        if (
-            !$forceRun
-            && $lastFailure !== ''
-            && ($lastFailureTs = strtotime($lastFailure)) !== false
-            && ($now - $lastFailureTs) < self::RUNNER_FAILURE_BACKOFF_SECONDS
-        ) {
-            return [$canonicalPayload, $currentDigest, $currentLastRefresh];
-        }
-
         $hostId = (int) ($host['id'] ?? 0);
         $trackHost = $hostId > 0;
         $logHostId = $trackHost ? $hostId : null;
         $runnerReachable = false;
-        $nowIso = gmdate(DATE_ATOM);
+        $validation = null;
         try {
             $validation = $this->runnerVerifier->verify($canonicalAuth, null, null, $host);
             $runnerReachable = (bool) ($validation['reachable'] ?? false);
@@ -701,17 +743,191 @@ class AuthService
                 'reason' => $exception->getMessage(),
             ]);
         } finally {
-            if ($runnerReachable) {
-                $this->versions->set('runner_last_check', $today);
-                $this->versions->set('runner_last_fail', '');
-            } else {
-                $this->versions->set('runner_last_fail', $nowIso);
-            }
+            $this->recordRunnerOutcome($validation ?? ['status' => 'fail'], $runnerReachable, $trigger);
         }
 
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
-        return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
+        return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh, $validation];
+    }
+
+    /**
+     * When the runner is failing, decide if we should block the request to re-validate auth.
+     *
+     * @return array{0: ?array, 1: ?array, 2: ?string, 3: ?string}
+     */
+    private function enforceRunnerValidationOnFailure(?array $canonicalPayload, ?array $canonicalAuthArray, array $host, array $versions): array
+    {
+        $canonicalDigest = $canonicalPayload['sha256'] ?? null;
+        $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
+
+        [$shouldRun, $recoveryReason] = $this->shouldTriggerRunnerRecovery();
+        if (!$shouldRun || $canonicalPayload === null || $canonicalAuthArray === null) {
+            return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
+        }
+
+        $runnerHost = $this->resolveRunnerHost($host, $canonicalPayload);
+        if ($runnerHost === null) {
+            throw new HttpException('No host available for runner validation', 503);
+        }
+
+        [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh, $validation] = $this->runRunnerValidationAttempt(
+            $canonicalPayload,
+            $runnerHost,
+            $versions,
+            'fail_recovery'
+        );
+
+        if ($canonicalPayload !== null) {
+            $validated = $this->validateCanonicalPayload($canonicalPayload);
+            if ($validated !== null) {
+                $canonicalAuthArray = $validated['auth'];
+                $canonicalDigest = $validated['digest'];
+                $canonicalLastRefresh = $validated['last_refresh'];
+            } else {
+                $canonicalPayload = null;
+                $canonicalAuthArray = null;
+                $canonicalDigest = null;
+                $canonicalLastRefresh = null;
+            }
+        } else {
+            $canonicalAuthArray = null;
+        }
+
+        $runnerStatus = strtolower((string) ($validation['status'] ?? 'fail'));
+        if ($runnerStatus !== 'ok') {
+            $reasonSuffix = isset($validation['reason']) && is_string($validation['reason']) && $validation['reason'] !== ''
+                ? ': ' . $validation['reason']
+                : '';
+            $hostIdForLog = isset($runnerHost['id']) && is_numeric($runnerHost['id']) ? (int) $runnerHost['id'] : null;
+            try {
+                $this->logs->log(
+                    $hostIdForLog,
+                    'auth.runner_store',
+                    [
+                        'status' => 'fail',
+                        'trigger' => 'fail_recovery',
+                        'recovery_reason' => $recoveryReason,
+                        'reason' => $validation['reason'] ?? null,
+                    ]
+                );
+            } catch (\Throwable) {
+                // If logging fails (e.g., missing host FK), continue without blocking.
+            }
+            // Do not block serving auth when runner is failing; allow upload/serve to proceed.
+            return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
+        }
+
+        return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
+    }
+
+    /**
+     * Determine whether a failing runner should be retried on this request.
+     *
+     * @return array{0: bool, 1: ?string} [shouldRun, reason]
+     */
+    private function shouldTriggerRunnerRecovery(): array
+    {
+        $bootChanged = $this->recordCurrentBootId();
+
+        $state = strtolower((string) ($this->versions->get('runner_state') ?? ''));
+        if ($state !== 'fail') {
+            return [false, null];
+        }
+
+        $now = time();
+        $lastFailTs = $this->parseTimestamp($this->versions->get('runner_last_fail'));
+        $lastOkTs = $this->parseTimestamp($this->versions->get('runner_last_ok'));
+        $fifteenMinutesElapsed = $lastFailTs === null || ($now - $lastFailTs) >= self::RUNNER_FAILURE_RETRY_SECONDS;
+        $staleOk = $lastOkTs === null || ($now - $lastOkTs) >= self::RUNNER_STALE_OK_SECONDS;
+
+        if ($bootChanged) {
+            return [true, 'boot'];
+        }
+        if ($fifteenMinutesElapsed) {
+            return [true, 'fail_backoff'];
+        }
+        if ($staleOk) {
+            return [true, 'stale_ok'];
+        }
+
+        return [false, null];
+    }
+
+    private function isRunnerFailing(): bool
+    {
+        return strtolower((string) ($this->versions->get('runner_state') ?? '')) === 'fail';
+    }
+
+    private function recordRunnerOutcome(array $validation, bool $reachable, string $trigger): void
+    {
+        $status = strtolower((string) ($validation['status'] ?? 'fail'));
+        $nowIso = gmdate(DATE_ATOM);
+        if ($status === 'ok') {
+            $this->versions->set('runner_state', 'ok');
+            $this->versions->set('runner_last_ok', $nowIso);
+        } else {
+            $this->versions->set('runner_state', 'fail');
+            $this->versions->set('runner_last_fail', $nowIso);
+        }
+
+        if ($reachable) {
+            $this->versions->set('runner_last_check', gmdate('Y-m-d'));
+        }
+    }
+
+    private function recordCurrentBootId(): bool
+    {
+        $currentBootId = $this->currentBootId();
+        if ($currentBootId === null || $currentBootId === '') {
+            return false;
+        }
+
+        $stored = $this->versions->get('runner_boot_id');
+        if ($stored === $currentBootId) {
+            return false;
+        }
+
+        $this->versions->set('runner_boot_id', $currentBootId);
+        return true;
+    }
+
+    private function currentBootId(): ?string
+    {
+        $bootIdPath = '/proc/sys/kernel/random/boot_id';
+        $base = null;
+        if (is_readable($bootIdPath)) {
+            $value = trim((string) file_get_contents($bootIdPath));
+            if ($value !== '') {
+                $base = $value;
+            }
+        }
+
+        $procStart = @filemtime('/proc/1');
+        if ($base !== null && $procStart !== false) {
+            return $base . '|p1-' . $procStart;
+        }
+
+        if ($base !== null) {
+            return $base;
+        }
+
+        if ($procStart !== false) {
+            return 'proc1-' . $procStart;
+        }
+
+        $hostname = php_uname('n');
+        return $hostname !== '' ? 'host-' . $hostname : null;
+    }
+
+    private function parseTimestamp(?string $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $parsed = strtotime($value);
+        return $parsed === false ? null : $parsed;
     }
 
     private function resolveRunnerHost(?array $hostContext = null, ?array $canonicalPayload = null): ?array
@@ -775,6 +991,9 @@ class AuthService
             'canonical_last_refresh' => $newLastRefresh,
             'runner_last_check' => $this->versions->get('runner_last_check'),
             'runner_last_fail' => $this->versions->get('runner_last_fail'),
+            'runner_last_ok' => $this->versions->get('runner_last_ok'),
+            'runner_state' => $this->versions->get('runner_state'),
+            'runner_boot_id' => $this->versions->get('runner_boot_id'),
         ];
     }
 

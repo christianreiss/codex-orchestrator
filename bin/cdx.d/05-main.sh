@@ -555,6 +555,10 @@ case "$AUTH_PULL_STATUS" in
     api_label="Missing API config"
     api_tone="red"
     ;;
+  insecure)
+    api_label="Insecure host blocked"
+    api_tone="red"
+    ;;
 esac
 
 auth_label="n/a"
@@ -569,6 +573,8 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   else
     auth_label="auth unavailable (api offline)"
   fi
+elif [[ "$AUTH_PULL_STATUS" == "insecure" ]]; then
+  auth_label="insecure host window closed"
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_label="auth sync failed"
 fi
@@ -800,7 +806,7 @@ if (( QUOTA_BLOCKED )); then
 fi
 
 if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
-  result_label="System good to go!"
+  result_label="Codex go Brrrr!"
 fi
 
   log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
@@ -931,6 +937,9 @@ case "$AUTH_PULL_STATUS" in
     ;;
   disabled)
     AUTH_LAUNCH_REASON="Auth API disabled by administrator."
+    ;;
+  insecure)
+    AUTH_LAUNCH_REASON="Insecure host API disabled; enable the host window in the admin dashboard."
     ;;
   fail)
     AUTH_LAUNCH_REASON="Auth sync failed; check API connectivity."

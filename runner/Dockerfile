@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl jq ca-certificates \
+    && apt-get install -y --no-install-recommends curl jq ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
 ARG CODEX_TAG=rust-v0.63.0

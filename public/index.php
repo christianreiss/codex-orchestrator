@@ -379,6 +379,9 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
             'runner_url' => $runnerUrl,
             'last_daily_check' => $versionRepository->get('runner_last_check'),
             'last_failure' => $versionRepository->get('runner_last_fail'),
+            'last_ok' => $versionRepository->get('runner_last_ok'),
+            'state' => $versionRepository->get('runner_state'),
+            'boot_id' => $versionRepository->get('runner_boot_id'),
             'base_url' => Config::get('AUTH_RUNNER_CODEX_BASE_URL', $defaultBaseUrl),
             'timeout_seconds' => $timeoutSeconds,
             'counts' => [
@@ -465,7 +468,8 @@ $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostR
             $host,
             'admin-upload',
             null,
-            $systemUpload ? null : resolveBaseUrl()
+            $systemUpload ? null : resolveBaseUrl(),
+            true
         );
     } catch (ValidationException $exception) {
         Response::json([

@@ -1,49 +1,44 @@
 import json
 import os
-import re
-import shutil
 import subprocess
 import tempfile
 import time
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 app = FastAPI()
 
-TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
 DEFAULT_TIMEOUT = 8.0
 
 
 class VerifyRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload to test")
-    base_url: Optional[str] = Field(None, description="Override CODEX_SYNC_BASE_URL")
-    api_key: Optional[str] = Field(None, description="API key for sync (if provided)")
-    fqdn: Optional[str] = Field(None, description="Host FQDN for telemetry")
-    probe: Optional[str] = Field("login", description="cdx subcommand to run after --")
-    probe_args: Optional[List[str]] = Field(
-        None, description="Additional args for the probe command"
-    )
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the probe call (seconds)"
     )
 
 
-def _validated_probe_tokens(probe: str, probe_args: Optional[List[str]]) -> List[str]:
-    if not TOKEN_PATTERN.match(probe):
-        raise HTTPException(status_code=400, detail="invalid probe token")
-    args: List[str] = []
-    for item in probe_args or ["status"]:
-        if not TOKEN_PATTERN.match(item):
-            raise HTTPException(status_code=400, detail="invalid probe arg")
-        args.append(item)
-    return [probe] + args
+def _extract_openai_token(auth_json: dict) -> Optional[str]:
+    auths = auth_json.get("auths", {})
+    if isinstance(auths, dict):
+        openai_entry = auths.get("api.openai.com")
+        if isinstance(openai_entry, dict):
+            token = openai_entry.get("token")
+            if isinstance(token, str) and token.strip():
+                return token.strip()
+    tokens = auth_json.get("tokens", {})
+    if isinstance(tokens, dict):
+        candidate = tokens.get("access_token") or tokens.get("openai_api_key")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
 
 
-def _wrapper_version(env: dict) -> str:
+def _codex_version(env: dict) -> str:
     proc = subprocess.run(
-        ["/app/cdx", "--wrapper-version"],
+        ["/usr/local/bin/codex", "--version"],
         env=env,
         capture_output=True,
         text=True,
@@ -55,79 +50,71 @@ def _wrapper_version(env: dict) -> str:
 
 
 def _run_probe(payload: VerifyRequest) -> dict:
-    tmpdir = tempfile.mkdtemp(prefix="codex-runner-")
+    # Debug helper: persist the incoming auth.json so it can be inspected from the container.
+    # WARNING: contains secrets; remove after debugging.
     try:
-        env = os.environ.copy()
-        env["HOME"] = tmpdir
-        env["CODEX_SYNC_BASE_URL"] = payload.base_url or env.get(
-            "CODEX_SYNC_BASE_URL", "http://api"
-        )
-        env["CODEX_SYNC_BAKED"] = "0"
-        if payload.api_key:
-            env["CODEX_SYNC_API_KEY"] = payload.api_key
-        if payload.fqdn:
-            env["CODEX_SYNC_FQDN"] = payload.fqdn
-        env.setdefault("CODEX_SYNC_ALLOW_INSECURE", "1")
-        env.setdefault("CODEX_SYNC_OPTIONAL", "1")
+        debug_path = "/tmp/last-auth.json"
+        with open(debug_path, "w", encoding="utf-8") as fh:
+            json.dump(payload.auth_json, fh, indent=2)
+        os.chmod(debug_path, 0o600)
+    except Exception:
+        pass
 
-        codex_home = os.path.join(tmpdir, ".codex")
-        os.makedirs(codex_home, exist_ok=True)
-        auth_path = os.path.join(codex_home, "auth.json")
+    token = _extract_openai_token(payload.auth_json)
+    if token is None or token.strip() == "":
+        raise HTTPException(status_code=400, detail="no usable token in auth_json")
+
+    env = os.environ.copy()
+    home_dir = env.setdefault("HOME", tempfile.mkdtemp(prefix="codex-runner-"))
+    codex_dir = os.path.join(home_dir, ".codex")
+    os.makedirs(codex_dir, exist_ok=True)
+    auth_path = os.path.join(codex_dir, "auth.json")
+    try:
         with open(auth_path, "w", encoding="utf-8") as fh:
             json.dump(payload.auth_json, fh)
+        os.chmod(auth_path, 0o600)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
 
-        probe_cmd = ["/app/cdx"] + _validated_probe_tokens(
-            payload.probe or "login", payload.probe_args
-        )
-        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+    env.setdefault("CODEX_SYNC_BASE_URL", os.environ.get("CODEX_SYNC_BASE_URL", "http://api"))
+    env["CODEX_SYNC_OPTIONAL"] = "1"
+    env["CODEX_SYNC_BAKED"] = "0"
 
-        start = time.perf_counter()
-        version_proc = subprocess.run(
-            ["/app/cdx", "--wrapper-version"],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        if version_proc.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail="cdx wrapper not runnable",
-            )
+    timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+    probe_cmd = [
+        "/usr/local/bin/codex",
+        "exec",
+        "Reply Banana if this works.",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-s",
+        "danger-full-access",
+        "--skip-git-repo-check",
+    ]
 
-        proc = subprocess.run(
-            probe_cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        updated_auth = None
-        try:
-            with open(auth_path, "r", encoding="utf-8") as fh:
-                current_auth = json.load(fh)
-                if isinstance(current_auth, dict) and current_auth != payload.auth_json:
-                    updated_auth = current_auth
-        except Exception:
-            updated_auth = None
+    start = time.perf_counter()
+    proc = subprocess.run(
+        probe_cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    stdout = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
 
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        result = {
-            "status": "ok" if proc.returncode == 0 else "fail",
-            "latency_ms": latency_ms,
-            "wrapper_version": _wrapper_version(env),
-        }
-        if proc.returncode != 0:
-            stderr = (proc.stderr or "").strip()
-            stdout = (proc.stdout or "").strip()
-            parts = [p for p in [stderr, stdout] if p]
-            message = "\n".join(parts)
-            result["reason"] = message[:400] if message else "probe failed"
-        if updated_auth is not None:
-            result["updated_auth"] = updated_auth
-            result.setdefault("reason", "auth.json changed during probe")
-        return result
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    ok = proc.returncode == 0 and "banana" in stdout.lower()
+    result = {
+        "status": "ok" if ok else "fail",
+        "latency_ms": latency_ms,
+        "reachable": True,
+        "codex_version": _codex_version(env),
+    }
+    if not ok:
+        parts = [p for p in [stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:400] if message else "probe failed"
+    return result
 
 
 @app.post("/verify")
@@ -136,3 +123,7 @@ def verify(payload: VerifyRequest):
         return _run_probe(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="probe timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))

@@ -111,6 +111,10 @@ def normalize_bool(value):
 def fail_with_http(exc: urllib.error.HTTPError, action: str):
     body = exc.read().decode("utf-8", "ignore")
     msg, details = parse_error_body(body)
+    msg_lower = msg.lower() if isinstance(msg, str) else ""
+    detail_code = ""
+    if isinstance(details, dict):
+        detail_code = str(details.get("code") or "").lower()
     expected_ip = details.get("expected_ip") if isinstance(details, dict) else None
     received_ip = details.get("received_ip") if isinstance(details, dict) else None
     extra = ""
@@ -122,14 +126,17 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
             parts.append(f"received {received_ip}")
         extra = " (" + ", ".join(parts) + ")"
     if exc.code == 401:
-        if "Invalid API key" in msg:
+        if isinstance(msg, str) and "Invalid API key" in msg:
             sys.exit(10)
-        if "API key missing" in msg:
+        if isinstance(msg, str) and "API key missing" in msg:
             sys.exit(21)
         sys.exit(22)
     if exc.code == 403:
-        if "Host is disabled" in msg:
+        if "host is disabled" in msg_lower:
             sys.exit(11)
+        if detail_code == "insecure_api_disabled" or "insecure host api access disabled" in msg_lower:
+            print("insecure host API access disabled", file=sys.stderr)
+            sys.exit(24)
         if "not allowed from this IP" in msg or expected_ip or received_ip:
             print(f"{action} denied (IP bound){extra}", file=sys.stderr)
             sys.exit(12)
@@ -521,6 +528,12 @@ PY
     40)
       log_warn "Auth sync blocked: API disabled by administrator"
       AUTH_PULL_STATUS="disabled"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      return 1
+      ;;
+    24)
+      log_warn "Auth sync blocked: insecure host window is closed; enable it in the admin dashboard and retry."
+      AUTH_PULL_STATUS="insecure"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
       ;;
