@@ -39,6 +39,10 @@ LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
   LOCAL_AUTH_IS_FRESH=1
 fi
+LOCAL_AUTH_IS_RECENT=0
+if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "${MAX_LOCAL_AUTH_RECENT_SECONDS:-$MAX_LOCAL_AUTH_AGE_SECONDS}"; then
+  LOCAL_AUTH_IS_RECENT=1
+fi
 HAS_LOCAL_AUTH=0
 [[ -f "$HOME/.codex/auth.json" ]] && HAS_LOCAL_AUTH=1
 
@@ -568,6 +572,8 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   cached_lr="${ORIGINAL_LAST_REFRESH:-unknown}"
   if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
     auth_label="using cached auth (api offline; last_refresh ${cached_lr})"
+  elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+    auth_label="using cached auth (secure host; api offline; last_refresh ${cached_lr})"
   elif (( HAS_LOCAL_AUTH )); then
     auth_label="cached auth stale (api offline; last_refresh ${cached_lr})"
   else
@@ -592,7 +598,7 @@ case "$AUTH_STATUS" in
     ;;
 esac
 if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
+  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT) )); then
     auth_tone="yellow"
   else
     auth_tone="red"
@@ -697,6 +703,8 @@ if [[ -n "$AUTH_STATUS" ]]; then
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
     result_parts+=("auth cached (api offline)")
+  elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+    result_parts+=("auth cached (secure host; api offline)")
   elif (( HAS_LOCAL_AUTH )); then
     result_parts+=("auth stale (api offline)")
   else
@@ -773,7 +781,7 @@ result_tone="green"
 if (( codex_update_failed )) || (( wrapper_update_failed )) || { [[ "$AUTH_PULL_STATUS" != "ok" ]] && [[ "$AUTH_PULL_STATUS" != "offline" ]]; }; then
   result_tone="red"
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )); then
+  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT) )); then
     result_tone="yellow"
   else
     result_tone="red"
@@ -923,8 +931,11 @@ case "$AUTH_PULL_STATUS" in
     if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
       AUTH_LAUNCH_ALLOWED=1
       AUTH_LAUNCH_REASON="API offline; using cached auth.json"
+    elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+      AUTH_LAUNCH_ALLOWED=1
+      AUTH_LAUNCH_REASON="API offline; secure host using cached auth.json (older than 24h)"
     elif (( HAS_LOCAL_AUTH )); then
-      AUTH_LAUNCH_REASON="API offline; cached auth.json older than 24h"
+      AUTH_LAUNCH_REASON="API offline; cached auth.json older than allowed window"
     else
       AUTH_LAUNCH_REASON="API offline and no cached auth.json"
     fi
