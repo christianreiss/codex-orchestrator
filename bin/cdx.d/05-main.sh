@@ -449,6 +449,7 @@ build_quota_bar() {
     bar+="${DIM}$(printf '%*s' "$empty_count" "" | tr ' ' '.')"
   fi
   bar+="${RESET}"
+  printf -v bar "%b" "$bar"
   printf "%s" "$bar"
 }
 
