@@ -690,20 +690,18 @@ const statsEl = document.getElementById('stats');
           ? ''
           : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
         const insecureStateNow = insecureState(host);
-        const insecureLabel = insecureStateNow.enabledActive
-          ? `Turn Off (${countdownMinutes(host.insecure_enabled_until) ?? 0} min)`
-          : 'Turn On';
-        const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn ok' : 'ghost tiny-btn primary';
-        const insecureStatus = (() => {
-          if (isSecure) return '';
-          if (insecureStateNow.enabledActive) {
-            return `<span class="chip ok">Active</span>`;
-          }
-          if (insecureStateNow.graceActive) {
-            return `<span class="chip neutral">Grace</span>`;
-          }
-          return '';
-        })();
+        const minutesActive = countdownMinutes(host.insecure_enabled_until);
+        const minutesGrace = countdownMinutes(host.insecure_grace_until);
+        let insecureLabel = 'Turn On';
+        let insecureClasses = 'ghost tiny-btn primary';
+        if (!isSecure && insecureStateNow.enabledActive) {
+          insecureLabel = `Turn Off (${minutesActive ?? 0} min left)`;
+          insecureClasses = 'ghost tiny-btn ok';
+        } else if (!isSecure && insecureStateNow.graceActive) {
+          const graceText = minutesGrace !== null ? `${minutesGrace} min` : 'grace';
+          insecureLabel = `Turn On (${graceText} left)`;
+          insecureClasses = 'ghost tiny-btn neutral';
+        }
         const health = hostHealth(host);
         if (isHostSecure(host)) {
           tr.classList.add(`status-${health.tone}`);
@@ -738,7 +736,6 @@ const statsEl = document.getElementById('stats');
           </td>
           <td class="actions-cell" data-label="Insecure API">
             <div class="inline-cell" style="justify-content:flex-end; gap:8px; flex-wrap:wrap;">
-              ${insecureStatus}
               ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" data-id="${host.id}">${insecureLabel}</button>`}
             </div>
           </td>
