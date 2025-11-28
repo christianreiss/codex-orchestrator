@@ -548,6 +548,17 @@ const statsEl = document.getElementById('stats');
 
     function hostDetailRows(host) {
       const health = hostHealth(host);
+      const insecureStateNow = !isHostSecure(host) ? insecureState(host) : null;
+      let healthDesc = 'Provisioning and pruning signal for this host.';
+      if (insecureStateNow) {
+        if (insecureStateNow.enabledActive) {
+          healthDesc = `Insecure host; API allowed for ${formatCountdown(host.insecure_enabled_until)}.`;
+        } else if (insecureStateNow.graceActive) {
+          healthDesc = `Insecure host; grace window active (${formatCountdown(host.insecure_grace_until)}).`;
+        } else {
+          healthDesc = 'Insecure host; API window expired until you allow use.';
+        }
+      }
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
       const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
@@ -555,27 +566,12 @@ const statsEl = document.getElementById('stats');
         : '';
       const rows = [
         { key: 'Status', value: renderStatusPill(host.status), desc: 'Host entry state; suspended hosts cannot authenticate.' },
-        { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: 'Provisioning and pruning signal for this host.' },
+        { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: healthDesc },
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
         { key: 'IP binding', value: host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound', desc: host.allow_roaming_ips ? 'Roaming enabled; host may authenticate from any IP.' : 'First caller IP is locked; toggle roaming to permit moves.' },
         { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
       ];
-
-      if (!isHostSecure(host)) {
-        const state = insecureState(host);
-        let value = '<span class="chip warn">Disabled</span>';
-        if (state.enabledActive) {
-          value = `<span class="chip ok">Enabled</span> (${escapeHtml(formatCountdown(host.insecure_enabled_until))})`;
-        } else if (state.graceActive) {
-          value = `<span class="chip neutral">Grace</span> (${escapeHtml(formatCountdown(host.insecure_grace_until))})`;
-        }
-        rows.push({
-          key: 'Insecure API',
-          value,
-          desc: 'Enable grants /auth access for 10 minutes (sliding). Disable immediately, but allow store for 60 minutes.',
-        });
-      }
 
       rows.push({
         key: 'Security',
