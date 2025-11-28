@@ -686,7 +686,9 @@ const statsEl = document.getElementById('stats');
         const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
         const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
         const isSecure = isHostSecure(host);
-        const securityChip = `<span class="chip ${isSecure ? 'ok' : 'warn'}" title="${isSecure ? 'Secure host: keep auth.json on disk' : 'Insecure host: cdx will remove auth.json after runs'}">${isSecure ? 'Secure' : 'Insecure'}</span>`;
+        const securityChip = isSecure
+          ? ''
+          : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
         const insecureStateNow = insecureState(host);
         const insecureLabel = insecureStateNow.enabledActive
           ? `Turn Off (${countdownMinutes(host.insecure_enabled_until) ?? 0} min)`
