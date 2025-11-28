@@ -660,7 +660,7 @@ const statsEl = document.getElementById('stats');
       const filtered = applyHostFilters(currentHosts);
       hostsTbody.innerHTML = '';
       if (!filtered.length) {
-        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No hosts match your filters yet.</td></tr>';
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No hosts match your filters yet.</td></tr>';
         return;
       }
       filtered.forEach(host => {
@@ -673,6 +673,21 @@ const statsEl = document.getElementById('stats');
         const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
         const isSecure = isHostSecure(host);
         const securityChip = `<span class="chip ${isSecure ? 'ok' : 'warn'}" title="${isSecure ? 'Secure host: keep auth.json on disk' : 'Insecure host: cdx will remove auth.json after runs'}">${isSecure ? 'Secure' : 'Insecure'}</span>`;
+        const insecureStateNow = insecureState(host);
+        const insecureLabel = insecureStateNow.enabledActive
+          ? `Disable (${formatCountdown(host.insecure_enabled_until)})`
+          : 'Enable (10m)';
+        const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn danger' : 'ghost tiny-btn primary';
+        const insecureStatus = (() => {
+          if (isSecure) return '<span class="muted">Secure</span>';
+          if (insecureStateNow.enabledActive) {
+            return `<span class="chip ok">Enabled</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_enabled_until))}</small>`;
+          }
+          if (insecureStateNow.graceActive) {
+            return `<span class="chip neutral">Grace</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_grace_until))}</small>`;
+          }
+          return '<span class="chip warn">Disabled</span>';
+        })();
         const health = hostHealth(host);
         tr.classList.add(`status-${health.tone}`);
         tr.classList.add('host-row');
@@ -706,6 +721,14 @@ const statsEl = document.getElementById('stats');
           <td class="actions-cell details-cell" data-label="Details">
             <span class="details-chip">Open</span>
           </td>
+          <td class="actions-cell" data-label="Insecure API">
+            ${isSecure ? '<span class="muted">Secure</span>' : `
+              <div class="inline-cell" style="justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+                ${insecureStatus}
+                <button class="${insecureClasses} insecure-inline-btn" data-id="${host.id}">${insecureLabel}</button>
+              </div>
+            `}
+          </td>
         `;
         tr.addEventListener('click', () => openHostDetail(host.id));
         tr.addEventListener('keydown', (ev) => {
@@ -714,6 +737,17 @@ const statsEl = document.getElementById('stats');
             openHostDetail(host.id);
           }
         });
+        const insecureBtn = tr.querySelector('.insecure-inline-btn');
+        if (insecureBtn) {
+          insecureBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const targetId = Number(insecureBtn.getAttribute('data-id'));
+            const targetHost = currentHosts.find(h => h.id === targetId);
+            if (targetHost) {
+              toggleInsecureApi(targetHost);
+            }
+          });
+        }
         hostsTbody.appendChild(tr);
       });
     }
