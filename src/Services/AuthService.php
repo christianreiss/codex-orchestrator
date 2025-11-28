@@ -245,6 +245,22 @@ class AuthService
         }
 
         if ($command === 'retrieve') {
+            $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+            if (!$hostSecure) {
+                $existingDigest = trim((string) ($host['auth_digest'] ?? ''));
+                if ($existingDigest !== '') {
+                    $this->logs->log($logHostId, 'auth.retrieve.blocked_insecure', [
+                        'auth_digest' => $existingDigest,
+                        'reason' => 'insecure_host_locked',
+                    ]);
+
+                    throw new HttpException('Insecure hosts can only retrieve auth once; ask an admin to clear or re-register the host', 403, [
+                        'code' => 'insecure_host_locked',
+                        'hint' => 'Use /admin/hosts/{id}/clear or re-register to issue a fresh installer',
+                    ]);
+                }
+            }
+
             $providedDigest = $this->extractDigest($payload, true);
             $incomingLastRefresh = $this->extractLastRefresh($payload, 'last_refresh');
             $this->assertReasonableLastRefresh($incomingLastRefresh, 'last_refresh');
@@ -545,6 +561,42 @@ class AuthService
     }
 
     /**
+     * One-per-day preflight invoked on the first API request of the UTC day.
+     * Forces a client version refresh and runs the auth runner once with a force flag.
+     */
+    public function runDailyPreflight(?array $hostContext = null): void
+    {
+        $today = gmdate('Y-m-d');
+        $lastPreflight = $this->versions->get('daily_preflight', '');
+        if ($lastPreflight === $today) {
+            return;
+        }
+
+        // Always refresh the cached GitHub client version on the first request of the day.
+        $this->availableClientVersion(true);
+
+        // Opportunistically run the auth runner once per day alongside the version refresh.
+        if ($this->runnerVerifier !== null) {
+            $canonicalPayload = $this->resolveCanonicalPayload();
+            if ($canonicalPayload !== null) {
+                $runnerHost = $this->resolveRunnerHost($hostContext, $canonicalPayload);
+                if ($runnerHost !== null) {
+                    $versions = $this->versionSnapshot();
+                    [$canonicalPayload] = $this->runnerDailyCheck(
+                        $canonicalPayload,
+                        $runnerHost,
+                        $versions,
+                        true,
+                        'daily_first_request'
+                    );
+                }
+            }
+        }
+
+        $this->versions->set('daily_preflight', $today);
+    }
+
+    /**
      * Run the runner against the current canonical auth (daily or manual).
      *
      * @param bool $forceRun When true, bypass the once-per-day guard (used for manual admin trigger).
@@ -642,6 +694,25 @@ class AuthService
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
         return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
+    }
+
+    private function resolveRunnerHost(?array $hostContext = null, ?array $canonicalPayload = null): ?array
+    {
+        if ($hostContext !== null && isset($hostContext['id'])) {
+            return $hostContext;
+        }
+
+        $sourceHostId = isset($canonicalPayload['source_host_id']) ? (int) $canonicalPayload['source_host_id'] : null;
+        if ($sourceHostId !== null && $sourceHostId > 0) {
+            $sourceHost = $this->hosts->findById($sourceHostId);
+            if ($sourceHost !== null) {
+                return $sourceHost;
+            }
+        }
+
+        $hosts = $this->hosts->all();
+
+        return $hosts[0] ?? null;
     }
 
     public function triggerRunnerRefresh(): array
