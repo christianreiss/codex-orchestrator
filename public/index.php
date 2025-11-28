@@ -886,22 +886,33 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
 
     $items = [];
     foreach ($hosts as $host) {
+        $normalizeTs = static function ($value): ?string {
+            if ($value === null) {
+                return null;
+            }
+            try {
+                $dt = new DateTimeImmutable((string) $value);
+                return $dt->format(DATE_ATOM);
+            } catch (\Exception) {
+                return is_string($value) ? $value : null;
+            }
+        };
         $hostDigests = $digests[$host['id']] ?? [];
         $items[] = [
             'id' => (int) $host['id'],
             'fqdn' => $host['fqdn'],
             'status' => $host['status'],
-            'last_refresh' => $host['last_refresh'] ?? null,
-            'updated_at' => $host['updated_at'] ?? null,
-            'created_at' => $host['created_at'] ?? null,
+            'last_refresh' => $normalizeTs($host['last_refresh'] ?? null),
+            'updated_at' => $normalizeTs($host['updated_at'] ?? null),
+            'created_at' => $normalizeTs($host['created_at'] ?? null),
             'client_version' => $host['client_version'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'ip' => $host['ip'] ?? null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
-            'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
-            'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
+            'insecure_enabled_until' => $normalizeTs($host['insecure_enabled_until'] ?? null),
+            'insecure_grace_until' => $normalizeTs($host['insecure_grace_until'] ?? null),
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
