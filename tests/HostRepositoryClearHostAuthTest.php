@@ -28,6 +28,8 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 status TEXT,
                 secure INTEGER DEFAULT 1,
                 allow_roaming_ips INTEGER DEFAULT 0,
+                insecure_enabled_until TEXT NULL,
+                insecure_grace_until TEXT NULL,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
                 ip TEXT NULL,

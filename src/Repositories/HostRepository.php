@@ -338,6 +338,20 @@ class HostRepository
         ]);
     }
 
+    public function updateInsecureWindows(int $hostId, ?string $enabledUntil, ?string $graceUntil): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET insecure_enabled_until = :enabled_until, insecure_grace_until = :grace_until, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'enabled_until' => $enabledUntil,
+            'grace_until' => $graceUntil,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     /**
      * Clear canonical auth state for a host without deleting the host record.
      * Resets the stored digest/last_refresh and removes any host->payload pointer

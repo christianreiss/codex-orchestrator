@@ -331,6 +331,8 @@ class Database
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'secure', 'TINYINT(1) NOT NULL DEFAULT 1');
+        $this->ensureColumnExists('hosts', 'insecure_enabled_until', 'DATETIME NULL');
+        $this->ensureColumnExists('hosts', 'insecure_grace_until', 'DATETIME NULL');
         $this->ensureColumnExists('hosts', 'api_key_hash', 'CHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');

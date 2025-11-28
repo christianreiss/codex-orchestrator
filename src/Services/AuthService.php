@@ -175,9 +175,14 @@ class AuthService
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
+        $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
         $trackHost = $hostId > 0;
         $logHostId = $trackHost ? $hostId : null;
+
+        if (!$hostSecure) {
+            $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost);
+        }
 
         if ($trackHost) {
             $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
@@ -245,22 +250,6 @@ class AuthService
         }
 
         if ($command === 'retrieve') {
-            $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
-            if (!$hostSecure) {
-                $existingDigest = trim((string) ($host['auth_digest'] ?? ''));
-                if ($existingDigest !== '') {
-                    $this->logs->log($logHostId, 'auth.retrieve.blocked_insecure', [
-                        'auth_digest' => $existingDigest,
-                        'reason' => 'insecure_host_locked',
-                    ]);
-
-                    throw new HttpException('Insecure hosts can only retrieve auth once; ask an admin to clear or re-register the host', 403, [
-                        'code' => 'insecure_host_locked',
-                        'hint' => 'Use /admin/hosts/{id}/clear or re-register to issue a fresh installer',
-                    ]);
-                }
-            }
-
             $providedDigest = $this->extractDigest($payload, true);
             $incomingLastRefresh = $this->extractLastRefresh($payload, 'last_refresh');
             $this->assertReasonableLastRefresh($incomingLastRefresh, 'last_refresh');
@@ -1142,6 +1131,59 @@ class AuthService
         return null;
     }
 
+    private function assertInsecureHostWindow(array $host, int $hostId, string $command, bool $trackHost): array
+    {
+        $enabledUntilRaw = $host['insecure_enabled_until'] ?? null;
+        $graceUntilRaw = $host['insecure_grace_until'] ?? null;
+
+        $enabledUntil = null;
+        $graceUntil = null;
+        try {
+            if (is_string($enabledUntilRaw) && trim($enabledUntilRaw) !== '') {
+                $enabledUntil = new DateTimeImmutable($enabledUntilRaw);
+            }
+        } catch (\Exception) {
+            $enabledUntil = null;
+        }
+        try {
+            if (is_string($graceUntilRaw) && trim($graceUntilRaw) !== '') {
+                $graceUntil = new DateTimeImmutable($graceUntilRaw);
+            }
+        } catch (\Exception) {
+            $graceUntil = null;
+        }
+
+        $now = new DateTimeImmutable('now');
+        $enabledActive = $enabledUntil !== null && $enabledUntil >= $now;
+        $graceActive = $graceUntil !== null && $graceUntil >= $now;
+
+        if ($enabledActive) {
+            if ($trackHost) {
+                $newUntil = $now->modify('+10 minutes');
+                $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $graceUntilRaw);
+                $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
+            }
+
+            return $host;
+        }
+
+        if ($command === 'store' && $graceActive) {
+            return $host;
+        }
+
+        $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.denied', [
+            'command' => $command,
+            'enabled_until' => $enabledUntilRaw,
+            'grace_until' => $graceUntilRaw,
+        ]);
+
+        throw new HttpException('Insecure host API access disabled', 403, [
+            'code' => 'insecure_api_disabled',
+            'enabled_until' => $enabledUntilRaw,
+            'grace_until' => $graceUntilRaw,
+        ]);
+    }
+
     private function buildHostPayload(array $host, bool $includeApiKey = false): array
     {
         $payload = [
@@ -1154,6 +1196,8 @@ class AuthService
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
+            'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
+            'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
         ];
 
         if ($includeApiKey) {

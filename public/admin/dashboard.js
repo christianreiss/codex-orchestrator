@@ -124,6 +124,19 @@ const statsEl = document.getElementById('stats');
       return num.toLocaleString('en-US');
     }
 
+    function formatCountdown(value) {
+      const ts = parseTimestamp(value);
+      if (!ts) return '—';
+      const diff = ts.getTime() - Date.now();
+      if (diff <= 0) return 'expired';
+      const mins = Math.round(diff / 60000);
+      if (mins >= 90) {
+        const hours = Math.round(mins / 60);
+        return `${hours}h left`;
+      }
+      return `${mins}m left`;
+    }
+
     function api(path, opts = {}) {
       const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
       const init = {
@@ -374,6 +387,15 @@ const statsEl = document.getElementById('stats');
       return true;
     }
 
+    function insecureState(host) {
+      const now = Date.now();
+      const enabledTs = parseTimestamp(host?.insecure_enabled_until)?.getTime?.();
+      const graceTs = parseTimestamp(host?.insecure_grace_until)?.getTime?.();
+      const enabledActive = Number.isFinite(enabledTs) && enabledTs >= now;
+      const graceActive = Number.isFinite(graceTs) && graceTs >= now;
+      return { enabledActive, graceActive, enabledTs: enabledTs || null, graceTs: graceTs || null };
+    }
+
     function renderTokenCell(host) {
       const total = host?.token_usage?.total ?? null;
       if (total === null) return '—';
@@ -440,10 +462,15 @@ const statsEl = document.getElementById('stats');
     function renderHostActionButtons(host) {
       const roamingLabel = host.allow_roaming_ips ? 'Lock to IP' : 'Allow roaming';
       const securityLabel = isHostSecure(host) ? 'Mark insecure' : 'Mark secure';
+      const insecure = !isHostSecure(host);
+      const state = insecureState(host);
+      const insecureLabel = state.enabledActive ? 'Disable insecure API' : 'Enable insecure API (10m)';
+      const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
       return `
         <button class="ghost secondary" data-action="install">Install script</button>
         <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
         <button class="ghost" data-action="toggle-security">${securityLabel}</button>
+        ${insecure ? `<button class="${insecureClasses}" data-action="toggle-insecure-api">${insecureLabel}</button>` : ''}
         <button class="ghost" data-action="clear">Clear auth</button>
         <button class="danger" data-action="remove">Remove</button>
       `;
@@ -462,6 +489,8 @@ const statsEl = document.getElementById('stats');
             toggleRoaming(host.id);
           } else if (action === 'toggle-security') {
             toggleSecurity(host.id);
+          } else if (action === 'toggle-insecure-api') {
+            toggleInsecureApi(host);
           } else if (action === 'clear') {
             confirmClear(host.id);
           } else if (action === 'remove') {
@@ -515,16 +544,33 @@ const statsEl = document.getElementById('stats');
       const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
         ? ` (${formatNumber(host.api_calls)} api calls)`
         : '';
-      return [
+      const rows = [
         { key: 'Status', value: renderStatusPill(host.status), desc: 'Host entry state; suspended hosts cannot authenticate.' },
         { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: 'Provisioning and pruning signal for this host.' },
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
         { key: 'IP binding', value: host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound', desc: host.allow_roaming_ips ? 'Roaming enabled; host may authenticate from any IP.' : 'First caller IP is locked; toggle roaming to permit moves.' },
         { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
-        {
-          key: 'Security',
-          value: `
+      ];
+
+      if (!isHostSecure(host)) {
+        const state = insecureState(host);
+        let value = '<span class="chip warn">Disabled</span>';
+        if (state.enabledActive) {
+          value = `<span class="chip ok">Enabled</span> (${escapeHtml(formatCountdown(host.insecure_enabled_until))})`;
+        } else if (state.graceActive) {
+          value = `<span class="chip neutral">Grace</span> (${escapeHtml(formatCountdown(host.insecure_grace_until))})`;
+        }
+        rows.push({
+          key: 'Insecure API',
+          value,
+          desc: 'Enable grants /auth access for 10 minutes (sliding). Disable immediately, but allow store for 60 minutes.',
+        });
+      }
+
+      rows.push({
+        key: 'Security',
+        value: `
             <div class="kv-security">
               <span class="chip ${isHostSecure(host) ? 'ok' : 'warn'}">${isHostSecure(host) ? 'Secure' : 'Insecure'}</span>
               ${Array.isArray(host.users) && host.users.length
@@ -532,11 +578,12 @@ const statsEl = document.getElementById('stats');
                 : ''}
             </div>
           `,
-          desc: 'Insecure hosts purge auth.json after each run. Users are reported by the host.',
-        },
-        {
-          key: 'Versions',
-          value: `
+        desc: 'Insecure hosts purge auth.json after each run. Users are reported by the host.',
+      });
+
+      rows.push({
+        key: 'Versions',
+        value: `
             <div class="kv-version">
               <div class="version-block">
                 <span class="version-label">Codex</span>
@@ -548,10 +595,12 @@ const statsEl = document.getElementById('stats');
               </div>
             </div>
           `,
-          desc: 'Client and wrapper builds reported by this host.',
-        },
-        { key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: '', full: true },
-      ];
+        desc: 'Client and wrapper builds reported by this host.',
+      });
+
+      rows.push({ key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: '', full: true });
+
+      return rows;
     }
 
     function showHostDetailModal(show) {
@@ -1851,6 +1900,23 @@ const statsEl = document.getElementById('stats');
           method: 'POST',
           json: { secure: targetSecure },
         });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    async function toggleInsecureApi(host) {
+      if (!host || isHostSecure(host)) {
+        alert('Host is secure; insecure API window not available.');
+        return;
+      }
+      const state = insecureState(host);
+      const path = state.enabledActive
+        ? `/admin/hosts/${host.id}/insecure/disable`
+        : `/admin/hosts/${host.id}/insecure/enable`;
+      try {
+        await api(path, { method: 'POST' });
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);

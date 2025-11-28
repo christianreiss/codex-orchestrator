@@ -110,6 +110,13 @@ $pricingService = new PricingService(
 );
 $wrapperService->ensureSeeded();
 
+// First API hit each UTC day: refresh GitHub client version cache and run auth runner once.
+try {
+    $service->runDailyPreflight();
+} catch (\Throwable $exception) {
+    error_log('[preflight] daily check failed: ' . $exception->getMessage());
+}
+
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 $normalizedPath = rtrim($path, '/');
@@ -720,6 +727,73 @@ $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    if (isset($host['secure']) && (bool) (int) $host['secure']) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host is secure; insecure window not applicable',
+        ], 422);
+    }
+
+    $enabledUntil = gmdate(DATE_ATOM, time() + (10 * 60));
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null);
+    $logRepository->log($hostId, 'admin.host.insecure_enable', [
+        'fqdn' => $host['fqdn'],
+        'enabled_until' => $enabledUntil,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'insecure_enabled_until' => $enabledUntil,
+                'insecure_grace_until' => null,
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($matches) use ($hostRepository, $logRepository) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $graceUntil = gmdate(DATE_ATOM, time() + (60 * 60));
+    $hostRepository->updateInsecureWindows($hostId, null, $graceUntil);
+    $logRepository->log($hostId, 'admin.host.insecure_disable', [
+        'fqdn' => $host['fqdn'],
+        'grace_until' => $graceUntil,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'insecure_enabled_until' => null,
+                'insecure_grace_until' => $graceUntil,
+            ],
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
@@ -814,6 +888,8 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'ip' => $host['ip'] ?? null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
+            'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
+            'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
