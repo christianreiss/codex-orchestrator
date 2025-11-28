@@ -746,7 +746,17 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
         ], 422);
     }
 
-    $enabledUntil = gmdate(DATE_ATOM, time() + (10 * 60));
+    $now = time();
+    $currentEnabled = $host['insecure_enabled_until'] ?? null;
+    $baseTs = $now;
+    if (is_string($currentEnabled) && trim($currentEnabled) !== '') {
+        $ts = strtotime($currentEnabled);
+        if ($ts !== false && $ts > $now) {
+            $baseTs = $ts;
+        }
+    }
+
+    $enabledUntil = gmdate(DATE_ATOM, $baseTs + (10 * 60));
     $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null);
     $logRepository->log($hostId, 'admin.host.insecure_enable', [
         'fqdn' => $host['fqdn'],
