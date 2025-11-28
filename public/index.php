@@ -786,11 +786,9 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
         ], 404);
     }
 
-    $graceUntil = gmdate(DATE_ATOM, time() + (60 * 60));
-    $hostRepository->updateInsecureWindows($hostId, null, $graceUntil);
+    $hostRepository->updateInsecureWindows($hostId, null, null);
     $logRepository->log($hostId, 'admin.host.insecure_disable', [
         'fqdn' => $host['fqdn'],
-        'grace_until' => $graceUntil,
     ]);
 
     Response::json([
@@ -799,7 +797,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
             'host' => [
                 'id' => $hostId,
                 'insecure_enabled_until' => null,
-                'insecure_grace_until' => $graceUntil,
+                'insecure_grace_until' => null,
             ],
         ],
     ]);
