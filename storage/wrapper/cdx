@@ -71,7 +71,7 @@ mask_key() {
 emit_insecure_notice() {
   (( HOST_SECURITY_NOTICE_EMITTED )) && return
   log_warn "Host marked insecure; auth.json will be removed after this run."
-  log_warn "Bootstrap (insecure host): auth will not persist on disk; fetch a fresh installer after marking the host secure if you want to keep auth locally."
+  log_warn "Bootstrap (insecure host): auth will not persist on disk."
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 
@@ -156,7 +156,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.27-25"
+WRAPPER_VERSION="2025.11.28-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 
 IS_ROOT=0
