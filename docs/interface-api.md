@@ -13,7 +13,7 @@
 - `POST /slash-commands/store` — body: `filename`, `prompt` (full file content, e.g., markdown with `---` front matter), optional `description`/`argument_hint`, optional `sha256` (validated against `prompt`). Stores/updates canonical prompt row, logs `slash.store`, and echoes `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
 - `GET /versions` — current client version (GitHub latest, cached 3h with stale fallback) and wrapper version from the baked script; no publish endpoint.
 
-Daily preflight: on the first API request of each UTC day the server forces a GitHub client version refresh and runs a single auth-runner validation against the canonical `auth.json` (best-effort; failures are logged and do not block the request).
+Daily preflight: on the first API request of each UTC day the server forces a GitHub client version refresh and runs a single auth-runner validation against the canonical `auth.json` (best-effort; unreachable runner failures are logged, throttled via `runner_last_fail`, and do not block the request).
 
 ## Installer
 

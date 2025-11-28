@@ -29,6 +29,7 @@ class AuthService
     private const AUTH_FAIL_LIMIT = 20;
     private const AUTH_FAIL_WINDOW_SECONDS = 600;
     private const AUTH_FAIL_BLOCK_SECONDS = 1800;
+    private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
 
     public function __construct(
         private readonly HostRepository $hosts,
@@ -564,7 +565,7 @@ class AuthService
     public function runDailyPreflight(?array $hostContext = null): void
     {
         $today = gmdate('Y-m-d');
-        $lastPreflight = $this->versions->get('daily_preflight', '');
+        $lastPreflight = $this->versions->get('daily_preflight') ?? '';
         if ($lastPreflight === $today) {
             return;
         }
@@ -617,16 +618,31 @@ class AuthService
         $currentLastRefresh = $validatedCanonical['last_refresh'];
 
         $today = gmdate('Y-m-d');
-        $lastCheck = $this->versions->get('runner_last_check', '');
+        $lastCheck = $this->versions->get('runner_last_check') ?? '';
+        $lastFailure = $this->versions->get('runner_last_fail') ?? '';
+        $now = time();
+
         if (!$forceRun && $lastCheck === $today) {
+            return [$canonicalPayload, $currentDigest, $currentLastRefresh];
+        }
+
+        if (
+            !$forceRun
+            && $lastFailure !== ''
+            && ($lastFailureTs = strtotime($lastFailure)) !== false
+            && ($now - $lastFailureTs) < self::RUNNER_FAILURE_BACKOFF_SECONDS
+        ) {
             return [$canonicalPayload, $currentDigest, $currentLastRefresh];
         }
 
         $hostId = (int) ($host['id'] ?? 0);
         $trackHost = $hostId > 0;
         $logHostId = $trackHost ? $hostId : null;
+        $runnerReachable = false;
+        $nowIso = gmdate(DATE_ATOM);
         try {
             $validation = $this->runnerVerifier->verify($canonicalAuth, null, null, $host);
+            $runnerReachable = (bool) ($validation['reachable'] ?? false);
             $this->logs->log($logHostId, 'auth.validate', [
                 'status' => $validation['status'] ?? null,
                 'reason' => $validation['reason'] ?? null,
@@ -685,7 +701,12 @@ class AuthService
                 'reason' => $exception->getMessage(),
             ]);
         } finally {
-            $this->versions->set('runner_last_check', $today);
+            if ($runnerReachable) {
+                $this->versions->set('runner_last_check', $today);
+                $this->versions->set('runner_last_fail', '');
+            } else {
+                $this->versions->set('runner_last_fail', $nowIso);
+            }
         }
 
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
@@ -752,7 +773,8 @@ class AuthService
             'applied' => $applied,
             'canonical_digest' => $newDigest,
             'canonical_last_refresh' => $newLastRefresh,
-            'runner_last_check' => $this->versions->get('runner_last_check', null),
+            'runner_last_check' => $this->versions->get('runner_last_check'),
+            'runner_last_fail' => $this->versions->get('runner_last_fail'),
         ];
     }
 

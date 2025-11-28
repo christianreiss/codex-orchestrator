@@ -33,6 +33,7 @@ class RunnerVerifier
             return [
                 'status' => 'fail',
                 'reason' => 'failed to encode payload',
+                'reachable' => false,
             ];
         }
 
@@ -59,6 +60,7 @@ class RunnerVerifier
                         ? 'runner request failed (status ' . $status . ')'
                         : 'runner request failed',
                     'latency_ms' => $latencyMs,
+                    'reachable' => false,
                 ];
             }
 
@@ -69,6 +71,7 @@ class RunnerVerifier
                         ? 'runner returned empty response (status ' . $status . ')'
                         : 'runner returned empty response',
                     'latency_ms' => $latencyMs,
+                    'reachable' => true,
                 ];
             }
 
@@ -80,18 +83,21 @@ class RunnerVerifier
                         ? 'invalid runner response (status ' . $status . ')'
                         : 'invalid runner response',
                     'latency_ms' => $latencyMs,
+                    'reachable' => true,
                 ];
             }
 
             if (!isset($decoded['latency_ms'])) {
                 $decoded['latency_ms'] = $latencyMs;
             }
+            $decoded['reachable'] = true;
 
             return $decoded;
         } catch (Throwable $exception) {
             return [
                 'status' => 'fail',
                 'reason' => $exception->getMessage(),
+                'reachable' => false,
             ];
         }
     }

@@ -1499,6 +1499,9 @@ const statsEl = document.getElementById('stats');
       const lastCheck = runResult?.runner_last_check
         || info?.last_daily_check
         || '—';
+      const lastFailure = runResult?.runner_last_fail
+        || info?.last_failure
+        || '';
       const status = validation?.status ?? (info?.enabled ? '—' : 'disabled');
       const latency = validation?.latency_ms ? `${validation.latency_ms}ms` : '';
       const reason = validation?.reason || runnerStore?.reason || '';
@@ -1508,6 +1511,7 @@ const statsEl = document.getElementById('stats');
         <div><div class="label">Digest</div><div>${digest ? `<code>${digest}</code>` : '—'}</div></div>
         <div><div class="label">Last refresh</div><div>${lastRefresh ? formatTimestamp(lastRefresh) : '—'}</div></div>
         <div><div class="label">Runner last check</div><div>${lastCheck ? formatTimestamp(lastCheck) : '—'}</div></div>
+        <div><div class="label">Last failure</div><div>${lastFailure ? formatTimestamp(lastFailure) : '—'}</div></div>
         <div><div class="label">Notes</div><div>${reason || '—'}</div></div>
       `;
     }

@@ -377,7 +377,8 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
         'data' => [
             'enabled' => $enabled,
             'runner_url' => $runnerUrl,
-            'last_daily_check' => $versionRepository->get('runner_last_check', null),
+            'last_daily_check' => $versionRepository->get('runner_last_check'),
+            'last_failure' => $versionRepository->get('runner_last_fail'),
             'base_url' => Config::get('AUTH_RUNNER_CODEX_BASE_URL', $defaultBaseUrl),
             'timeout_seconds' => $timeoutSeconds,
             'counts' => [
