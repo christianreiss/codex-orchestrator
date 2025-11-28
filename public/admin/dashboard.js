@@ -375,7 +375,7 @@ const statsEl = document.getElementById('stats');
       if (!isHostSecure(host)) {
         const { enabledActive, graceActive } = insecureState(host);
         if (!enabledActive && !graceActive) {
-          return { tone: 'critical', label: 'Insecure API disabled' };
+          return { tone: 'warning', label: 'Locked' };
         }
         if (graceActive) {
           return { tone: 'warning', label: 'Insecure grace window' };
