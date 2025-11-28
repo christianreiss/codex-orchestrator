@@ -693,14 +693,14 @@ const statsEl = document.getElementById('stats');
         const insecureLabel = insecureStateNow.enabledActive
           ? `Turn Off (${countdownMinutes(host.insecure_enabled_until) ?? 0} min)`
           : 'Turn On';
-        const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn danger' : 'ghost tiny-btn primary';
+        const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn ok' : 'ghost tiny-btn primary';
         const insecureStatus = (() => {
           if (isSecure) return '';
           if (insecureStateNow.enabledActive) {
-            return `<span class="chip ok">Active</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_enabled_until))}</small>`;
+            return `<span class="chip ok">Active</span>`;
           }
           if (insecureStateNow.graceActive) {
-            return `<span class="chip neutral">Grace</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_grace_until))}</small>`;
+            return `<span class="chip neutral">Grace</span>`;
           }
           return '';
         })();
