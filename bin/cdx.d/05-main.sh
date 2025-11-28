@@ -424,6 +424,34 @@ format_duration_short() {
   printf "%s" "${parts[*]}"
 }
 
+build_quota_bar() {
+  local pct="$1" width="$2"
+  (( width < 1 )) && width=24
+  (( pct < 0 )) && pct=0
+  (( pct > 100 )) && pct=100
+  local palette=("${GREEN}${BOLD}" "${CYAN}${BOLD}" "${BLUE}${BOLD}" "${MAGENTA}${BOLD}" "${ORANGE}${BOLD}" "${RED}${BOLD}")
+  local palette_len=${#palette[@]}
+  local filled=$(( (pct * width + 50) / 100 ))
+  (( filled > width )) && filled=$width
+  local bar=""
+  for (( i=1; i<=filled; i++ )); do
+    local pos_pct=$(( i * 100 / width ))
+    local idx=0
+    if (( palette_len > 1 )); then
+      idx=$(( pos_pct * (palette_len - 1) / 100 ))
+    fi
+    (( idx < 0 )) && idx=0
+    (( idx >= palette_len )) && idx=$(( palette_len - 1 ))
+    bar+="${palette[$idx]}#"
+  done
+  local empty_count=$(( width - filled ))
+  if (( empty_count > 0 )); then
+    bar+="${DIM}$(printf '%*s' "$empty_count" "" | tr ' ' '.')"
+  fi
+  bar+="${RESET}"
+  printf "%s" "$bar"
+}
+
 render_quota_line() {
   local used="$1" reset_after="$2" reset_at="$3"
   local width=${QUOTA_BAR_WIDTH:-24}
@@ -435,12 +463,9 @@ render_quota_line() {
     local pct=$used
     (( pct < 0 )) && pct=0
     (( pct > 100 )) && pct=100
-    local filled=$(( (pct * width + 50) / 100 ))
-    (( filled > width )) && filled=$width
-    local bar_filled
-    local bar_empty
-    bar_filled=$(printf '%*s' "$filled" "" | tr ' ' '#')
-    bar_empty=$(printf '%*s' $(( width - filled )) "" | tr ' ' '.')
+    (( width < 1 )) && width=24
+    local bar
+    bar="$(build_quota_bar "$pct" "$width")"
     if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
       local dur
       dur=$(format_duration_short "$reset_after")
@@ -457,7 +482,7 @@ render_quota_line() {
       tone="green"
     fi
 
-    text=$(printf "%3d%% [%s%s]" "$pct" "$bar_filled" "$bar_empty")
+    text=$(printf "%3d%% [%s]" "$pct" "$bar")
   fi
 
   printf "%s\t%s\t%s" "$tone" "$text" "$note"

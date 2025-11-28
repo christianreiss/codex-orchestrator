@@ -9,7 +9,9 @@ if [[ -t 1 ]]; then
   GREEN="\033[32m"
   YELLOW="\033[33m"
   ORANGE="\033[38;5;208m"
+  CYAN="\033[96m"
   BLUE="\033[36m"
+  MAGENTA="\033[35m"
   RED="\033[31m"
   RESET="\033[0m"
 else
@@ -18,7 +20,9 @@ else
   GREEN=""
   YELLOW=""
   ORANGE=""
+  CYAN=""
   BLUE=""
+  MAGENTA=""
   RED=""
   RESET=""
 fi
@@ -159,7 +163,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.28-05"
+WRAPPER_VERSION="2025.11.28-06"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 

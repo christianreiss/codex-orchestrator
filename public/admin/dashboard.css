@@ -568,7 +568,19 @@
     .usage-bar .label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .usage-bar .value { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-weight: 800; font-size: 18px; }
     .usage-bar .meter { height: 8px; background: var(--panel-strong); border-radius: 999px; overflow: hidden; }
-    .usage-bar .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .usage-bar .meter span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(
+        90deg,
+        #16a34a 0%,
+        #22c55e 20%,
+        #84cc16 45%,
+        #f59e0b 65%,
+        #f97316 82%,
+        #ef4444 100%
+      );
+    }
     .usage-bar .meter.time { margin-top: 6px; background: rgba(0,0,0,0.05); }
     .usage-bar .meter.time span { background: linear-gradient(90deg, #64748b, #94a3b8); }
     .usage-bar small { color: var(--muted); }
