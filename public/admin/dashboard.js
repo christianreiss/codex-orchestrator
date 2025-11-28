@@ -697,12 +697,12 @@ const statsEl = document.getElementById('stats');
         const insecureStatus = (() => {
           if (isSecure) return '';
           if (insecureStateNow.enabledActive) {
-            return `<span class="chip ok">Enabled</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_enabled_until))}</small>`;
+            return `<span class="chip ok">Active</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_enabled_until))}</small>`;
           }
           if (insecureStateNow.graceActive) {
             return `<span class="chip neutral">Grace</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_grace_until))}</small>`;
           }
-          return '';
+          return '<span class="chip warn">Locked</span>';
         })();
         const health = hostHealth(host);
         if (isHostSecure(host)) {
