@@ -364,6 +364,15 @@ const statsEl = document.getElementById('stats');
     }
 
     function hostHealth(host) {
+      if (!isHostSecure(host)) {
+        const { enabledActive, graceActive } = insecureState(host);
+        if (!enabledActive && !graceActive) {
+          return { tone: 'critical', label: 'Insecure API disabled' };
+        }
+        if (graceActive) {
+          return { tone: 'warning', label: 'Insecure grace window' };
+        }
+      }
       const status = (host?.status || '').toLowerCase();
       const authed = host?.authed === true;
       const canLogin = status === 'active' && authed;
