@@ -695,14 +695,14 @@ const statsEl = document.getElementById('stats');
           : 'Turn On';
         const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn danger' : 'ghost tiny-btn primary';
         const insecureStatus = (() => {
-          if (isSecure) return '<span class="muted">—</span>';
+          if (isSecure) return '';
           if (insecureStateNow.enabledActive) {
             return `<span class="chip ok">Enabled</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_enabled_until))}</small>`;
           }
           if (insecureStateNow.graceActive) {
             return `<span class="chip neutral">Grace</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_grace_until))}</small>`;
           }
-          return '<span class="chip warn">Disabled</span>';
+          return '';
         })();
         const health = hostHealth(host);
         if (isHostSecure(host)) {
