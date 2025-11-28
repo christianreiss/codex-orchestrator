@@ -473,12 +473,12 @@ const statsEl = document.getElementById('stats');
       const securityLabel = isHostSecure(host) ? 'Mark insecure' : 'Mark secure';
       const insecure = !isHostSecure(host);
       const state = insecureState(host);
-      const insecureLabel = state.enabledActive ? 'Disable insecure API' : 'Enable insecure API (10m)';
-      const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
-      return `
-        <button class="ghost secondary" data-action="install">Install script</button>
-        <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
-        <button class="ghost" data-action="toggle-security">${securityLabel}</button>
+        const insecureLabel = state.enabledActive ? 'Disable insecure API' : 'Allow Use';
+        const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
+        return `
+          <button class="ghost secondary" data-action="install">Install script</button>
+          <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
+          <button class="ghost" data-action="toggle-security">${securityLabel}</button>
         ${insecure ? `<button class="${insecureClasses}" data-action="toggle-insecure-api">${insecureLabel}</button>` : ''}
         <button class="ghost" data-action="clear">Clear auth</button>
         <button class="danger" data-action="remove">Remove</button>
@@ -685,7 +685,7 @@ const statsEl = document.getElementById('stats');
         const insecureStateNow = insecureState(host);
         const insecureLabel = insecureStateNow.enabledActive
           ? `Disable (${formatCountdown(host.insecure_enabled_until)})`
-          : 'Enable (10m)';
+          : 'Allow Use';
         const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn danger' : 'ghost tiny-btn primary';
         const insecureStatus = (() => {
           if (isSecure) return '<span class="muted">Secure</span>';
