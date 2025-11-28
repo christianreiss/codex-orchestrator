@@ -741,7 +741,7 @@ const statsEl = document.getElementById('stats');
             </div>
           </td>
           ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
-            ${isSecure ? '' : `<button class="${insecureClasses}" style="white-space:nowrap;" data-id="${host.id}">${insecureLabel}</button>`}
+            ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" style="white-space:nowrap;" data-id="${host.id}">${insecureLabel}</button>`}
           </td>` : ''}
         `;
         tr.addEventListener('click', () => openHostDetail(host.id));
@@ -1550,16 +1550,28 @@ const statsEl = document.getElementById('stats');
       const lastFailure = runResult?.runner_last_fail
         || info?.last_failure
         || '';
-      const status = validation?.status ?? (info?.enabled ? '—' : 'disabled');
+      const lastOk = runResult?.runner_last_ok
+        || info?.last_ok
+        || '';
+      const validationStatus = validation?.status ?? (info?.enabled ? '—' : 'disabled');
+      const state = runResult?.runner_state
+        || info?.state
+        || validationStatus;
+      const bootId = runResult?.runner_boot_id
+        || info?.boot_id
+        || '';
       const latency = validation?.latency_ms ? `${validation.latency_ms}ms` : '';
       const reason = validation?.reason || runnerStore?.reason || '';
       runnerMetaEl.innerHTML = `
         <div><div class="label">Applied</div><div>${applied ? 'Yes (new auth)' : 'No change'}</div></div>
-        <div><div class="label">Validation</div><div>${status}${latency ? ` · ${latency}` : ''}</div></div>
+        <div><div class="label">Runner state</div><div>${state}</div></div>
+        <div><div class="label">Validation</div><div>${validationStatus}${latency ? ` · ${latency}` : ''}</div></div>
         <div><div class="label">Digest</div><div>${digest ? `<code>${digest}</code>` : '—'}</div></div>
         <div><div class="label">Last refresh</div><div>${lastRefresh ? formatTimestamp(lastRefresh) : '—'}</div></div>
         <div><div class="label">Runner last check</div><div>${lastCheck ? formatTimestamp(lastCheck) : '—'}</div></div>
+        <div><div class="label">Last OK</div><div>${lastOk ? formatTimestamp(lastOk) : '—'}</div></div>
         <div><div class="label">Last failure</div><div>${lastFailure ? formatTimestamp(lastFailure) : '—'}</div></div>
+        <div><div class="label">Boot ID</div><div>${bootId ? `<code>${bootId}</code>` : '—'}</div></div>
         <div><div class="label">Notes</div><div>${reason || '—'}</div></div>
       `;
     }
