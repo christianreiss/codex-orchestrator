@@ -137,6 +137,14 @@ const statsEl = document.getElementById('stats');
       return `${mins}m left`;
     }
 
+    function countdownMinutes(value) {
+      const ts = parseTimestamp(value);
+      if (!ts) return null;
+      const diff = ts.getTime() - Date.now();
+      if (diff <= 0) return 0;
+      return Math.max(0, Math.round(diff / 60000));
+    }
+
     function api(path, opts = {}) {
       const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
       const init = {
@@ -473,12 +481,13 @@ const statsEl = document.getElementById('stats');
       const securityLabel = isHostSecure(host) ? 'Mark insecure' : 'Mark secure';
       const insecure = !isHostSecure(host);
       const state = insecureState(host);
-        const insecureLabel = state.enabledActive ? 'Disable insecure API' : 'Allow Use';
-        const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
-        return `
-          <button class="ghost secondary" data-action="install">Install script</button>
-          <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
-          <button class="ghost" data-action="toggle-security">${securityLabel}</button>
+      const minutesLeft = countdownMinutes(host.insecure_enabled_until);
+      const insecureLabel = state.enabledActive ? `Turn Off (${minutesLeft ?? 0} min)` : 'Turn On';
+      const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
+      return `
+        <button class="ghost secondary" data-action="install">Install script</button>
+        <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
+        <button class="ghost" data-action="toggle-security">${securityLabel}</button>
         ${insecure ? `<button class="${insecureClasses}" data-action="toggle-insecure-api">${insecureLabel}</button>` : ''}
         <button class="ghost" data-action="clear">Clear auth</button>
         <button class="danger" data-action="remove">Remove</button>
@@ -665,7 +674,7 @@ const statsEl = document.getElementById('stats');
       const filtered = applyHostFilters(currentHosts);
       hostsTbody.innerHTML = '';
       if (!filtered.length) {
-        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No hosts match your filters yet.</td></tr>';
+        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No hosts match your filters yet.</td></tr>';
         return;
       }
       filtered.forEach(host => {
@@ -680,11 +689,11 @@ const statsEl = document.getElementById('stats');
         const securityChip = `<span class="chip ${isSecure ? 'ok' : 'warn'}" title="${isSecure ? 'Secure host: keep auth.json on disk' : 'Insecure host: cdx will remove auth.json after runs'}">${isSecure ? 'Secure' : 'Insecure'}</span>`;
         const insecureStateNow = insecureState(host);
         const insecureLabel = insecureStateNow.enabledActive
-          ? `Disable (${formatCountdown(host.insecure_enabled_until)})`
-          : 'Allow Use';
+          ? `Turn Off (${countdownMinutes(host.insecure_enabled_until) ?? 0} min)`
+          : 'Turn On';
         const insecureClasses = insecureStateNow.enabledActive ? 'ghost tiny-btn danger' : 'ghost tiny-btn primary';
         const insecureStatus = (() => {
-          if (isSecure) return '<span class="muted">Secure</span>';
+          if (isSecure) return '<span class="muted">—</span>';
           if (insecureStateNow.enabledActive) {
             return `<span class="chip ok">Enabled</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_enabled_until))}</small>`;
           }
@@ -694,7 +703,9 @@ const statsEl = document.getElementById('stats');
           return '<span class="chip warn">Disabled</span>';
         })();
         const health = hostHealth(host);
-        tr.classList.add(`status-${health.tone}`);
+        if (isHostSecure(host)) {
+          tr.classList.add(`status-${health.tone}`);
+        }
         tr.classList.add('host-row');
         tr.setAttribute('data-id', host.id);
         tr.tabIndex = 0;
@@ -722,9 +733,6 @@ const statsEl = document.getElementById('stats');
               <span>${escapeHtml(host.ip ?? '—')}</span>
               ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
             </div>
-          </td>
-          <td class="actions-cell details-cell" data-label="Details">
-            <span class="details-chip">Open</span>
           </td>
           <td class="actions-cell" data-label="Insecure API">
             ${isSecure ? '<span class="muted">Secure</span>' : `
