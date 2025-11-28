@@ -672,9 +672,15 @@ const statsEl = document.getElementById('stats');
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
       const filtered = applyHostFilters(currentHosts);
+      const hasInsecure = filtered.some(h => !isHostSecure(h));
+      const insecureHeader = document.querySelector('th.insecure-col');
+      if (insecureHeader) {
+        insecureHeader.style.display = hasInsecure ? '' : 'none';
+      }
       hostsTbody.innerHTML = '';
       if (!filtered.length) {
-        hostsTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No hosts match your filters yet.</td></tr>';
+        const cols = hasInsecure ? 6 : 5;
+        hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
         return;
       }
       filtered.forEach(host => {
@@ -734,11 +740,9 @@ const statsEl = document.getElementById('stats');
               ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
             </div>
           </td>
-          <td class="actions-cell" data-label="Insecure API">
-            <div class="inline-cell" style="justify-content:flex-end; gap:8px; flex-wrap:wrap;">
-              ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" data-id="${host.id}">${insecureLabel}</button>`}
-            </div>
-          </td>
+          ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
+            ${isSecure ? '' : `<button class="${insecureClasses}" style="white-space:nowrap;" data-id="${host.id}">${insecureLabel}</button>`}
+          </td>` : ''}
         `;
         tr.addEventListener('click', () => openHostDetail(host.id));
         tr.addEventListener('keydown', (ev) => {
