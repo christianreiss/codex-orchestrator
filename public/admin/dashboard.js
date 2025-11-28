@@ -534,11 +534,6 @@ const statsEl = document.getElementById('stats');
           meta: host.updated_at ? formatTimestamp(host.updated_at) : 'No API calls yet',
         },
         {
-          label: 'Auth Refresh',
-          value: host.last_refresh ? formatRelative(host.last_refresh) : 'No auth yet',
-          meta: host.last_refresh ? formatTimestamp(host.last_refresh) : 'Seed or first sync pending',
-        },
-        {
           label: 'Tokens',
           value: host.token_usage?.total !== null && host.token_usage?.total !== undefined
             ? `${formatNumber(host.token_usage.total)}`
