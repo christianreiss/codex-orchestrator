@@ -67,6 +67,10 @@ class AuthService
             }
             $apiKey = bin2hex(random_bytes(32));
             $host = $this->hosts->rotateApiKey((int) $existing['id'], $apiKey);
+            if (!$secure) {
+                $this->openInitialInsecureWindow((int) $existing['id']);
+                $host = $this->hosts->findById((int) $existing['id']) ?? $host;
+            }
             $this->logs->log((int) $existing['id'], 'register', ['result' => 'rotated']);
             $payload = $this->buildHostPayload($host ?? $existing, true);
             return $payload;
@@ -74,6 +78,10 @@ class AuthService
 
         $apiKey = bin2hex(random_bytes(32));
         $host = $this->hosts->create($fqdn, $apiKey, $secure);
+        if (!$secure && isset($host['id'])) {
+            $this->openInitialInsecureWindow((int) $host['id']);
+            $host = $this->hosts->findById((int) $host['id']) ?? $host;
+        }
         $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
 
         $payload = $this->buildHostPayload($host, true);
@@ -1181,6 +1189,15 @@ class AuthService
             'code' => 'insecure_api_disabled',
             'enabled_until' => $enabledUntilRaw,
             'grace_until' => $graceUntilRaw,
+        ]);
+    }
+
+    private function openInitialInsecureWindow(int $hostId): void
+    {
+        $initialUntil = gmdate(DATE_ATOM, time() + (self::PROVISIONING_WINDOW_MINUTES * 60));
+        $this->hosts->updateInsecureWindows($hostId, $initialUntil, null);
+        $this->logs->log($hostId, 'auth.insecure.initial_window', [
+            'enabled_until' => $initialUntil,
         ]);
     }
 

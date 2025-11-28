@@ -1,6 +1,6 @@
 # cdx Wrapper Interface (Source of Truth)
 
-- `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, optional CA file, and the host security flag (`secure`, defaults to on).
+- `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, optional CA file, and the host security flag (`secure`, defaults to on). Insecure hosts start with a 30-minute provisioning window so initial sync works immediately; admins can later enable/disable windows from the dashboard.
 - Source is organized under `bin/cdx.d/*.sh`; run `scripts/build-cdx.sh` to assemble the shipped `bin/cdx`. Edit fragments, not the built file, and bump `WRAPPER_VERSION` whenever `bin/cdx` changes.
 - On launch it:
   - Pulls `auth.json` from `/auth` (store/retrieve); if the API is unreachable it now proceeds with the cached `auth.json` when present and fresher than 24 hours, but still refuses to start when the key is invalid or no fresh auth is available.
