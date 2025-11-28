@@ -558,16 +558,14 @@ const statsEl = document.getElementById('stats');
     function hostDetailRows(host) {
       const health = hostHealth(host);
       const insecureStateNow = !isHostSecure(host) ? insecureState(host) : null;
-      let healthDesc = 'Provisioning and pruning signal for this host.';
-      if (insecureStateNow) {
-        if (insecureStateNow.enabledActive) {
-          healthDesc = `Insecure host; API allowed for ${formatCountdown(host.insecure_enabled_until)}.`;
-        } else if (insecureStateNow.graceActive) {
-          healthDesc = `Insecure host; grace window active (${formatCountdown(host.insecure_grace_until)}).`;
-        } else {
-          healthDesc = 'Insecure host; API window expired until you allow use.';
-        }
-      }
+      const insecureStatus = isHostSecure(host)
+        ? ''
+        : insecureStateNow?.enabledActive
+          ? `<span class="chip warn">Insecure · ${formatCountdown(host.insecure_enabled_until)} left</span>`
+          : insecureStateNow?.graceActive
+            ? `<span class="chip warn">Insecure · grace ${formatCountdown(host.insecure_grace_until)}</span>`
+            : '<span class="chip warn">Insecure · window closed</span>';
+      const healthDesc = 'Provisioning and sync signal for this host.';
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
       const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
@@ -579,7 +577,7 @@ const statsEl = document.getElementById('stats');
       const rows = [
         {
           key: 'Status',
-          value: `${renderStatusPill(host.status)} ${securityChip}`,
+          value: `${renderStatusPill(host.status)} ${securityChip} ${insecureStatus}`,
           desc: 'Host entry state; suspended hosts cannot authenticate. Insecure hosts purge auth.json after each run.',
         },
         { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: healthDesc },
@@ -590,7 +588,7 @@ const statsEl = document.getElementById('stats');
           value: `
             <div class="kv-ip">
               ${host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound'}
-              ${host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>'}
+              <span class="chip ${host.allow_roaming_ips ? 'warn' : 'ok'}">${host.allow_roaming_ips ? 'Roaming enabled' : 'IP locked'}</span>
             </div>
           `,
           desc: host.allow_roaming_ips
