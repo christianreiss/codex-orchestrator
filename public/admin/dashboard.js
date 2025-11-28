@@ -737,12 +737,10 @@ const statsEl = document.getElementById('stats');
             </div>
           </td>
           <td class="actions-cell" data-label="Insecure API">
-            ${isSecure ? '<span class="muted">Secure</span>' : `
-              <div class="inline-cell" style="justify-content:flex-end; gap:8px; flex-wrap:wrap;">
-                ${insecureStatus}
-                <button class="${insecureClasses} insecure-inline-btn" data-id="${host.id}">${insecureLabel}</button>
-              </div>
-            `}
+            <div class="inline-cell" style="justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+              ${insecureStatus}
+              ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" data-id="${host.id}">${insecureLabel}</button>`}
+            </div>
           </td>
         `;
         tr.addEventListener('click', () => openHostDetail(host.id));
