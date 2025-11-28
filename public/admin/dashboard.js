@@ -573,26 +573,38 @@ const statsEl = document.getElementById('stats');
       const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
         ? ` (${formatNumber(host.api_calls)} api calls)`
         : '';
+      const securityChip = isHostSecure(host)
+        ? '<span class="chip ok">Secure</span>'
+        : '<span class="chip warn">Insecure</span>';
       const rows = [
-        { key: 'Status', value: renderStatusPill(host.status), desc: 'Host entry state; suspended hosts cannot authenticate.' },
+        {
+          key: 'Status',
+          value: `${renderStatusPill(host.status)} ${securityChip}`,
+          desc: 'Host entry state; suspended hosts cannot authenticate. Insecure hosts purge auth.json after each run.',
+        },
         { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: healthDesc },
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
-        { key: 'IP binding', value: host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound', desc: host.allow_roaming_ips ? 'Roaming enabled; host may authenticate from any IP.' : 'First caller IP is locked; toggle roaming to permit moves.' },
-        { key: 'Roaming', value: host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>', desc: 'Controls whether IP changes are allowed for this host.' },
+        {
+          key: 'IP binding',
+          value: `
+            <div class="kv-ip">
+              ${host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound'}
+              ${host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip ok">IP locked</span>'}
+            </div>
+          `,
+          desc: host.allow_roaming_ips
+            ? 'Roaming enabled; host may authenticate from any IP.'
+            : 'First caller IP is locked; toggle roaming to permit moves.',
+        },
       ];
 
       rows.push({
-        key: 'Security',
-        value: `
-            <div class="kv-security">
-              <span class="chip ${isHostSecure(host) ? 'ok' : 'warn'}">${isHostSecure(host) ? 'Secure' : 'Insecure'}</span>
-              ${Array.isArray(host.users) && host.users.length
-                ? `<span class="muted" title="Reported users">${escapeHtml(host.users.map(u => u.username).filter(Boolean).join(', '))}</span>`
-                : ''}
-            </div>
-          `,
-        desc: 'Insecure hosts purge auth.json after each run. Users are reported by the host.',
+        key: 'Users',
+        value: Array.isArray(host.users) && host.users.length
+          ? `<span class="muted" title="Reported users">${escapeHtml(host.users.map(u => u.username).filter(Boolean).join(', '))}</span>`
+          : '—',
+        desc: 'Users reported by this host.',
       });
 
       rows.push({
