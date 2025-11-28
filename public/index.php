@@ -110,18 +110,20 @@ $pricingService = new PricingService(
 );
 $wrapperService->ensureSeeded();
 
-// First API hit each UTC day: refresh GitHub client version cache and run auth runner once.
-try {
-    $service->runDailyPreflight();
-} catch (\Throwable $exception) {
-    error_log('[preflight] daily check failed: ' . $exception->getMessage());
-}
-
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 $normalizedPath = rtrim($path, '/');
 if ($normalizedPath === '') {
     $normalizedPath = '/';
+}
+
+// First API hit each UTC day: refresh GitHub client version cache and run auth runner once.
+if (!str_starts_with($normalizedPath, '/admin')) {
+    try {
+        $service->runDailyPreflight();
+    } catch (\Throwable $exception) {
+        error_log('[preflight] daily check failed: ' . $exception->getMessage());
+    }
 }
 
 const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
