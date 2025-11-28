@@ -496,24 +496,24 @@ const statsEl = document.getElementById('stats');
 
     function bindHostDetailActions(host) {
       if (!hostDetailActions) return;
-      hostDetailActions.querySelectorAll('button').forEach(btn => {
-        btn.onclick = (ev) => {
-          ev.stopPropagation();
-          const action = btn.getAttribute('data-action');
-          if (action === 'install') {
-            showHostDetailModal(false);
-            regenerateInstaller(host.fqdn, host.id);
-          } else if (action === 'toggle-roaming') {
-            toggleRoaming(host.id);
-          } else if (action === 'toggle-security') {
-            toggleSecurity(host.id);
-          } else if (action === 'toggle-insecure-api') {
-            toggleInsecureApi(host);
-          } else if (action === 'clear') {
-            confirmClear(host.id);
-          } else if (action === 'remove') {
-            showHostDetailModal(false);
-            openDeleteModal(host.id);
+        hostDetailActions.querySelectorAll('button').forEach(btn => {
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            const action = btn.getAttribute('data-action');
+            if (action === 'install') {
+              showHostDetailModal(false);
+              regenerateInstaller(host.fqdn, host.id);
+            } else if (action === 'toggle-roaming') {
+              toggleRoaming(host.id);
+            } else if (action === 'toggle-security') {
+              toggleSecurity(host.id);
+            } else if (action === 'toggle-insecure-api') {
+              toggleInsecureApi(host, btn);
+            } else if (action === 'clear') {
+              confirmClear(host.id);
+            } else if (action === 'remove') {
+              showHostDetailModal(false);
+              openDeleteModal(host.id);
           }
         };
       });
@@ -757,7 +757,7 @@ const statsEl = document.getElementById('stats');
             const targetId = Number(insecureBtn.getAttribute('data-id'));
             const targetHost = currentHosts.find(h => h.id === targetId);
             if (targetHost) {
-              toggleInsecureApi(targetHost);
+              toggleInsecureApi(targetHost, insecureBtn);
             }
           });
         }
@@ -1957,7 +1957,7 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    async function toggleInsecureApi(host) {
+    async function toggleInsecureApi(host, button = null) {
       if (!host || isHostSecure(host)) {
         alert('Host is secure; insecure API window not available.');
         return;
@@ -1966,10 +1966,20 @@ const statsEl = document.getElementById('stats');
       const path = state.enabledActive
         ? `/admin/hosts/${host.id}/insecure/disable`
         : `/admin/hosts/${host.id}/insecure/enable`;
+      const originalLabel = button ? button.textContent : null;
+      if (button) {
+        button.disabled = true;
+        button.textContent = state.enabledActive ? 'Turning off…' : 'Turning on…';
+      }
       try {
         await api(path, { method: 'POST' });
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          if (originalLabel !== null) button.textContent = originalLabel;
+        }
       }
     }
