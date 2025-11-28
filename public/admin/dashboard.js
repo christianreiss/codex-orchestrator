@@ -702,7 +702,7 @@ const statsEl = document.getElementById('stats');
           if (insecureStateNow.graceActive) {
             return `<span class="chip neutral">Grace</span><small class="muted">${escapeHtml(formatCountdown(host.insecure_grace_until))}</small>`;
           }
-          return '<span class="chip warn">Locked</span>';
+          return '';
         })();
         const health = hostHealth(host);
         if (isHostSecure(host)) {
