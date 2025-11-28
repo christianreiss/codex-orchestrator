@@ -13,7 +13,7 @@
 - `POST /slash-commands/store` — body: `filename`, `prompt` (full file content, e.g., markdown with `---` front matter), optional `description`/`argument_hint`, optional `sha256` (validated against `prompt`). Stores/updates canonical prompt row, logs `slash.store`, and echoes `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
 - `GET /versions` — current client version (GitHub latest, cached 3h with stale fallback) and wrapper version from the baked script; no publish endpoint.
 
-Daily preflight: on the first API request of each UTC day the server forces a GitHub client version refresh and runs a single auth-runner validation against the canonical `auth.json` (best-effort; unreachable runner failures are logged, throttled via `runner_last_fail`, and do not block the request).
+Daily preflight: on the first API request of each UTC day the server forces a GitHub client version refresh and runs a single auth-runner validation against the canonical `auth.json` (runner writes the payload to `~/.codex/auth.json` and runs `codex`). Runner failures are logged/surfaced but do not block `/auth`; admin seed uploads bypass the runner.
 
 ## Installer
 
@@ -31,7 +31,7 @@ Daily preflight: on the first API request of each UTC day the server forces a Gi
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips`.
 - `POST /admin/hosts/{id}/clear` — clears canonical auth state for the host (resets `last_refresh`/`auth_digest`, deletes `host_auth_states`, and prunes recent digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.
-- `POST /admin/auth/upload` — validate/store canonical `auth.json` (system or host-scoped).
+- `POST /admin/auth/upload` — validate/store canonical `auth.json` (system or host-scoped). Runner is skipped for this seed/upload flow.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` stays reachable so operators can re-enable).
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean). When `false`, `cdx` warns on quota exhaustion but still launches Codex.
 - `GET /admin/logs?limit=` — recent audit events.

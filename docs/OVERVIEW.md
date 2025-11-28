@@ -22,14 +22,14 @@ A tiny PHP + MySQL service that keeps one canonical Codex `auth.json` for your f
 - The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
 - Runs in `php:8.2-apache` with automatic migrations; host endpoints enforce API-key auth (`X-API-Key` or `Authorization: Bearer`), and installer downloads are guarded by single-use tokens created via the dashboard.
 - Stores the canonical `auth.json` as a compact JSON blob (sha256 over that exact text); only the `auths` map is normalized, everything else is preserved verbatim.
-- The “auth runner” sidecar (`auth-runner`, enabled by default in `docker-compose.yml`) validates canonical auth by running `cdx` in an isolated temp `$HOME` on every store and once per UTC day; if Codex refreshes tokens, the runner’s updated auth is auto-applied. Admins can also force a run via `POST /admin/runner/run`.
+- The “auth runner” sidecar (`auth-runner`, enabled by default in `docker-compose.yml`) validates canonical auth by dropping it into a fresh `~/.codex/auth.json` and running `codex exec …` in an isolated temp `$HOME` on every store and once per UTC day; if Codex refreshes tokens, the runner’s updated auth is auto-applied. Admin uploads bypass the runner (seed flow). Runner failures are logged and surfaced in the dashboard but no longer block `/auth`; operators can force a run via `POST /admin/runner/run`.
 
 ## How it works (big picture)
 
 - This container exposes a small PHP API + MySQL database that act as the "auth.json registry" for all of your Codex hosts.
 - The admin dashboard mints per-host API keys and one-time installer tokens; each token maps to `/install/{uuid}` which returns a self-contained bash script that installs/updates `cdx`, fetches Codex, and bakes the API key/base URL directly into the wrapper (no sync env file needed).
 - Each host keeps only `~/.codex/auth.json`; connection details are embedded in its `cdx` wrapper.
-- When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` with `cdx` on store and once per UTC day; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically.
+- When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` by writing it to `~/.codex/auth.json` and running `codex`; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically. Runner failures are recorded but do not block host sync; admin seed uploads skip the runner entirely.
 - The `cdx` wrapper also syncs slash command prompts in `~/.codex/prompts` via `/slash-commands`, pulling new/updated prompts on launch and pushing local changes on exit.
 
 ## From manual logins to central sync

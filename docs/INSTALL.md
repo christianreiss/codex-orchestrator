@@ -33,7 +33,7 @@ docker compose up --build
 
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (requires mTLS + optional `DASHBOARD_ADMIN_KEY`).
-- Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable.
+- Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner.
 - A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds).
 
 ## Optional: bundled Caddy frontend (no existing proxy)

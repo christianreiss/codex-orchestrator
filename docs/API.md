@@ -68,8 +68,9 @@ When a ChatGPT `/wham/usage` snapshot is present, every `/auth` response also in
 **Runner validation**
 
 When `AUTH_RUNNER_URL` is configured, the server:
-- Runs the runner once per UTC day during `retrieve` to validate the current canonical auth (logs `auth.validate`).
-- Runs it again after `store`; if the runner returns `updated_auth` with a newer/different digest, the server saves that payload and sets `runner_applied: true` in the response.
+- Writes the canonical `auth.json` to a fresh `~/.codex/auth.json` in the runner and runs `codex` to validate it on every `store` and once per UTC day (logs `auth.validate`).
+- If the runner returns `updated_auth` with a newer/different digest, the server saves that payload and sets `runner_applied: true` in the response.
+- Runner failures are recorded (`runner_state=fail`) but do not block `/auth`; operators can retry or trigger manually.
 - Manual run: `POST /admin/runner/run`.
 
 ### `POST /usage` (token usage reporting)
