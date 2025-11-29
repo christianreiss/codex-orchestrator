@@ -123,6 +123,8 @@ Options:
   --caddy | --no-caddy      Force enable/disable Caddy
   --caddy-domain DOMAIN     Domain for Caddy TLS (skips prompt)
   --tls-mode [1|2|3]        TLS mode (1=ACME, 2=custom cert/key, 3=self-signed)
+  --tls-cert-path FILE      Source path for custom cert when tls-mode=2 (auto-copies)
+  --tls-key-path FILE       Source path for custom key when tls-mode=2 (auto-copies)
   --acme-email EMAIL        ACME email when tls-mode=1
   --tls-cert NAME           Cert filename inside CADDY_TLS_DIR when tls-mode=2
   --tls-key NAME            Key filename inside CADDY_TLS_DIR when tls-mode=2
@@ -147,6 +149,8 @@ parse_args() {
   CADDY_FORCE=""
   CADDY_DOMAIN_ARG=""
   TLS_MODE_ARG=""
+  TLS_CERT_PATH_ARG=""
+  TLS_KEY_PATH_ARG=""
   ACME_EMAIL_ARG=""
   TLS_CERT_ARG=""
   TLS_KEY_ARG=""
@@ -169,6 +173,8 @@ parse_args() {
       --no-caddy) CADDY_FORCE="n" ;;
       --caddy-domain) CADDY_DOMAIN_ARG="$2"; shift ;;
       --tls-mode) TLS_MODE_ARG="$2"; shift ;;
+      --tls-cert-path) TLS_CERT_PATH_ARG="$2"; shift ;;
+      --tls-key-path) TLS_KEY_PATH_ARG="$2"; shift ;;
       --acme-email) ACME_EMAIL_ARG="$2"; shift ;;
       --tls-cert) TLS_CERT_ARG="$2"; shift ;;
       --tls-key) TLS_KEY_ARG="$2"; shift ;;
@@ -363,7 +369,18 @@ configure_caddy() {
       set_env_value "CADDY_TLS_CERT_FILE" "/etc/caddy/tls/${cert_file}" "$env_file"
       set_env_value "CADDY_TLS_KEY_FILE" "/etc/caddy/tls/${key_file}" "$env_file"
       set_env_value "CADDY_TLS_FRAGMENT" "/etc/caddy/tls-custom.caddy" "$env_file"
-      info "Place your TLS files at ${tls_dir}/${cert_file} and ${tls_dir}/${key_file} before starting Caddy."
+      if [[ -n "$TLS_CERT_PATH_ARG" || -n "$TLS_KEY_PATH_ARG" ]]; then
+        if [[ -n "$TLS_CERT_PATH_ARG" && -f "$TLS_CERT_PATH_ARG" ]]; then
+          cp "$TLS_CERT_PATH_ARG" "${tls_dir}/${cert_file}" || warn "Failed to copy cert from $TLS_CERT_PATH_ARG"
+        fi
+        if [[ -n "$TLS_KEY_PATH_ARG" && -f "$TLS_KEY_PATH_ARG" ]]; then
+          cp "$TLS_KEY_PATH_ARG" "${tls_dir}/${key_file}" || warn "Failed to copy key from $TLS_KEY_PATH_ARG"
+        fi
+        chmod 600 "${tls_dir}/${key_file}" 2>/dev/null || true
+        info "Custom TLS files copied into ${tls_dir}."
+      else
+        info "Place your TLS files at ${tls_dir}/${cert_file} and ${tls_dir}/${key_file} before starting Caddy."
+      fi
       ;;
     3)
       local san_csv
@@ -619,7 +636,7 @@ ensure_base_urls() {
 
 ensure_env_perms() {
   local env_file="$1"
-  chmod 664 "$env_file" 2>/dev/null || true
+  chmod 644 "$env_file" 2>/dev/null || true
   if id -u www-data >/dev/null 2>&1; then
     chown www-data:www-data "$env_file" 2>/dev/null || true
   fi
