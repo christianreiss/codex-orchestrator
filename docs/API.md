@@ -7,7 +7,7 @@ The front controller (`public/index.php`) dispatches requests via a small route 
 
 ## Authentication
 
-- Hosts are provisioned via the admin dashboard: `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) returns a host API key and a single-use installer token.
+- Hosts are provisioned via the admin dashboard: `POST /admin/hosts/register` (mTLS by default; optional `DASHBOARD_ADMIN_KEY`) returns a host API key and a single-use installer token. Disable the mTLS requirement with `ADMIN_REQUIRE_MTLS=0` if another control protects `/admin`.
 - Host endpoints (`/auth`, `/usage`, `/wrapper*`, `DELETE /auth`) require the per-host API key via either:
   - `X-API-Key: <key>`
   - `Authorization: Bearer <key>`
@@ -25,7 +25,7 @@ Errors return:
 
 ### Host provisioning (admin)
 
-- `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token. Expired/used tokens are pruned on each call. Base URL comes from request headers or `PUBLIC_BASE_URL`; call fails if a usable base cannot be determined.
+- `POST /admin/hosts/register` (mTLS on by default; optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token. Expired/used tokens are pruned on each call. Base URL comes from request headers or `PUBLIC_BASE_URL`; call fails if a usable base cannot be determined.
 - `GET /install/{token}` is public but token-gated and expires after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s). The handler marks the token used before emitting the script. The bash installer:
   - Downloads the latest stored `cdx` wrapper (`/wrapper/download`) baked with the host’s API key, base URL, FQDN, and wrapper version.
   - Detects arch, fetches Codex CLI from GitHub (falls back to `0.63.0` when the server has no cached version), and installs to `/usr/local/bin` or `$HOME/.local/bin`.
@@ -217,7 +217,7 @@ Provided for observability; clients do not need it because `/auth` responses alr
 
 ### `POST /admin/versions/check` (admin)
 
-Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3h cache) and returns the current version snapshot shown in `/versions` plus the fetched client version source/checked-at metadata. Requires mTLS + optional `DASHBOARD_ADMIN_KEY`.
+Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3h cache) and returns the current version snapshot shown in `/versions` plus the fetched client version source/checked-at metadata. Requires mTLS (default) unless `ADMIN_REQUIRE_MTLS=0`, plus optional `DASHBOARD_ADMIN_KEY`.
 
 ```json
 {
@@ -243,9 +243,9 @@ Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3
 - Canonical auth is stored as a compact body in `auth_payloads.body` plus per-target rows in `auth_entries`; `host_auth_states` tracks the last canonical payload per host; `host_auth_digests` keeps the last 3 digests per host.
 - Hosts inactive for 30 days are pruned during auth/register (logged as `host.pruned`).
 
-## Admin (mTLS-only)
+## Admin (mTLS when enabled)
 
-- `/admin/*` requires an mTLS client certificate (Caddy forwards `X-mTLS-Present`; requests without it are rejected).
+- `/admin/*` requires an mTLS client certificate (Caddy forwards `X-mTLS-Present`) while `ADMIN_REQUIRE_MTLS=1` (default). Set `ADMIN_REQUIRE_MTLS=0` to make mTLS optional and rely on another gate (VPN, firewall, or `DASHBOARD_ADMIN_KEY`).
 - If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query on admin routes.
 - Endpoints:
   - `GET /admin/overview`: versions, host counts, avg refresh age, latest log timestamp, mTLS metadata, token aggregates.

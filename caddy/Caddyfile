@@ -15,7 +15,7 @@
     log
 
     @admin path /admin* /admin
-    @admin_mtls expression {http.request.tls.client.fingerprint} != ""
+    @admin_mtls expression {env.ADMIN_REQUIRE_MTLS} == "0" || {http.request.tls.client.fingerprint} != ""
 
     handle @admin {
         handle @admin_mtls {

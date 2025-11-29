@@ -35,7 +35,7 @@ No external proxy? Enable the bundled Caddy TLS/mTLS frontend (serves 443, optio
 
 ### Host provisioning (admin)
 
-- `POST /admin/hosts/register` (mTLS + optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returns its API key, and mints a single-use installer token.
+- `POST /admin/hosts/register` (mTLS on by default; optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returns its API key, and mints a single-use installer token. Set `ADMIN_REQUIRE_MTLS=0` if another gate protects `/admin`.
 - `GET /install/{token}` is public but the token is one-time and expires (controlled by `INSTALL_TOKEN_TTL_SECONDS`, default 1800s). Response is a bash script that installs `cdx`, downloads Codex, and bakes the API key/FQDN/base URL directly into the wrapper. Tokens are marked used immediately after download.
 
 ### `POST /auth`
@@ -111,9 +111,9 @@ Notes:
 - The server refreshes `client_version` from the GitHub “latest release” endpoint when the cache is older than **3 hours**, falling back to the last cached value on failure.
 - The `wrapper_version` is read directly from the server’s baked wrapper script; client-reported values and admin overrides are ignored.
 
-### Admin (mTLS-only)
+### Admin (mTLS when enabled)
 
-- `/admin/*` routes require an mTLS client certificate; requests without one are rejected (Caddy forwards `X-mTLS-Present`).
+- `/admin/*` routes require an mTLS client certificate (Caddy forwards `X-mTLS-Present`) while `ADMIN_REQUIRE_MTLS=1` (default). Set `ADMIN_REQUIRE_MTLS=0` to rely on another control such as VPN/firewall and/or `DASHBOARD_ADMIN_KEY`.
 - If `DASHBOARD_ADMIN_KEY` is set, the admin key must also be provided on admin routes.
 - Endpoints:
   - `GET /admin/overview`: versions, host counts, average refresh age, latest log timestamp, token totals, mTLS metadata.
@@ -129,7 +129,7 @@ Notes:
   - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
   - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
   - `GET /admin/usage?limit=50` and `GET /admin/tokens?limit=50`: recent usage rows and token aggregates.
-- A basic dashboard lives at `/admin/` (served by this container); it calls the endpoints above and will only work when mTLS is presented.
+- A basic dashboard lives at `/admin/` (served by this container); it calls the endpoints above and shows mTLS status. Keep mTLS enabled or protect the path another way when you disable it.
   - `GET /admin/chatgpt/usage[?force=1]` and `POST /admin/chatgpt/usage/refresh`: fetch/cache the account-level ChatGPT `/wham/usage` snapshot (plan, rate windows, credits) using the canonical `auth.json` token; 5-minute cooldown unless forced.
 
 ## Data & Logging

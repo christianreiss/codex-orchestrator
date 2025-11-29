@@ -44,7 +44,7 @@ With this project in place:
 
 1. **Run the auth server once.** Bring up the Docker stack (see `docs/INSTALL.md`). No invitation key needed.
 2. **Log into Codex on one trusted machine.** Use the normal Codex CLI sign-in so you get a local `~/.codex/auth.json`. This becomes your starting canonical auth.
-3. **Mint an API key from the dashboard.** Open `/admin/` (mTLS) and click **New Host**. Copy the one-time installer command (`curl …/install/{token} | bash`) or the API key itself.
+3. **Mint an API key from the dashboard.** Open `/admin/` (mTLS by default) and click **New Host**. Copy the one-time installer command (`curl …/install/{token} | bash`) or the API key itself.
 4. **Seed the canonical auth.** On the trusted machine, either run the installer command or use the dashboard "Upload auth.json" to push your existing `~/.codex/auth.json` to the server.
 5. **Install on other hosts.** For each host, generate a fresh installer token in the dashboard and run the provided `curl …/install/{token} | bash` command on that host. It installs `cdx`, grabs Codex, and embeds the API key/base URL directly into the wrapper.
 6. **Clean up when a host is retired.** Use the dashboard "Remove" button or run `cdx --uninstall` on the host to delete binaries/configs and call `DELETE /auth`.
@@ -60,7 +60,7 @@ On the **auth server host**:
 On your **laptop or admin box** (the one where you already use Codex):
 
 - `codex login` (or whichever flow creates `~/.codex/auth.json`).
-- Visit the admin dashboard (`/admin/`, mTLS) and click **New Host** to mint an API key + one-time installer command.
+- Visit the admin dashboard (`/admin/`, mTLS unless you set `ADMIN_REQUIRE_MTLS=0`) and click **New Host** to mint an API key + one-time installer command.
 - Seed canonical auth from your trusted machine: use the dashboard "Upload auth.json" with your `~/.codex/auth.json`.
 - Run the installer command on a target host (generate a fresh token per host).
 - `cdx --uninstall` on a host to remove Codex bits and deregister it from the auth server (uses baked config).

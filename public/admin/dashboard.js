@@ -240,7 +240,22 @@ const statsEl = document.getElementById('stats');
       mtlsMeta = meta;
       if (!mtlsEl) return;
       mtlsEl.style.display = 'inline-flex';
-      if (meta && meta.fingerprint) {
+
+      const required = meta && meta.required === false ? false : true;
+      const present = !!(meta && (meta.present || meta.fingerprint));
+
+      if (!required) {
+        mtlsEl.textContent = present ? 'mTLS: presented (optional)' : 'mTLS: optional';
+        mtlsEl.classList.remove('error');
+        if (present) {
+          mtlsEl.classList.add('success');
+        } else {
+          mtlsEl.classList.remove('success');
+        }
+        return;
+      }
+
+      if (present) {
         mtlsEl.textContent = 'mTLS: presented';
         mtlsEl.classList.add('success');
         mtlsEl.classList.remove('error');

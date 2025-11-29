@@ -19,9 +19,9 @@ Daily preflight: on the first API request of each UTC day the server forces a Gi
 
 - `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register`; installs/bakes API key + base URL into `cdx`.
 
-## Admin (mTLS + optional `DASHBOARD_ADMIN_KEY`)
+## Admin (mTLS on by default + optional `DASHBOARD_ADMIN_KEY`)
 
-- `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions, token totals (including reasoning tokens), ChatGPT usage snapshot (cached ≤5m), mTLS metadata, plus seed signals for new installs (`has_canonical_auth`, `seed_required`, `seed_reasons`).
+- `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions, token totals (including reasoning tokens), ChatGPT usage snapshot (cached ≤5m), mTLS metadata (now includes `required` + `present` flags and fingerprint details when provided), plus seed signals for new installs (`has_canonical_auth`, `seed_required`, `seed_reasons`).
 - `GET /admin/hosts` — list hosts with canonical digest, digests history, versions, API calls, IP, roaming flag, security flag (`secure`), insecure window fields (`insecure_enabled_until`, `insecure_grace_until`), latest token usage (including reasoning tokens), and recorded users (username/hostname/first/last seen).
 - `POST /admin/hosts/register` — mint a host + single-use installer token for a given FQDN; calling it again for the same FQDN rotates that host’s API key and issues a fresh installer. Optional body `secure` (default `true`) marks the host as secure vs. insecure (ephemeral auth). New insecure hosts auto-open a provisioning window equal to the prune threshold (30 minutes) so setup can proceed without extra clicks.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last refresh, recent digests, optional `auth` body (`?include_body=1`).
@@ -51,7 +51,7 @@ Daily preflight: on the first API request of each UTC day the server forces a Gi
 ## Auth + IP rules
 
 - API key is bound to first caller IP; subsequent calls from a new IP are blocked unless `allow_roaming_ips` is enabled via admin or `?force=1` on `DELETE /auth`.
-- Admin endpoints require mTLS (`X-mTLS-Present` header) and, if set, `DASHBOARD_ADMIN_KEY`.
+- Admin endpoints require mTLS (`X-mTLS-Present` header) when `ADMIN_REQUIRE_MTLS=1` (default) and, if set, `DASHBOARD_ADMIN_KEY`. With `ADMIN_REQUIRE_MTLS=0`, mTLS headers become optional—lock down `/admin` via another control (VPN, firewall, or admin key).
 
 ## Rate limiting
 

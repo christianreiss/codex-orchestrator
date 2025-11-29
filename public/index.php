@@ -1301,16 +1301,22 @@ function enforceGlobalRateLimit(?RateLimiter $rateLimiter, ?string $clientIp, st
 
 function resolveMtls(): array
 {
+    $required = isMtlsRequired();
     $fingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
-    if ($fingerprint !== '') {
-        return [
-            'fingerprint' => $fingerprint,
-            'subject' => $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null,
-            'issuer' => $_SERVER['HTTP_X_MTLS_ISSUER'] ?? null,
-        ];
+    $present = $fingerprint !== '';
+
+    $meta = [
+        'required' => $required,
+        'present' => $present,
+    ];
+
+    if ($present) {
+        $meta['fingerprint'] = $fingerprint;
+        $meta['subject'] = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? null;
+        $meta['issuer'] = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? null;
     }
 
-    return [];
+    return $meta;
 }
 
 function resolveClientIp(): ?string
@@ -1625,8 +1631,20 @@ function resolveAdminKey(): ?string
     return null;
 }
 
+function isMtlsRequired(): bool
+{
+    $value = Config::get('ADMIN_REQUIRE_MTLS', '1');
+    $normalized = strtolower(trim((string) $value));
+
+    return !in_array($normalized, ['0', 'false', 'off', 'no'], true);
+}
+
 function requireMtls(): void
 {
+    if (!isMtlsRequired()) {
+        return;
+    }
+
     $present = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
     if ($present === '') {
         Response::json([

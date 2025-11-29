@@ -15,7 +15,7 @@ We will acknowledge receipt within 3 business days and aim to provide an assessm
 
 ## Operational Expectations
 
-- Admin dashboard must be fronted by mTLS and, if set, `DASHBOARD_ADMIN_KEY`.
+- Admin dashboard uses mTLS by default (`ADMIN_REQUIRE_MTLS=1`) plus optional `DASHBOARD_ADMIN_KEY`; if you disable mTLS (`ADMIN_REQUIRE_MTLS=0`), enforce another control (VPN, firewall, or auth key).
 - Admins can view and upload raw canonical auth (tokens); restrict access to trusted operators.
 - Host IP binding trusts `X-Forwarded-For` / `X-Real-IP`; configure proxies to set and strip these safely.
 - Treat `.env`, `storage/`, and database volumes as secrets; they hold API keys, encryption keys, and auth payloads.

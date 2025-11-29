@@ -40,8 +40,17 @@ print_banner() {
 }
 
 mask_secret() {
-  local secret="$1" len=${#secret}
-  if (( len <= 8 )); then
+  # Tolerate unset/empty input under set -u.
+  local secret
+  if (( $# == 0 )); then
+    secret=""
+  else
+    secret="$1"
+  fi
+  local len=${#secret}
+  if (( len == 0 )); then
+    printf ''
+  elif (( len <= 8 )); then
     printf '%s' "$secret"
   else
     printf '%s…%s' "${secret:0:4}" "${secret: -4}"
@@ -50,6 +59,15 @@ mask_secret() {
 
 prompt_value() {
   local var_name="$1" question="$2" default_value="${3:-}"
+  local override="${4-}"
+  if [[ -n "$override" ]]; then
+    printf -v "$var_name" '%s' "$override"
+    return
+  fi
+  if (( NON_INTERACTIVE )); then
+    printf -v "$var_name" '%s' "$default_value"
+    return
+  fi
   local prompt_suffix=""
   if [[ -n "$default_value" ]]; then
     prompt_suffix=" [${default_value}]"
@@ -60,7 +78,17 @@ prompt_value() {
 }
 
 ask_yes_no() {
-  local question="$1" default_choice="${2:-y}" answer prompt_hint
+  local question="$1" default_choice="${2:-y}" override="${3-}" answer prompt_hint
+  if [[ -n "$override" ]]; then
+    case "${override,,}" in
+      y|yes|1|true) return 0 ;;
+      n|no|0|false) return 1 ;;
+      *) fatal "Invalid yes/no override for ${question}: ${override}" ;;
+    esac
+  fi
+  if (( NON_INTERACTIVE )); then
+    [[ "${default_choice,,}" == "y" ]] && return 0 || return 1
+  fi
   case "${default_choice,,}" in
     y) prompt_hint="[Y/n]" ;;
     n) prompt_hint="[y/N]" ;;
@@ -88,6 +116,23 @@ Options:
   --prepare-only   Create .env + data dirs (no Docker build/up)
   --no-build       Skip docker compose build (still runs up)
   --no-up          Skip docker compose up (after prep/build)
+  --non-interactive  Use provided flags/defaults; never prompt
+  --data-root PATH   Set data root directory (skips prompt)
+  --codex-url URL    Set external Codex API URL (skips prompt)
+  --runner-url URL   Set runner Codex URL (skips prompt)
+  --caddy | --no-caddy      Force enable/disable Caddy
+  --caddy-domain DOMAIN     Domain for Caddy TLS (skips prompt)
+  --tls-mode [1|2|3]        TLS mode (1=ACME, 2=custom cert/key, 3=self-signed)
+  --acme-email EMAIL        ACME email when tls-mode=1
+  --tls-cert NAME           Cert filename inside CADDY_TLS_DIR when tls-mode=2
+  --tls-key NAME            Key filename inside CADDY_TLS_DIR when tls-mode=2
+  --tls-sans CSV            Extra SANs for self-signed when tls-mode=3
+  --mtls-mode [1|2]         mTLS CA option (1=existing CA, 2=generate)
+  --mtls-ca-path PATH       Existing CA cert path when mtls-mode=1
+  --mtls-ca-cn CN           Admin CA CN when mtls-mode=2
+  --mtls-client-cn CN       Admin client CN when mtls-mode=2
+  --mtls-required           Force mTLS required for /admin (default)
+  --mtls-optional           Disable the mTLS requirement for /admin
   -h, --help       Show this help
 EOF
 }
@@ -95,11 +140,45 @@ EOF
 parse_args() {
   BUILD_IMAGES=1
   START_STACK=1
+  NON_INTERACTIVE=0
+  DATA_ROOT_ARG=""
+  CODEX_URL_ARG=""
+  RUNNER_URL_ARG=""
+  CADDY_FORCE=""
+  CADDY_DOMAIN_ARG=""
+  TLS_MODE_ARG=""
+  ACME_EMAIL_ARG=""
+  TLS_CERT_ARG=""
+  TLS_KEY_ARG=""
+  TLS_SANS_ARG=""
+  MTLS_MODE_ARG=""
+   MTLS_REQUIRED_ARG=""
+  MTLS_CA_PATH_ARG=""
+  MTLS_CA_CN_ARG=""
+  MTLS_CLIENT_CN_ARG=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --prepare-only) BUILD_IMAGES=0; START_STACK=0 ;;
       --no-build) BUILD_IMAGES=0 ;;
       --no-up|--no-start) START_STACK=0 ;;
+      --non-interactive) NON_INTERACTIVE=1 ;;
+      --data-root) DATA_ROOT_ARG="$2"; shift ;;
+      --codex-url) CODEX_URL_ARG="$2"; shift ;;
+      --runner-url) RUNNER_URL_ARG="$2"; shift ;;
+      --caddy) CADDY_FORCE="y" ;;
+      --no-caddy) CADDY_FORCE="n" ;;
+      --caddy-domain) CADDY_DOMAIN_ARG="$2"; shift ;;
+      --tls-mode) TLS_MODE_ARG="$2"; shift ;;
+      --acme-email) ACME_EMAIL_ARG="$2"; shift ;;
+      --tls-cert) TLS_CERT_ARG="$2"; shift ;;
+      --tls-key) TLS_KEY_ARG="$2"; shift ;;
+      --tls-sans) TLS_SANS_ARG="$2"; shift ;;
+      --mtls-mode) MTLS_MODE_ARG="$2"; shift ;;
+      --mtls-required) MTLS_REQUIRED_ARG="y" ;;
+      --mtls-optional|--no-mtls-required) MTLS_REQUIRED_ARG="n" ;;
+      --mtls-ca-path) MTLS_CA_PATH_ARG="$2"; shift ;;
+      --mtls-ca-cn) MTLS_CA_CN_ARG="$2"; shift ;;
+      --mtls-client-cn) MTLS_CLIENT_CN_ARG="$2"; shift ;;
       -h|--help) usage; exit 0 ;;
       *) fatal "Unknown option: $1" ;;
     esac
@@ -111,7 +190,74 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fatal "Missing required command: $1"
 }
 
+install_docker_linux() {
+  warn "Docker is not installed; attempting to install it with the official convenience script."
+  if ! ask_yes_no "Install Docker now via get.docker.com?" "y"; then
+    fatal "Docker is required; install it manually and rerun setup."
+  fi
+
+  local installer
+  installer="$(mktemp)"
+
+  if command -v curl >/dev/null 2>&1; then
+    info "Downloading Docker installer with curl..."
+    curl -fsSL https://get.docker.com -o "$installer" || fatal "Failed to download Docker install script."
+  elif command -v wget >/dev/null 2>&1; then
+    info "Downloading Docker installer with wget..."
+    wget -qO "$installer" https://get.docker.com || fatal "Failed to download Docker install script."
+  else
+    fatal "Need curl or wget to download Docker; install one and rerun."
+  fi
+
+  local runner=(sh "$installer")
+  if (( EUID != 0 )); then
+    if command -v sudo >/dev/null 2>&1; then
+      runner=(sudo sh "$installer")
+    else
+      fatal "Docker install needs root; rerun as root or install sudo."
+    fi
+  fi
+
+  info "Running Docker installer (this may prompt for sudo)..."
+  if ! "${runner[@]}"; then
+    fatal "Docker installation failed; check the output above."
+  fi
+
+  rm -f "$installer"
+  info "Docker installation completed."
+}
+
+install_docker_mac() {
+  warn "Docker is not installed and you're on macOS."
+  if ! ask_yes_no "Install Docker Desktop via Homebrew cask now?" "y"; then
+    fatal "Docker is required; install Docker Desktop and rerun setup."
+  fi
+  require_cmd brew
+  info "Installing Docker Desktop (brew install --cask docker)..."
+  if ! brew install --cask docker; then
+    fatal "Homebrew Docker Desktop installation failed; install manually and rerun."
+  fi
+  info "Docker Desktop installed. Launch it once so the Docker engine starts before rerunning setup."
+}
+
+ensure_docker() {
+  if command -v docker >/dev/null 2>&1; then
+    return
+  fi
+
+  case "$(uname -s)" in
+    Linux) install_docker_linux ;;
+    Darwin) install_docker_mac ;;
+    *)
+      fatal "Unsupported platform $(uname -s); install Docker manually and rerun setup."
+      ;;
+  esac
+
+  command -v docker >/dev/null 2>&1 || fatal "Docker still missing after install attempt; install manually and rerun."
+}
+
 check_requirements() {
+  ensure_docker
   local required=(docker grep awk cp chmod mkdir mktemp tail tr head)
   for bin in "${required[@]}"; do
     require_cmd "$bin"
@@ -121,11 +267,10 @@ check_requirements() {
 detect_compose() {
   if docker compose version >/dev/null 2>&1; then
     COMPOSE=(docker compose)
-  elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE=(docker-compose)
-  else
-    fatal "docker compose is required (plugin or docker-compose)"
+    return
   fi
+
+  fatal "docker compose v2 plugin is required (install the Docker Compose plugin; avoid legacy docker-compose)."
 }
 
 USE_CADDY=0
@@ -133,7 +278,22 @@ USE_CADDY=0
 configure_caddy() {
   local env_file="$1" data_root="$2"
 
-  if ! ask_yes_no "Enable bundled Caddy TLS/mTLS reverse proxy on ports 80/443?" "y"; then
+  local mtls_default_choice mtls_env_val
+  mtls_env_val="$(read_env_value "ADMIN_REQUIRE_MTLS" "$env_file" || true)"
+  if [[ "$mtls_env_val" == "0" ]]; then
+    mtls_default_choice="n"
+  else
+    mtls_default_choice="y"
+  fi
+
+  if ask_yes_no "Require client mTLS for /admin?" "$mtls_default_choice" "$MTLS_REQUIRED_ARG"; then
+    set_env_value "ADMIN_REQUIRE_MTLS" "1" "$env_file"
+  else
+    set_env_value "ADMIN_REQUIRE_MTLS" "0" "$env_file"
+    info "mTLS requirement disabled; ensure /admin is protected another way (VPN, firewall, DASHBOARD_ADMIN_KEY)."
+  fi
+
+  if ! ask_yes_no "Enable bundled Caddy TLS/mTLS reverse proxy on ports 80/443?" "y" "$CADDY_FORCE"; then
     info "Caddy disabled; API will remain on :8488 without the caddy profile."
     USE_CADDY=0
     return
@@ -144,7 +304,7 @@ configure_caddy() {
   local domain default_domain
   default_domain="$(read_env_value "CADDY_DOMAIN" "$env_file" || true)"
   [[ -z "$default_domain" ]] && default_domain="codex-auth.example.com"
-  prompt_value domain "Primary HTTPS domain" "$default_domain"
+  prompt_value domain "Primary HTTPS domain" "$default_domain" "$CADDY_DOMAIN_ARG"
   set_env_value "CADDY_DOMAIN" "$domain" "$env_file"
 
   local tls_dir mtls_dir
@@ -166,10 +326,15 @@ configure_caddy() {
   echo "  3) Generate self-signed cert now"
   local tls_choice
   while true; do
-    prompt_value tls_choice "Pick TLS mode [1-3]" "1"
+    prompt_value tls_choice "Pick TLS mode [1-3]" "1" "$TLS_MODE_ARG"
     case "$tls_choice" in
       1|2|3) break ;;
-      *) echo "Choose 1, 2, or 3." ;;
+      *)
+        if [[ -n "$TLS_MODE_ARG" ]]; then
+          fatal "Invalid --tls-mode '${TLS_MODE_ARG}'; use 1, 2, or 3."
+        fi
+        echo "Choose 1, 2, or 3."
+        ;;
     esac
   done
 
@@ -178,7 +343,7 @@ configure_caddy() {
       local acme_email
       acme_email="$(read_env_value "CADDY_ACME_EMAIL" "$env_file" || true)"
       [[ -z "$acme_email" ]] && acme_email="ops@example.com"
-      prompt_value acme_email "ACME email for Let's Encrypt/ZeroSSL" "$acme_email"
+      prompt_value acme_email "ACME email for Let's Encrypt/ZeroSSL" "$acme_email" "$ACME_EMAIL_ARG"
       set_env_value "CADDY_ACME_EMAIL" "$acme_email" "$env_file"
       set_env_value "CADDY_TLS_FRAGMENT" "/etc/caddy/tls-acme.caddy" "$env_file"
       set_env_value "CADDY_TLS_CERT_FILE" "/etc/caddy/tls/tls.crt" "$env_file"
@@ -189,8 +354,8 @@ configure_caddy() {
       local cert_file key_file
       cert_file="$(basename "$(read_env_value "CADDY_TLS_CERT_FILE" "$env_file" || echo "/etc/caddy/tls/tls.crt")")"
       key_file="$(basename "$(read_env_value "CADDY_TLS_KEY_FILE" "$env_file" || echo "/etc/caddy/tls/tls.key")")"
-      prompt_value cert_file "Cert filename inside ${tls_dir}" "$cert_file"
-      prompt_value key_file "Key filename inside ${tls_dir}" "$key_file"
+      prompt_value cert_file "Cert filename inside ${tls_dir}" "$cert_file" "$TLS_CERT_ARG"
+      prompt_value key_file "Key filename inside ${tls_dir}" "$key_file" "$TLS_KEY_ARG"
       set_env_value "CADDY_TLS_CERT_FILE" "/etc/caddy/tls/${cert_file}" "$env_file"
       set_env_value "CADDY_TLS_KEY_FILE" "/etc/caddy/tls/${key_file}" "$env_file"
       set_env_value "CADDY_TLS_FRAGMENT" "/etc/caddy/tls-custom.caddy" "$env_file"
@@ -198,7 +363,7 @@ configure_caddy() {
       ;;
     3)
       local san_csv
-      prompt_value san_csv "Extra SANs (comma separated, blank for none)" "localhost,127.0.0.1"
+      prompt_value san_csv "Extra SANs (comma separated, blank for none)" "localhost,127.0.0.1" "$TLS_SANS_ARG"
       generate_ca "$tls_dir" "${domain} CA"
       generate_server_cert "$tls_dir" "$tls_dir/ca.key" "$tls_dir/ca.crt" "$domain" "$san_csv"
       set_env_value "CADDY_TLS_FRAGMENT" "/etc/caddy/tls-custom.caddy" "$env_file"
@@ -214,10 +379,15 @@ configure_caddy() {
   echo "  2) Generate a fresh admin CA + client cert now"
   local mtls_choice
   while true; do
-    prompt_value mtls_choice "Choose mTLS CA option [1-2]" "2"
+    prompt_value mtls_choice "Choose mTLS CA option [1-2]" "2" "$MTLS_MODE_ARG"
     case "$mtls_choice" in
       1|2) break ;;
-      *) echo "Choose 1 or 2." ;;
+      *)
+        if [[ -n "$MTLS_MODE_ARG" ]]; then
+          fatal "Invalid --mtls-mode '${MTLS_MODE_ARG}'; use 1 or 2."
+        fi
+        echo "Choose 1 or 2."
+        ;;
     esac
   done
 
@@ -226,7 +396,7 @@ configure_caddy() {
   case "$mtls_choice" in
     1)
       local ca_path
-      prompt_value ca_path "Path to your existing CA cert" ""
+      prompt_value ca_path "Path to your existing CA cert" "" "$MTLS_CA_PATH_ARG"
       if [[ -n "$ca_path" && -f "$ca_path" ]]; then
         cp "$ca_path" "$mtls_dir/ca.crt"
         info "Copied CA to $mtls_dir/ca.crt"
@@ -236,8 +406,8 @@ configure_caddy() {
       ;;
     2)
       local ca_cn client_cn
-      prompt_value ca_cn "Admin CA Common Name" "Codex Admin CA"
-      prompt_value client_cn "Admin client cert name (CN)" "codex-admin"
+      prompt_value ca_cn "Admin CA Common Name" "Codex Admin CA" "$MTLS_CA_CN_ARG"
+      prompt_value client_cn "Admin client cert name (CN)" "codex-admin" "$MTLS_CLIENT_CN_ARG"
       generate_ca "$mtls_dir" "$ca_cn"
       generate_client_cert "$mtls_dir" "$mtls_dir/ca.key" "$mtls_dir/ca.crt" "$client_cn" "client-admin"
       info "mTLS CA: $mtls_dir/ca.crt"
@@ -400,6 +570,45 @@ ensure_dir() {
   mkdir -p "$dir" || fatal "Failed to create directory: $dir"
 }
 
+ensure_data_root() {
+  local env_file="$1" default_root="${2:-/var/docker_data/codex-auth.example.com}"
+  local data_root
+  data_root="$(read_env_value "DATA_ROOT" "$env_file" || true)"
+  [[ -z "$data_root" ]] && data_root="$default_root"
+  prompt_value data_root "Where should Codex data be stored?" "$data_root" "$DATA_ROOT_ARG"
+  [[ "$data_root" != /* ]] && data_root="$ROOT_DIR/${data_root#./}"
+  set_env_value "DATA_ROOT" "$data_root" "$env_file"
+  ensure_data_dirs "$data_root"
+  DATA_ROOT_SELECTED="$data_root"
+}
+
+ensure_base_urls() {
+  local env_file="$1" default_domain="${2:-codex-auth.example.com}"
+
+  local codex_url runner_url host_from_url
+  codex_url="$(read_env_value "CODEX_SYNC_BASE_URL" "$env_file" || true)"
+  [[ -z "$codex_url" ]] && codex_url="https://${default_domain}"
+  prompt_value codex_url "External HTTPS URL for Codex Auth API (used by hosts)" "$codex_url" "$CODEX_URL_ARG"
+  set_env_value "CODEX_SYNC_BASE_URL" "$codex_url" "$env_file"
+
+  # Extract host from codex_url for downstream defaults.
+  host_from_url="${codex_url#*://}"
+  host_from_url="${host_from_url%%/*}"
+  host_from_url="${host_from_url%%:*}"
+
+  runner_url="$(read_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$env_file" || true)"
+  [[ -z "$runner_url" ]] && runner_url="$codex_url"
+  prompt_value runner_url "External HTTPS URL the auth runner should use" "$runner_url" "$RUNNER_URL_ARG"
+  set_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$runner_url" "$env_file"
+
+  # Seed Caddy domain from the chosen Codex URL if it was empty.
+  local existing_domain
+  existing_domain="$(read_env_value "CADDY_DOMAIN" "$env_file" || true)"
+  if [[ -z "$existing_domain" && -n "$host_from_url" ]]; then
+    set_env_value "CADDY_DOMAIN" "$host_from_url" "$env_file"
+  fi
+}
+
 ensure_openssl() {
   command -v openssl >/dev/null 2>&1 || fatal "openssl is required for certificate generation"
 }
@@ -413,7 +622,11 @@ confirm_overwrite() {
 }
 
 generate_ca() {
-  local dir="$1" cn="$2" key="$dir/ca.key" cert="$dir/ca.crt"
+  local dir="${1-}" cn="${2-}"
+  if [[ -z "$dir" || -z "$cn" ]]; then
+    fatal "generate_ca called without dir/cn"
+  fi
+  local key="$dir/ca.key" cert="$dir/ca.crt"
   ensure_openssl
   ensure_dir "$dir"
   if ! confirm_overwrite "$key" || ! confirm_overwrite "$cert"; then
@@ -430,7 +643,10 @@ generate_ca() {
 }
 
 generate_server_cert() {
-  local dir="$1" ca_key="$2" ca_cert="$3" cn="$4" san_csv="$5"
+  local dir="${1-}" ca_key="${2-}" ca_cert="${3-}" cn="${4-}" san_csv="${5-}"
+  if [[ -z "$dir" || -z "$ca_key" || -z "$ca_cert" || -z "$cn" ]]; then
+    fatal "generate_server_cert missing arguments"
+  fi
   ensure_openssl
   ensure_dir "$dir"
   local key="$dir/server.key"
@@ -479,7 +695,10 @@ EOF
 }
 
 generate_client_cert() {
-  local dir="$1" ca_key="$2" ca_cert="$3" cn="$4" prefix="$5"
+  local dir="${1-}" ca_key="${2-}" ca_cert="${3-}" cn="${4-}" prefix="${5-}"
+  if [[ -z "$dir" || -z "$ca_key" || -z "$ca_cert" || -z "$cn" || -z "$prefix" ]]; then
+    fatal "generate_client_cert missing arguments"
+  fi
   ensure_openssl
   ensure_dir "$dir"
   local key="$dir/${prefix}.key"
@@ -513,9 +732,36 @@ EOF
 }
 
 docker_healthcheck() {
-  if ! docker info >/dev/null 2>&1; then
-    fatal "Docker daemon not reachable; start Docker and rerun"
+  if docker info >/dev/null 2>&1; then
+    return
   fi
+
+  warn "Docker daemon not reachable; attempting to start it..."
+  local started=0
+  if (( EUID != 0 )) && command -v sudo >/dev/null 2>&1; then
+    if sudo systemctl start docker >/dev/null 2>&1; then
+      started=1
+    elif sudo service docker start >/dev/null 2>&1; then
+      started=1
+    fi
+  else
+    if systemctl start docker >/dev/null 2>&1; then
+      started=1
+    elif service docker start >/dev/null 2>&1; then
+      started=1
+    fi
+  fi
+
+  if (( started )) && docker info >/dev/null 2>&1; then
+    info "Docker daemon started."
+    return
+  fi
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    warn "On macOS, open Docker Desktop and wait for it to finish starting."
+  fi
+
+  fatal "Docker daemon not reachable; start Docker and rerun"
 }
 
 start_stack() {
@@ -561,19 +807,18 @@ main() {
   ensure_encryption_key "$env_path"
   ensure_db_credentials "$env_path"
 
-  local data_root default_data_root="/var/docker_data/codex-auth.example.com"
-  data_root="$(read_env_value "DATA_ROOT" "$env_path" || true)"
-  data_root="${data_root:-$default_data_root}"
-  [[ "$data_root" != /* ]] && data_root="$ROOT_DIR/${data_root#./}"
-  ensure_data_dirs "$data_root"
+  local default_data_root="/var/docker_data/codex-auth.example.com"
+  ensure_data_root "$env_path" "$default_data_root"
+  local data_root="${DATA_ROOT_SELECTED:-$default_data_root}"
+
+  # Base URLs (hosts never need to edit .env manually).
+  ensure_base_urls "$env_path"
 
   configure_caddy "$env_path" "$data_root"
 
   local codex_url runner_url
   codex_url="$(read_env_value "CODEX_SYNC_BASE_URL" "$env_path" || true)"
   runner_url="$(read_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$env_path" || true)"
-  [[ -z "$codex_url" ]] && codex_url="https://codex-auth.example.com"
-  [[ -z "$runner_url" ]] && runner_url="https://codex-auth.example.com"
 
   if (( START_STACK || BUILD_IMAGES )); then
     start_stack
@@ -582,13 +827,13 @@ main() {
   fi
 
   printf '\nNext steps:\n'
-  printf '  - Review %s and set DB_*, DATA_ROOT, CODEX_SYNC_BASE_URL, AUTH_RUNNER_CODEX_BASE_URL (current: %s / %s).\n' "$env_path" "$codex_url" "$runner_url"
+  printf '  - Config saved to %s (API URL: %s, runner URL: %s, data root: %s).\n' "$env_path" "$codex_url" "$runner_url" "$data_root"
   local up_cmd="${COMPOSE[*]} up -d"
   (( USE_CADDY )) && up_cmd="${COMPOSE[*]} --profile caddy up -d"
   printf '  - Bring up the stack with: %s\n' "$up_cmd"
   printf '  - After the stack is running, upload your ~/.codex/auth.json via the admin dashboard (/admin/) and mint installer tokens per host.\n'
   if (( created_env )); then
-    printf '\nNOTE: A fresh env file was created; update it before production use.\n'
+    printf '\nNOTE: A fresh env file was generated; rerun this script anytime to change values (no manual edits needed).\n'
   fi
 }
 
