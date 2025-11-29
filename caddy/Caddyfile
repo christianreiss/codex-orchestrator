@@ -15,10 +15,19 @@
     log
 
     @admin path /admin* /admin
-    @admin_mtls expression {env.ADMIN_REQUIRE_MTLS} == "0" || {http.request.tls.client.fingerprint} != ""
+    @admin_no_mtls expression {env.ADMIN_REQUIRE_MTLS} == "0"
+    @admin_with_cert expression {http.request.tls.client.fingerprint} != ""
 
     handle @admin {
-        handle @admin_mtls {
+        handle @admin_no_mtls {
+            reverse_proxy api:80 {
+                header_up X-Forwarded-Proto https
+                header_up X-Real-IP {http.request.remote}
+                header_up X-MTLS-Present 0
+            }
+        }
+
+        handle @admin_with_cert {
             reverse_proxy api:80 {
                 header_up X-Forwarded-Proto https
                 header_up X-Real-IP {http.request.remote}
