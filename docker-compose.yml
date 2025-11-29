@@ -7,6 +7,12 @@ services:
       - mysql
     ports:
       - "8488:80"
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@file_get_contents(\"http://127.0.0.1/versions\")===false);'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     environment:
       DB_DRIVER: mysql
       DB_HOST: ${DB_HOST:-mysql}
@@ -53,6 +59,12 @@ services:
           sleep 60;
         fi
       done"
+    healthcheck:
+      test: ["CMD-SHELL", "php -r '$m=@new mysqli(getenv(\"DB_HOST\"),getenv(\"DB_USERNAME\"),getenv(\"DB_PASSWORD\"),getenv(\"DB_DATABASE\")); exit($m && $m->connect_errno===0?0:1);'"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   auth-runner:
@@ -66,6 +78,12 @@ services:
       CODEX_DEBUG: ${CODEX_DEBUG:-0}
     expose:
       - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - codex_auth
     restart: unless-stopped
