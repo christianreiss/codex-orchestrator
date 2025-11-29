@@ -6,7 +6,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`. Admin endpoints also accept `X-Admin-Key`/Bearer when `DASHBOARD_ADMIN_KEY` is set.
 - **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, secure the path via VPN/firewall and/or `DASHBOARD_ADMIN_KEY`.
 - **IP binding**: first successful `/auth` (or wrapper fetch) pins the caller IP; later calls from another IP return `403` unless `allow_roaming_ips` is enabled or `DELETE /auth?force=1` is used. Runner calls may bypass IP binding when `AUTH_RUNNER_IP_BYPASS=1` and the runner IP is inside `AUTH_RUNNER_BYPASS_SUBNETS`.
-- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 10‑minute sliding window with `POST /admin/hosts/{id}/insecure/enable`. When closed, `/auth` returns `403 insecure_api_disabled`. There is no grace window on disable.
+- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 10‑minute sliding window with `POST /admin/hosts/{id}/insecure/enable`. Disabling the window blocks `retrieve` immediately with `403 insecure_api_disabled` but starts a 60‑minute grace period during which `store` calls remain allowed so hosts can finish uploading changes.
 - **Kill switch**: `POST /admin/api/state` sets a persistent `api_disabled` flag. When enabled, every non-`/admin/api/state` route (including `/auth`) returns HTTP 503.
 - **Rate limits** (non-admin paths only):
   - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
@@ -70,7 +70,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a 10‑minute sliding allow window.
-- `POST /admin/hosts/{id}/insecure/disable` — closes the window (no grace).
+- `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and starts a 60‑minute grace period during which `/auth` `store` calls are still allowed (retrieves remain blocked).
 - `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (body JSON or `file`). `host_id` optional; omitted/`0`/`system` stores an unscoped payload. Skips runner.

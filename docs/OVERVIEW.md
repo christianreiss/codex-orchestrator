@@ -80,3 +80,10 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - For each host: `New Host` → copy `curl …/install/{token} | bash` → run on the host. The wrapper bakes API key/FQDN/base URL and pulls canonical auth.
 - Rotate tokens by updating the trusted machine’s `auth.json` and pushing again (dashboard upload or `/auth` store from any host with the new digest).
 - Decommission with dashboard delete or `cdx --uninstall` (calls `DELETE /auth`).
+
+## Operations
+
+- Logs are stored in MySQL (`logs` table). For a quick peek in a default Docker setup you can run:  
+  `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`
+- The legacy `host-status.txt` export has been removed; use the admin dashboard (`/admin/overview` and `/admin/hosts`) for current host status.
+- Timestamp comparisons normalize RFC3339 strings including fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` are supported.
