@@ -828,9 +828,6 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $avgRefreshDays = null;
     $hasCanonicalAuth = $service->hasCanonicalAuth();
     $seedReasons = [];
-    if ($countHosts === 0) {
-        $seedReasons[] = 'no_hosts';
-    }
     if (!$hasCanonicalAuth) {
         $seedReasons[] = 'missing_auth';
     }

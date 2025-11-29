@@ -1221,7 +1221,6 @@ const statsEl = document.getElementById('stats');
       }
       if (seedModalCopy) {
         const missing = [];
-        if (!hasHosts) missing.push('no hosts or API keys exist');
         if (!hasAuth) missing.push('canonical auth.json is missing');
         seedModalCopy.textContent = missing.length
           ? `Setup incomplete: ${missing.join(' · ')}. Seed auth.json before issuing installers.`
@@ -1234,7 +1233,6 @@ const statsEl = document.getElementById('stats');
       const hasAuth = !!(overviewData && overviewData.has_canonical_auth);
       const reasons = Array.isArray(overviewData?.seed_reasons) ? overviewData.seed_reasons : [];
       const required = (overviewData && overviewData.seed_required === true)
-        || !hasHosts
         || !hasAuth;
 
       setSeedStatus(hasHosts, hasAuth, reasons);
