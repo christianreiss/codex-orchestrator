@@ -565,7 +565,11 @@ ensure_db_credentials() {
 
 ensure_data_dirs() {
   local root="$1"
-  mkdir -p "$root"/{store,store/sql,mysql_data,caddy/tls,caddy/mtls} || fatal "Failed to create data dirs under $root"
+  mkdir -p "$root"/{store,store/sql,store/logs,mysql_data,caddy/tls,caddy/mtls} || fatal "Failed to create data dirs under $root"
+  chmod -R 775 "$root/store" "$root/caddy" 2>/dev/null || true
+  if id -u www-data >/dev/null 2>&1; then
+    chown -R www-data:www-data "$root/store" "$root/caddy" 2>/dev/null || true
+  fi
   info "Ensured data directories under $root"
 }
 
@@ -616,6 +620,9 @@ ensure_base_urls() {
 ensure_env_perms() {
   local env_file="$1"
   chmod 664 "$env_file" 2>/dev/null || true
+  if id -u www-data >/dev/null 2>&1; then
+    chown www-data:www-data "$env_file" 2>/dev/null || true
+  fi
 }
 
 ensure_openssl() {
