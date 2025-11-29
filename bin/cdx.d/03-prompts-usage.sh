@@ -6,15 +6,15 @@ prompt_sync_python() {
   local prompt_dir="$4"
   local cafile="$5"
   local baseline_file="$6"
-  python3 - "$mode" "$base" "$api_key" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, pathlib, ssl, sys, urllib.error, urllib.request
+  CODEX_SYNC_API_KEY="$api_key" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
+import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")
-api_key = sys.argv[3] if len(sys.argv) > 3 else ""
-prompt_dir = pathlib.Path(sys.argv[4]).expanduser()
-cafile = sys.argv[5] if len(sys.argv) > 5 else ""
-baseline_file = pathlib.Path(sys.argv[6]).expanduser() if len(sys.argv) > 6 else prompt_dir.parent / ".prompt-baseline.json"
+prompt_dir = pathlib.Path(sys.argv[3]).expanduser()
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else prompt_dir.parent / ".prompt-baseline.json"
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 
 def contexts():
@@ -453,13 +453,13 @@ post_token_usage_payload() {
 
   local summary=""
   local status=0
-  summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, ssl, sys, urllib.error, urllib.request
+  summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json, os, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
-api_key = sys.argv[2]
-payload_raw = sys.argv[3]
-cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+payload_raw = sys.argv[2]
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 try:
     payload = json.loads(payload_raw)
@@ -589,13 +589,13 @@ PY
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       summary=""
       status=0
-      summary="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, ssl, sys, urllib.error, urllib.request
+      summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json, os, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
-api_key = sys.argv[2]
-payload_raw = sys.argv[3]
-cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+payload_raw = sys.argv[2]
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 payload = json.loads(payload_raw)
 body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
