@@ -219,51 +219,12 @@ require_python() {
   return 0
 }
 
-parse_sync_env_file() {
-  local path="$1"
-  local key value
-  while IFS='=' read -r key value; do
-    value="${value%$'\r'}"
-    case "$key" in
-      ''|\#*) continue ;;
-    esac
-    case "$key" in
-      CODEX_SYNC_BASE_URL)
-        CODEX_SYNC_BASE_URL="${value%/}"
-        ;;
-      CODEX_SYNC_API_KEY)
-        CODEX_SYNC_API_KEY="$value"
-        ;;
-      CODEX_SYNC_FQDN)
-        CODEX_SYNC_FQDN="$value"
-        ;;
-      CODEX_SYNC_CA_FILE)
-        CODEX_SYNC_CA_FILE="$value"
-        ;;
-    esac
-  done <"$path"
-}
-
 load_sync_config() {
   if (( SYNC_CONFIG_LOADED )); then
     return 0
   fi
-  if [[ "${CODEX_SYNC_BAKED:-0}" -eq 1 ]]; then
-    log_debug "config (baked) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
-    SYNC_CONFIG_LOADED=1
-    return 0
-  fi
-  local path=""
-  for path in "${CODEX_SYNC_CONFIG_PATHS[@]}"; do
-    [[ -z "$path" ]] && continue
-    if [[ -f "$path" ]]; then
-      parse_sync_env_file "$path"
-      log_debug "loaded sync env: $path"
-    fi
-  done
-  if [[ -z "$CODEX_SYNC_BASE_URL" ]]; then
-    CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
-  fi
-  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  # Always prefer baked-in sync configuration; ignore local .env overrides.
+  CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
+  log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
   SYNC_CONFIG_LOADED=1
 }

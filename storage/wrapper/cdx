@@ -86,18 +86,16 @@ CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
 
 # Per-host baked configuration (populated by the server at download time).
-CODEX_SYNC_BAKED=${CODEX_SYNC_BAKED:-1}
 CODEX_SYNC_BASE_URL_DEFAULT="__CODEX_SYNC_BASE_URL__"
-CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL:-$CODEX_SYNC_BASE_URL_DEFAULT}"
-CODEX_SYNC_API_KEY="${CODEX_SYNC_API_KEY:-__CODEX_SYNC_API_KEY__}"
-CODEX_SYNC_FQDN="${CODEX_SYNC_FQDN:-__CODEX_SYNC_FQDN__}"
-CODEX_SYNC_CA_FILE="${CODEX_SYNC_CA_FILE:-__CODEX_SYNC_CA_FILE__}"
-CODEX_HOST_SECURE_DEFAULT="__CODEX_HOST_SECURE__"
-if [[ "$CODEX_HOST_SECURE_DEFAULT" == "__CODEX_HOST_SECURE__" ]]; then
-  CODEX_HOST_SECURE_DEFAULT="1"
+CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
+CODEX_SYNC_API_KEY="__CODEX_SYNC_API_KEY__"
+CODEX_SYNC_FQDN="__CODEX_SYNC_FQDN__"
+CODEX_SYNC_CA_FILE="__CODEX_SYNC_CA_FILE__"
+CODEX_HOST_SECURE="__CODEX_HOST_SECURE__"
+if [[ "$CODEX_HOST_SECURE" == "__CODEX_HOST_SECURE__" ]]; then
+  CODEX_HOST_SECURE="1"
 fi
-CODEX_HOST_SECURE="${CODEX_HOST_SECURE:-$CODEX_HOST_SECURE_DEFAULT}"
-CODEX_SYNC_CONFIG_PATHS=()
+CODEX_SYNC_BAKED=1
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
@@ -168,7 +166,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.29-03"
+WRAPPER_VERSION="2025.11.29-04"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -660,52 +658,13 @@ require_python() {
   return 0
 }
 
-parse_sync_env_file() {
-  local path="$1"
-  local key value
-  while IFS='=' read -r key value; do
-    value="${value%$'\r'}"
-    case "$key" in
-      ''|\#*) continue ;;
-    esac
-    case "$key" in
-      CODEX_SYNC_BASE_URL)
-        CODEX_SYNC_BASE_URL="${value%/}"
-        ;;
-      CODEX_SYNC_API_KEY)
-        CODEX_SYNC_API_KEY="$value"
-        ;;
-      CODEX_SYNC_FQDN)
-        CODEX_SYNC_FQDN="$value"
-        ;;
-      CODEX_SYNC_CA_FILE)
-        CODEX_SYNC_CA_FILE="$value"
-        ;;
-    esac
-  done <"$path"
-}
-
 load_sync_config() {
   if (( SYNC_CONFIG_LOADED )); then
     return 0
   fi
-  if [[ "${CODEX_SYNC_BAKED:-0}" -eq 1 ]]; then
-    log_debug "config (baked) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
-    SYNC_CONFIG_LOADED=1
-    return 0
-  fi
-  local path=""
-  for path in "${CODEX_SYNC_CONFIG_PATHS[@]}"; do
-    [[ -z "$path" ]] && continue
-    if [[ -f "$path" ]]; then
-      parse_sync_env_file "$path"
-      log_debug "loaded sync env: $path"
-    fi
-  done
-  if [[ -z "$CODEX_SYNC_BASE_URL" ]]; then
-    CODEX_SYNC_BASE_URL="$CODEX_SYNC_BASE_URL_DEFAULT"
-  fi
-  log_debug "config | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  # Always prefer baked-in sync configuration; ignore local .env overrides.
+  CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
+  log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
   SYNC_CONFIG_LOADED=1
 }
 
