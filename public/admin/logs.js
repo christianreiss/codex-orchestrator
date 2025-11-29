@@ -145,7 +145,6 @@
     const rows = items.map((item) => {
       const created = formatTimestamp(item.created_at);
       const host = item.fqdn ? escapeHtml(item.fqdn) : 'Unknown';
-      const hostMeta = item.host_id ? `<span class="muted mono">#${item.host_id}</span>` : '<span class="muted">n/a</span>';
       const clientIp = item.client_ip ? escapeHtml(item.client_ip) : '—';
       const inputTokens = formatNumber(item.input);
       const outputTokens = formatNumber(item.output);
@@ -157,7 +156,6 @@
         <td>
           <div class="host-chip">
             <span class="host-name">${host}</span>
-            ${hostMeta}
           </div>
         </td>
         <td><span class="mono">${clientIp}</span></td>
