@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex-Auth · Client Logs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="dashboard-mobile.css">
+</head>
+<body data-view="desktop">
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
+  <div class="app">
+    <div class="content">
+      <header class="topbar">
+        <div class="title-line">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <h2>Client Logs</h2>
+          <div class="pill pill-soft">Reports</div>
+        </div>
+        <div class="menu-line">
+          <a class="ghost menu-link" href="/admin/">Dashboard</a>
+          <a class="ghost menu-link active" href="/admin/logs.html">Client Logs</a>
+        </div>
+      </header>
+      <main class="main logs-main">
+        <section class="card panel log-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Client Reports</h2>
+              <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
+            </div>
+            <div class="panel-actions log-actions">
+              <input type="search" id="log-search" placeholder="Search host or IP">
+              <select id="log-page-size" title="Rows per page">
+                <option value="25">25 / page</option>
+                <option value="50" selected>50 / page</option>
+                <option value="100">100 / page</option>
+              </select>
+              <button id="log-refresh" class="ghost tiny-btn">↻ Refresh</button>
+            </div>
+          </div>
+          <div class="table-wrap log-table-wrap">
+            <table id="log-table">
+              <thead>
+                <tr>
+                  <th class="sortable" data-sort="created_at">Created</th>
+                  <th class="sortable" data-sort="host">Client</th>
+                  <th class="sortable" data-sort="entries">Entries</th>
+                  <th class="sortable" data-sort="total">Tokens</th>
+                  <th class="sortable" data-sort="client_ip">Client IP</th>
+                  <th>Payload</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="loading-row"><td colspan="6">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="log-footer">
+            <div id="log-status" class="muted">Loading…</div>
+            <div class="log-pagination">
+              <button id="page-prev" class="ghost tiny-btn">← Prev</button>
+              <div class="page-indicator" id="page-indicator">Page 1 / 1</div>
+              <button id="page-next" class="ghost tiny-btn">Next →</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="logs.js?v=2025-11-29-01"></script>
+</body>
+</html>

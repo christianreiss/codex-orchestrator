@@ -26,15 +26,17 @@ class TokenUsageRepository
         ?int $cached,
         ?int $reasoning,
         ?string $model,
-        ?string $line
+        ?string $line,
+        ?int $ingestId = null
     ): void {
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO token_usages (host_id, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, model, line, created_at)
-             VALUES (:host_id, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :model, :line, :created_at)'
+            'INSERT INTO token_usages (host_id, ingest_id, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, model, line, created_at)
+             VALUES (:host_id, :ingest_id, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :model, :line, :created_at)'
         );
 
         $statement->execute([
             'host_id' => $hostId,
+            'ingest_id' => $ingestId,
             'total' => $total,
             'input_tokens' => $input,
             'output_tokens' => $output,
@@ -195,7 +197,7 @@ class TokenUsageRepository
     public function latestForHost(int $hostId): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT total, input_tokens AS input, output_tokens AS output, cached_tokens AS cached, reasoning_tokens AS reasoning, model, line, created_at
+            'SELECT ingest_id, total, input_tokens AS input, output_tokens AS output, cached_tokens AS cached, reasoning_tokens AS reasoning, model, line, created_at
              FROM token_usages
              WHERE host_id = :host_id
              ORDER BY created_at DESC, id DESC
@@ -208,6 +210,7 @@ class TokenUsageRepository
         }
 
         return [
+            'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
             'total' => isset($row['total']) ? (int) $row['total'] : null,
             'input' => isset($row['input']) ? (int) $row['input'] : null,
             'output' => isset($row['output']) ? (int) $row['output'] : null,
@@ -231,6 +234,7 @@ class TokenUsageRepository
                     tu.output_tokens AS output,
                     tu.cached_tokens AS cached,
                     tu.reasoning_tokens AS reasoning,
+                    tu.ingest_id,
                     tu.model,
                     tu.line,
                     tu.created_at
@@ -254,6 +258,7 @@ class TokenUsageRepository
                 'output' => isset($row['output']) ? (int) $row['output'] : null,
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
                 'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
+                'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
                 'model' => $row['model'] ?? null,
                 'line' => $row['line'] ?? null,
                 'created_at' => $row['created_at'] ?? null,

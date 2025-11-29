@@ -50,7 +50,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
 
 5) **Usage, prompts, and host telemetry**
-   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines and stores per-row audit entries.
+- `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, stores per-row entries, and now keeps a per-request ingest row for audit (aggregates + normalized payload + client IP).
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/slash-commands` list/retrieve/store/delete prompt files; delete marks propagate to hosts on next sync.
 

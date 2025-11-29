@@ -808,12 +808,165 @@
     .token-usage-meta { font-size: 12px; }
     .host-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; }
     .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
-    .digest-pill {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      padding: 6px 8px;
-      border-radius: 8px;
-      border: 1px solid var(--panel-strong);
-      background: rgba(15,23,42,0.05);
-      color: #0f172a;
-    }
+.digest-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-strong);
+  background: rgba(15,23,42,0.05);
+  color: #0f172a;
+}
+
+/* Shared nav */
+.menu-line {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 6px 0 10px;
+}
+.menu-link {
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-strong);
+  background: rgba(15,23,42,0.04);
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  transition: all 0.15s ease;
+}
+.menu-link:hover {
+  border-color: rgba(14,165,233,0.4);
+  transform: translateY(-1px);
+}
+.menu-link.active {
+  background: linear-gradient(90deg, #0ea5e9, #6366f1);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.25);
+}
+
+/* Log page */
+.logs-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.log-panel .panel-head {
+  align-items: flex-start;
+}
+.log-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+#log-search {
+  min-width: 220px;
+}
+#log-page-size {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-strong);
+  background: #fff;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.log-table-wrap table th.sortable {
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  padding-right: 18px;
+}
+.log-table-wrap table th.sortable::after {
+  content: '↕';
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  opacity: 0.35;
+}
+.log-table-wrap table th.sort-active::after {
+  opacity: 1;
+  color: #6366f1;
+}
+.log-table-wrap table th.sort-asc::after { content: '↑'; }
+.log-table-wrap table th.sort-desc::after { content: '↓'; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15,23,42,0.06);
+  border: 1px solid var(--panel-strong);
+  font-weight: 700;
+  min-width: 48px;
+}
+.host-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.host-chip .host-name { font-weight: 700; letter-spacing: -0.1px; }
+.token-total {
+  font-weight: 800;
+  font-size: 16px;
+}
+.token-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.token-chip {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.15);
+}
+.token-chip.token-input { background: rgba(14,165,233,0.08); border-color: rgba(14,165,233,0.15); }
+.token-chip.token-output { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.15); }
+.token-chip.token-cached { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.15); }
+.token-chip.token-reason { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.25); }
+.payload-preview {
+  background: rgba(15,23,42,0.04);
+  border: 1px solid var(--panel-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: inline-block;
+  max-width: 380px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.log-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.log-pagination {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.page-indicator {
+  font-weight: 700;
+}
+.loading-row td,
+.empty-row td,
+.error-row td {
+  text-align: center;
+  color: var(--muted);
+  font-weight: 600;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }

@@ -13,6 +13,9 @@ This doc walks through setting up the Codex Auth stack with Docker, mTLS, and a 
   - `/var/docker_data/codex-auth.example.com/mysql_data`
   - `/var/docker_data/codex-auth.example.com/store` (wrapper, storage/sql exports)
   - When using the bundled Caddy frontend: `/var/docker_data/codex-auth.example.com/caddy/tls` for custom cert/key, `/var/docker_data/codex-auth.example.com/caddy/mtls` for the admin CA, plus named volumes `caddy_data` and `caddy_config` (ACME + Caddy state).
+ - Optional internet egress for helper services:
+   - The auth runner pings Codex clients to validate auth.json (clear `AUTH_RUNNER_URL` to disable it).
+   - The quota cron fetches ChatGPT usage; pricing lookups can pull from `PRICING_URL` when configured.
 
 ## Recommended: one-command setup
 
@@ -32,6 +35,7 @@ What it does
 - Prompts for external URLs used by hosts/runner:
   - `CODEX_SYNC_BASE_URL` (API URL baked into installers/wrapper)
   - `AUTH_RUNNER_CODEX_BASE_URL` (runner’s Codex base URL; defaults to the same value)
+- Seeds sensible runner defaults so the runner can bypass host IP pinning inside the compose network (`AUTH_RUNNER_IP_BYPASS=1`, `AUTH_RUNNER_BYPASS_SUBNETS=172.28.0.0/16,172.30.0.0/16`).
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
   - Lets you keep or disable the mTLS requirement for `/admin` (`ADMIN_REQUIRE_MTLS`).
   - If enabled, asks for `CADDY_DOMAIN` and TLS mode:
@@ -78,8 +82,11 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD/DB_ROOT_PASSWORD`
    - `AUTH_ENCRYPTION_KEY` (leave empty to auto-generate on first boot).
    - `DATA_ROOT` if you want a different bind-mount root.
-   - Optional: `DASHBOARD_ADMIN_KEY` (second factor for admin APIs).
-   - Optional: `CHATGPT_USAGE_CRON_INTERVAL` (seconds between background ChatGPT quota refreshes; default 3600).
+   - Admin surface: `DASHBOARD_ADMIN_KEY` (second factor for admin APIs), `ADMIN_REQUIRE_MTLS` (default `1`).
+   - Runner knobs: `AUTH_RUNNER_URL` (blank to disable), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+   - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
+   - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.1 price hints (`GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`).
+   - Debug/ops: `CODEX_SYNC_BASE_URL` (baked into installers/wrapper), `CODEX_DEBUG` (echo runner base URL/API key), `ENV_FILE` if you keep `.env` elsewhere.
 3. Ensure `.env` is kept out of git and treated as a secret.
 
 ## Build and Run
@@ -88,10 +95,12 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
 docker compose up --build
 ```
 
+- Starts `api`, `quota-cron`, `auth-runner`, and `mysql`. Add `--profile caddy` for TLS proxy and `--profile backup` for nightly SQL dumps (`mysql-backup`).
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (mTLS required unless `ADMIN_REQUIRE_MTLS=0`; optional `DASHBOARD_ADMIN_KEY`).
-- Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner.
+- Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner. Runner probes can bypass host IP pinning when the IP is in `AUTH_RUNNER_BYPASS_SUBNETS` and `AUTH_RUNNER_IP_BYPASS=1`.
 - A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds).
+- Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
 
 ## Optional: bundled Caddy frontend (no existing proxy)
 
@@ -101,6 +110,11 @@ docker compose up --build
    - **Let's Encrypt/ZeroSSL**: keep `CADDY_TLS_FRAGMENT=/etc/caddy/tls-acme.caddy`, set `CADDY_DOMAIN` + `CADDY_ACME_EMAIL`, and ensure ports 80/443 reach this host.
    - **Custom cert**: set `CADDY_TLS_FRAGMENT=/etc/caddy/tls-custom.caddy` and drop `tls.crt` / `tls.key` (or update `CADDY_TLS_CERT_FILE`/`CADDY_TLS_KEY_FILE`) into `${CADDY_TLS_DIR}`.
 4. Start the stack with Caddy: `docker compose --profile caddy up --build -d`. External clients should use `https://<CADDY_DOMAIN>`; the API is still reachable on `8488` inside the compose network.
+
+## Optional: backups & cost visibility
+
+- Enable nightly SQL dumps: `docker compose --profile backup up -d`. Defaults come from `DB_BACKUP_CRON` (cron spec) and `DB_BACKUP_MAX` (retained files); dumps land in `${DATA_ROOT}/store/sql`.
+- Admin cost estimates read GPT-5.1 unit prices from env (`GPT51_*`, `PRICING_CURRENCY`) or, when `PRICING_URL` is set, from that JSON endpoint. This only affects dashboard calculations, not enforcement.
 
 ## First-Time Flow
 
@@ -118,3 +132,5 @@ docker compose up --build
 - Treat `.env`, `storage/`, and MySQL volumes as secrets (contain API/encryption keys and auth payloads).
 - By default `/admin/` enforces mTLS. If you set `ADMIN_REQUIRE_MTLS=0`, lock it down via another control (VPN, firewall, and/or `DASHBOARD_ADMIN_KEY`).
 - IP binding relies on `X-Forwarded-For`/`X-Real-IP`; ensure your proxy sets and sanitizes them.
+- If you keep `AUTH_RUNNER_IP_BYPASS=1`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to internal CIDRs only.
+- Global rate limiting is off for admin routes but on for everything else; tune or disable with `RATE_LIMIT_GLOBAL_PER_MINUTE`/`RATE_LIMIT_GLOBAL_WINDOW` if your proxy already rate-limits.

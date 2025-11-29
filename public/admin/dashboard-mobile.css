@@ -232,3 +232,29 @@ body[data-view="mobile"] .command-box {
 body[data-view="mobile"] #prompts-panel .table-wrap {
   margin-top: 8px;
 }
+
+body[data-view="mobile"] .menu-line {
+  margin-top: 8px;
+}
+
+body[data-view="mobile"] .log-actions {
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+body[data-view="mobile"] #log-search,
+body[data-view="mobile"] #log-page-size {
+  width: 100%;
+}
+
+body[data-view="mobile"] .payload-preview {
+  white-space: normal;
+  max-width: 100%;
+}
+
+body[data-view="mobile"] .log-footer {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}

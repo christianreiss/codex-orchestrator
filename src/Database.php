@@ -202,9 +202,31 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS token_usage_ingests (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                host_id BIGINT UNSIGNED NULL,
+                entries INT UNSIGNED NOT NULL DEFAULT 0,
+                total BIGINT UNSIGNED NULL,
+                input_tokens BIGINT UNSIGNED NULL,
+                output_tokens BIGINT UNSIGNED NULL,
+                cached_tokens BIGINT UNSIGNED NULL,
+                reasoning_tokens BIGINT UNSIGNED NULL,
+                client_ip VARCHAR(64) NULL,
+                payload LONGTEXT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_usage_ingests_host (host_id),
+                INDEX idx_usage_ingests_created_at (created_at),
+                CONSTRAINT fk_usage_ingests_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS token_usages (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NULL,
+                ingest_id BIGINT UNSIGNED NULL,
                 total BIGINT UNSIGNED NULL,
                 input_tokens BIGINT UNSIGNED NULL,
                 output_tokens BIGINT UNSIGNED NULL,
@@ -214,8 +236,10 @@ class Database
                 line TEXT NULL,
                 created_at VARCHAR(100) NOT NULL,
                 INDEX idx_token_usage_host (host_id),
+                INDEX idx_token_usage_ingest (ingest_id),
                 INDEX idx_token_usage_created_at (created_at),
-                CONSTRAINT fk_token_usage_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+                CONSTRAINT fk_token_usage_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL,
+                CONSTRAINT fk_token_usage_ingest FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL
             ) ENGINE=InnoDB {$collation};
             SQL
         );
@@ -344,8 +368,12 @@ class Database
         $this->ensureColumnExists('hosts', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
+        $this->ensureColumnExists('token_usages', 'ingest_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
+
+        $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
+        $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
 
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid
@@ -370,6 +398,47 @@ class Database
         }
 
         $this->pdo->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', $table, $column, $definition));
+    }
+
+    private function ensureIndexExists(string $table, string $index, string $definition): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND INDEX_NAME = :index'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+            'index' => $index,
+        ]);
+
+        $exists = (int) $statement->fetchColumn() > 0;
+        if ($exists) {
+            return;
+        }
+
+        $this->pdo->exec(sprintf('ALTER TABLE %s ADD %s', $table, $definition));
+    }
+
+    private function ensureForeignKeyExists(string $table, string $constraint, string $definition): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND CONSTRAINT_NAME = :constraint AND CONSTRAINT_TYPE = :type'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+            'constraint' => $constraint,
+            'type' => 'FOREIGN KEY',
+        ]);
+
+        $exists = (int) $statement->fetchColumn() > 0;
+        if ($exists) {
+            return;
+        }
+
+        $this->pdo->exec(sprintf('ALTER TABLE %s ADD CONSTRAINT %s %s', $table, $constraint, $definition));
     }
 
     private function dropColumnIfExists(string $table, string $column): void

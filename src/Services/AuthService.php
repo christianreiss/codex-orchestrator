@@ -18,6 +18,7 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Support\Timestamp;
@@ -48,6 +49,7 @@ class AuthService
         private readonly HostUserRepository $hostUsers,
         private readonly LogRepository $logs,
         private readonly TokenUsageRepository $tokenUsages,
+        private readonly TokenUsageIngestRepository $tokenUsageIngests,
         private readonly VersionRepository $versions,
         private readonly WrapperService $wrapperService,
         private readonly ?RunnerVerifier $runnerVerifier = null,
@@ -1050,7 +1052,7 @@ class AuthService
         return $this->hostUsers->listByHost($hostId);
     }
 
-    public function recordTokenUsage(array $host, array $payload): array
+    public function recordTokenUsage(array $host, array $payload, ?string $clientIp = null): array
     {
         if (!isset($host['id'])) {
             throw new HttpException('Host not found', 404);
@@ -1059,6 +1061,37 @@ class AuthService
         $usageRows = $this->normalizeUsagePayloads($payload);
         $hostId = (int) $host['id'];
         $records = [];
+        $aggregates = [
+            'total' => null,
+            'input' => null,
+            'output' => null,
+            'cached' => null,
+            'reasoning' => null,
+        ];
+
+        foreach ($usageRows as $usage) {
+            foreach (['total', 'input', 'output', 'cached', 'reasoning'] as $field) {
+                if ($usage[$field] !== null) {
+                    $aggregates[$field] = ($aggregates[$field] ?? 0) + (int) $usage[$field];
+                }
+            }
+        }
+
+        $encodedPayload = null;
+        $payloadWrapper = ['usages' => $usageRows];
+        $encoded = json_encode($payloadWrapper, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($encoded !== false) {
+            $encodedPayload = $encoded;
+        }
+
+        $ingest = $this->tokenUsageIngests->record(
+            $hostId,
+            count($usageRows),
+            $aggregates,
+            $encodedPayload,
+            $clientIp !== null && $clientIp !== '' ? $clientIp : null
+        );
+        $ingestId = $ingest['id'] ?? null;
 
         foreach ($usageRows as $usage) {
             $details = array_filter([
@@ -1069,6 +1102,7 @@ class AuthService
                 'cached' => $usage['cached'],
                 'reasoning' => $usage['reasoning'],
                 'model' => $usage['model'],
+                'ingest_id' => $ingestId,
             ], static fn ($value) => $value !== null && $value !== '');
 
             $this->tokenUsages->record(
@@ -1079,7 +1113,8 @@ class AuthService
                 $usage['cached'],
                 $usage['reasoning'],
                 $usage['model'],
-                $usage['line']
+                $usage['line'],
+                $ingestId
             );
             $this->logs->log($hostId, 'token.usage', $details);
 
@@ -1099,6 +1134,7 @@ class AuthService
             'host_id' => $hostId,
             'recorded' => count($records),
             'usages' => $records,
+            'ingest_id' => $ingestId,
         ];
 
         if (count($records) === 1) {

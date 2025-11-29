@@ -12,6 +12,7 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Security\EncryptionKeyManager;
@@ -66,6 +67,7 @@ try {
     $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
     $logRepository = new LogRepository($database);
     $tokenUsageRepository = new TokenUsageRepository($database);
+    $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);
     $chatGptUsageRepository = new ChatGptUsageRepository($database);
 
@@ -92,6 +94,7 @@ try {
         $hostUserRepository,
         $logRepository,
         $tokenUsageRepository,
+        $tokenUsageIngestRepository,
         $versionRepository,
         $wrapperService,
         $runnerVerifier,

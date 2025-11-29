@@ -38,7 +38,7 @@ Daily preflight: the first non-admin request of each UTC day refreshes the cache
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean). When `false`, `cdx` warns on quota exhaustion but still launches Codex.
 - `GET /admin/logs?limit=` — recent audit events.
 - `GET /admin/usage?limit=` — recent token usage rows (with host + reasoning tokens when present).
-- `GET /admin/usage/ingests?limit=` — recent `/usage` ingest audits (`entries`, aggregated totals, optional client IP/payload) with host lookups.
+- `GET /admin/usage/ingests?page=&per_page=&q=&sort=&direction=&host_id=` — paginated `/usage` ingest audits (aggregated totals + entry count + optional client IP/payload) with host lookups; default sort is `created_at desc`. Supports fuzzy search on host FQDN/client IP or numeric ID/host_id, sortable keys: `created_at`, `entries`, `total`, `input`, `output`, `cached`, `reasoning`, `host`, `client_ip`, `id`. `per_page` max 200.
 - `GET /admin/tokens?limit=` — token usage aggregates per token line (sums total/input/output/cached/reasoning).
 - `GET /admin/runner` — runner config/telemetry (enabled flag, runner/base URL, timeout, `boot_id`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`, validation + runner_store counts from the last 24h, and the latest validation/runner_store log entries with host/digest/last_refresh). `POST /admin/runner/run` — manual runner execution (forces a run and returns whether canonical auth changed plus runner timestamps).
 - `POST /admin/versions/check` — refresh GitHub client release cache.

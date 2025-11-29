@@ -6,7 +6,9 @@ use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
+use App\Repositories\HostUserRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
@@ -101,6 +103,28 @@ class NullHostAuthStateRepository extends HostAuthStateRepository
     }
 }
 
+class NullHostUserRepository extends HostUserRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function record(int $hostId, string $username, ?string $hostname = null): void
+    {
+        // no-op for test
+    }
+
+    public function listByHost(int $hostId): array
+    {
+        return [];
+    }
+
+    public function deleteByHostId(int $hostId): void
+    {
+        // no-op for test
+    }
+}
+
 class NullLogRepository extends LogRepository
 {
     public array $events = [];
@@ -119,6 +143,30 @@ class NullTokenUsageRepository extends TokenUsageRepository
 {
     public function __construct()
     {
+    }
+}
+
+class NullTokenUsageIngestRepository extends TokenUsageIngestRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function record(?int $hostId, int $entries, array $totals, ?string $payload, ?string $clientIp = null): array
+    {
+        return [
+            'id' => 0,
+            'host_id' => $hostId,
+            'entries' => $entries,
+            'total' => $totals['total'] ?? null,
+            'input' => $totals['input'] ?? null,
+            'output' => $totals['output'] ?? null,
+            'cached' => $totals['cached'] ?? null,
+            'reasoning' => $totals['reasoning'] ?? null,
+            'client_ip' => $clientIp,
+            'payload' => $payload,
+            'created_at' => gmdate(DATE_ATOM),
+        ];
     }
 }
 
@@ -240,8 +288,10 @@ final class AuthServiceUploadRequiredTest extends TestCase
             new InMemoryAuthPayloadRepository($canonicalPayload),
             new NullHostAuthStateRepository(),
             new InMemoryHostAuthDigestRepository(),
+            new NullHostUserRepository(),
             new NullLogRepository(),
             new NullTokenUsageRepository(),
+            new NullTokenUsageIngestRepository(),
             new InMemoryVersionRepository(['canonical_payload_id' => 99]),
             new StubWrapperService()
         );

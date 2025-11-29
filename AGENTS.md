@@ -2,102 +2,98 @@
 
 Source of truth docs: keep `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md` aligned with code. Use them when auditing or extending behavior.
 
-This project is small, but each class has a clear role in the orchestration pipeline that keeps Codex `auth.json` files synchronized between servers. Use this guide when extending or debugging the service.
+This project keeps Codex `auth.json` files synchronized between servers. Each class has a narrow role; use this guide when extending or debugging.
 
 ## Process & Ops Rules
 
 - Before any task, run `git pull`.
 - When changes require a server restart or touch `cdx`, rebuild and restart the Docker services.
 - For every set of changes, always `git commit` and push.
+- API kill switch (`/admin/api/state`) is enforced for all non-admin routes, including `/auth`; only `/admin/api/state` bypasses it.
+- Auth and API keys are encrypted with libsodium secretbox. `AUTH_ENCRYPTION_KEY` is bootstrapped into `.env` if missing—do not lose it or stored payloads/tokens become unreadable.
+- Global throttles are on: per-IP `global` bucket (non-admin routes) and `auth-fail` bucket for bad/missing API keys. 429s include `bucket`, `reset_at`, `limit`.
 
 ## Operational Checklist (humans)
 
 - When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the baked base URL and masked API key.
-- Before letting Codex start, open `~/.codex/auth.json` and confirm it has `last_refresh` plus either a non-empty `auths` map (each with `token`) or a `tokens.access_token`; the server hashes the reconstructed auth.json (normalized `auths` + preserved extras) so missing top-level fields will cause digest mismatches. Fallbacks: if `auths` is empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the API will synthesize `auths = {"api.openai.com": {...}}` during validation.
-- Admin API toggle (`/admin/api/state`) currently only stores a flag; `/auth` does not read it yet. Add a guard if you need a real kill-switch.
+- Confirm `~/.codex/auth.json` has `last_refresh` plus either `auths` (with `token`) or `tokens.access_token`. If `auths` is empty but `tokens.access_token`/`OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {...}}` during validation.
+- Insecure hosts: initial 30-minute provisioning window. “Enable” opens a 10-minute sliding window for all `/auth` calls (each call extends it); “Disable” closes immediately and starts a 60-minute store-only grace window. Outside these, insecure hosts get HTTP 403 `insecure_api_disabled`.
+- Runner health: first non-admin request each UTC day refreshes the GitHub client-version cache and runs the auth runner once. Failures flip `runner_state=fail` and trigger recovery attempts on boot change, 15-minute backoff, or stale-ok; responses keep flowing unless a recovery run is required.
+- ChatGPT usage snapshots: fetched opportunistically (5-minute cooldown) from canonical `auth.json` before `/auth` responses and via admin usage endpoints. Missing/invalid tokens are recorded as snapshot errors.
+- Pricing: GPT-5.1 pricing refreshed daily from `PRICING_URL` when set, otherwise env fallbacks (`GPT51_*`, `PRICING_CURRENCY`). Admin overview uses the latest snapshot for month cost estimates.
 - Dashboard URL (mTLS required): https://codex.example.com/admin/
-- Inactivity pruning: every authenticate/register call deletes hosts inactive for 30 days (`host.pruned` logs). Re-register to restore.
+- Inactivity pruning: every authenticate/register call deletes hosts inactive for 30 days (`host.pruned` logs) and unprovisioned hosts older than 30 minutes. Re-register to restore.
 - The admin “clear” endpoint resets a host’s canonical auth state (`auth_digest`/`last_refresh` + host auth state + digests) without deleting the host.
 
 ## Request Flow
 
 1. **`public/index.php` (HTTP Router)**
-   - Bootstraps env, runs migrations, seeds the wrapper from `bin/cdx` if missing, and (optionally) wires the auth runner (`AUTH_RUNNER_URL`, `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`).
-   - Declares routes in `src/Http/Router.php`: host endpoints (`/auth`, `DELETE /auth`, `/usage`, `/wrapper`, `/wrapper/download`), installer (`/install/{token}`), versions (`/versions`), and admin endpoints (runner status/run, auth upload, API flag, hosts CRUD, roaming toggle, overview, logs, usage, tokens).
-   - Resolves API keys from `X-API-Key` or `Authorization: Bearer`; admin keys from `X-Admin-Key`/Bearer/query; installer tokens are separate.
-   - Emits JSON via `App\Http\Response`; installer responses are shell scripts with `text/x-shellscript`.
+   - Bootstraps env, runs migrations, seeds wrapper from `bin/cdx` if missing, wires auth runner (`AUTH_RUNNER_URL`, `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`). Daily preflight (first non-admin request per UTC day) refreshes the GitHub client-version cache and runs the auth runner once.
+   - Routes: host endpoints (`/auth`, `DELETE /auth`, `/usage`, `/host/users`, `/wrapper`, `/wrapper/download`, `/slash-commands`, `/slash-commands/retrieve`, `/slash-commands/store`); installer (`/install/{token}`); versions (`/versions`, `/admin/versions/check`); admin endpoints (runner status/run, auth upload, API flag, quota mode, hosts CRUD/secure/roaming/insecure windows/clear/delete, overview, logs, usage, tokens aggregates, ChatGPT usage/history/refresh, slash-commands CRUD). Key resolution: API keys from `X-API-Key`/`Authorization: Bearer`; admin keys from `X-Admin-Key`/Bearer/query; installer tokens separate.
+   - Non-admin routes enforce global rate limiting and respect the API kill switch. JSON emitted via `App\Http\Response`; installer responses use `text/x-shellscript`.
 
 2. **`App\Services\AuthService` (Coordinator)**
-   - Issues per-host API keys (random 64-hex) and normalizes host payloads for admin-driven provisioning; prunes hosts inactive for 30 days.
-   - Auth/IP binding: first auth call stores caller IP; later calls from a different IP 403 unless `allow_roaming_ips` (set via admin) or `?force=1` on `DELETE /auth`. Stores IP and logs `auth.bind_ip` / `auth.roaming_ip` / `auth.force_ip_override`.
-   - `/auth` flow:
-     - `retrieve` statuses: `valid`, `upload_required` (client `last_refresh` is newer), `outdated` (server newer), `missing` (no canonical). Always includes versions and API call counts.
-     - `store` statuses: `updated` (incoming newer or different digest), `unchanged`, `outdated` (server newer). Canonicalizes auths (sorted, token quality enforced, fallback from tokens/OPENAI_API_KEY) and stores compact JSON plus per-target entries.
-     - Validations: RFC3339 `last_refresh` (>= 2000-01-01, <= now+300s), `digest` must be 64-hex, tokens checked for entropy/min length (`TOKEN_MIN_LENGTH`, default 24).
-   - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`), records last-seen per host (`host_auth_states`), keeps up to 3 recent digests per host (`host_auth_digests`), and updates host `last_refresh`/`auth_digest`/versions/API call counters.
-   - Versions block (per response): client version comes from GitHub latest (cached 3h with stale fallback); wrapper version is always read from the baked wrapper on the server (client-reported/admin-supplied wrapper versions are ignored). Wrapper metadata comes from `WrapperService`.
-   - Runner integration (optional): once per UTC day (or on manual trigger) runs the auth runner against canonical auth before responding; applies runner-returned `updated_auth` when newer/different and logs `auth.runner_store`. Every store also logs `auth.validate` result. Manual trigger: `POST /admin/runner/run`.
-  - Token usage: `recordTokenUsage()` logs `token.usage` and writes per-entry rows (totals/input/output/cached/reasoning) to `token_usages`; aggregates are surfaced in admin endpoints.
-   - Host deletion: `deleteHost()` removes host row + digests; uninstall flow uses `DELETE /auth`.
+   - Issues per-host API keys (random 64-hex), normalizes host payloads, prunes inactive hosts (30 days) and unprovisioned hosts (30 minutes).
+   - Auth/IP binding: first auth call binds IP; later calls from new IP 403 unless `allow_roaming_ips` (admin), `?force=1` on `DELETE /auth`, or runner bypass (`AUTH_RUNNER_IP_BYPASS` CIDRs). Logs `auth.bind_ip` / `auth.roaming_ip` / `auth.force_ip_override` / `auth.runner_ip_bypass`.
+   - Insecure host guard: sliding 10-minute window for all calls; 60-minute store-only grace after disable; logs `auth.insecure.denied` when blocked.
+   - `/auth` flow: `retrieve` → `valid`/`upload_required`/`outdated`/`missing`; `store` → `updated`/`unchanged`/`outdated`. Canonicalizes auths (sorted, entropy checks; fallback from tokens/`OPENAI_API_KEY`), enforces RFC3339 `last_refresh` (>=2000-01-01, <= now+300s) and 64-hex digests when required. Runner-returned `updated_auth` is applied when newer/different.
+   - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`, both secretbox-encrypted), tracks per-host pointers (`host_auth_states`), caches three recent digests (`host_auth_digests`), updates host metadata and API counters.
+   - Versions block: client version from GitHub (3h cache with stale fallback), wrapper version from baked file only, runner telemetry (`runner_enabled/state/last_ok/last_fail/last_check/boot_id`), `quota_hard_fail`, reported client versions.
+   - Runner integration: daily preflight + manual trigger; failed runner flips state to fail and uses backoff/staleness/boot change to retry. Validation logs `auth.validate`; applied/ignored/failed runner stores log `auth.runner_store`.
+   - Token usage: `recordTokenUsage()` sanitizes lines, accepts comma/space-separated numbers, writes totals/input/output/cached/reasoning/model/raw line to `token_usages`, logs `token.usage`.
+   - ChatGPT usage: `/auth` opportunistically refreshes snapshots; responses include window summary `chatgpt_usage`. Full snapshots/history via admin endpoints.
+   - Host deletion: `deleteHost()` removes host + digests; uninstall uses `DELETE /auth` (IP binding unless `?force=1`).
 
 3. **`App\Repositories\HostRepository` (Persistence)**
-   - CRUD operations on the `hosts` table (find by fqdn/api_key, create, update auth).
-   - Maintains metadata fields like `updated_at`, `status`, IP bindings, canonical auth digest, client versions, and optional wrapper versions.
-   - `incrementApiCalls()` bumps per-host counters on every `/auth`.
-   - `/admin/hosts/{id}/clear` resets canonical auth metadata for a host and deletes digests without removing the host record.
+   - CRUD on hosts; API keys stored hashed + secretbox-encrypted with `backfillApiKeyEncryption()` to upgrade legacy rows. Tracks IP, versions, `allow_roaming_ips`, `secure`, insecure windows, digests, API calls.
 
 4. **`App\Repositories\HostAuthStateRepository` (Per-host canonical pointer)**
-   - Stores the last canonical payload ID/digest/seen_at per host for admin inspection.
+   - Stores last canonical payload ID/digest/seen_at per host for admin inspection.
 
 5. **`App\Repositories\AuthPayloadRepository` & `AuthEntryRepository` (Canonical auth storage)**
-   - Saves canonical `auth.json` (compact body JSON in `auth_payloads.body`) plus per-target entries in `auth_entries`.
-   - `findByIdWithEntries()`/`latest()` return payload with entries for validation/hydration.
+   - Persist canonical `auth.json` (secretbox ciphertext in `auth_payloads.body`) and per-target entries (tokens secretbox-encrypted). `findByIdWithEntries()`/`latest()` hydrate payload + entries for validation/hydration.
 
 6. **`App\Repositories\HostAuthDigestRepository` (Digest cache)**
-   - Persists up to three recent auth digests per host (`host_auth_digests` table) and prunes older entries.
+   - Keeps up to three recent digests per host (`host_auth_digests`) and prunes older entries.
 
 7. **`App\Repositories\LogRepository` (Auditing)**
-   - Inserts rows into the `logs` table with lightweight JSON details.
-   - Keeps a chronological record of who did what and when.
+   - Inserts rows into `logs` with lightweight JSON details; exposes recent logs, per-action counts, and token-usage totals/top host helpers.
 
 8. **`App\Repositories\TokenUsageRepository` (Usage metrics)**
-   - Writes token usage rows (`token_usages`) and exposes aggregates/top hosts for admin views.
+   - Writes token usage rows (totals/input/output/cached/reasoning/model/raw line) and exposes aggregates/top hosts and per-range totals.
 
-9. **`App\Support\Timestamp` (Comparer)**
-   - Compares RFC3339 strings (with or without fractional seconds) reliably.
-   - Ensures `2025-11-19T09:27:43.373506211Z` style values sort correctly.
+9. **`App\Repositories\ChatGptUsageRepository` & `ChatGptUsageStore` (Quota snapshots)**
+   - Persist `/wham/usage` snapshots with primary/secondary windows, credit flags, errors, raw payload, next eligible refresh, and history queries.
 
-10. **`App\Services\WrapperService` (Wrapper distribution)**
-    - Seeds stored wrapper from `bin/cdx` on boot if missing or changed; stores version in `versions.wrapper`.
-    - `metadata()` returns version/sha/size/updated_at; `bakedForHost()` injects base URL, API key, FQDN, CA file, and wrapper version, returning content + per-host sha256/size.
-    - `replaceFromUpload()` is legacy; `/wrapper` uploads have been removed from the API. Wrapper changes come from the baked script at boot.
+10. **`App\Repositories\PricingSnapshotRepository`**
+    - Stores pricing snapshots for GPT-5.1 (or configured model) with currency + source URL; admin overview uses latest for cost calculations.
 
-11. **`App\Services\RunnerVerifier` (Auth validator)**
-    - POSTs auth payloads to `AUTH_RUNNER_URL` with base URL override and optional host telemetry; returns status/latency/reason and optional `updated_auth`.
+11. **`App\Support\Timestamp` (Comparer)**
+    - Reliable RFC3339 comparator (fractional seconds supported) to order `last_refresh` values.
 
-12. **`App\Database` (Infrastructure)**
-   - Opens the MySQL connection (configured via `DB_*`), enforces foreign keys, and runs migrations.
-   - Creates tables:
-     - `hosts`: fqdn, api_key, status, last_refresh, auth_digest, timestamps.
-      - Additional columns track `ip` (first sync source), `client_version` (reported Codex build), `wrapper_version` (legacy; now ignored/NULL), and `api_calls`.
-   - `auth_payloads`: last_refresh, sha256, source_host_id, created_at, **body (compact canonical auth.json as uploaded)**.
-   - `auth_entries`: per-target token rows for each payload.
-   - `host_auth_digests`: host_id, digest, last_seen, created_at (pruned to 3 per host).
-   - `host_auth_states`: host_id → payload_id/digest/seen_at (last canonical served to that host).
-   - `logs`: host_id, action, details, created_at.
-  - `versions`: cached client version from GitHub, wrapper version, canonical pointer, runner metadata, and flags with updated_at.
-  - `token_usages`: per-host token usage rows (including reasoning tokens) for dashboard aggregates.
+12. **`App\Services\WrapperService` (Wrapper distribution)**
+    - Seeds stored wrapper from `bin/cdx`; stores version in `versions.wrapper` and recomputes hashes/size. `bakedForHost()` injects base URL/API key/FQDN/CA path/secure flag/version and returns rendered content + sha/size.
+    - `replaceFromUpload()` is legacy; wrapper source of truth is the baked script on disk.
+
+13. **`App\Services\RunnerVerifier` (Auth validator)**
+    - POSTs auth payloads to `AUTH_RUNNER_URL` with base URL override + optional host telemetry; includes readiness probe/backoff and returns status/reason/latency/`updated_auth`.
+
+14. **`App\Security\RateLimiter` + `IpRateLimitRepository`**
+    - Enforces per-IP buckets (`global`, `auth-fail`) with configurable limits/windows and periodic prune of expired counters.
+
+15. **`App\Database` (Infrastructure)**
+    - MySQL only. Migrates tables & backfills columns: `hosts` (fqdn, api_key/hash/enc, secure, roaming, insecure windows, ip, versions, auth_digest, api_calls, timestamps); `auth_payloads` (last_refresh, sha256, source_host_id, secretbox body, created_at); `auth_entries` (secretbox tokens + meta); `host_auth_digests`; `host_auth_states`; `host_users`; `logs`; `ip_rate_limits`; `install_tokens` (with base_url); `token_usages` (incl. reasoning/model/raw line); `chatgpt_usage_snapshots`; `pricing_snapshots`; `versions` (client/wrapper/canonical pointer, runner metadata/state/boot id, flags `api_disabled`/`quota_hard_fail`).
 
 ## CLI & Ops Scripts (`bin/`)
 
-- `cdx` (local wrapper/launcher) — Baked per host with API key + base URL at download time; pulls/downstreams auth via `/auth`, writes `~/.codex/auth.json`, and refuses to start Codex if auth pull fails. Autodetects + installs curl/unzip, checks remote target versions (API then GitHub), updates the Codex binary (or npm `codex-cli`) and self-updates the wrapper. After running Codex, pushes auth if it changed and ships token-usage metrics to `/usage`. `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and sends `DELETE /auth`.
-- Wrapper publishing: the API seeds the wrapper from the bundled `bin/cdx` only once; to change it, rebuild the image (or replace the stored file before boot). `/wrapper` uploads have been removed.
-- Any change to the wrapper script (`bin/cdx`) must bump `WRAPPER_VERSION` so hosts refresh; new builds push the updated script into `storage/wrapper/cdx`.
-- `migrate-sqlite-to-mysql.php` (one-time migration) — Copies SQLite data to MySQL using `App\Database::migrate()` for schema, backs up the SQLite file, truncates target tables when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
+- `cdx` (wrapper/launcher) — Baked per host with API key + base URL. Pulls canonical auth via `/auth`, tolerates cached auth up to 24h (7d for secure hosts, with warnings) when API unreachable, records users via `/host/users`, runs Codex, pushes changed auth + token usage to `/usage`, and honors `quota_hard_fail` (warn-only when flipped). `--update` forces wrapper refresh; `--uninstall` removes Codex artifacts and calls `DELETE /auth`.
+- Wrapper publishing: the bundled `bin/cdx` in the image is the source of truth. Rebuild to change it; `/wrapper` uploads are gone. Bump `WRAPPER_VERSION` on any script change; new builds seed `storage/wrapper/cdx` automatically.
+- Slash commands: `cdx` syncs server prompts (`/slash-commands` + retrieve/store), removes server-retired prompts, and uploads local edits on exit.
+- Rate limits: wrapper surfaces 429 metadata (`bucket`, `reset_at`, `limit`) to operators; ChatGPT quota bars are shown from `/auth` `chatgpt_usage` blocks.
+- `migrate-sqlite-to-mysql.php` — One-time migration: copies SQLite to MySQL using `App\Database::migrate()`, backs up the SQLite file, truncates targets when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
 
 ## Extension Tips
 
-- Add new endpoints by expanding `public/index.php` and delegating to `AuthService` or a new service class.
-- Additional background tasks (cleanup, retention) should live in their own service but reuse the repositories.
-- When adding new columns, extend `Database::migrate()` and keep repositories in sync.
-- Wire new admin toggles into `AuthService` or request guards; `api_disabled` is enforced globally (all routes return 503 when set, except `/admin/api/state` so it can be cleared).
+- Add new endpoints in `public/index.php` and delegate to `AuthService` or a purpose-built service.
+- Keep `Database::migrate()` and repositories in sync when adding columns.
+- Wire new admin toggles into `AuthService` or request guards; `api_disabled` is already enforced globally (except `/admin/api/state`).

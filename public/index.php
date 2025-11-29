@@ -26,6 +26,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\IpRateLimitRepository;
 use App\Repositories\TokenUsageRepository;
+use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\SlashCommandRepository;
@@ -84,6 +85,7 @@ $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
+$tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $versionRepository = new VersionRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
@@ -99,7 +101,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
@@ -955,6 +957,24 @@ $router->add('GET', '#^/admin/logs$#', function () use ($logRepository) {
     ]);
 });
 
+$router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageIngestRepository) {
+    requireAdminAccess();
+
+    $page = resolveIntQuery('page') ?? 1;
+    $perPage = resolveIntQuery('per_page') ?? 50;
+    $hostId = resolveIntQuery('host_id');
+    $query = isset($_GET['q']) && !is_array($_GET['q']) ? trim((string) $_GET['q']) : null;
+    $sort = isset($_GET['sort']) && !is_array($_GET['sort']) ? (string) $_GET['sort'] : 'created_at';
+    $direction = isset($_GET['direction']) && !is_array($_GET['direction']) ? (string) $_GET['direction'] : 'desc';
+
+    $result = $tokenUsageIngestRepository->search($query, $hostId, $page, $perPage, $sort, $direction);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/usage$#', function () use ($tokenUsageRepository) {
     requireAdminAccess();
 
@@ -969,6 +989,24 @@ $router->add('GET', '#^/admin/usage$#', function () use ($tokenUsageRepository) 
         'status' => 'ok',
         'data' => [
             'usages' => $usages,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageIngestRepository) {
+    requireAdminAccess();
+
+    $limit = resolveIntQuery('limit') ?? 50;
+    if ($limit < 1) {
+        $limit = 50;
+    }
+
+    $ingests = $tokenUsageIngestRepository->recent($limit);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'ingests' => $ingests,
         ],
     ]);
 });
@@ -1225,7 +1263,7 @@ $router->add('POST', '#^/usage$#', function () use ($payload, $service) {
     $host = $service->authenticate($apiKey, $clientIp);
 
     try {
-        $data = $service->recordTokenUsage($host, is_array($payload) ? $payload : []);
+        $data = $service->recordTokenUsage($host, is_array($payload) ? $payload : [], $clientIp);
     } catch (Throwable $exception) {
         error_log('Usage ingestion failed: ' . $exception->getMessage());
         Response::json([
@@ -1425,9 +1463,33 @@ function normalizeBoolean(mixed $value): ?bool
     return null;
 }
 
+function normalizeBaseUrlCandidate(string $value): string
+{
+    $trimmed = rtrim(trim($value), '/');
+    if ($trimmed === '') {
+        return '';
+    }
+
+    // Allow host + optional port and path; block whitespace/control chars.
+    if (!preg_match('#^https?://[A-Za-z0-9._~:-]+(?:/.*)?$#', $trimmed)) {
+        return '';
+    }
+
+    return $trimmed;
+}
+
 function resolveBaseUrl(): string
 {
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $candidates = [];
+
+    $envBase = Config::get('PUBLIC_BASE_URL', '');
+    if (is_string($envBase) && trim($envBase) !== '') {
+        $candidates[] = $envBase;
+    }
+
+    $forwardedHostHeader = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? '';
+    $hostHeader = $_SERVER['HTTP_HOST'] ?? '';
+    $hostCandidate = $forwardedHostHeader !== '' ? (explode(',', $forwardedHostHeader)[0] ?? '') : $hostHeader;
     $scheme = 'http';
 
     $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
@@ -1440,7 +1502,23 @@ function resolveBaseUrl(): string
         $scheme = 'https';
     }
 
-    return sprintf('%s://%s', $scheme, $host);
+    if ($hostCandidate !== '') {
+        $candidates[] = sprintf('%s://%s', $scheme, trim($hostCandidate));
+    }
+
+    $serverName = $_SERVER['SERVER_NAME'] ?? '';
+    if ($serverName !== '' && $serverName !== $hostCandidate) {
+        $candidates[] = sprintf('%s://%s', $scheme, $serverName);
+    }
+
+    foreach ($candidates as $candidate) {
+        $normalized = normalizeBaseUrlCandidate($candidate);
+        if ($normalized !== '') {
+            return $normalized;
+        }
+    }
+
+    return '';
 }
 
 function resolveApiKey(): ?string
@@ -1490,13 +1568,7 @@ function resolveInstallerBaseUrl(?array $tokenRow = null): string
         }
     }
 
-    $baseUrl = rtrim($baseUrl, '/');
-
-    if (!preg_match('#^https?://[A-Za-z0-9._:-]+(/.*)?$#', $baseUrl)) {
-        return '';
-    }
-
-    return $baseUrl;
+    return normalizeBaseUrlCandidate($baseUrl);
 }
 
 function installerCommand(string $baseUrl, string $token): string
