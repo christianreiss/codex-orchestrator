@@ -28,7 +28,7 @@ use App\Services\RunnerVerifier;
 
 class AuthService
 {
-    private const INACTIVITY_WINDOW_DAYS = 30;
+    private const DEFAULT_INACTIVITY_WINDOW_DAYS = 30;
     private const PROVISIONING_WINDOW_MINUTES = 30;
     private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
@@ -1821,11 +1821,29 @@ class AuthService
         ];
     }
 
+    private function inactivityWindowDays(): int
+    {
+        $raw = Config::get('INACTIVITY_WINDOW_DAYS', self::DEFAULT_INACTIVITY_WINDOW_DAYS);
+        $value = is_numeric($raw) ? (int) $raw : self::DEFAULT_INACTIVITY_WINDOW_DAYS;
+
+        if ($value < 0) {
+            return 0;
+        }
+
+        return $value;
+    }
+
     private function pruneInactiveHosts(): void
     {
-        $cutoff = (new DateTimeImmutable(sprintf('-%d days', self::INACTIVITY_WINDOW_DAYS)));
-        $cutoffTimestamp = $cutoff->format(DATE_ATOM);
-        $staleHosts = $this->hosts->findInactiveBefore($cutoffTimestamp);
+        $inactivityDays = $this->inactivityWindowDays();
+        $cutoffTimestamp = null;
+        $staleHosts = [];
+
+        if ($inactivityDays > 0) {
+            $cutoff = (new DateTimeImmutable(sprintf('-%d days', $inactivityDays)));
+            $cutoffTimestamp = $cutoff->format(DATE_ATOM);
+            $staleHosts = $this->hosts->findInactiveBefore($cutoffTimestamp);
+        }
         $provisionCutoff = (new DateTimeImmutable(sprintf('-%d minutes', self::PROVISIONING_WINDOW_MINUTES)))->format(DATE_ATOM);
         $unprovisionedHosts = $this->hosts->findUnprovisionedBefore($provisionCutoff);
 

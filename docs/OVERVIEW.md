@@ -2,73 +2,81 @@
 
 ## What it is
 
-A tiny PHP + MySQL service that keeps one canonical Codex `auth.json` for your fleet. Hosts pull the official copy (or push a newer one) via `/auth`, and the per-host `cdx` wrapper is baked with its API key/base URL.
+Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships slash commands, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
 
-## Use case (start here)
+## Primary use cases
 
-- You run Codex across multiple hosts and want a single source of truth for `auth.json`.
-- Hosts are created from the admin dashboard ("New Host"), then install via a one-time command that bakes in the issued API key.
-- You want lightweight auditing (who registered, who synced, which versions) without babysitting machines.
-- You are fine with a containerized PHP + MySQL service and a couple of helper scripts to wire it up.
+- Centralize `auth.json` instead of managing per-host logins.
+- Bake a one-time installer per host (API key + base URL) and keep hosts in sync automatically.
+- Audit who synced/rotated auth, what versions they run, and how many tokens they burn.
+- Run Codex in environments that require IP binding, mTLS, and rate limits.
 
 ## Why teams use it
 
-- One `/auth` flow: register once, then a unified retrieve/store call that decides whether to accept the client's auth or return the canonical copy (with versions attached).
-- Per-host API keys are minted from the admin dashboard (New Host) and IP-bound on first use; hosts can self-deregister via `DELETE /auth` when decommissioned.
-- Captures host metadata (IP, client version, optional wrapper version) so you know which machines are on which build.
-- MySQL-backed persistence and audit logs out of the box; storage lives in the compose volume by default.
-- Canonical `auth.json` payloads and per-target tokens are stored encrypted-at-rest with libsodium `secretbox`; the symmetric key is auto-generated into `.env` on first boot.
-- The dashboard "New Host" action generates a single-use installer token (`curl …/install/{token} | bash`) that bakes the API key into the downloaded `cdx`; `cdx --uninstall` handles clean removal.
-- The `cdx` wrapper parses Codex “Token usage” lines and posts them to `/usage` for per-host usage tracking.
-- Runs in `php:8.2-apache` with automatic migrations; host endpoints enforce API-key auth (`X-API-Key` or `Authorization: Bearer`), and installer downloads are guarded by single-use tokens created via the dashboard.
-- Stores the canonical `auth.json` as a compact JSON blob (sha256 over that exact text); only the `auths` map is normalized, everything else is preserved verbatim.
-- The “auth runner” sidecar (`auth-runner`, enabled by default in `docker-compose.yml`) validates canonical auth by dropping it into a fresh `~/.codex/auth.json` and running `codex exec …` in an isolated temp `$HOME` on every store and once per UTC day; if Codex refreshes tokens, the runner’s updated auth is auto-applied. Admin uploads bypass the runner (seed flow). Runner failures are logged and surfaced in the dashboard but no longer block `/auth`; operators can force a run via `POST /admin/runner/run`.
+- One `/auth` call decides whether to accept a client upload or return the canonical copy and always includes versions + quota metadata.
+- Per-host API keys are hashed/encrypted at rest, IP-bound on first use, and rotated when a host is re-registered.
+- Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot and legacy plaintext rows are migrated automatically.
+- Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
+- Runner sidecar validates canonical auth daily and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` when down.
+- Extras ride the same API: slash-command distribution, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and GPT‑5.1 pricing pulls for dashboard costs.
 
-## How it works (big picture)
+## Key components (code map)
 
-- This container exposes a small PHP API + MySQL database that act as the "auth.json registry" for all of your Codex hosts.
-- The admin dashboard mints per-host API keys and one-time installer tokens; each token maps to `/install/{uuid}` which returns a self-contained bash script that installs/updates `cdx`, fetches Codex, and bakes the API key/base URL directly into the wrapper (no sync env file needed).
-- Each host keeps only `~/.codex/auth.json`; connection details are embedded in its `cdx` wrapper.
-- When `AUTH_RUNNER_URL` is configured (enabled by default in `docker-compose.yml`), the API calls a lightweight runner (`runner/app.py`) to probe the canonical `auth.json` by writing it to `~/.codex/auth.json` and running `codex`; if the runner reports a newer or changed `auth.json`, the API persists and serves that version automatically. Runner failures are recorded but do not block host sync; admin seed uploads skip the runner entirely.
-- The `cdx` wrapper also syncs slash command prompts in `~/.codex/prompts` via `/slash-commands`, pulling new/updated prompts on launch and pushing local changes on exit.
+- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, daily preflight, global rate limiting, and all routes (host/admin/installer/slash/pricing/chatgpt).
+- **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
+- **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
+- **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
+- **`SlashCommandService`** — CRUD for prompts stored in MySQL, hashed by sha256, with delete markers for retirements.
+- **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly) and fetch GPT‑5.1 pricing (HTTP or env fallback) for cost calculations.
+- **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; `AuthEncryptionMigrator` upgrades legacy rows in batches at boot.
 
-## From manual logins to central sync
+## How the flow works
 
-Think of a very common starting point:
+1) **Provision a host (admin)**
+   - `POST /admin/hosts/register` creates or rotates a host, hashes + encrypts the API key, and mints a single-use installer token. Insecure hosts get a 30‑minute provisioning window; secure hosts expect long-lived local auth.
+   - `GET /install/{token}` emits a bash script that downloads the baked wrapper, installs Codex from GitHub (latest tag the API knows about), and prints versions. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
 
-- You have several servers (or laptops, CI runners, etc.).
-- On each one, you log into Codex by hand and end up with a separate `~/.codex/auth.json`.
-- When a token rotates, you have to remember which machines to fix.
+2) **Every `/auth` call**
+   - Daily preflight runs on the first non-admin request each UTC day: refresh the GitHub client-version cache and, when configured, run one runner validation.
+   - API key auth: resolves client IP, enforces per-IP binding unless `allow_roaming_ips` or `?force=1` on `DELETE /auth`; insecure hosts must be inside an enabled window.
+   - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, and quota mode (`quota_hard_fail`).
+   - Retrieve path: compares client `last_refresh`/`digest` to canonical. Returns `valid`, `upload_required`, `outdated`, or `missing`, plus host stats (API calls, monthly token totals) and recent digests (remembered per host).
+   - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, synthesizes from tokens when needed, hashes canonical JSON, stores encrypted body + per-target entries, updates canonical pointer, host sync state, and digest cache. Runner may revalidate and apply a fresher `updated_auth` from Codex.
 
-With this project in place:
+3) **Runner validation**
+   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). Daily run + on stores; recovery/backoff when the runner is failing; optional IP bypass CIDRs. Runner failures are logged (`auth.validate`/`auth.runner_store`) but do not block serving/accepting auth.
 
-1. **Run the auth server once.** Bring up the Docker stack (see `docs/INSTALL.md`). No invitation key needed.
-2. **Log into Codex on one trusted machine.** Use the normal Codex CLI sign-in so you get a local `~/.codex/auth.json`. This becomes your starting canonical auth.
-3. **Mint an API key from the dashboard.** Open `/admin/` (mTLS by default) and click **New Host**. Copy the one-time installer command (`curl …/install/{token} | bash`) or the API key itself.
-4. **Seed the canonical auth.** On the trusted machine, either run the installer command or use the dashboard "Upload auth.json" to push your existing `~/.codex/auth.json` to the server.
-5. **Install on other hosts.** For each host, generate a fresh installer token in the dashboard and run the provided `curl …/install/{token} | bash` command on that host. It installs `cdx`, grabs Codex, and embeds the API key/base URL directly into the wrapper.
-6. **Clean up when a host is retired.** Use the dashboard "Remove" button or run `cdx --uninstall` on the host to delete binaries/configs and call `DELETE /auth`.
+4) **Wrapper distribution**
+   - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
 
-## Commands you'll actually type
+5) **Usage, prompts, and host telemetry**
+   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines and stores per-row audit entries.
+   - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
+   - `/slash-commands` list/retrieve/store/delete prompt files; delete marks propagate to hosts on next sync.
 
-On the **auth server host**:
+6) **Quotas and pricing**
+   - ChatGPT quota snapshots are pulled from `/wham/usage` using canonical tokens (cooldown 5m, also usable via the `quota-cron` sidecar). Results are cached and surfaced on `/auth` responses and admin dashboards.
+   - Pricing snapshots (default GPT‑5.1) are fetched at most daily from `PRICING_URL` or env defaults; `/admin/overview` shows monthly token totals + estimated cost.
 
-- `cp .env.example .env`
-- Edit `.env` and set `DB_*` (or use the defaults from `docker-compose.yml`). The container auto-seeds the wrapper from `bin/cdx` only on first boot; to roll a new wrapper, rebuild the image or replace the baked script in storage before start-up.
-- `docker compose up --build`
+## Safety rails
 
-On your **laptop or admin box** (the one where you already use Codex):
+- **Rate limits** — Global per-IP bucket for non-admin paths (default 120/minute, tunable); auth-fail bucket throttles repeated missing/invalid API keys with a block window when tripped. Limits return 429 with reset metadata.
+- **IP binding & roaming** — First successful call pins the API key to that IP; optional roaming flag updates the stored IP; runner probes can bypass via CIDRs; `DELETE /auth?force=1` allows uninstall from a different IP.
+- **Insecure hosts** — Require an active 10‑minute window for `/auth` (dashboard enable extends the sliding window). New insecure hosts start with a provisioning window; secure hosts keep auth on disk, insecure hosts purge `~/.codex/auth.json` after each run (handled in `cdx`).
+- **Auth integrity** — Digest is sha256 over canonical JSON; stored digest mismatch triggers validation logging. Timestamps are clamped to reasonable bounds.
+- **Encryption & secrets** — Secretbox protects API keys, payload bodies, and token entries; key is auto-generated/persisted in `.env` if absent. API keys also stored as sha256 hashes for lookup.
+- **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode (`/admin/quota-mode` warn-only vs. hard-fail for ChatGPT limits). Admin routes honor mTLS by default and optional `DASHBOARD_ADMIN_KEY`.
 
-- `codex login` (or whichever flow creates `~/.codex/auth.json`).
-- Visit the admin dashboard (`/admin/`, mTLS unless you set `ADMIN_REQUIRE_MTLS=0`) and click **New Host** to mint an API key + one-time installer command.
-- Seed canonical auth from your trusted machine: use the dashboard "Upload auth.json" with your `~/.codex/auth.json`.
-- Run the installer command on a target host (generate a fresh token per host).
-- `cdx --uninstall` on a host to remove Codex bits and deregister it from the auth server (uses baked config).
+## Data retention & pruning
 
-## FAQ
+- Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). `host_auth_states` tracks what each host last saw; `host_auth_digests` caches up to 3 recent digests per host.
+- Hosts are pruned when inactive for `INACTIVITY_WINDOW_DAYS` (default 30; set to `0` to disable) or never provisioned within 30 minutes; pruning logs `host.pruned` and cascades digests/state/users.
+- Logs, token usages, slash commands, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
 
-- **Do I still need to log into Codex on every host?** No. Log in once on a trusted machine to create `~/.codex/auth.json`, then use the dashboard-generated installer commands for the rest of the fleet (and upload the canonical auth via the dashboard when it changes).
-- **How do I rotate tokens or update `auth.json`?** Refresh `~/.codex/auth.json` on the trusted machine, then upload it through the dashboard (Upload auth.json) or let any host with a valid API key call `/auth` with `command: "store"` after the refresh.
-- **What if my auth server uses a private CA or self-signed cert?** The CA path is baked into `cdx` when downloaded; ensure the dashboard upload is done from a host that trusts the CA or use your proxy to terminate TLS.
-- **How do I remove a host cleanly?** Run `cdx --uninstall`; it deletes Codex bits on the target and calls `DELETE /auth` using the baked config.
-- **Where is the host-side sync config stored?** Config is baked into the wrapper; env files are no longer written by the installer. Only legacy installs may still have `/usr/local/etc/codex-sync.env` or `~/.codex/sync.env`.
+## Fleet workflow at a glance
+
+- Bring up the stack (`cp .env.example .env`, set DB/host vars, `docker compose up --build`; add `--profile caddy` for TLS/mTLS frontend). Runner + quota cron sidecars are on by default in compose.
+- Log into Codex once on a trusted box; upload that `~/.codex/auth.json` via the dashboard or call `/auth` with `command: "store"`.
+- For each host: `New Host` → copy `curl …/install/{token} | bash` → run on the host. The wrapper bakes API key/FQDN/base URL and pulls canonical auth.
+- Rotate tokens by updating the trusted machine’s `auth.json` and pushing again (dashboard upload or `/auth` store from any host with the new digest).
+- Decommission with dashboard delete or `cdx --uninstall` (calls `DELETE /auth`).

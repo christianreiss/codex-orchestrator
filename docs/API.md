@@ -1,277 +1,89 @@
 # Codex Auth Central API
 
-Base URL: `https://codex-auth.example.com`
+Base URL: `https://codex-auth.example.com` (all examples omit the host). Responses are JSON unless noted; request bodies are `application/json`.
 
-All responses are JSON unless noted. Request bodies must be `application/json` unless otherwise stated.
-The front controller (`public/index.php`) dispatches requests via a small route table (`src/Http/Router.php`), so each path below maps to a single handler.
+## Auth & Transport
+- **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`. Admin endpoints also accept `X-Admin-Key`/Bearer when `DASHBOARD_ADMIN_KEY` is set.
+- **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, secure the path via VPN/firewall and/or `DASHBOARD_ADMIN_KEY`.
+- **IP binding**: first successful `/auth` (or wrapper fetch) pins the caller IP; later calls from another IP return `403` unless `allow_roaming_ips` is enabled or `DELETE /auth?force=1` is used. Runner calls may bypass IP binding when `AUTH_RUNNER_IP_BYPASS=1` and the runner IP is inside `AUTH_RUNNER_BYPASS_SUBNETS`.
+- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 10‑minute sliding window with `POST /admin/hosts/{id}/insecure/enable`. When closed, `/auth` returns `403 insecure_api_disabled`. There is no grace window on disable.
+- **Kill switch**: `POST /admin/api/state` sets a persistent `api_disabled` flag. When enabled, every non-`/admin/api/state` route (including `/auth`) returns HTTP 503.
+- **Rate limits** (non-admin paths only):
+  - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
+  - Auth-fail bucket: missing/invalid API keys count toward `RATE_LIMIT_AUTH_FAIL_COUNT` (default 20) over `RATE_LIMIT_AUTH_FAIL_WINDOW` seconds (600); tripping the bucket blocks for `RATE_LIMIT_AUTH_FAIL_BLOCK` seconds (1800) and returns `429 Too many failed authentication attempts` with `reset_at` + `bucket`.
+- **Pruning**: hosts inactive for `INACTIVITY_WINDOW_DAYS` (default 30; set to `0` to disable), or never-provisioned hosts older than 30 minutes, are deleted during auth/register/admin host listings (logs `host.pruned`).
 
-## Authentication
+## Host Endpoints
 
-- Hosts are provisioned via the admin dashboard: `POST /admin/hosts/register` (mTLS by default; optional `DASHBOARD_ADMIN_KEY`) returns a host API key and a single-use installer token. Disable the mTLS requirement with `ADMIN_REQUIRE_MTLS=0` if another control protects `/admin`.
-- Host endpoints (`/auth`, `/usage`, `/wrapper*`, `DELETE /auth`) require the per-host API key via either:
-  - `X-API-Key: <key>`
-  - `Authorization: Bearer <key>`
-- IP binding: the first successful auth stores the caller IP. Later calls from a different IP return `403` unless the host has `allow_roaming_ips` (admin toggle) or `DELETE /auth?force=1` is used during uninstall. The stored IP is updated (and logged) on allowed moves.
-- Wrapper metadata/downloads use the same API key + IP binding; the installer script is the only public artifact and is guarded by a one-time token.
-- Admin API toggle (`/admin/api/state`) persists a flag that, when enabled, returns HTTP 503 for all API routes except `/admin/api/state` (so operators can re-enable).
+### `POST /auth`
+Unified retrieve/store. Auth required; IP binding enforced; blocked when insecure window is closed.
 
-Errors return:
-
-```json
-{ "status": "error", "message": "Invalid API key" }
-```
-
-## Endpoints
-
-### Host provisioning (admin)
-
-- `POST /admin/hosts/register` (mTLS on by default; optional `DASHBOARD_ADMIN_KEY`) creates or rotates a host, returning its API key and a single-use installer token. Expired/used tokens are pruned on each call. Base URL comes from request headers or `PUBLIC_BASE_URL`; call fails if a usable base cannot be determined.
-- `GET /install/{token}` is public but token-gated and expires after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s). The handler marks the token used before emitting the script. The bash installer:
-  - Downloads the latest stored `cdx` wrapper (`/wrapper/download`) baked with the host’s API key, base URL, FQDN, and wrapper version.
-  - Detects arch, fetches Codex CLI from GitHub (falls back to `0.63.0` when the server has no cached version), and installs to `/usr/local/bin` or `$HOME/.local/bin`.
-  - Prints progress and exits non-zero on failure. Tokens cannot be reused.
-
-### `POST /auth` (single-call sync)
-
-Unified endpoint for both checking and updating auth. Each response includes the versions block, so no separate `/versions` request is needed.
-
-**Required auth**: API key header.
-
-**Body fields**
-
+**Body**
 - `command`: `retrieve` (default) or `store`.
-- `client_version`: optional (JSON or query param `client_version`/`cdx_version`); when omitted the server records `unknown`.
-- `digest`: required for `retrieve`; the client’s current auth SHA-256 (digest of the exact JSON sent to Codex).
-- `last_refresh`: required when `command` is `retrieve`; must be RFC3339, not in the future (>300s skew), and not before `2000-01-01T00:00:00Z`.
-- `auth`: required when `command` is `store`; must include `last_refresh` (same rules). `auths` must contain at least one entry; if missing/empty but `tokens.access_token` or `OPENAI_API_KEY` is present, the server synthesizes `auths = {"api.openai.com": {"token": <access_token>}}` before validation. Tokens are rejected when too short (`TOKEN_MIN_LENGTH`, default 24), low-entropy, placeholder, or containing whitespace.
-  - All other top-level fields inside `auth` (for example `tokens`, `OPENAI_API_KEY`, or custom metadata) are preserved verbatim; only the `auths` map is normalized/sorted for consistency.
+- `client_version` / `wrapper_version`: optional strings (also accepted as `client_version`/`cdx_version`/`wrapper_version` query params).
+- `retrieve` requires `digest` (64‑hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, ≥2000-01-01, ≤now+300s).
+- `store` requires `auth` (or top-level fields) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`.
+- Tokens are rejected if too short (default `TOKEN_MIN_LENGTH=24`), contain whitespace, placeholders, or low entropy.
 
-The service stores the canonical auth JSON plus an `auth_digest` and keeps the last 3 canonical digests per host (`host_auth_digests`).
+**Statuses**
+- Retrieve: `valid`, `upload_required` (client claims newer), `outdated` (server newer), `missing`.
+- Store: `updated` (newer or different), `unchanged`, `outdated` (server newer; canonical returned).
 
-**Retrieve statuses**
+**Response fields (varies by status)**
+- `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
+- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/insecure window timestamps.
+- `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag.
+- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`.
+- `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
+- `chatgpt_usage`: latest window summary if a snapshot exists (primary/secondary window percentages, limits, reset timing, status, plan_type, next_eligible_at).
 
-- `valid`: submitted digest matches canonical; no auth JSON returned.
-- `outdated`: server has newer auth; response includes `auth`, canonical digest, and versions.
-- `upload_required`: client claims a newer payload (`last_refresh` later than canonical); caller should resend with `command: "store"` and include `auth`.
-- `missing`: server does not yet have a canonical payload; caller should send `command: "store"`.
+### `DELETE /auth`
+Deregisters the calling host; IP binding enforced unless `?force=1`. Logs `host.delete` and removes host + digests.
 
-**Store responses**
+### `POST /usage`
+Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas; must be non-negative. `line` is sanitized (ANSI/control stripped, length capped). Response echoes `recorded` count, per-entry echoes, and `host_id`. Internal failures return `recorded:false` with a reason but HTTP 200.
 
-- `updated`: incoming `last_refresh` is newer (or canonical missing/different digest); server stores the payload and returns canonical `auth`, digest, versions, and host metadata.
-- `unchanged`: timestamps match; returns canonical digest and versions only.
-- `outdated`: server already has a newer copy; returns canonical `auth`, digest, and versions so the client can hydrate.
+### `POST /host/users`
+Records the current `username` and optional `hostname` for the calling host, returning all known users with `first_seen`/`last_seen`. Auth + IP binding required.
 
-**Usage snapshot**
+### Slash commands
+- `GET /slash-commands` — list commands (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`, optional `deleted_at`). Auth required.
+- `POST /slash-commands/retrieve` — body: `filename` (required), optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `prompt` when updated).
+- `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
-When a ChatGPT `/wham/usage` snapshot is present, every `/auth` response also includes `chatgpt_usage` with the latest windows: `primary_window` (5-hour) and `secondary_window` (weekly) each expose `used_percent`, `limit_seconds`, and reset timing (`reset_after_seconds`, `reset_at`), alongside plan/status and `next_eligible_at` metadata. The server will refresh the snapshot on-demand when the cooldown has expired (similar to version checks) so API callers see fresh quotas without a separate admin refresh.
+### Wrapper
+- `GET /wrapper` — metadata for the baked `cdx` wrapper for this host (`version`, `sha256` per-host, `size_bytes`, `updated_at`, `url`). Auth required.
+- `GET /wrapper/download` — downloads the baked wrapper; headers include `X-SHA256` and `ETag` with the per-host hash. Auth required.
 
-**Runner validation**
+## Provisioning & Installer
+- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
+- `GET /install/{token}` — public, single-use installer (TTL `INSTALL_TOKEN_TTL_SECONDS`, default 1800). Marks token used before emitting. Script downloads `/wrapper/download` baked with API key/FQDN/base URL and installs Codex CLI from GitHub; falls back to version `0.63.0` when no cached client version. Errors return a short shell snippet and non-zero exit.
 
-When `AUTH_RUNNER_URL` is configured, the server:
-- Writes the canonical `auth.json` to a fresh `~/.codex/auth.json` in the runner and runs `codex` to validate it on every `store` and once per UTC day (logs `auth.validate`).
-- If the runner returns `updated_auth` with a newer/different digest, the server saves that payload and sets `runner_applied: true` in the response.
-- Runner failures are recorded (`runner_state=fail`) but do not block `/auth`; operators can retry or trigger manually.
-- Manual run: `POST /admin/runner/run`.
+## Observability
+- `GET /versions` — same versions block returned by `/auth`; useful for dashboards or health checks.
+- `POST /admin/versions/check` — forces a fresh GitHub release lookup (bypassing 3h cache) and returns `{available_client, versions}`.
 
-### `POST /usage` (token usage reporting)
+## Admin Endpoints (mTLS + optional admin key)
+- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_month`, GPT‑5.1 pricing snapshot, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, and mTLS metadata.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, insecure window fields, latest token usage, and recorded users.
+- `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
+- `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
+- `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.
+- `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a 10‑minute sliding allow window.
+- `POST /admin/hosts/{id}/insecure/disable` — closes the window (no grace).
+- `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).
+- `DELETE /admin/hosts/{id}` — delete host + digests.
+- `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (body JSON or `file`). `host_id` optional; omitted/`0`/`system` stores an unscoped payload. Skips runner.
+- `GET /admin/api/state` / `POST /admin/api/state` — read/set `api_disabled` kill switch (only path left available when disabled).
+- `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` (when false, clients may warn instead of hard-fail on ChatGPT quota exhaustion).
+- Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.
+- Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/usage?limit=50`, `GET /admin/tokens?limit=50`.
+- ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
+- Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 
-Allows a host to send the Codex CLI token-usage line after a run. Uses the same API key + IP binding as `/auth`.
+## Runner & Versions
+- First non-admin request each UTC day triggers a **daily preflight**: refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the daily guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
 
-**Required auth**: API key header.
-
-**Body fields**
-
-- `usages` (optional array): list of usage entries to record in a single call.
-- Single-entry compatibility: `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` at the top level are accepted and wrapped as one usage.
-- Each usage entry may include:
-- `line` (optional string): raw usage line (e.g., `Token usage: total=985 input=969 (+ 6,912 cached) output=16 (reasoning 256)`). ANSI/escape/brace sequences are stripped, control chars removed, and the text is capped before storing.
-- `total`, `input`, `output` (optional integers): parsed token counts. Commas in strings (`"10,000"`) are allowed; all values must be non-negative numbers.
-- `cached` (optional integer): cached tokens count when present.
-- `reasoning` (optional integer): reasoning tokens when reported by Codex.
-  - `model` (optional string): Codex model name, if available.
-
-At least one of `line` or a numeric field must be provided in each usage. Every entry is stored as a `token.usage` log row for the calling host.
-
-**Example**
-
-```http
-POST /usage HTTP/1.1
-X-API-Key: 8a63...f0
-Content-Type: application/json
-
-{
-  "usages": [
-    {
-      "line": "Token usage: total=4,880 input=4,320 (+ 120 cached) output=560 (reasoning 160)",
-      "total": 4880,
-      "input": 4320,
-      "cached": 120,
-      "output": 560,
-      "reasoning": 160
-    },
-    {
-      "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
-      "total": 985,
-      "input": 969,
-      "cached": 6912,
-      "output": 16
-    }
-  ]
-}
-```
-
-**Response**
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "host_id": 12,
-    "recorded": 2,
-    "usages": [
-      {
-        "recorded_at": "2025-11-20T20:40:00Z",
-        "line": "Token usage: total=4,880 input=4,320 (+ 120 cached) output=560 (reasoning 160)",
-        "total": 4880,
-        "input": 4320,
-        "cached": 120,
-        "output": 560,
-        "reasoning": 160
-      },
-      {
-        "recorded_at": "2025-11-20T20:40:00Z",
-        "line": "Token usage: total=985 input=969 (+ 6,912 cached) output=16",
-        "total": 985,
-        "input": 969,
-        "cached": 6912,
-        "output": 16
-      }
-    ]
-  }
-}
-```
-
-### `DELETE /auth` (deregister host)
-
-Removes the calling host (identified by its API key) from the orchestrator. Intended for uninstall flows.
-
-**Required auth**: API key header. IP binding is enforced (same behavior as `/auth`).
-
-**Success**
-
-```json
-{ "status": "ok", "data": { "deleted": "ci01.example.net" } }
-```
-
-If the host record does not exist or the API key is invalid, the response is `401 Invalid API key` or `403 Host is disabled`.
-
-### `GET /install/{token}` (one-time installer)
-
-Public, single-use endpoint that returns a self-contained bash installer for a pre-registered host. Tokens are minted by operators (see `/admin/hosts/register`), expire after `INSTALL_TOKEN_TTL_SECONDS` (default: 1800 seconds), and are invalidated on first download.
-
-```
-curl -fsSL https://codex-auth.example.com/install/3b1a8c21-fa4e-4191-9670-f508eeb0b292 | bash
-```
-
-Response: `text/plain` shell script that bakes `BASE_URL`, `API_KEY`, and `FQDN` into the downloaded wrapper and installs the wrapper + Codex binary. Errors emit a short shell snippet that prints the failure and exits non-zero.
-
-### `GET /wrapper`
-
-Returns metadata about the latest cdx wrapper, baked for the calling host (per-host hash). Requires the per-host API key; IP binding enforced.
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "version": "2025.11.19-4",
-    "sha256": "…",
-    "size_bytes": 12345,
-    "updated_at": "2025-11-20T10:00:00Z",
-    "url": "/wrapper/download"
-  }
-}
-```
-
-### `GET /wrapper/download`
-
-Downloads the current cdx wrapper script already baked with the caller's API key, base URL, and FQDN. Requires the per-host API key; IP binding enforced. Response headers include `X-SHA256` and `ETag` for hash verification (per-host hash).
-
-### `GET /versions` (optional)
-
-Provided for observability; clients do not need it because `/auth` responses already include the same block. `client_version` uses the GitHub “latest release” value (cached for 3h, falls back to stale cache on failure). `wrapper_version` is read directly from the baked wrapper script on the server; client-reported values and admin overrides are ignored.
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "client_version": "0.60.1",
-    "client_version_checked_at": "2025-11-20T09:00:00Z",
-    "client_version_source": "github",
-    "wrapper_version": "2025.11.24-9",
-    "wrapper_sha256": "…",
-    "wrapper_url": "/wrapper/download",
-    "reported_client_version": "0.60.1"
-  }
-}
-```
-
-### `POST /admin/versions/check` (admin)
-
-Forces a fresh fetch of the latest Codex CLI release from GitHub (bypasses the 3h cache) and returns the current version snapshot shown in `/versions` plus the fetched client version source/checked-at metadata. Requires mTLS (default) unless `ADMIN_REQUIRE_MTLS=0`, plus optional `DASHBOARD_ADMIN_KEY`.
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "available_client": { "version": "0.64.0", "updated_at": "2025-11-20T09:00:00Z", "source": "github" },
-    "versions": {
-      "client_version": "0.64.0",
-      "client_version_checked_at": "2025-11-20T09:00:00Z",
-      "client_version_source": "github",
-      "wrapper_version": "2025.11.24-9",
-      "wrapper_sha256": "…",
-      "wrapper_url": "/wrapper/download",
-      "reported_client_version": "0.64.0"
-    }
-  }
-}
-```
-
-## Logs & Housekeeping
-
-- Every `register`, `auth` retrieve/store, runner validation, and token usage is logged in `logs` (JSON details).
-- Canonical auth is stored as a compact body in `auth_payloads.body` plus per-target rows in `auth_entries`; `host_auth_states` tracks the last canonical payload per host; `host_auth_digests` keeps the last 3 digests per host.
-- Hosts inactive for 30 days are pruned during auth/register (logged as `host.pruned`).
-
-## Admin (mTLS when enabled)
-
-- `/admin/*` requires an mTLS client certificate (Caddy forwards `X-mTLS-Present`) while `ADMIN_REQUIRE_MTLS=1` (default). Set `ADMIN_REQUIRE_MTLS=0` to make mTLS optional and rely on another gate (VPN, firewall, or `DASHBOARD_ADMIN_KEY`).
-- If `DASHBOARD_ADMIN_KEY` is set, include it via `X-Admin-Key`/Bearer/query on admin routes.
-- Endpoints:
-  - `GET /admin/overview`: versions, host counts, avg refresh age, latest log timestamp, mTLS metadata, token aggregates.
-  - `GET /admin/hosts`: hosts with canonical digest, recent digests, client/wrapper versions, API call counts, IP, roaming flag, recorded users (username/hostname/first/last seen), and latest token usage.
-  - `POST /admin/hosts/register`: mint a host + single-use installer token for a given FQDN. Response includes `installer.url`, `installer.command` (`curl …/install/{token} | bash`), and `installer.expires_at` (TTL default 1800s).
-  - `GET /admin/hosts/{id}/auth`: canonical digest/last_refresh (optionally include `auth` body with `?include_body=1`), recent digests, last seen timestamp.
-  - `DELETE /admin/hosts/{id}`: remove a host and its digests.
-  - `POST /admin/hosts/{id}/clear`: clears canonical auth state for the host (nulls `last_refresh`/`auth_digest`, deletes `host_auth_states`, prunes recent digests) without deleting the host.
-  - `POST /admin/hosts/{id}/roaming`: toggle whether the host can roam across IPs without being blocked.
-  - `POST /admin/auth/upload`: admin-upload a canonical auth JSON (body or `file`). If `host_id` is omitted (or set to `0`/`"system"`), the payload is stored without host attribution; otherwise it is tagged to the specified host.
-- `GET /admin/api/state` / `POST /admin/api/state`: read/set `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` stays reachable to clear the flag).
-  - `GET /admin/runner`: runner configuration/telemetry (last validations, counts, configured URL, timeouts, last daily check).
-  - `POST /admin/runner/run`: force a runner validation against current canonical auth; applies runner-updated auth when newer.
-  - `POST /admin/versions/check`: bypass version cache and refresh the latest Codex release metadata.
-  - `GET /admin/logs?limit=50&host_id=`: recent audit entries.
-  - `GET /admin/usage?limit=50`: recent token usage rows.
-  - `GET /admin/tokens?limit=50`: token usage totals per token line.
-  - `GET /admin/chatgpt/usage[?force=1]`: account-level ChatGPT usage snapshot (5 min cooldown; `force=1` bypasses).
-  - `POST /admin/chatgpt/usage/refresh`: force-refresh the ChatGPT usage snapshot (ignores cooldown).
-  - `/admin/overview` also returns `tokens_month` (month-to-date token sums), `pricing` (latest GPT-5.1 pricing), and `pricing_month_cost` (estimated month-to-date cost).
-- Hosts with no contact for 30 days are pruned automatically (`host.pruned` log entries); re-register to resume.
-- Legacy `host-status.txt` exports have been removed; use admin endpoints instead.
-
-### ChatGPT usage snapshot (admin)
-
-- Host agnostic: uses canonical `auth.json` (`tokens.access_token` + optional `tokens.account_id`) to call `GET {CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}/wham/usage`.
-- Tokens are never persisted or logged. The raw JSON body plus parsed fields are stored in `chatgpt_usage_snapshots`.
-- A 5-minute cooldown is enforced between fetches unless `force=1` or `POST /admin/chatgpt/usage/refresh` is used.
-- Response fields mirror the upstream payload: `plan_type`, `rate_limit.allowed/limit_reached`, primary/secondary window usage percentages and reset timing, credit flags/balance, approximate local/cloud message counts, timestamps (`fetched_at`, `next_eligible_at`), and any error.
+## Housekeeping & Storage
+- Canonical auth payloads are stored compacted in `auth_payloads` with per-target rows in `auth_entries`; the last 3 digests per host live in `host_auth_digests`; `host_auth_states` records the last payload served to a host.
+- Every auth/register/runner/usage event is logged in `logs`. Token usage rows record totals/input/output/cached/reasoning tokens and model name when provided.
