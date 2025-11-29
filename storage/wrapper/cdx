@@ -96,6 +96,8 @@ if [[ "$CODEX_HOST_SECURE" == "__CODEX_HOST_SECURE__" ]]; then
   CODEX_HOST_SECURE="1"
 fi
 CODEX_SYNC_BAKED=1
+CODEX_SYNC_ALLOW_INSECURE="${CODEX_SYNC_ALLOW_INSECURE:-0}"
+export CODEX_SYNC_ALLOW_INSECURE
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
@@ -166,7 +168,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.29-04"
+WRAPPER_VERSION="2025.11.29-06"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -750,10 +752,12 @@ def build_context():
     except Exception:
         pass
     # Last resort: unverified (only if others fail)
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return contexts or [None]
 
 
@@ -1431,10 +1435,12 @@ def contexts():
         ctxs.append(fallback)
     except Exception:
         pass
-    try:
-        ctxs.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            ctxs.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return ctxs or [None]
 
 
@@ -1879,10 +1885,12 @@ def build_contexts():
         contexts.append(ctx)
     except Exception:
         pass
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return contexts or [None]
 
 

@@ -37,10 +37,12 @@ def contexts():
         ctxs.append(fallback)
     except Exception:
         pass
-    try:
-        ctxs.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            ctxs.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return ctxs or [None]
 
 
@@ -485,10 +487,12 @@ def build_contexts():
         contexts.append(ctx)
     except Exception:
         pass
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
     return contexts or [None]
 
 
