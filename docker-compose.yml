@@ -116,6 +116,8 @@ services:
 
   mysql-backup:
     image: databack/mysql-backup
+    profiles:
+      - backup
     environment:
       DB_SERVER: mysql
       DB_PORT: 3306

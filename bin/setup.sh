@@ -309,10 +309,14 @@ configure_caddy() {
 
   local tls_dir mtls_dir
   tls_dir="$(read_env_value "CADDY_TLS_DIR" "$env_file" || true)"
-  [[ -z "$tls_dir" ]] && tls_dir="$data_root/caddy/tls"
+  if [[ -z "$tls_dir" || "$tls_dir" == "/var/docker_data/codex-auth.example.com/caddy/tls" ]]; then
+    tls_dir="$data_root/caddy/tls"
+  fi
   [[ "$tls_dir" != /* ]] && tls_dir="$ROOT_DIR/${tls_dir#./}"
   mtls_dir="$(read_env_value "CADDY_MTLS_DIR" "$env_file" || true)"
-  [[ -z "$mtls_dir" ]] && mtls_dir="$data_root/caddy/mtls"
+  if [[ -z "$mtls_dir" || "$mtls_dir" == "/var/docker_data/codex-auth.example.com/caddy/mtls" ]]; then
+    mtls_dir="$data_root/caddy/mtls"
+  fi
   [[ "$mtls_dir" != /* ]] && mtls_dir="$ROOT_DIR/${mtls_dir#./}"
   ensure_dir "$tls_dir"
   ensure_dir "$mtls_dir"
@@ -609,6 +613,11 @@ ensure_base_urls() {
   fi
 }
 
+ensure_env_perms() {
+  local env_file="$1"
+  chmod 664 "$env_file" 2>/dev/null || true
+}
+
 ensure_openssl() {
   command -v openssl >/dev/null 2>&1 || fatal "openssl is required for certificate generation"
 }
@@ -806,6 +815,7 @@ main() {
 
   ensure_encryption_key "$env_path"
   ensure_db_credentials "$env_path"
+  ensure_env_perms "$env_path"
 
   local default_data_root="/var/docker_data/codex-auth.example.com"
   ensure_data_root "$env_path" "$default_data_root"
