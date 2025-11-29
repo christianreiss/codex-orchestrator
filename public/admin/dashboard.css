@@ -571,16 +571,12 @@
     .usage-bar .meter span {
       display: block;
       height: 100%;
-      background: linear-gradient(
-        90deg,
-        #16a34a 0%,
-        #22c55e 20%,
-        #84cc16 45%,
-        #f59e0b 65%,
-        #f97316 82%,
-        #ef4444 100%
-      );
+      background: var(--accent-2);
     }
+    .usage-bar .meter.ok span { background: #16a34a; }
+    .usage-bar .meter.warn span { background: #f59e0b; }
+    .usage-bar .meter.critical span { background: #ef4444; }
+    .usage-bar .meter.neutral span { background: #94a3b8; }
     .usage-bar .meter.time { margin-top: 6px; background: rgba(0,0,0,0.05); }
     .usage-bar .meter.time span { background: linear-gradient(90deg, #64748b, #94a3b8); }
     .usage-bar small { color: var(--muted); }

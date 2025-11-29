@@ -83,6 +83,29 @@ body[data-view="mobile"] #chatgpt-usage-card {
 
 body[data-view="mobile"] .usage-bars {
   grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+body[data-view="mobile"] .usage-bar .label {
+  align-items: flex-start;
+}
+
+body[data-view="mobile"] .usage-bar .value {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+body[data-view="mobile"] .usage-bar .meter {
+  height: 10px;
+}
+
+body[data-view="mobile"] .usage-bar small {
+  font-size: 12px;
+}
+
+body[data-view="mobile"] .usage-plan {
+  font-size: 18px;
 }
 
 body[data-view="mobile"] .table-wrap {

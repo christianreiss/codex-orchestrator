@@ -163,7 +163,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.28-06"
+WRAPPER_VERSION="2025.11.29-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 

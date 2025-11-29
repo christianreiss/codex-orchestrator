@@ -429,24 +429,21 @@ build_quota_bar() {
   (( width < 1 )) && width=24
   (( pct < 0 )) && pct=0
   (( pct > 100 )) && pct=100
-  local palette=("${GREEN}${BOLD}" "${CYAN}${BOLD}" "${BLUE}${BOLD}" "${MAGENTA}${BOLD}" "${ORANGE}${BOLD}" "${RED}${BOLD}")
-  local palette_len=${#palette[@]}
   local filled=$(( (pct * width + 50) / 100 ))
   (( filled > width )) && filled=$width
+  local fill_color="${GREEN}${BOLD}"
+  if (( pct >= 95 )); then
+    fill_color="${RED}${BOLD}"
+  elif (( pct >= 80 )); then
+    fill_color="${ORANGE}${BOLD}"
+  fi
   local bar=""
-  for (( i=1; i<=filled; i++ )); do
-    local pos_pct=$(( i * 100 / width ))
-    local idx=0
-    if (( palette_len > 1 )); then
-      idx=$(( pos_pct * (palette_len - 1) / 100 ))
-    fi
-    (( idx < 0 )) && idx=0
-    (( idx >= palette_len )) && idx=$(( palette_len - 1 ))
-    bar+="${palette[$idx]}#"
-  done
+  if (( filled > 0 )); then
+    bar+="${fill_color}$(printf '%*s' "$filled" "" | tr ' ' '#')"
+  fi
   local empty_count=$(( width - filled ))
   if (( empty_count > 0 )); then
-    bar+="${DIM}$(printf '%*s' "$empty_count" "" | tr ' ' '.')"
+    bar+="${RESET}${DIM}$(printf '%*s' "$empty_count" "" | tr ' ' '.')"
   fi
   bar+="${RESET}"
   printf -v bar "%b" "$bar"
