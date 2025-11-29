@@ -832,16 +832,14 @@ main() {
 
   if (( START_STACK || BUILD_IMAGES )); then
     start_stack
+    printf '\nStack is up. Config saved to %s (API URL: %s, runner URL: %s, data root: %s).\n' "$env_path" "$codex_url" "$runner_url" "$data_root"
   else
-    info "Prep complete; Docker steps skipped."
+    info "Prep complete; Docker steps skipped (per flags)."
+    printf '\nConfig saved to %s (API URL: %s, runner URL: %s, data root: %s).\n' "$env_path" "$codex_url" "$runner_url" "$data_root"
   fi
 
-  printf '\nNext steps:\n'
-  printf '  - Config saved to %s (API URL: %s, runner URL: %s, data root: %s).\n' "$env_path" "$codex_url" "$runner_url" "$data_root"
-  local up_cmd="${COMPOSE[*]} up -d"
-  (( USE_CADDY )) && up_cmd="${COMPOSE[*]} --profile caddy up -d"
-  printf '  - Bring up the stack with: %s\n' "$up_cmd"
-  printf '  - After the stack is running, upload your ~/.codex/auth.json via the admin dashboard (/admin/) and mint installer tokens per host.\n'
+  printf 'Next steps:\n'
+  printf '  - Upload your ~/.codex/auth.json via the admin dashboard (/admin/) and mint installer tokens per host.\n'
   if (( created_env )); then
     printf '\nNOTE: A fresh env file was generated; rerun this script anytime to change values (no manual edits needed).\n'
   fi
