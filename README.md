@@ -2,12 +2,26 @@
 
 🔒 Keep one canonical Codex `auth.json` for your whole fleet. 🚀 Mint per-host API keys from the dashboard, bake them into the `cdx` wrapper, and let hosts pull/push auth + usage with a single call.
 
+![cdx wrapper baking a host-specific installer and syncing auth](docs/img/cdx.png)
+
 ## Why you might like it
 
 - 🌐 One `/auth` flow to keep every host in sync (retrieve/store with version metadata).
 - 🗝️ Per-host API keys, IP-bound on first contact; single-use installer tokens bake config into `cdx`.
 - 📊 Auditing and usage: token usage, versions, IPs, and runner validation logs.
 - 🔒 Canonical auth + tokens encrypted at rest (libsodium).
+
+## See it in action
+
+- **Dashboard overview** — track host health, latest digests, versions, and API usage at a glance.
+- **Host detail** — inspect canonical auth digests, recent validations, and roaming status per host.
+- **Token usage** — visualize per-host token consumption (total/input/output/cached/reasoning) for billing or investigations.
+
+![Admin dashboard overview screen](docs/img/dashboard_1.png)
+
+![Per-host digests and validation logs](docs/img/dashboard_2.png)
+
+![Token usage aggregates and recent activity](docs/img/dashboard_3.png)
 
 ## Get going fast
 
