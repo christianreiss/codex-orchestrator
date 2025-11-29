@@ -112,6 +112,11 @@ SYNC_REMOTE_CLIENT_VERSION=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
+RUNNER_STATE=""
+RUNNER_LAST_OK=""
+RUNNER_LAST_FAIL=""
+RUNNER_LAST_CHECK=""
+RUNNER_ENABLED=0
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 LOCAL_AUTH_IS_FRESH=0
@@ -163,9 +168,11 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.29-01"
+WRAPPER_VERSION="2025.11.29-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
+RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
+RUNNER_STALE_CRIT_SECONDS=$((72 * 3600))
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -910,6 +917,21 @@ def record_versions(vblock):
         wu = vblock.get("wrapper_url")
         if isinstance(wu, str) and wu.strip():
             out["wrapper_url"] = wu.strip()
+        rs = vblock.get("runner_state")
+        if isinstance(rs, str) and rs.strip():
+            out["runner_state"] = rs.strip()
+        rlo = vblock.get("runner_last_ok")
+        if isinstance(rlo, str) and rlo.strip():
+            out["runner_last_ok"] = rlo.strip()
+        rlf = vblock.get("runner_last_fail")
+        if isinstance(rlf, str) and rlf.strip():
+            out["runner_last_fail"] = rlf.strip()
+        rlc = vblock.get("runner_last_check")
+        if isinstance(rlc, str) and rlc.strip():
+            out["runner_last_check"] = rlc.strip()
+        re = vblock.get("runner_enabled")
+        if isinstance(re, bool):
+            out["runner_enabled"] = re
     return out
 
 
@@ -1035,6 +1057,21 @@ if isinstance(ws, str) and ws.strip():
     print(f"ws={ws.strip()}")
 if isinstance(wu, str) and wu.strip():
     print(f"wu={wu.strip()}")
+rs = versions.get("runner_state")
+if isinstance(rs, str) and rs.strip():
+    print(f"rs={rs.strip()}")
+rlo = versions.get("runner_last_ok")
+if isinstance(rlo, str) and rlo.strip():
+    print(f"rlo={rlo.strip()}")
+rlf = versions.get("runner_last_fail")
+if isinstance(rlf, str) and rlf.strip():
+    print(f"rlf={rlf.strip()}")
+rlc = versions.get("runner_last_check")
+if isinstance(rlc, str) and rlc.strip():
+    print(f"rlc={rlc.strip()}")
+re = versions.get("runner_enabled")
+if isinstance(re, bool):
+    print("re=1" if re else "re=0")
 asv = parsed.get("auth_status")
 if isinstance(asv, str) and asv.strip():
     print(f"as={asv.strip()}")
@@ -1112,6 +1149,21 @@ PY
               ;;
             wu=*)
               SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
+              ;;
+            rs=*)
+              RUNNER_STATE="${line#rs=}"
+              ;;
+            rlo=*)
+              RUNNER_LAST_OK="${line#rlo=}"
+              ;;
+            rlf=*)
+              RUNNER_LAST_FAIL="${line#rlf=}"
+              ;;
+            rlc=*)
+              RUNNER_LAST_CHECK="${line#rlc=}"
+              ;;
+            re=*)
+              RUNNER_ENABLED="${line#re=}"
               ;;
             as=*)
               AUTH_STATUS="${line#as=}"
@@ -2611,6 +2663,25 @@ format_quota_row() {
   printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$text" "$note"
 }
 
+seconds_since_iso() {
+  local iso="$1"
+  [[ -z "$iso" ]] && return 1
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$iso" <<'PY'
+import datetime, sys
+raw = sys.argv[1]
+try:
+    dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+now = datetime.datetime.now(datetime.timezone.utc)
+delta = now - dt
+print(int(delta.total_seconds()))
+PY
+}
+
 format_duration_short() {
   local seconds="$1"
   [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
@@ -2628,6 +2699,24 @@ format_duration_short() {
     parts=("<1m")
   fi
   printf "%s" "${parts[*]}"
+}
+
+format_relative_iso() {
+  local iso="$1"
+  local seconds=""
+  seconds="$(seconds_since_iso "$iso" 2>/dev/null || true)"
+  if [[ -z "$seconds" ]]; then
+    return 1
+  fi
+  if (( seconds < 0 )); then
+    seconds=$(( -seconds ))
+  fi
+  local label
+  label="$(format_duration_short "$seconds")"
+  if [[ -z "$label" ]]; then
+    return 1
+  fi
+  printf "%s ago" "$label"
 }
 
 build_quota_bar() {
@@ -2834,6 +2923,52 @@ if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_tone="red"
+fi
+
+runner_label=""
+runner_tone="yellow"
+runner_enabled_flag=0
+[[ "$RUNNER_ENABLED" == "1" ]] && runner_enabled_flag=1
+if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_FAIL" ]]; then
+  state="${RUNNER_STATE,,}"
+  last_ok_rel="$(format_relative_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
+  last_fail_rel="$(format_relative_iso "$RUNNER_LAST_FAIL" 2>/dev/null || true)"
+  if (( runner_enabled_flag )); then
+    if [[ "$state" == "fail" ]]; then
+      runner_tone="red"
+      runner_label="auth runner failing"
+      if [[ -n "$last_fail_rel" ]]; then
+        runner_label+=" (${last_fail_rel})"
+      fi
+      if [[ -n "$last_ok_rel" ]]; then
+        runner_label+="; last ok ${last_ok_rel}"
+      fi
+    else
+      runner_tone="green"
+      if [[ -n "$last_ok_rel" ]]; then
+        runner_label="auth runner verified ${last_ok_rel}"
+        age_seconds="$(seconds_since_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
+        if [[ "$age_seconds" =~ ^-?[0-9]+$ ]]; then
+          (( age_seconds < 0 )) && age_seconds=$(( -age_seconds ))
+          if (( age_seconds >= RUNNER_STALE_CRIT_SECONDS )); then
+            runner_tone="red"
+            runner_label+=" (stale)"
+          elif (( age_seconds >= RUNNER_STALE_WARN_SECONDS )); then
+            runner_tone="yellow"
+            runner_label+=" (stale)"
+          fi
+        fi
+      else
+        runner_tone="yellow"
+        runner_label="auth runner enabled; no successful verification yet"
+        if [[ -n "$last_fail_rel" ]]; then
+          runner_label+=" (last fail ${last_fail_rel})"
+        fi
+      fi
+    fi
+  else
+    runner_label="auth runner disabled"
+  fi
 fi
 
 prompt_label="sync skipped"
@@ -3050,6 +3185,9 @@ fi
   log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  if [[ -n "$runner_label" ]]; then
+    log_info "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
+  fi
   log_info "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
   host_usage_parts=()

@@ -1181,6 +1181,11 @@ class AuthService
             'wrapper_url' => $wrapperMeta['url'] ?? null,
             'reported_client_version' => $reported['client_version'],
             'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
+            'runner_enabled' => $this->runnerVerifier !== null,
+            'runner_state' => $this->versions->get('runner_state'),
+            'runner_last_ok' => $this->versions->get('runner_last_ok'),
+            'runner_last_fail' => $this->versions->get('runner_last_fail'),
+            'runner_last_check' => $this->versions->get('runner_last_check'),
         ];
     }
 

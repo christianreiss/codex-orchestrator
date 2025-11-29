@@ -405,6 +405,25 @@ format_quota_row() {
   printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$text" "$note"
 }
 
+seconds_since_iso() {
+  local iso="$1"
+  [[ -z "$iso" ]] && return 1
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$iso" <<'PY'
+import datetime, sys
+raw = sys.argv[1]
+try:
+    dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+now = datetime.datetime.now(datetime.timezone.utc)
+delta = now - dt
+print(int(delta.total_seconds()))
+PY
+}
+
 format_duration_short() {
   local seconds="$1"
   [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
@@ -422,6 +441,24 @@ format_duration_short() {
     parts=("<1m")
   fi
   printf "%s" "${parts[*]}"
+}
+
+format_relative_iso() {
+  local iso="$1"
+  local seconds=""
+  seconds="$(seconds_since_iso "$iso" 2>/dev/null || true)"
+  if [[ -z "$seconds" ]]; then
+    return 1
+  fi
+  if (( seconds < 0 )); then
+    seconds=$(( -seconds ))
+  fi
+  local label
+  label="$(format_duration_short "$seconds")"
+  if [[ -z "$label" ]]; then
+    return 1
+  fi
+  printf "%s ago" "$label"
 }
 
 build_quota_bar() {
@@ -628,6 +665,52 @@ if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_tone="red"
+fi
+
+runner_label=""
+runner_tone="yellow"
+runner_enabled_flag=0
+[[ "$RUNNER_ENABLED" == "1" ]] && runner_enabled_flag=1
+if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_FAIL" ]]; then
+  state="${RUNNER_STATE,,}"
+  last_ok_rel="$(format_relative_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
+  last_fail_rel="$(format_relative_iso "$RUNNER_LAST_FAIL" 2>/dev/null || true)"
+  if (( runner_enabled_flag )); then
+    if [[ "$state" == "fail" ]]; then
+      runner_tone="red"
+      runner_label="auth runner failing"
+      if [[ -n "$last_fail_rel" ]]; then
+        runner_label+=" (${last_fail_rel})"
+      fi
+      if [[ -n "$last_ok_rel" ]]; then
+        runner_label+="; last ok ${last_ok_rel}"
+      fi
+    else
+      runner_tone="green"
+      if [[ -n "$last_ok_rel" ]]; then
+        runner_label="auth runner verified ${last_ok_rel}"
+        age_seconds="$(seconds_since_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
+        if [[ "$age_seconds" =~ ^-?[0-9]+$ ]]; then
+          (( age_seconds < 0 )) && age_seconds=$(( -age_seconds ))
+          if (( age_seconds >= RUNNER_STALE_CRIT_SECONDS )); then
+            runner_tone="red"
+            runner_label+=" (stale)"
+          elif (( age_seconds >= RUNNER_STALE_WARN_SECONDS )); then
+            runner_tone="yellow"
+            runner_label+=" (stale)"
+          fi
+        fi
+      else
+        runner_tone="yellow"
+        runner_label="auth runner enabled; no successful verification yet"
+        if [[ -n "$last_fail_rel" ]]; then
+          runner_label+=" (last fail ${last_fail_rel})"
+        fi
+      fi
+    fi
+  else
+    runner_label="auth runner disabled"
+  fi
 fi
 
 prompt_label="sync skipped"
@@ -844,6 +927,9 @@ fi
   log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  if [[ -n "$runner_label" ]]; then
+    log_info "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
+  fi
   log_info "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
   host_usage_parts=()

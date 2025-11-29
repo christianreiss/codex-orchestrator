@@ -206,6 +206,21 @@ def record_versions(vblock):
         wu = vblock.get("wrapper_url")
         if isinstance(wu, str) and wu.strip():
             out["wrapper_url"] = wu.strip()
+        rs = vblock.get("runner_state")
+        if isinstance(rs, str) and rs.strip():
+            out["runner_state"] = rs.strip()
+        rlo = vblock.get("runner_last_ok")
+        if isinstance(rlo, str) and rlo.strip():
+            out["runner_last_ok"] = rlo.strip()
+        rlf = vblock.get("runner_last_fail")
+        if isinstance(rlf, str) and rlf.strip():
+            out["runner_last_fail"] = rlf.strip()
+        rlc = vblock.get("runner_last_check")
+        if isinstance(rlc, str) and rlc.strip():
+            out["runner_last_check"] = rlc.strip()
+        re = vblock.get("runner_enabled")
+        if isinstance(re, bool):
+            out["runner_enabled"] = re
     return out
 
 
@@ -331,6 +346,21 @@ if isinstance(ws, str) and ws.strip():
     print(f"ws={ws.strip()}")
 if isinstance(wu, str) and wu.strip():
     print(f"wu={wu.strip()}")
+rs = versions.get("runner_state")
+if isinstance(rs, str) and rs.strip():
+    print(f"rs={rs.strip()}")
+rlo = versions.get("runner_last_ok")
+if isinstance(rlo, str) and rlo.strip():
+    print(f"rlo={rlo.strip()}")
+rlf = versions.get("runner_last_fail")
+if isinstance(rlf, str) and rlf.strip():
+    print(f"rlf={rlf.strip()}")
+rlc = versions.get("runner_last_check")
+if isinstance(rlc, str) and rlc.strip():
+    print(f"rlc={rlc.strip()}")
+re = versions.get("runner_enabled")
+if isinstance(re, bool):
+    print("re=1" if re else "re=0")
 asv = parsed.get("auth_status")
 if isinstance(asv, str) and asv.strip():
     print(f"as={asv.strip()}")
@@ -408,6 +438,21 @@ PY
               ;;
             wu=*)
               SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
+              ;;
+            rs=*)
+              RUNNER_STATE="${line#rs=}"
+              ;;
+            rlo=*)
+              RUNNER_LAST_OK="${line#rlo=}"
+              ;;
+            rlf=*)
+              RUNNER_LAST_FAIL="${line#rlf=}"
+              ;;
+            rlc=*)
+              RUNNER_LAST_CHECK="${line#rlc=}"
+              ;;
+            re=*)
+              RUNNER_ENABLED="${line#re=}"
               ;;
             as=*)
               AUTH_STATUS="${line#as=}"
