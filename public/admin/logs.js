@@ -8,6 +8,7 @@
   const nextBtn = document.getElementById('page-next');
   const refreshBtn = document.getElementById('log-refresh');
   const sortableHeaders = document.querySelectorAll('#log-table th.sortable');
+  const apiToggleBtn = document.getElementById('api-toggle-btn');
 
   const state = {
     page: 1,
@@ -19,6 +20,7 @@
     pages: 1,
     loading: false,
   };
+  let apiDisabled = null;
 
   function escapeHtml(str) {
     return String(str)
@@ -55,6 +57,65 @@
     return num.toLocaleString('en-US');
   }
 
+  function api(path, opts = {}) {
+    const headers = { Accept: 'application/json', ...(opts.headers || {}) };
+    const init = {
+      cache: 'no-store',
+      headers,
+      method: opts.method || 'GET',
+    };
+    if (Object.prototype.hasOwnProperty.call(opts, 'json')) {
+      init.body = JSON.stringify(opts.json);
+      headers['Content-Type'] = 'application/json';
+    } else if (Object.prototype.hasOwnProperty.call(opts, 'body')) {
+      init.body = opts.body;
+    }
+
+    return fetch(path, init).then(async (res) => {
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ''}`);
+      }
+      return res.json();
+    });
+  }
+
+  async function loadApiState() {
+    if (!apiToggleBtn) return;
+    try {
+      const res = await api('/admin/api/state');
+      apiDisabled = !!(res.data && res.data.disabled);
+      apiToggleBtn.textContent = 'API';
+      apiToggleBtn.title = apiDisabled ? 'API disabled — click to enable' : 'API enabled — click to disable';
+      apiToggleBtn.classList.remove('danger', 'ghost', 'api-enabled', 'api-disabled');
+      apiToggleBtn.classList.add(apiDisabled ? 'api-disabled' : 'api-enabled');
+    } catch (err) {
+      console.error('api state', err);
+      apiToggleBtn.textContent = 'API: unavailable';
+      apiToggleBtn.classList.add('danger');
+    }
+  }
+
+  async function setApiState(enabled) {
+    if (!apiToggleBtn) return;
+    const original = apiToggleBtn.textContent;
+    apiToggleBtn.disabled = true;
+    apiToggleBtn.textContent = enabled ? 'Enabling…' : 'Disabling…';
+    try {
+      await api('/admin/api/state', {
+        method: 'POST',
+        json: { disabled: !enabled },
+      });
+      apiDisabled = !enabled;
+    } catch (err) {
+      alert(`API toggle failed: ${err.message}`);
+    } finally {
+      apiToggleBtn.disabled = false;
+      apiToggleBtn.textContent = original;
+      loadApiState();
+    }
+  }
+
   function debounce(fn, ms = 250) {
     let t;
     return (...args) => {
@@ -74,24 +135,10 @@
     });
   }
 
-  function payloadPreview(payload) {
-    if (!payload) return '<span class="muted">—</span>';
-    let preview = String(payload);
-    try {
-      const parsed = JSON.parse(payload);
-      preview = JSON.stringify(parsed);
-    } catch (_) {
-      // leave as-is when not JSON
-    }
-    preview = preview.replace(/\s+/g, ' ').trim();
-    if (preview.length > 140) preview = `${preview.slice(0, 140)}…`;
-    return `<code class="payload-preview">${escapeHtml(preview)}</code>`;
-  }
-
   function renderTable(items) {
     if (!tableBody) return;
     if (!items.length) {
-      tableBody.innerHTML = '<tr class="empty-row"><td colspan="6">No client reports yet.</td></tr>';
+      tableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No client reports yet.</td></tr>';
       return;
     }
 
@@ -100,17 +147,10 @@
       const host = item.fqdn ? escapeHtml(item.fqdn) : 'Unknown';
       const hostMeta = item.host_id ? `<span class="muted mono">#${item.host_id}</span>` : '<span class="muted">n/a</span>';
       const clientIp = item.client_ip ? escapeHtml(item.client_ip) : '—';
-      const entries = formatNumber(item.entries);
-      const tokenTotal = formatNumber(item.total);
-      const mini = [
-        ['input', item.input],
-        ['output', item.output],
-        ['cached', item.cached],
-        ['reason', item.reasoning],
-      ]
-        .filter(([, v]) => v !== null && v !== undefined)
-        .map(([label, value]) => `<span class="token-chip token-${label}">${label}: ${formatNumber(value)}</span>`)
-        .join('');
+      const inputTokens = formatNumber(item.input);
+      const outputTokens = formatNumber(item.output);
+      const cachedTokens = formatNumber(item.cached);
+      const reasoningTokens = formatNumber(item.reasoning);
 
       return `<tr>
         <td><div class="mono">${created}</div></td>
@@ -120,13 +160,11 @@
             ${hostMeta}
           </div>
         </td>
-        <td><span class="badge">${entries}</span></td>
-        <td>
-          <div class="token-total">${tokenTotal}</div>
-          <div class="token-breakdown">${mini || '<span class="muted">n/a</span>'}</div>
-        </td>
         <td><span class="mono">${clientIp}</span></td>
-        <td>${payloadPreview(item.payload)}</td>
+        <td><span class="mono">${inputTokens}</span></td>
+        <td><span class="mono">${outputTokens}</span></td>
+        <td><span class="mono">${cachedTokens}</span></td>
+        <td><span class="mono">${reasoningTokens}</span></td>
       </tr>`;
     });
 
@@ -150,7 +188,7 @@
     state.loading = true;
     applySortState();
     if (tableBody) {
-      tableBody.innerHTML = '<tr class="loading-row"><td colspan="6">Loading…</td></tr>';
+      tableBody.innerHTML = '<tr class="loading-row"><td colspan="7">Loading…</td></tr>';
     }
     statusEl.textContent = 'Loading…';
 
@@ -175,7 +213,7 @@
     } catch (err) {
       console.error('load logs', err);
       if (tableBody) {
-        tableBody.innerHTML = '<tr class="error-row"><td colspan="6">Could not load logs.</td></tr>';
+        tableBody.innerHTML = '<tr class="error-row"><td colspan="7">Could not load logs.</td></tr>';
       }
       if (statusEl) statusEl.textContent = 'Error loading logs';
     } finally {
@@ -236,6 +274,14 @@
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => loadLogs());
+  }
+
+  if (apiToggleBtn) {
+    apiToggleBtn.addEventListener('click', () => {
+      if (apiDisabled === null) return;
+      setApiState(!apiDisabled);
+    });
+    loadApiState();
   }
 
   loadLogs();

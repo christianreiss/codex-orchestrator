@@ -21,9 +21,9 @@
           <h2>Client Logs</h2>
           <div class="pill pill-soft">Reports</div>
         </div>
-        <div class="menu-line">
-          <a class="ghost menu-link" href="/admin/">Dashboard</a>
-          <a class="ghost menu-link active" href="/admin/logs.html">Client Logs</a>
+        <div class="action-line">
+          <a class="nav-btn" href="/admin/">Dashboard</a>
+          <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API</button>
         </div>
       </header>
       <main class="main logs-main">
@@ -47,16 +47,17 @@
             <table id="log-table">
               <thead>
                 <tr>
-                  <th class="sortable" data-sort="created_at">Created</th>
-                  <th class="sortable" data-sort="host">Client</th>
-                  <th class="sortable" data-sort="entries">Entries</th>
-                  <th class="sortable" data-sort="total">Tokens</th>
+                  <th class="sortable" data-sort="created_at">Time</th>
+                  <th class="sortable" data-sort="host">Host</th>
                   <th class="sortable" data-sort="client_ip">Client IP</th>
-                  <th>Payload</th>
+                  <th class="sortable" data-sort="input">Input</th>
+                  <th class="sortable" data-sort="output">Output</th>
+                  <th class="sortable" data-sort="cached">Cached</th>
+                  <th class="sortable" data-sort="reasoning">Reasoning</th>
                 </tr>
               </thead>
               <tbody>
-                <tr class="loading-row"><td colspan="6">Loading…</td></tr>
+                <tr class="loading-row"><td colspan="7">Loading…</td></tr>
               </tbody>
             </table>
           </div>
@@ -72,6 +73,6 @@
       </main>
     </div>
   </div>
-  <script src="logs.js?v=2025-11-29-01"></script>
+  <script src="logs.js?v=2025-11-29-04"></script>
 </body>
 </html>

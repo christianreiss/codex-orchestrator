@@ -134,6 +134,28 @@
       align-items: center;
       justify-content: flex-end;
     }
+    .nav-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      min-height: 40px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-strong);
+      background: #ffffff;
+      color: #0f172a;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      text-decoration: none;
+      box-shadow: none;
+      transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+    }
+    .nav-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 26px rgba(16,163,127,0.2);
+      background: var(--accent);
+      border-color: #0c7a4f;
+    }
     .muted { color: var(--muted); font-size: 13px; }
     main.main { padding-bottom: 32px; }
     .grid { display: grid; gap: 14px; }
