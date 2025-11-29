@@ -1,5 +1,10 @@
 # Codex Auth Central API
 
+> **Is this for you?**
+> - You run Codex on multiple hosts and want a central `auth.json`.
+> - You’re comfortable with Docker and TLS/mTLS.
+> - You’re okay storing tokens and usage logs in MySQL.
+
 🔒 Keep one canonical Codex `auth.json` for your whole fleet. 🚀 Mint per-host API keys from the dashboard, bake them into the `cdx` wrapper, and let hosts pull/push auth + usage with a single call.
 
 ![cdx wrapper baking a host-specific installer and syncing auth](docs/img/cdx.png)

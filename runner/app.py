@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 app = FastAPI()
 
 DEFAULT_TIMEOUT = 8.0
+DEBUG_DUMP_AUTH = os.getenv("RUNNER_DEBUG_DUMP_AUTH") == "1"
 
 
 @app.get("/health")
@@ -55,15 +56,16 @@ def _codex_version(env: dict) -> str:
 
 
 def _run_probe(payload: VerifyRequest) -> dict:
-    # Debug helper: persist the incoming auth.json so it can be inspected from the container.
-    # WARNING: contains secrets; remove after debugging.
-    try:
-        debug_path = "/tmp/last-auth.json"
-        with open(debug_path, "w", encoding="utf-8") as fh:
-            json.dump(payload.auth_json, fh, indent=2)
-        os.chmod(debug_path, 0o600)
-    except Exception:
-        pass
+    if DEBUG_DUMP_AUTH:
+        # Debug helper: persist the incoming auth.json so it can be inspected from the container.
+        # WARNING: contains secrets; enable only when debugging runner probes.
+        try:
+            debug_path = "/tmp/last-auth.json"
+            with open(debug_path, "w", encoding="utf-8") as fh:
+                json.dump(payload.auth_json, fh, indent=2)
+            os.chmod(debug_path, 0o600)
+        except Exception:
+            pass
 
     token = _extract_openai_token(payload.auth_json)
     if token is None or token.strip() == "":

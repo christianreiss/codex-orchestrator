@@ -35,15 +35,6 @@ class RunnerVerifier
             }
         }
 
-        $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($body === false) {
-            return [
-                'status' => 'fail',
-                'reason' => 'failed to encode payload',
-                'reachable' => false,
-            ];
-        }
-
         $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
         $payload['timeout_seconds'] = $timeout;
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

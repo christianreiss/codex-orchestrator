@@ -10,7 +10,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 ## Probe lifecycle (runner/app.py)
 
-1. Persist the incoming auth to `/tmp/last-auth.json` (0600) for debugging.
+1. Optionally persist the incoming auth to `/tmp/last-auth.json` (0600) when `RUNNER_DEBUG_DUMP_AUTH=1` is set in the runner env.
 2. Require at least one usable OpenAI token (`auths.api.openai.com.token` or `tokens.access_token`/`openai_api_key`), otherwise return 400.
 3. Create a temp `$HOME`, write `~/.codex/auth.json`, chmod 0600.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from the runner container env (defaults to `https://codex-auth.example.com` via compose, falls back to `http://api` in code), `CODEX_SYNC_OPTIONAL=1`, `CODEX_SYNC_BAKED=0`.
@@ -40,4 +40,5 @@ Note: the current runner implementation does not emit `updated_auth`. The API wi
 - `AUTH_RUNNER_TIMEOUT` (API) - float seconds (default 8).
 - `AUTH_RUNNER_CODEX_BASE_URL` (API) - sent in the payload for forward compatibility; the current runner ignores it.
 - `CODEX_SYNC_BASE_URL` (runner container) - base URL used by Codex during probes.
+- `RUNNER_DEBUG_DUMP_AUTH` (runner container) - set to `1` to write the latest auth payload to `/tmp/last-auth.json` for debugging.
 - `AUTH_RUNNER_IP_BYPASS`, `AUTH_RUNNER_BYPASS_SUBNETS` - IP bypass controls as noted above.
