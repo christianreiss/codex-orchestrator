@@ -14,7 +14,64 @@ This doc walks through setting up the Codex Auth stack with Docker, mTLS, and a 
   - `/var/docker_data/codex-auth.example.com/store` (wrapper, storage/sql exports)
   - When using the bundled Caddy frontend: `/var/docker_data/codex-auth.example.com/caddy/tls` for custom cert/key, `/var/docker_data/codex-auth.example.com/caddy/mtls` for the admin CA, plus named volumes `caddy_data` and `caddy_config` (ACME + Caddy state).
 
+## Recommended: one-command setup
+
+Run the guided installer to generate `.env`, create data dirs, wire TLS/mTLS, and optionally build/start the stack:
+
+```bash
+bin/setup.sh
+```
+
+What it does
+
+- Verifies `docker` + Compose v2; on Linux it can install Docker via `get.docker.com` (asks first) and on macOS via Homebrew (`brew install --cask docker`).
+- Copies `.env.example` to `.env` if missing, sets strict perms, and auto-fills secrets:
+  - `AUTH_ENCRYPTION_KEY` (libsodium secretbox key) if empty.
+  - Random `DB_USERNAME`, `DB_PASSWORD`, `DB_ROOT_PASSWORD` if defaults are still present.
+- Prompts for `DATA_ROOT` (default `/var/docker_data/codex-auth.example.com`) and creates `store`, `store/sql`, `store/logs`, `mysql_data`, `caddy/tls`, `caddy/mtls` under it.
+- Prompts for external URLs used by hosts/runner:
+  - `CODEX_SYNC_BASE_URL` (API URL baked into installers/wrapper)
+  - `AUTH_RUNNER_CODEX_BASE_URL` (runner’s Codex base URL; defaults to the same value)
+- Optional bundled Caddy frontend (reverse proxy on :80/:443):
+  - Lets you keep or disable the mTLS requirement for `/admin` (`ADMIN_REQUIRE_MTLS`).
+  - If enabled, asks for `CADDY_DOMAIN` and TLS mode:
+    1. **ACME (Let’s Encrypt/ZeroSSL)** — sets `CADDY_ACME_EMAIL`, uses `tls-acme` fragment; requires public 80/443.
+    2. **Custom cert** — sets `tls-custom` fragment and file names; can copy cert/key from `--tls-cert-path/--tls-key-path` into the data root.
+    3. **Self-signed** — generates CA + server cert into `caddy/tls`, sets paths accordingly; you must trust the CA on clients.
+  - mTLS for `/admin`:
+    1. **Bring your own CA** — copies your CA into `caddy/mtls/ca.crt`.
+    2. **Generate new** — creates a CA + `client-admin` cert/key in `caddy/mtls` for browser/API access.
+  - Enables the `caddy` compose profile automatically when you leave Caddy on.
+- Builds and/or starts the Docker stack (calls `docker compose [--profile caddy] build --pull` then `up -d`) unless you skip with flags.
+
+Useful flags
+
+- `--prepare-only` — write `.env` and create data dirs, skip build/up.
+- `--no-build` / `--no-up` — control compose phases separately.
+- `--non-interactive` — never prompt; combine with the flags below to supply values.
+- `--data-root PATH` — set `DATA_ROOT` without prompting.
+- `--codex-url URL` / `--runner-url URL` — set `CODEX_SYNC_BASE_URL` / `AUTH_RUNNER_CODEX_BASE_URL`.
+- `--caddy` or `--no-caddy` — force enable/disable the bundled proxy.
+- `--caddy-domain DOMAIN` — seed `CADDY_DOMAIN`.
+- TLS options: `--tls-mode 1|2|3`, `--acme-email`, `--tls-cert-path`, `--tls-key-path`, `--tls-cert`, `--tls-key`, `--tls-sans`.
+- mTLS options: `--mtls-mode 1|2`, `--mtls-ca-path`, `--mtls-ca-cn`, `--mtls-client-cn`, `--mtls-required` / `--mtls-optional`.
+- Set `ENV_FILE=/path/to/custom.env` to write somewhere other than `.env`.
+
+Examples
+
+- **Default interactive** (recommended for first-time): `bin/setup.sh`
+- **Non-interactive self-signed dev stack without auto-start:**
+  ```bash
+  bin/setup.sh --non-interactive --caddy --tls-mode 3 --tls-sans "localhost,127.0.0.1" \
+    --mtls-mode 2 --data-root ./local-data --no-up
+  ```
+- **Prep only, no Docker yet:** `bin/setup.sh --prepare-only`
+
+You can rerun `bin/setup.sh` anytime; it keeps existing values unless you supply different answers/flags.
+
 ## Environment
+
+Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you need to edit manually instead:
 
 1. Copy `.env.example` to `.env`.
 2. Configure secrets/paths:
