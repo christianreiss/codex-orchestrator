@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/*
+ * Creator: Christian Reiss
+ * Contact: email@christian-reiss.de
+ * Mastodon: @chris@social.uggs.io
+ */
+
 use App\Config;
 use App\Database;
 use App\Exceptions\HttpException;

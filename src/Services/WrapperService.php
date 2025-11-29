@@ -1,5 +1,11 @@
 <?php
 
+/*
+ * Creator: Christian Reiss
+ * Contact: email@christian-reiss.de
+ * Mastodon: @chris@social.uggs.io
+ */
+
 namespace App\Services;
 
 use App\Repositories\VersionRepository;
