@@ -6,6 +6,7 @@ declare(strict_types=1);
  * Creator: Christian Reiss
  * Contact: email@christian-reiss.de
  * Mastodon: @chris@social.uggs.io
+ * GitHub: https://github.com/christianreiss/codex-orchestrator
  */
 
 use App\Config;

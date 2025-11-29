@@ -4,6 +4,7 @@
  * Creator: Christian Reiss
  * Contact: email@christian-reiss.de
  * Mastodon: @chris@social.uggs.io
+ * GitHub: https://github.com/christianreiss/codex-orchestrator
  */
 
 $mtlsPresent = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
