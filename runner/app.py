@@ -13,6 +13,11 @@ app = FastAPI()
 DEFAULT_TIMEOUT = 8.0
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 class VerifyRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload to test")
     timeout_seconds: Optional[float] = Field(

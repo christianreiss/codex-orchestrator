@@ -51,14 +51,16 @@ services:
     networks:
       - codex_auth
     command: >
-      bash -c "interval=${CHATGPT_USAGE_CRON_INTERVAL:-3600}; while true; do
-        if php /var/www/html/scripts/refresh-chatgpt-usage.php; then
-          sleep \"$interval\";
-        else
-          echo '[quota-cron] refresh failed; retrying in 60s' >&2;
-          sleep 60;
-        fi
-      done"
+      bash -c "interval=${CHATGPT_USAGE_CRON_INTERVAL:-3600};
+        if [[ -z \"$interval\" || ! \"$interval\" =~ ^[0-9]+$ ]]; then interval=3600; fi;
+        while true; do
+          if php /var/www/html/scripts/refresh-chatgpt-usage.php; then
+            sleep \"$interval\";
+          else
+            echo '[quota-cron] refresh failed; retrying in 60s' >&2;
+            sleep 60;
+          fi
+        done"
     healthcheck:
       test: ["CMD-SHELL", "php -r '$m=@new mysqli(getenv(\"DB_HOST\"),getenv(\"DB_USERNAME\"),getenv(\"DB_PASSWORD\"),getenv(\"DB_DATABASE\")); exit($m && $m->connect_errno===0?0:1);'"]
       interval: 60s

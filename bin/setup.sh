@@ -636,9 +636,11 @@ ensure_base_urls() {
 
 ensure_env_perms() {
   local env_file="$1"
-  chmod 644 "$env_file" 2>/dev/null || true
   if id -u www-data >/dev/null 2>&1; then
-    chown www-data:www-data "$env_file" 2>/dev/null || true
+    chown root:www-data "$env_file" 2>/dev/null || true
+    chmod 640 "$env_file" 2>/dev/null || true
+  else
+    chmod 644 "$env_file" 2>/dev/null || true
   fi
 }
 
@@ -853,6 +855,9 @@ main() {
   local codex_url runner_url
   codex_url="$(read_env_value "CODEX_SYNC_BASE_URL" "$env_path" || true)"
   runner_url="$(read_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$env_path" || true)"
+
+  # Finalize permissions after all writes so the containers can read .env.
+  ensure_env_perms "$env_path"
 
   if (( START_STACK || BUILD_IMAGES )); then
     start_stack
