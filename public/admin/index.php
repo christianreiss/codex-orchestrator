@@ -1,9 +1,24 @@
 <?php
 
+/*
+ * Creator: Christian Reiss
+ * Contact: email@christian-reiss.de
+ * Mastodon: @chris@social.uggs.io
+ */
+
 $mtlsPresent = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
 $mtlsFingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
 $mtlsSubject = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? '';
 $mtlsIssuer = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? '';
+
+$mtlsRequired = true;
+$envAdminMtls = getenv('ADMIN_REQUIRE_MTLS');
+if ($envAdminMtls !== false) {
+    $normalized = strtolower(trim((string) $envAdminMtls));
+    if (in_array($normalized, ['0', 'false', 'off', 'no'], true)) {
+        $mtlsRequired = false;
+    }
+}
 
 function isMobileUserAgent(string $userAgent): bool
 {
@@ -12,7 +27,7 @@ function isMobileUserAgent(string $userAgent): bool
 
 $hasValidFingerprint = is_string($mtlsFingerprint) && preg_match('/^[A-Fa-f0-9]{64}$/', $mtlsFingerprint) === 1;
 
-if (!$hasValidFingerprint) {
+if ($mtlsRequired && !$hasValidFingerprint) {
     header('Content-Type: text/plain; charset=utf-8', true, 403);
     echo 'Client certificate required for admin access.';
     exit;
