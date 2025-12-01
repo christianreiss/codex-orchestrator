@@ -1694,14 +1694,14 @@ cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
 CURL4="__CURL4__"
-curl_flags=()
-if [[ "$CURL4" == "-4" ]]; then
-  curl_flags+=("-4")
-fi
+curl_fetch() {
+  # Use IPv4 when requested; empty expansion otherwise.
+  curl ${CURL4:+-4} "$@"
+}
 
 echo "Installing Codex for __FQDN__ via __BASE__"
 
-curl "${curl_flags[@]}" -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
+curl_fetch -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
 install_path="/usr/local/bin/cdx"
 if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then
@@ -1717,7 +1717,7 @@ case "$arch" in
   *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
 esac
 
-curl "${curl_flags[@]}" -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
+curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
 tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
 codex_bin="$(find "$tmpdir" -type f -name "codex*" | head -n1)"
 if [ -z "$codex_bin" ]; then
