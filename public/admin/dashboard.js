@@ -1063,7 +1063,10 @@ const statsEl = document.getElementById('stats');
       const dayCostResolved = hasPricing ? (dayCost ?? computeCost(daily)) : null;
       const weekCostResolved = hasPricing ? (weekCost ?? computeCost(weekly)) : null;
       const monthCostResolved = hasPricing ? (monthCost ?? computeCost(monthly)) : null;
-      const formatCostValue = (value) => `${Number.isFinite(value) ? value.toFixed(2) : '0.00'}$`;
+      const formatCostValue = (value) => hasPricing && Number.isFinite(value) ? formatMoney(value, currency) : (hasPricing ? formatMoney(0, currency) : 'pricing missing');
+      const monthlyTotalTokens = Number.isFinite(monthly.total)
+        ? monthly.total
+        : ((Number.isFinite(monthly.input) ? monthly.input : 0) + (Number.isFinite(monthly.output) ? monthly.output : 0) + (Number.isFinite(monthly.cached) ? monthly.cached : 0));
       const costBreakdown = hasPricing ? [
         dayCostResolved !== null ? { label: 'Today', value: dayCostResolved } : null,
         weekCostResolved !== null ? { label: 'Week', value: weekCostResolved } : null,
@@ -1085,6 +1088,33 @@ const statsEl = document.getElementById('stats');
           </div>
         `).join('');
       })();
+      const renderCostCard = (title, tokens, cost, unitPrice) => `
+        <div class="cost-card">
+          <div class="label">${title}</div>
+          <div class="value">${hasPricing ? formatMoney(cost ?? 0, currency) : 'pricing missing'}</div>
+          <div class="stat-line">${formatNumber(tokens)} tokens</div>
+          <small>${unitPrice}</small>
+        </div>
+      `;
+      const totalCard = `
+        <div class="cost-card total">
+          <div class="total-head">
+            <div class="total-kicker">Estimated Total</div>
+            <button class="total-icon-btn cost-history-btn" type="button" title="Open cost trend" aria-label="Open cost trend">
+              <span class="total-icon" aria-hidden="true">📈</span>
+            </button>
+          </div>
+          <div class="total-main">
+            <div class="total-amount">${primaryCost ? formatCostValue(primaryCost.value) : (hasPricing ? formatMoney(0, currency) : 'Pricing missing')}</div>
+            <span class="total-sub">${primaryCost ? `${primaryCost.label} to date` : (hasPricing ? 'No usage yet' : 'Pricing missing')}</span>
+          </div>
+          <div class="stat-line strong">${formatNumber(monthlyTotalTokens)} tokens</div>
+          <div class="total-breakdown">
+            ${costSummary}
+          </div>
+          ${hasPricing ? '' : '<small class="muted">Set PRICING_URL or GPT51_* env vars.</small>'}
+        </div>
+      `;
 
       chatgptUsageCard.innerHTML = `
         <div class="usage-head">
@@ -1109,37 +1139,10 @@ const statsEl = document.getElementById('stats');
         <div class="usage-credits">
           <strong>Month to date (${currency})</strong>
           <div class="cost-grid">
-            <div class="cost-card">
-              <div class="label">Input</div>
-              <div class="value">${formatNumber(monthly.input)}</div>
-              <small>${pricing.input_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(inputCost ?? 0, currency) : 'pricing missing'}</small>
-            </div>
-            <div class="cost-card">
-              <div class="label">Output</div>
-              <div class="value">${formatNumber(monthly.output)}</div>
-              <small>${pricing.output_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(outputCost ?? 0, currency) : 'pricing missing'}</small>
-            </div>
-            <div class="cost-card">
-              <div class="label">Cached</div>
-              <div class="value">${formatNumber(monthly.cached)}</div>
-              <small>${pricing.cached_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(cachedCost ?? 0, currency) : 'pricing missing'}</small>
-            </div>
-            <div class="cost-card total">
-              <div class="total-kicker">
-                <button class="total-icon-btn cost-history-btn" type="button" title="Open cost trend" aria-label="Open cost trend">
-                  <span class="total-icon" aria-hidden="true">📈</span>
-                </button>
-                <span>Estimated Total</span>
-              </div>
-              <div class="total-main">
-                <div class="total-amount">${primaryCost ? formatCostValue(primaryCost.value) : '—'}</div>
-                <span class="total-sub">${primaryCost ? `${primaryCost.label} to date` : (hasPricing ? 'No usage yet' : 'Pricing missing')}</span>
-              </div>
-              <div class="total-breakdown">
-                ${costSummary}
-              </div>
-              ${hasPricing ? '' : '<small>Set PRICING_URL or GPT51_* env vars</small>'}
-            </div>
+            ${renderCostCard('Input', monthly.input, inputCost, hasPricing ? `${formatMoney(pricing.input_price_per_1k ?? 0, currency)}/1k` : 'pricing missing')}
+            ${renderCostCard('Output', monthly.output, outputCost, hasPricing ? `${formatMoney(pricing.output_price_per_1k ?? 0, currency)}/1k` : 'pricing missing')}
+            ${renderCostCard('Cached', monthly.cached, cachedCost, hasPricing ? `${formatMoney(pricing.cached_price_per_1k ?? 0, currency)}/1k` : 'pricing missing')}
+            ${totalCard}
           </div>
         </div>
       `;

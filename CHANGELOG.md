@@ -1,4 +1,5 @@
 # 2025-12-01
+- Restyled the ChatGPT month-to-date cost cards with balanced tokens/cost lines and a dedicated total header, replacing the squished four-box layout.
 - Estimated Total graph now opens a dedicated 60-day cost trend (input/output/cached) instead of reusing the quota chart placeholder.
 - Added a stats icon to the ChatGPT estimated total card to mirror the weekly limit affordance.
 - ChatGPT estimated total icon now opens the quota trend chart, matching the weekly limit graph control.
