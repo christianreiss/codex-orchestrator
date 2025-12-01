@@ -9,6 +9,7 @@ This project keeps Codex `auth.json` files synchronized between servers. Each cl
 - Before any task, run `git pull`.
 - When changes require a server restart or touch `cdx`, rebuild and restart the Docker services.
 - For every set of changes, always `git commit` and push.
+- Any user-visible feature or behavior change must be recorded in `CHANGELOG.md` (newest date first, grouped by day).
 - API kill switch (`/admin/api/state`) is enforced for all non-admin routes, including `/auth`; only `/admin/api/state` bypasses it.
 - Auth and API keys are encrypted with libsodium secretbox. `AUTH_ENCRYPTION_KEY` is bootstrapped into `.env` if missing—do not lose it or stored payloads/tokens become unreadable.
 - Global throttles are on: per-IP `global` bucket (non-admin routes) and `auth-fail` bucket for bad/missing API keys. 429s include `bucket`, `reset_at`, `limit`.
