@@ -41,6 +41,7 @@ class AuthService
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
     private const RUNNER_STALE_OK_SECONDS = 21600; // 6 hours
+    private int $runnerPreflightIntervalSeconds;
 
     public function __construct(
         private readonly HostRepository $hosts,
@@ -56,8 +57,11 @@ class AuthService
         private readonly WrapperService $wrapperService,
         private readonly ?RunnerVerifier $runnerVerifier = null,
         private readonly ?RateLimiter $rateLimiter = null,
-        private readonly ?string $installationId = null
+        private readonly ?string $installationId = null,
+        ?int $runnerPreflightIntervalSeconds = null
     ) {
+        $configuredInterval = $runnerPreflightIntervalSeconds ?? (int) Config::get('AUTH_RUNNER_PREFLIGHT_SECONDS', self::RUNNER_PREFLIGHT_INTERVAL_SECONDS);
+        $this->runnerPreflightIntervalSeconds = $configuredInterval > 0 ? $configuredInterval : self::RUNNER_PREFLIGHT_INTERVAL_SECONDS;
     }
 
     public function register(string $fqdn, bool $secure = true): array
@@ -593,7 +597,7 @@ class AuthService
         $lastPreflightRaw = $this->versions->get('daily_preflight') ?? '';
         $lastPreflightTs = $this->parseTimestamp(is_string($lastPreflightRaw) ? $lastPreflightRaw : null);
         $intervalElapsed = $lastPreflightTs === null
-            || ($now - $lastPreflightTs) >= self::RUNNER_PREFLIGHT_INTERVAL_SECONDS
+            || ($now - $lastPreflightTs) >= $this->runnerPreflightIntervalSeconds
             || $lastPreflightTs > ($now + self::MAX_FUTURE_SKEW_SECONDS);
         $needsVersionRefresh = $bootChanged || $intervalElapsed;
 
@@ -663,7 +667,7 @@ class AuthService
         if (
             !$forceRun
             && $lastCheckTs !== null
-            && ($now - $lastCheckTs) < self::RUNNER_PREFLIGHT_INTERVAL_SECONDS
+            && ($now - $lastCheckTs) < $this->runnerPreflightIntervalSeconds
         ) {
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
         }

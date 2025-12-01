@@ -42,7 +42,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 Deregisters the calling host; IP binding enforced unless `?force=1`. Logs `host.delete` and removes host + digests.
 
 ### `POST /usage`
-Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas; must be non-negative. `line` is sanitized (ANSI/control stripped, length capped). Every request is also captured in `token_usage_ingests` (aggregated totals, normalized payload, client IP) for audit; the per-row `token_usages.ingest_id` links entries back to that ingest. Response echoes `recorded` count, per-entry echoes, `host_id`, and `ingest_id`. Internal failures return `recorded:false` with a reason but HTTP 200.
+Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas; must be non-negative. `line` is sanitized (ANSI/control stripped, length capped). Every request is also captured in `token_usage_ingests` (aggregated totals, normalized payload, client IP) for audit; the per-row `token_usages.ingest_id` links entries back to that ingest. Per-entry and aggregate `cost` values are calculated from the latest pricing (env fallbacks `GPT51_*`/`PRICING_CURRENCY` when `PRICING_URL` is absent) and stored with the rows. Response echoes `recorded` count, per-entry echoes (including `cost`), `host_id`, ingest `cost`, and `ingest_id`. Internal failures return `recorded:false` with a reason but HTTP 200.
 
 ### `POST /host/users`
 Records the current `username` and optional `hostname` for the calling host, returning all known users with `first_seen`/`last_seen`. Auth + IP binding required.
@@ -78,13 +78,13 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set `api_disabled` kill switch (only path left available when disabled).
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` (when false, clients may warn instead of hard-fail on ChatGPT quota exhaustion).
 - Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.
-- Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50`, `GET /admin/tokens?limit=50`.
+- Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50` (includes aggregate `cost` + `currency`), `GET /admin/tokens?limit=50`.
 - Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.
 - ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 
 ## Runner & Versions
-- First non-admin request after ~8 hours (or after a boot) triggers a **scheduled preflight**: refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
+- First non-admin request after ~8 hours (or after a boot) triggers a **scheduled preflight** (interval configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800s): refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
 
 ## Housekeeping & Storage
 - Canonical auth payloads are stored compacted in `auth_payloads` with per-target rows in `auth_entries`; the last 3 digests per host live in `host_auth_digests`; `host_auth_states` records the last payload served to a host.

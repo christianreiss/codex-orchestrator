@@ -37,7 +37,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - `GET /install/{token}` emits a bash script that downloads the baked wrapper, installs Codex from GitHub (latest tag the API knows about), and prints versions. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
 
 2) **Every `/auth` call**
-   - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot): refresh the GitHub client-version cache and, when configured, run one runner validation.
+   - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot, configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`): refresh the GitHub client-version cache and, when configured, run one runner validation.
    - API key auth: resolves client IP, enforces per-IP binding unless `allow_roaming_ips` or `?force=1` on `DELETE /auth`; insecure hosts must be inside an enabled window.
    - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, and quota mode (`quota_hard_fail`).
    - Retrieve path: compares client `last_refresh`/`digest` to canonical. Returns `valid`, `upload_required`, `outdated`, or `missing`, plus host stats (API calls, monthly token totals) and recent digests (remembered per host).
