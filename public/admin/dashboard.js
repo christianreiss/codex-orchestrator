@@ -821,9 +821,7 @@ const statsEl = document.getElementById('stats');
           insecureClasses = 'ghost tiny-btn neutral';
         }
         const health = hostHealth(host);
-        if (isHostSecure(host)) {
-          tr.classList.add(`status-${health.tone}`);
-        }
+        tr.classList.add(`status-${health.tone}`);
         tr.classList.add('host-row');
         tr.setAttribute('data-id', host.id);
         tr.tabIndex = 0;
