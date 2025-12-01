@@ -79,6 +79,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` (when false, clients may warn instead of hard-fail on ChatGPT quota exhaustion).
 - Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.
 - Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50`, `GET /admin/tokens?limit=50`.
+- Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.
 - ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 

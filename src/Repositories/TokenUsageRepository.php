@@ -304,4 +304,49 @@ class TokenUsageRepository
 
         return $items;
     }
+
+    public function firstRecordedAt(): ?string
+    {
+        $statement = $this->database->connection()->query(
+            'SELECT created_at FROM token_usages ORDER BY created_at ASC, id ASC LIMIT 1'
+        );
+        $row = $statement->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        if (!$row || !isset($row['created_at'])) {
+            return null;
+        }
+
+        return (string) $row['created_at'];
+    }
+
+    public function dailyTotalsSince(string $startIso): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT SUBSTRING(created_at, 1, 10) AS day,
+                    COALESCE(SUM(input_tokens), 0) AS input,
+                    COALESCE(SUM(output_tokens), 0) AS output,
+                    COALESCE(SUM(cached_tokens), 0) AS cached
+             FROM token_usages
+             WHERE created_at >= :start
+             GROUP BY day
+             ORDER BY day ASC'
+        );
+        $statement->execute(['start' => $startIso]);
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $results = [];
+        foreach ($rows as $row) {
+            if (!isset($row['day'])) {
+                continue;
+            }
+            $results[] = [
+                'date' => (string) $row['day'],
+                'input' => isset($row['input']) ? (int) $row['input'] : 0,
+                'output' => isset($row['output']) ? (int) $row['output'] : 0,
+                'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
+            ];
+        }
+
+        return $results;
+    }
 }

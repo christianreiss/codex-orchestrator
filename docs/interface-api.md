@@ -40,6 +40,7 @@ Daily preflight: the first non-admin request of each UTC day refreshes the cache
 - `GET /admin/logs?limit=` — recent audit events.
 - `GET /admin/usage?limit=` — recent token usage rows (with host + reasoning tokens when present).
 - `GET /admin/usage/ingests?page=&per_page=&q=&sort=&direction=&host_id=` — paginated `/usage` ingest audits (aggregated totals + entry count + optional client IP/payload) with host lookups; default sort is `created_at desc`. Supports fuzzy search on host FQDN/client IP or numeric ID/host_id, sortable keys: `created_at`, `entries`, `total`, `input`, `output`, `cached`, `reasoning`, `host`, `client_ip`, `id`. `per_page` max 200.
+- `GET /admin/usage/cost-history?days=60` — daily cost history (input/output/cached + total) derived from token usage and the latest pricing snapshot; capped to 180 days and anchored to the earliest token record when that is newer than the lookback. Returns `points` (one per UTC day), `currency`, `pricing`, `has_pricing`, `since`, `until`, `days`.
 - `GET /admin/tokens?limit=` — token usage aggregates per token line (sums total/input/output/cached/reasoning).
 - `GET /admin/runner` — runner config/telemetry (enabled flag, runner/base URL, timeout, `boot_id`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`, validation + runner_store counts from the last 24h, and the latest validation/runner_store log entries with host/digest/last_refresh). `POST /admin/runner/run` — manual runner execution (forces a run and returns whether canonical auth changed plus runner timestamps).
 - `POST /admin/versions/check` — refresh GitHub client release cache.
@@ -50,7 +51,7 @@ Daily preflight: the first non-admin request of each UTC day refreshes the cache
 - `GET /admin/slash-commands/{filename}` — fetch a single slash command (includes full prompt body).
 - `POST /admin/slash-commands/store` — create/update a slash command (body: `filename`, `prompt`, optional `description`/`argument_hint`/`sha256`; sha is computed if omitted).
 - `DELETE /admin/slash-commands/{filename}` — retire a slash command (marks deleted; hosts remove it on next sync).
-- Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_day` (UTC day), `tokens_week` (aligned to the ChatGPT weekly window when available, else trailing 7 days), `tokens_month` (month to date), `pricing`, `pricing_day_cost`, `pricing_week_cost`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations.
+- Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_day` (UTC day), `tokens_week` (aligned to the ChatGPT weekly window when available, else trailing 7 days), `tokens_month` (month to date), `pricing`, `pricing_day_cost`, `pricing_week_cost`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations. Daily cost history for dashboard charts is available via `/admin/usage/cost-history`.
 
 ## Auth + IP rules
 

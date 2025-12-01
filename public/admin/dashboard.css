@@ -631,6 +631,20 @@
     .usage-history-chart .line { fill: none; stroke: var(--accent-2); stroke-width: 3; }
     .usage-history-chart .area { fill: rgba(16,163,127,0.12); }
     .usage-history-chart .dot { fill: #0f172a; stroke: var(--accent-2); stroke-width: 2; }
+    .cost-history-chart { padding-top: 2px; }
+    .cost-history-chart .legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; font-size: 13px; }
+    .cost-history-chart .legend-item { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: rgba(15,23,42,0.04); border: 1px solid var(--panel-strong); }
+    .cost-history-chart .legend-item strong { margin-left: 2px; }
+    .cost-history-chart .swatch { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
+    .cost-history-chart .line-input { stroke: #0ea5e9; }
+    .cost-history-chart .line-output { stroke: #16a34a; }
+    .cost-history-chart .line-cached { stroke: #f97316; }
+    .cost-history-chart .dot-input { stroke: #0ea5e9; }
+    .cost-history-chart .dot-output { stroke: #16a34a; }
+    .cost-history-chart .dot-cached { stroke: #f97316; }
+    .cost-history-chart .dot-input,
+    .cost-history-chart .dot-output,
+    .cost-history-chart .dot-cached { fill: #0f172a; stroke-width: 2; }
     .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
     .cost-card { padding: 12px; border-radius: 12px; border: 1px solid var(--panel-strong); background: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
     .cost-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }

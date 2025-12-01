@@ -35,6 +35,7 @@ use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
+use App\Services\CostHistoryService;
 use App\Services\SlashCommandService;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
@@ -120,6 +121,7 @@ $pricingService = new PricingService(
     (string) Config::get('PRICING_URL', ''),
     null
 );
+$costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, 'gpt-5.1');
 $wrapperService->ensureSeeded();
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -1086,6 +1088,22 @@ $router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageInge
         'data' => [
             'ingests' => $ingests,
         ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/usage/cost-history$#', function () use ($costHistoryService) {
+    requireAdminAccess();
+
+    $days = resolveIntQuery('days') ?? 60;
+    if ($days < 1) {
+        $days = 60;
+    }
+
+    $history = $costHistoryService->history($days);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $history,
     ]);
 });
 

@@ -45,6 +45,11 @@ const statsEl = document.getElementById('stats');
     const usageHistorySubtitle = document.getElementById('usageHistorySubtitle');
     const usageHistoryMeta = document.getElementById('usageHistoryMeta');
     const usageHistoryCloseBtn = document.getElementById('usageHistoryClose');
+    const costHistoryModal = document.getElementById('costHistoryModal');
+    const costHistoryChart = document.getElementById('costHistoryChart');
+    const costHistorySubtitle = document.getElementById('costHistorySubtitle');
+    const costHistoryMeta = document.getElementById('costHistoryMeta');
+    const costHistoryCloseBtn = document.getElementById('costHistoryClose');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
@@ -70,6 +75,11 @@ const statsEl = document.getElementById('stats');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
     const USAGE_HISTORY_DAYS = 60;
+    const COST_SERIES = [
+      { key: 'input', label: 'Input', color: '#0ea5e9' },
+      { key: 'output', label: 'Output', color: '#16a34a' },
+      { key: 'cached', label: 'Cached', color: '#f97316' },
+    ];
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -89,6 +99,8 @@ const statsEl = document.getElementById('stats');
     let quotaHardFail = true;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
+    let costHistory = null;
+    let costHistoryPromise = null;
     let activeHostId = null;
 
     function escapeHtml(str) {
@@ -1114,7 +1126,7 @@ const statsEl = document.getElementById('stats');
             </div>
             <div class="cost-card total">
               <div class="total-kicker">
-                <button class="total-icon-btn usage-history-btn" type="button" data-window="secondary" title="Open quota trend" aria-label="Open quota trend">
+                <button class="total-icon-btn cost-history-btn" type="button" title="Open cost trend" aria-label="Open cost trend">
                   <span class="total-icon" aria-hidden="true">📈</span>
                 </button>
                 <span>Estimated Total</span>
@@ -1173,6 +1185,12 @@ const statsEl = document.getElementById('stats');
           openUsageHistory(key);
         };
       });
+      document.querySelectorAll('.cost-history-btn').forEach((el) => {
+        el.onclick = (ev) => {
+          ev.preventDefault();
+          openCostHistory();
+        };
+      });
     }
 
     function showUsageHistoryModal(show) {
@@ -1182,6 +1200,12 @@ const statsEl = document.getElementById('stats');
       } else {
         usageHistoryModal.classList.remove('show');
       }
+    }
+
+    function parseDateOnly(value) {
+      if (!value) return null;
+      const date = new Date(`${value}T00:00:00Z`);
+      return Number.isNaN(date.getTime()) ? null : date;
     }
 
     function formatShortDate(date, includeTime = false) {
@@ -1308,6 +1332,202 @@ const statsEl = document.getElementById('stats');
         }
         if (usageHistoryChart) {
           usageHistoryChart.innerHTML = `<div class="error">Unable to load history: ${escapeHtml(err.message)}</div>`;
+        }
+      }
+    }
+
+    function showCostHistoryModal(show) {
+      if (!costHistoryModal) return;
+      if (show) {
+        costHistoryModal.classList.add('show');
+      } else {
+        costHistoryModal.classList.remove('show');
+      }
+    }
+
+    function buildCostTicks(maxValue) {
+      if (!Number.isFinite(maxValue) || maxValue <= 0) {
+        return [0, 0.25, 0.5, 0.75, 1];
+      }
+      const rawStep = maxValue / 4;
+      const exponent = Math.floor(Math.log10(rawStep || 1));
+      const magnitude = 10 ** exponent;
+      const candidates = [1, 2, 2.5, 5, 10];
+      let step = candidates.find((candidate) => (rawStep / magnitude) <= candidate) ?? 10;
+      step *= magnitude;
+      if (step <= 0) {
+        step = maxValue || 1;
+      }
+
+      const ticks = [];
+      for (let v = 0; v <= maxValue + step; v += step) {
+        ticks.push(Number(v.toFixed(6)));
+        if (ticks.length > 14) break;
+      }
+      if (ticks.length && ticks[0] !== 0) {
+        ticks.unshift(0);
+      }
+      return ticks;
+    }
+
+    function buildCostSeries(history) {
+      const series = COST_SERIES.map((item) => ({ ...item, values: [] }));
+      const points = Array.isArray(history?.points) ? history.points : [];
+      points.forEach((pt) => {
+        const date = parseDateOnly(pt?.date);
+        if (!date) return;
+        series.forEach((seriesItem) => {
+          const raw = Number(pt?.costs?.[seriesItem.key] ?? 0);
+          if (!Number.isFinite(raw)) return;
+          seriesItem.values.push({ x: date.getTime(), y: Math.max(0, raw), date: pt.date });
+        });
+      });
+      series.forEach((s) => s.values.sort((a, b) => a.x - b.x));
+      return series;
+    }
+
+    function renderCostHistoryChart(history) {
+      if (!costHistoryChart) return;
+      const series = buildCostSeries(history);
+      const allPoints = series.flatMap((s) => s.values);
+      if (allPoints.length === 0) {
+        costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
+        return;
+      }
+
+      const width = 800;
+      const height = 260;
+      const minX = Math.min(...allPoints.map((p) => p.x));
+      const maxX = Math.max(...allPoints.map((p) => p.x));
+      const spanX = Math.max(1, maxX - minX || 1);
+      const maxY = Math.max(...allPoints.map((p) => p.y), 0);
+      const ticks = buildCostTicks(maxY);
+      const yMax = Math.max(maxY, ticks[ticks.length - 1] ?? 0.01);
+
+      const gridLines = ticks.map((tick) => {
+        const y = height - ((tick / yMax) * height);
+        return `<g class="grid-row"><line x1="0" y1="${y.toFixed(2)}" x2="${width}" y2="${y.toFixed(2)}"></line><text x="${width}" y="${(y - 4).toFixed(2)}" text-anchor="end" class="tick">${formatMoney(tick, history?.currency || 'USD')}</text></g>`;
+      }).join('');
+
+      const paths = series.map((s) => {
+        if (!s.values.length) return '';
+        const coords = s.values.map((pt) => {
+          const x = ((pt.x - minX) / spanX) * width;
+          const y = height - ((pt.y / yMax) * height);
+          return { x, y };
+        });
+        const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
+        const latest = coords[coords.length - 1];
+        return `${path ? `<path d="${path}" class="line line-${s.key}"></path>` : ''}${latest ? `<circle cx="${latest.x.toFixed(2)}" cy="${latest.y.toFixed(2)}" r="4" class="dot dot-${s.key}"></circle>` : ''}`;
+      }).join('');
+
+      const legend = series.map((s) => {
+        const latest = s.values[s.values.length - 1];
+        const value = latest ? latest.y : 0;
+        const color = s.color || '#0f172a';
+        return `<span class="legend-item"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, history?.currency || 'USD')}</strong></span>`;
+      }).join('');
+
+      costHistoryChart.innerHTML = `
+        <div class="legend">${legend}</div>
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Cost history over time">
+          <g class="grid">${gridLines}</g>
+          ${paths}
+        </svg>
+      `;
+    }
+
+    async function loadCostHistory(force = false) {
+      if (!force && costHistory) return costHistory;
+      if (!force && costHistoryPromise) return costHistoryPromise;
+      const url = `/admin/usage/cost-history?days=${USAGE_HISTORY_DAYS}`;
+      costHistoryPromise = api(url).then((res) => {
+        const data = res?.data || {};
+        const rawPoints = Array.isArray(data.points) ? data.points : [];
+        const normalizeNumber = (value) => {
+          const num = Number(value);
+          return Number.isFinite(num) ? num : 0;
+        };
+        const points = rawPoints.map((pt) => {
+          const date = typeof pt?.date === 'string' ? pt.date : null;
+          if (!date) return null;
+          return {
+            date,
+            costs: {
+              input: normalizeNumber(pt?.costs?.input),
+              output: normalizeNumber(pt?.costs?.output),
+              cached: normalizeNumber(pt?.costs?.cached),
+              total: normalizeNumber(pt?.costs?.total),
+            },
+            tokens: {
+              input: normalizeNumber(pt?.tokens?.input),
+              output: normalizeNumber(pt?.tokens?.output),
+              cached: normalizeNumber(pt?.tokens?.cached),
+              total: normalizeNumber(pt?.tokens?.total),
+            },
+          };
+        }).filter(Boolean);
+
+        const result = {
+          points,
+          currency: data.currency || 'USD',
+          has_pricing: data.has_pricing ?? false,
+          pricing: data.pricing || {},
+          since: data.since || null,
+          until: data.until || null,
+          days: data.days ?? USAGE_HISTORY_DAYS,
+        };
+        costHistory = result;
+        return result;
+      }).finally(() => {
+        costHistoryPromise = null;
+      });
+      return costHistoryPromise;
+    }
+
+    async function openCostHistory() {
+      if (!costHistoryModal) return;
+      if (costHistorySubtitle) {
+        costHistorySubtitle.textContent = 'Loading cost history…';
+      }
+      if (costHistoryChart) {
+        costHistoryChart.innerHTML = '<div class="muted">Loading…</div>';
+      }
+      if (costHistoryMeta) {
+        costHistoryMeta.textContent = '';
+      }
+      showCostHistoryModal(true);
+      try {
+        const history = await loadCostHistory();
+        const points = Array.isArray(history?.points) ? history.points : [];
+        const startDate = parseTimestamp(history?.since) || parseDateOnly(points[0]?.date);
+        const endDate = parseTimestamp(history?.until) || parseDateOnly(points[points.length - 1]?.date);
+        const latestTotal = Number(points[points.length - 1]?.costs?.total ?? 0);
+        if (points.length === 0) {
+          if (costHistorySubtitle) {
+            costHistorySubtitle.textContent = 'No cost data yet';
+          }
+          if (costHistoryChart) {
+            costHistoryChart.innerHTML = '<div class="muted">No token usage has been recorded yet.</div>';
+          }
+          return;
+        }
+
+        renderCostHistoryChart(history);
+        if (costHistorySubtitle) {
+          costHistorySubtitle.textContent = `Last ${history?.days ?? USAGE_HISTORY_DAYS} days`;
+        }
+        if (costHistoryMeta) {
+          const latestLabel = formatMoney(latestTotal, history?.currency || 'USD');
+          const pricingNote = history?.has_pricing ? '' : ' Pricing missing — costs shown as zero.';
+          costHistoryMeta.textContent = `Showing ${points.length} days from ${formatShortDate(startDate || new Date())} to ${formatShortDate(endDate || new Date())}. Latest total: ${latestLabel}.${pricingNote}`;
+        }
+      } catch (err) {
+        if (costHistorySubtitle) {
+          costHistorySubtitle.textContent = 'Error loading costs';
+        }
+        if (costHistoryChart) {
+          costHistoryChart.innerHTML = `<div class="error">Unable to load cost history: ${escapeHtml(err.message)}</div>`;
         }
       }
     }
@@ -1854,6 +2074,14 @@ const statsEl = document.getElementById('stats');
     }
     if (usageHistoryCloseBtn) {
       usageHistoryCloseBtn.addEventListener('click', () => showUsageHistoryModal(false));
+    }
+    if (costHistoryModal) {
+      costHistoryModal.addEventListener('click', (e) => {
+        if (e.target === costHistoryModal) showCostHistoryModal(false);
+      });
+    }
+    if (costHistoryCloseBtn) {
+      costHistoryCloseBtn.addEventListener('click', () => showCostHistoryModal(false));
     }
     if (cancelDeleteHostBtn) {
       cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);
