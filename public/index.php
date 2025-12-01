@@ -1719,7 +1719,7 @@ esac
 
 curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
 tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
-codex_bin="$(find "$tmpdir" -type f -name "codex*" | head -n1)"
+codex_bin="$(find "$tmpdir" -type f ! -name "*.tar.gz" \( -name "codex" -o -name "codex-*" \) | head -n1)"
 if [ -z "$codex_bin" ]; then
   echo "Codex binary not found in archive" >&2
   exit 1

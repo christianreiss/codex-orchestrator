@@ -176,7 +176,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.29-06"
+WRAPPER_VERSION="2025.12.01-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -379,7 +379,7 @@ PY
 ); then
     parsed_users=()
   fi
-  HOST_USERS_CACHE=("${parsed_users[@]}")
+  HOST_USERS_CACHE=("${parsed_users[@]-}")
   HOST_USERS_FETCHED=1
   return 0
 }
