@@ -54,7 +54,7 @@
               <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
             </div>
             <div class="field">
-              <label class="toggle" for="secureHostToggle">
+              <label class="toggle state-toggle" for="secureHostToggle">
                 <input type="checkbox" id="secureHostToggle" checked>
                 <span class="track"><span class="thumb"></span></span>
                 <span class="toggle-text">Secure host (keep auth.json after runs)</span>
@@ -62,14 +62,14 @@
               <p class="muted" style="margin:6px 0 0;">Off = treat as insecure; cdx removes auth.json after each run.</p>
             </div>
             <div class="field">
-              <label class="toggle" for="insecureToggle">
+              <label class="toggle state-toggle" for="insecureToggle">
                 <input type="checkbox" id="insecureToggle">
                 <span class="track"><span class="thumb"></span></span>
                 <span class="toggle-text">Allow insecure curl (-k)</span>
               </label>
             </div>
             <div class="field">
-              <label class="toggle" for="ipv4Toggle">
+              <label class="toggle state-toggle" for="ipv4Toggle">
                 <input type="checkbox" id="ipv4Toggle">
                 <span class="track"><span class="thumb"></span></span>
                 <span class="toggle-text">Force IPv4 (curl -4)</span>

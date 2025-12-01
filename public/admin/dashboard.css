@@ -687,6 +687,23 @@
       box-shadow: 0 6px 14px rgba(0,0,0,0.3);
       background: linear-gradient(135deg, #5b86e5, #36d1dc);
     }
+    .state-toggle .track {
+      background: rgba(229, 72, 77, 0.18);
+      border-color: rgba(229, 72, 77, 0.55);
+    }
+    .state-toggle .toggle-text {
+      color: #b91c1c;
+    }
+    .state-toggle input:checked + .track {
+      background: rgba(16, 163, 127, 0.2);
+      border-color: rgba(16, 163, 127, 0.65);
+    }
+    .state-toggle input:checked ~ .toggle-text {
+      color: #0f5132;
+    }
+    .state-toggle input:checked + .track .thumb {
+      background: linear-gradient(135deg, #10a37f, #0d8c6d);
+    }
     /* Host details */
     tbody tr.host-row { cursor: pointer; }
     tbody tr.host-row:hover { background: var(--table-hover); }
