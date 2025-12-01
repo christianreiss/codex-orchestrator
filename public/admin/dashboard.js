@@ -1044,7 +1044,10 @@ const statsEl = document.getElementById('stats');
               <small>${pricing.cached_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(cachedCost ?? 0, currency) : 'pricing missing'}</small>
             </div>
             <div class="cost-card total">
-              <div class="total-kicker">Estimated Total</div>
+              <div class="total-kicker">
+                <span class="total-icon" aria-hidden="true" title="Cost trend">📈</span>
+                <span>Estimated Total</span>
+              </div>
               <div class="total-main">
                 <div class="total-amount">${primaryCost ? formatCostValue(primaryCost.value) : '—'}</div>
                 <span class="total-sub">${primaryCost ? `${primaryCost.label} to date` : (hasPricing ? 'No usage yet' : 'Pricing missing')}</span>
