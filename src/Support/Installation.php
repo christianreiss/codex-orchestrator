@@ -6,13 +6,27 @@ class Installation
 {
     public static function ensure(string $root): string
     {
-        $existing = getenv('INSTALLATION_ID');
+        $existing = $_ENV['INSTALLATION_ID'] ?? getenv('INSTALLATION_ID');
         if (is_string($existing) && trim($existing) !== '') {
             return trim($existing);
         }
 
-        $id = self::uuidV4();
         $envPath = rtrim($root, '/\\') . '/.env';
+        if (is_file($envPath) && is_readable($envPath)) {
+            $contents = (string) file_get_contents($envPath);
+            if (preg_match('/^\s*INSTALLATION_ID\s*=\s*([^\r\n#]+)/m', $contents, $matches)) {
+                $persisted = trim($matches[1]);
+                if ($persisted !== '') {
+                    putenv('INSTALLATION_ID=' . $persisted);
+                    $_ENV['INSTALLATION_ID'] = $persisted;
+                    $_SERVER['INSTALLATION_ID'] = $persisted;
+
+                    return $persisted;
+                }
+            }
+        }
+
+        $id = self::uuidV4();
         $written = false;
 
         if (is_file($envPath) && is_writable($envPath)) {
@@ -20,13 +34,15 @@ class Installation
             if (!preg_match('/^\s*INSTALLATION_ID\s*=/m', $contents)) {
                 $contents .= (str_ends_with($contents, PHP_EOL) ? '' : PHP_EOL) . 'INSTALLATION_ID=' . $id . PHP_EOL;
                 file_put_contents($envPath, $contents);
-                @chmod($envPath, 0600);
                 $written = true;
             }
+        } elseif (!file_exists($envPath)) {
+            $written = file_put_contents($envPath, 'INSTALLATION_ID=' . $id . PHP_EOL) !== false;
         }
 
         putenv('INSTALLATION_ID=' . $id);
         $_ENV['INSTALLATION_ID'] = $id;
+        $_SERVER['INSTALLATION_ID'] = $id;
 
         if (!$written) {
             error_log('[install] generated INSTALLATION_ID but could not persist to .env; set it manually to avoid drift');
