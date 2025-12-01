@@ -887,9 +887,18 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     ]);
 });
 
-$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service, $hostUserRepository) {
+$router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service, $hostUserRepository, $authPayloadRepository, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
+
+    $canonicalDigest = null;
+    $canonicalPayloadId = $versionRepository->get('canonical_payload_id');
+    if ($canonicalPayloadId !== null && ctype_digit((string) $canonicalPayloadId)) {
+        $canonicalPayload = $authPayloadRepository->findByIdWithEntries((int) $canonicalPayloadId);
+        if ($canonicalPayload !== null && isset($canonicalPayload['sha256'])) {
+            $canonicalDigest = $canonicalPayload['sha256'];
+        }
+    }
 
     $hosts = $hostRepository->all();
     $digests = $digestRepository->byHostId();
@@ -926,6 +935,9 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
+            'auth_outdated' => $canonicalDigest !== null
+                && isset($host['auth_digest'])
+                && (string) $host['auth_digest'] !== (string) $canonicalDigest,
             'token_usage' => $tokenUsageRepository->latestForHost((int) $host['id']),
             'users' => $hostUserRepository->listByHost((int) $host['id']),
         ];

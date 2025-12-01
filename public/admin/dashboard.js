@@ -667,7 +667,11 @@ const statsEl = document.getElementById('stats');
         hostDetailTitle.textContent = host.fqdn || `Host #${host.id}`;
       }
       if (hostDetailPills) {
-        hostDetailPills.innerHTML = '';
+        const pills = [];
+        if (host.auth_outdated) {
+          pills.push('<span class="chip warn">Outdated auth</span>');
+        }
+        hostDetailPills.innerHTML = pills.join('');
       }
       renderHostSummary(host);
       if (hostDetailGrid) {
@@ -741,6 +745,7 @@ const statsEl = document.getElementById('stats');
         tr.classList.add('host-row');
         tr.setAttribute('data-id', host.id);
         tr.tabIndex = 0;
+        const authOutdatedChip = host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
         tr.innerHTML = `
           <td data-label="Host">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
@@ -748,6 +753,7 @@ const statsEl = document.getElementById('stats');
               <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
                 <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
                 <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
+                ${authOutdatedChip}
                 ${securityChip}
               </div>
             </div>
