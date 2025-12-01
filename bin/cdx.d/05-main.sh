@@ -275,6 +275,9 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
       tmpdir="$(mktemp -d)"
       tmpwrapper="$tmpdir/cdx"
       curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
+      if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+        curl_args+=("-4")
+      fi
       if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
         curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
       fi

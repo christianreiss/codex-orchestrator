@@ -818,6 +818,44 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\d+)/ipv4$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $forceRaw = $payload['force'] ?? null;
+    $force = normalizeBoolean($forceRaw);
+    if (!is_bool($force)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'force must be boolean',
+        ], 422);
+    }
+
+    $hostRepository->updateForceIpv4($hostId, $force);
+    $logRepository->log($hostId, 'admin.host.force_ipv4', [
+        'fqdn' => $host['fqdn'] ?? null,
+        'force_ipv4' => $force,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'force_ipv4' => $force,
+                'ip' => null,
+            ],
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
@@ -932,6 +970,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'insecure_enabled_until' => $normalizeTs($host['insecure_enabled_until'] ?? null),
             'insecure_grace_until' => $normalizeTs($host['insecure_grace_until'] ?? null),
+            'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
@@ -1618,6 +1657,8 @@ function buildInstallerScript(array $host, array $tokenRow, string $baseUrl, arr
     }
     $codexVersion = escapeForSingleQuotes((string) $codexVersion);
     $baseEscaped = escapeForSingleQuotes($base);
+    $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
+    $curl4 = $forceIpv4 ? '-4' : '';
 
     $template = <<<'SCRIPT'
 #!/usr/bin/env bash
@@ -1631,9 +1672,15 @@ tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
+CURL4="__CURL4__"
+curl_flags=()
+if [[ "$CURL4" == "-4" ]]; then
+  curl_flags+=("-4")
+fi
+
 echo "Installing Codex for __FQDN__ via __BASE__"
 
-curl -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
+curl "${curl_flags[@]}" -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
 install_path="/usr/local/bin/cdx"
 if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then
@@ -1649,7 +1696,7 @@ case "$arch" in
   *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
 esac
 
-curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
+curl "${curl_flags[@]}" -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
 tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
 codex_bin="$(find "$tmpdir" -type f -name "codex*" | head -n1)"
 if [ -z "$codex_bin" ]; then
@@ -1675,6 +1722,7 @@ SCRIPT;
         '__API__' => $apiKey,
         '__FQDN__' => $fqdn,
         '__CODEX__' => $codexVersion,
+        '__CURL4__' => $curl4,
     ]);
 }
 

@@ -1504,6 +1504,7 @@ class AuthService
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
             'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
+            'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
         ];
 
         if ($includeApiKey) {

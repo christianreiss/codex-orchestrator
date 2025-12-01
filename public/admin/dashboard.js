@@ -505,11 +505,13 @@ const statsEl = document.getElementById('stats');
       const minutesLeft = countdownMinutes(host.insecure_enabled_until);
       const insecureLabel = state.enabledActive ? `Turn Off (${minutesLeft ?? 0} min)` : 'Turn On';
       const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
+      const ipv4Label = host.force_ipv4 ? 'Allow IPv6' : 'Force IPv4';
       return `
         <button class="ghost secondary" data-action="install">Install script</button>
         <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
         <button class="ghost" data-action="toggle-security">${securityLabel}</button>
         ${insecure ? `<button class="${insecureClasses}" data-action="toggle-insecure-api">${insecureLabel}</button>` : ''}
+        <button class="ghost" data-action="toggle-ipv4">${ipv4Label}</button>
         <button class="ghost" data-action="clear">Clear auth</button>
         <button class="danger" data-action="remove">Remove</button>
       `;
@@ -530,6 +532,8 @@ const statsEl = document.getElementById('stats');
               toggleSecurity(host.id);
             } else if (action === 'toggle-insecure-api') {
               toggleInsecureApi(host, btn);
+            } else if (action === 'toggle-ipv4') {
+              toggleIpv4(host, btn);
             } else if (action === 'clear') {
               confirmClear(host.id);
             } else if (action === 'remove') {
@@ -590,6 +594,7 @@ const statsEl = document.getElementById('stats');
       const securityChip = isHostSecure(host)
         ? '<span class="chip ok">Secure</span>'
         : '<span class="chip warn">Insecure</span>';
+      const ipv4Chip = host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : '';
       const rows = [
         {
           key: 'Status',
@@ -605,6 +610,7 @@ const statsEl = document.getElementById('stats');
             <div class="kv-ip">
               ${host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound'}
               <span class="chip ${host.allow_roaming_ips ? 'warn' : 'ok'}">${host.allow_roaming_ips ? 'Roaming enabled' : 'IP locked'}</span>
+              ${ipv4Chip}
             </div>
           `,
           desc: host.allow_roaming_ips
@@ -767,9 +773,10 @@ const statsEl = document.getElementById('stats');
           <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
           <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
           <td data-label="IP / Mode">
-            <div class="inline-cell" style="gap:6px; align-items:center;">
+            <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
               <span>${escapeHtml(host.ip ?? '—')}</span>
               ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
+              ${host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : ''}
             </div>
           </td>
           ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
@@ -1822,6 +1829,9 @@ const statsEl = document.getElementById('stats');
       if (secureHostToggle && existingHost) {
         secureHostToggle.checked = isHostSecure(existingHost);
       }
+      if (ipv4Toggle && existingHost) {
+        ipv4Toggle.checked = !!existingHost.force_ipv4;
+      }
       const secure = secureHostToggle ? secureHostToggle.checked : true;
       if (createHostBtn) {
         createHostBtn.disabled = true;
@@ -2022,6 +2032,33 @@ const statsEl = document.getElementById('stats');
       }
       try {
         await api(path, { method: 'POST' });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          if (originalLabel !== null) button.textContent = originalLabel;
+        }
+      }
+    }
+
+    async function toggleIpv4(host, button = null) {
+      if (!host) {
+        alert('Host not found');
+        return;
+      }
+      const target = !host.force_ipv4;
+      const originalLabel = button ? button.textContent : null;
+      if (button) {
+        button.disabled = true;
+        button.textContent = target ? 'Forcing…' : 'Allowing…';
+      }
+      try {
+        await api(`/admin/hosts/${host.id}/ipv4`, {
+          method: 'POST',
+          json: { force: target },
+        });
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);

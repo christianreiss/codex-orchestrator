@@ -359,6 +359,19 @@ class HostRepository
         ]);
     }
 
+    public function updateForceIpv4(int $hostId, bool $forceIpv4): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET force_ipv4 = :force_ipv4, ip = NULL, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'force_ipv4' => $forceIpv4 ? 1 : 0,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     /**
      * Clear canonical auth state for a host without deleting the host record.
      * Resets the stored digest/last_refresh and removes any host->payload pointer
