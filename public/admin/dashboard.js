@@ -668,7 +668,7 @@ const statsEl = document.getElementById('stats');
       }
       if (hostDetailPills) {
         const pills = [];
-        if (host.auth_outdated) {
+        if (isHostSecure(host) && host.auth_outdated) {
           pills.push('<span class="chip warn">Outdated auth</span>');
         }
         hostDetailPills.innerHTML = pills.join('');
@@ -745,7 +745,7 @@ const statsEl = document.getElementById('stats');
         tr.classList.add('host-row');
         tr.setAttribute('data-id', host.id);
         tr.tabIndex = 0;
-        const authOutdatedChip = host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
+        const authOutdatedChip = isSecure && host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
         tr.innerHTML = `
           <td data-label="Host">
             <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
