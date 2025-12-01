@@ -539,6 +539,54 @@ ensure_encryption_key() {
   info "Wrote AUTH_ENCRYPTION_KEY to $env_file"
 }
 
+generate_uuid() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+    return
+  fi
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen
+    return
+  fi
+  random_secret 32
+}
+
+ensure_installation_id() {
+  local env_file="$1"
+  local current tmp
+  current="$(read_env_value "INSTALLATION_ID" "$env_file" || true)"
+  if [[ -n "${current:-}" ]]; then
+    return
+  fi
+
+  local uuid
+  uuid="$(generate_uuid)"
+  if [[ -z "$uuid" ]]; then
+    warn "Could not generate INSTALLATION_ID; set it manually in $env_file"
+    return
+  fi
+
+  if grep -Eq '^[[:space:]]*#?[[:space:]]*INSTALLATION_ID=' "$env_file"; then
+    tmp="$(mktemp)"
+    awk -v v="$uuid" '
+      BEGIN { done=0 }
+      /^[ \t]*#?[ \t]*INSTALLATION_ID=/ {
+        if (!done) { print "INSTALLATION_ID=" v; done=1; next }
+      }
+      { print }
+      END { if (!done) print "INSTALLATION_ID=" v }
+    ' "$env_file" > "$tmp"
+    mv "$tmp" "$env_file"
+  else
+    printf '\nINSTALLATION_ID=%s\n' "$uuid" >> "$env_file"
+  fi
+  chmod 600 "$env_file" || true
+  info "Wrote INSTALLATION_ID to $env_file"
+}
+
 ensure_db_credentials() {
   local env_file="$1"
   local db_user db_pass db_root db_name updated=0
@@ -840,6 +888,7 @@ main() {
   fi
 
   ensure_encryption_key "$env_path"
+  ensure_installation_id "$env_path"
   ensure_db_credentials "$env_path"
   ensure_env_perms "$env_path"
 

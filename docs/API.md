@@ -23,6 +23,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 - `client_version` / `wrapper_version`: optional strings (also accepted as `client_version`/`cdx_version`/`wrapper_version` query params).
 - `retrieve` requires `digest` (64‑hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, ≥2000-01-01, ≤now+300s).
 - `store` requires `auth` (or top-level fields) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`.
+- `installation_id` (optional): when present, must match the server’s `INSTALLATION_ID` (baked into new `cdx`); a mismatch returns `403 installation_mismatch`. Older clients without this field continue to work.
 - Tokens are rejected if too short (default `TOKEN_MIN_LENGTH=24`), contain whitespace, placeholders, or low entropy.
 
 **Statuses**
@@ -33,7 +34,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
 - `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/insecure window timestamps.
 - `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag.
-- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`.
+- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
 - `chatgpt_usage`: latest window summary if a snapshot exists (primary/secondary window percentages, limits, reset timing, status, plan_type, next_eligible_at).
 

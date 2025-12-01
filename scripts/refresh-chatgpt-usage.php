@@ -70,10 +70,11 @@ try {
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);
     $chatGptUsageRepository = new ChatGptUsageRepository($database);
+    $installationId = (string) Config::get('INSTALLATION_ID', '');
 
     $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
     $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
+    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId);
     $wrapperService->ensureSeeded();
 
     $runnerVerifier = null;
@@ -98,7 +99,8 @@ try {
         $versionRepository,
         $wrapperService,
         $runnerVerifier,
-        null
+        null,
+        $installationId
     );
 
     $chatGptUsageService = new ChatGptUsageService(

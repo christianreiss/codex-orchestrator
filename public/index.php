@@ -54,6 +54,8 @@ if (file_exists($root . '/.env')) {
     Dotenv::createImmutable($root)->safeLoad();
 }
 
+$installationId = ensureInstallationId($root);
+
 $keyManager = new EncryptionKeyManager($root);
 $secretBox = new SecretBox($keyManager->getKey());
 
@@ -90,7 +92,7 @@ $versionRepository = new VersionRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath);
+$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId);
 $runnerVerifier = null;
 $runnerUrl = Config::get('AUTH_RUNNER_URL', '');
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
@@ -101,7 +103,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
@@ -1512,6 +1514,47 @@ function normalizeBoolean(mixed $value): ?bool
     }
 
     return null;
+}
+
+function generateUuidV4(): string
+{
+    $bytes = random_bytes(16);
+    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+}
+
+function ensureInstallationId(string $root): string
+{
+    $existing = getenv('INSTALLATION_ID');
+    if (is_string($existing) && trim($existing) !== '') {
+        return trim($existing);
+    }
+
+    $id = generateUuidV4();
+    $envPath = $root . '/.env';
+    $written = false;
+
+    if (is_file($envPath) && is_writable($envPath)) {
+        $contents = (string) file_get_contents($envPath);
+        if (!preg_match('/^\s*INSTALLATION_ID\s*=/m', $contents)) {
+            $contents .= (str_ends_with($contents, PHP_EOL) ? '' : PHP_EOL) . 'INSTALLATION_ID=' . $id . PHP_EOL;
+            file_put_contents($envPath, $contents);
+            @chmod($envPath, 0600);
+            $written = true;
+        }
+    }
+
+    // Export to current process regardless of file write success.
+    putenv('INSTALLATION_ID=' . $id);
+    $_ENV['INSTALLATION_ID'] = $id;
+
+    if (!$written) {
+        error_log('[install] generated INSTALLATION_ID but could not persist to .env; set it manually to avoid drift');
+    }
+
+    return $id;
 }
 
 function normalizeBaseUrlCandidate(string $value): string

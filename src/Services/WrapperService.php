@@ -17,7 +17,8 @@ class WrapperService
     public function __construct(
         private readonly VersionRepository $versions,
         private readonly string $storagePath,
-        private readonly string $seedPath
+        private readonly string $seedPath,
+        private readonly ?string $installationId = null
     ) {
         $directory = dirname($this->storagePath);
         if (!is_dir($directory)) {
@@ -111,6 +112,7 @@ class WrapperService
             '__CODEX_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
             '__CODEX_HOST_SECURE__' => $secure ? '1' : '0',
             '__CODEX_FORCE_IPV4__' => $forceIpv4 ? '1' : '0',
+            '__CODEX_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
             '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
         ];
 

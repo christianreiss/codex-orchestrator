@@ -33,6 +33,7 @@ cafile = sys.argv[3] if len(sys.argv) > 3 else ""
 client_version = sys.argv[4] if len(sys.argv) > 4 else "unknown"
 wrapper_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+installation_id = (os.environ.get("CODEX_INSTALLATION_ID", "") or "").strip()
 
 if not base:
     print("Sync API base URL missing", file=sys.stderr)
@@ -181,6 +182,8 @@ retrieve_payload = {
 }
 if wrapper_version and wrapper_version != "unknown":
     retrieve_payload["wrapper_version"] = wrapper_version
+if installation_id:
+    retrieve_payload["installation_id"] = installation_id
 
 retrieve_data = post_json(f"{base}/auth", retrieve_payload, "auth retrieve")
 payload_data = retrieve_data.get("data") if isinstance(retrieve_data, dict) else {}
@@ -223,6 +226,9 @@ def record_versions(vblock):
         re = vblock.get("runner_enabled")
         if isinstance(re, bool):
             out["runner_enabled"] = re
+        inst = vblock.get("installation_id")
+        if isinstance(inst, str) and inst.strip():
+            out["installation_id"] = inst.strip()
     return out
 
 
@@ -237,6 +243,10 @@ if versions_out.get("wrapper_version"):
     SYNC_REMOTE_WRAPPER_VERSION = versions_out.get("wrapper_version")
 if versions_out.get("wrapper_sha256"):
     SYNC_REMOTE_WRAPPER_SHA256 = versions_out.get("wrapper_sha256")
+server_installation = versions_out.get("installation_id")
+if server_installation and installation_id and server_installation != installation_id:
+    print("Installation ID mismatch; wrapper belongs to a different server", file=sys.stderr)
+    sys.exit(42)
 if versions_out.get("wrapper_url"):
     SYNC_REMOTE_WRAPPER_URL = versions_out.get("wrapper_url")
 
@@ -265,11 +275,17 @@ if status in ("missing", "upload_required"):
         store_payload["digest"] = canonical_digest
     if wrapper_version and wrapper_version != "unknown":
         store_payload["wrapper_version"] = wrapper_version
+    if installation_id:
+        store_payload["installation_id"] = installation_id
     update_data = post_json(f"{base}/auth", store_payload, "auth store")
     payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
     versions_out = record_versions(payload_data.get("versions", {})) or versions_out
     host_info = payload_data.get("host") if isinstance(payload_data, dict) else host_info
     host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else host_secure
+    server_installation = versions_out.get("installation_id")
+    if server_installation and installation_id and server_installation != installation_id:
+        print("Installation ID mismatch; wrapper belongs to a different server", file=sys.stderr)
+        sys.exit(42)
     auth_to_write = payload_data.get("auth") or current
     lr = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
     if isinstance(lr, str):

@@ -53,7 +53,8 @@ class AuthService
         private readonly VersionRepository $versions,
         private readonly WrapperService $wrapperService,
         private readonly ?RunnerVerifier $runnerVerifier = null,
-        private readonly ?RateLimiter $rateLimiter = null
+        private readonly ?RateLimiter $rateLimiter = null,
+        private readonly ?string $installationId = null
     ) {
     }
 
@@ -190,6 +191,13 @@ class AuthService
 
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null, bool $skipRunner = false): array
     {
+        $incomingInstallation = isset($payload['installation_id']) && is_string($payload['installation_id'])
+            ? trim($payload['installation_id'])
+            : '';
+        if ($incomingInstallation !== '' && $this->installationId !== null && $this->installationId !== '' && !hash_equals($this->installationId, $incomingInstallation)) {
+            throw new HttpException('Installation ID mismatch', 403, ['code' => 'installation_mismatch']);
+        }
+
         $normalizedClientVersion = $this->normalizeClientVersion($clientVersion);
         $normalizedWrapperVersion = $this->normalizeClientVersion($wrapperVersion);
 
@@ -1229,6 +1237,7 @@ class AuthService
             'runner_last_ok' => $this->versions->get('runner_last_ok'),
             'runner_last_fail' => $this->versions->get('runner_last_fail'),
             'runner_last_check' => $this->versions->get('runner_last_check'),
+            'installation_id' => $this->installationId,
         ];
     }
 
