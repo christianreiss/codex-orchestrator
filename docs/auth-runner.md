@@ -22,10 +22,10 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 - RunnerVerifier pings `AUTH_RUNNER_URL` with a short GET (and one retry) before POSTing. If the runner is unreachable it returns `reachable=false` without hitting the probe.
 - `/auth` store calls run the runner after persisting the canonical payload (unless `skipRunner=true`, for example admin uploads). The response includes `validation` (runner result) and `runner_applied` (true only when an `updated_auth` was saved).
-- Daily preflight: on the first non-admin request each UTC day or after a container boot, the API refreshes the cached GitHub client version and, when canonical auth exists, forces one runner probe tagged `daily_preflight`. Results update runner state but never block responses.
+- Scheduled preflight: on the first non-admin request after an 8-hour gap (or after a container boot), the API refreshes the cached GitHub client version and, when canonical auth exists, forces one runner probe tagged `scheduled_preflight`. Results update runner state but never block responses.
 - Failure recovery: when `runner_state=fail`, extra probes tagged `fail_recovery` may run during requests or preflight after either 15 minutes since the last failure, a boot-id change, or a stale success window (>6h). A 60 second backoff prevents immediate re-probing after a failure. Recovery failures are logged but do not block `/auth`.
 - Manual admin trigger `POST /admin/runner/run` forces a probe and reports whether the canonical digest changed.
-- Runner state lives in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner responded), `runner_boot_id`, plus the last daily preflight date.
+- Runner state lives in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner responded), `runner_boot_id`, plus the last preflight timestamp.
 - Runner host tagging: validations are logged against the current host when available, else the canonical payload `source_host_id`, else the first host in the DB.
 
 ## Network and IP notes

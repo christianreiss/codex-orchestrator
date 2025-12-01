@@ -37,6 +37,7 @@ class AuthService
     private const AUTH_FAIL_LIMIT = 20;
     private const AUTH_FAIL_WINDOW_SECONDS = 600;
     private const AUTH_FAIL_BLOCK_SECONDS = 1800;
+    private const RUNNER_PREFLIGHT_INTERVAL_SECONDS = 28800; // 8 hours
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
     private const RUNNER_STALE_OK_SECONDS = 21600; // 6 hours
@@ -50,6 +51,7 @@ class AuthService
         private readonly LogRepository $logs,
         private readonly TokenUsageRepository $tokenUsages,
         private readonly TokenUsageIngestRepository $tokenUsageIngests,
+        private readonly PricingService $pricingService,
         private readonly VersionRepository $versions,
         private readonly WrapperService $wrapperService,
         private readonly ?RunnerVerifier $runnerVerifier = null,
@@ -251,7 +253,7 @@ class AuthService
             }
         }
 
-        // Daily runner preflight: once per UTC day, refresh canonical via runner before responding.
+        // Runner preflight: refresh canonical via runner on scheduled intervals before responding.
         if ($this->runnerVerifier !== null && !$skipRunner) {
             [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerDailyCheck($canonicalPayload, $host, $versions);
             if ($canonicalPayload !== null) {
@@ -581,24 +583,28 @@ class AuthService
     }
 
     /**
-     * One-per-day preflight invoked on the first API request of the UTC day.
+     * Periodic preflight invoked on the first API request after the interval (8 hours).
      * Forces a client version refresh and runs the auth runner once with a force flag.
      */
     public function runDailyPreflight(?array $hostContext = null): void
     {
-        $today = gmdate('Y-m-d');
+        $now = time();
         $bootChanged = $this->recordCurrentBootId();
-        $lastPreflight = $this->versions->get('daily_preflight') ?? '';
-        $needsVersionRefresh = $lastPreflight !== $today || $bootChanged;
+        $lastPreflightRaw = $this->versions->get('daily_preflight') ?? '';
+        $lastPreflightTs = $this->parseTimestamp(is_string($lastPreflightRaw) ? $lastPreflightRaw : null);
+        $intervalElapsed = $lastPreflightTs === null
+            || ($now - $lastPreflightTs) >= self::RUNNER_PREFLIGHT_INTERVAL_SECONDS
+            || $lastPreflightTs > ($now + self::MAX_FUTURE_SKEW_SECONDS);
+        $needsVersionRefresh = $bootChanged || $intervalElapsed;
 
         if ($needsVersionRefresh) {
-            // Always refresh the cached GitHub client version on the first request of the day or boot.
+            // Always refresh the cached GitHub client version on the first request of the interval or boot.
             $this->availableClientVersion(true);
         }
 
         $shouldRunRunner = false;
-        $runnerReason = 'daily_first_request';
-        if ($bootChanged || $lastPreflight !== $today) {
+        $runnerReason = 'scheduled_preflight';
+        if ($bootChanged || $intervalElapsed) {
             $shouldRunRunner = true;
         } elseif ($this->runnerVerifier !== null) {
             // If the runner is in a failed state, allow recovery attempts based on backoff/boot/state.
@@ -631,7 +637,7 @@ class AuthService
             }
         }
 
-        $this->versions->set('daily_preflight', $today);
+        $this->versions->set('daily_preflight', gmdate(DATE_ATOM));
     }
 
     /**
@@ -648,13 +654,17 @@ class AuthService
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
         }
 
-        $today = gmdate('Y-m-d');
         $lastCheck = $this->versions->get('runner_last_check') ?? '';
         $lastFailure = $this->versions->get('runner_last_fail') ?? '';
         $now = time();
+        $lastCheckTs = $this->parseTimestamp(is_string($lastCheck) ? $lastCheck : null);
         $runnerFailing = $this->isRunnerFailing();
 
-        if (!$forceRun && $lastCheck === $today) {
+        if (
+            !$forceRun
+            && $lastCheckTs !== null
+            && ($now - $lastCheckTs) < self::RUNNER_PREFLIGHT_INTERVAL_SECONDS
+        ) {
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
         }
 
@@ -889,7 +899,7 @@ class AuthService
         }
 
         if ($reachable) {
-            $this->versions->set('runner_last_check', gmdate('Y-m-d'));
+            $this->versions->set('runner_last_check', $nowIso);
         }
     }
 
@@ -1075,14 +1085,30 @@ class AuthService
             'output' => null,
             'cached' => null,
             'reasoning' => null,
+            'cost' => 0.0,
         ];
+        $pricingCache = [];
+        $resolvePricing = function (?string $model) use (&$pricingCache): array {
+            $resolvedModel = $model !== null && $model !== '' ? $model : $this->pricingService->defaultModel();
+            if (!array_key_exists($resolvedModel, $pricingCache)) {
+                $pricingCache[$resolvedModel] = $this->pricingService->latestPricing($resolvedModel, false);
+            }
+            return $pricingCache[$resolvedModel];
+        };
 
-        foreach ($usageRows as $usage) {
+        foreach ($usageRows as $idx => $usage) {
             foreach (['total', 'input', 'output', 'cached', 'reasoning'] as $field) {
                 if ($usage[$field] !== null) {
                     $aggregates[$field] = ($aggregates[$field] ?? 0) + (int) $usage[$field];
                 }
             }
+
+            $pricing = $resolvePricing($usage['model'] ?? null);
+            $usageCost = $this->normalizeUsageCost($usage, $pricing);
+            if ($usageCost !== null) {
+                $aggregates['cost'] = ($aggregates['cost'] ?? 0.0) + $usageCost;
+            }
+            $usageRows[$idx]['cost'] = $usageCost;
         }
 
         $encodedPayload = null;
@@ -1096,6 +1122,7 @@ class AuthService
             $hostId,
             count($usageRows),
             $aggregates,
+            $aggregates['cost'] ?? null,
             $encodedPayload,
             $clientIp !== null && $clientIp !== '' ? $clientIp : null
         );
@@ -1109,6 +1136,7 @@ class AuthService
                 'output' => $usage['output'],
                 'cached' => $usage['cached'],
                 'reasoning' => $usage['reasoning'],
+                'cost' => $usage['cost'],
                 'model' => $usage['model'],
                 'ingest_id' => $ingestId,
             ], static fn ($value) => $value !== null && $value !== '');
@@ -1120,6 +1148,7 @@ class AuthService
                 $usage['output'],
                 $usage['cached'],
                 $usage['reasoning'],
+                $usage['cost'],
                 $usage['model'],
                 $usage['line'],
                 $ingestId
@@ -1134,6 +1163,7 @@ class AuthService
                 'output' => $usage['output'],
                 'cached' => $usage['cached'],
                 'reasoning' => $usage['reasoning'],
+                'cost' => $usage['cost'],
                 'model' => $usage['model'],
             ];
         }
@@ -1143,6 +1173,7 @@ class AuthService
             'recorded' => count($records),
             'usages' => $records,
             'ingest_id' => $ingestId,
+            'cost' => $aggregates['cost'] ?? null,
         ];
 
         if (count($records) === 1) {
@@ -1207,6 +1238,22 @@ class AuthService
             'reasoning' => $reasoning,
             'model' => $model !== '' ? $model : null,
         ];
+    }
+
+    private function normalizeUsageCost(array $usage, array $pricing): ?float
+    {
+        $cost = $this->pricingService->calculateCost($pricing, [
+            'input' => $usage['input'] ?? 0,
+            'output' => $usage['output'] ?? 0,
+            'cached' => $usage['cached'] ?? 0,
+        ]);
+
+        $value = (float) $cost;
+        if (is_nan($value) || is_infinite($value) || $value < 0) {
+            return null;
+        }
+
+        return round($value, 6);
     }
 
     private function versionSnapshot(?array $wrapperMetaOverride = null): array

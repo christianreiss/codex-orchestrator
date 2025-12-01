@@ -36,6 +36,7 @@ use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
 use App\Services\CostHistoryService;
+use App\Services\UsageCostService;
 use App\Services\SlashCommandService;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
@@ -92,6 +93,14 @@ $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $versionRepository = new VersionRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
+$pricingModel = 'gpt-5.1';
+$pricingService = new PricingService(
+    $pricingSnapshotRepository,
+    $logRepository,
+    $pricingModel,
+    (string) Config::get('PRICING_URL', ''),
+    null
+);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId);
@@ -105,7 +114,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
@@ -114,15 +123,10 @@ $chatGptUsageService = new ChatGptUsageService(
     (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
     (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0)
 );
-$pricingService = new PricingService(
-    $pricingSnapshotRepository,
-    $logRepository,
-    'gpt-5.1',
-    (string) Config::get('PRICING_URL', ''),
-    null
-);
-$costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, 'gpt-5.1');
+$costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel);
+$usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
 $wrapperService->ensureSeeded();
+$usageCostService->backfillMissingCosts();
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -131,12 +135,12 @@ if ($normalizedPath === '') {
     $normalizedPath = '/';
 }
 
-// First API hit each UTC day: refresh GitHub client version cache and run auth runner once.
+// First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
 if (!str_starts_with($normalizedPath, '/admin')) {
     try {
         $service->runDailyPreflight();
     } catch (\Throwable $exception) {
-        error_log('[preflight] daily check failed: ' . $exception->getMessage());
+        error_log('[preflight] scheduled check failed: ' . $exception->getMessage());
     }
 }
 
@@ -1037,7 +1041,7 @@ $router->add('GET', '#^/admin/logs$#', function () use ($logRepository) {
     ]);
 });
 
-$router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageIngestRepository) {
+$router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageIngestRepository, $pricingService, $pricingModel) {
     requireAdminAccess();
 
     $page = resolveIntQuery('page') ?? 1;
@@ -1048,6 +1052,9 @@ $router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageInge
     $direction = isset($_GET['direction']) && !is_array($_GET['direction']) ? (string) $_GET['direction'] : 'desc';
 
     $result = $tokenUsageIngestRepository->search($query, $hostId, $page, $perPage, $sort, $direction);
+    $pricing = $pricingService->latestPricing($pricingModel, false);
+    $currency = isset($pricing['currency']) && is_string($pricing['currency']) ? $pricing['currency'] : 'USD';
+    $result['currency'] = $currency;
 
     Response::json([
         'status' => 'ok',
@@ -1069,24 +1076,6 @@ $router->add('GET', '#^/admin/usage$#', function () use ($tokenUsageRepository) 
         'status' => 'ok',
         'data' => [
             'usages' => $usages,
-        ],
-    ]);
-});
-
-$router->add('GET', '#^/admin/usage/ingests$#', function () use ($tokenUsageIngestRepository) {
-    requireAdminAccess();
-
-    $limit = resolveIntQuery('limit') ?? 50;
-    if ($limit < 1) {
-        $limit = 50;
-    }
-
-    $ingests = $tokenUsageIngestRepository->recent($limit);
-
-    Response::json([
-        'status' => 'ok',
-        'data' => [
-            'ingests' => $ingests,
         ],
     ]);
 });

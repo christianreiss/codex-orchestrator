@@ -84,7 +84,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 
 ## Runner & Versions
-- First non-admin request each UTC day triggers a **daily preflight**: refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the daily guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
+- First non-admin request after ~8 hours (or after a boot) triggers a **scheduled preflight**: refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
 
 ## Housekeeping & Storage
 - Canonical auth payloads are stored compacted in `auth_payloads` with per-target rows in `auth_entries`; the last 3 digests per host live in `host_auth_digests`; `host_auth_states` records the last payload served to a host.

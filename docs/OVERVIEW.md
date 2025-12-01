@@ -22,7 +22,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, daily preflight, global rate limiting, and all routes (host/admin/installer/slash/pricing/chatgpt).
+- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/slash/pricing/chatgpt).
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
@@ -37,14 +37,14 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - `GET /install/{token}` emits a bash script that downloads the baked wrapper, installs Codex from GitHub (latest tag the API knows about), and prints versions. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
 
 2) **Every `/auth` call**
-   - Daily preflight runs on the first non-admin request each UTC day: refresh the GitHub client-version cache and, when configured, run one runner validation.
+   - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot): refresh the GitHub client-version cache and, when configured, run one runner validation.
    - API key auth: resolves client IP, enforces per-IP binding unless `allow_roaming_ips` or `?force=1` on `DELETE /auth`; insecure hosts must be inside an enabled window.
    - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, and quota mode (`quota_hard_fail`).
    - Retrieve path: compares client `last_refresh`/`digest` to canonical. Returns `valid`, `upload_required`, `outdated`, or `missing`, plus host stats (API calls, monthly token totals) and recent digests (remembered per host).
    - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, synthesizes from tokens when needed, hashes canonical JSON, stores encrypted body + per-target entries, updates canonical pointer, host sync state, and digest cache. Runner may revalidate and apply a fresher `updated_auth` from Codex.
 
 3) **Runner validation**
-   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). Daily run + on stores; recovery/backoff when the runner is failing; optional IP bypass CIDRs. Runner failures are logged (`auth.validate`/`auth.runner_store`) but do not block serving/accepting auth.
+   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). Scheduled run every ~8h + on stores; recovery/backoff when the runner is failing; optional IP bypass CIDRs. Runner failures are logged (`auth.validate`/`auth.runner_store`) but do not block serving/accepting auth.
 
 4) **Wrapper distribution**
    - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
