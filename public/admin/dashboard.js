@@ -1070,12 +1070,6 @@ const statsEl = document.getElementById('stats');
         weekCostResolved !== null ? { label: 'Week', value: weekCostResolved } : null,
         monthCostResolved !== null ? { label: 'Month', value: monthCostResolved } : null,
       ].filter(Boolean) : [];
-      const primaryCost = hasPricing
-        ? (monthCostResolved !== null ? { label: 'Month', value: monthCostResolved }
-          : weekCostResolved !== null ? { label: 'Week', value: weekCostResolved }
-          : dayCostResolved !== null ? { label: 'Today', value: dayCostResolved }
-            : null)
-        : null;
       const costSummary = (() => {
         if (!hasPricing) return '<div class="muted">Pricing missing</div>';
         if (!costBreakdown.length) return '<div class="muted">No usage yet</div>';
@@ -1101,10 +1095,6 @@ const statsEl = document.getElementById('stats');
             <button class="total-icon-btn cost-history-btn" type="button" title="Open cost trend" aria-label="Open cost trend">
               <span class="total-icon" aria-hidden="true">📈</span>
             </button>
-          </div>
-          <div class="total-main">
-            <div class="total-amount">${primaryCost ? formatCostValue(primaryCost.value) : (hasPricing ? formatMoney(0, currency) : 'Pricing missing')}</div>
-            <span class="total-sub">${primaryCost ? `${primaryCost.label} to date` : (hasPricing ? 'No usage yet' : 'Pricing missing')}</span>
           </div>
           <div class="stat-line strong">${formatNumber(monthlyTotalTokens)} tokens</div>
           <div class="total-breakdown">

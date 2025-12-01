@@ -1,4 +1,5 @@
 # 2025-12-01
+- Estimated Total card no longer repeats the month-to-date total in its header, relying on the breakdown chips below.
 - cdx now treats `/auth` HTTP 5xx/network outages as offline, keeping cached auth usable and surfacing the offline reason instead of hard failures.
 - Slash command sync reports API outages/HTTP 5xx as offline (warn) and the wrapper version is bumped to 2025.12.01-03.
 - Token usage ingests now compute and persist per-entry/aggregate costs from configured pricing (with backfill for existing rows) and expose a Cost column + currency on the Client Logs page.
