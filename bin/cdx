@@ -176,7 +176,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.12.01-01"
+WRAPPER_VERSION="2025.12.01-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2378,7 +2378,7 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
   candidate_tags=()
-  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
+  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]-}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
   add_tag "$remote_tag"
   add_tag "$remote_version"
   add_tag "v${remote_version}"

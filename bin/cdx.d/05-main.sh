@@ -129,7 +129,7 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
   candidate_tags=()
-  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
+  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]-}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
   add_tag "$remote_tag"
   add_tag "$remote_version"
   add_tag "v${remote_version}"
