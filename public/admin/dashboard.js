@@ -1189,6 +1189,7 @@ const statsEl = document.getElementById('stats');
       document.querySelectorAll('.cost-history-btn').forEach((el) => {
         el.onclick = (ev) => {
           ev.preventDefault();
+          ev.stopPropagation();
           openCostHistory();
         };
       });
