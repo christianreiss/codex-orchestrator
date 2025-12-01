@@ -962,16 +962,22 @@ const statsEl = document.getElementById('stats');
       const monthly = (lastOverview?.tokens_month) || { input: 0, output: 0, cached: 0, total: 0 };
       const pricing = lastOverview?.pricing || { currency: 'EUR', input_price_per_1k: 0, output_price_per_1k: 0, cached_price_per_1k: 0 };
       const monthCost = lastOverview?.pricing_month_cost ?? null;
+      const weekCost = lastOverview?.pricing_week_cost ?? null;
       const currency = pricing.currency || 'EUR';
       const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
       const planLabel = plan;
-      const dayOfMonth = new Date().getUTCDate();
-      const estimatedDayCost = monthCost !== null && dayOfMonth > 0 ? (monthCost / dayOfMonth) : null;
       const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
       const inputCost = hasPricing ? (monthly.input / 1000) * (pricing.input_price_per_1k ?? 0) : null;
       const outputCost = hasPricing ? (monthly.output / 1000) * (pricing.output_price_per_1k ?? 0) : null;
       const cachedCost = hasPricing ? (monthly.cached / 1000) * (pricing.cached_price_per_1k ?? 0) : null;
-      const totalCost = hasPricing ? (monthCost ?? ((inputCost ?? 0) + (outputCost ?? 0) + (cachedCost ?? 0))) : null;
+      const monthCostResolved = hasPricing ? (monthCost ?? ((inputCost ?? 0) + (outputCost ?? 0) + (cachedCost ?? 0))) : null;
+      const costSummary = (() => {
+        if (!hasPricing || (weekCost === null && monthCostResolved === null)) return 'Pricing missing';
+        const parts = [];
+        if (weekCost !== null) parts.push(`${formatMoney(weekCost, currency)}/Week`);
+        if (monthCostResolved !== null) parts.push(`${formatMoney(monthCostResolved, currency)}/Month`);
+        return parts.join(' | ');
+      })();
 
       chatgptUsageCard.innerHTML = `
         <div class="usage-head">
@@ -1014,10 +1020,9 @@ const statsEl = document.getElementById('stats');
             <div class="cost-card total">
               <div class="label">Estimated Total</div>
               <div class="value">
-                ${hasPricing && totalCost !== null ? formatMoney(totalCost, currency) : 'Pricing missing'}
-                ${hasPricing && estimatedDayCost !== null ? `<small class="daily-note">(today ${formatMoney(estimatedDayCost, currency)})</small>` : ''}
+                ${costSummary}
               </div>
-              <small>${hasPricing ? 'Includes input/output/cached' : 'Set PRICING_URL or GPT51_* env vars'}</small>
+              <small>${hasPricing ? 'Includes input/output/cached · month = current month' : 'Set PRICING_URL or GPT51_* env vars'}</small>
             </div>
           </div>
         </div>

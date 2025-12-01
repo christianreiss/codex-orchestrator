@@ -897,8 +897,12 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $monthStart = gmdate('Y-m-01\T00:00:00\Z');
     $monthEnd = gmdate('Y-m-01\T00:00:00\Z', strtotime('+1 month'));
     $tokensMonth = $tokenUsageRepository->totalsForRange($monthStart, $monthEnd);
+    $weekStart = gmdate('Y-m-d\T00:00:00\Z', strtotime('-6 days'));
+    $weekEnd = gmdate('Y-m-d\T00:00:00\Z', strtotime('+1 day'));
+    $tokensWeek = $tokenUsageRepository->totalsForRange($weekStart, $weekEnd);
     $pricing = $pricingService->latestPricing('gpt-5.1', false);
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
+    $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
     $chatgpt = $chatGptUsageService->fetchLatest(false);
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
 
@@ -918,8 +922,10 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'seed_reasons' => $seedReasons,
             'tokens' => $tokens,
             'tokens_month' => $tokensMonth,
+            'tokens_week' => $tokensWeek,
             'pricing' => $pricing,
             'pricing_month_cost' => $monthlyCost,
+            'pricing_week_cost' => $weeklyCost,
             'chatgpt_usage' => $chatgpt['snapshot'] ?? null,
             'chatgpt_cached' => $chatgpt['cached'] ?? false,
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
