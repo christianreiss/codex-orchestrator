@@ -969,10 +969,11 @@ const statsEl = document.getElementById('stats');
       const monthCostResolved = hasPricing ? (monthCost ?? ((inputCost ?? 0) + (outputCost ?? 0) + (cachedCost ?? 0))) : null;
       const costSummary = (() => {
         if (!hasPricing || (weekCost === null && monthCostResolved === null)) return 'Pricing missing';
+        const fmt = (value) => `${Number.isFinite(value) ? value.toFixed(2) : '0.00'}$`;
         const parts = [];
-        if (weekCost !== null) parts.push(`${formatMoney(weekCost, currency)}/Week`);
-        if (monthCostResolved !== null) parts.push(`${formatMoney(monthCostResolved, currency)}/Month`);
-        return parts.join(' | ');
+        if (weekCost !== null) parts.push(`${fmt(weekCost)} this Week`);
+        if (monthCostResolved !== null) parts.push(`${fmt(monthCostResolved)} this Month`);
+        return parts.map(line => `<div>${line}</div>`).join('');
       })();
 
       chatgptUsageCard.innerHTML = `
