@@ -547,6 +547,8 @@ const statsEl = document.getElementById('stats');
     function renderHostSummary(host) {
       if (!hostDetailSummary) return;
       const health = hostHealth(host);
+      const clientTag = renderVersionTag(host.client_version, latestVersions.client);
+      const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
       const summaryItems = [
         {
           label: 'Health',
@@ -565,11 +567,17 @@ const statsEl = document.getElementById('stats');
             : '—',
           meta: host.token_usage?.created_at ? `reported ${formatRelative(host.token_usage.created_at)}` : 'No usage yet',
         },
+        {
+          label: 'Versions',
+          value: `${clientTag} ${wrapperTag}`,
+          meta: 'Client · Wrapper',
+          raw: true,
+        },
       ];
       hostDetailSummary.innerHTML = summaryItems.map(item => `
         <div class="summary-card">
           <div class="label">${escapeHtml(item.label)}</div>
-          <div class="value">${escapeHtml(item.value ?? '—')}</div>
+          <div class="value">${item.raw ? item.value : escapeHtml(item.value ?? '—')}</div>
           ${item.meta ? `<div class="meta">${escapeHtml(item.meta)}</div>` : ''}
         </div>
       `).join('');
@@ -628,23 +636,11 @@ const statsEl = document.getElementById('stats');
       });
 
       rows.push({
-        key: 'Versions',
-        value: `
-            <div class="kv-version">
-              <div class="version-block">
-                <span class="version-label">Codex</span>
-                ${clientTag}
-              </div>
-              <div class="version-block">
-                <span class="version-label">Wrapper</span>
-                ${wrapperTag}
-              </div>
-            </div>
-          `,
-        desc: 'Client and wrapper builds reported by this host.',
+        key: 'Token usage',
+        value: renderTokenUsageValue(host.token_usage),
+        desc: '',
+        full: true,
       });
-
-      rows.push({ key: 'Token usage', value: renderTokenUsageValue(host.token_usage), desc: '', full: true });
 
       return rows;
     }
