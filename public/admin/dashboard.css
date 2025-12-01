@@ -631,6 +631,19 @@
       align-items: center;
       gap: 6px;
     }
+    .cost-card .total-kicker .total-icon-btn {
+      border: none;
+      background: transparent;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .cost-card .total-kicker .total-icon-btn:focus-visible {
+      outline: 2px solid var(--accent-2);
+      outline-offset: 2px;
+    }
     .cost-card .total-kicker .total-icon {
       display: inline-flex;
       align-items: center;

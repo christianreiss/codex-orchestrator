@@ -1045,7 +1045,9 @@ const statsEl = document.getElementById('stats');
             </div>
             <div class="cost-card total">
               <div class="total-kicker">
-                <span class="total-icon" aria-hidden="true" title="Cost trend">📈</span>
+                <button class="total-icon-btn usage-history-btn" type="button" data-window="secondary" title="Open quota trend" aria-label="Open quota trend">
+                  <span class="total-icon" aria-hidden="true">📈</span>
+                </button>
                 <span>Estimated Total</span>
               </div>
               <div class="total-main">
