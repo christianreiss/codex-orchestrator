@@ -31,12 +31,14 @@
 
 ## Get going fast
 
+Use the installer to generate `.env`, secrets, and compose overrides, then start the stack. Full options live in `docs/INSTALL.md`.
+
 ```bash
-cp .env.example .env          # set DB_* creds (match docker-compose)
+bin/setup.sh                  # interactive; generates .env and config
 docker compose up --build     # API on http://localhost:8488 with MySQL sidecar
 ```
 
-No external proxy? Enable the bundled Caddy TLS/mTLS frontend (serves 443, optional LE or custom cert): `docker compose --profile caddy up --build -d` after setting the `CADDY_*` vars. Details: `docs/INSTALL.md`.
+Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see `docs/INSTALL.md` for examples.
 
 ## Contributing / local dev
 
