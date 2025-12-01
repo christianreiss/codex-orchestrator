@@ -79,6 +79,7 @@ const statsEl = document.getElementById('stats');
     let tokensSummary = null;
     let runnerSummary = null;
     let hostFilterText = '';
+    let hostSort = { key: 'last_seen', direction: 'desc' };
     let hostStatusFilter = ''; // maintained for clarity
     let lastOverview = null;
     let chatgptUsage = null;
@@ -458,6 +459,71 @@ const statsEl = document.getElementById('stats');
       });
     }
 
+    function hostSortValue(host, key) {
+      switch (key) {
+        case 'host':
+          return (host.fqdn || '').toLowerCase();
+        case 'last_seen': {
+          const ts = parseTimestamp(host.updated_at);
+          return ts ? ts.getTime() : -Infinity;
+        }
+        case 'client':
+          return (host.client_version || '').toLowerCase();
+        case 'wrapper':
+          return (host.wrapper_version || '').toLowerCase();
+        case 'ip':
+          return (host.ip || '').toLowerCase();
+        default:
+          return '';
+      }
+    }
+
+    function sortHosts(list) {
+      const sorted = [...list];
+      sorted.sort((a, b) => {
+        const aVal = hostSortValue(a, hostSort.key);
+        const bVal = hostSortValue(b, hostSort.key);
+        let result;
+        if (Number.isFinite(aVal) && Number.isFinite(bVal)) {
+          result = aVal - bVal;
+        } else {
+          result = String(aVal).localeCompare(String(bVal), undefined, { sensitivity: 'base' });
+        }
+        if (result === 0) {
+          result = String(a.fqdn || '').localeCompare(String(b.fqdn || ''), undefined, { sensitivity: 'base' });
+        }
+        return hostSort.direction === 'desc' ? -result : result;
+      });
+      return sorted;
+    }
+
+    function updateSortIndicators() {
+      document.querySelectorAll('.sort-btn[data-sort]').forEach((btn) => {
+        const key = btn.getAttribute('data-sort');
+        const indicator = btn.querySelector('.sort-indicator');
+        const isActive = key === hostSort.key;
+        btn.classList.toggle('sorted', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        btn.setAttribute('aria-sort', isActive ? (hostSort.direction === 'asc' ? 'ascending' : 'descending') : 'none');
+        if (indicator) {
+          indicator.textContent = isActive
+            ? (hostSort.direction === 'asc' ? '▲' : '▼')
+            : '↕';
+        }
+      });
+    }
+
+    function setHostSort(key) {
+      const defaultDirection = key === 'last_seen' ? 'desc' : 'asc';
+      if (hostSort.key === key) {
+        hostSort = { key, direction: hostSort.direction === 'asc' ? 'desc' : 'asc' };
+      } else {
+        hostSort = { key, direction: defaultDirection };
+      }
+      updateSortIndicators();
+      paintHosts();
+    }
+
     function formatRelativeWithTimestamp(value) {
       if (!value) return '—';
       const relative = formatRelative(value);
@@ -704,18 +770,20 @@ const statsEl = document.getElementById('stats');
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
       const filtered = applyHostFilters(currentHosts);
-      const hasInsecure = filtered.some(h => !isHostSecure(h));
+      const sorted = sortHosts(filtered);
+      const hasInsecure = sorted.some(h => !isHostSecure(h));
       const insecureHeader = document.querySelector('th.insecure-col');
       if (insecureHeader) {
         insecureHeader.style.display = hasInsecure ? '' : 'none';
       }
       hostsTbody.innerHTML = '';
-      if (!filtered.length) {
+      if (!sorted.length) {
         const cols = hasInsecure ? 6 : 5;
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
+        updateSortIndicators();
         return;
       }
-      filtered.forEach(host => {
+      sorted.forEach(host => {
         const tr = document.createElement('tr');
         const addedAt = host.created_at ?? host.last_refresh ?? host.updated_at ?? null;
         const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
@@ -799,6 +867,7 @@ const statsEl = document.getElementById('stats');
         }
         hostsTbody.appendChild(tr);
       });
+      updateSortIndicators();
     }
 
     function renderHosts(hosts) {
@@ -1684,6 +1753,14 @@ const statsEl = document.getElementById('stats');
         paintHosts();
       });
     }
+    document.querySelectorAll('.sort-btn[data-sort]').forEach((btn) => {
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const key = btn.getAttribute('data-sort');
+        if (key) setHostSort(key);
+      });
+    });
+    updateSortIndicators();
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
     }

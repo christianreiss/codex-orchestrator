@@ -1,6 +1,7 @@
 # 2025-12-01
 - Added a stats icon to the ChatGPT estimated total card to mirror the weekly limit affordance.
 - ChatGPT estimated total icon now opens the quota trend chart, matching the weekly limit graph control.
+- Authorized Hosts table headers are now clickable to sort (toggle ascending/descending) by host, last seen, client, wrapper, or IP.
 - Refreshed the ChatGPT estimated total card with a highlighted primary figure and chips for Today/Week/Month breakdown.
 - Admin overview now includes daily token/cost totals for the dashboard, and the ChatGPT cost card shows Today/Week/Month estimates without the previous “includes” blurb.
 - Added bash 4.2-safe guard for wrapper release tag selection to prevent `candidate_tags[@]` nounset errors during Codex refresh, and bumped wrapper version to 2025.12.01-02.
