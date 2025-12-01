@@ -127,6 +127,7 @@ RUNNER_LAST_CHECK=""
 RUNNER_ENABLED=0
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
+AUTH_PULL_REASON=""
 LOCAL_AUTH_IS_FRESH=0
 LOCAL_AUTH_IS_RECENT=0
 last_usage_payload=""
@@ -160,6 +161,7 @@ HOST_TOKENS_MONTH_EVENTS=""
 PROMPT_DIR="$HOME/.codex/prompts"
 PROMPT_BASELINE_FILE="$HOME/.codex/.prompt-baseline.json"
 PROMPT_SYNC_STATUS="skip"
+PROMPT_SYNC_REASON=""
 PROMPT_PULL_UPDATED=0
 PROMPT_PULL_ERRORS=0
 PROMPT_PUSHED=0
@@ -176,7 +178,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.11.29-06"
+WRAPPER_VERSION="2025.12.01-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -379,7 +381,7 @@ PY
 ); then
     parsed_users=()
   fi
-  HOST_USERS_CACHE=("${parsed_users[@]}")
+  HOST_USERS_CACHE=("${parsed_users[@]-}")
   HOST_USERS_FETCHED=1
   return 0
 }
@@ -695,7 +697,8 @@ sync_auth_with_api() {
     record_host_user_with_api || true
   fi
   local auth_path="$HOME/.codex/auth.json"
-   # Drop a malformed local auth.json so we can hydrate cleanly.
+  AUTH_PULL_REASON=""
+  # Drop a malformed local auth.json so we can hydrate cleanly.
   if [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
     rm -f "$auth_path"
   fi
@@ -704,6 +707,7 @@ sync_auth_with_api() {
   # No chatty per-step auth logging; final summary will capture the outcome.
   local api_output=""
   local api_status=0
+  local offline_reason=""
   if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
@@ -837,15 +841,27 @@ def post_json(url: str, payload: dict, action: str):
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     contexts = build_context()
     last_err = None
+    offline_reason = ""
     for ctx in contexts:
         try:
             with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
                 return json.load(resp)
         except urllib.error.HTTPError as exc:
+            if 500 <= exc.code < 600:
+                offline_reason = f"http-{exc.code}"
+                last_err = exc
+                continue
             fail_with_http(exc, action)
         except Exception as exc:  # noqa: BLE001
             last_err = exc
+            if isinstance(exc, urllib.error.URLError):
+                reason_val = getattr(exc, "reason", None)
+                offline_reason = str(reason_val or exc)
             continue
+    if offline_reason:
+        safe_reason = offline_reason.replace("\n", " ").strip()
+        print(f"offline:{safe_reason}")
+        sys.exit(3)
     print(f"{action} failed: {last_err}", file=sys.stderr)
     sys.exit(3)
 
@@ -1239,6 +1255,9 @@ PY
     return 0
   else
     api_status=$?
+    if [[ "$api_output" == offline:* ]]; then
+      offline_reason="${api_output#offline:}"
+    fi
   fi
   case "$api_status" in
     10)
@@ -1261,10 +1280,16 @@ PY
       return 1
       ;;
     2|3)
+      local reason_suffix=""
+      if [[ -n "$offline_reason" ]]; then
+        AUTH_PULL_REASON="$offline_reason"
+        reason_suffix="; reason=${offline_reason}"
+        log_debug "auth sync offline reason: ${offline_reason}"
+      fi
       if [[ -n "$phase" ]]; then
-        log_warn "Auth API sync (${phase}) unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
+        log_warn "Auth API sync (${phase}) unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY")${reason_suffix})"
       else
-        log_warn "Auth API sync unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
+        log_warn "Auth API sync unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY")${reason_suffix})"
       fi
       AUTH_PULL_STATUS="offline"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
@@ -1713,11 +1738,23 @@ sync_slash_commands_pull() {
   set -e
   PROMPT_SYNC_STATUS="error"
   if (( status_code != 0 )); then
-    [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
-    PROMPT_PULL_ERRORS=1
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      PROMPT_SYNC_STATUS="offline"
+      PROMPT_SYNC_REASON="$reason"
+      [[ -n "$summary" ]] && log_warn "Slash command sync offline: $summary" || log_warn "Slash command sync offline."
+      PROMPT_PULL_ERRORS=0
+    else
+      [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
+      PROMPT_PULL_ERRORS=1
+    fi
     return 1
   fi
   local part
+  PROMPT_SYNC_REASON=""
   PROMPT_SYNC_STATUS="${summary%% *}"
   for part in $summary; do
     case "$part" in
@@ -2378,7 +2415,7 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
   candidate_tags=()
-  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
+  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]-}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
   add_tag "$remote_tag"
   add_tag "$remote_version"
   add_tag "v${remote_version}"
@@ -2856,7 +2893,11 @@ case "$AUTH_PULL_STATUS" in
     api_tone="green"
     ;;
   offline)
-    api_label="Unavailable (offline)"
+    api_label="Unavailable (offline"
+    if [[ -n "$AUTH_PULL_REASON" ]]; then
+      api_label+="; ${AUTH_PULL_REASON}"
+    fi
+    api_label+=")"
     api_tone="yellow"
     ;;
   disabled)
@@ -2882,14 +2923,16 @@ if [[ -n "$AUTH_STATUS" ]]; then
   auth_label="$(format_auth_label "$AUTH_STATUS" "$AUTH_ACTION" "$AUTH_MESSAGE")"
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   cached_lr="${ORIGINAL_LAST_REFRESH:-unknown}"
+  offline_hint=""
+  [[ -n "$AUTH_PULL_REASON" ]] && offline_hint="; ${AUTH_PULL_REASON}"
   if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
-    auth_label="using cached auth (api offline; last_refresh ${cached_lr})"
+    auth_label="using cached auth (api offline${offline_hint}; last_refresh ${cached_lr})"
   elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
-    auth_label="using cached auth (secure host; api offline; last_refresh ${cached_lr})"
+    auth_label="using cached auth (secure host; api offline${offline_hint}; last_refresh ${cached_lr})"
   elif (( HAS_LOCAL_AUTH )); then
-    auth_label="cached auth stale (api offline; last_refresh ${cached_lr})"
+    auth_label="cached auth stale (api offline${offline_hint}; last_refresh ${cached_lr})"
   else
-    auth_label="auth unavailable (api offline)"
+    auth_label="auth unavailable (api offline${offline_hint})"
   fi
 elif [[ "$AUTH_PULL_STATUS" == "insecure" ]]; then
   auth_label="insecure host window closed"
@@ -2997,6 +3040,12 @@ elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
 elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
   prompt_label="sync requires python3"
   prompt_tone="yellow"
+elif [[ "$PROMPT_SYNC_STATUS" == "offline" ]]; then
+  prompt_label="sync unavailable"
+  if [[ -n "$PROMPT_SYNC_REASON" ]]; then
+    prompt_label+=" (${PROMPT_SYNC_REASON})"
+  fi
+  prompt_tone="yellow"
 elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_label="sync failed"
   prompt_tone="red"
@@ -3059,14 +3108,16 @@ if [[ -n "$AUTH_STATUS" ]]; then
   fi
   result_parts+=("$auth_result")
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+  offline_note="api offline"
+  [[ -n "$AUTH_PULL_REASON" ]] && offline_note+="; ${AUTH_PULL_REASON}"
   if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
-    result_parts+=("auth cached (api offline)")
+    result_parts+=("auth cached (${offline_note})")
   elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
-    result_parts+=("auth cached (secure host; api offline)")
+    result_parts+=("auth cached (secure host; ${offline_note})")
   elif (( HAS_LOCAL_AUTH )); then
-    result_parts+=("auth stale (api offline)")
+    result_parts+=("auth stale (${offline_note})")
   else
-    result_parts+=("auth unavailable (api offline)")
+    result_parts+=("auth unavailable (${offline_note})")
   fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   result_parts+=("auth unavailable")
@@ -3097,6 +3148,12 @@ elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
   result_parts+=("prompts config missing")
 elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
   result_parts+=("prompts python missing")
+elif [[ "$PROMPT_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$PROMPT_SYNC_REASON" ]]; then
+    result_parts+=("prompts offline (${PROMPT_SYNC_REASON})")
+  else
+    result_parts+=("prompts offline")
+  fi
 elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   result_parts+=("prompts sync failed")
 fi
@@ -3289,16 +3346,18 @@ case "$AUTH_PULL_STATUS" in
     AUTH_LAUNCH_ALLOWED=1
     ;;
   offline)
+    offline_launch_hint=""
+    [[ -n "$AUTH_PULL_REASON" ]] && offline_launch_hint=" (${AUTH_PULL_REASON})"
     if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="API offline; using cached auth.json"
+      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; using cached auth.json"
     elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="API offline; secure host using cached auth.json (older than 24h)"
+      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; secure host using cached auth.json (older than 24h)"
     elif (( HAS_LOCAL_AUTH )); then
-      AUTH_LAUNCH_REASON="API offline; cached auth.json older than allowed window"
+      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; cached auth.json older than allowed window"
     else
-      AUTH_LAUNCH_REASON="API offline and no cached auth.json"
+      AUTH_LAUNCH_REASON="API offline${offline_launch_hint} and no cached auth.json"
     fi
     ;;
   invalid)

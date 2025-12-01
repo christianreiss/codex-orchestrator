@@ -15,7 +15,8 @@ sync_auth_with_api() {
     record_host_user_with_api || true
   fi
   local auth_path="$HOME/.codex/auth.json"
-   # Drop a malformed local auth.json so we can hydrate cleanly.
+  AUTH_PULL_REASON=""
+  # Drop a malformed local auth.json so we can hydrate cleanly.
   if [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
     rm -f "$auth_path"
   fi
@@ -24,6 +25,7 @@ sync_auth_with_api() {
   # No chatty per-step auth logging; final summary will capture the outcome.
   local api_output=""
   local api_status=0
+  local offline_reason=""
   if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
@@ -157,15 +159,27 @@ def post_json(url: str, payload: dict, action: str):
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     contexts = build_context()
     last_err = None
+    offline_reason = ""
     for ctx in contexts:
         try:
             with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
                 return json.load(resp)
         except urllib.error.HTTPError as exc:
+            if 500 <= exc.code < 600:
+                offline_reason = f"http-{exc.code}"
+                last_err = exc
+                continue
             fail_with_http(exc, action)
         except Exception as exc:  # noqa: BLE001
             last_err = exc
+            if isinstance(exc, urllib.error.URLError):
+                reason_val = getattr(exc, "reason", None)
+                offline_reason = str(reason_val or exc)
             continue
+    if offline_reason:
+        safe_reason = offline_reason.replace("\n", " ").strip()
+        print(f"offline:{safe_reason}")
+        sys.exit(3)
     print(f"{action} failed: {last_err}", file=sys.stderr)
     sys.exit(3)
 
@@ -559,6 +573,9 @@ PY
     return 0
   else
     api_status=$?
+    if [[ "$api_output" == offline:* ]]; then
+      offline_reason="${api_output#offline:}"
+    fi
   fi
   case "$api_status" in
     10)
@@ -581,10 +598,16 @@ PY
       return 1
       ;;
     2|3)
+      local reason_suffix=""
+      if [[ -n "$offline_reason" ]]; then
+        AUTH_PULL_REASON="$offline_reason"
+        reason_suffix="; reason=${offline_reason}"
+        log_debug "auth sync offline reason: ${offline_reason}"
+      fi
       if [[ -n "$phase" ]]; then
-        log_warn "Auth API sync (${phase}) unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
+        log_warn "Auth API sync (${phase}) unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY")${reason_suffix})"
       else
-        log_warn "Auth API sync unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY"))"
+        log_warn "Auth API sync unreachable (base=${CODEX_SYNC_BASE_URL}, key=$(mask_key "$CODEX_SYNC_API_KEY")${reason_suffix})"
       fi
       AUTH_PULL_STATUS="offline"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"

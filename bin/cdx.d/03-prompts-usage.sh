@@ -291,11 +291,23 @@ sync_slash_commands_pull() {
   set -e
   PROMPT_SYNC_STATUS="error"
   if (( status_code != 0 )); then
-    [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
-    PROMPT_PULL_ERRORS=1
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      PROMPT_SYNC_STATUS="offline"
+      PROMPT_SYNC_REASON="$reason"
+      [[ -n "$summary" ]] && log_warn "Slash command sync offline: $summary" || log_warn "Slash command sync offline."
+      PROMPT_PULL_ERRORS=0
+    else
+      [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
+      PROMPT_PULL_ERRORS=1
+    fi
     return 1
   fi
   local part
+  PROMPT_SYNC_REASON=""
   PROMPT_SYNC_STATUS="${summary%% *}"
   for part in $summary; do
     case "$part" in
