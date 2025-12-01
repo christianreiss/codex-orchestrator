@@ -8,6 +8,7 @@ const statsEl = document.getElementById('stats');
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
+    const ipv4Toggle = document.getElementById('ipv4Toggle');
     const createHostBtn = document.getElementById('createHost');
     const cancelNewHostBtn = document.getElementById('cancelNewHost');
     const commandField = document.getElementById('commandField');
@@ -177,6 +178,11 @@ const statsEl = document.getElementById('stats');
         document.execCommand('copy');
         document.body.removeChild(ta);
       });
+    }
+
+    function addCurlFlag(cmd, flag) {
+      if (!cmd || !flag) return cmd;
+      return cmd.replace(/curl\b/g, (match) => `${match} ${flag}`);
     }
 
     async function loadApiState() {
@@ -1759,6 +1765,9 @@ const statsEl = document.getElementById('stats');
       if (insecureToggle) {
         insecureToggle.checked = false;
       }
+      if (ipv4Toggle) {
+        ipv4Toggle.checked = false;
+      }
     }
 
     function showNewHostModal(show, { reset = show, focusInput = reset } = {}) {
@@ -1821,7 +1830,10 @@ const statsEl = document.getElementById('stats');
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
         let cmd = installer.command;
         if (insecureToggle?.checked) {
-          cmd = cmd.replace('curl ', 'curl -k ');
+          cmd = addCurlFlag(cmd, '-k');
+        }
+        if (ipv4Toggle?.checked) {
+          cmd = addCurlFlag(cmd, '-4');
         }
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
