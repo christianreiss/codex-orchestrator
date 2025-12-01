@@ -180,6 +180,13 @@ body[data-view="mobile"] .usage-actions button {
 body[data-view="mobile"] .cost-grid {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
+body[data-view="mobile"] .cost-card .total-main {
+  flex-direction: column;
+  align-items: flex-start;
+}
+body[data-view="mobile"] .cost-card .cost-chip {
+  width: 100%;
+}
 
 body[data-view="mobile"] .usage-history-modal {
   max-width: none;

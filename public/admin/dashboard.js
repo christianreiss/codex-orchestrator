@@ -982,15 +982,27 @@ const statsEl = document.getElementById('stats');
       const dayCostResolved = hasPricing ? (dayCost ?? computeCost(daily)) : null;
       const weekCostResolved = hasPricing ? (weekCost ?? computeCost(weekly)) : null;
       const monthCostResolved = hasPricing ? (monthCost ?? computeCost(monthly)) : null;
+      const formatCostValue = (value) => `${Number.isFinite(value) ? value.toFixed(2) : '0.00'}$`;
+      const costBreakdown = hasPricing ? [
+        dayCostResolved !== null ? { label: 'Today', value: dayCostResolved } : null,
+        weekCostResolved !== null ? { label: 'Week', value: weekCostResolved } : null,
+        monthCostResolved !== null ? { label: 'Month', value: monthCostResolved } : null,
+      ].filter(Boolean) : [];
+      const primaryCost = hasPricing
+        ? (monthCostResolved !== null ? { label: 'Month', value: monthCostResolved }
+          : weekCostResolved !== null ? { label: 'Week', value: weekCostResolved }
+          : dayCostResolved !== null ? { label: 'Today', value: dayCostResolved }
+            : null)
+        : null;
       const costSummary = (() => {
-        if (!hasPricing) return 'Pricing missing';
-        const fmt = (value) => `${Number.isFinite(value) ? value.toFixed(2) : '0.00'}$`;
-        const parts = [];
-        if (dayCostResolved !== null) parts.push(`${fmt(dayCostResolved)} Today`);
-        if (weekCostResolved !== null) parts.push(`${fmt(weekCostResolved)} Week`);
-        if (monthCostResolved !== null) parts.push(`${fmt(monthCostResolved)} Month`);
-        if (!parts.length) return 'Pricing missing';
-        return parts.map(line => `<div>${line}</div>`).join('');
+        if (!hasPricing) return '<div class="muted">Pricing missing</div>';
+        if (!costBreakdown.length) return '<div class="muted">No usage yet</div>';
+        return costBreakdown.map((item) => `
+          <div class="cost-chip">
+            <span>${item.label}</span>
+            <strong>${formatCostValue(item.value)}</strong>
+          </div>
+        `).join('');
       })();
 
       chatgptUsageCard.innerHTML = `
@@ -1032,8 +1044,12 @@ const statsEl = document.getElementById('stats');
               <small>${pricing.cached_price_per_1k ?? 0}/1k · ${hasPricing ? formatMoney(cachedCost ?? 0, currency) : 'pricing missing'}</small>
             </div>
             <div class="cost-card total">
-              <div class="label">Estimated Total</div>
-              <div class="value">
+              <div class="total-kicker">Estimated Total</div>
+              <div class="total-main">
+                <div class="total-amount">${primaryCost ? formatCostValue(primaryCost.value) : '—'}</div>
+                <span class="total-sub">${primaryCost ? `${primaryCost.label} to date` : (hasPricing ? 'No usage yet' : 'Pricing missing')}</span>
+              </div>
+              <div class="total-breakdown">
                 ${costSummary}
               </div>
               ${hasPricing ? '' : '<small>Set PRICING_URL or GPT51_* env vars</small>'}
