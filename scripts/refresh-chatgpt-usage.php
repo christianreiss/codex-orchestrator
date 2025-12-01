@@ -22,6 +22,7 @@ use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\RunnerVerifier;
 use App\Services\WrapperService;
+use App\Support\Installation;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -70,7 +71,7 @@ try {
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);
     $chatGptUsageRepository = new ChatGptUsageRepository($database);
-    $installationId = (string) Config::get('INSTALLATION_ID', '');
+    $installationId = Installation::ensure($root);
 
     $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
     $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');

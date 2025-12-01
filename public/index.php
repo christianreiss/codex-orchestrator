@@ -40,6 +40,7 @@ use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
 use App\Security\RateLimiter;
+use App\Support\Installation;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -54,7 +55,7 @@ if (file_exists($root . '/.env')) {
     Dotenv::createImmutable($root)->safeLoad();
 }
 
-$installationId = ensureInstallationId($root);
+$installationId = Installation::ensure($root);
 
 $keyManager = new EncryptionKeyManager($root);
 $secretBox = new SecretBox($keyManager->getKey());
@@ -1514,47 +1515,6 @@ function normalizeBoolean(mixed $value): ?bool
     }
 
     return null;
-}
-
-function generateUuidV4(): string
-{
-    $bytes = random_bytes(16);
-    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
-    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
-
-    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
-}
-
-function ensureInstallationId(string $root): string
-{
-    $existing = getenv('INSTALLATION_ID');
-    if (is_string($existing) && trim($existing) !== '') {
-        return trim($existing);
-    }
-
-    $id = generateUuidV4();
-    $envPath = $root . '/.env';
-    $written = false;
-
-    if (is_file($envPath) && is_writable($envPath)) {
-        $contents = (string) file_get_contents($envPath);
-        if (!preg_match('/^\s*INSTALLATION_ID\s*=/m', $contents)) {
-            $contents .= (str_ends_with($contents, PHP_EOL) ? '' : PHP_EOL) . 'INSTALLATION_ID=' . $id . PHP_EOL;
-            file_put_contents($envPath, $contents);
-            @chmod($envPath, 0600);
-            $written = true;
-        }
-    }
-
-    // Export to current process regardless of file write success.
-    putenv('INSTALLATION_ID=' . $id);
-    $_ENV['INSTALLATION_ID'] = $id;
-
-    if (!$written) {
-        error_log('[install] generated INSTALLATION_ID but could not persist to .env; set it manually to avoid drift');
-    }
-
-    return $id;
 }
 
 function normalizeBaseUrlCandidate(string $value): string
