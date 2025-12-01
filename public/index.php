@@ -894,16 +894,28 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
 
     $tokens = $tokenUsageRepository->totals();
     $tokens['top_host'] = $tokenUsageRepository->topHost();
+    $chatgpt = $chatGptUsageService->fetchLatest(false);
+    $weekStart = gmdate('Y-m-d\T00:00:00\Z', strtotime('-6 days'));
+    $weekEnd = gmdate(DATE_ATOM);
+    $snapshot = $chatgpt['snapshot'] ?? null;
+    $secondaryLimit = is_array($snapshot) && isset($snapshot['secondary_limit_seconds'])
+        ? (int) $snapshot['secondary_limit_seconds']
+        : null;
+    $secondaryResetAfter = is_array($snapshot) && isset($snapshot['secondary_reset_after_seconds'])
+        ? (int) $snapshot['secondary_reset_after_seconds']
+        : null;
+    if ($secondaryLimit !== null && $secondaryResetAfter !== null && $secondaryLimit > 0 && $secondaryResetAfter >= 0) {
+        $windowUsed = max(0, $secondaryLimit - $secondaryResetAfter);
+        $weekStartTs = time() - $windowUsed;
+        $weekStart = gmdate(DATE_ATOM, $weekStartTs);
+    }
     $monthStart = gmdate('Y-m-01\T00:00:00\Z');
     $monthEnd = gmdate('Y-m-01\T00:00:00\Z', strtotime('+1 month'));
     $tokensMonth = $tokenUsageRepository->totalsForRange($monthStart, $monthEnd);
-    $weekStart = gmdate('Y-m-d\T00:00:00\Z', strtotime('-6 days'));
-    $weekEnd = gmdate('Y-m-d\T00:00:00\Z', strtotime('+1 day'));
     $tokensWeek = $tokenUsageRepository->totalsForRange($weekStart, $weekEnd);
     $pricing = $pricingService->latestPricing('gpt-5.1', false);
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
-    $chatgpt = $chatGptUsageService->fetchLatest(false);
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
 
     Response::json([

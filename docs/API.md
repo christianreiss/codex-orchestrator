@@ -65,7 +65,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/versions/check` — forces a fresh GitHub release lookup (bypassing 3h cache) and returns `{available_client, versions}`.
 
 ## Admin Endpoints (mTLS + optional admin key)
-- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_week` (last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_week_cost`, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, and mTLS metadata.
+- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_week_cost`, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, and mTLS metadata.
 - `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, insecure window fields, latest token usage, and recorded users.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
