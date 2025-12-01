@@ -25,13 +25,14 @@ class TokenUsageRepository
         ?int $output,
         ?int $cached,
         ?int $reasoning,
+        ?float $cost,
         ?string $model,
         ?string $line,
         ?int $ingestId = null
     ): void {
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO token_usages (host_id, ingest_id, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, model, line, created_at)
-             VALUES (:host_id, :ingest_id, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :model, :line, :created_at)'
+            'INSERT INTO token_usages (host_id, ingest_id, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost, model, line, created_at)
+             VALUES (:host_id, :ingest_id, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :cost, :model, :line, :created_at)'
         );
 
         $statement->execute([
@@ -42,6 +43,7 @@ class TokenUsageRepository
             'output_tokens' => $output,
             'cached_tokens' => $cached,
             'reasoning_tokens' => $reasoning,
+            'cost' => $cost,
             'model' => $model,
             'line' => $line,
             'created_at' => gmdate(DATE_ATOM),
@@ -55,6 +57,7 @@ class TokenUsageRepository
                        COALESCE(SUM(output_tokens), 0) AS output,
                        COALESCE(SUM(cached_tokens), 0) AS cached,
                        COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                       COALESCE(SUM(cost), 0) AS cost,
                        COUNT(*) AS events
                 FROM token_usages';
 
@@ -74,6 +77,7 @@ class TokenUsageRepository
             'output' => isset($row['output']) ? (int) $row['output'] : 0,
             'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
             'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
             'events' => isset($row['events']) ? (int) $row['events'] : 0,
         ];
     }
@@ -87,6 +91,7 @@ class TokenUsageRepository
                     COALESCE(SUM(output_tokens), 0) AS output,
                     COALESCE(SUM(cached_tokens), 0) AS cached,
                     COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COALESCE(SUM(cost), 0) AS cost,
                     COUNT(*) AS events
              FROM token_usages
              WHERE host_id IS NOT NULL
@@ -107,6 +112,7 @@ class TokenUsageRepository
                 'output' => isset($row['output']) ? (int) $row['output'] : 0,
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
                 'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+                'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
                 'events' => isset($row['events']) ? (int) $row['events'] : 0,
             ];
         }
@@ -122,6 +128,7 @@ class TokenUsageRepository
                     COALESCE(SUM(output_tokens), 0) AS output,
                     COALESCE(SUM(cached_tokens), 0) AS cached,
                     COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COALESCE(SUM(cost), 0) AS cost,
                     COUNT(*) AS events
              FROM token_usages
              WHERE created_at >= :start AND created_at < :end'
@@ -138,6 +145,7 @@ class TokenUsageRepository
             'output' => isset($row['output']) ? (int) $row['output'] : 0,
             'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
             'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
             'events' => isset($row['events']) ? (int) $row['events'] : 0,
         ];
     }
@@ -150,6 +158,7 @@ class TokenUsageRepository
                     COALESCE(SUM(output_tokens), 0) AS output,
                     COALESCE(SUM(cached_tokens), 0) AS cached,
                     COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COALESCE(SUM(cost), 0) AS cost,
                     COUNT(*) AS events
              FROM token_usages
              WHERE host_id = :host_id AND created_at >= :start AND created_at < :end'
@@ -167,6 +176,7 @@ class TokenUsageRepository
             'output' => isset($row['output']) ? (int) $row['output'] : 0,
             'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
             'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
             'events' => isset($row['events']) ? (int) $row['events'] : 0,
         ];
     }
@@ -197,7 +207,7 @@ class TokenUsageRepository
     public function latestForHost(int $hostId): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT ingest_id, total, input_tokens AS input, output_tokens AS output, cached_tokens AS cached, reasoning_tokens AS reasoning, model, line, created_at
+            'SELECT ingest_id, total, input_tokens AS input, output_tokens AS output, cached_tokens AS cached, reasoning_tokens AS reasoning, cost, model, line, created_at
              FROM token_usages
              WHERE host_id = :host_id
              ORDER BY created_at DESC, id DESC
@@ -216,6 +226,7 @@ class TokenUsageRepository
             'output' => isset($row['output']) ? (int) $row['output'] : null,
             'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
             'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
+            'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
             'model' => $row['model'] ?? null,
             'line' => $row['line'] ?? null,
             'created_at' => $row['created_at'] ?? null,
@@ -234,6 +245,7 @@ class TokenUsageRepository
                     tu.output_tokens AS output,
                     tu.cached_tokens AS cached,
                     tu.reasoning_tokens AS reasoning,
+                    tu.cost,
                     tu.ingest_id,
                     tu.model,
                     tu.line,
@@ -258,6 +270,7 @@ class TokenUsageRepository
                 'output' => isset($row['output']) ? (int) $row['output'] : null,
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
                 'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
+                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
                 'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
                 'model' => $row['model'] ?? null,
                 'line' => $row['line'] ?? null,
@@ -278,7 +291,8 @@ class TokenUsageRepository
                     COALESCE(SUM(input_tokens), 0) AS input,
                     COALESCE(SUM(output_tokens), 0) AS output,
                     COALESCE(SUM(cached_tokens), 0) AS cached,
-                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning
+                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COALESCE(SUM(cost), 0) AS cost
              FROM token_usages
              WHERE line IS NOT NULL AND line <> \'\'
              GROUP BY line
@@ -299,6 +313,7 @@ class TokenUsageRepository
                 'output' => isset($row['output']) ? (int) $row['output'] : 0,
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
                 'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+                'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
             ];
         }
 
@@ -348,5 +363,22 @@ class TokenUsageRepository
         }
 
         return $results;
+    }
+
+    public function backfillCosts(float $inputPricePer1k, float $outputPricePer1k, float $cachedPricePer1k): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE token_usages
+             SET cost = (COALESCE(input_tokens, 0) / 1000) * :input_price
+                      + (COALESCE(output_tokens, 0) / 1000) * :output_price
+                      + (COALESCE(cached_tokens, 0) / 1000) * :cached_price
+             WHERE cost IS NULL'
+        );
+
+        $statement->execute([
+            'input_price' => $inputPricePer1k,
+            'output_price' => $outputPricePer1k,
+            'cached_price' => $cachedPricePer1k,
+        ]);
     }
 }

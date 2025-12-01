@@ -211,6 +211,7 @@ class Database
                 output_tokens BIGINT UNSIGNED NULL,
                 cached_tokens BIGINT UNSIGNED NULL,
                 reasoning_tokens BIGINT UNSIGNED NULL,
+                cost DECIMAL(18,6) NULL,
                 client_ip VARCHAR(64) NULL,
                 payload LONGTEXT NULL,
                 created_at VARCHAR(100) NOT NULL,
@@ -232,6 +233,7 @@ class Database
                 output_tokens BIGINT UNSIGNED NULL,
                 cached_tokens BIGINT UNSIGNED NULL,
                 reasoning_tokens BIGINT UNSIGNED NULL,
+                cost DECIMAL(18,6) NULL,
                 model VARCHAR(128) NULL,
                 line TEXT NULL,
                 created_at VARCHAR(100) NOT NULL,
@@ -371,6 +373,8 @@ class Database
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
         $this->ensureColumnExists('token_usages', 'ingest_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('token_usages', 'cost', 'DECIMAL(18,6) NULL');
+        $this->ensureColumnExists('token_usage_ingests', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
 
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');

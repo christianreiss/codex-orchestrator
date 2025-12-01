@@ -15,12 +15,15 @@ use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
+use App\Repositories\PricingSnapshotRepository;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
+use App\Services\PricingService;
 use App\Services\RunnerVerifier;
+use App\Services\UsageCostService;
 use App\Services\WrapperService;
 use App\Support\Installation;
 use Dotenv\Dotenv;
@@ -70,6 +73,16 @@ try {
     $tokenUsageRepository = new TokenUsageRepository($database);
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);
+    $pricingSnapshotRepository = new PricingSnapshotRepository($database);
+    $pricingModel = 'gpt-5.1';
+    $pricingService = new PricingService(
+        $pricingSnapshotRepository,
+        $logRepository,
+        $pricingModel,
+        (string) Config::get('PRICING_URL', ''),
+        null
+    );
+    $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
     $chatGptUsageRepository = new ChatGptUsageRepository($database);
     $installationId = Installation::ensure($root);
 
@@ -97,12 +110,14 @@ try {
         $logRepository,
         $tokenUsageRepository,
         $tokenUsageIngestRepository,
+        $pricingService,
         $versionRepository,
         $wrapperService,
         $runnerVerifier,
         null,
         $installationId
     );
+    $usageCostService->backfillMissingCosts();
 
     $chatGptUsageService = new ChatGptUsageService(
         $authService,

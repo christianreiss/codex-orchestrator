@@ -137,6 +137,7 @@ class LogRepository
                        COALESCE(SUM(output_tokens), 0) AS output,
                        COALESCE(SUM(cached_tokens), 0) AS cached,
                        COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                       COALESCE(SUM(cost), 0) AS cost,
                        COUNT(*) AS events
                 FROM token_usages';
 
@@ -156,6 +157,7 @@ class LogRepository
             'output' => isset($row['output']) ? (int) $row['output'] : 0,
             'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
             'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
             'events' => isset($row['events']) ? (int) $row['events'] : 0,
         ];
     }
@@ -169,6 +171,7 @@ class LogRepository
                     COALESCE(SUM(output_tokens), 0) AS output,
                     COALESCE(SUM(cached_tokens), 0) AS cached,
                     COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COALESCE(SUM(cost), 0) AS cost,
                     COUNT(*) AS events
              FROM token_usages
              WHERE host_id IS NOT NULL
@@ -190,6 +193,7 @@ class LogRepository
                 'output' => isset($row['output']) ? (int) $row['output'] : 0,
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
                 'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+                'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
                 'events' => isset($row['events']) ? (int) $row['events'] : 0,
             ];
         }

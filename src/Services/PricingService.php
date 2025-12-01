@@ -26,6 +26,11 @@ class PricingService
     ) {
     }
 
+    public function defaultModel(): string
+    {
+        return $this->defaultModel;
+    }
+
     public function latestPricing(string $model, bool $force = false): array
     {
         $now = time();

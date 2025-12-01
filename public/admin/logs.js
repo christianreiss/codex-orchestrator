@@ -19,6 +19,7 @@
     total: 0,
     pages: 1,
     loading: false,
+    currency: 'USD',
   };
   let apiDisabled = null;
 
@@ -55,6 +56,14 @@
     const num = Number(value);
     if (!Number.isFinite(num)) return '—';
     return num.toLocaleString('en-US');
+  }
+
+  function formatCost(value) {
+    if (value === null || value === undefined) return '—';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    const formatted = num.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    return state.currency ? `${formatted} ${state.currency}` : formatted;
   }
 
   function api(path, opts = {}) {
@@ -138,7 +147,7 @@
   function renderTable(items) {
     if (!tableBody) return;
     if (!items.length) {
-      tableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No client reports yet.</td></tr>';
+      tableBody.innerHTML = '<tr class="empty-row"><td colspan="8">No client reports yet.</td></tr>';
       return;
     }
 
@@ -150,6 +159,7 @@
       const outputTokens = formatNumber(item.output);
       const cachedTokens = formatNumber(item.cached);
       const reasoningTokens = formatNumber(item.reasoning);
+      const costValue = formatCost(item.cost);
 
       return `<tr>
         <td><div class="mono">${created}</div></td>
@@ -163,6 +173,7 @@
         <td><span class="mono">${outputTokens}</span></td>
         <td><span class="mono">${cachedTokens}</span></td>
         <td><span class="mono">${reasoningTokens}</span></td>
+        <td><span class="mono">${costValue}</span></td>
       </tr>`;
     });
 
@@ -186,7 +197,7 @@
     state.loading = true;
     applySortState();
     if (tableBody) {
-      tableBody.innerHTML = '<tr class="loading-row"><td colspan="7">Loading…</td></tr>';
+      tableBody.innerHTML = '<tr class="loading-row"><td colspan="8">Loading…</td></tr>';
     }
     statusEl.textContent = 'Loading…';
 
@@ -206,12 +217,15 @@
       state.total = Number(data.total || 0);
       state.pages = Number(data.pages || 1);
       state.page = Number(data.page || state.page);
+      if (data.currency) {
+        state.currency = data.currency;
+      }
       renderTable(data.items || []);
       renderPagination();
     } catch (err) {
       console.error('load logs', err);
       if (tableBody) {
-        tableBody.innerHTML = '<tr class="error-row"><td colspan="7">Could not load logs.</td></tr>';
+        tableBody.innerHTML = '<tr class="error-row"><td colspan="8">Could not load logs.</td></tr>';
       }
       if (statusEl) statusEl.textContent = 'Error loading logs';
     } finally {
