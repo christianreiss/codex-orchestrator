@@ -50,7 +50,7 @@ Daily preflight: the first non-admin request of each UTC day refreshes the cache
 - `GET /admin/slash-commands/{filename}` — fetch a single slash command (includes full prompt body).
 - `POST /admin/slash-commands/store` — create/update a slash command (body: `filename`, `prompt`, optional `description`/`argument_hint`/`sha256`; sha is computed if omitted).
 - `DELETE /admin/slash-commands/{filename}` — retire a slash command (marks deleted; hosts remove it on next sync).
-- Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_week` (aligned to the ChatGPT weekly window when available, else trailing 7 days), `tokens_month` (month to date), `pricing`, `pricing_week_cost`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations.
+- Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_day` (UTC day), `tokens_week` (aligned to the ChatGPT weekly window when available, else trailing 7 days), `tokens_month` (month to date), `pricing`, `pricing_day_cost`, `pricing_week_cost`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations.
 
 ## Auth + IP rules
 

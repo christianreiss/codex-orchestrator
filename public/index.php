@@ -911,9 +911,13 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     }
     $monthStart = gmdate('Y-m-01\T00:00:00\Z');
     $monthEnd = gmdate('Y-m-01\T00:00:00\Z', strtotime('+1 month'));
+    $dayStart = gmdate('Y-m-d\T00:00:00\Z');
+    $dayEnd = gmdate('Y-m-d\T00:00:00\Z', strtotime('+1 day'));
+    $tokensDay = $tokenUsageRepository->totalsForRange($dayStart, $dayEnd);
     $tokensMonth = $tokenUsageRepository->totalsForRange($monthStart, $monthEnd);
     $tokensWeek = $tokenUsageRepository->totalsForRange($weekStart, $weekEnd);
     $pricing = $pricingService->latestPricing('gpt-5.1', false);
+    $dailyCost = $pricingService->calculateCost($pricing, $tokensDay);
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
@@ -933,9 +937,11 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'seed_required' => count($seedReasons) > 0,
             'seed_reasons' => $seedReasons,
             'tokens' => $tokens,
+            'tokens_day' => $tokensDay,
             'tokens_month' => $tokensMonth,
             'tokens_week' => $tokensWeek,
             'pricing' => $pricing,
+            'pricing_day_cost' => $dailyCost,
             'pricing_month_cost' => $monthlyCost,
             'pricing_week_cost' => $weeklyCost,
             'chatgpt_usage' => $chatgpt['snapshot'] ?? null,

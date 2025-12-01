@@ -955,24 +955,41 @@ const statsEl = document.getElementById('stats');
         reset_after_seconds: snapshot.secondary_reset_after_seconds ?? null,
         reset_at: snapshot.secondary_reset_at ?? null,
       };
+      const daily = (lastOverview?.tokens_day) || { input: 0, output: 0, cached: 0, total: 0 };
+      const weekly = (lastOverview?.tokens_week) || { input: 0, output: 0, cached: 0, total: 0 };
       const monthly = (lastOverview?.tokens_month) || { input: 0, output: 0, cached: 0, total: 0 };
       const pricing = lastOverview?.pricing || { currency: 'EUR', input_price_per_1k: 0, output_price_per_1k: 0, cached_price_per_1k: 0 };
+      const dayCost = lastOverview?.pricing_day_cost ?? null;
       const monthCost = lastOverview?.pricing_month_cost ?? null;
       const weekCost = lastOverview?.pricing_week_cost ?? null;
       const currency = pricing.currency || 'EUR';
       const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
       const planLabel = plan;
       const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
+      const computeCost = (usage) => {
+        if (!hasPricing || !usage) return null;
+        const toNum = (value) => {
+          const num = Number(value);
+          return Number.isFinite(num) ? num : 0;
+        };
+        return ((toNum(usage.input) / 1000) * (pricing.input_price_per_1k ?? 0))
+          + ((toNum(usage.output) / 1000) * (pricing.output_price_per_1k ?? 0))
+          + ((toNum(usage.cached) / 1000) * (pricing.cached_price_per_1k ?? 0));
+      };
       const inputCost = hasPricing ? (monthly.input / 1000) * (pricing.input_price_per_1k ?? 0) : null;
       const outputCost = hasPricing ? (monthly.output / 1000) * (pricing.output_price_per_1k ?? 0) : null;
       const cachedCost = hasPricing ? (monthly.cached / 1000) * (pricing.cached_price_per_1k ?? 0) : null;
-      const monthCostResolved = hasPricing ? (monthCost ?? ((inputCost ?? 0) + (outputCost ?? 0) + (cachedCost ?? 0))) : null;
+      const dayCostResolved = hasPricing ? (dayCost ?? computeCost(daily)) : null;
+      const weekCostResolved = hasPricing ? (weekCost ?? computeCost(weekly)) : null;
+      const monthCostResolved = hasPricing ? (monthCost ?? computeCost(monthly)) : null;
       const costSummary = (() => {
-        if (!hasPricing || (weekCost === null && monthCostResolved === null)) return 'Pricing missing';
+        if (!hasPricing) return 'Pricing missing';
         const fmt = (value) => `${Number.isFinite(value) ? value.toFixed(2) : '0.00'}$`;
         const parts = [];
-        if (weekCost !== null) parts.push(`${fmt(weekCost)} this Week`);
-        if (monthCostResolved !== null) parts.push(`${fmt(monthCostResolved)} this Month`);
+        if (dayCostResolved !== null) parts.push(`${fmt(dayCostResolved)} Today`);
+        if (weekCostResolved !== null) parts.push(`${fmt(weekCostResolved)} Week`);
+        if (monthCostResolved !== null) parts.push(`${fmt(monthCostResolved)} Month`);
+        if (!parts.length) return 'Pricing missing';
         return parts.map(line => `<div>${line}</div>`).join('');
       })();
 
@@ -1019,7 +1036,7 @@ const statsEl = document.getElementById('stats');
               <div class="value">
                 ${costSummary}
               </div>
-              <small>${hasPricing ? 'Includes input/output/cached · month = current month' : 'Set PRICING_URL or GPT51_* env vars'}</small>
+              ${hasPricing ? '' : '<small>Set PRICING_URL or GPT51_* env vars</small>'}
             </div>
           </div>
         </div>
