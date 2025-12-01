@@ -117,6 +117,13 @@ def _run_probe(payload: VerifyRequest) -> dict:
         "reachable": True,
         "codex_version": _codex_version(env),
     }
+    try:
+        with open(auth_path, "r", encoding="utf-8") as fh:
+            updated_auth = json.load(fh)
+    except Exception:
+        updated_auth = None
+    if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
+        result["updated_auth"] = updated_auth
     if not ok:
         parts = [p for p in [stderr, stdout] if p]
         message = "\n".join(parts).strip()

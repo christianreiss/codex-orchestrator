@@ -15,9 +15,8 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 3. Create a temp `$HOME`, write `~/.codex/auth.json`, chmod 0600.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from the runner container env (defaults to `https://codex-auth.example.com` via compose, falls back to `http://api` in code), `CODEX_SYNC_OPTIONAL=1`, `CODEX_SYNC_BAKED=0`.
 5. Run `/usr/local/bin/codex exec "Reply Banana if this works." --dangerously-bypass-approvals-and-sandbox -s danger-full-access --skip-git-repo-check` with the provided or default timeout.
-6. Status is `ok` only if the command exits 0 and stdout contains `banana` (case-insensitive); otherwise it is `fail` with `reason`.
-
-Note: the current runner implementation does not emit `updated_auth`. The API will still apply it if a future runner version returns the field.
+6. Reload `~/.codex/auth.json` after the probe; when it differs from the input payload, include it in the response as `updated_auth`.
+7. Status is `ok` only if the command exits 0 and stdout contains `banana` (case-insensitive); otherwise it is `fail` with `reason`.
 
 ## How the API uses it (AuthService + RunnerVerifier)
 
