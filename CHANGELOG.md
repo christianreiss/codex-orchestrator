@@ -1,4 +1,6 @@
 # 2025-12-02
+- Admin dashboard and client logs now share the OpenAI dark palette with matching gradients, glows, and controls so both screens present the same visual system.
+- Dashboard layout received a 2025 refresh: responsive card grids, glass panels with focus-visible affordances, sticky table headers, tuned scrollbars, and reduced-motion fallbacks improve usability on desktop and mobile views.
 - Added dedicated launcher commands: `cdx shell` now forces `--model gpt-5.1-codex` and `cdx code` forces `--model gpt-5.1-codex-max` before calling Codex, and `cdx --execute "<prompt>"` runs `codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check` directly (no wrapper output) while passing through extra arguments, capturing the final reply via `--output-last-message` and printing only that reply; wrapper bumped to 2025.12.02-04.
 - Boot summary rows are now deduplicated, sorted, and easier to read while keeping the quota bars untouched.
 - Fixed `cdx --execute` so `--skip-git-repo-check` is passed after `exec`, matching Codex CLI expectations.
