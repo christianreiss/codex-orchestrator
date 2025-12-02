@@ -1,4 +1,5 @@
 # 2025-12-02
+- Added `cdx --execute "<prompt>"` to run `codex --model gpt-5.1 --skip-git-repo-check exec` directly (no wrapper output) while passing through extra arguments; wrapper version bumped to 2025.12.02-02.
 - Fixed cdx runner telemetry so the status line reflects the fresh verification time immediately after the runner is triggered.
 - cdx now shows “auth runner just verified” when the runner completed within ~90 seconds, replacing “<1m ago”; wrapper version bumped to 2025.12.02-01.
 

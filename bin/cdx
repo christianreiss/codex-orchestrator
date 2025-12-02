@@ -178,7 +178,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.12.02-01"
+WRAPPER_VERSION="2025.12.02-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -199,6 +199,17 @@ CURRENT_USER="$(id -un 2>/dev/null || echo unknown)"
 LOCAL_HOSTNAME="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)"
 HOST_USERS_CACHE=()
 HOST_USERS_FETCHED=0
+
+if [[ "${1-}" == "--execute" ]]; then
+  shift
+  if (( $# == 0 )); then
+    printf 'Usage: cdx --execute "<prompt>" [codex args]\n' >&2
+    exit 1
+  fi
+  prompt="$1"
+  shift
+  exec codex --model gpt-5.1 --skip-git-repo-check exec "$prompt" /dev/null "$@"
+fi
 
 # Early one-shot commands
 case "${1-}" in

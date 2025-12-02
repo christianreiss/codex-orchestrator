@@ -17,5 +17,6 @@
   - After Codex runs, pushes updated auth if changed and sends token-usage metrics. When the host is marked **insecure** (API `host.secure=false` or baked flag), `cdx` purges `~/.codex/auth.json` after the push so credentials are not left on disk and emits an extra bootstrap warning to flag the ephemeral state.
 - `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
 - `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
+- `cdx --execute "<prompt>" [args...]` skips all wrapper logging and directly runs `codex --model gpt-5.1 --skip-git-repo-check exec "<prompt>" /dev/null ...`, passing any remaining arguments through to `codex`; no other wrapper flags may accompany this mode.
 - The API can return HTTP 429 when IP rate limits trip (global bucket or repeated invalid API keys). Responses include `bucket`, `limit`, and `reset_at`; callers should back off until `reset_at` before retrying.
 - Wrapper publishing: the bundled `bin/cdx` in the Docker image is the source of truth. Rebuilds seed storage automatically; there is no `/wrapper` upload endpoint. Any change to `bin/cdx` must bump `WRAPPER_VERSION`.
