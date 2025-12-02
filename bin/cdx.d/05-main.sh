@@ -952,14 +952,31 @@ if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "
   result_label="Codex go Brrrr!"
 fi
 
-  log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
-  log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
-  log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
-  log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  declare -A SUMMARY_ROWS=()
+  add_summary_row() {
+    local key="$1"
+    local value="$2"
+    [[ -z "$key" || -z "$value" ]] && return
+    SUMMARY_ROWS["$key"]="$value"
+  }
+  print_summary_rows() {
+    if (( ${#SUMMARY_ROWS[@]} == 0 )); then
+      return
+    fi
+    local key
+    while IFS= read -r key; do
+      log_info "${SUMMARY_ROWS[$key]}"
+    done < <(printf '%s\n' "${!SUMMARY_ROWS[@]}" | LC_ALL=C sort)
+  }
+
+  add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
+  add_summary_row "auth" "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  add_summary_row "codex" "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+  add_summary_row "prompts" "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
+  add_summary_row "wrapper" "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   if [[ -n "$runner_label" ]]; then
-    log_info "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
+    add_summary_row "runner" "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
   fi
-  log_info "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
   host_usage_parts=()
   if [[ -n "$HOST_API_CALLS" ]]; then
@@ -977,8 +994,15 @@ fi
   fi
   if (( ${#host_usage_parts[@]} )); then
     host_usage_text="$(join_with_semicolon "${host_usage_parts[@]}")"
-    log_info "$(format_simple_row "host usage" "$host_usage_text")"
+    add_summary_row "host usage" "$(format_simple_row "host usage" "$host_usage_text")"
   fi
+  if [[ -n "$usage_summary" ]]; then
+    add_summary_row "tokens" "$(format_simple_row "tokens" "$usage_summary")"
+  fi
+  add_summary_row "command" "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
+  add_summary_row "Policy" "$(format_simple_row "Policy" "$quota_summary")"
+  add_summary_row "result" "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+  print_summary_rows
   primary_reset_hint=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
   if [[ -n "$qline" ]]; then
@@ -1046,13 +1070,6 @@ fi
     QUOTA_WARNING=1
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
-
-  if [[ -n "$usage_summary" ]]; then
-  log_info "$(format_simple_row "tokens" "$usage_summary")"
-fi
-log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
-log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-log_info "$(format_simple_row "Policy" "$quota_summary")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
@@ -1203,6 +1220,10 @@ PY
   fi
   return "$status"
 }
+
+if [[ -n "$CODEX_MODEL_PRESET" ]]; then
+  set -- --model "$CODEX_MODEL_PRESET" "$@"
+fi
 
 CODEX_COMMAND_STARTED=1
 if run_codex_command "$@"; then

@@ -1,5 +1,7 @@
 # 2025-12-02
-- Added `cdx --execute "<prompt>"` to run `codex --model gpt-5.1 --skip-git-repo-check exec` directly (no wrapper output) while passing through extra arguments; wrapper version bumped to 2025.12.02-02.
+- Added dedicated launcher commands: `cdx shell` now forces `--model gpt-5.1-codex` and `cdx code` forces `--model gpt-5.1-codex-max` before calling Codex, and `cdx --execute "<prompt>"` runs `codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check` directly (no wrapper output) while passing through extra arguments, capturing the final reply via `--output-last-message` and printing only that reply; wrapper bumped to 2025.12.02-04.
+- Boot summary rows are now deduplicated, sorted, and easier to read while keeping the quota bars untouched.
+- Fixed `cdx --execute` so `--skip-git-repo-check` is passed after `exec`, matching Codex CLI expectations.
 - Fixed cdx runner telemetry so the status line reflects the fresh verification time immediately after the runner is triggered.
 - cdx now shows “auth runner just verified” when the runner completed within ~90 seconds, replacing “<1m ago”; wrapper version bumped to 2025.12.02-01.
 

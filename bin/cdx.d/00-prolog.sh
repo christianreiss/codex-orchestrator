@@ -84,6 +84,7 @@ CODEX_NO_PTY=${CODEX_NO_PTY:-0}
 CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
+CODEX_MODEL_PRESET=""
 
 # Per-host baked configuration (populated by the server at download time).
 CODEX_SYNC_BASE_URL_DEFAULT="__CODEX_SYNC_BASE_URL__"
@@ -178,7 +179,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.12.02-02"
+WRAPPER_VERSION="2025.12.02-04"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -208,7 +209,19 @@ if [[ "${1-}" == "--execute" ]]; then
   fi
   prompt="$1"
   shift
-  exec codex --model gpt-5.1 --skip-git-repo-check exec "$prompt" /dev/null "$@"
+  tmp_output="$(mktemp -t cdx-exec-XXXXXX)"
+  cleanup_tmp() { rm -f "$tmp_output"; }
+  trap cleanup_tmp EXIT
+  if codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check \
+    --output-last-message "$tmp_output" "$prompt" "$@" >/dev/null 2>&1; then
+    [[ -s "$tmp_output" ]] && cat "$tmp_output"
+    cleanup_tmp
+    exit 0
+  else
+    status=$?
+    cleanup_tmp
+    exit "$status"
+  fi
 fi
 
 # Early one-shot commands
@@ -230,6 +243,17 @@ esac
 case "${1-}" in
   --debug|--verbose)
     CODEX_DEBUG=1
+    shift
+    ;;
+esac
+
+case "${1-}" in
+  shell)
+    CODEX_MODEL_PRESET="gpt-5.1-codex"
+    shift
+    ;;
+  code)
+    CODEX_MODEL_PRESET="gpt-5.1-codex-max"
     shift
     ;;
 esac
