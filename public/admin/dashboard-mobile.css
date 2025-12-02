@@ -1,11 +1,7 @@
 body[data-view="mobile"] {
   font-family: 'Space Grotesk', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background:
-    radial-gradient(circle at 12% -6%, rgba(24, 178, 126, 0.35), transparent 40%),
-    radial-gradient(circle at 86% 0%, rgba(37, 124, 241, 0.3), transparent 45%),
-    #010409;
-  color: var(--text);
-  color-scheme: dark;
+  background: radial-gradient(circle at 14% 12%, rgba(16,163,127,0.16), transparent 38%), radial-gradient(circle at 82% 8%, rgba(46,125,255,0.14), transparent 36%), linear-gradient(180deg, #f7f9fb 0%, #eef3f6 100%);
+  color: #0f172a;
 }
 
 body[data-view="mobile"] .app {
@@ -23,11 +19,8 @@ body[data-view="mobile"] .topbar {
   padding: 12px 8px;
   margin-bottom: 8px;
   border: none;
-  background: rgba(3, 8, 20, 0.94);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
-  border-radius: 18px;
-  backdrop-filter: blur(var(--panel-blur));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 40px rgba(12, 74, 110, 0.08);
 }
 
 body[data-view="mobile"] .title-line h2 {
@@ -59,16 +52,12 @@ body[data-view="mobile"] .metrics .card {
 
 body[data-view="mobile"] .card {
   border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(var(--panel-blur));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
 }
 
 body[data-view="mobile"] .panel {
   margin-top: 14px;
   border-radius: 14px;
-  backdrop-filter: blur(var(--panel-blur));
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 body[data-view="mobile"] .panel-head {
@@ -141,10 +130,8 @@ body[data-view="mobile"] tbody tr {
   gap: 8px;
   padding: 14px;
   border-radius: 14px;
-  background: rgba(4, 9, 18, 0.9);
-  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(var(--panel-blur));
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.1);
 }
 
 body[data-view="mobile"] tbody td {
