@@ -1,3 +1,6 @@
+# 2025-12-02
+- Fixed cdx runner telemetry so the status line reflects the fresh verification time immediately after the runner is triggered.
+
 # 2025-12-01
 - Estimated Total card no longer repeats the month-to-date total in its header, relying on the breakdown chips below.
 - cdx now treats `/auth` HTTP 5xx/network outages as offline, keeping cached auth usable and surfacing the offline reason instead of hard failures.

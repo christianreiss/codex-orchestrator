@@ -286,6 +286,9 @@ class AuthService
             );
         }
 
+        // Refresh the version snapshot after runner activity so we return the latest runner telemetry.
+        $versions = $this->versionSnapshot($bakedWrapperMeta);
+
         $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];
         if ($trackHost && $canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
             $this->digests->rememberDigests($hostId, [$canonicalDigest]);
