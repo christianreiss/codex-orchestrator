@@ -1,7 +1,10 @@
 body[data-view="mobile"] {
   font-family: 'Space Grotesk', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: radial-gradient(circle at 14% 12%, rgba(16,163,127,0.16), transparent 38%), radial-gradient(circle at 82% 8%, rgba(46,125,255,0.14), transparent 36%), linear-gradient(180deg, #f7f9fb 0%, #eef3f6 100%);
-  color: #0f172a;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(58,141,243,0.2), transparent 40%),
+    radial-gradient(circle at 85% 5%, rgba(20,38,63,0.6), transparent 46%),
+    linear-gradient(160deg, var(--bg), var(--bg-2));
+  color: var(--text);
 }
 
 body[data-view="mobile"] .app {
@@ -16,11 +19,12 @@ body[data-view="mobile"] .content {
 body[data-view="mobile"] .topbar {
   grid-template-columns: 1fr;
   gap: 10px;
-  padding: 12px 8px;
-  margin-bottom: 8px;
-  border: none;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 40px rgba(12, 74, 110, 0.08);
+  padding: 16px 12px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(15,23,42,0.08);
+  background: #ffffff;
+  box-shadow: 0 12px 24px rgba(15,23,42,0.08);
+  border-radius: 18px;
 }
 
 body[data-view="mobile"] .title-line h2 {
@@ -51,13 +55,15 @@ body[data-view="mobile"] .metrics .card {
 }
 
 body[data-view="mobile"] .card {
-  border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15,23,42,0.08);
 }
 
 body[data-view="mobile"] .panel {
   margin-top: 14px;
-  border-radius: 14px;
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15,23,42,0.08);
+  border: 1px solid rgba(15,23,42,0.08);
 }
 
 body[data-view="mobile"] .panel-head {
@@ -129,9 +135,10 @@ body[data-view="mobile"] tbody tr {
   display: grid;
   gap: 8px;
   padding: 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(15,23,42,0.08);
+  border: 1px solid rgba(15,23,42,0.08);
 }
 
 body[data-view="mobile"] tbody td {
@@ -160,7 +167,7 @@ body[data-view="mobile"] .actions-cell button {
 }
 
 body[data-view="mobile"] .usage-card {
-  border-radius: 14px;
+  border-radius: 16px;
 }
 
 body[data-view="mobile"] .usage-head {

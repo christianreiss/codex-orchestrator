@@ -2832,6 +2832,15 @@ project_quota_usage() {
 
 format_auth_label() {
   local status="$1" action="$2" msg="$3"
+  if (( ! HOST_IS_SECURE )) && [[ "$status" =~ ^(outdated|missing|upload_required)$ ]]; then
+    local parts=("status refreshed (insecure host)")
+    case "$action" in
+      store|retrieve|outdated) parts+=("fetched latest auth") ;;
+    esac
+    [[ -n "$msg" ]] && parts+=("$msg")
+    printf "%s" "$(join_with_semicolon "${parts[@]}")"
+    return
+  fi
   local parts=()
   case "$status" in
     valid) parts+=("status valid (matches server)") ;;
@@ -2946,7 +2955,11 @@ case "$AUTH_STATUS" in
     [[ "$AUTH_PULL_STATUS" == "ok" ]] && auth_tone="green"
     ;;
   outdated|missing|upload_required)
-    auth_tone="yellow"
+    if (( HOST_IS_SECURE )); then
+      auth_tone="yellow"
+    else
+      auth_tone="green"
+    fi
     ;;
   *)
     auth_tone="yellow"
@@ -3086,7 +3099,11 @@ esac
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
-if [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then command_actions+=("auth"); fi
+should_flag_auth=1
+if (( ! HOST_IS_SECURE )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
+  should_flag_auth=0
+fi
+if (( should_flag_auth )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then command_actions+=("auth"); fi
 command_label="launching codex"
 if (( ${#command_actions[@]} )); then
   command_label="updating $(human_join "${command_actions[@]}")"
@@ -3108,9 +3125,16 @@ else
   result_parts+=("wrapper ${wrapper_status_label,,}")
 fi
 if [[ -n "$AUTH_STATUS" ]]; then
-  auth_result="auth ${AUTH_STATUS}"
-  if [[ -n "$AUTH_ACTION" ]]; then
-    auth_result+=", ${AUTH_ACTION}"
+  if (( ! HOST_IS_SECURE )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
+    auth_result="auth refreshed (insecure host)"
+    if [[ -n "$AUTH_MESSAGE" ]]; then
+      auth_result+=", ${AUTH_MESSAGE}"
+    fi
+  else
+    auth_result="auth ${AUTH_STATUS}"
+    if [[ -n "$AUTH_ACTION" ]]; then
+      auth_result+=", ${AUTH_ACTION}"
+    fi
   fi
   result_parts+=("$auth_result")
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
@@ -3498,4 +3522,3 @@ else
 fi
 push_auth_if_changed "push" || true
 exit "$cmd_status"
-

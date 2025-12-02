@@ -138,6 +138,20 @@ const statsEl = document.getElementById('stats');
       return num.toLocaleString('en-US');
     }
 
+    function formatCurrency(value, currency = 'USD') {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      try {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency,
+          maximumFractionDigits: 2,
+        }).format(num);
+      } catch {
+        return `${currency} ${num.toFixed(2)}`;
+      }
+    }
+
     function formatCountdown(value) {
       const ts = parseTimestamp(value);
       if (!ts) return '—';
@@ -510,13 +524,13 @@ const statsEl = document.getElementById('stats');
     }
 
     function updateSortIndicators() {
-      document.querySelectorAll('.sort-btn[data-sort]').forEach((btn) => {
-        const key = btn.getAttribute('data-sort');
-        const indicator = btn.querySelector('.sort-indicator');
+      document.querySelectorAll('.sort-link[data-sort]').forEach((link) => {
+        const key = link.getAttribute('data-sort');
+        const indicator = link.querySelector('.sort-indicator');
         const isActive = key === hostSort.key;
-        btn.classList.toggle('sorted', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-        btn.setAttribute('aria-sort', isActive ? (hostSort.direction === 'asc' ? 'ascending' : 'descending') : 'none');
+        link.classList.toggle('sorted', isActive);
+        link.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        link.setAttribute('aria-sort', isActive ? (hostSort.direction === 'asc' ? 'ascending' : 'descending') : 'none');
         if (indicator) {
           indicator.textContent = isActive
             ? (hostSort.direction === 'asc' ? '▲' : '▼')
@@ -1037,70 +1051,76 @@ const statsEl = document.getElementById('stats');
       const daily = (lastOverview?.tokens_day) || { input: 0, output: 0, cached: 0, total: 0 };
       const weekly = (lastOverview?.tokens_week) || { input: 0, output: 0, cached: 0, total: 0 };
       const monthly = (lastOverview?.tokens_month) || { input: 0, output: 0, cached: 0, total: 0 };
-      const pricing = lastOverview?.pricing || { currency: 'EUR', input_price_per_1k: 0, output_price_per_1k: 0, cached_price_per_1k: 0 };
-      const dayCost = lastOverview?.pricing_day_cost ?? null;
-      const monthCost = lastOverview?.pricing_month_cost ?? null;
-      const weekCost = lastOverview?.pricing_week_cost ?? null;
-      const currency = pricing.currency || 'EUR';
+      const dailyCost = Number(lastOverview?.pricing_day_cost ?? 0);
+      const weeklyCost = Number(lastOverview?.pricing_week_cost ?? 0);
+      const monthlyCost = Number(lastOverview?.pricing_month_cost ?? 0);
+      const costCurrency = typeof lastOverview?.pricing?.currency === 'string'
+        ? lastOverview.pricing.currency.toUpperCase()
+        : 'USD';
+      const formatCost = (value) => formatCurrency(value, costCurrency);
       const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
       const planLabel = plan;
-      const hasPricing = (pricing.input_price_per_1k ?? 0) > 0 || (pricing.output_price_per_1k ?? 0) > 0 || (pricing.cached_price_per_1k ?? 0) > 0;
-      const computeCost = (usage) => {
-        if (!hasPricing || !usage) return null;
-        const toNum = (value) => {
-          const num = Number(value);
-          return Number.isFinite(num) ? num : 0;
-        };
-        return ((toNum(usage.input) / 1000) * (pricing.input_price_per_1k ?? 0))
-          + ((toNum(usage.output) / 1000) * (pricing.output_price_per_1k ?? 0))
-          + ((toNum(usage.cached) / 1000) * (pricing.cached_price_per_1k ?? 0));
+      const getTokenValue = (usage, key) => {
+        if (!usage) return 0;
+        const value = Number(usage[key]);
+        return Number.isFinite(value) ? value : 0;
       };
-      const inputCost = hasPricing ? (monthly.input / 1000) * (pricing.input_price_per_1k ?? 0) : null;
-      const outputCost = hasPricing ? (monthly.output / 1000) * (pricing.output_price_per_1k ?? 0) : null;
-      const cachedCost = hasPricing ? (monthly.cached / 1000) * (pricing.cached_price_per_1k ?? 0) : null;
-      const dayCostResolved = hasPricing ? (dayCost ?? computeCost(daily)) : null;
-      const weekCostResolved = hasPricing ? (weekCost ?? computeCost(weekly)) : null;
-      const monthCostResolved = hasPricing ? (monthCost ?? computeCost(monthly)) : null;
-      const formatCostValue = (value) => hasPricing && Number.isFinite(value) ? formatMoney(value, currency) : (hasPricing ? formatMoney(0, currency) : 'pricing missing');
+      const sumUsageTokens = (usage) => {
+        if (!usage) return 0;
+        if (Number.isFinite(usage.total)) return usage.total;
+        return getTokenValue(usage, 'input') + getTokenValue(usage, 'output') + getTokenValue(usage, 'cached');
+      };
       const monthlyTotalTokens = Number.isFinite(monthly.total)
         ? monthly.total
         : ((Number.isFinite(monthly.input) ? monthly.input : 0) + (Number.isFinite(monthly.output) ? monthly.output : 0) + (Number.isFinite(monthly.cached) ? monthly.cached : 0));
-      const costBreakdown = hasPricing ? [
-        dayCostResolved !== null ? { label: 'Today', value: dayCostResolved } : null,
-        weekCostResolved !== null ? { label: 'Week', value: weekCostResolved } : null,
-        monthCostResolved !== null ? { label: 'Month', value: monthCostResolved } : null,
-      ].filter(Boolean) : [];
-      const costSummary = (() => {
-        if (!hasPricing) return '<div class="muted">Pricing missing</div>';
-        if (!costBreakdown.length) return '<div class="muted">No usage yet</div>';
-        return costBreakdown.map((item) => `
+      const renderTokenChips = (dayValue = 0, weekValue = 0, monthValue = 0) => {
+        const chips = [
+          { label: 'Today', value: dayValue },
+          { label: 'Week', value: weekValue },
+          { label: 'Month', value: monthValue },
+        ];
+        return chips.map((chip) => `
           <div class="cost-chip">
-            <span>${item.label}</span>
-            <strong>${formatCostValue(item.value)}</strong>
+            <span>${chip.label}</span>
+            <strong>${formatNumber(Number.isFinite(chip.value) ? chip.value : 0)} tokens</strong>
           </div>
         `).join('');
-      })();
-      const renderCostCard = (title, tokens, cost, unitPrice) => `
-        <div class="cost-card">
-          <div class="label">${title}</div>
-          <div class="value">${hasPricing ? formatMoney(cost ?? 0, currency) : 'pricing missing'}</div>
-          <div class="stat-line">${formatNumber(tokens)} tokens</div>
-          <small>${unitPrice}</small>
+      };
+      const renderTokenCard = (title, key) => `
+        <div class="cost-card token-card">
+          <div class="total-head">
+            <div class="total-kicker">${title}</div>
+          </div>
+          <div class="stat-line strong">${formatNumber(getTokenValue(monthly, key))} tokens this month</div>
+          <div class="total-breakdown">
+            ${renderTokenChips(getTokenValue(daily, key), getTokenValue(weekly, key), getTokenValue(monthly, key))}
+          </div>
         </div>
       `;
+      const renderCostChips = (dayValue = 0, weekValue = 0, monthValue = 0) => {
+        const chips = [
+          { label: 'Today', value: Number.isFinite(dayValue) ? dayValue : 0 },
+          { label: 'Week', value: Number.isFinite(weekValue) ? weekValue : 0 },
+          { label: 'Month', value: Number.isFinite(monthValue) ? monthValue : 0 },
+        ];
+        return chips.map((chip) => `
+          <div class="cost-chip">
+            <span>${chip.label}</span>
+            <strong>${formatCost(chip.value)}</strong>
+          </div>
+        `).join('');
+      };
       const totalCard = `
         <div class="cost-card total">
           <div class="total-head">
-            <div class="total-kicker">Estimated Total</div>
+            <div class="total-kicker">Estimated Total <span class="total-sub">${costCurrency}</span></div>
             <button class="total-icon-btn cost-history-btn" type="button" title="Open cost trend" aria-label="Open cost trend">
               <span class="total-icon" aria-hidden="true">📈</span>
             </button>
           </div>
-          <div class="stat-line strong">${formatNumber(monthlyTotalTokens)} tokens</div>
           <div class="total-breakdown">
-            ${costSummary}
+            ${renderCostChips(dailyCost, weeklyCost, monthlyCost)}
           </div>
-          ${hasPricing ? '' : '<small class="muted">Set PRICING_URL or GPT51_* env vars.</small>'}
         </div>
       `;
 
@@ -1125,11 +1145,11 @@ const statsEl = document.getElementById('stats');
           ${renderUsageWindow('Weekly limit', secondary, 'secondary')}
         </div>
         <div class="usage-credits">
-          <strong>Month to date (${currency})</strong>
+          <strong>Costs</strong>
           <div class="cost-grid">
-            ${renderCostCard('Input', monthly.input, inputCost, hasPricing ? `${formatMoney(pricing.input_price_per_1k ?? 0, currency)}/1k` : 'pricing missing')}
-            ${renderCostCard('Output', monthly.output, outputCost, hasPricing ? `${formatMoney(pricing.output_price_per_1k ?? 0, currency)}/1k` : 'pricing missing')}
-            ${renderCostCard('Cached', monthly.cached, cachedCost, hasPricing ? `${formatMoney(pricing.cached_price_per_1k ?? 0, currency)}/1k` : 'pricing missing')}
+            ${renderTokenCard('Input', 'input')}
+            ${renderTokenCard('Output', 'output')}
+            ${renderTokenCard('Cached', 'cached')}
             ${totalCard}
           </div>
         </div>
@@ -1965,11 +1985,20 @@ const statsEl = document.getElementById('stats');
         paintHosts();
       });
     }
-    document.querySelectorAll('.sort-btn[data-sort]').forEach((btn) => {
-      btn.addEventListener('click', (event) => {
-        event.preventDefault();
-        const key = btn.getAttribute('data-sort');
+    document.querySelectorAll('.sort-link[data-sort]').forEach((link) => {
+      const activate = () => {
+        const key = link.getAttribute('data-sort');
         if (key) setHostSort(key);
+      };
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        activate();
+      });
+      link.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          activate();
+        }
       });
     });
     updateSortIndicators();
