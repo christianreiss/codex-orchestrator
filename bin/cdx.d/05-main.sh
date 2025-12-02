@@ -697,10 +697,14 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
     else
       runner_tone="green"
       if [[ -n "$last_ok_rel" ]]; then
-        runner_label="auth runner verified ${last_ok_rel}"
         age_seconds="$(seconds_since_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
         if [[ "$age_seconds" =~ ^-?[0-9]+$ ]]; then
           (( age_seconds < 0 )) && age_seconds=$(( -age_seconds ))
+          if (( age_seconds <= 90 )); then
+            runner_label="auth runner just verified"
+          else
+            runner_label="auth runner verified ${last_ok_rel}"
+          fi
           if (( age_seconds >= RUNNER_STALE_CRIT_SECONDS )); then
             runner_tone="red"
             runner_label+=" (stale)"
@@ -708,6 +712,8 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
             runner_tone="yellow"
             runner_label+=" (stale)"
           fi
+        else
+          runner_label="auth runner verified ${last_ok_rel}"
         fi
       else
         runner_tone="yellow"
