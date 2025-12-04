@@ -397,14 +397,51 @@ const statsEl = document.getElementById('stats');
     }
 
     function formatResetLabel(seconds, resetAt) {
-      if (Number.isFinite(seconds)) {
-        const duration = formatDurationSeconds(seconds);
-        return duration ? `${duration} to reset` : 'reset time unknown';
+      const now = Date.now();
+      const targetTs = (() => {
+        const parsed = resetAt ? parseTimestamp(resetAt) : null;
+        if (parsed) return parsed.getTime();
+        if (Number.isFinite(seconds)) return now + (seconds * 1000);
+        return null;
+      })();
+
+      if (!targetTs) return 'reset time unknown';
+
+      const diffMs = targetTs - now;
+      if (diffMs <= 0) return 'resets imminently';
+
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+
+      const days = Math.floor(diffMs / dayMs);
+      const hours = Math.floor((diffMs % dayMs) / hourMs);
+      const minutes = Math.floor((diffMs % hourMs) / minuteMs);
+
+      if (diffMs >= 48 * hourMs) {
+        const weekday = new Date(targetTs).toLocaleDateString('en-US', { weekday: 'long' });
+        const dayLabel = `${days} day${days === 1 ? '' : 's'}`;
+        return `Resets in ${dayLabel} (${weekday})`;
       }
-      if (resetAt) {
-        return `resets ${formatRelative(resetAt)}`;
+
+      if (diffMs >= 24 * hourMs) {
+        const dayLabel = `${days} day${days === 1 ? '' : 's'}`;
+        const hourLabel = hours > 0 ? `, ${hours} hour${hours === 1 ? '' : 's'}` : '';
+        return `Resets in ${dayLabel}${hourLabel}`;
       }
-      return 'reset time unknown';
+
+      if (diffMs >= hourMs) {
+        const hourLabel = `${hours} hour${hours === 1 ? '' : 's'}`;
+        const minuteLabel = minutes > 0 ? `, ${minutes} minute${minutes === 1 ? '' : 's'}` : '';
+        return `Resets in ${hourLabel}${minuteLabel}`;
+      }
+
+      if (minutes > 0) {
+        return `Resets in ${minutes} minute${minutes === 1 ? '' : 's'}`;
+      }
+
+      const secondsLeft = Math.max(1, Math.round(diffMs / 1000));
+      return `Resets in ${secondsLeft} second${secondsLeft === 1 ? '' : 's'}`;
     }
 
     function formatMoney(amount, currency = 'USD') {
