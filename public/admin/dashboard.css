@@ -711,17 +711,58 @@
     .cost-history-chart { padding-top: 2px; }
     .cost-history-chart .legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; font-size: 13px; }
     .cost-history-chart .legend-item { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: rgba(15,23,42,0.04); border: 1px solid rgba(15,23,42,0.12); }
+    .cost-history-chart .legend-item.legend-total { border-color: rgba(49,46,129,0.35); background: rgba(49,46,129,0.08); }
     .cost-history-chart .legend-item strong { margin-left: 2px; }
     .cost-history-chart .swatch { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
     .cost-history-chart .line-input { stroke: #0ea5e9; }
     .cost-history-chart .line-output { stroke: #16a34a; }
     .cost-history-chart .line-cached { stroke: #f97316; }
+    .cost-history-chart .line-total { stroke: #312e81; }
     .cost-history-chart .dot-input { stroke: #0ea5e9; }
     .cost-history-chart .dot-output { stroke: #16a34a; }
     .cost-history-chart .dot-cached { stroke: #f97316; }
+    .cost-history-chart .dot-total { stroke: #312e81; }
     .cost-history-chart .dot-input,
     .cost-history-chart .dot-output,
-    .cost-history-chart .dot-cached { fill: #ffffff; stroke-width: 2; }
+    .cost-history-chart .dot-cached,
+    .cost-history-chart .dot-total { fill: #ffffff; stroke-width: 2; }
+    .cost-history-chart .cost-chart-shell { position: relative; margin-bottom: 12px; }
+    .cost-history-chart .cost-chart-shell svg { width: 100%; height: 260px; display: block; border-radius: 14px; background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0.4)); }
+    .cost-history-chart .cost-chart-overlay { position: absolute; inset: 0; cursor: crosshair; }
+    .cost-history-chart .cost-chart-crosshair { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(15,23,42,0.25); pointer-events: none; }
+    .cost-history-chart .cost-chart-tooltip { position: absolute; min-width: 190px; max-width: 240px; background: rgba(255,255,255,0.96); border: 1px solid rgba(15,23,42,0.12); border-radius: 12px; padding: 10px 12px; pointer-events: none; box-shadow: 0 18px 36px rgba(15,23,42,0.16); }
+    .cost-history-chart .cost-tooltip-date { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+    .cost-history-chart .cost-tooltip-total { font-size: 20px; font-weight: 900; margin: 4px 0; }
+    .cost-history-chart .cost-tooltip-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; font-size: 12px; }
+    .cost-history-chart .cost-tooltip-breakdown span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .cost-history-chart .cost-tooltip-breakdown strong { display: block; color: var(--text); font-weight: 700; }
+    .cost-history-chart .cost-detail { border: 1px solid rgba(15,23,42,0.1); border-radius: 18px; padding: 16px 18px; background: rgba(255,255,255,0.94); box-shadow: inset 0 1px 0 rgba(15,23,42,0.04); display: flex; flex-direction: column; gap: 12px; }
+    .cost-history-chart .cost-detail-head { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: flex-start; }
+    .cost-history-chart .cost-detail-date { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+    .cost-history-chart .cost-detail-total { font-size: 30px; font-weight: 900; letter-spacing: -0.3px; color: var(--text); }
+    .cost-history-chart .cost-detail-note { font-size: 13px; color: var(--muted); align-self: flex-end; }
+    .cost-history-chart .cost-detail-chips { display: flex; flex-wrap: wrap; gap: 12px; }
+    .cost-history-chart .cost-detail-chip { flex: 1 1 200px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(15,23,42,0.12); background: #fff; box-shadow: inset 0 1px 0 rgba(15,23,42,0.04); }
+    .cost-history-chart .cost-detail-chip span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+    .cost-history-chart .cost-detail-chip strong { display: block; font-size: 18px; font-weight: 800; margin: 4px 0; }
+    .cost-history-chart .cost-detail-chip small { font-size: 12px; color: var(--muted); }
+    .cost-history-chart .cost-detail-chip[data-series="input"] { border-color: rgba(14,165,233,0.4); }
+    .cost-history-chart .cost-detail-chip[data-series="output"] { border-color: rgba(22,163,74,0.4); }
+    .cost-history-chart .cost-detail-chip[data-series="cached"] { border-color: rgba(249,115,22,0.4); }
+    .cost-history-chart .cost-table-wrap { margin-top: 18px; border: 1px solid rgba(15,23,42,0.12); border-radius: 16px; overflow-y: auto; max-height: 360px; }
+    .cost-history-chart .cost-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .cost-history-chart .cost-table thead th { position: sticky; top: 0; background: rgba(15,23,42,0.04); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .cost-history-chart .cost-table tbody td { padding: 12px; border-top: 1px solid rgba(15,23,42,0.08); vertical-align: top; }
+    .cost-history-chart .cost-table tbody tr { cursor: pointer; transition: background 0.15s ease; }
+    .cost-history-chart .cost-table tbody tr:hover { background: rgba(14,165,233,0.08); }
+    .cost-history-chart .cost-table tbody tr.is-active { background: rgba(14,165,233,0.12); box-shadow: inset 3px 0 0 #0ea5e9; }
+    .cost-history-chart .cost-table tbody tr:focus-visible { outline: 2px solid #0ea5e9; outline-offset: -2px; }
+    .cost-history-chart .cost-table td strong { display: block; font-size: 14px; font-weight: 800; }
+    .cost-history-chart .cost-table td small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .cost-history-chart .cost-table .tokens-col { text-align: right; white-space: nowrap; }
+    .cost-history-chart .cost-table-date { font-weight: 700; }
+    .cost-history-chart .line-emphasis { stroke-width: 3; }
+    .cost-history-chart .dot-emphasis { stroke-width: 3; }
     .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
     .cost-card { padding: 14px; border-radius: 18px; border: 1px solid rgba(15,23,42,0.08); background: #ffffff; box-shadow: 0 10px 25px rgba(15,23,42,0.06); display: flex; flex-direction: column; gap: 6px; min-height: 170px; }
     .cost-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }

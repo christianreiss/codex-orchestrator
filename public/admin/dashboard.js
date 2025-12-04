@@ -63,6 +63,7 @@ const statsEl = document.getElementById('stats');
     const closeHostDetailBtn = document.getElementById('closeHostDetail');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const promptsTbody = document.querySelector('#prompts tbody');
+    const newCommandBtn = document.getElementById('newCommandBtn');
     const promptModal = document.getElementById('promptModal');
     const promptFilename = document.getElementById('promptFilename');
     const promptDescription = document.getElementById('promptDescription');
@@ -76,6 +77,7 @@ const statsEl = document.getElementById('stats');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
     const USAGE_HISTORY_DAYS = 60;
     const COST_SERIES = [
+      { key: 'total', label: 'Total', color: '#312e81', emphasis: true },
       { key: 'input', label: 'Input', color: '#0ea5e9' },
       { key: 'output', label: 'Output', color: '#16a34a' },
       { key: 'cached', label: 'Cached', color: '#f97316' },
@@ -915,7 +917,7 @@ const statsEl = document.getElementById('stats');
     function renderPrompts(prompts) {
       currentPrompts = Array.isArray(prompts) ? prompts : [];
       if (promptsPanel) {
-        promptsPanel.style.display = currentPrompts.length > 0 ? 'block' : 'none';
+        promptsPanel.style.display = 'block';
       }
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
@@ -1415,10 +1417,16 @@ const statsEl = document.getElementById('stats');
       const maxY = Math.max(...allPoints.map((p) => p.y), 0);
       const ticks = buildCostTicks(maxY);
       const yMax = Math.max(maxY, ticks[ticks.length - 1] ?? 0.01);
+      const currency = history?.currency || 'USD';
+      const pointIndex = buildCostPointIndex(history);
+      if (!pointIndex.length) {
+        costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
+        return;
+      }
 
       const gridLines = ticks.map((tick) => {
         const y = height - ((tick / yMax) * height);
-        return `<g class="grid-row"><line x1="0" y1="${y.toFixed(2)}" x2="${width}" y2="${y.toFixed(2)}"></line><text x="${width}" y="${(y - 4).toFixed(2)}" text-anchor="end" class="tick">${formatMoney(tick, history?.currency || 'USD')}</text></g>`;
+        return `<g class="grid-row"><line x1="0" y1="${y.toFixed(2)}" x2="${width}" y2="${y.toFixed(2)}"></line><text x="${width}" y="${(y - 4).toFixed(2)}" text-anchor="end" class="tick">${formatMoney(tick, currency)}</text></g>`;
       }).join('');
 
       const paths = series.map((s) => {
@@ -1430,23 +1438,310 @@ const statsEl = document.getElementById('stats');
         });
         const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
         const latest = coords[coords.length - 1];
-        return `${path ? `<path d="${path}" class="line line-${s.key}"></path>` : ''}${latest ? `<circle cx="${latest.x.toFixed(2)}" cy="${latest.y.toFixed(2)}" r="4" class="dot dot-${s.key}"></circle>` : ''}`;
+        const lineClass = `line line-${s.key}${s.emphasis ? ' line-emphasis' : ''}`;
+        const dotClass = `dot dot-${s.key}${s.emphasis ? ' dot-emphasis' : ''}`;
+        return `${path ? `<path d="${path}" class="${lineClass}"></path>` : ''}${latest ? `<circle cx="${latest.x.toFixed(2)}" cy="${latest.y.toFixed(2)}" r="4" class="${dotClass}"></circle>` : ''}`;
       }).join('');
 
       const legend = series.map((s) => {
         const latest = s.values[s.values.length - 1];
         const value = latest ? latest.y : 0;
         const color = s.color || '#0f172a';
-        return `<span class="legend-item"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, history?.currency || 'USD')}</strong></span>`;
+        const classes = ['legend-item'];
+        if (s.key === 'total' || s.emphasis) classes.push('legend-total');
+        return `<span class="${classes.join(' ')}"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, currency)}</strong></span>`;
       }).join('');
+
+      const latestPoint = pointIndex[pointIndex.length - 1];
+      const detailHtml = renderCostDetail(latestPoint, currency);
+      const tableRows = renderCostTableRows(pointIndex, currency);
 
       costHistoryChart.innerHTML = `
         <div class="legend">${legend}</div>
-        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Cost history over time">
-          <g class="grid">${gridLines}</g>
-          ${paths}
-        </svg>
+        <div class="cost-chart-shell" data-chart-shell>
+          <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Cost history over time">
+            <g class="grid">${gridLines}</g>
+            ${paths}
+          </svg>
+          <div class="cost-chart-overlay" data-chart-overlay aria-hidden="true"></div>
+          <div class="cost-chart-crosshair" data-cost-crosshair hidden></div>
+          <div class="cost-chart-tooltip" data-cost-tooltip hidden></div>
+        </div>
+        <div class="cost-detail" data-cost-detail>${detailHtml}</div>
+        <div class="cost-table-wrap">
+          <table class="cost-table">
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Total</th>
+                <th scope="col">Input</th>
+                <th scope="col">Output</th>
+                <th scope="col">Cached</th>
+                <th scope="col">Tokens</th>
+              </tr>
+            </thead>
+            <tbody data-cost-table>${tableRows}</tbody>
+          </table>
+        </div>
       `;
+
+      attachCostHistoryInteractions(costHistoryChart, {
+        points: pointIndex,
+        currency,
+        minX,
+        spanX,
+      });
+    }
+
+    function attachCostHistoryInteractions(root, config) {
+      const { points, currency, minX, spanX } = config || {};
+      if (!root || !Array.isArray(points) || points.length === 0) return;
+      const overlay = root.querySelector('[data-chart-overlay]');
+      const tooltip = root.querySelector('[data-cost-tooltip]');
+      const crosshair = root.querySelector('[data-cost-crosshair]');
+      const detailEl = root.querySelector('[data-cost-detail]');
+      const tableBody = root.querySelector('[data-cost-table]');
+      if (!detailEl || !tableBody) return;
+
+      const dateLookup = new Map(points.map((pt) => [pt.date, pt]));
+      let selectedDate = points[points.length - 1]?.date || null;
+      let lockedDate = selectedDate;
+      let activeRow = null;
+
+      function updateRowSelection(date) {
+        if (!tableBody) return;
+        if (activeRow && activeRow.dataset.costRow !== date) {
+          activeRow.classList.remove('is-active');
+          activeRow.setAttribute('aria-selected', 'false');
+          activeRow = null;
+        }
+        if (!date) return;
+        const nextRow = tableBody.querySelector(`tr[data-cost-row="${date}"]`);
+        if (nextRow && nextRow !== activeRow) {
+          nextRow.classList.add('is-active');
+          nextRow.setAttribute('aria-selected', 'true');
+          activeRow = nextRow;
+        }
+      }
+
+      function positionCrosshair(point) {
+        if (!crosshair) return;
+        if (!point) {
+          crosshair.hidden = true;
+          return;
+        }
+        const range = spanX || 1;
+        const ratio = range === 0 ? 0 : (point.x - minX) / range;
+        const percent = clamp(ratio, 0, 1);
+        crosshair.style.left = `${(percent * 100).toFixed(2)}%`;
+        crosshair.hidden = false;
+      }
+
+      function setSelection(date, opts = {}) {
+        if (!dateLookup.has(date)) return null;
+        const point = dateLookup.get(date);
+        const force = opts.force ?? false;
+        if (!force && selectedDate === date) {
+          if (opts.lock) lockedDate = date;
+          return point;
+        }
+        selectedDate = date;
+        if (opts.lock) lockedDate = date;
+        if (detailEl) {
+          detailEl.innerHTML = renderCostDetail(point, currency);
+        }
+        updateRowSelection(date);
+        positionCrosshair(point);
+        return point;
+      }
+
+      function showTooltip(point, clientX) {
+        if (!tooltip || !overlay || !point) return;
+        tooltip.innerHTML = renderCostTooltip(point, currency);
+        tooltip.hidden = false;
+        const rect = overlay.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const relative = clamp((clientX - rect.left) / rect.width, 0, 1);
+        const tipWidth = tooltip.offsetWidth || 0;
+        const leftPx = clamp((relative * rect.width) - (tipWidth / 2), 0, Math.max(rect.width - tipWidth, 0));
+        tooltip.style.left = `${leftPx}px`;
+        tooltip.style.top = '12px';
+      }
+
+      function hideTooltip() {
+        if (!tooltip) return;
+        tooltip.hidden = true;
+        tooltip.innerHTML = '';
+      }
+
+      setSelection(selectedDate, { lock: true, force: true });
+
+      if (overlay) {
+        overlay.addEventListener('pointermove', (ev) => {
+          const rect = overlay.getBoundingClientRect();
+          if (rect.width <= 0) return;
+          const relative = clamp((ev.clientX - rect.left) / rect.width, 0, 1);
+          const targetX = minX + ((spanX || 1) * relative);
+          const point = findNearestCostPoint(points, targetX);
+          if (!point) return;
+          setSelection(point.date, { lock: false });
+          showTooltip(point, ev.clientX);
+        });
+        overlay.addEventListener('pointerleave', () => {
+          hideTooltip();
+          if (lockedDate) {
+            setSelection(lockedDate, { lock: false, force: true });
+          }
+        });
+        overlay.addEventListener('click', (ev) => {
+          const rect = overlay.getBoundingClientRect();
+          if (rect.width <= 0) return;
+          const relative = clamp((ev.clientX - rect.left) / rect.width, 0, 1);
+          const targetX = minX + ((spanX || 1) * relative);
+          const point = findNearestCostPoint(points, targetX);
+          if (point) {
+            setSelection(point.date, { lock: true, force: true });
+            showTooltip(point, ev.clientX);
+          }
+        });
+      }
+
+      const handleRowFocus = (event, lock = false) => {
+        const row = event.target.closest('tr[data-cost-row]');
+        if (!row) return;
+        const date = row.dataset.costRow;
+        if (!date) return;
+        setSelection(date, { lock, force: lock });
+        if (!lock) hideTooltip();
+      };
+
+      tableBody.addEventListener('mouseover', (event) => handleRowFocus(event, false));
+      tableBody.addEventListener('focusin', (event) => handleRowFocus(event, false));
+      tableBody.addEventListener('mouseleave', () => {
+        hideTooltip();
+        if (lockedDate) {
+          setSelection(lockedDate, { lock: false, force: true });
+        }
+      });
+      tableBody.addEventListener('click', (event) => {
+        event.preventDefault();
+        handleRowFocus(event, true);
+      });
+      tableBody.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        handleRowFocus(event, true);
+      });
+    }
+
+    function buildCostPointIndex(history) {
+      const points = Array.isArray(history?.points) ? history.points : [];
+      const indexed = [];
+      points.forEach((pt) => {
+        const dateObj = parseDateOnly(pt?.date);
+        if (!dateObj) return;
+        indexed.push({
+          ...pt,
+          dateObj,
+          x: dateObj.getTime(),
+        });
+      });
+      indexed.sort((a, b) => a.x - b.x);
+      return indexed;
+    }
+
+    function renderCostDetail(point, currency) {
+      if (!point) {
+        return '<div class="muted">Hover the chart or select a day to inspect the exact costs.</div>';
+      }
+      const totalCost = formatMoney(point?.costs?.total ?? 0, currency);
+      const totalTokens = formatNumber(point?.tokens?.total ?? 0);
+      const dateLabel = point.dateObj ? formatShortDate(point.dateObj) : point.date;
+      const chips = COST_SERIES
+        .filter((s) => s.key !== 'total')
+        .map((seriesItem) => {
+          const safeCost = Number.isFinite(point?.costs?.[seriesItem.key]) ? point.costs[seriesItem.key] : 0;
+          const safeTokens = Number.isFinite(point?.tokens?.[seriesItem.key]) ? point.tokens[seriesItem.key] : 0;
+          return `
+            <div class="cost-detail-chip" data-series="${seriesItem.key}">
+              <span>${seriesItem.label}</span>
+              <strong>${formatMoney(safeCost, currency)}</strong>
+              <small>${formatNumber(safeTokens)} tokens</small>
+            </div>
+          `;
+        }).join('');
+      return `
+        <div class="cost-detail-head">
+          <div>
+            <div class="cost-detail-date">${dateLabel}</div>
+            <div class="cost-detail-total">${totalCost}</div>
+          </div>
+          <div class="cost-detail-note">${totalTokens} tokens</div>
+        </div>
+        <div class="cost-detail-chips">${chips}</div>
+      `;
+    }
+
+    function renderCostTooltip(point, currency) {
+      if (!point) return '';
+      const dateLabel = point.dateObj ? formatShortDate(point.dateObj) : point.date;
+      const breakdown = COST_SERIES
+        .filter((s) => s.key !== 'total')
+        .map((seriesItem) => {
+          const safeCost = Number.isFinite(point?.costs?.[seriesItem.key]) ? point.costs[seriesItem.key] : 0;
+          return `<div><span>${seriesItem.label}</span><strong>${formatMoney(safeCost, currency)}</strong></div>`;
+        }).join('');
+      return `
+        <div class="cost-tooltip-date">${dateLabel}</div>
+        <div class="cost-tooltip-total">${formatMoney(point?.costs?.total ?? 0, currency)}</div>
+        <div class="cost-tooltip-breakdown">${breakdown}</div>
+      `;
+    }
+
+    function renderCostTableRows(points, currency) {
+      if (!Array.isArray(points) || points.length === 0) {
+        return '<tr><td colspan="6" class="muted">No cost data yet.</td></tr>';
+      }
+      const rows = [...points]
+        .sort((a, b) => b.x - a.x)
+        .map((pt) => {
+          const dateLabel = pt.dateObj ? formatShortDate(pt.dateObj) : pt.date;
+          const totalTokens = formatNumber(pt?.tokens?.total ?? 0);
+          const col = (key) => formatMoney(pt?.costs?.[key] ?? 0, currency);
+          const tok = (key) => formatNumber(pt?.tokens?.[key] ?? 0);
+          return `
+            <tr data-cost-row="${pt.date}" tabindex="0" aria-selected="false">
+              <td><span class="cost-table-date" title="${pt.date}">${dateLabel}</span></td>
+              <td><strong>${col('total')}</strong></td>
+              <td><span>${col('input')}</span><small>${tok('input')} tok</small></td>
+              <td><span>${col('output')}</span><small>${tok('output')} tok</small></td>
+              <td><span>${col('cached')}</span><small>${tok('cached')} tok</small></td>
+              <td class="tokens-col"><strong>${totalTokens}</strong><small>tokens</small></td>
+            </tr>
+          `;
+        }).join('');
+      return rows;
+    }
+
+    function findNearestCostPoint(points, targetX) {
+      if (!Array.isArray(points) || points.length === 0) return null;
+      let nearest = null;
+      let bestDelta = Infinity;
+      points.forEach((pt) => {
+        const delta = Math.abs(pt.x - targetX);
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          nearest = pt;
+        }
+      });
+      return nearest;
+    }
+
+    function clamp(value, min, max) {
+      if (!Number.isFinite(value)) return min;
+      if (value < min) return min;
+      if (value > max) return max;
+      return value;
     }
 
     async function loadCostHistory(force = false) {
@@ -1833,16 +2128,22 @@ const statsEl = document.getElementById('stats');
 
     async function openPromptModal(filename) {
       if (!promptFilename || !promptDescription || !promptBody) return;
-      promptFilename.value = filename || '';
+      const target = typeof filename === 'string' ? filename.trim() : '';
+      promptFilename.value = target;
       promptDescription.value = '';
       promptArgument.value = '';
       promptBody.value = '';
+      if (!target) {
+        if (promptStatus) promptStatus.textContent = '';
+        showPromptModal(true);
+        return;
+      }
       if (promptStatus) promptStatus.textContent = 'Loading…';
       showPromptModal(true);
       try {
-        const resp = await api(`/admin/slash-commands/${encodeURIComponent(filename)}`);
+        const resp = await api(`/admin/slash-commands/${encodeURIComponent(target)}`);
         const data = resp?.data || {};
-        promptFilename.value = data.filename || filename || '';
+        promptFilename.value = data.filename || target || '';
         promptDescription.value = data.description || '';
         promptArgument.value = data.argument_hint || '';
         promptBody.value = data.prompt || '';
@@ -2004,6 +2305,12 @@ const statsEl = document.getElementById('stats');
     updateSortIndicators();
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
+    }
+    if (newCommandBtn) {
+      newCommandBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        openPromptModal('');
+      });
     }
     if (uploadAuthBtn) {
       uploadAuthBtn.addEventListener('click', () => showUploadModal(true));
