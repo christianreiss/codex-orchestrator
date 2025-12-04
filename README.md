@@ -13,7 +13,7 @@
 
 - 🌐 One `/auth` flow to keep every host in sync (retrieve/store with version metadata).
 - 🗝️ Per-host API keys, IP-bound on first contact; single-use installer tokens bake config into `cdx`.
-- 📊 Auditing and usage: token usage, versions, IPs, and runner validation logs.
+- 📊 Auditing and usage: token usage rows plus per-request ingests (client IP + normalized payload), cost estimates from GPT‑5.1 pricing, versions, IPs, and runner validation logs.
 - 🔒 Canonical auth + tokens encrypted at rest (libsodium).
 - 🧠 Extras: slash-command distribution, ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
 
@@ -40,6 +40,12 @@ docker compose up --build     # API on http://localhost:8488 with MySQL sidecar
 
 Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see `docs/INSTALL.md` for examples.
 
+## Usage & cost telemetry
+
+- Send a single line or `usages: [...]` array to `/usage`; the API normalizes/sanitizes lines, attaches model-aware cost from the latest pricing snapshot, and stores both per-row entries (`token_usages`) and a per-request ingest envelope (`token_usage_ingests`) with aggregates + client IP.
+- Admins can explore token rows at `/admin/usage`, ingest envelopes at `/admin/usage/ingests`, and cost/time trends (up to 180 days, pricing optional) at `/admin/usage/cost-history`.
+- Pricing defaults to GPT‑5.1 and refreshes daily from `PRICING_URL` (or `GPT51_*`/`PRICING_CURRENCY` env fallbacks); missing pricing zeroes cost but still records usage.
+
 ## Contributing / local dev
 
 - `composer install`
@@ -54,3 +60,13 @@ Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see 
 - Source-of-truth interface contracts: `docs/interface-api.md`, `docs/interface-cdx.md`, `docs/interface-db.md`
 - Auth runner behavior and probes: `docs/auth-runner.md`
 - Security policy and hardening checklist: `docs/SECURITY.md`
+
+## Codex instructions
+
+`AGENTS.md` (in this repository root) is the canonical guidance Codex should load as described in the [Custom instructions with AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md). Run the helper below whenever you update the file to keep Codex’s profile current:
+
+```bash
+php scripts/sync-agents.php
+```
+
+The script copies `AGENTS.md` into `~/.codex/AGENTS.md` (or `$CODEX_HOME/AGENTS.md` when `CODEX_HOME` is set), creating the directory if necessary and skipping rewrites when the content is already up to date.

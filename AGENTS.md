@@ -13,6 +13,7 @@ This project keeps Codex `auth.json` files synchronized between servers. Each cl
 - API kill switch (`/admin/api/state`) is enforced for all non-admin routes, including `/auth`; only `/admin/api/state` bypasses it.
 - Auth and API keys are encrypted with libsodium secretbox. `AUTH_ENCRYPTION_KEY` is bootstrapped into `.env` if missing—do not lose it or stored payloads/tokens become unreadable.
 - Global throttles are on: per-IP `global` bucket (non-admin routes) and `auth-fail` bucket for bad/missing API keys. 429s include `bucket`, `reset_at`, `limit`.
+- Usage cost baselines: `PricingService` defaults to `gpt-5.1`, pulls from `PRICING_URL` (or `GPT51_*`/`PRICING_CURRENCY` fallbacks), and feeds cost calculations for token usage rows plus the boot-time backfill in `UsageCostService`.
 
 ## Operational Checklist (humans)
 
@@ -40,8 +41,8 @@ This project keeps Codex `auth.json` files synchronized between servers. Each cl
    - `/auth` flow: `retrieve` → `valid`/`upload_required`/`outdated`/`missing`; `store` → `updated`/`unchanged`/`outdated`. Canonicalizes auths (sorted, entropy checks; fallback from tokens/`OPENAI_API_KEY`), enforces RFC3339 `last_refresh` (>=2000-01-01, <= now+300s) and 64-hex digests when required. Runner-returned `updated_auth` is applied when newer/different.
    - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`, both secretbox-encrypted), tracks per-host pointers (`host_auth_states`), caches three recent digests (`host_auth_digests`), updates host metadata and API counters.
    - Versions block: client version from GitHub (3h cache with stale fallback), wrapper version from baked file only, runner telemetry (`runner_enabled/state/last_ok/last_fail/last_check/boot_id`), `quota_hard_fail`, reported client versions.
-- Runner integration: scheduled preflight every 8 hours by default (configurable) + manual trigger; failed runner flips state to fail and uses backoff/staleness/boot change to retry. Validation logs `auth.validate`; applied/ignored/failed runner stores log `auth.runner_store`.
-   - Token usage: `recordTokenUsage()` sanitizes lines, accepts comma/space-separated numbers, writes totals/input/output/cached/reasoning/model/raw line to `token_usages`, logs `token.usage`.
+   - Runner integration: scheduled preflight every 8 hours by default (configurable) + manual trigger; failed runner flips state to fail and uses backoff/staleness/boot change to retry. Validation logs `auth.validate`; applied/ignored/failed runner stores log `auth.runner_store`.
+   - Token usage: `recordTokenUsage()` sanitizes lines, accepts comma/space-separated numbers, writes totals/input/output/cached/reasoning/model/raw line to `token_usages`, derives per-row cost from pricing, logs `token.usage`, and also records a per-request ingest envelope (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and summed cost.
    - ChatGPT usage: `/auth` opportunistically refreshes snapshots; responses include window summary `chatgpt_usage`. Full snapshots/history via admin endpoints.
    - Host deletion: `deleteHost()` removes host + digests; uninstall uses `DELETE /auth` (IP binding unless `?force=1`).
 
@@ -63,27 +64,33 @@ This project keeps Codex `auth.json` files synchronized between servers. Each cl
 8. **`App\Repositories\TokenUsageRepository` (Usage metrics)**
    - Writes token usage rows (totals/input/output/cached/reasoning/model/raw line) and exposes aggregates/top hosts and per-range totals.
 
-9. **`App\Repositories\ChatGptUsageRepository` & `ChatGptUsageStore` (Quota snapshots)**
-   - Persist `/wham/usage` snapshots with primary/secondary windows, credit flags, errors, raw payload, next eligible refresh, and history queries.
+9. **`App\Repositories\TokenUsageIngestRepository` (Usage envelopes)**
+   - Stores per-request ingest envelopes with entry counts, token aggregates, derived cost, client IP, and normalized payload JSON; links to `token_usages` rows and supports search/sort/pagination.
 
-10. **`App\Repositories\PricingSnapshotRepository`**
-    - Stores pricing snapshots for GPT-5.1 (or configured model) with currency + source URL; admin overview uses latest for cost calculations.
+10. **`App\Repositories\ChatGptUsageRepository` & `ChatGptUsageStore` (Quota snapshots)**
+    - Persist `/wham/usage` snapshots with primary/secondary windows, credit flags, errors, raw payload, next eligible refresh, and history queries.
 
-11. **`App\Support\Timestamp` (Comparer)**
+11. **`App\Repositories\PricingSnapshotRepository`**
+    - Stores pricing snapshots for GPT-5.1 (or configured model) with currency + source URL; admin overview, cost calculations, backfills, and history endpoints reuse the latest snapshot.
+
+12. **`App\Support\Timestamp` (Comparer)**
     - Reliable RFC3339 comparator (fractional seconds supported) to order `last_refresh` values.
 
-12. **`App\Services\WrapperService` (Wrapper distribution)**
+13. **`App\Services\WrapperService` (Wrapper distribution)**
     - Seeds stored wrapper from `bin/cdx`; stores version in `versions.wrapper` and recomputes hashes/size. `bakedForHost()` injects base URL/API key/FQDN/CA path/secure flag/version and returns rendered content + sha/size.
     - `replaceFromUpload()` is legacy; wrapper source of truth is the baked script on disk.
 
-13. **`App\Services\RunnerVerifier` (Auth validator)**
+14. **`App\Services\RunnerVerifier` (Auth validator)**
     - POSTs auth payloads to `AUTH_RUNNER_URL` with base URL override + optional host telemetry; includes readiness probe/backoff and returns status/reason/latency/`updated_auth`.
 
-14. **`App\Security\RateLimiter` + `IpRateLimitRepository`**
+15. **`App\Security\RateLimiter` + `IpRateLimitRepository`**
     - Enforces per-IP buckets (`global`, `auth-fail`) with configurable limits/windows and periodic prune of expired counters.
 
-15. **`App\Database` (Infrastructure)**
-    - MySQL only. Migrates tables & backfills columns: `hosts` (fqdn, api_key/hash/enc, secure, roaming, insecure windows, ip, versions, auth_digest, api_calls, timestamps); `auth_payloads` (last_refresh, sha256, source_host_id, secretbox body, created_at); `auth_entries` (secretbox tokens + meta); `host_auth_digests`; `host_auth_states`; `host_users`; `logs`; `ip_rate_limits`; `install_tokens` (with base_url); `token_usages` (incl. reasoning/model/raw line); `chatgpt_usage_snapshots`; `pricing_snapshots`; `versions` (client/wrapper/canonical pointer, runner metadata/state/boot id, flags `api_disabled`/`quota_hard_fail`).
+16. **`App\Services\UsageCostService` & `CostHistoryService` (Costing)**
+    - `UsageCostService` backfills missing costs in `token_usages` and `token_usage_ingests` once per deployment using the latest pricing snapshot; `CostHistoryService` builds daily token/cost series (max 180 days) with zero-cost fallbacks when pricing is absent.
+
+17. **`App\Database` (Infrastructure)**
+    - MySQL only. Migrates tables & backfills columns: `hosts` (fqdn, api_key/hash/enc, secure, roaming, insecure windows, ip, versions, auth_digest, api_calls, timestamps); `auth_payloads` (last_refresh, sha256, source_host_id, secretbox body, created_at); `auth_entries` (secretbox tokens + meta); `host_auth_digests`; `host_auth_states`; `host_users`; `logs`; `ip_rate_limits`; `install_tokens` (with base_url); `token_usages` (incl. reasoning/model/raw line, ingest link, cost); `token_usage_ingests`; `chatgpt_usage_snapshots`; `pricing_snapshots`; `versions` (client/wrapper/canonical pointer, runner metadata/state/boot id, flags `api_disabled`/`quota_hard_fail`).
 
 ## CLI & Ops Scripts (`bin/`)
 
