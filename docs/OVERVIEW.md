@@ -28,6 +28,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
 - **`SlashCommandService`** — CRUD for prompts stored in MySQL, hashed by sha256, with delete markers for retirements.
 - **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly) and fetch GPT‑5.1 pricing (HTTP or env fallback) for cost calculations.
+- **`UsageCostService` & `CostHistoryService`** — backfill missing costs in token usage rows/ingests on boot using the latest pricing snapshot, and expose up to 180 days of daily token + cost time series for dashboards.
 - **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; `AuthEncryptionMigrator` upgrades legacy rows in batches at boot.
 
 ## How the flow works
@@ -50,7 +51,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
 
 5) **Usage, prompts, and host telemetry**
-- `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, stores per-row entries, and now keeps a per-request ingest row for audit (aggregates + normalized payload + client IP).
+- `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot (env fallbacks when remote pricing is absent), stores per-row entries, and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and total cost.
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/slash-commands` list/retrieve/store/delete prompt files; delete marks propagate to hosts on next sync.
 
