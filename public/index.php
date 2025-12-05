@@ -299,6 +299,14 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
             'message' => 'secure must be boolean',
         ], 422);
     }
+    $vipRaw = $payload['vip'] ?? false;
+    $vip = $vipRaw === null ? false : normalizeBoolean($vipRaw);
+    if ($vip === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'vip must be boolean',
+        ], 422);
+    }
 
     $hostPayload = $service->register($fqdn, $secure);
     $host = $hostRepository->findByFqdn($fqdn);
@@ -307,6 +315,12 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
             'status' => 'error',
             'message' => 'Host could not be loaded after registration',
         ], 500);
+    }
+
+    if ($vip !== null) {
+        $hostRepository->updateVip((int) $host['id'], $vip);
+        $host = $hostRepository->findById((int) $host['id']) ?? $host;
+        $hostPayload['vip'] = $vip;
     }
 
     $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));

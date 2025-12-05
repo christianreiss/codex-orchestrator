@@ -57,7 +57,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /wrapper/download` — downloads the baked wrapper; headers include `X-SHA256` and `ETag` with the per-host hash. Auth required.
 
 ## Provisioning & Installer
-- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
+- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
 - `GET /install/{token}` — public, single-use installer (TTL `INSTALL_TOKEN_TTL_SECONDS`, default 1800). Marks token used before emitting. Script downloads `/wrapper/download` baked with API key/FQDN/base URL and installs Codex CLI from GitHub; falls back to version `0.63.0` when no cached client version. Errors return a short shell snippet and non-zero exit.
 
 ## Observability

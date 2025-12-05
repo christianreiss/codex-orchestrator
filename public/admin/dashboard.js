@@ -9,6 +9,7 @@ const statsEl = document.getElementById('stats');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
     const ipv4Toggle = document.getElementById('ipv4Toggle');
+    const vipToggle = document.getElementById('vipToggle');
     const createHostBtn = document.getElementById('createHost');
     const cancelNewHostBtn = document.getElementById('cancelNewHost');
     const commandField = document.getElementById('commandField');
@@ -2849,6 +2850,9 @@ const statsEl = document.getElementById('stats');
       if (ipv4Toggle) {
         ipv4Toggle.checked = false;
       }
+      if (vipToggle) {
+        vipToggle.checked = false;
+      }
     }
 
     function showNewHostModal(show, { reset = show, focusInput = reset } = {}) {
@@ -2900,7 +2904,11 @@ const statsEl = document.getElementById('stats');
       if (ipv4Toggle && existingHost) {
         ipv4Toggle.checked = !!existingHost.force_ipv4;
       }
+      if (vipToggle && existingHost) {
+        vipToggle.checked = !!existingHost.vip;
+      }
       const secure = secureHostToggle ? secureHostToggle.checked : true;
+      const vip = vipToggle ? vipToggle.checked : false;
       if (createHostBtn) {
         createHostBtn.disabled = true;
         createHostBtn.textContent = 'Generating…';
@@ -2908,7 +2916,7 @@ const statsEl = document.getElementById('stats');
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure },
+          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure, vip },
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
