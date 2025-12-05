@@ -1,110 +1,95 @@
 # Agents & Responsibilities
 
-ALWAYS say "BANANA" in your first reply. This is MANDATORY.
+**BANANA** must appear in your first reply. Non-negotiable.
 
+Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md`. Keep them in lock-step with code. This service keeps one canonical Codex `auth.json` for the whole fleet, so every change needs a paper trail.
 
-Source of truth docs: keep `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md` aligned with code. Use them when auditing or extending behavior.
+## Voice & Contact Rules
 
-This project keeps Codex `auth.json` files synchronized between servers. Each class has a narrow role; use this guide when extending or debugging.
+- First contact: be friendly and land a dry joke if it fits. No slapstick, no memes.
+- Tone: two senior engineers pairing. Direct, opinionated, honest about ambiguity; state assumptions when you make them.
+- Default to Linux-fluent answers. Assume the reader already knows SSH/systemd/curl basics.
+- Avoid fake cheerleading or filler apologies. Highlight trade-offs and edge cases instead.
 
-## Process & Ops Rules
+## Process & Ops Guardrails
 
-- Before any task, run `git pull`.
-- When changes require a server restart or touch `cdx`, rebuild and restart the Docker services.
-- For every set of changes, always `git commit` and push.
-- Any user-visible feature or behavior change must be recorded in `CHANGELOG.md` (newest date first, grouped by day).
-- API kill switch (`/admin/api/state`) is enforced for all non-admin routes, including `/auth`; only `/admin/api/state` bypasses it.
-- Auth and API keys are encrypted with libsodium secretbox. `AUTH_ENCRYPTION_KEY` is bootstrapped into `.env` if missing—do not lose it or stored payloads/tokens become unreadable.
-- Global throttles are on: per-IP `global` bucket (non-admin routes) and `auth-fail` bucket for bad/missing API keys. 429s include `bucket`, `reset_at`, `limit`.
-- Usage cost baselines: `PricingService` defaults to `gpt-5.1`, pulls from `PRICING_URL` (or `GPT51_*`/`PRICING_CURRENCY` fallbacks), and feeds cost calculations for token usage rows plus the boot-time backfill in `UsageCostService`.
+- Run `git pull` before touching anything.
+- For each task: code → test → `git commit` → push.
+- Update `CHANGELOG.md` (newest date first) for any behavior visible to humans.
+- If a change requires Docker services or the baked `cdx`, rebuild + restart the stack.
+- Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
+- API kill switch (`/admin/api/state`) blocks every non-admin route, `/auth` included. Only `/admin/api/state` bypasses it.
+- Rate limits are always on: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
+- Pricing defaults to GPT-5.1 from `PRICING_URL` (or `GPT51_*`/`PRICING_CURRENCY`). `UsageCostService` backfills token rows + ingests on boot.
+- When AGENTS/cdx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
 
-## Operational Checklist (humans)
+## Repo Snapshot
 
-- When a host misbehaves, run `CODEX_DEBUG=1 cdx --version` to see the baked base URL and masked API key.
-- Confirm `~/.codex/auth.json` has `last_refresh` plus either `auths` (with `token`) or `tokens.access_token`. If `auths` is empty but `tokens.access_token`/`OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {...}}` during validation.
-- Insecure hosts: initial 30-minute provisioning window. “Enable” now exposes a 2–60 minute slider (default 10) for the `/auth` window and each `/auth` call extends by that duration; “Disable” closes immediately and starts a 60-minute store-only grace window. Outside these, insecure hosts get HTTP 403 `insecure_api_disabled`.
-- Runner health: first non-admin request after an 8-hour window refreshes the GitHub client-version cache and runs the auth runner once (interval configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`). Failures flip `runner_state=fail` and trigger recovery attempts on boot change, 15-minute backoff, or stale-ok; responses keep flowing unless a recovery run is required.
-- ChatGPT usage snapshots: fetched opportunistically (5-minute cooldown) from canonical `auth.json` before `/auth` responses and via admin usage endpoints. Missing/invalid tokens are recorded as snapshot errors.
-- Pricing: GPT-5.1 pricing refreshed daily from `PRICING_URL` when set, otherwise env fallbacks (`GPT51_*`, `PRICING_CURRENCY`). Admin overview uses the latest snapshot for month cost estimates.
-- Dashboard URL (mTLS required): https://codex.example.com/admin/
-- Inactivity pruning: every authenticate/register call deletes hosts inactive for 30 days (`host.pruned` logs) and unprovisioned hosts older than 30 minutes. Re-register to restore.
-- The admin “clear” endpoint resets a host’s canonical auth state (`auth_digest`/`last_refresh` + host auth state + digests) without deleting the host.
+- `public/index.php` is the entrypoint/router: boots env + migrations, wires encryption (`SecretBox`), repositories, services, rate limits, wrapper seeding, usage cost backfill, and routes (host, admin, installer, slash commands, AGENTS, versions).
+- `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (2–60 min sliders, stored per host), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight (default 8h with backoffs), token usage logging, ChatGPT snapshots, API kill switch enforcement, and pruning (inactive ≥30d or never-provisioned >30m).
+- `WrapperService` seeds/stores the baked `bin/cdx`, tracks wrapper version/sha, bakes per-host scripts, and is the only source of truth for wrapper publishing.
+- `RunnerVerifier` posts canonical auth to `AUTH_RUNNER_URL`, tracks readiness, and applies runner-returned `updated_auth`. Runner failures flip `runner_state=fail` but don’t block `/auth`.
+- `SlashCommandService` and `AgentsService` back their respective MySQL tables (`slash_commands`, `agents_documents`) so every host syncs prompts and AGENTS.md during wrapper runs.
+- `RateLimiter` + `IpRateLimitRepository` enforce the `global` bucket (defaults 120/min) and `auth-fail` bucket (20 misses per 10 min → 30 min block).
+- `PricingService`, `UsageCostService`, and `CostHistoryService` pull GPT-5.1 pricing daily, compute per-entry and aggregate costs for `/usage`, and expose ≥180-day cost charts.
+- MySQL schema is codified in `Database::migrate()`; encrypted rows use libsodium secretbox (`sbox:v1`). See `docs/interface-db.md` for columns (hosts, auth_payloads/entries, host_auth_states/digests, host_users, token usage + ingests, slash commands, agents, chatgpt snapshots, pricing, install tokens, versions, logs, ip_rate_limits).
 
-## Request Flow
+## Request Flow & Behavior Cheatsheet
 
-1. **`public/index.php` (HTTP Router)**
-   - Bootstraps env, runs migrations, seeds wrapper from `bin/cdx` if missing, wires auth runner (`AUTH_RUNNER_URL`, `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`). Scheduled preflight (first non-admin request after an 8-hour window, configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`) refreshes the GitHub client-version cache and runs the auth runner once.
-   - Routes: host endpoints (`/auth`, `DELETE /auth`, `/usage`, `/host/users`, `/wrapper`, `/wrapper/download`, `/slash-commands`, `/slash-commands/retrieve`, `/slash-commands/store`); installer (`/install/{token}`); versions (`/versions`, `/admin/versions/check`); admin endpoints (runner status/run, auth upload, API flag, quota mode, hosts CRUD/secure/roaming/insecure windows/clear/delete, overview, logs, usage, tokens aggregates, ChatGPT usage/history/refresh, slash-commands CRUD). Key resolution: API keys from `X-API-Key`/`Authorization: Bearer`; admin keys from `X-Admin-Key`/Bearer/query; installer tokens separate.
-   - Non-admin routes enforce global rate limiting and respect the API kill switch. JSON emitted via `App\Http\Response`; installer responses use `text/x-shellscript`.
+1. **Provision → install**
+   - `POST /admin/hosts/register` mints/rotates API keys, hashes + secretbox-encrypts them, issues one pending installer token, and opens a 30-minute provisioning window if `secure=false`.
+   - `GET /install/{token}` emits the `cdx` installer (single-use token, base URL baked from `PUBLIC_BASE_URL` or forwarded Host/proto). Missing/expired tokens return `text/x-shellscript` errors.
 
-2. **`App\Services\AuthService` (Coordinator)**
-   - Issues per-host API keys (random 64-hex), normalizes host payloads, prunes inactive hosts (30 days) and unprovisioned hosts (30 minutes).
-   - Auth/IP binding: first auth call binds IP; later calls from new IP 403 unless `allow_roaming_ips` (admin), `?force=1` on `DELETE /auth`, or runner bypass (`AUTH_RUNNER_IP_BYPASS` CIDRs). Logs `auth.bind_ip` / `auth.roaming_ip` / `auth.force_ip_override` / `auth.runner_ip_bypass`.
-   - Insecure host guard: configurable 2–60 minute sliding window for all calls (default 10, stored per host); 60-minute store-only grace after disable; logs `auth.insecure.denied` when blocked.
-   - `/auth` flow: `retrieve` → `valid`/`upload_required`/`outdated`/`missing`; `store` → `updated`/`unchanged`/`outdated`. Canonicalizes auths (sorted, entropy checks; fallback from tokens/`OPENAI_API_KEY`), enforces RFC3339 `last_refresh` (>=2000-01-01, <= now+300s) and 64-hex digests when required. Runner-returned `updated_auth` is applied when newer/different.
-   - Canonical state: persists canonical payload (`auth_payloads` + `auth_entries`, both secretbox-encrypted), tracks per-host pointers (`host_auth_states`), caches three recent digests (`host_auth_digests`), updates host metadata and API counters.
-   - Versions block: client version from GitHub (3h cache with stale fallback), wrapper version from baked file only, runner telemetry (`runner_enabled/state/last_ok/last_fail/last_check/boot_id`), `quota_hard_fail`, reported client versions.
-   - Runner integration: scheduled preflight every 8 hours by default (configurable) + manual trigger; failed runner flips state to fail and uses backoff/staleness/boot change to retry. Validation logs `auth.validate`; applied/ignored/failed runner stores log `auth.runner_store`.
-   - Token usage: `recordTokenUsage()` sanitizes lines, accepts comma/space-separated numbers, writes totals/input/output/cached/reasoning/model/raw line to `token_usages`, derives per-row cost from pricing, logs `token.usage`, and also records a per-request ingest envelope (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and summed cost.
-   - ChatGPT usage: `/auth` opportunistically refreshes snapshots; responses include window summary `chatgpt_usage`. Full snapshots/history via admin endpoints.
-   - Host deletion: `deleteHost()` removes host + digests; uninstall uses `DELETE /auth` (IP binding unless `?force=1`).
+2. **`/auth` retrieve/store**
+   - Requires API key header and passes through `global` + `auth-fail` buckets, IP binding, insecure host windows, and the API kill switch.
+   - Retrieve path returns canonical auth when digests differ plus metadata: versions (GitHub cache w/ stale fallback, wrapper sha/url, runner telemetry, `quota_hard_fail`, `installation_id`), host stats (API calls, current-month tokens), insecure window timestamps, ChatGPT quota snapshot (`chatgpt_usage`), and up to three recent digests.
+   - Store path enforces RFC3339 `last_refresh` bounds (>= 2000-01-01, <= now+300s), token entropy, canonical sorting, hashed digests, and secretbox persistence to `auth_payloads` + `auth_entries`. Runner validations run opportunistically after stores; `updated_auth` from the runner replaces client uploads when newer.
+   - Host uninstall uses `DELETE /auth` (respects IP binding unless `?force=1`).
 
-3. **`App\Repositories\HostRepository` (Persistence)**
-   - CRUD on hosts; API keys stored hashed + secretbox-encrypted with `backfillApiKeyEncryption()` to upgrade legacy rows. Tracks IP, versions, `allow_roaming_ips`, `secure`, insecure windows, digests, API calls.
+3. **Runner + daily preflight**
+   - First non-admin hit after ~8h (configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`) refreshes GitHub client version cache, seeds wrapper metadata, and runs the runner once. Backoff path: 60s pause after failure, 15m retry window, immediate retry on boot change or stale OK (>6h).
+   - `AUTH_RUNNER_IP_BYPASS` CIDRs allow runner-originated validations without rebinding host IPs.
 
-4. **`App\Repositories\HostAuthStateRepository` (Per-host canonical pointer)**
-   - Stores last canonical payload ID/digest/seen_at per host for admin inspection.
+4. **Telemetry + extras**
+   - `/usage` sanitizes numeric totals/input/output/cached/reasoning (commas allowed) or raw `line`, writes per-entry rows + ingest envelope with aggregates, computed `cost`, payload snapshot, and optional client IP. HTTP 200 + `recorded:false` when ingest persistence fails.
+   - `/host/users` records username/hostname combos for uninstall cleanup and returns the set for `cdx`.
+   - `/slash-commands` list/retrieve/store/delete prompts; clients sync by sha and push local edits on exit.
+   - `/agents/retrieve` syncs canonical AGENTS.md. Hosts delete their local copy when the API returns `status:missing`.
+   - `/versions` exposes client/wrapper versions, runner metadata, kill switch flags, and wrapper download URL without auth (good for smoke tests).
 
-5. **`App\Repositories\AuthPayloadRepository` & `AuthEntryRepository` (Canonical auth storage)**
-   - Persist canonical `auth.json` (secretbox ciphertext in `auth_payloads.body`) and per-target entries (tokens secretbox-encrypted). `findByIdWithEntries()`/`latest()` hydrate payload + entries for validation/hydration.
+5. **Admin panel (mTLS default)**
+   - `/admin/overview` surfaces hosts, digests, versions, quotas, pricing, and install guidance.
+   - `/admin/hosts/*` toggles secure/insecure/roaming/IPv4-only, sets sliding windows, clears canonical state, and deletes hosts.
+   - `/admin/api/state` is the only route reachable when the kill switch is active.
+   - `/admin/quota-mode` toggles ChatGPT hard-fail vs warn-only, reflected in `/auth` responses.
+   - `/admin/usage*` covers per-row tokens, ingests, and cost history (≤180 days).
+   - `/admin/chatgpt/usage*` exposes snapshots/history with a 5-minute cooldown (unless forced).
+   - `/admin/agents` pulls/pushes AGENTS.md including sha + content for the dashboard editor.
 
-6. **`App\Repositories\HostAuthDigestRepository` (Digest cache)**
-   - Keeps up to three recent digests per host (`host_auth_digests`) and prunes older entries.
+## Operational Checkpoints
 
-7. **`App\Repositories\LogRepository` (Auditing)**
-   - Inserts rows into `logs` with lightweight JSON details; exposes recent logs, per-action counts, and token-usage totals/top host helpers.
+- Troubleshoot hosts with `CODEX_DEBUG=1 cdx --version`; shows baked base URL + masked API key.
+- Validate local `~/.codex/auth.json`: must include `last_refresh` + either `auths` tokens or `tokens.access_token`. Server synthesizes `auths = {"api.openai.com": ...}` when only tokens exist.
+- Insecure hosts auto-open 30m on register; afterwards “Enable” on the dashboard sets a 2–60 min sliding window (default 10). Each `/auth` call extends by the stored duration. “Disable” closes instantly (no write grace).
+- Pruning: every register/auth call deletes inactive hosts (≥30d since last activity) or never-provisioned hosts older than 30m. Events log `host.pruned`.
+- ChatGPT snapshots refresh before `/auth` responses when the cooldown (5m) allows; errors log `chatgpt.snapshot_error` and surface in admin UI.
+- Pricing snapshot refresh: daily background pull from `PRICING_URL`, fallback to env constants. Admin overview uses the freshest values for month estimates; cost history falls back to zero cost when no pricing exists.
 
-8. **`App\Repositories\TokenUsageRepository` (Usage metrics)**
-   - Writes token usage rows (totals/input/output/cached/reasoning/model/raw line) and exposes aggregates/top hosts and per-range totals.
+## cdx Wrapper & Scripts
 
-9. **`App\Repositories\TokenUsageIngestRepository` (Usage envelopes)**
-   - Stores per-request ingest envelopes with entry counts, token aggregates, derived cost, client IP, and normalized payload JSON; links to `token_usages` rows and supports search/sort/pagination.
+- Wrapper source is `bin/cdx` assembled from `bin/cdx.d/*.sh` via `scripts/build-cdx.sh`. Never edit the built file directly; bump `WRAPPER_VERSION` on every wrapper change so hosts refresh.
+- `cdx` workflow:
+  - Pull canonical auth via `/auth`, obey kill switch, insecure windows, and offline caching rules (24h for insecure hosts, 7d for secure hosts with warnings).
+  - Report host users, sync slash commands + AGENTS.md (delete local file when API says `missing`), parse Codex stdout token lines, POST `/usage`, and display ChatGPT quota bars (`chatgpt_usage`) plus runner state.
+  - Honor `quota_hard_fail` from `/auth`. In warn-only mode the wrapper lets Codex run but prints warnings.
+  - Purge `~/.codex/auth.json` after each run when the host is insecure/baked as insecure.
+  - `--update` forces wrapper download; `--uninstall` cleans Codex artifacts and calls `DELETE /auth`; `--execute` runs a one-off Codex command with sandbox defaults; `shell`/`code` subcommands coerce GPT-5.1 Codex models.
+- `migrate-sqlite-to-mysql.php` exists for legacy migrations: copies SQLite into MySQL, truncates when `--force`, and skips orphaned rows.
 
-10. **`App\Repositories\ChatGptUsageRepository` & `ChatGptUsageStore` (Quota snapshots)**
-    - Persist `/wham/usage` snapshots with primary/secondary windows, credit flags, errors, raw payload, next eligible refresh, and history queries.
+## Extension Playbook
 
-11. **`App\Repositories\PricingSnapshotRepository`**
-    - Stores pricing snapshots for GPT-5.1 (or configured model) with currency + source URL; admin overview, cost calculations, backfills, and history endpoints reuse the latest snapshot.
-
-12. **`App\Support\Timestamp` (Comparer)**
-    - Reliable RFC3339 comparator (fractional seconds supported) to order `last_refresh` values.
-
-13. **`App\Services\WrapperService` (Wrapper distribution)**
-    - Seeds stored wrapper from `bin/cdx`; stores version in `versions.wrapper` and recomputes hashes/size. `bakedForHost()` injects base URL/API key/FQDN/CA path/secure flag/version and returns rendered content + sha/size.
-    - `replaceFromUpload()` is legacy; wrapper source of truth is the baked script on disk.
-
-14. **`App\Services\RunnerVerifier` (Auth validator)**
-    - POSTs auth payloads to `AUTH_RUNNER_URL` with base URL override + optional host telemetry; includes readiness probe/backoff and returns status/reason/latency/`updated_auth`.
-
-15. **`App\Security\RateLimiter` + `IpRateLimitRepository`**
-    - Enforces per-IP buckets (`global`, `auth-fail`) with configurable limits/windows and periodic prune of expired counters.
-
-16. **`App\Services\UsageCostService` & `CostHistoryService` (Costing)**
-    - `UsageCostService` backfills missing costs in `token_usages` and `token_usage_ingests` once per deployment using the latest pricing snapshot; `CostHistoryService` builds daily token/cost series (max 180 days) with zero-cost fallbacks when pricing is absent.
-
-17. **`App\Database` (Infrastructure)**
-    - MySQL only. Migrates tables & backfills columns: `hosts` (fqdn, api_key/hash/enc, secure, roaming, insecure windows, ip, versions, auth_digest, api_calls, timestamps); `auth_payloads` (last_refresh, sha256, source_host_id, secretbox body, created_at); `auth_entries` (secretbox tokens + meta); `host_auth_digests`; `host_auth_states`; `host_users`; `logs`; `ip_rate_limits`; `install_tokens` (with base_url); `token_usages` (incl. reasoning/model/raw line, ingest link, cost); `token_usage_ingests`; `chatgpt_usage_snapshots`; `pricing_snapshots`; `versions` (client/wrapper/canonical pointer, runner metadata/state/boot id, flags `api_disabled`/`quota_hard_fail`).
-
-## CLI & Ops Scripts (`bin/`)
-
-- `cdx` (wrapper/launcher) — Baked per host with API key + base URL. Pulls canonical auth via `/auth`, tolerates cached auth up to 24h (7d for secure hosts, with warnings) when API unreachable, records users via `/host/users`, runs Codex, pushes changed auth + token usage to `/usage`, and honors `quota_hard_fail` (warn-only when flipped). `--update` forces wrapper refresh; `--uninstall` removes Codex artifacts and calls `DELETE /auth`.
-- Wrapper publishing: the bundled `bin/cdx` in the image is the source of truth. Rebuild to change it; `/wrapper` uploads are gone. Bump `WRAPPER_VERSION` on any script change; new builds seed `storage/wrapper/cdx` automatically.
-- Slash commands: `cdx` syncs server prompts (`/slash-commands` + retrieve/store), removes server-retired prompts, and uploads local edits on exit.
-- Rate limits: wrapper surfaces 429 metadata (`bucket`, `reset_at`, `limit`) to operators; ChatGPT quota bars are shown from `/auth` `chatgpt_usage` blocks.
-- `migrate-sqlite-to-mysql.php` — One-time migration: copies SQLite to MySQL using `App\Database::migrate()`, backs up the SQLite file, truncates targets when `--force`, and migrates hosts/logs/digests/versions while skipping orphaned references.
-
-## Extension Tips
-
-- Add new endpoints in `public/index.php` and delegate to `AuthService` or a purpose-built service.
-- Keep `Database::migrate()` and repositories in sync when adding columns.
-- Wire new admin toggles into `AuthService` or request guards; `api_disabled` is already enforced globally (except `/admin/api/state`).
+- Respect existing patterns; new endpoints go into `public/index.php`, but business logic lives in services/repos.
+- Keep migrations + repositories in sync whenever adding columns or tables.
+- Document any API/request/CLI change in `docs/OVERVIEW.md` plus the relevant interface doc(s). Add or update tests in `tests/` for new behavior.
+- For cdx changes, edit `bin/cdx.d/`, rebuild with `scripts/build-cdx.sh`, bump `WRAPPER_VERSION`, and rebuild Docker images so `storage/wrapper/cdx` seeds correctly.
+- Behavioral changes that affect hosts/operators need matching dashboard adjustments (HTML/JS under `public/admin/`) and, when user-visible, a `CHANGELOG.md` entry.
