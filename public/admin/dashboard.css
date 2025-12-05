@@ -1251,6 +1251,9 @@
 .group-toggle:hover {
   color: var(--accent);
 }
+.prompts-collapsed .table-wrap {
+  display: none;
+}
 .agents-preview .muted { color: rgba(229,231,235,0.7); }
     .payload-preview {
       background: #f1f4f9;

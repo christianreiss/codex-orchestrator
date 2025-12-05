@@ -63,6 +63,7 @@ const statsEl = document.getElementById('stats');
     const closeHostDetailBtn = document.getElementById('closeHostDetail');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const promptsTbody = document.querySelector('#prompts tbody');
+    const promptsToggle = document.getElementById('promptsToggle');
     const newCommandBtn = document.getElementById('newCommandBtn');
     const promptModal = document.getElementById('promptModal');
     const promptFilename = document.getElementById('promptFilename');
@@ -99,6 +100,7 @@ const statsEl = document.getElementById('stats');
     let currentPrompts = [];
     let currentAgents = null;
     let agentsExpanded = false;
+    let promptsExpanded = false;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -367,6 +369,16 @@ const statsEl = document.getElementById('stats');
       }
       if (agentsPanel) {
         agentsPanel.classList.toggle('agents-collapsed', !agentsExpanded);
+      }
+    }
+
+    function setPromptsExpanded(expanded) {
+      promptsExpanded = !!expanded;
+      if (promptsToggle) {
+        promptsToggle.textContent = promptsExpanded ? 'Hide' : 'Show';
+      }
+      if (promptsPanel) {
+        promptsPanel.classList.toggle('prompts-collapsed', !promptsExpanded);
       }
     }
 
@@ -1068,6 +1080,7 @@ const statsEl = document.getElementById('stats');
       currentPrompts = Array.isArray(prompts) ? prompts : [];
       if (promptsPanel) {
         promptsPanel.style.display = 'block';
+        setPromptsExpanded(promptsExpanded);
       }
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
@@ -2512,6 +2525,12 @@ const statsEl = document.getElementById('stats');
       editAgentsBtn.addEventListener('click', (event) => {
         event.preventDefault();
         openAgentsModal();
+      });
+    }
+    if (promptsToggle) {
+      promptsToggle.addEventListener('click', (event) => {
+        event.preventDefault();
+        setPromptsExpanded(!promptsExpanded);
       });
     }
     if (agentsToggle) {
