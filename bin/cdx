@@ -3790,10 +3790,6 @@ fi
   fi
   token_bits=()
   [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
-  [[ -n "$HOST_TOKENS_MONTH_INPUT" ]] && token_bits+=("in ${HOST_TOKENS_MONTH_INPUT}")
-  [[ -n "$HOST_TOKENS_MONTH_OUTPUT" ]] && token_bits+=("out ${HOST_TOKENS_MONTH_OUTPUT}")
-  [[ -n "$HOST_TOKENS_MONTH_CACHED" ]] && token_bits+=("cached ${HOST_TOKENS_MONTH_CACHED}")
-  [[ -n "$HOST_TOKENS_MONTH_REASONING" ]] && token_bits+=("reason ${HOST_TOKENS_MONTH_REASONING}")
   token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
   if [[ -n "$token_line" ]]; then
     usage_bits+=("tokens ${token_line}")
@@ -3902,9 +3898,6 @@ fi
     printf "%-${width}s: " "$label"
   }
 
-  if [[ -n "$command_line" ]]; then
-    log_info "$(format_label_prefix "Command")${command_line#Command: }"
-  fi
   log_info "$(format_label_prefix "Core")${core_line#Core: }"
   if [[ -n "$versions_line" ]]; then
     log_info "$(format_label_prefix "Versions")${versions_line#Versions: }"
