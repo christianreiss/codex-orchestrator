@@ -77,6 +77,7 @@ const statsEl = document.getElementById('stats');
     const agentsMeta = document.getElementById('agentsMeta');
     const agentsPreview = document.getElementById('agentsPreview');
     const editAgentsBtn = document.getElementById('editAgentsBtn');
+    const agentsToggle = document.getElementById('agentsToggle');
     const agentsModal = document.getElementById('agentsModal');
     const agentsBody = document.getElementById('agentsBody');
     const agentsStatus = document.getElementById('agentsStatus');
@@ -97,6 +98,7 @@ const statsEl = document.getElementById('stats');
     let currentHosts = [];
     let currentPrompts = [];
     let currentAgents = null;
+    let agentsExpanded = false;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -358,10 +360,21 @@ const statsEl = document.getElementById('stats');
       return `${text.slice(0, limit)}…`;
     }
 
+    function setAgentsExpanded(expanded) {
+      agentsExpanded = !!expanded;
+      if (agentsToggle) {
+        agentsToggle.textContent = agentsExpanded ? 'Hide' : 'Show';
+      }
+      if (agentsPanel) {
+        agentsPanel.classList.toggle('agents-collapsed', !agentsExpanded);
+      }
+    }
+
     function renderAgents(doc) {
       currentAgents = doc || null;
       if (!agentsPanel) return;
       agentsPanel.style.display = 'block';
+      setAgentsExpanded(agentsExpanded);
 
       const status = doc?.status || 'missing';
       const sha = doc?.sha256 || '—';
@@ -2499,6 +2512,12 @@ const statsEl = document.getElementById('stats');
       editAgentsBtn.addEventListener('click', (event) => {
         event.preventDefault();
         openAgentsModal();
+      });
+    }
+    if (agentsToggle) {
+      agentsToggle.addEventListener('click', (event) => {
+        event.preventDefault();
+        setAgentsExpanded(!agentsExpanded);
       });
     }
     if (uploadAuthBtn) {

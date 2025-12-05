@@ -1228,6 +1228,9 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+.agents-collapsed .agents-preview {
+  display: none;
+}
 .group-row td {
   background: var(--frost);
   font-weight: 700;
