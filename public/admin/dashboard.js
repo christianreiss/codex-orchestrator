@@ -91,10 +91,6 @@ const statsEl = document.getElementById('stats');
       { key: 'output', label: 'Output', color: '#16a34a' },
       { key: 'cached', label: 'Cached', color: '#f97316' },
     ];
-    const INSECURE_WINDOW_MIN = 2;
-    const INSECURE_WINDOW_MAX = 60;
-    const INSECURE_WINDOW_DEFAULT = 10;
-    const insecureDurationSelections = new Map();
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -106,6 +102,8 @@ const statsEl = document.getElementById('stats');
     let runnerSummary = null;
     let hostFilterText = '';
     let hostSort = { key: 'last_seen', direction: 'desc' };
+    let insecureExpanded = true;
+    let secureExpanded = false;
     let hostStatusFilter = ''; // maintained for clarity
     let lastOverview = null;
     let chatgptUsage = null;
@@ -187,28 +185,6 @@ const statsEl = document.getElementById('stats');
       const diff = ts.getTime() - Date.now();
       if (diff <= 0) return 0;
       return Math.max(0, Math.round(diff / 60000));
-    }
-
-    function clampInsecureDuration(value) {
-      const numeric = Number(value);
-      if (!Number.isFinite(numeric)) return INSECURE_WINDOW_DEFAULT;
-      const rounded = Math.round(numeric);
-      if (rounded < INSECURE_WINDOW_MIN) return INSECURE_WINDOW_MIN;
-      if (rounded > INSECURE_WINDOW_MAX) return INSECURE_WINDOW_MAX;
-      return rounded;
-    }
-
-    function resolveInsecureDuration(host) {
-      if (!host || typeof host.id === 'undefined') {
-        return INSECURE_WINDOW_DEFAULT;
-      }
-      if (insecureDurationSelections.has(host.id)) {
-        return insecureDurationSelections.get(host.id);
-      }
-      if (host.insecure_window_minutes !== null && host.insecure_window_minutes !== undefined) {
-        return clampInsecureDuration(host.insecure_window_minutes);
-      }
-      return INSECURE_WINDOW_DEFAULT;
     }
 
     function api(path, opts = {}) {
@@ -707,35 +683,10 @@ const statsEl = document.getElementById('stats');
       const insecure = !isHostSecure(host);
       const state = insecureState(host);
       const minutesLeft = countdownMinutes(host.insecure_enabled_until);
-      const windowDuration = resolveInsecureDuration(host);
-      const insecureLabel = state.enabledActive
-        ? `Turn Off (${minutesLeft ?? 0} min)`
-        : `Turn On (${windowDuration} min)`;
+      const insecureLabel = state.enabledActive ? `Turn Off (${minutesLeft ?? 0} min)` : 'Turn On';
       const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
       const ipv4Label = host.force_ipv4 ? 'Allow IPv6' : 'Force IPv4';
-      const windowControl = insecure ? `
-        <div class="insecure-window-control" data-host-id="${host.id}">
-          <div class="insecure-window-head">
-            <div>
-              <p class="muted overline">Insecure window</p>
-              <p class="insecure-window-copy">Applies to the next enable and every sliding refresh.</p>
-            </div>
-            <span class="insecure-window-value" data-role="insecure-window-value">${windowDuration} min</span>
-          </div>
-          <input
-            type="range"
-            min="${INSECURE_WINDOW_MIN}"
-            max="${INSECURE_WINDOW_MAX}"
-            step="1"
-            value="${windowDuration}"
-            class="insecure-window-slider"
-            aria-label="Insecure window duration"
-          >
-          <p class="muted insecure-window-foot">Each /auth call extends by this duration (2–60 min).</p>
-        </div>
-      ` : '';
       return `
-        ${windowControl}
         <button class="ghost secondary" data-action="install">Install script</button>
         <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
         <button class="ghost" data-action="toggle-security">${securityLabel}</button>
@@ -771,18 +722,6 @@ const statsEl = document.getElementById('stats');
           }
         };
       });
-      const slider = hostDetailActions.querySelector('.insecure-window-slider');
-      if (slider) {
-        slider.addEventListener('input', () => {
-          const minutes = clampInsecureDuration(slider.value);
-          slider.value = minutes;
-          insecureDurationSelections.set(host.id, minutes);
-          const label = hostDetailActions.querySelector('[data-role="insecure-window-value"]');
-          if (label) {
-            label.textContent = `${minutes} min`;
-          }
-        });
-      }
     }
 
     function renderHostSummary(host) {
@@ -942,124 +881,160 @@ const statsEl = document.getElementById('stats');
       renderHostDetail(host);
     }
 
+    function isInsecureActive(host) {
+      const state = insecureState(host);
+      return state.enabledActive || state.graceActive;
+    }
+
+    function createHostRow(host, hasInsecure) {
+      const tr = document.createElement('tr');
+      const addedAt = host.created_at ?? host.last_refresh ?? host.updated_at ?? null;
+      const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
+      const addedDate = parseTimestamp(addedAt);
+      const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
+      const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
+      const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
+      const isSecure = isHostSecure(host);
+      const securityChip = isSecure
+        ? ''
+        : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
+      const insecureStateNow = insecureState(host);
+      const minutesActive = countdownMinutes(host.insecure_enabled_until);
+      const minutesGrace = countdownMinutes(host.insecure_grace_until);
+      let insecureLabel = 'Turn On';
+      let insecureClasses = 'ghost tiny-btn primary';
+      if (!isSecure && insecureStateNow.enabledActive) {
+        insecureLabel = `Turn Off (${minutesActive ?? 0} min left)`;
+        insecureClasses = 'ghost tiny-btn ok';
+      } else if (!isSecure && insecureStateNow.graceActive) {
+        const graceText = minutesGrace !== null ? `${minutesGrace} min` : 'grace';
+        insecureLabel = `Turn On (${graceText} left)`;
+        insecureClasses = 'ghost tiny-btn neutral';
+      }
+      const health = hostHealth(host);
+      const authOutdatedChip = isSecure && host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
+      tr.classList.add(`status-${health.tone}`);
+      tr.classList.add('host-row');
+      tr.setAttribute('data-id', host.id);
+      tr.tabIndex = 0;
+      tr.innerHTML = `
+        <td data-label="Host">
+          <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
+            <strong>${escapeHtml(host.fqdn)}</strong>
+            <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
+              <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
+              <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
+              ${authOutdatedChip}
+              ${securityChip}
+            </div>
+          </div>
+        </td>
+        <td data-label="Last Seen">
+          <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
+            <span>${formatRelative(host.updated_at)}</span>
+            <span class="muted" style="font-size:12px;">auth ${formatRelative(host.last_refresh)}</span>
+          </div>
+        </td>
+        <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
+        <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
+        <td data-label="IP / Mode">
+          <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
+            <span>${escapeHtml(host.ip ?? '—')}</span>
+            ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
+            ${host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : ''}
+          </div>
+        </td>
+        ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
+          ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" style="white-space:nowrap;" data-id="${host.id}">${insecureLabel}</button>`}
+        </td>` : ''}
+      `;
+      tr.addEventListener('click', () => openHostDetail(host.id));
+      tr.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          openHostDetail(host.id);
+        }
+      });
+      const insecureBtn = tr.querySelector('.insecure-inline-btn');
+      if (insecureBtn) {
+        insecureBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const targetId = Number(insecureBtn.getAttribute('data-id'));
+          const targetHost = currentHosts.find(h => h.id === targetId);
+          if (targetHost) {
+            toggleInsecureApi(targetHost, insecureBtn);
+          }
+        });
+      }
+      return tr;
+    }
+
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
       const filtered = applyHostFilters(currentHosts);
-      const sorted = sortHosts(filtered);
-      const hasInsecure = sorted.some(h => !isHostSecure(h));
+      const insecureHosts = filtered.filter(h => !isHostSecure(h));
+      const secureHosts = filtered.filter(h => isHostSecure(h));
+
+      const sortedInsecure = [...insecureHosts].sort((a, b) => {
+        const aActive = isInsecureActive(a) ? 1 : 0;
+        const bActive = isInsecureActive(b) ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        return String(a.fqdn || '').localeCompare(String(b.fqdn || ''), undefined, { sensitivity: 'base' });
+      });
+      const sortedSecure = [...secureHosts].sort((a, b) =>
+        String(a.fqdn || '').localeCompare(String(b.fqdn || ''), undefined, { sensitivity: 'base' })
+      );
+
+      const hasInsecure = insecureHosts.length > 0;
       const insecureHeader = document.querySelector('th.insecure-col');
       if (insecureHeader) {
         insecureHeader.style.display = hasInsecure ? '' : 'none';
       }
+
       hostsTbody.innerHTML = '';
-      if (!sorted.length) {
-        const cols = hasInsecure ? 6 : 5;
+      const cols = hasInsecure ? 6 : 5;
+      if (!sortedInsecure.length && !sortedSecure.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
+        hostSort = { key: 'grouped', direction: 'asc' };
         updateSortIndicators();
         return;
       }
-      sorted.forEach(host => {
-        const tr = document.createElement('tr');
-        const addedAt = host.created_at ?? host.last_refresh ?? host.updated_at ?? null;
-        const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
-        const addedDate = parseTimestamp(addedAt);
-        const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
-        const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
-        const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
-        const isSecure = isHostSecure(host);
-        const securityChip = isSecure
-          ? ''
-          : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
-        const insecureStateNow = insecureState(host);
-        const minutesActive = countdownMinutes(host.insecure_enabled_until);
-        const minutesGrace = countdownMinutes(host.insecure_grace_until);
-        let insecureLabel = 'Turn On';
-        let insecureClasses = 'ghost tiny-btn primary';
-        if (!isSecure && insecureStateNow.enabledActive) {
-          insecureLabel = `Turn Off (${minutesActive ?? 0} min left)`;
-          insecureClasses = 'ghost tiny-btn ok';
-        } else if (!isSecure && insecureStateNow.graceActive) {
-          const graceText = minutesGrace !== null ? `${minutesGrace} min` : 'grace';
-          insecureLabel = `Turn On (${graceText} left)`;
-          insecureClasses = 'ghost tiny-btn neutral';
-        } else if (!isSecure) {
-          const desiredWindow = resolveInsecureDuration(host);
-          insecureLabel = `Turn On (${desiredWindow} min)`;
-        }
-        const health = hostHealth(host);
-        tr.classList.add(`status-${health.tone}`);
-        tr.classList.add('host-row');
-        tr.setAttribute('data-id', host.id);
-        tr.tabIndex = 0;
-        const authOutdatedChip = isSecure && host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
-        tr.innerHTML = `
-          <td data-label="Host">
-            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
-              <strong>${escapeHtml(host.fqdn)}</strong>
-              <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
-                <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
-                <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
-                ${authOutdatedChip}
-                ${securityChip}
-              </div>
-            </div>
-          </td>
-          <td data-label="Last Seen">
-            <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
-              <span>${formatRelative(host.updated_at)}</span>
-              <span class="muted" style="font-size:12px;">auth ${formatRelative(host.last_refresh)}</span>
-            </div>
-          </td>
-          <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
-          <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-          <td data-label="IP / Mode">
-            <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
-              <span>${escapeHtml(host.ip ?? '—')}</span>
-              ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
-              ${host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : ''}
-            </div>
-          </td>
-          ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
-            ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" style="white-space:nowrap;" data-id="${host.id}">${insecureLabel}</button>`}
-          </td>` : ''}
-        `;
-        tr.addEventListener('click', () => openHostDetail(host.id));
-        tr.addEventListener('keydown', (ev) => {
-          if (ev.key === 'Enter' || ev.key === ' ') {
-            ev.preventDefault();
-            openHostDetail(host.id);
+
+      const appendGroup = (key, label, expanded, list) => {
+        const header = document.createElement('tr');
+        header.className = 'group-row';
+        const td = document.createElement('td');
+        td.colSpan = cols;
+        const btn = document.createElement('button');
+        btn.className = 'group-toggle';
+        btn.setAttribute('data-group', key);
+        btn.textContent = `${expanded ? '▼' : '▶'} ${label} (${list.length})`;
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (key === 'insecure') {
+            insecureExpanded = !insecureExpanded;
+          } else {
+            secureExpanded = !secureExpanded;
           }
+          paintHosts();
         });
-        const insecureBtn = tr.querySelector('.insecure-inline-btn');
-        if (insecureBtn) {
-          insecureBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            const targetId = Number(insecureBtn.getAttribute('data-id'));
-            const targetHost = currentHosts.find(h => h.id === targetId);
-            if (targetHost) {
-              toggleInsecureApi(targetHost, insecureBtn);
-            }
-          });
+        td.appendChild(btn);
+        header.appendChild(td);
+        hostsTbody.appendChild(header);
+        if (expanded) {
+          list.forEach(host => hostsTbody.appendChild(createHostRow(host, hasInsecure)));
         }
-        hostsTbody.appendChild(tr);
-      });
+      };
+
+      appendGroup('insecure', 'Insecure Hosts', insecureExpanded, sortedInsecure);
+      appendGroup('secure', 'Secure Hosts', secureExpanded, sortedSecure);
+
+      hostSort = { key: 'grouped', direction: 'asc' };
       updateSortIndicators();
     }
 
     function renderHosts(hosts) {
       currentHosts = Array.isArray(hosts) ? hosts : [];
-      currentHosts.forEach(host => {
-        if (!host || typeof host.id === 'undefined') return;
-        if (host.insecure_window_minutes !== null && host.insecure_window_minutes !== undefined) {
-          const normalized = clampInsecureDuration(host.insecure_window_minutes);
-          const current = insecureDurationSelections.get(host.id);
-          if (current !== normalized) {
-            insecureDurationSelections.set(host.id, normalized);
-          }
-        } else if (!insecureDurationSelections.has(host.id)) {
-          insecureDurationSelections.set(host.id, INSECURE_WINDOW_DEFAULT);
-        }
-      });
       // Populate upload host select
       if (uploadHostSelect) {
         uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`).join('');
@@ -2929,15 +2904,7 @@ const statsEl = document.getElementById('stats');
         button.textContent = state.enabledActive ? 'Turning off…' : 'Turning on…';
       }
       try {
-        const enabling = !state.enabledActive;
-        const duration = enabling ? resolveInsecureDuration(host) : null;
-        const options = enabling
-          ? { method: 'POST', json: { duration_minutes: duration } }
-          : { method: 'POST' };
-        await api(path, options);
-        if (enabling && duration !== null) {
-          insecureDurationSelections.set(host.id, duration);
-        }
+        await api(path, { method: 'POST' });
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);
