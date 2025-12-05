@@ -1182,7 +1182,9 @@ fi
     qnote="${rest#*$'\t'}"
     primary_reset_hint="$qnote"
     qnote_disp="$qnote"
-    [[ -n "$qnote_disp" ]] && qnote_disp="${DIM}${qnote_disp}${RESET}"
+    if [[ -n "$qnote_disp" ]]; then
+      printf -v qnote_disp "%b" "${DIM}${qnote_disp}${RESET}"
+    fi
     log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$qnote_disp")"
   fi
 
@@ -1201,7 +1203,9 @@ fi
     qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
     secondary_reset_hint="$qnote_full"
     qnote2_disp="$qnote_full"
-    [[ -n "$qnote2_disp" ]] && qnote2_disp="${DIM}${qnote2_disp}${RESET}"
+    if [[ -n "$qnote2_disp" ]]; then
+      printf -v qnote2_disp "%b" "${DIM}${qnote2_disp}${RESET}"
+    fi
     log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$qnote2_disp")"
   fi
 
