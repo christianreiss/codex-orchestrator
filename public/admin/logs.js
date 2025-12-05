@@ -8,7 +8,6 @@
   const nextBtn = document.getElementById('page-next');
   const refreshBtn = document.getElementById('log-refresh');
   const sortableHeaders = document.querySelectorAll('#log-table th.sortable');
-  const apiToggleBtn = document.getElementById('api-toggle-btn');
 
   const state = {
     page: 1,
@@ -21,7 +20,6 @@
     loading: false,
     currency: 'USD',
   };
-  let apiDisabled = null;
 
   function escapeHtml(str) {
     return String(str)
@@ -87,42 +85,6 @@
       }
       return res.json();
     });
-  }
-
-  async function loadApiState() {
-    if (!apiToggleBtn) return;
-    try {
-      const res = await api('/admin/api/state');
-      apiDisabled = !!(res.data && res.data.disabled);
-      apiToggleBtn.textContent = 'API';
-      apiToggleBtn.title = apiDisabled ? 'API disabled — click to enable' : 'API enabled — click to disable';
-      apiToggleBtn.classList.remove('danger', 'ghost', 'api-enabled', 'api-disabled');
-      apiToggleBtn.classList.add(apiDisabled ? 'api-disabled' : 'api-enabled');
-    } catch (err) {
-      console.error('api state', err);
-      apiToggleBtn.textContent = 'API: unavailable';
-      apiToggleBtn.classList.add('danger');
-    }
-  }
-
-  async function setApiState(enabled) {
-    if (!apiToggleBtn) return;
-    const original = apiToggleBtn.textContent;
-    apiToggleBtn.disabled = true;
-    apiToggleBtn.textContent = enabled ? 'Enabling…' : 'Disabling…';
-    try {
-      await api('/admin/api/state', {
-        method: 'POST',
-        json: { disabled: !enabled },
-      });
-      apiDisabled = !enabled;
-    } catch (err) {
-      alert(`API toggle failed: ${err.message}`);
-    } finally {
-      apiToggleBtn.disabled = false;
-      apiToggleBtn.textContent = original;
-      loadApiState();
-    }
   }
 
   function debounce(fn, ms = 250) {
@@ -286,14 +248,6 @@
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => loadLogs());
-  }
-
-  if (apiToggleBtn) {
-    apiToggleBtn.addEventListener('click', () => {
-      if (apiDisabled === null) return;
-      setApiState(!apiDisabled);
-    });
-    loadApiState();
   }
 
   loadLogs();
