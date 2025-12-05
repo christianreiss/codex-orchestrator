@@ -752,55 +752,141 @@ const statsEl = document.getElementById('stats');
       `;
     }
 
-    function renderHostActionButtons(host) {
-      const roamingLabel = host.allow_roaming_ips ? 'Lock to IP' : 'Allow roaming';
-      const securityLabel = isHostSecure(host) ? 'Mark insecure' : 'Mark secure';
-      const insecure = !isHostSecure(host);
-      const state = insecureState(host);
-      const minutesLeft = countdownMinutes(host.insecure_enabled_until);
-      const insecureLabel = state.enabledActive ? `Turn Off (${minutesLeft ?? 0} min)` : 'Turn On';
-      const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
-      const ipv4Label = host.force_ipv4 ? 'Allow IPv6' : 'Force IPv4';
-      const vipLabel = host.vip ? 'Remove VIP' : 'Mark VIP';
-      const vipClasses = host.vip ? 'ghost danger' : 'ghost primary';
+    function renderHostToggleRow({ action, checked, disabled, title, state }) {
+      const attrs = [`type="checkbox"`, `data-toggle-action="${action}"`];
+      if (checked) attrs.push('checked');
+      if (disabled) attrs.push('disabled');
+      const effect = state ? `
+        <span class="host-toggle-divider">|</span>
+        <span class="host-toggle-state">${escapeHtml(state)}</span>
+      ` : '';
       return `
-        <button class="ghost secondary" data-action="install">Install script</button>
-        <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
-        <button class="ghost" data-action="toggle-security">${securityLabel}</button>
-        ${insecure ? `<button class="${insecureClasses}" data-action="toggle-insecure-api">${insecureLabel}</button>` : ''}
-        <button class="${vipClasses}" data-action="toggle-vip">${vipLabel}</button>
-        <button class="ghost" data-action="toggle-ipv4">${ipv4Label}</button>
-        <button class="ghost" data-action="clear">Clear auth</button>
-        <button class="danger" data-action="remove">Remove</button>
+        <div class="host-toggle-row${disabled ? ' host-toggle-disabled' : ''}">
+          <div class="host-toggle-left">
+            <label class="toggle">
+              <input ${attrs.join(' ')}>
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+            <div class="host-toggle-labels">
+              <span class="host-toggle-title">${escapeHtml(title)}</span>
+              ${effect}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderHostActionButtons(host) {
+      const secure = isHostSecure(host);
+      const toggles = [];
+      const secureState = secure
+        ? 'Secure: auth.json stays on disk'
+        : 'Insecure: auth.json purged after each run';
+      toggles.push(renderHostToggleRow({
+        action: 'secure',
+        checked: secure,
+        disabled: false,
+        title: 'Secure host',
+        state: secureState,
+      }));
+
+      toggles.push(renderHostToggleRow({
+        action: 'vip',
+        checked: !!host.vip,
+        disabled: false,
+        title: 'VIP host',
+        state: host.vip ? 'Warn only: quota kill switch bypassed' : 'Standard quota enforcement',
+      }));
+
+      toggles.push(renderHostToggleRow({
+        action: 'roaming',
+        checked: !!host.allow_roaming_ips,
+        disabled: false,
+        title: 'Allow roaming IPs',
+        state: host.allow_roaming_ips ? 'Roaming allowed (any IP)' : 'IP locked to first caller',
+      }));
+
+      toggles.push(renderHostToggleRow({
+        action: 'ipv4',
+        checked: !!host.force_ipv4,
+        disabled: false,
+        title: 'Force IPv4',
+        state: host.force_ipv4 ? 'curl -4 enforced' : 'Dual-stack (IPv4/IPv6) allowed',
+      }));
+
+      const insecureAvailable = !secure;
+      const insecureSnapshot = insecureAvailable ? insecureState(host) : null;
+      const insecureChecked = insecureAvailable && !!insecureSnapshot?.enabledActive;
+      let insecureStateLabel = 'Window closed';
+      if (secure) {
+        insecureStateLabel = 'Secure host: not applicable';
+      } else if (insecureSnapshot?.enabledActive) {
+        insecureStateLabel = `Window open (${formatCountdown(host.insecure_enabled_until)})`;
+      } else if (insecureSnapshot?.graceActive) {
+        insecureStateLabel = `Grace period (${formatCountdown(host.insecure_grace_until)})`;
+      }
+      toggles.push(renderHostToggleRow({
+        action: 'insecure',
+        checked: insecureChecked,
+        disabled: !insecureAvailable,
+        title: 'Insecure API window',
+        state: insecureStateLabel,
+      }));
+
+      return `
+        <div class="host-toggle-list">
+          ${toggles.join('')}
+        </div>
+        <div class="host-action-buttons">
+          <button class="ghost secondary" data-action="install">Install script</button>
+          <button class="ghost" data-action="clear">Clear auth</button>
+          <button class="danger" data-action="remove">Remove</button>
+        </div>
       `;
     }
 
     function bindHostDetailActions(host) {
       if (!hostDetailActions) return;
-        hostDetailActions.querySelectorAll('button').forEach(btn => {
-          btn.onclick = (ev) => {
-            ev.stopPropagation();
-            const action = btn.getAttribute('data-action');
-            if (action === 'install') {
-              showHostDetailModal(false);
-              regenerateInstaller(host.fqdn, host.id);
-            } else if (action === 'toggle-roaming') {
-              toggleRoaming(host.id);
-            } else if (action === 'toggle-security') {
-              toggleSecurity(host.id);
-            } else if (action === 'toggle-insecure-api') {
-              toggleInsecureApi(host, btn);
-            } else if (action === 'toggle-vip') {
-              toggleVip(host, btn);
-            } else if (action === 'toggle-ipv4') {
-              toggleIpv4(host, btn);
-            } else if (action === 'clear') {
-              confirmClear(host.id);
-            } else if (action === 'remove') {
-              showHostDetailModal(false);
-              openDeleteModal(host.id);
+      hostDetailActions.querySelectorAll('button[data-action]').forEach((btn) => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const action = btn.getAttribute('data-action');
+          if (action === 'install') {
+            showHostDetailModal(false);
+            regenerateInstaller(host.fqdn, host.id);
+          } else if (action === 'clear') {
+            confirmClear(host.id);
+          } else if (action === 'remove') {
+            showHostDetailModal(false);
+            openDeleteModal(host.id);
           }
         };
+      });
+      hostDetailActions.querySelectorAll('input[data-toggle-action]').forEach((input) => {
+        input.addEventListener('change', async (event) => {
+          event.stopPropagation();
+          const action = input.getAttribute('data-toggle-action');
+          const desired = input.checked;
+          input.disabled = true;
+          try {
+            if (action === 'secure') {
+              await toggleSecurity(host.id, desired);
+            } else if (action === 'vip') {
+              await toggleVip(host, null, desired);
+            } else if (action === 'roaming') {
+              await toggleRoaming(host.id, desired);
+            } else if (action === 'ipv4') {
+              await toggleIpv4(host, null, desired);
+            } else if (action === 'insecure') {
+              await toggleInsecureApi(host, null, desired);
+            }
+          } catch (err) {
+            alert(`Error: ${err.message}`);
+            input.checked = !desired;
+          } finally {
+            input.disabled = false;
+          }
+        });
       });
     }
 
@@ -832,11 +918,6 @@ const statsEl = document.getElementById('stats');
           value: `${clientTag} ${wrapperTag}`,
           meta: 'Client · Wrapper',
           raw: true,
-        },
-        {
-          label: 'VIP',
-          value: host.vip ? 'Enabled' : 'No',
-          meta: host.vip ? 'Quota kill switch disabled' : 'Standard quota policy',
         },
       ];
       hostDetailSummary.innerHTML = summaryItems.map(item => `
@@ -3056,13 +3137,13 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    async function toggleRoaming(id) {
+    async function toggleRoaming(id, allowState = null) {
       const host = currentHosts.find(h => h.id === id);
       if (!host) {
         alert('Host not found');
         return;
       }
-      const targetState = !host.allow_roaming_ips;
+      const targetState = typeof allowState === 'boolean' ? allowState : !host.allow_roaming_ips;
       try {
         await api(`/admin/hosts/${id}/roaming`, {
           method: 'POST',
@@ -3092,12 +3173,12 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    async function toggleVip(host, button = null) {
+    async function toggleVip(host, button = null, desiredState = null) {
       if (!host) {
         alert('Host not found');
         return;
       }
-      const target = !host.vip;
+      const target = typeof desiredState === 'boolean' ? desiredState : !host.vip;
       const original = button ? button.textContent : null;
       if (button) {
         button.disabled = true;
@@ -3119,22 +3200,23 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    async function toggleInsecureApi(host, button = null) {
+    async function toggleInsecureApi(host, button = null, desiredState = null) {
       if (!host || isHostSecure(host)) {
         alert('Host is secure; insecure API window not available.');
         return;
       }
       const state = insecureState(host);
-      const path = state.enabledActive
-        ? `/admin/hosts/${host.id}/insecure/disable`
-        : `/admin/hosts/${host.id}/insecure/enable`;
+      const enableTarget = typeof desiredState === 'boolean' ? desiredState : !state.enabledActive;
+      const path = enableTarget
+        ? `/admin/hosts/${host.id}/insecure/enable`
+        : `/admin/hosts/${host.id}/insecure/disable`;
       const originalLabel = button ? button.textContent : null;
       if (button) {
         button.disabled = true;
-        button.textContent = state.enabledActive ? 'Turning off…' : 'Turning on…';
+        button.textContent = enableTarget ? 'Turning on…' : 'Turning off…';
       }
       const request = { method: 'POST' };
-      if (!state.enabledActive) {
+      if (enableTarget) {
         request.json = { duration_minutes: insecureWindowMinutes };
       }
       try {
@@ -3150,12 +3232,12 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    async function toggleIpv4(host, button = null) {
+    async function toggleIpv4(host, button = null, desiredState = null) {
       if (!host) {
         alert('Host not found');
         return;
       }
-      const target = !host.force_ipv4;
+      const target = typeof desiredState === 'boolean' ? desiredState : !host.force_ipv4;
       const originalLabel = button ? button.textContent : null;
       if (button) {
         button.disabled = true;

@@ -1002,7 +1002,13 @@
       border: 1px solid var(--accent-ring);
     }
     .details-chip::after { content: '›'; font-weight: 800; }
-    .host-detail-modal { max-width: 920px; }
+    .host-detail-modal {
+      max-width: 920px;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
     .host-detail-head {
       display: flex;
       align-items: flex-start;
@@ -1126,7 +1132,64 @@
     .token-usage-reasoning { background: linear-gradient(90deg, #f59e0b, #f97316); }
     .token-usage-count { font-weight: 700; font-size: 13px; }
     .token-usage-meta { font-size: 12px; }
-    .host-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; }
+    .host-detail-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .host-toggle-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .host-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 16px;
+      border: 1px solid rgba(15,23,42,0.12);
+      border-radius: 16px;
+      background: rgba(15,23,42,0.03);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+    }
+    .host-toggle-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      flex: 1;
+    }
+    .host-toggle-labels {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .host-toggle-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .host-toggle-state {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .host-toggle-divider {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .host-toggle-row .toggle {
+      margin: 0;
+    }
+    .host-toggle-disabled {
+      opacity: 0.6;
+    }
+    .host-action-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+    }
     .insecure-window-control {
       display: flex;
       flex-direction: column;

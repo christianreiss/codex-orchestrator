@@ -27,9 +27,31 @@ else
   RESET=""
 fi
 
-log_info() { printf "%b» %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
-log_warn() { printf "%b! %s%b\n" "${YELLOW}${BOLD}" "$1" "${RESET}" >&2; }
-log_error() { printf "%bx %s%b\n" "${RED}${BOLD}" "$1" "${RESET}" >&2; }
+LOG_PREFIX_INFO="${LOG_PREFIX_INFO:-»}"
+LOG_PREFIX_WARN="${LOG_PREFIX_WARN:-!}"
+LOG_PREFIX_ERROR="${LOG_PREFIX_ERROR:-x}"
+
+log_info() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${BLUE}${BOLD}" "$LOG_PREFIX_INFO" "${RESET}" "$line"
+  done <<< "$msg"
+}
+
+log_warn() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${YELLOW}${BOLD}" "$LOG_PREFIX_WARN" "${RESET}" "$line" >&2
+  done <<< "$msg"
+}
+
+log_error() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${RED}${BOLD}" "$LOG_PREFIX_ERROR" "${RESET}" "$line" >&2
+  done <<< "$msg"
+}
+
 log_debug() {
   (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
   return 0
@@ -2917,6 +2939,7 @@ colorize() {
   case "$tone" in
     green) printf "%b%s%b" "${GREEN}${BOLD}" "$text" "${RESET}" ;;
     yellow) printf "%b%s%b" "${YELLOW}${BOLD}" "$text" "${RESET}" ;;
+    orange) printf "%b%s%b" "${ORANGE}${BOLD}" "$text" "${RESET}" ;;
     red) printf "%b%s%b" "${RED}${BOLD}" "$text" "${RESET}" ;;
     *) printf "%s" "$text" ;;
   esac
@@ -2927,18 +2950,53 @@ ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 
 format_status_row() {
-  local label="$1" col1="$2" col2="$3" col3="$4"
-  printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$col1" "$col2" "$col3"
+  local label="$1" installed="$2" target="$3" status="$4"
+  local v1="$installed" v2="$target"
+  [[ "$v1" == *" installed" ]] && v1="${v1% installed}"
+  [[ "$v2" == *" available" ]] && v2="${v2% available}"
+  [[ "$v2" == "n/a" || "$v2" == "unknown" ]] && v2=""
+  local ver="$v1"
+  if [[ -n "$v2" && "$v2" != "$v1" ]]; then
+    ver="${v1} → ${v2}"
+  fi
+  local msg="$ver"
+  [[ -n "$status" ]] && msg="${msg} · ${status}"
+  format_simple_row "$label" "$msg"
 }
 
 format_simple_row() {
   local label="$1" text="$2"
+  if [[ -t 1 && "$text" != *$'\033['* ]]; then
+    local cols="${COLUMNS:-}"
+    if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+      cols="$(tput cols 2>/dev/null || true)"
+    fi
+    if [[ "$cols" =~ ^[0-9]+$ ]]; then
+      local max=$(( cols - ROW_LABEL_WIDTH - 5 ))
+      if (( max >= 20 )) && (( ${#text} > max )); then
+        local first=1 chunk
+        while IFS= read -r chunk; do
+          if (( first )); then
+            printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
+            first=0
+          else
+            printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+          fi
+        done <<< "$(fold -s -w "$max" <<< "$text")"
+        return
+      fi
+    fi
+  fi
   printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
 }
 
 format_quota_row() {
   local label="$1" text="$2" note="$3"
-  printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$text" "$note"
+  if [[ -n "$note" ]]; then
+    printf "%-${ROW_LABEL_WIDTH}s | %s\n%${ROW_LABEL_WIDTH}s | %s" "$label" "$text" "" "$note"
+  else
+    printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
+  fi
 }
 
 seconds_since_iso() {
@@ -3010,13 +3068,21 @@ build_quota_bar() {
   elif (( pct >= 80 )); then
     fill_color="${ORANGE}${BOLD}"
   fi
+  local fill_char="${CDX_QUOTA_FILL_CHAR:-█}"
+  local empty_char="${CDX_QUOTA_EMPTY_CHAR:-░}"
   local bar=""
   if (( filled > 0 )); then
-    bar+="${fill_color}$(printf '%*s' "$filled" "" | tr ' ' '#')"
+    local filled_part
+    filled_part="$(printf '%*s' "$filled" "")"
+    filled_part="${filled_part// /$fill_char}"
+    bar+="${fill_color}${filled_part}"
   fi
   local empty_count=$(( width - filled ))
   if (( empty_count > 0 )); then
-    bar+="${RESET}${DIM}$(printf '%*s' "$empty_count" "" | tr ' ' '.')"
+    local empty_part
+    empty_part="$(printf '%*s' "$empty_count" "")"
+    empty_part="${empty_part// /$empty_char}"
+    bar+="${RESET}${DIM}${empty_part}"
   fi
   bar+="${RESET}"
   printf -v bar "%b" "$bar"
@@ -3048,7 +3114,7 @@ render_quota_line() {
     if (( pct >= 95 )); then
       tone="red"
     elif (( pct >= 80 )); then
-      tone="yellow"
+      tone="orange"
     else
       tone="green"
     fi
@@ -3591,9 +3657,25 @@ fi
       return
     fi
     local key
+    declare -A seen=()
+    local order=(
+      command
+      api auth
+      codex wrapper
+      agents prompts runner
+      "host usage" tokens
+      Policy result
+    )
+    for key in "${order[@]}"; do
+      if [[ -n "${SUMMARY_ROWS[$key]+x}" ]]; then
+        log_info "${SUMMARY_ROWS[$key]}"
+        seen[$key]=1
+      fi
+    done
     while IFS= read -r key; do
+      [[ -n "${seen[$key]+x}" ]] && continue
       log_info "${SUMMARY_ROWS[$key]}"
-    done < <(printf '%s\n' "${!SUMMARY_ROWS[@]}" | LC_ALL=C sort)
+    done < <(printf "%s\n" "${!SUMMARY_ROWS[@]}" | LC_ALL=C sort)
   }
 
   add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
@@ -3653,7 +3735,9 @@ fi
     qtext="${rest%%$'\t'*}"
     qnote="${rest#*$'\t'}"
     primary_reset_hint="$qnote"
-    log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$(colorize "$qnote" "$qtone")")"
+    qnote_disp="$qnote"
+    [[ -n "$qnote_disp" ]] && qnote_disp="${DIM}${qnote_disp}${RESET}"
+    log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$qnote_disp")"
   fi
 
   secondary_reset_hint=""
@@ -3670,7 +3754,9 @@ fi
     fi
     qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
     secondary_reset_hint="$qnote_full"
-    log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
+    qnote2_disp="$qnote_full"
+    [[ -n "$qnote2_disp" ]] && qnote2_disp="${DIM}${qnote2_disp}${RESET}"
+    log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$qnote2_disp")"
   fi
 
   quota_warn_threshold=$(( quota_limit - 10 ))

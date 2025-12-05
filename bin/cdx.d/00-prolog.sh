@@ -27,9 +27,31 @@ else
   RESET=""
 fi
 
-log_info() { printf "%b» %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
-log_warn() { printf "%b! %s%b\n" "${YELLOW}${BOLD}" "$1" "${RESET}" >&2; }
-log_error() { printf "%bx %s%b\n" "${RED}${BOLD}" "$1" "${RESET}" >&2; }
+LOG_PREFIX_INFO="${LOG_PREFIX_INFO:-»}"
+LOG_PREFIX_WARN="${LOG_PREFIX_WARN:-!}"
+LOG_PREFIX_ERROR="${LOG_PREFIX_ERROR:-x}"
+
+log_info() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${BLUE}${BOLD}" "$LOG_PREFIX_INFO" "${RESET}" "$line"
+  done <<< "$msg"
+}
+
+log_warn() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${YELLOW}${BOLD}" "$LOG_PREFIX_WARN" "${RESET}" "$line" >&2
+  done <<< "$msg"
+}
+
+log_error() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${RED}${BOLD}" "$LOG_PREFIX_ERROR" "${RESET}" "$line" >&2
+  done <<< "$msg"
+}
+
 log_debug() {
   (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
   return 0
