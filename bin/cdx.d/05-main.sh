@@ -1344,11 +1344,8 @@ fi
 
   format_label_prefix() {
     local label="$1"
-    local width=8
-    local len=${#label}
-    local spaces=$(( width - len + 1 ))
-    (( spaces < 1 )) && spaces=1
-    printf "%s%*s: " "$label" "$spaces" ""
+    local width="${SUMMARY_LABEL_WIDTH:-12}"
+    printf "%-${width}s: " "$label"
   }
 
   if [[ -n "$command_line" ]]; then
@@ -1362,20 +1359,20 @@ fi
     log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
   fi
   if [[ -n "$primary_quota_segment" ]]; then
-    quota_line="Quota (5h): ${primary_quota_segment}"
+    quota_line="${primary_quota_segment}"
     if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
       quota_line+=" ⚠"
     fi
-    log_info "$quota_line"
+    log_info "$(format_label_prefix "Quota (5h)")${quota_line}"
   fi
   if [[ -n "$secondary_quota_segment" ]]; then
-    quota_line2="Quota (week): ${secondary_quota_segment}"
+    quota_line2="${secondary_quota_segment}"
     if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
       quota_line2+=" ⚠"
     fi
-    log_info "$quota_line2"
+    log_info "$(format_label_prefix "Quota (week)")${quota_line2}"
   fi
-  log_info "$result_line"
+  log_info "$(format_label_prefix "Result")${result_line#Result: }"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
