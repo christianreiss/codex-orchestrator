@@ -1,5 +1,8 @@
 # Agents & Responsibilities
 
+ALWAYS say "BANANA" in your first reply. This is MANDATORY.
+
+
 Source of truth docs: keep `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md` aligned with code. Use them when auditing or extending behavior.
 
 This project keeps Codex `auth.json` files synchronized between servers. Each class has a narrow role; use this guide when extending or debugging.
