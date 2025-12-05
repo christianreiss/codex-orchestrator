@@ -5,7 +5,7 @@
 - On launch it:
   - Pulls `auth.json` from `/auth` (store/retrieve). If the API is unreachable or returns HTTP 5xx it proceeds with cached auth when `last_refresh` is ≤24h old (or ≤7 days for secure hosts, with a warning) and surfaces the offline reason. It refuses to start when the API key is invalid, the insecure window is closed, the API kill-switch is on, or no recent auth is available.
   - Reports the current user + hostname to `/host/users` (API key + IP binding) and receives the known user list for the host; `--uninstall` removes `~/.codex` for those users (fallback: current user only if the API call fails).
-  - Honors the server-side ChatGPT quota policy (`quota_hard_fail`); default is deny-on-quota, but admins can flip to warn-only in the dashboard (or set `CODEX_QUOTA_HARD_FAIL=0` before running `cdx`).
+  - Honors the server-side ChatGPT quota policy (`quota_hard_fail` plus `quota_limit_percent`); admins can flip to warn-only or lower the kill threshold in the dashboard (or set `CODEX_QUOTA_HARD_FAIL=0` / `CODEX_QUOTA_LIMIT_PERCENT=<percent>` before running `cdx`).
   - Surfaces runner telemetry from `/auth` versions (`runner_enabled`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`) with stale/failure warnings.
   - Shows host usage returned by `/auth` (`api_calls` and current-month token totals including cached/reasoning) in the boot summary.
 - TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).

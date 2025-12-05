@@ -42,7 +42,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 
 2. **`/auth` retrieve/store**
    - Requires API key header and passes through `global` + `auth-fail` buckets, IP binding, insecure host windows, and the API kill switch.
-   - Retrieve path returns canonical auth when digests differ plus metadata: versions (GitHub cache w/ stale fallback, wrapper sha/url, runner telemetry, `quota_hard_fail`, `installation_id`), host stats (API calls, current-month tokens), insecure window timestamps, ChatGPT quota snapshot (`chatgpt_usage`), and up to three recent digests.
+   - Retrieve path returns canonical auth when digests differ plus metadata: versions (GitHub cache w/ stale fallback, wrapper sha/url, runner telemetry, `quota_hard_fail`, `quota_limit_percent`, `installation_id`), host stats (API calls, current-month tokens), insecure window timestamps, ChatGPT quota snapshot (`chatgpt_usage`), and up to three recent digests.
    - Store path enforces RFC3339 `last_refresh` bounds (>= 2000-01-01, <= now+300s), token entropy, canonical sorting, hashed digests, and secretbox persistence to `auth_payloads` + `auth_entries`. Runner validations run opportunistically after stores; `updated_auth` from the runner replaces client uploads when newer.
    - Host uninstall uses `DELETE /auth` (respects IP binding unless `?force=1`).
 
@@ -61,7 +61,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
    - `/admin/overview` surfaces hosts, digests, versions, quotas, pricing, and install guidance.
    - `/admin/hosts/*` toggles secure/insecure/roaming/IPv4-only, sets sliding windows, clears canonical state, and deletes hosts.
    - `/admin/api/state` is the only route reachable when the kill switch is active.
-   - `/admin/quota-mode` toggles ChatGPT hard-fail vs warn-only, reflected in `/auth` responses.
+   - `/admin/quota-mode` toggles ChatGPT hard-fail vs warn-only **and** sets the warn/kill threshold (`limit_percent`, dashboard slider under Operations & Settings). Both values propagate via `/auth`.
    - `/admin/usage*` covers per-row tokens, ingests, and cost history (≤180 days).
    - `/admin/chatgpt/usage*` exposes snapshots/history with a 5-minute cooldown (unless forced).
    - `/admin/agents` pulls/pushes AGENTS.md including sha + content for the dashboard editor.
@@ -81,7 +81,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - `cdx` workflow:
   - Pull canonical auth via `/auth`, obey kill switch, insecure windows, and offline caching rules (24h for insecure hosts, 7d for secure hosts with warnings).
   - Report host users, sync slash commands + AGENTS.md (delete local file when API says `missing`), parse Codex stdout token lines, POST `/usage`, and display ChatGPT quota bars (`chatgpt_usage`) plus runner state.
-  - Honor `quota_hard_fail` from `/auth`. In warn-only mode the wrapper lets Codex run but prints warnings.
+  - Honor `quota_hard_fail` + `quota_limit_percent` from `/auth`. In warn-only mode the wrapper keeps launching but warns when usage meets the configured percent; in hard-fail mode it stops once the threshold is hit.
   - Purge `~/.codex/auth.json` after each run when the host is insecure/baked as insecure.
   - `--update` forces wrapper download; `--uninstall` cleans Codex artifacts and calls `DELETE /auth`; `--execute` runs a one-off Codex command with sandbox defaults; `shell`/`code` subcommands coerce GPT-5.1 Codex models.
 - `migrate-sqlite-to-mysql.php` exists for legacy migrations: copies SQLite into MySQL, truncates when `--force`, and skips orphaned rows.

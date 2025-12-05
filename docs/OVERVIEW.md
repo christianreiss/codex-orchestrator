@@ -40,7 +40,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 2) **Every `/auth` call**
    - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot, configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`): refresh the GitHub client-version cache and, when configured, run one runner validation.
    - API key auth: resolves client IP, enforces per-IP binding unless `allow_roaming_ips` or `?force=1` on `DELETE /auth`; insecure hosts must be inside an enabled window.
-   - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, and quota mode (`quota_hard_fail`).
+   - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, and quota policy (`quota_hard_fail` plus `quota_limit_percent` threshold).
    - Retrieve path: compares client `last_refresh`/`digest` to canonical. Returns `valid`, `upload_required`, `outdated`, or `missing`, plus host stats (API calls, monthly token totals) and recent digests (remembered per host).
    - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, synthesizes from tokens when needed, hashes canonical JSON, stores encrypted body + per-target entries, updates canonical pointer, host sync state, and digest cache. Runner may revalidate and apply a fresher `updated_auth` from Codex.
 
@@ -66,7 +66,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - **Insecure hosts** — Require an active sliding window (2–60 minutes, default 10, set via the dashboard slider or `duration_minutes`) for `/auth`. Each `/auth` call extends the window by that duration. New insecure hosts start with a provisioning window; secure hosts keep auth on disk, insecure hosts purge `~/.codex/auth.json` after each run (handled in `cdx`).
 - **Auth integrity** — Digest is sha256 over canonical JSON; stored digest mismatch triggers validation logging. Timestamps are clamped to reasonable bounds.
 - **Encryption & secrets** — Secretbox protects API keys, payload bodies, and token entries; key is auto-generated/persisted in `.env` if absent. API keys also stored as sha256 hashes for lookup.
-- **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode (`/admin/quota-mode` warn-only vs. hard-fail for ChatGPT limits). Admin routes honor mTLS by default and optional `DASHBOARD_ADMIN_KEY`.
+- **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode + limit slider (`/admin/quota-mode` exposes warn-only vs. hard-fail plus `limit_percent` so ChatGPT launches can stop or warn before 100%). Admin routes honor mTLS by default and optional `DASHBOARD_ADMIN_KEY`.
 
 ## Data retention & pruning
 

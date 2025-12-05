@@ -343,6 +343,7 @@ print(
             "api_calls": payload_data.get("api_calls"),
             "token_usage_month": payload_data.get("token_usage_month"),
             "quota_hard_fail": payload_data.get("quota_hard_fail"),
+            "quota_limit_percent": payload_data.get("quota_limit_percent"),
         },
         separators=(",", ":"),
     )
@@ -407,6 +408,9 @@ if isinstance(qh, bool):
     print("qh=1" if qh else "qh=0")
 elif isinstance(qh, (int, float)):
     print(f"qh={int(qh)}")
+ql = parsed.get("quota_limit_percent")
+if isinstance(ql, (int, float)):
+    print(f"ql={int(ql)}")
 hs = parsed.get("host_secure")
 if isinstance(hs, bool):
     print("hs=1" if hs else "hs=0")
@@ -497,6 +501,9 @@ PY
               ;;
             qh=*)
               QUOTA_HARD_FAIL="${line#qh=}"
+              ;;
+            ql=*)
+              QUOTA_LIMIT_PERCENT="${line#ql=}"
               ;;
             hs=*)
               HOST_SECURE="${line#hs=}"

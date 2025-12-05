@@ -549,10 +549,14 @@ $router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository
     requireAdminAccess();
 
     $hardFail = $versionRepository->getFlag('quota_hard_fail', true);
+    $limitPercent = quotaLimitPercent($versionRepository);
 
     Response::json([
         'status' => 'ok',
-        'data' => ['hard_fail' => $hardFail],
+        'data' => [
+            'hard_fail' => $hardFail,
+            'limit_percent' => $limitPercent,
+        ],
     ]);
 });
 
@@ -568,11 +572,26 @@ $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versio
         ], 422);
     }
 
+    $limitRaw = $payload['limit_percent'] ?? null;
+    $limitPercent = $limitRaw === null
+        ? quotaLimitPercent($versionRepository)
+        : AuthService::normalizeQuotaLimitPercent($limitRaw);
+    if ($limitRaw !== null && $limitPercent === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => sprintf('limit_percent must be between %d and %d', AuthService::MIN_QUOTA_LIMIT_PERCENT, AuthService::MAX_QUOTA_LIMIT_PERCENT),
+        ], 422);
+    }
+
     $versionRepository->set('quota_hard_fail', $hardFail ? '1' : '0');
+    $versionRepository->set('quota_limit_percent', (string) $limitPercent);
 
     Response::json([
         'status' => 'ok',
-        'data' => ['hard_fail' => $hardFail],
+        'data' => [
+            'hard_fail' => $hardFail,
+            'limit_percent' => $limitPercent,
+        ],
     ]);
 });
 
@@ -944,6 +963,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
+    $quotaLimitPercent = quotaLimitPercent($versionRepository);
 
     Response::json([
         'status' => 'ok',
@@ -971,6 +991,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'chatgpt_cached' => $chatgpt['cached'] ?? false,
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
             'quota_hard_fail' => $quotaHardFail,
+            'quota_limit_percent' => $quotaLimitPercent,
         ],
     ]);
 });
@@ -1615,6 +1636,13 @@ function normalizeBoolean(mixed $value): ?bool
     }
 
     return null;
+}
+
+function quotaLimitPercent(VersionRepository $versionRepository): int
+{
+    $raw = $versionRepository->get('quota_limit_percent');
+    $normalized = AuthService::normalizeQuotaLimitPercent($raw);
+    return $normalized ?? AuthService::DEFAULT_QUOTA_LIMIT_PERCENT;
 }
 
 function normalizeBaseUrlCandidate(string $value): string

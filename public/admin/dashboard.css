@@ -340,6 +340,34 @@
     .settings-panel.settings-collapsed .settings-grid {
       display: none;
     }
+    .quota-limit-control {
+      margin-top: 14px;
+      border: 1px solid rgba(15,23,42,0.1);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(15,23,42,0.02);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .quota-limit-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .quota-limit-value {
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .quota-limit-slider {
+      width: 100%;
+      accent-color: #f97316;
+    }
+    .quota-limit-foot {
+      margin: 0;
+      font-size: 12px;
+    }
     button {
       border: 1px solid rgba(var(--accent-rgb),0.45);
       border-radius: 12px;

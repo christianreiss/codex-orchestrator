@@ -34,6 +34,9 @@ class AuthService
     public const MIN_INSECURE_WINDOW_MINUTES = 2;
     public const MAX_INSECURE_WINDOW_MINUTES = 60;
     public const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
+    public const MIN_QUOTA_LIMIT_PERCENT = 50;
+    public const MAX_QUOTA_LIMIT_PERCENT = 100;
+    public const DEFAULT_QUOTA_LIMIT_PERCENT = 100;
     private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
@@ -242,6 +245,7 @@ class AuthService
 
         $versions = $this->versionSnapshot($bakedWrapperMeta);
         $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
+        $quotaLimitPercent = $this->quotaLimitPercent();
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
@@ -314,6 +318,7 @@ class AuthService
                 'token_usage_month' => $hostStats['token_usage_month'],
                 'versions' => $versions,
                 'quota_hard_fail' => $quotaHardFail,
+                'quota_limit_percent' => $quotaLimitPercent,
             ];
 
             if ($canonicalPayload) {
@@ -331,6 +336,7 @@ class AuthService
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
+                        'quota_limit_percent' => $quotaLimitPercent,
                     ];
 
                     if ($trackHost) {
@@ -350,6 +356,7 @@ class AuthService
                         'action' => 'store',
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
+                        'quota_limit_percent' => $quotaLimitPercent,
                     ];
 
                     if ($trackHost) {
@@ -370,6 +377,7 @@ class AuthService
                         'token_usage_month' => $hostStats['token_usage_month'],
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
+                        'quota_limit_percent' => $quotaLimitPercent,
                     ];
 
                     if ($trackHost) {
@@ -439,6 +447,7 @@ class AuthService
                 'token_usage_month' => $hostStats['token_usage_month'],
                 'versions' => $versions,
                 'quota_hard_fail' => $quotaHardFail,
+                'quota_limit_percent' => $quotaLimitPercent,
             ];
             if ($trackHost) {
                 $response['host'] = $this->buildHostPayload($host);
@@ -458,6 +467,7 @@ class AuthService
                     'token_usage_month' => $hostStats['token_usage_month'],
                     'versions' => $versions,
                     'quota_hard_fail' => $quotaHardFail,
+                    'quota_limit_percent' => $quotaLimitPercent,
                 ];
                 if ($trackHost) {
                     $response['host'] = $this->buildHostPayload($host);
@@ -471,6 +481,7 @@ class AuthService
                     'token_usage_month' => $hostStats['token_usage_month'],
                     'versions' => $versions,
                     'quota_hard_fail' => $quotaHardFail,
+                    'quota_limit_percent' => $quotaLimitPercent,
                 ];
             }
 
@@ -553,6 +564,7 @@ class AuthService
                                 'api_calls' => (int) ($host['api_calls'] ?? 0),
                                 'versions' => $versions,
                                 'quota_hard_fail' => $quotaHardFail,
+                                'quota_limit_percent' => $quotaLimitPercent,
                             ];
                             if ($trackHost) {
                                 $response['host'] = $this->buildHostPayload($host);
@@ -1289,6 +1301,7 @@ class AuthService
             'wrapper_url' => $wrapperMeta['url'] ?? null,
             'reported_client_version' => $reported['client_version'],
             'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
+            'quota_limit_percent' => $this->quotaLimitPercent(),
             'runner_enabled' => $this->runnerVerifier !== null,
             'runner_state' => $this->versions->get('runner_state'),
             'runner_last_ok' => $this->versions->get('runner_last_ok'),
@@ -1296,6 +1309,37 @@ class AuthService
             'runner_last_check' => $this->versions->get('runner_last_check'),
             'installation_id' => $this->installationId,
         ];
+    }
+
+    public static function normalizeQuotaLimitPercent(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return null;
+            }
+        }
+        if (!is_numeric($value)) {
+            return null;
+        }
+        $number = (int) round((float) $value);
+        if ($number < self::MIN_QUOTA_LIMIT_PERCENT) {
+            return self::MIN_QUOTA_LIMIT_PERCENT;
+        }
+        if ($number > self::MAX_QUOTA_LIMIT_PERCENT) {
+            return self::MAX_QUOTA_LIMIT_PERCENT;
+        }
+        return $number;
+    }
+
+    private function quotaLimitPercent(): int
+    {
+        $stored = $this->versions->get('quota_limit_percent');
+        $normalized = self::normalizeQuotaLimitPercent($stored);
+        return $normalized ?? self::DEFAULT_QUOTA_LIMIT_PERCENT;
     }
 
     private function sanitizeUsageLine(string $line): string

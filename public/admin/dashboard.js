@@ -87,6 +87,8 @@ const statsEl = document.getElementById('stats');
     const agentsSave = document.getElementById('agentsSave');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
+    const quotaLimitSlider = document.getElementById('quotaLimitSlider');
+    const quotaLimitLabel = document.getElementById('quotaLimitLabel');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
@@ -97,6 +99,9 @@ const statsEl = document.getElementById('stats');
       { key: 'output', label: 'Output', color: '#16a34a' },
       { key: 'cached', label: 'Cached', color: '#f97316' },
     ];
+    const QUOTA_LIMIT_MIN = 50;
+    const QUOTA_LIMIT_MAX = 100;
+    const QUOTA_LIMIT_DEFAULT = 100;
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -120,6 +125,7 @@ const statsEl = document.getElementById('stats');
     let mtlsMeta = null;
     let uploadFileContent = '';
     let quotaHardFail = true;
+    let quotaLimitPercent = QUOTA_LIMIT_DEFAULT;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
     let costHistory = null;
@@ -285,7 +291,7 @@ const statsEl = document.getElementById('stats');
       try {
         await api('/admin/quota-mode', {
           method: 'POST',
-          json: { hard_fail: !!hardFail },
+          json: { hard_fail: !!hardFail, limit_percent: quotaLimitPercent },
         });
         quotaHardFail = !!hardFail;
         renderQuotaMode();
@@ -294,6 +300,31 @@ const statsEl = document.getElementById('stats');
         quotaToggle.checked = quotaHardFail;
       } finally {
         quotaToggle.disabled = false;
+      }
+    }
+
+    async function updateQuotaLimitPercent(nextValue) {
+      if (!quotaLimitSlider) return;
+      const normalized = clampQuotaLimitPercent(nextValue);
+      if (normalized === quotaLimitPercent) {
+        renderQuotaLimit();
+        return;
+      }
+      const previous = quotaLimitPercent;
+      quotaLimitPercent = normalized;
+      renderQuotaLimit();
+      quotaLimitSlider.disabled = true;
+      try {
+        await api('/admin/quota-mode', {
+          method: 'POST',
+          json: { hard_fail: quotaHardFail, limit_percent: normalized },
+        });
+      } catch (err) {
+        alert(`Quota limit update failed: ${err.message}`);
+        quotaLimitPercent = previous;
+        renderQuotaLimit();
+      } finally {
+        quotaLimitSlider.disabled = false;
       }
     }
 
@@ -2020,16 +2051,39 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    function clampQuotaLimitPercent(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return QUOTA_LIMIT_DEFAULT;
+      let limited = Math.round(num);
+      if (limited < QUOTA_LIMIT_MIN) {
+        limited = QUOTA_LIMIT_MIN;
+      } else if (limited > QUOTA_LIMIT_MAX) {
+        limited = QUOTA_LIMIT_MAX;
+      }
+      return limited;
+    }
+
+    function renderQuotaLimit() {
+      if (quotaLimitSlider) {
+        quotaLimitSlider.value = String(quotaLimitPercent);
+      }
+      if (quotaLimitLabel) {
+        quotaLimitLabel.textContent = `${quotaLimitPercent}%`;
+      }
+    }
+
     function renderQuotaMode() {
-      if (!quotaToggle || !quotaModeLabel) return;
-      quotaToggle.checked = !!quotaHardFail;
-      quotaModeLabel.textContent = quotaHardFail ? 'Deny launches' : 'Warn only';
+      if (quotaToggle && quotaModeLabel) {
+        quotaToggle.checked = !!quotaHardFail;
+        quotaModeLabel.textContent = quotaHardFail ? 'Deny launches' : 'Warn only';
+      }
       const quotaDesc = quotaHardFail
         ? 'ChatGPT quota hit: deny Codex launch.'
         : 'ChatGPT quota hit: warn and continue.';
       document.querySelectorAll('#settings-panel .quota-desc').forEach((desc) => {
         desc.textContent = quotaDesc;
       });
+      renderQuotaLimit();
     }
 
     function clampInsecureWindowMinutes(value) {
@@ -2289,6 +2343,10 @@ const statsEl = document.getElementById('stats');
         if (typeof overview.data.quota_hard_fail !== 'undefined') {
           quotaHardFail = !!overview.data.quota_hard_fail;
           renderQuotaMode();
+        }
+        if (typeof overview.data.quota_limit_percent !== 'undefined') {
+          quotaLimitPercent = clampQuotaLimitPercent(overview.data.quota_limit_percent);
+          renderQuotaLimit();
         }
         evaluateSeedRequirement(overview.data, hosts.data.hosts);
       } catch (err) {
@@ -2577,6 +2635,17 @@ const statsEl = document.getElementById('stats');
     if (insecureWindowSlider) {
       insecureWindowSlider.addEventListener('input', (event) => {
         setInsecureWindowMinutes(event.target.value, true);
+      });
+    }
+    if (quotaLimitSlider) {
+      quotaLimitSlider.addEventListener('input', (event) => {
+        if (quotaLimitLabel) {
+          const preview = clampQuotaLimitPercent(event.target.value);
+          quotaLimitLabel.textContent = `${preview}%`;
+        }
+      });
+      quotaLimitSlider.addEventListener('change', (event) => {
+        updateQuotaLimitPercent(Number(event.target.value));
       });
     }
     if (newHostBtn) {

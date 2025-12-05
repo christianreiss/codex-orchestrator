@@ -84,6 +84,7 @@ CODEX_NO_PTY=${CODEX_NO_PTY:-0}
 CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
+CODEX_MODEL_PRESET=""
 
 # Per-host baked configuration (populated by the server at download time).
 CODEX_SYNC_BASE_URL_DEFAULT="__CODEX_SYNC_BASE_URL__"
@@ -147,6 +148,7 @@ QUOTA_BLOCK_REASON=""
 QUOTA_WARNING=0
 QUOTA_WARNING_REASON=""
 QUOTA_HARD_FAIL="${CODEX_QUOTA_HARD_FAIL:-1}"
+QUOTA_LIMIT_PERCENT="${CODEX_QUOTA_LIMIT_PERCENT:-100}"
 HOST_SECURE="$CODEX_HOST_SECURE"
 HOST_IS_SECURE=1
 PURGE_AUTH_AFTER_RUN=0
@@ -171,6 +173,14 @@ PROMPT_REMOTE_COUNT=""
 PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
+AGENTS_PATH="$HOME/.codex/AGENTS.md"
+AGENTS_SYNC_STATUS="skip"
+AGENTS_SYNC_REASON=""
+AGENTS_STATE=""
+AGENTS_REMOTE_SHA=""
+AGENTS_REMOTE_UPDATED_AT=""
+AGENTS_REMOTE_BYTES=""
+AGENTS_REMOVED=0
 
 if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   HOST_IS_SECURE=0
@@ -178,7 +188,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.12.02-01"
+WRAPPER_VERSION="2025.12.05-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -200,6 +210,29 @@ LOCAL_HOSTNAME="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknow
 HOST_USERS_CACHE=()
 HOST_USERS_FETCHED=0
 
+if [[ "${1-}" == "--execute" ]]; then
+  shift
+  if (( $# == 0 )); then
+    printf 'Usage: cdx --execute "<prompt>" [codex args]\n' >&2
+    exit 1
+  fi
+  prompt="$1"
+  shift
+  tmp_output="$(mktemp -t cdx-exec-XXXXXX)"
+  cleanup_tmp() { rm -f "$tmp_output"; }
+  trap cleanup_tmp EXIT
+  if codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check \
+    --output-last-message "$tmp_output" "$prompt" "$@" >/dev/null 2>&1; then
+    [[ -s "$tmp_output" ]] && cat "$tmp_output"
+    cleanup_tmp
+    exit 0
+  else
+    status=$?
+    cleanup_tmp
+    exit "$status"
+  fi
+fi
+
 # Early one-shot commands
 case "${1-}" in
   --wrapper-version|-W)
@@ -219,6 +252,17 @@ esac
 case "${1-}" in
   --debug|--verbose)
     CODEX_DEBUG=1
+    shift
+    ;;
+esac
+
+case "${1-}" in
+  shell)
+    CODEX_MODEL_PRESET="gpt-5.1-codex"
+    shift
+    ;;
+  code)
+    CODEX_MODEL_PRESET="gpt-5.1-codex-max"
     shift
     ;;
 esac
@@ -1025,6 +1069,7 @@ print(
             "api_calls": payload_data.get("api_calls"),
             "token_usage_month": payload_data.get("token_usage_month"),
             "quota_hard_fail": payload_data.get("quota_hard_fail"),
+            "quota_limit_percent": payload_data.get("quota_limit_percent"),
         },
         separators=(",", ":"),
     )
@@ -1089,6 +1134,9 @@ if isinstance(qh, bool):
     print("qh=1" if qh else "qh=0")
 elif isinstance(qh, (int, float)):
     print(f"qh={int(qh)}")
+ql = parsed.get("quota_limit_percent")
+if isinstance(ql, (int, float)):
+    print(f"ql={int(ql)}")
 hs = parsed.get("host_secure")
 if isinstance(hs, bool):
     print("hs=1" if hs else "hs=0")
@@ -1179,6 +1227,9 @@ PY
               ;;
             qh=*)
               QUOTA_HARD_FAIL="${line#qh=}"
+              ;;
+            ql=*)
+              QUOTA_LIMIT_PERCENT="${line#ql=}"
               ;;
             hs=*)
               HOST_SECURE="${line#hs=}"
@@ -1720,6 +1771,135 @@ print("skip reason=unknown-mode errors=0")
 PY
 }
 
+agents_sync_python() {
+  local base="$1"
+  local api_key="$2"
+  local target_file="$3"
+  local cafile="$4"
+  local current_sha="$5"
+  CODEX_SYNC_API_KEY="$api_key" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+target = pathlib.Path(sys.argv[2]).expanduser()
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+
+
+def contexts():
+    ctxs = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        ctxs.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctxs.append(fallback)
+    except Exception:
+        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            ctxs.append(ssl._create_unverified_context())
+        except Exception:
+            pass
+    return ctxs or [None]
+
+
+def request_json(method: str, url: str, payload=None):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    last_err = None
+    for ctx in contexts():
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:  # noqa: PERF203
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+
+if not base:
+    print("error reason=missing-base")
+    sys.exit(1)
+if not api_key:
+    print("error reason=missing-api-key")
+    sys.exit(1)
+
+payload = {}
+if current_sha and len(current_sha) == 64:
+    payload["sha256"] = current_sha
+
+try:
+    resp = request_json("POST", f"{base}/agents/retrieve", payload)
+except Exception as exc:  # noqa: BLE001
+    print(f"error reason={str(exc).replace(' ', '_')}")
+    sys.exit(1)
+
+data = resp.get("data") if isinstance(resp, dict) else {}
+status = (data or {}).get("status")
+sha = (data or {}).get("sha256") or ""
+content = (data or {}).get("content")
+updated_at = (data or {}).get("updated_at") or ""
+size_bytes = data.get("size_bytes") if isinstance(data, dict) else None
+
+if status == "missing":
+    removed = 0
+    try:
+        if target.exists():
+            target.unlink()
+            removed = 1
+    except Exception:
+        pass
+    print(f"ok status=missing removed={removed}")
+    sys.exit(0)
+
+if status == "unchanged":
+    print(f"ok status=unchanged sha256={sha}")
+    sys.exit(0)
+
+if status == "updated":
+    if not isinstance(content, str):
+        print("error reason=missing-content")
+        sys.exit(1)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"error reason=write-failed:{str(exc).replace(' ', '_')}")
+        sys.exit(1)
+    length = len(content.encode("utf-8"))
+    size_label = size_bytes if isinstance(size_bytes, int) else length
+    safe_updated = str(updated_at).replace(" ", "_")
+    print(f"ok status=updated sha256={sha} bytes={size_label} updated_at={safe_updated}")
+    sys.exit(0)
+
+print(f"error reason=unknown-status:{status}")
+sys.exit(1)
+PY
+}
+
 sync_slash_commands_pull() {
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
@@ -1763,6 +1943,72 @@ sync_slash_commands_pull() {
       remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
       removed=*) PROMPT_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
+sync_agents_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    AGENTS_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    AGENTS_SYNC_STATUS="no-python"
+    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+      log_warn "python3 is required for AGENTS.md sync; skipping."
+      SYNC_WARNED_NO_PYTHON=1
+    fi
+    return 1
+  fi
+  local current_sha=""
+  if [[ -f "$AGENTS_PATH" ]]; then
+    current_sha="$(python3 - "$AGENTS_PATH" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try:
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+except Exception:
+    pass
+PY
+)"
+  fi
+  local summary status_code
+  set +e
+  summary="$(agents_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$AGENTS_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
+  status_code=$?
+  set -e
+  AGENTS_SYNC_STATUS="error"
+  AGENTS_STATE=""
+  AGENTS_REMOTE_SHA=""
+  AGENTS_REMOTE_UPDATED_AT=""
+  AGENTS_REMOTE_BYTES=""
+  AGENTS_REMOVED=0
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      AGENTS_SYNC_STATUS="offline"
+      AGENTS_SYNC_REASON="$reason"
+    else
+      AGENTS_SYNC_STATUS="error"
+      AGENTS_SYNC_REASON="$reason"
+    fi
+    return 1
+  fi
+  AGENTS_SYNC_STATUS="${summary%% *}"
+  AGENTS_SYNC_REASON=""
+  local part
+  for part in $summary; do
+    case "$part" in
+      status=*) AGENTS_STATE="${part#status=}" ;;
+      sha256=*) AGENTS_REMOTE_SHA="${part#sha256=}" ;;
+      updated_at=*) AGENTS_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
+      bytes=*) AGENTS_REMOTE_BYTES="${part#bytes=}" ;;
+      removed=*) AGENTS_REMOVED="${part#removed=}" ;;
     esac
   done
   return 0
@@ -2320,6 +2566,7 @@ fi
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
 sync_slash_commands_pull || true
+sync_agents_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -3070,6 +3317,44 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_tone="red"
 fi
 
+agents_label="AGENTS sync skipped"
+agents_tone="yellow"
+if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
+  case "$AGENTS_STATE" in
+    updated)
+      agents_label="AGENTS updated"
+      agents_tone="green"
+      ;;
+    unchanged)
+      agents_label="AGENTS current"
+      agents_tone="green"
+      ;;
+    missing)
+      agents_label="AGENTS cleared"
+      agents_tone="yellow"
+      ;;
+    *)
+      agents_label="AGENTS synced"
+      agents_tone="green"
+      ;;
+  esac
+elif [[ "$AGENTS_SYNC_STATUS" == "missing-config" ]]; then
+  agents_label="AGENTS sync config missing"
+  agents_tone="red"
+elif [[ "$AGENTS_SYNC_STATUS" == "no-python" ]]; then
+  agents_label="AGENTS sync requires python3"
+  agents_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
+  agents_label="AGENTS sync unavailable"
+  if [[ -n "$AGENTS_SYNC_REASON" ]]; then
+    agents_label+=" (${AGENTS_SYNC_REASON})"
+  fi
+  agents_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  agents_label="AGENTS sync failed"
+  agents_tone="red"
+fi
+
 case "$PROMPT_PUSH_STATUS" in
   ok)
     if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
@@ -3190,6 +3475,34 @@ fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
 fi
+if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
+  case "$AGENTS_STATE" in
+    updated)
+      result_parts+=("AGENTS.md updated")
+      ;;
+    unchanged)
+      result_parts+=("AGENTS.md current")
+      ;;
+    missing)
+      result_parts+=("AGENTS.md cleared")
+      ;;
+    *)
+      result_parts+=("AGENTS.md synced")
+      ;;
+  esac
+elif [[ "$AGENTS_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("AGENTS.md config missing")
+elif [[ "$AGENTS_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("AGENTS.md python missing")
+elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$AGENTS_SYNC_REASON" ]]; then
+    result_parts+=("AGENTS.md offline (${AGENTS_SYNC_REASON})")
+  else
+    result_parts+=("AGENTS.md offline")
+  fi
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("AGENTS.md sync failed")
+fi
 if (( QUOTA_BLOCKED )); then
   result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
 fi
@@ -3241,6 +3554,10 @@ elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; the
   result_tone="yellow"
 elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
   result_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  result_tone="red"
+elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
+  result_tone="yellow"
 elif (( QUOTA_WARNING )); then
   result_tone="yellow"
 elif (( QUOTA_BLOCKED )); then
@@ -3262,15 +3579,32 @@ if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "
   result_label="Codex go Brrrr!"
 fi
 
-  log_info "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
-  log_info "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
-  log_info "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
-  log_info "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  declare -A SUMMARY_ROWS=()
+  add_summary_row() {
+    local key="$1"
+    local value="$2"
+    [[ -z "$key" || -z "$value" ]] && return
+    SUMMARY_ROWS["$key"]="$value"
+  }
+  print_summary_rows() {
+    if (( ${#SUMMARY_ROWS[@]} == 0 )); then
+      return
+    fi
+    local key
+    while IFS= read -r key; do
+      log_info "${SUMMARY_ROWS[$key]}"
+    done < <(printf '%s\n' "${!SUMMARY_ROWS[@]}" | LC_ALL=C sort)
+  }
+
+  add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
+  add_summary_row "auth" "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
+  add_summary_row "codex" "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+  add_summary_row "agents" "$(format_simple_row "AGENTS.md" "$(colorize "$agents_label" "$agents_tone")")"
+  add_summary_row "prompts" "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
+  add_summary_row "wrapper" "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   if [[ -n "$runner_label" ]]; then
-    log_info "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
+    add_summary_row "runner" "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
   fi
-  log_info "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
-  quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
   host_usage_parts=()
   if [[ -n "$HOST_API_CALLS" ]]; then
     host_usage_parts+=("api calls ${HOST_API_CALLS}")
@@ -3287,8 +3621,31 @@ fi
   fi
   if (( ${#host_usage_parts[@]} )); then
     host_usage_text="$(join_with_semicolon "${host_usage_parts[@]}")"
-    log_info "$(format_simple_row "host usage" "$host_usage_text")"
+    add_summary_row "host usage" "$(format_simple_row "host usage" "$host_usage_text")"
   fi
+  if [[ -n "$usage_summary" ]]; then
+    add_summary_row "tokens" "$(format_simple_row "tokens" "$usage_summary")"
+  fi
+  local quota_limit="$QUOTA_LIMIT_PERCENT"
+  if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
+    quota_limit=100
+  fi
+  if (( quota_limit < 50 )); then
+    quota_limit=50
+  elif (( quota_limit > 100 )); then
+    quota_limit=100
+  fi
+  QUOTA_LIMIT_PERCENT="$quota_limit"
+  local quota_summary
+  if (( QUOTA_HARD_FAIL )); then
+    quota_summary="Deny launches at ≥${quota_limit}% usage."
+  else
+    quota_summary="Warn at ≥${quota_limit}% usage; continue running."
+  fi
+  add_summary_row "command" "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
+  add_summary_row "Policy" "$(format_simple_row "Policy" "$quota_summary")"
+  add_summary_row "result" "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
+  print_summary_rows
   primary_reset_hint=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
   if [[ -n "$qline" ]]; then
@@ -3317,18 +3674,22 @@ fi
     log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
   fi
 
+  local quota_warn_threshold=$(( quota_limit - 10 ))
+  if (( quota_warn_threshold < 0 )); then
+    quota_warn_threshold=0
+  fi
   quota_reasons=()
   quota_warnings=()
   if [[ "${CHATGPT_STATUS,,}" == "limit_reached" ]]; then
     quota_reasons+=("ChatGPT status limit_reached")
   fi
   if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]]; then
-    if (( CHATGPT_PRIMARY_USED >= 100 )); then
+    if (( CHATGPT_PRIMARY_USED >= quota_limit )); then
       reason="5h quota reached (${CHATGPT_PRIMARY_USED}% used"
       [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
       reason+=")"
       quota_reasons+=("$reason")
-    elif (( CHATGPT_PRIMARY_USED >= 90 )); then
+    elif (( CHATGPT_PRIMARY_USED >= quota_warn_threshold )); then
       reason="5h quota high (${CHATGPT_PRIMARY_USED}% used"
       [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
       reason+=")"
@@ -3336,12 +3697,12 @@ fi
     fi
   fi
   if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]]; then
-    if (( CHATGPT_SECONDARY_USED >= 100 )); then
+    if (( CHATGPT_SECONDARY_USED >= quota_limit )); then
       reason="week quota reached (${CHATGPT_SECONDARY_USED}% used"
       [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
       reason+=")"
       quota_reasons+=("$reason")
-    elif (( CHATGPT_SECONDARY_USED >= 90 )); then
+    elif (( CHATGPT_SECONDARY_USED >= quota_warn_threshold )); then
       reason="week quota high (${CHATGPT_SECONDARY_USED}% used"
       [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
       reason+=")"
@@ -3356,13 +3717,6 @@ fi
     QUOTA_WARNING=1
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
-
-  if [[ -n "$usage_summary" ]]; then
-  log_info "$(format_simple_row "tokens" "$usage_summary")"
-fi
-log_info "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
-log_info "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-log_info "$(format_simple_row "Policy" "$quota_summary")"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
@@ -3514,6 +3868,10 @@ PY
   return "$status"
 }
 
+if [[ -n "$CODEX_MODEL_PRESET" ]]; then
+  set -- --model "$CODEX_MODEL_PRESET" "$@"
+fi
+
 CODEX_COMMAND_STARTED=1
 if run_codex_command "$@"; then
   cmd_status=0
@@ -3522,3 +3880,4 @@ else
 fi
 push_auth_if_changed "push" || true
 exit "$cmd_status"
+

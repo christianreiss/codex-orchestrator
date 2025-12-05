@@ -1073,7 +1073,6 @@ fi
   if [[ -n "$runner_label" ]]; then
     add_summary_row "runner" "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
   fi
-  quota_summary="$([[ $QUOTA_HARD_FAIL -eq 1 ]] && echo "Deny launch when quota is reached." || echo "Warn only; continue on quota hit.")"
   host_usage_parts=()
   if [[ -n "$HOST_API_CALLS" ]]; then
     host_usage_parts+=("api calls ${HOST_API_CALLS}")
@@ -1094,6 +1093,22 @@ fi
   fi
   if [[ -n "$usage_summary" ]]; then
     add_summary_row "tokens" "$(format_simple_row "tokens" "$usage_summary")"
+  fi
+  local quota_limit="$QUOTA_LIMIT_PERCENT"
+  if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
+    quota_limit=100
+  fi
+  if (( quota_limit < 50 )); then
+    quota_limit=50
+  elif (( quota_limit > 100 )); then
+    quota_limit=100
+  fi
+  QUOTA_LIMIT_PERCENT="$quota_limit"
+  local quota_summary
+  if (( QUOTA_HARD_FAIL )); then
+    quota_summary="Deny launches at ≥${quota_limit}% usage."
+  else
+    quota_summary="Warn at ≥${quota_limit}% usage; continue running."
   fi
   add_summary_row "command" "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
   add_summary_row "Policy" "$(format_simple_row "Policy" "$quota_summary")"
@@ -1127,18 +1142,22 @@ fi
     log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
   fi
 
+  local quota_warn_threshold=$(( quota_limit - 10 ))
+  if (( quota_warn_threshold < 0 )); then
+    quota_warn_threshold=0
+  fi
   quota_reasons=()
   quota_warnings=()
   if [[ "${CHATGPT_STATUS,,}" == "limit_reached" ]]; then
     quota_reasons+=("ChatGPT status limit_reached")
   fi
   if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]]; then
-    if (( CHATGPT_PRIMARY_USED >= 100 )); then
+    if (( CHATGPT_PRIMARY_USED >= quota_limit )); then
       reason="5h quota reached (${CHATGPT_PRIMARY_USED}% used"
       [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
       reason+=")"
       quota_reasons+=("$reason")
-    elif (( CHATGPT_PRIMARY_USED >= 90 )); then
+    elif (( CHATGPT_PRIMARY_USED >= quota_warn_threshold )); then
       reason="5h quota high (${CHATGPT_PRIMARY_USED}% used"
       [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
       reason+=")"
@@ -1146,12 +1165,12 @@ fi
     fi
   fi
   if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]]; then
-    if (( CHATGPT_SECONDARY_USED >= 100 )); then
+    if (( CHATGPT_SECONDARY_USED >= quota_limit )); then
       reason="week quota reached (${CHATGPT_SECONDARY_USED}% used"
       [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
       reason+=")"
       quota_reasons+=("$reason")
-    elif (( CHATGPT_SECONDARY_USED >= 90 )); then
+    elif (( CHATGPT_SECONDARY_USED >= quota_warn_threshold )); then
       reason="week quota high (${CHATGPT_SECONDARY_USED}% used"
       [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
       reason+=")"

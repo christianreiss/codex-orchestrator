@@ -33,8 +33,8 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
 - `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/insecure window timestamps/`insecure_window_minutes`.
-- `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag.
-- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
+- `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag, `quota_limit_percent`.
+- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `quota_limit_percent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
 - `chatgpt_usage`: latest window summary if a snapshot exists (primary/secondary window percentages, limits, reset timing, status, plan_type, next_eligible_at).
 
@@ -65,7 +65,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/versions/check` — forces a fresh GitHub release lookup (bypassing 3h cache) and returns `{available_client, versions}`.
 
 ## Admin Endpoints (mTLS + optional admin key)
-- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, and mTLS metadata.
+- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.
 - `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
@@ -76,7 +76,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (body JSON or `file`). `host_id` optional; omitted/`0`/`system` stores an unscoped payload. Skips runner.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set `api_disabled` kill switch (only path left available when disabled).
-- `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` (when false, clients may warn instead of hard-fail on ChatGPT quota exhaustion).
+- `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` and `limit_percent` (50–100). When false, clients warn once the configured percent is used but still launch Codex; when true, they stop once the limit is reached.
 - Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.
 - Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50` (includes aggregate `cost` + `currency`), `GET /admin/tokens?limit=50`.
 - Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.

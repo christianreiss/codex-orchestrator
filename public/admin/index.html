@@ -324,6 +324,14 @@
                   <span class="toggle-text" id="quotaModeLabel">Deny launches</span>
                 </label>
               </div>
+              <div class="quota-limit-control">
+                <div class="quota-limit-head">
+                  <p class="muted" style="margin:0;">Warn/kill at</p>
+                  <div class="quota-limit-value" id="quotaLimitLabel">100%</div>
+                </div>
+                <input type="range" min="50" max="100" step="1" value="100" id="quotaLimitSlider" class="quota-limit-slider">
+                <p class="muted quota-limit-foot">Used percent that triggers warnings (or failures when deny mode is on).</p>
+              </div>
             </div>
             <div class="setting-block">
               <div class="setting-head">
