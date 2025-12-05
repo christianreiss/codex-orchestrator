@@ -658,6 +658,7 @@ project_quota_usage() {
   (( elapsed > limit_seconds )) && elapsed=limit_seconds
   local projected=$(( (used_pct * limit_seconds + elapsed / 2) / elapsed ))
   (( projected > 999 )) && projected=999
+  (( projected > 100 )) && projected=100
   printf "%d" "$projected"
 }
 
@@ -1278,15 +1279,25 @@ fi
     qtext2="${rest2%%$'\t'*}"
     qnote2="${rest2#*$'\t'}"
     projection_note=""
+    projection_alert=0
     projection_pct="$(project_quota_usage "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER")"
     if [[ -n "$projection_pct" ]]; then
-      projection_note="proj ~${projection_pct}% at reset"
+      if (( projection_pct >= 100 )); then
+        projection_note="proj 100% at reset"
+        projection_alert=1
+      else
+        projection_note="proj ~${projection_pct}% at reset"
+      fi
     fi
     qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
     secondary_reset_hint="$qnote_full"
     qnote2_disp="$qnote_full"
     if [[ -n "$qnote2_disp" ]]; then
-      printf -v qnote2_disp "%b" "${DIM}${qnote2_disp}${RESET}"
+      if (( projection_alert )); then
+        printf -v qnote2_disp "%b" "${RED}${BOLD}${qnote2_disp}${RESET}"
+      else
+        printf -v qnote2_disp "%b" "${DIM}${qnote2_disp}${RESET}"
+      fi
     fi
     secondary_quota_segment="$(colorize "$qtext2" "$qtone2")"
     if [[ -n "$qnote2_disp" ]]; then
