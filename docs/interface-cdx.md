@@ -11,6 +11,7 @@
 - TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).
 - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`. Server-retired prompts are removed locally.
   - Slash command sync treats API outages/HTTP 5xx as offline (warn) instead of a hard failure; prompt push still runs when possible.
+  - AGENTS.md is pulled from `/agents/retrieve` on every run and written to `~/.codex/AGENTS.md` (directory created if missing). The file is **never** pushed upstream; if the server reports `status:missing`, the local AGENTS.md is deleted to avoid stale instructions. Python is required for sync; missing config or offline servers are reported but do not block auth.
   - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`. The server calculates and stores per-entry/aggregate costs from pricing (env fallbacks `GPT51_*`/`PRICING_CURRENCY`).
   - When `/auth` returns a `chatgpt_usage` block, surfaces 5-hour and weekly ChatGPT quota bars during boot (with reset ETA) for operator visibility.

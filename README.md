@@ -63,10 +63,4 @@ Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see 
 
 ## Codex instructions
 
-`AGENTS.md` (in this repository root) is the canonical guidance Codex should load as described in the [Custom instructions with AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md). Run the helper below whenever you update the file to keep Codex’s profile current:
-
-```bash
-php scripts/sync-agents.php
-```
-
-The script copies `AGENTS.md` into `~/.codex/AGENTS.md` (or `$CODEX_HOME/AGENTS.md` when `CODEX_HOME` is set), creating the directory if necessary and skipping rewrites when the content is already up to date.
+`AGENTS.md` (repo root) remains a useful template, but the server now owns the canonical copy. Update it from the dashboard’s **AGENTS.md** panel; the API stores one version and every host pulls it into `~/.codex/AGENTS.md` on each run (removing stale local copies if the server copy is cleared). See the [Custom instructions with AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md) for authoring tips.

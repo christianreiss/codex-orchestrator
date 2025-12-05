@@ -34,6 +34,7 @@ fi
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
 sync_slash_commands_pull || true
+sync_agents_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -784,6 +785,44 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_tone="red"
 fi
 
+agents_label="AGENTS sync skipped"
+agents_tone="yellow"
+if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
+  case "$AGENTS_STATE" in
+    updated)
+      agents_label="AGENTS updated"
+      agents_tone="green"
+      ;;
+    unchanged)
+      agents_label="AGENTS current"
+      agents_tone="green"
+      ;;
+    missing)
+      agents_label="AGENTS cleared"
+      agents_tone="yellow"
+      ;;
+    *)
+      agents_label="AGENTS synced"
+      agents_tone="green"
+      ;;
+  esac
+elif [[ "$AGENTS_SYNC_STATUS" == "missing-config" ]]; then
+  agents_label="AGENTS sync config missing"
+  agents_tone="red"
+elif [[ "$AGENTS_SYNC_STATUS" == "no-python" ]]; then
+  agents_label="AGENTS sync requires python3"
+  agents_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
+  agents_label="AGENTS sync unavailable"
+  if [[ -n "$AGENTS_SYNC_REASON" ]]; then
+    agents_label+=" (${AGENTS_SYNC_REASON})"
+  fi
+  agents_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  agents_label="AGENTS sync failed"
+  agents_tone="red"
+fi
+
 case "$PROMPT_PUSH_STATUS" in
   ok)
     if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
@@ -904,6 +943,34 @@ fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
 fi
+if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
+  case "$AGENTS_STATE" in
+    updated)
+      result_parts+=("AGENTS.md updated")
+      ;;
+    unchanged)
+      result_parts+=("AGENTS.md current")
+      ;;
+    missing)
+      result_parts+=("AGENTS.md cleared")
+      ;;
+    *)
+      result_parts+=("AGENTS.md synced")
+      ;;
+  esac
+elif [[ "$AGENTS_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("AGENTS.md config missing")
+elif [[ "$AGENTS_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("AGENTS.md python missing")
+elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$AGENTS_SYNC_REASON" ]]; then
+    result_parts+=("AGENTS.md offline (${AGENTS_SYNC_REASON})")
+  else
+    result_parts+=("AGENTS.md offline")
+  fi
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("AGENTS.md sync failed")
+fi
 if (( QUOTA_BLOCKED )); then
   result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
 fi
@@ -955,6 +1022,10 @@ elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; the
   result_tone="yellow"
 elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
   result_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  result_tone="red"
+elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
+  result_tone="yellow"
 elif (( QUOTA_WARNING )); then
   result_tone="yellow"
 elif (( QUOTA_BLOCKED )); then
@@ -996,6 +1067,7 @@ fi
   add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   add_summary_row "auth" "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
   add_summary_row "codex" "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+  add_summary_row "agents" "$(format_simple_row "AGENTS.md" "$(colorize "$agents_label" "$agents_tone")")"
   add_summary_row "prompts" "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   add_summary_row "wrapper" "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   if [[ -n "$runner_label" ]]; then

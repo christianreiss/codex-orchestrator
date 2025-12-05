@@ -117,6 +117,21 @@
             </div>
           </div>
         </div>
+        <div class="modal-backdrop" id="agentsModal">
+          <div class="modal">
+            <h3>Edit AGENTS.md</h3>
+            <p class="muted" style="margin:0 0 8px;">Server canonical instructions replace <code>~/.codex/AGENTS.md</code> on every sync.</p>
+            <div class="field">
+              <label style="font-weight:600;">Content</label>
+              <textarea id="agentsBody" rows="12" placeholder="Project instructions, markdown supported"></textarea>
+            </div>
+            <div id="agentsStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+              <button class="ghost" id="agentsCancel">Cancel</button>
+              <button id="agentsSave">Save</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-backdrop" id="uploadModal">
           <div class="modal">
             <h3>Seed auth.json</h3>
@@ -250,6 +265,20 @@
   </div>
         </section>
 
+        <section class="card panel" id="agents-panel" style="display:none;">
+          <div class="panel-head">
+            <div>
+              <h2>AGENTS.md</h2>
+              <p class="muted" style="margin:4px 0 0;">Canonical instructions synced to hosts at <code>~/.codex/AGENTS.md</code></p>
+            </div>
+            <div class="panel-actions" style="gap:10px; align-items:center;">
+              <span class="muted" id="agentsMeta"></span>
+              <button class="ghost tiny-btn" id="editAgentsBtn">Edit</button>
+            </div>
+          </div>
+          <div class="agents-preview" id="agentsPreview">Loading…</div>
+        </section>
+
         <section class="card panel" id="prompts-panel">
           <div class="panel-head">
             <div>
@@ -292,6 +321,6 @@
     </div>
   </div>
 
-  <script src="dashboard.js?v=2025-12-04-02"></script>
+  <script src="dashboard.js?v=2025-12-05-01"></script>
 </body>
 </html>

@@ -73,6 +73,15 @@ const statsEl = document.getElementById('stats');
     const promptCancel = document.getElementById('promptCancel');
     const promptStatus = document.getElementById('promptStatus');
     const promptsPanel = document.getElementById('prompts-panel');
+    const agentsPanel = document.getElementById('agents-panel');
+    const agentsMeta = document.getElementById('agentsMeta');
+    const agentsPreview = document.getElementById('agentsPreview');
+    const editAgentsBtn = document.getElementById('editAgentsBtn');
+    const agentsModal = document.getElementById('agentsModal');
+    const agentsBody = document.getElementById('agentsBody');
+    const agentsStatus = document.getElementById('agentsStatus');
+    const agentsCancel = document.getElementById('agentsCancel');
+    const agentsSave = document.getElementById('agentsSave');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
     const USAGE_HISTORY_DAYS = 60;
@@ -87,6 +96,7 @@ const statsEl = document.getElementById('stats');
     const upgradeNotesCache = {};
     let currentHosts = [];
     let currentPrompts = [];
+    let currentAgents = null;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -336,6 +346,43 @@ const statsEl = document.getElementById('stats');
       const normalized = typeof status === 'string' ? status.toLowerCase() : 'unknown';
       const slug = ['active', 'suspended'].includes(normalized) ? normalized : 'unknown';
       return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
+    }
+
+    function summarizeAgentsContent(content) {
+      const text = (content || '').trim();
+      if (!text) return 'Empty AGENTS.md (hosts will receive a blank file).';
+      const limit = 900;
+      if (text.length <= limit) return text;
+      return `${text.slice(0, limit)}…`;
+    }
+
+    function renderAgents(doc) {
+      currentAgents = doc || null;
+      if (!agentsPanel) return;
+      agentsPanel.style.display = 'block';
+
+      const status = doc?.status || 'missing';
+      const sha = doc?.sha256 || '—';
+      const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
+      const size = Number(doc?.size_bytes);
+      const sizeLabel = Number.isFinite(size) ? `${formatNumber(size)} bytes` : '—';
+      if (agentsMeta) {
+        const parts = [];
+        parts.push(`sha ${sha}`);
+        parts.push(`updated ${updatedAt}`);
+        if (sizeLabel !== '—') parts.push(sizeLabel);
+        agentsMeta.textContent = parts.join(' · ');
+      }
+
+      if (agentsPreview) {
+        if (status === 'missing') {
+          agentsPreview.textContent = 'No canonical AGENTS.md stored. Hosts will remove local copies.';
+          agentsPreview.classList.add('muted');
+        } else {
+          agentsPreview.textContent = summarizeAgentsContent(doc?.content || '');
+          agentsPreview.classList.remove('muted');
+        }
+      }
     }
 
     function formatMinutesAgo(value) {
@@ -2084,7 +2131,7 @@ const statsEl = document.getElementById('stats');
 
     async function loadAll() {
       try {
-        const [overview, hosts, runner, prompts] = await Promise.all([
+        const [overview, hosts, runner, prompts, agents] = await Promise.all([
           api('/admin/overview'),
           api('/admin/hosts'),
           api('/admin/runner').catch(err => {
@@ -2095,11 +2142,16 @@ const statsEl = document.getElementById('stats');
             console.warn('Slash commands unavailable', err);
             return null;
           }),
+          api('/admin/agents').catch(err => {
+            console.warn('AGENTS.md unavailable', err);
+            return null;
+          }),
         ]);
         setMtls(overview.data.mtls);
         renderStats(overview.data, runner?.data || null);
         renderHosts(hosts.data.hosts);
         renderPrompts(prompts?.data?.commands || []);
+        renderAgents(agents?.data || { status: 'missing' });
         if (typeof overview.data.quota_hard_fail !== 'undefined') {
           quotaHardFail = !!overview.data.quota_hard_fail;
           renderQuotaMode();
@@ -2160,6 +2212,47 @@ const statsEl = document.getElementById('stats');
       } else {
         promptModal.classList.remove('show');
         if (promptStatus) promptStatus.textContent = '';
+      }
+    }
+
+    function showAgentsModal(show) {
+      if (!agentsModal) return;
+      if (show) {
+        agentsModal.classList.add('show');
+      } else {
+        agentsModal.classList.remove('show');
+        if (agentsStatus) agentsStatus.textContent = '';
+      }
+    }
+
+    function openAgentsModal() {
+      if (!agentsBody) return;
+      const content = currentAgents?.content || '';
+      agentsBody.value = content;
+      if (agentsStatus) agentsStatus.textContent = '';
+      showAgentsModal(true);
+    }
+
+    async function saveAgents() {
+      if (!agentsBody || !agentsSave) return;
+      const content = agentsBody.value;
+      agentsSave.disabled = true;
+      const original = agentsSave.textContent;
+      agentsSave.textContent = 'Saving…';
+      if (agentsStatus) agentsStatus.textContent = 'Saving…';
+      try {
+        await api('/admin/agents/store', {
+          method: 'POST',
+          json: { content },
+        });
+        if (agentsStatus) agentsStatus.textContent = 'Saved';
+        await loadAll();
+        showAgentsModal(false);
+      } catch (err) {
+        if (agentsStatus) agentsStatus.textContent = `Save failed: ${err.message}`;
+      } finally {
+        agentsSave.disabled = false;
+        agentsSave.textContent = original;
       }
     }
 
@@ -2349,6 +2442,12 @@ const statsEl = document.getElementById('stats');
         openPromptModal('');
       });
     }
+    if (editAgentsBtn) {
+      editAgentsBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        openAgentsModal();
+      });
+    }
     if (uploadAuthBtn) {
       uploadAuthBtn.addEventListener('click', () => showUploadModal(true));
     }
@@ -2391,11 +2490,22 @@ const statsEl = document.getElementById('stats');
         if (e.target === promptModal) showPromptModal(false);
       });
     }
+    if (agentsModal) {
+      agentsModal.addEventListener('click', (e) => {
+        if (e.target === agentsModal) showAgentsModal(false);
+      });
+    }
     if (promptCancel) {
       promptCancel.addEventListener('click', () => showPromptModal(false));
     }
     if (promptSave) {
       promptSave.addEventListener('click', () => savePrompt());
+    }
+    if (agentsCancel) {
+      agentsCancel.addEventListener('click', () => showAgentsModal(false));
+    }
+    if (agentsSave) {
+      agentsSave.addEventListener('click', () => saveAgents());
     }
     if (deleteHostModal) {
       deleteHostModal.addEventListener('click', (e) => {

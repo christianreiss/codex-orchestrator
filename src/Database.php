@@ -139,6 +139,21 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS agents_documents (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                sha256 CHAR(64) NOT NULL,
+                body LONGTEXT NOT NULL,
+                source_host_id BIGINT UNSIGNED NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                INDEX idx_agents_documents_updated_at (updated_at),
+                CONSTRAINT fk_agents_documents_host FOREIGN KEY (source_host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS host_auth_states (
                 host_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
                 payload_id BIGINT UNSIGNED NOT NULL,
@@ -376,6 +391,7 @@ class Database
         $this->ensureColumnExists('token_usages', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('token_usage_ingests', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
+        $this->ensureColumnExists('agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
 
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');

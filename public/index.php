@@ -30,6 +30,7 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\SlashCommandRepository;
+use App\Repositories\AgentsRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -38,6 +39,7 @@ use App\Services\PricingService;
 use App\Services\CostHistoryService;
 use App\Services\UsageCostService;
 use App\Services\SlashCommandService;
+use App\Services\AgentsService;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
@@ -88,6 +90,7 @@ $authPayloadRepository = new AuthPayloadRepository($database, $authEntryReposito
 $logRepository = new LogRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
+$agentsRepository = new AgentsRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
@@ -116,6 +119,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
 $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
+$agentsService = new AgentsService($agentsRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -1132,6 +1136,41 @@ $router->add('POST', '#^/admin/chatgpt/usage/refresh$#', function () use ($chatG
     ]);
 });
 
+$router->add('GET', '#^/admin/agents$#', function () use ($agentsService) {
+    requireAdminAccess();
+    $doc = $agentsService->adminFetch();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $doc,
+    ]);
+});
+
+$router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agentsService) {
+    requireAdminAccess();
+
+    $content = '';
+    if (is_array($payload)) {
+        $content = (string) ($payload['content'] ?? ($payload['body'] ?? ''));
+    }
+    $sha = is_array($payload) ? ($payload['sha256'] ?? null) : null;
+
+    try {
+        $result = $agentsService->store($content, $sha, null);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/slash-commands$#', function () use ($slashCommandRepository) {
     requireAdminAccess();
 
@@ -1279,6 +1318,20 @@ $router->add('DELETE', '#^/auth$#', function () use ($service) {
         'data' => [
             'deleted' => $host['fqdn'],
         ],
+    ]);
+});
+
+$router->add('POST', '#^/agents/retrieve$#', function () use ($payload, $service, $agentsService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
+    $result = $agentsService->retrieve($sha, $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
     ]);
 });
 

@@ -172,6 +172,14 @@ PROMPT_REMOTE_COUNT=""
 PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
+AGENTS_PATH="$HOME/.codex/AGENTS.md"
+AGENTS_SYNC_STATUS="skip"
+AGENTS_SYNC_REASON=""
+AGENTS_STATE=""
+AGENTS_REMOTE_SHA=""
+AGENTS_REMOTE_UPDATED_AT=""
+AGENTS_REMOTE_BYTES=""
+AGENTS_REMOVED=0
 
 if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   HOST_IS_SECURE=0
@@ -179,7 +187,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.12.02-04"
+WRAPPER_VERSION="2025.12.05-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -1755,6 +1763,135 @@ print("skip reason=unknown-mode errors=0")
 PY
 }
 
+agents_sync_python() {
+  local base="$1"
+  local api_key="$2"
+  local target_file="$3"
+  local cafile="$4"
+  local current_sha="$5"
+  CODEX_SYNC_API_KEY="$api_key" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+target = pathlib.Path(sys.argv[2]).expanduser()
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+
+
+def contexts():
+    ctxs = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        ctxs.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctxs.append(fallback)
+    except Exception:
+        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            ctxs.append(ssl._create_unverified_context())
+        except Exception:
+            pass
+    return ctxs or [None]
+
+
+def request_json(method: str, url: str, payload=None):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    last_err = None
+    for ctx in contexts():
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:  # noqa: PERF203
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+
+if not base:
+    print("error reason=missing-base")
+    sys.exit(1)
+if not api_key:
+    print("error reason=missing-api-key")
+    sys.exit(1)
+
+payload = {}
+if current_sha and len(current_sha) == 64:
+    payload["sha256"] = current_sha
+
+try:
+    resp = request_json("POST", f"{base}/agents/retrieve", payload)
+except Exception as exc:  # noqa: BLE001
+    print(f"error reason={str(exc).replace(' ', '_')}")
+    sys.exit(1)
+
+data = resp.get("data") if isinstance(resp, dict) else {}
+status = (data or {}).get("status")
+sha = (data or {}).get("sha256") or ""
+content = (data or {}).get("content")
+updated_at = (data or {}).get("updated_at") or ""
+size_bytes = data.get("size_bytes") if isinstance(data, dict) else None
+
+if status == "missing":
+    removed = 0
+    try:
+        if target.exists():
+            target.unlink()
+            removed = 1
+    except Exception:
+        pass
+    print(f"ok status=missing removed={removed}")
+    sys.exit(0)
+
+if status == "unchanged":
+    print(f"ok status=unchanged sha256={sha}")
+    sys.exit(0)
+
+if status == "updated":
+    if not isinstance(content, str):
+        print("error reason=missing-content")
+        sys.exit(1)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"error reason=write-failed:{str(exc).replace(' ', '_')}")
+        sys.exit(1)
+    length = len(content.encode("utf-8"))
+    size_label = size_bytes if isinstance(size_bytes, int) else length
+    safe_updated = str(updated_at).replace(" ", "_")
+    print(f"ok status=updated sha256={sha} bytes={size_label} updated_at={safe_updated}")
+    sys.exit(0)
+
+print(f"error reason=unknown-status:{status}")
+sys.exit(1)
+PY
+}
+
 sync_slash_commands_pull() {
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
@@ -1798,6 +1935,72 @@ sync_slash_commands_pull() {
       remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
       removed=*) PROMPT_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
+sync_agents_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    AGENTS_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    AGENTS_SYNC_STATUS="no-python"
+    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+      log_warn "python3 is required for AGENTS.md sync; skipping."
+      SYNC_WARNED_NO_PYTHON=1
+    fi
+    return 1
+  fi
+  local current_sha=""
+  if [[ -f "$AGENTS_PATH" ]]; then
+    current_sha="$(python3 - "$AGENTS_PATH" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try:
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+except Exception:
+    pass
+PY
+)"
+  fi
+  local summary status_code
+  set +e
+  summary="$(agents_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$AGENTS_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
+  status_code=$?
+  set -e
+  AGENTS_SYNC_STATUS="error"
+  AGENTS_STATE=""
+  AGENTS_REMOTE_SHA=""
+  AGENTS_REMOTE_UPDATED_AT=""
+  AGENTS_REMOTE_BYTES=""
+  AGENTS_REMOVED=0
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      AGENTS_SYNC_STATUS="offline"
+      AGENTS_SYNC_REASON="$reason"
+    else
+      AGENTS_SYNC_STATUS="error"
+      AGENTS_SYNC_REASON="$reason"
+    fi
+    return 1
+  fi
+  AGENTS_SYNC_STATUS="${summary%% *}"
+  AGENTS_SYNC_REASON=""
+  local part
+  for part in $summary; do
+    case "$part" in
+      status=*) AGENTS_STATE="${part#status=}" ;;
+      sha256=*) AGENTS_REMOTE_SHA="${part#sha256=}" ;;
+      updated_at=*) AGENTS_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
+      bytes=*) AGENTS_REMOTE_BYTES="${part#bytes=}" ;;
+      removed=*) AGENTS_REMOVED="${part#removed=}" ;;
     esac
   done
   return 0
@@ -2355,6 +2558,7 @@ fi
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
 sync_slash_commands_pull || true
+sync_agents_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -3105,6 +3309,44 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_tone="red"
 fi
 
+agents_label="AGENTS sync skipped"
+agents_tone="yellow"
+if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
+  case "$AGENTS_STATE" in
+    updated)
+      agents_label="AGENTS updated"
+      agents_tone="green"
+      ;;
+    unchanged)
+      agents_label="AGENTS current"
+      agents_tone="green"
+      ;;
+    missing)
+      agents_label="AGENTS cleared"
+      agents_tone="yellow"
+      ;;
+    *)
+      agents_label="AGENTS synced"
+      agents_tone="green"
+      ;;
+  esac
+elif [[ "$AGENTS_SYNC_STATUS" == "missing-config" ]]; then
+  agents_label="AGENTS sync config missing"
+  agents_tone="red"
+elif [[ "$AGENTS_SYNC_STATUS" == "no-python" ]]; then
+  agents_label="AGENTS sync requires python3"
+  agents_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
+  agents_label="AGENTS sync unavailable"
+  if [[ -n "$AGENTS_SYNC_REASON" ]]; then
+    agents_label+=" (${AGENTS_SYNC_REASON})"
+  fi
+  agents_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  agents_label="AGENTS sync failed"
+  agents_tone="red"
+fi
+
 case "$PROMPT_PUSH_STATUS" in
   ok)
     if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
@@ -3138,9 +3380,7 @@ should_flag_auth=1
 if (( ! HOST_IS_SECURE )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   should_flag_auth=0
 fi
-if (( should_flag_auth )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then
-  command_actions+=("auth")
-fi
+if (( should_flag_auth )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then command_actions+=("auth"); fi
 command_label="launching codex"
 if (( ${#command_actions[@]} )); then
   command_label="updating $(human_join "${command_actions[@]}")"
@@ -3227,6 +3467,34 @@ fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
 fi
+if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
+  case "$AGENTS_STATE" in
+    updated)
+      result_parts+=("AGENTS.md updated")
+      ;;
+    unchanged)
+      result_parts+=("AGENTS.md current")
+      ;;
+    missing)
+      result_parts+=("AGENTS.md cleared")
+      ;;
+    *)
+      result_parts+=("AGENTS.md synced")
+      ;;
+  esac
+elif [[ "$AGENTS_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("AGENTS.md config missing")
+elif [[ "$AGENTS_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("AGENTS.md python missing")
+elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$AGENTS_SYNC_REASON" ]]; then
+    result_parts+=("AGENTS.md offline (${AGENTS_SYNC_REASON})")
+  else
+    result_parts+=("AGENTS.md offline")
+  fi
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("AGENTS.md sync failed")
+fi
 if (( QUOTA_BLOCKED )); then
   result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
 fi
@@ -3278,6 +3546,10 @@ elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; the
   result_tone="yellow"
 elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
   result_tone="yellow"
+elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
+  result_tone="red"
+elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
+  result_tone="yellow"
 elif (( QUOTA_WARNING )); then
   result_tone="yellow"
 elif (( QUOTA_BLOCKED )); then
@@ -3319,6 +3591,7 @@ fi
   add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
   add_summary_row "auth" "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
   add_summary_row "codex" "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
+  add_summary_row "agents" "$(format_simple_row "AGENTS.md" "$(colorize "$agents_label" "$agents_tone")")"
   add_summary_row "prompts" "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
   add_summary_row "wrapper" "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
   if [[ -n "$runner_label" ]]; then
@@ -3580,3 +3853,4 @@ else
 fi
 push_auth_if_changed "push" || true
 exit "$cmd_status"
+
