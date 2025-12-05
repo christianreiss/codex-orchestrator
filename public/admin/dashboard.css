@@ -1047,6 +1047,36 @@
     .token-usage-count { font-weight: 700; font-size: 13px; }
     .token-usage-meta { font-size: 12px; }
     .host-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; }
+    .insecure-window-control {
+      flex: 1 1 100%;
+      border: 1px solid rgba(15,23,42,0.15);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(15,23,42,0.05);
+    }
+    .insecure-window-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .insecure-window-copy {
+      margin: 2px 0 0;
+      font-size: 13px;
+    }
+    .insecure-window-value {
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .insecure-window-slider {
+      width: 100%;
+      margin-top: 12px;
+      accent-color: #0ea5e9;
+    }
+    .insecure-window-foot {
+      margin-top: 6px;
+      font-size: 12px;
+    }
     .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
 .digest-pill {
   font-family: 'JetBrains Mono', monospace;

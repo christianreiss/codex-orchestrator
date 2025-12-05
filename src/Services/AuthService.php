@@ -31,6 +31,9 @@ class AuthService
 {
     private const DEFAULT_INACTIVITY_WINDOW_DAYS = 30;
     private const PROVISIONING_WINDOW_MINUTES = 30;
+    public const MIN_INSECURE_WINDOW_MINUTES = 2;
+    public const MAX_INSECURE_WINDOW_MINUTES = 60;
+    public const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
     private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
@@ -1519,8 +1522,9 @@ class AuthService
 
         if ($enabledActive) {
             if ($trackHost) {
-                $newUntil = $now->modify('+10 minutes');
-                $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $graceUntilRaw);
+                $windowMinutes = $this->resolveInsecureWindowMinutes($host);
+                $newUntil = $now->modify(sprintf('+%d minutes', $windowMinutes));
+                $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $graceUntilRaw, null);
                 $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
             }
 
@@ -1544,10 +1548,28 @@ class AuthService
         ]);
     }
 
+    private function resolveInsecureWindowMinutes(array $host): int
+    {
+        $raw = $host['insecure_window_minutes'] ?? null;
+        if ($raw === null || $raw === '') {
+            return self::DEFAULT_INSECURE_WINDOW_MINUTES;
+        }
+
+        $minutes = (int) $raw;
+        if ($minutes < self::MIN_INSECURE_WINDOW_MINUTES) {
+            return self::MIN_INSECURE_WINDOW_MINUTES;
+        }
+        if ($minutes > self::MAX_INSECURE_WINDOW_MINUTES) {
+            return self::MAX_INSECURE_WINDOW_MINUTES;
+        }
+
+        return $minutes;
+    }
+
     private function openInitialInsecureWindow(int $hostId): void
     {
         $initialUntil = gmdate(DATE_ATOM, time() + (self::PROVISIONING_WINDOW_MINUTES * 60));
-        $this->hosts->updateInsecureWindows($hostId, $initialUntil, null);
+        $this->hosts->updateInsecureWindows($hostId, $initialUntil, null, self::DEFAULT_INSECURE_WINDOW_MINUTES);
         $this->logs->log($hostId, 'auth.insecure.initial_window', [
             'enabled_until' => $initialUntil,
         ]);
@@ -1567,6 +1589,9 @@ class AuthService
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
             'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
+            'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
+                ? (int) $host['insecure_window_minutes']
+                : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
         ];
 

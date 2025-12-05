@@ -6,7 +6,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`. Admin endpoints also accept `X-Admin-Key`/Bearer when `DASHBOARD_ADMIN_KEY` is set.
 - **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, secure the path via VPN/firewall and/or `DASHBOARD_ADMIN_KEY`.
 - **IP binding**: first successful `/auth` (or wrapper fetch) pins the caller IP; later calls from another IP return `403` unless `allow_roaming_ips` is enabled or `DELETE /auth?force=1` is used. Runner calls may bypass IP binding when `AUTH_RUNNER_IP_BYPASS=1` and the runner IP is inside `AUTH_RUNNER_BYPASS_SUBNETS`.
-- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 10‑minute sliding window with `POST /admin/hosts/{id}/insecure/enable`. Disabling the window blocks `retrieve` immediately with `403 insecure_api_disabled` but starts a 60‑minute grace period during which `store` calls remain allowed so hosts can finish uploading changes.
+- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 2–60 minute sliding window (default 10, set via dashboard slider or `duration_minutes`) with `POST /admin/hosts/{id}/insecure/enable`. Disabling the window blocks `retrieve` immediately with `403 insecure_api_disabled` but starts a 60‑minute grace period during which `store` calls remain allowed so hosts can finish uploading changes.
 - **Kill switch**: `POST /admin/api/state` sets a persistent `api_disabled` flag. When enabled, every non-`/admin/api/state` route (including `/auth`) returns HTTP 503.
 - **Rate limits** (non-admin paths only):
   - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
@@ -32,7 +32,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
-- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/insecure window timestamps.
+- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/insecure window timestamps/`insecure_window_minutes`.
 - `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag.
 - `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
@@ -66,11 +66,11 @@ Records the current `username` and optional `hostname` for the calling host, ret
 
 ## Admin Endpoints (mTLS + optional admin key)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, and mTLS metadata.
-- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, insecure window fields, latest token usage, and recorded users.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.
-- `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a 10‑minute sliding allow window.
+- `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a sliding allow window. Optional JSON body `duration_minutes` (integer 2–60) controls the window length (defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
 - `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and starts a 60‑minute grace period during which `/auth` `store` calls are still allowed (retrieves remain blocked).
 - `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.

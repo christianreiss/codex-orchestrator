@@ -756,7 +756,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository) {
+$router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
@@ -784,11 +784,23 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
         }
     }
 
-    $enabledUntil = gmdate(DATE_ATOM, $baseTs + (10 * 60));
-    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null);
+    $minutesRaw = $payload['duration_minutes'] ?? null;
+    if ($minutesRaw === null && isset($host['insecure_window_minutes'])) {
+        $minutesRaw = $host['insecure_window_minutes'];
+    }
+    $minutes = (int) ($minutesRaw ?? AuthService::DEFAULT_INSECURE_WINDOW_MINUTES);
+    if ($minutes < AuthService::MIN_INSECURE_WINDOW_MINUTES) {
+        $minutes = AuthService::MIN_INSECURE_WINDOW_MINUTES;
+    } elseif ($minutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
+        $minutes = AuthService::MAX_INSECURE_WINDOW_MINUTES;
+    }
+
+    $enabledUntil = gmdate(DATE_ATOM, $baseTs + ($minutes * 60));
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null, $minutes);
     $logRepository->log($hostId, 'admin.host.insecure_enable', [
         'fqdn' => $host['fqdn'],
         'enabled_until' => $enabledUntil,
+        'window_minutes' => $minutes,
     ]);
 
     Response::json([
@@ -798,6 +810,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
                 'id' => $hostId,
                 'insecure_enabled_until' => $enabledUntil,
                 'insecure_grace_until' => null,
+                'insecure_window_minutes' => $minutes,
             ],
         ],
     ]);
@@ -1007,6 +1020,9 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'insecure_enabled_until' => $normalizeTs($host['insecure_enabled_until'] ?? null),
             'insecure_grace_until' => $normalizeTs($host['insecure_grace_until'] ?? null),
+            'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
+                ? (int) $host['insecure_window_minutes']
+                : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),

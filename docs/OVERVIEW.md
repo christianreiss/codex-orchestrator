@@ -63,7 +63,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 - **Rate limits** — Global per-IP bucket for non-admin paths (default 120/minute, tunable); auth-fail bucket throttles repeated missing/invalid API keys with a block window when tripped. Limits return 429 with reset metadata.
 - **IP binding & roaming** — First successful call pins the API key to that IP; optional roaming flag updates the stored IP; runner probes can bypass via CIDRs; `DELETE /auth?force=1` allows uninstall from a different IP.
-- **Insecure hosts** — Require an active 10‑minute window for `/auth` (dashboard enable extends the sliding window). New insecure hosts start with a provisioning window; secure hosts keep auth on disk, insecure hosts purge `~/.codex/auth.json` after each run (handled in `cdx`).
+- **Insecure hosts** — Require an active sliding window (2–60 minutes, default 10, set via the dashboard slider or `duration_minutes`) for `/auth`. Each `/auth` call extends the window by that duration. New insecure hosts start with a provisioning window; secure hosts keep auth on disk, insecure hosts purge `~/.codex/auth.json` after each run (handled in `cdx`).
 - **Auth integrity** — Digest is sha256 over canonical JSON; stored digest mismatch triggers validation logging. Timestamps are clamped to reasonable bounds.
 - **Encryption & secrets** — Secretbox protects API keys, payload bodies, and token entries; key is auto-generated/persisted in `.env` if absent. API keys also stored as sha256 hashes for lookup.
 - **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode (`/admin/quota-mode` warn-only vs. hard-fail for ChatGPT limits). Admin routes honor mTLS by default and optional `DASHBOARD_ADMIN_KEY`.

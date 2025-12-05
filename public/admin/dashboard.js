@@ -91,6 +91,10 @@ const statsEl = document.getElementById('stats');
       { key: 'output', label: 'Output', color: '#16a34a' },
       { key: 'cached', label: 'Cached', color: '#f97316' },
     ];
+    const INSECURE_WINDOW_MIN = 2;
+    const INSECURE_WINDOW_MAX = 60;
+    const INSECURE_WINDOW_DEFAULT = 10;
+    const insecureDurationSelections = new Map();
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -183,6 +187,28 @@ const statsEl = document.getElementById('stats');
       const diff = ts.getTime() - Date.now();
       if (diff <= 0) return 0;
       return Math.max(0, Math.round(diff / 60000));
+    }
+
+    function clampInsecureDuration(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return INSECURE_WINDOW_DEFAULT;
+      const rounded = Math.round(numeric);
+      if (rounded < INSECURE_WINDOW_MIN) return INSECURE_WINDOW_MIN;
+      if (rounded > INSECURE_WINDOW_MAX) return INSECURE_WINDOW_MAX;
+      return rounded;
+    }
+
+    function resolveInsecureDuration(host) {
+      if (!host || typeof host.id === 'undefined') {
+        return INSECURE_WINDOW_DEFAULT;
+      }
+      if (insecureDurationSelections.has(host.id)) {
+        return insecureDurationSelections.get(host.id);
+      }
+      if (host.insecure_window_minutes !== null && host.insecure_window_minutes !== undefined) {
+        return clampInsecureDuration(host.insecure_window_minutes);
+      }
+      return INSECURE_WINDOW_DEFAULT;
     }
 
     function api(path, opts = {}) {
@@ -681,10 +707,35 @@ const statsEl = document.getElementById('stats');
       const insecure = !isHostSecure(host);
       const state = insecureState(host);
       const minutesLeft = countdownMinutes(host.insecure_enabled_until);
-      const insecureLabel = state.enabledActive ? `Turn Off (${minutesLeft ?? 0} min)` : 'Turn On';
+      const windowDuration = resolveInsecureDuration(host);
+      const insecureLabel = state.enabledActive
+        ? `Turn Off (${minutesLeft ?? 0} min)`
+        : `Turn On (${windowDuration} min)`;
       const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
       const ipv4Label = host.force_ipv4 ? 'Allow IPv6' : 'Force IPv4';
+      const windowControl = insecure ? `
+        <div class="insecure-window-control" data-host-id="${host.id}">
+          <div class="insecure-window-head">
+            <div>
+              <p class="muted overline">Insecure window</p>
+              <p class="insecure-window-copy">Applies to the next enable and every sliding refresh.</p>
+            </div>
+            <span class="insecure-window-value" data-role="insecure-window-value">${windowDuration} min</span>
+          </div>
+          <input
+            type="range"
+            min="${INSECURE_WINDOW_MIN}"
+            max="${INSECURE_WINDOW_MAX}"
+            step="1"
+            value="${windowDuration}"
+            class="insecure-window-slider"
+            aria-label="Insecure window duration"
+          >
+          <p class="muted insecure-window-foot">Each /auth call extends by this duration (2–60 min).</p>
+        </div>
+      ` : '';
       return `
+        ${windowControl}
         <button class="ghost secondary" data-action="install">Install script</button>
         <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
         <button class="ghost" data-action="toggle-security">${securityLabel}</button>
@@ -720,6 +771,18 @@ const statsEl = document.getElementById('stats');
           }
         };
       });
+      const slider = hostDetailActions.querySelector('.insecure-window-slider');
+      if (slider) {
+        slider.addEventListener('input', () => {
+          const minutes = clampInsecureDuration(slider.value);
+          slider.value = minutes;
+          insecureDurationSelections.set(host.id, minutes);
+          const label = hostDetailActions.querySelector('[data-role="insecure-window-value"]');
+          if (label) {
+            label.textContent = `${minutes} min`;
+          }
+        });
+      }
     }
 
     function renderHostSummary(host) {
@@ -919,6 +982,9 @@ const statsEl = document.getElementById('stats');
           const graceText = minutesGrace !== null ? `${minutesGrace} min` : 'grace';
           insecureLabel = `Turn On (${graceText} left)`;
           insecureClasses = 'ghost tiny-btn neutral';
+        } else if (!isSecure) {
+          const desiredWindow = resolveInsecureDuration(host);
+          insecureLabel = `Turn On (${desiredWindow} min)`;
         }
         const health = hostHealth(host);
         tr.classList.add(`status-${health.tone}`);
@@ -982,6 +1048,18 @@ const statsEl = document.getElementById('stats');
 
     function renderHosts(hosts) {
       currentHosts = Array.isArray(hosts) ? hosts : [];
+      currentHosts.forEach(host => {
+        if (!host || typeof host.id === 'undefined') return;
+        if (host.insecure_window_minutes !== null && host.insecure_window_minutes !== undefined) {
+          const normalized = clampInsecureDuration(host.insecure_window_minutes);
+          const current = insecureDurationSelections.get(host.id);
+          if (current !== normalized) {
+            insecureDurationSelections.set(host.id, normalized);
+          }
+        } else if (!insecureDurationSelections.has(host.id)) {
+          insecureDurationSelections.set(host.id, INSECURE_WINDOW_DEFAULT);
+        }
+      });
       // Populate upload host select
       if (uploadHostSelect) {
         uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`).join('');
@@ -2851,7 +2929,15 @@ const statsEl = document.getElementById('stats');
         button.textContent = state.enabledActive ? 'Turning off…' : 'Turning on…';
       }
       try {
-        await api(path, { method: 'POST' });
+        const enabling = !state.enabledActive;
+        const duration = enabling ? resolveInsecureDuration(host) : null;
+        const options = enabling
+          ? { method: 'POST', json: { duration_minutes: duration } }
+          : { method: 'POST' };
+        await api(path, options);
+        if (enabling && duration !== null) {
+          insecureDurationSelections.set(host.id, duration);
+        }
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);

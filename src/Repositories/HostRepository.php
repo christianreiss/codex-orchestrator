@@ -345,18 +345,29 @@ class HostRepository
         ]);
     }
 
-    public function updateInsecureWindows(int $hostId, ?string $enabledUntil, ?string $graceUntil): void
+    public function updateInsecureWindows(int $hostId, ?string $enabledUntil, ?string $graceUntil, ?int $windowMinutes = null): void
     {
+        $fields = 'insecure_enabled_until = :enabled_until, insecure_grace_until = :grace_until, updated_at = :updated_at';
+        if ($windowMinutes !== null) {
+            $fields .= ', insecure_window_minutes = :window_minutes';
+        }
+
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET insecure_enabled_until = :enabled_until, insecure_grace_until = :grace_until, updated_at = :updated_at WHERE id = :id'
+            sprintf('UPDATE hosts SET %s WHERE id = :id', $fields)
         );
 
-        $statement->execute([
+        $params = [
             'enabled_until' => $enabledUntil,
             'grace_until' => $graceUntil,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
-        ]);
+        ];
+
+        if ($windowMinutes !== null) {
+            $params['window_minutes'] = $windowMinutes;
+        }
+
+        $statement->execute($params);
     }
 
     public function updateForceIpv4(int $hostId, bool $forceIpv4): void

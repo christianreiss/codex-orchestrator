@@ -30,6 +30,7 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 allow_roaming_ips INTEGER DEFAULT 0,
                 insecure_enabled_until TEXT NULL,
                 insecure_grace_until TEXT NULL,
+                insecure_window_minutes INTEGER NULL,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
                 ip TEXT NULL,
