@@ -2999,6 +2999,78 @@ format_quota_row() {
   fi
 }
 
+join_with_sep() {
+  local sep="$1"; shift
+  local out="" part
+  for part in "$@"; do
+    [[ -z "$part" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+="$sep"
+    fi
+    out+="$part"
+  done
+  printf "%s" "$out"
+}
+
+status_icon() {
+  case "$1" in
+    green) printf "✅" ;;
+    yellow) printf "⚠" ;;
+    red) printf "⛔" ;;
+    *) printf "•" ;;
+  esac
+}
+
+format_core_entry() {
+  local name="$1" tone="$2" detail="${3-}" note="${4-}"
+  local icon
+  icon="$(status_icon "$tone")"
+  local text="$name $icon"
+  if [[ -n "$detail" ]]; then
+    if [[ "$tone" == "green" ]]; then
+      text+=" $detail"
+    else
+      text+=" $(colorize "$detail" "$tone")"
+    fi
+  elif [[ -n "$note" ]]; then
+    text+=" $note"
+  fi
+  printf "%s" "$text"
+}
+
+extract_version_token() {
+  local display="$1"
+  if [[ "$display" =~ ([0-9]+[0-9A-Za-z\.\-\+_]*) ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+  fi
+}
+
+format_version_entry() {
+  local name="$1" tone="$2" installed="$3" target="$4" status="$5"
+  local icon
+  icon="$(status_icon "$tone")"
+  local ver_inst
+  ver_inst="$(extract_version_token "$installed")"
+  local ver_target
+  ver_target="$(extract_version_token "$target")"
+  local text="$name"
+  if [[ -n "$ver_inst" ]]; then
+    text+=" ${ver_inst}"
+  fi
+  if [[ -n "$ver_target" && "$ver_target" != "$ver_inst" ]]; then
+    text+="→${ver_target}"
+  fi
+  if [[ "$tone" == "green" && ( -z "$ver_target" || "$ver_target" == "$ver_inst" ) ]]; then
+    text+=" ✅"
+  else
+    text+=" ${icon}"
+    if [[ -n "$status" ]]; then
+      text+=" $(colorize "$status" "$tone")"
+    fi
+  fi
+  printf "%s" "$text"
+}
+
 seconds_since_iso() {
   local iso="$1"
   [[ -z "$iso" ]] && return 1
@@ -3299,7 +3371,7 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
   if (( runner_enabled_flag )); then
     if [[ "$state" == "fail" ]]; then
       runner_tone="red"
-      runner_label="auth runner failing"
+      runner_label="runner failing"
       if [[ -n "$last_fail_rel" ]]; then
         runner_label+=" (${last_fail_rel})"
       fi
@@ -3313,9 +3385,9 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
         if [[ "$age_seconds" =~ ^-?[0-9]+$ ]]; then
           (( age_seconds < 0 )) && age_seconds=$(( -age_seconds ))
           if (( age_seconds <= 90 )); then
-            runner_label="auth runner just verified"
+            runner_label="runner verified recently"
           else
-            runner_label="auth runner verified ${last_ok_rel}"
+            runner_label="runner verified ${last_ok_rel}"
           fi
           if (( age_seconds >= RUNNER_STALE_CRIT_SECONDS )); then
             runner_tone="red"
@@ -3325,18 +3397,18 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
             runner_label+=" (stale)"
           fi
         else
-          runner_label="auth runner verified ${last_ok_rel}"
+          runner_label="runner verified ${last_ok_rel}"
         fi
       else
         runner_tone="yellow"
-        runner_label="auth runner enabled; no successful verification yet"
+        runner_label="runner enabled; no successful verification yet"
         if [[ -n "$last_fail_rel" ]]; then
           runner_label+=" (last fail ${last_fail_rel})"
         fi
       fi
     fi
   else
-    runner_label="auth runner disabled"
+    runner_label="runner disabled"
   fi
 fi
 
@@ -3645,69 +3717,6 @@ if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "
   result_label="Codex go Brrrr!"
 fi
 
-  declare -A SUMMARY_ROWS=()
-  add_summary_row() {
-    local key="$1"
-    local value="$2"
-    [[ -z "$key" || -z "$value" ]] && return
-    SUMMARY_ROWS["$key"]="$value"
-  }
-  print_summary_rows() {
-    if (( ${#SUMMARY_ROWS[@]} == 0 )); then
-      return
-    fi
-    local key
-    declare -A seen=()
-    local order=(
-      command
-      api auth
-      codex wrapper
-      agents prompts runner
-      "host usage" tokens
-      Policy result
-    )
-    for key in "${order[@]}"; do
-      if [[ -n "${SUMMARY_ROWS[$key]+x}" ]]; then
-        log_info "${SUMMARY_ROWS[$key]}"
-        seen[$key]=1
-      fi
-    done
-    while IFS= read -r key; do
-      [[ -n "${seen[$key]+x}" ]] && continue
-      log_info "${SUMMARY_ROWS[$key]}"
-    done < <(printf "%s\n" "${!SUMMARY_ROWS[@]}" | LC_ALL=C sort)
-  }
-
-  add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
-  add_summary_row "auth" "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
-  add_summary_row "codex" "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
-  add_summary_row "agents" "$(format_simple_row "AGENTS.md" "$(colorize "$agents_label" "$agents_tone")")"
-  add_summary_row "prompts" "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
-  add_summary_row "wrapper" "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
-  if [[ -n "$runner_label" ]]; then
-    add_summary_row "runner" "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
-  fi
-  host_usage_parts=()
-  if [[ -n "$HOST_API_CALLS" ]]; then
-    host_usage_parts+=("api calls ${HOST_API_CALLS}")
-  fi
-  if [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]]; then
-    token_bits=()
-    [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
-    [[ -n "$HOST_TOKENS_MONTH_INPUT" ]] && token_bits+=("in ${HOST_TOKENS_MONTH_INPUT}")
-    [[ -n "$HOST_TOKENS_MONTH_OUTPUT" ]] && token_bits+=("out ${HOST_TOKENS_MONTH_OUTPUT}")
-    [[ -n "$HOST_TOKENS_MONTH_CACHED" ]] && token_bits+=("cached ${HOST_TOKENS_MONTH_CACHED}")
-    [[ -n "$HOST_TOKENS_MONTH_REASONING" ]] && token_bits+=("reason ${HOST_TOKENS_MONTH_REASONING}")
-    token_line="$(join_with_semicolon "${token_bits[@]}")"
-    host_usage_parts+=("tokens this month: ${token_line}")
-  fi
-  if (( ${#host_usage_parts[@]} )); then
-    host_usage_text="$(join_with_semicolon "${host_usage_parts[@]}")"
-    add_summary_row "host usage" "$(format_simple_row "host usage" "$host_usage_text")"
-  fi
-  if [[ -n "$usage_summary" ]]; then
-    add_summary_row "tokens" "$(format_simple_row "tokens" "$usage_summary")"
-  fi
   quota_limit="$QUOTA_LIMIT_PERCENT"
   if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
     quota_limit=100
@@ -3723,11 +3732,83 @@ fi
   else
     quota_summary="Warn at ≥${quota_limit}% usage; continue running."
   fi
-  add_summary_row "command" "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-  add_summary_row "Policy" "$(format_simple_row "Policy" "$quota_summary")"
-  add_summary_row "result" "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
-  print_summary_rows
+
+  command_line=""
+  if [[ -n "$command_label" ]]; then
+    command_line="Command: $(colorize "$command_label" "$command_tone")"
+  fi
+
+  core_bits=()
+  api_detail=""
+  [[ "$api_tone" != "green" ]] && api_detail="$api_label"
+  core_bits+=("$(format_core_entry "API" "$api_tone" "$api_detail")")
+
+  auth_detail=""
+  if [[ "$auth_tone" != "green" ]]; then
+    auth_detail="$auth_label"
+  fi
+  core_bits+=("$(format_core_entry "Auth" "$auth_tone" "$auth_detail")")
+
+  prompt_detail=""
+  if [[ "$prompt_tone" == "green" ]]; then
+    if [[ "$prompt_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
+      prompt_detail="(${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+    fi
+  else
+    prompt_detail="$prompt_label"
+  fi
+  core_bits+=("$(format_core_entry "Prompts" "$prompt_tone" "$prompt_detail")")
+
+  if [[ -n "$runner_label" ]]; then
+    runner_detail="$runner_label"
+    [[ "$runner_tone" == "green" ]] && runner_detail="(${runner_label})"
+    core_bits+=("$(format_core_entry "Runner" "$runner_tone" "$runner_detail")")
+  fi
+
+  policy_entry="Policy: $( (( QUOTA_HARD_FAIL )) && printf "Deny" || printf "Warn" )"
+  core_line_bits=("${core_bits[@]}" "$policy_entry")
+  core_line="Core: $(join_with_sep ' | ' "${core_line_bits[@]}")"
+
+  versions_bits=()
+  versions_bits+=("$(format_version_entry "codex" "$codex_tone" "$codex_installed_display" "$codex_target_display" "$codex_status_display")")
+  versions_bits+=("$(format_version_entry "wrapper" "$wrapper_tone" "$wrapper_installed_display" "$wrapper_target_display" "$wrapper_status_display")")
+  if [[ -n "$agents_label" ]]; then
+    if [[ "$agents_tone" == "green" ]]; then
+      versions_bits+=("AGENTS ✅")
+    else
+      versions_bits+=("$(format_core_entry "AGENTS" "$agents_tone" "$agents_label")")
+    fi
+  fi
+  versions_line=""
+  if (( ${#versions_bits[@]} )); then
+    versions_line="Versions: $(join_with_sep ' | ' "${versions_bits[@]}")"
+  fi
+
+  usage_bits=()
+  if [[ -n "$HOST_API_CALLS" ]]; then
+    usage_bits+=("calls ${HOST_API_CALLS}")
+  fi
+  token_bits=()
+  [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
+  [[ -n "$HOST_TOKENS_MONTH_INPUT" ]] && token_bits+=("in ${HOST_TOKENS_MONTH_INPUT}")
+  [[ -n "$HOST_TOKENS_MONTH_OUTPUT" ]] && token_bits+=("out ${HOST_TOKENS_MONTH_OUTPUT}")
+  [[ -n "$HOST_TOKENS_MONTH_CACHED" ]] && token_bits+=("cached ${HOST_TOKENS_MONTH_CACHED}")
+  [[ -n "$HOST_TOKENS_MONTH_REASONING" ]] && token_bits+=("reason ${HOST_TOKENS_MONTH_REASONING}")
+  token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
+  if [[ -n "$token_line" ]]; then
+    usage_bits+=("tokens ${token_line}")
+  fi
+  if [[ -n "$usage_summary" ]]; then
+    usage_bits+=("$usage_summary")
+  fi
+  usage_line=""
+  if (( ${#usage_bits[@]} )); then
+    usage_line="Usage: $(join_with_sep ' | ' "${usage_bits[@]}")"
+  fi
+
+  result_line="Result: $(colorize "$result_label" "$result_tone")"
   primary_reset_hint=""
+  primary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
   if [[ -n "$qline" ]]; then
     qtone="${qline%%$'\t'*}"
@@ -3739,10 +3820,15 @@ fi
     if [[ -n "$qnote_disp" ]]; then
       printf -v qnote_disp "%b" "${DIM}${qnote_disp}${RESET}"
     fi
-    log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$qnote_disp")"
+    # qtext looks like "  7% [bars]"
+    primary_quota_segment="$(colorize "$qtext" "$qtone")"
+    if [[ -n "$qnote_disp" ]]; then
+      primary_quota_segment+=" ${qnote_disp}"
+    fi
   fi
 
   secondary_reset_hint=""
+  secondary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
   if [[ -n "$qline" ]]; then
     qtone2="${qline%%$'\t'*}"
@@ -3760,7 +3846,10 @@ fi
     if [[ -n "$qnote2_disp" ]]; then
       printf -v qnote2_disp "%b" "${DIM}${qnote2_disp}${RESET}"
     fi
-    log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$qnote2_disp")"
+    secondary_quota_segment="$(colorize "$qtext2" "$qtone2")"
+    if [[ -n "$qnote2_disp" ]]; then
+      secondary_quota_segment+=" ${qnote2_disp}"
+    fi
   fi
 
   quota_warn_threshold=$(( quota_limit - 10 ))
@@ -3806,6 +3895,41 @@ fi
     QUOTA_WARNING=1
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
+
+  format_label_prefix() {
+    local label="$1"
+    local width=8
+    local len=${#label}
+    local spaces=$(( width - len + 1 ))
+    (( spaces < 1 )) && spaces=1
+    printf "%s%*s: " "$label" "$spaces" ""
+  }
+
+  if [[ -n "$command_line" ]]; then
+    log_info "$(format_label_prefix "Command")${command_line#Command: }"
+  fi
+  log_info "$(format_label_prefix "Core")${core_line#Core: }"
+  if [[ -n "$versions_line" ]]; then
+    log_info "$(format_label_prefix "Versions")${versions_line#Versions: }"
+  fi
+  if [[ -n "$usage_line" ]]; then
+    log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
+  fi
+  if [[ -n "$primary_quota_segment" ]]; then
+    quota_line="Quota (5h): ${primary_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line+=" ⚠"
+    fi
+    log_info "$quota_line"
+  fi
+  if [[ -n "$secondary_quota_segment" ]]; then
+    quota_line2="Quota (week): ${secondary_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line2+=" ⚠"
+    fi
+    log_info "$quota_line2"
+  fi
+  log_info "$result_line"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."
