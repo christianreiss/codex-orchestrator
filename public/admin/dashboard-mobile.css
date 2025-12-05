@@ -82,6 +82,32 @@ body[data-view="mobile"] .panel-actions button {
   width: 100%;
   min-width: 0;
 }
+body[data-view="mobile"] .settings-panel .settings-grid {
+  padding: 14px;
+}
+body[data-view="mobile"] .settings-panel .setting-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+body[data-view="mobile"] .settings-panel .setting-actions {
+  flex-direction: column;
+}
+body[data-view="mobile"] .settings-panel .setting-actions button {
+  width: 100%;
+}
+body[data-view="mobile"] .agents-modal {
+  width: 100%;
+  max-width: none;
+}
+body[data-view="mobile"] .agents-modal textarea {
+  min-height: 320px;
+}
+body[data-view="mobile"] .insecure-window-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
 
 body[data-view="mobile"] #chatgpt-usage-card {
   margin-top: 14px;

@@ -23,11 +23,7 @@
         </div>
         <div class="action-line">
           <button class="ghost" type="button" onclick="window.location.href='/admin/logs.html'">Logs</button>
-          <button class="ghost" id="api-toggle-btn" title="Emergency stop for Codex agents">API</button>
-          <button class="ghost runner-ghost" id="uploadAuthBtn">Seed</button>
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
-          <button class="ghost tiny-btn runner-ghost" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
-          <button class="ghost runner-ghost" id="version-check">Check versions</button>
         </div>
       </header>
     <main class="main">
@@ -118,12 +114,12 @@
           </div>
         </div>
         <div class="modal-backdrop" id="agentsModal">
-          <div class="modal">
+          <div class="modal agents-modal">
             <h3>Edit AGENTS.md</h3>
             <p class="muted" style="margin:0 0 8px;">Server canonical instructions replace <code>~/.codex/AGENTS.md</code> on every sync.</p>
             <div class="field">
               <label style="font-weight:600;">Content</label>
-              <textarea id="agentsBody" rows="12" placeholder="Project instructions, markdown supported"></textarea>
+              <textarea id="agentsBody" rows="16" placeholder="Project instructions, markdown supported"></textarea>
             </div>
             <div id="agentsStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
@@ -305,17 +301,70 @@
           </div>
         </section>
 
-        <section class="card panel" id="quota-panel">
-          <div class="panel-head" style="align-items:center; gap:12px;">
+        <section class="card panel settings-panel" id="settings-panel">
+          <div class="panel-head">
             <div>
-              <h2>Quota Policy</h2>
-              <p class="muted quota-desc" style="margin:4px 0 0;">ChatGPT quota hit: deny Codex launch.</p>
+              <h2>Operations & Settings</h2>
+              <p class="muted" style="margin:4px 0 0;">Emergency toggles and runner utilities.</p>
             </div>
-            <label class="toggle" for="quotaHardFailToggle" style="margin-left:auto;">
-              <input type="checkbox" id="quotaHardFailToggle">
-              <span class="track"><span class="thumb"></span></span>
-              <span class="toggle-text" id="quotaModeLabel">Deny launches</span>
-            </label>
+            <div class="panel-actions">
+              <button class="ghost tiny-btn" id="settingsToggle">Show</button>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
+                  <h3>Quota Policy</h3>
+                  <p class="muted quota-desc" style="margin:2px 0 0;">ChatGPT quota hit: deny Codex launch.</p>
+                </div>
+                <label class="toggle" for="quotaHardFailToggle">
+                  <input type="checkbox" id="quotaHardFailToggle">
+                  <span class="track"><span class="thumb"></span></span>
+                  <span class="toggle-text" id="quotaModeLabel">Deny launches</span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
+                  <h3>API Kill Switch</h3>
+                  <p class="muted" style="margin:2px 0 0;">Emergency stop for Codex agents.</p>
+                </div>
+                <button class="ghost tiny-btn" id="api-toggle-btn" title="Emergency stop for Codex agents">API</button>
+              </div>
+            </div>
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
+                  <h3>Insecure Host Window</h3>
+                  <p class="muted" style="margin:2px 0 0;">Duration granted when enabling insecure hosts.</p>
+                </div>
+              </div>
+              <div class="insecure-window-control">
+                <div class="insecure-window-head">
+                  <div>
+                    <p class="muted insecure-window-copy">Applies to the next enable and persists locally.</p>
+                  </div>
+                  <div class="insecure-window-value" id="insecureWindowLabel">10 min</div>
+                </div>
+                <input type="range" min="2" max="60" step="1" value="10" id="insecureWindowSlider" class="insecure-window-slider">
+                <div class="insecure-window-foot muted">Each `/auth` extends by this duration (2–60 minutes).</div>
+              </div>
+            </div>
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
+                  <h3>Maintenance</h3>
+                  <p class="muted" style="margin:2px 0 0;">Run the runner, seed auth.json, or check versions.</p>
+                </div>
+              </div>
+              <div class="setting-actions">
+                <button class="ghost" id="uploadAuthBtn">Seed auth.json</button>
+                <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
+                <button class="ghost" id="version-check">Check versions</button>
+              </div>
+            </div>
           </div>
         </section>
 

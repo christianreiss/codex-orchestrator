@@ -75,6 +75,7 @@ const statsEl = document.getElementById('stats');
     const promptStatus = document.getElementById('promptStatus');
     const promptsPanel = document.getElementById('prompts-panel');
     const agentsPanel = document.getElementById('agents-panel');
+    const settingsPanel = document.getElementById('settings-panel');
     const agentsMeta = document.getElementById('agentsMeta');
     const agentsPreview = document.getElementById('agentsPreview');
     const editAgentsBtn = document.getElementById('editAgentsBtn');
@@ -86,6 +87,9 @@ const statsEl = document.getElementById('stats');
     const agentsSave = document.getElementById('agentsSave');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
+    const settingsToggle = document.getElementById('settingsToggle');
+    const insecureWindowSlider = document.getElementById('insecureWindowSlider');
+    const insecureWindowLabel = document.getElementById('insecureWindowLabel');
     const USAGE_HISTORY_DAYS = 60;
     const COST_SERIES = [
       { key: 'total', label: 'Total', color: '#312e81', emphasis: true },
@@ -101,6 +105,7 @@ const statsEl = document.getElementById('stats');
     let currentAgents = null;
     let agentsExpanded = false;
     let promptsExpanded = false;
+    let settingsExpanded = false;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -120,6 +125,11 @@ const statsEl = document.getElementById('stats');
     let costHistory = null;
     let costHistoryPromise = null;
     let activeHostId = null;
+    const INSECURE_WINDOW_MIN = 2;
+    const INSECURE_WINDOW_MAX = 60;
+    const INSECURE_WINDOW_DEFAULT = 10;
+    const INSECURE_WINDOW_STORAGE_KEY = 'codex.insecureWindowMinutes';
+    let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
 
     function escapeHtml(str) {
       return String(str)
@@ -382,6 +392,16 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    function setSettingsExpanded(expanded) {
+      settingsExpanded = !!expanded;
+      if (settingsToggle) {
+        settingsToggle.textContent = settingsExpanded ? 'Hide' : 'Show';
+      }
+      if (settingsPanel) {
+        settingsPanel.classList.toggle('settings-collapsed', !settingsExpanded);
+      }
+    }
+
     function renderAgents(doc) {
       currentAgents = doc || null;
       if (!agentsPanel) return;
@@ -389,13 +409,11 @@ const statsEl = document.getElementById('stats');
       setAgentsExpanded(agentsExpanded);
 
       const status = doc?.status || 'missing';
-      const sha = doc?.sha256 || '—';
       const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
       const size = Number(doc?.size_bytes);
       const sizeLabel = Number.isFinite(size) ? `${formatNumber(size)} bytes` : '—';
       if (agentsMeta) {
         const parts = [];
-        parts.push(`sha ${sha}`);
         parts.push(`updated ${updatedAt}`);
         if (sizeLabel !== '—') parts.push(sizeLabel);
         agentsMeta.textContent = parts.join(' · ');
@@ -2006,14 +2024,51 @@ const statsEl = document.getElementById('stats');
       if (!quotaToggle || !quotaModeLabel) return;
       quotaToggle.checked = !!quotaHardFail;
       quotaModeLabel.textContent = quotaHardFail ? 'Deny launches' : 'Warn only';
-      const quotaPanel = document.getElementById('quota-panel');
-      if (quotaPanel) {
-        const desc = quotaPanel.querySelector('.quota-desc');
-        if (desc) {
-          desc.textContent = quotaHardFail
-            ? 'ChatGPT quota hit: deny Codex launch.'
-            : 'ChatGPT quota hit: warn and continue.';
+      const quotaDesc = quotaHardFail
+        ? 'ChatGPT quota hit: deny Codex launch.'
+        : 'ChatGPT quota hit: warn and continue.';
+      document.querySelectorAll('#settings-panel .quota-desc').forEach((desc) => {
+        desc.textContent = quotaDesc;
+      });
+    }
+
+    function clampInsecureWindowMinutes(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return INSECURE_WINDOW_DEFAULT;
+      if (num < INSECURE_WINDOW_MIN) return INSECURE_WINDOW_MIN;
+      if (num > INSECURE_WINDOW_MAX) return INSECURE_WINDOW_MAX;
+      return Math.round(num);
+    }
+
+    function setInsecureWindowMinutes(value, persist = false) {
+      insecureWindowMinutes = clampInsecureWindowMinutes(value);
+      if (insecureWindowSlider && insecureWindowSlider.value !== String(insecureWindowMinutes)) {
+        insecureWindowSlider.value = String(insecureWindowMinutes);
+      }
+      if (insecureWindowLabel) {
+        insecureWindowLabel.textContent = `${insecureWindowMinutes} min`;
+      }
+      if (persist) {
+        try {
+          window.localStorage.setItem(INSECURE_WINDOW_STORAGE_KEY, String(insecureWindowMinutes));
+        } catch {
+          // ignore storage failures
         }
+      }
+    }
+
+    function initInsecureWindowControl() {
+      if (!insecureWindowSlider && !insecureWindowLabel) return;
+      let stored = null;
+      try {
+        stored = window.localStorage.getItem(INSECURE_WINDOW_STORAGE_KEY);
+      } catch {
+        stored = null;
+      }
+      if (stored !== null) {
+        setInsecureWindowMinutes(Number(stored));
+      } else {
+        setInsecureWindowMinutes(INSECURE_WINDOW_DEFAULT);
       }
     }
 
@@ -2483,11 +2538,17 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    setSettingsExpanded(false);
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
     }
     if (runnerRunnerBtn) {
       runnerRunnerBtn.addEventListener('click', handleRunnerClick);
+    }
+    if (settingsToggle) {
+      settingsToggle.addEventListener('click', () => {
+        setSettingsExpanded(!settingsExpanded);
+      });
     }
     if (filterInput) {
       filterInput.addEventListener('input', (event) => {
@@ -2512,6 +2573,12 @@ const statsEl = document.getElementById('stats');
       });
     });
     updateSortIndicators();
+    initInsecureWindowControl();
+    if (insecureWindowSlider) {
+      insecureWindowSlider.addEventListener('input', (event) => {
+        setInsecureWindowMinutes(event.target.value, true);
+      });
+    }
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
     }
@@ -2941,8 +3008,12 @@ const statsEl = document.getElementById('stats');
         button.disabled = true;
         button.textContent = state.enabledActive ? 'Turning off…' : 'Turning on…';
       }
+      const request = { method: 'POST' };
+      if (!state.enabledActive) {
+        request.json = { duration_minutes: insecureWindowMinutes };
+      }
       try {
-        await api(path, { method: 'POST' });
+        await api(path, request);
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);

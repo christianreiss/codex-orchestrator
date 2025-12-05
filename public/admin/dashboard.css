@@ -304,6 +304,42 @@
     }
     .panel-actions input:focus,
     .panel-actions select:focus { outline: 1px solid var(--accent); }
+    .settings-panel .settings-grid {
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+    }
+    .settings-panel .setting-block {
+      background: var(--surface-tint);
+      border: 1px solid rgba(15,23,42,0.08);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 10px 18px rgba(15,23,42,0.05);
+    }
+    .settings-panel .setting-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .settings-panel .setting-head h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .settings-panel .setting-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .settings-panel .setting-actions button {
+      flex: 1;
+      min-width: 180px;
+    }
+    .settings-panel.settings-collapsed .settings-grid {
+      display: none;
+    }
     button {
       border: 1px solid rgba(var(--accent-rgb),0.45);
       border-radius: 12px;
@@ -595,7 +631,8 @@
     .modal h3 { margin: 0 0 8px; }
     .modal p { margin: 0 0 16px; color: var(--muted); }
     .modal .field { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
-    .modal input {
+    .modal input,
+    .modal textarea {
       padding: 12px 14px;
       border-radius: 12px;
       border: 1px solid rgba(15,23,42,0.12);
@@ -603,7 +640,22 @@
       color: var(--text);
       font-size: 14px;
     }
-    .modal input:focus { outline: 1px solid var(--accent); }
+    .modal textarea {
+      resize: vertical;
+      min-height: 200px;
+      font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+      line-height: 1.4;
+    }
+    .modal input:focus,
+    .modal textarea:focus { outline: 1px solid var(--accent); }
+    .agents-modal {
+      max-width: 880px;
+      width: min(920px, 95vw);
+    }
+    .agents-modal textarea {
+      min-height: 420px;
+      font-family: 'JetBrains Mono', monospace;
+    }
     .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
     .seed-modal { border: 1px solid var(--border); }
     .seed-status {
@@ -1048,34 +1100,39 @@
     .token-usage-meta { font-size: 12px; }
     .host-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; }
     .insecure-window-control {
-      flex: 1 1 100%;
-      border: 1px solid rgba(15,23,42,0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 12px;
+      border: 1px solid rgba(15,23,42,0.12);
       border-radius: 12px;
-      padding: 12px 14px;
-      background: rgba(15,23,42,0.05);
+      padding: 14px 16px;
+      background: rgba(15,23,42,0.03);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
     }
     .insecure-window-head {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 18px;
     }
     .insecure-window-copy {
-      margin: 2px 0 0;
+      margin: 0;
       font-size: 13px;
     }
     .insecure-window-value {
       font-weight: 700;
-      font-size: 18px;
+      font-size: 20px;
+      letter-spacing: -0.5px;
     }
     .insecure-window-slider {
       width: 100%;
-      margin-top: 12px;
-      accent-color: #0ea5e9;
+      accent-color: #10a37f;
     }
     .insecure-window-foot {
-      margin-top: 6px;
+      margin: 0;
       font-size: 12px;
+      color: var(--muted);
     }
     .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
 .digest-pill {
