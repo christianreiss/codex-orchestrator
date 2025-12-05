@@ -32,7 +32,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
-- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/insecure window timestamps/`insecure_window_minutes`.
+- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/`vip`/insecure window timestamps/`insecure_window_minutes`.
 - `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag, `quota_limit_percent`.
 - `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `quota_limit_percent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
@@ -66,10 +66,11 @@ Records the current `username` and optional `hostname` for the calling host, ret
 
 ## Admin Endpoints (mTLS + optional admin key)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.
-- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.
+- `POST /admin/hosts/{id}/vip` — toggle VIP status; VIP hosts never hard-fail on quota (warn-only regardless of global policy).
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a sliding allow window. Optional JSON body `duration_minutes` (integer 2–60) controls the window length (defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
 - `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and starts a 60‑minute grace period during which `/auth` `store` calls are still allowed (retrieves remain blocked).
 - `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).

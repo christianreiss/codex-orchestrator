@@ -216,6 +216,7 @@ class AuthService
         $command = $this->normalizeCommand($payload['command'] ?? null);
 
         $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+        $hostVip = isset($host['vip']) ? (bool) (int) $host['vip'] : false;
         $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
         $trackHost = $hostId > 0;
         $logHostId = $trackHost ? $hostId : null;
@@ -245,6 +246,9 @@ class AuthService
 
         $versions = $this->versionSnapshot($bakedWrapperMeta);
         $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
+        if ($hostVip) {
+            $quotaHardFail = false;
+        }
         $quotaLimitPercent = $this->quotaLimitPercent();
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
@@ -1631,6 +1635,7 @@ class AuthService
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
+            'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,
             'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
             'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
             'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null

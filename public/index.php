@@ -775,6 +775,44 @@ $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $vipRaw = $payload['vip'] ?? null;
+    $vip = normalizeBoolean($vipRaw);
+    if ($vip === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'vip must be boolean',
+        ], 422);
+    }
+
+    $hostRepository->updateVip($hostId, $vip);
+    $logRepository->log($hostId, 'admin.host.vip', [
+        'fqdn' => $host['fqdn'],
+        'vip' => $vip,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'vip' => $vip,
+            ],
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
@@ -1039,6 +1077,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'ip' => $host['ip'] ?? null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
+            'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,
             'insecure_enabled_until' => $normalizeTs($host['insecure_enabled_until'] ?? null),
             'insecure_grace_until' => $normalizeTs($host['insecure_grace_until'] ?? null),
             'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null

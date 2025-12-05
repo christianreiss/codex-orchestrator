@@ -1094,7 +1094,7 @@ fi
   if [[ -n "$usage_summary" ]]; then
     add_summary_row "tokens" "$(format_simple_row "tokens" "$usage_summary")"
   fi
-  local quota_limit="$QUOTA_LIMIT_PERCENT"
+  quota_limit="$QUOTA_LIMIT_PERCENT"
   if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
     quota_limit=100
   fi
@@ -1104,7 +1104,6 @@ fi
     quota_limit=100
   fi
   QUOTA_LIMIT_PERCENT="$quota_limit"
-  local quota_summary
   if (( QUOTA_HARD_FAIL )); then
     quota_summary="Deny launches at ≥${quota_limit}% usage."
   else
@@ -1142,7 +1141,7 @@ fi
     log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
   fi
 
-  local quota_warn_threshold=$(( quota_limit - 10 ))
+  quota_warn_threshold=$(( quota_limit - 10 ))
   if (( quota_warn_threshold < 0 )); then
     quota_warn_threshold=0
   fi

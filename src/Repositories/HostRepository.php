@@ -41,6 +41,9 @@ class HostRepository
         if (!array_key_exists('secure', $host)) {
             $host['secure'] = 1;
         }
+        if (!array_key_exists('vip', $host)) {
+            $host['vip'] = 0;
+        }
         return $host;
     }
 
@@ -135,8 +138,8 @@ class HostRepository
         $encrypted = $this->encryptApiKey($apiKey);
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, vip, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :vip, :created_at, :updated_at)'
         );
         $statement->execute([
             'fqdn' => $fqdn,
@@ -145,6 +148,7 @@ class HostRepository
             'api_key_enc' => $encrypted,
             'status' => 'active',
             'secure' => $secure ? 1 : 0,
+            'vip' => 0,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -341,6 +345,18 @@ class HostRepository
 
         $statement->execute([
             'secure' => $secure ? 1 : 0,
+            'id' => $hostId,
+        ]);
+    }
+
+    public function updateVip(int $hostId, bool $vip): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET vip = :vip WHERE id = :id'
+        );
+
+        $statement->execute([
+            'vip' => $vip ? 1 : 0,
             'id' => $hostId,
         ]);
     }

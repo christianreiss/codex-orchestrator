@@ -760,11 +760,14 @@ const statsEl = document.getElementById('stats');
       const insecureLabel = state.enabledActive ? `Turn Off (${minutesLeft ?? 0} min)` : 'Turn On';
       const insecureClasses = state.enabledActive ? 'ghost danger' : 'ghost primary';
       const ipv4Label = host.force_ipv4 ? 'Allow IPv6' : 'Force IPv4';
+      const vipLabel = host.vip ? 'Remove VIP' : 'Mark VIP';
+      const vipClasses = host.vip ? 'ghost danger' : 'ghost primary';
       return `
         <button class="ghost secondary" data-action="install">Install script</button>
         <button class="ghost" data-action="toggle-roaming">${roamingLabel}</button>
         <button class="ghost" data-action="toggle-security">${securityLabel}</button>
         ${insecure ? `<button class="${insecureClasses}" data-action="toggle-insecure-api">${insecureLabel}</button>` : ''}
+        <button class="${vipClasses}" data-action="toggle-vip">${vipLabel}</button>
         <button class="ghost" data-action="toggle-ipv4">${ipv4Label}</button>
         <button class="ghost" data-action="clear">Clear auth</button>
         <button class="danger" data-action="remove">Remove</button>
@@ -786,6 +789,8 @@ const statsEl = document.getElementById('stats');
               toggleSecurity(host.id);
             } else if (action === 'toggle-insecure-api') {
               toggleInsecureApi(host, btn);
+            } else if (action === 'toggle-vip') {
+              toggleVip(host, btn);
             } else if (action === 'toggle-ipv4') {
               toggleIpv4(host, btn);
             } else if (action === 'clear') {
@@ -826,6 +831,11 @@ const statsEl = document.getElementById('stats');
           value: `${clientTag} ${wrapperTag}`,
           meta: 'Client · Wrapper',
           raw: true,
+        },
+        {
+          label: 'VIP',
+          value: host.vip ? 'Enabled' : 'No',
+          meta: host.vip ? 'Quota kill switch disabled' : 'Standard quota policy',
         },
       ];
       hostDetailSummary.innerHTML = summaryItems.map(item => `
@@ -924,8 +934,14 @@ const statsEl = document.getElementById('stats');
       }
       if (hostDetailPills) {
         const pills = [];
+        if (host.vip) {
+          pills.push('<span class="chip ok">VIP</span>');
+        }
         if (isHostSecure(host) && host.auth_outdated) {
           pills.push('<span class="chip warn">Outdated auth</span>');
+        }
+        if (!isHostSecure(host)) {
+          pills.push('<span class="chip warn">Insecure</span>');
         }
         hostDetailPills.innerHTML = pills.join('');
       }
@@ -972,6 +988,9 @@ const statsEl = document.getElementById('stats');
       const securityChip = isSecure
         ? ''
         : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
+      const vipChip = host.vip
+        ? '<span class="chip ok" title="VIP host: quota hard-fail disabled">VIP</span>'
+        : '';
       const insecureStateNow = insecureState(host);
       const minutesActive = countdownMinutes(host.insecure_enabled_until);
       const minutesGrace = countdownMinutes(host.insecure_grace_until);
@@ -1000,6 +1019,7 @@ const statsEl = document.getElementById('stats');
               <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
               ${authOutdatedChip}
               ${securityChip}
+              ${vipChip}
             </div>
           </div>
         </td>
@@ -2340,12 +2360,13 @@ const statsEl = document.getElementById('stats');
         renderHosts(hosts.data.hosts);
         renderPrompts(prompts?.data?.commands || []);
         renderAgents(agents?.data || { status: 'missing' });
+        if (typeof overview.data.quota_limit_percent !== 'undefined') {
+          quotaLimitPercent = clampQuotaLimitPercent(overview.data.quota_limit_percent);
+        }
         if (typeof overview.data.quota_hard_fail !== 'undefined') {
           quotaHardFail = !!overview.data.quota_hard_fail;
           renderQuotaMode();
-        }
-        if (typeof overview.data.quota_limit_percent !== 'undefined') {
-          quotaLimitPercent = clampQuotaLimitPercent(overview.data.quota_limit_percent);
+        } else {
           renderQuotaLimit();
         }
         evaluateSeedRequirement(overview.data, hosts.data.hosts);
@@ -3060,6 +3081,33 @@ const statsEl = document.getElementById('stats');
         await loadAll();
       } catch (err) {
         alert(`Error: ${err.message}`);
+      }
+    }
+
+    async function toggleVip(host, button = null) {
+      if (!host) {
+        alert('Host not found');
+        return;
+      }
+      const target = !host.vip;
+      const original = button ? button.textContent : null;
+      if (button) {
+        button.disabled = true;
+        button.textContent = target ? 'Promoting…' : 'Removing…';
+      }
+      try {
+        await api(`/admin/hosts/${host.id}/vip`, {
+          method: 'POST',
+          json: { vip: target },
+        });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          if (original !== null) button.textContent = original;
+        }
       }
     }
 
