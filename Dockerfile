@@ -8,6 +8,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends default-mysql-client libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 RUN docker-php-ext-install pdo_mysql pdo_sqlite
+RUN a2enmod rewrite
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/000-default.conf /etc/apache2/apache2.conf
 RUN set -eux; \
@@ -17,6 +18,16 @@ RUN set -eux; \
 <Directory ${APACHE_DOCUMENT_ROOT}/admin>
     DirectoryIndex index.php index.html
     Require expr "%{HTTP:X-MTLS-FINGERPRINT} =~ m#^[A-Fa-f0-9]{64}$#"
+</Directory>
+EOF
+RUN set -eux; \
+    cat > /etc/apache2/conf-available/app-authz.conf <<'EOF' && a2enconf app-authz
+# Ensure Authorization headers reach PHP (mod_php)
+SetEnvIfNoCase Authorization "^(.*)$" HTTP_AUTHORIZATION=$1
+<Directory "/var/www/html">
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 </Directory>
 EOF
 WORKDIR /var/www/html
