@@ -154,6 +154,27 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS mcp_memories (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                host_id BIGINT UNSIGNED NOT NULL,
+                memory_key VARCHAR(128) NOT NULL,
+                content LONGTEXT NOT NULL,
+                metadata JSON NULL,
+                tags JSON NULL,
+                tags_text TEXT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                deleted_at VARCHAR(100) NULL,
+                UNIQUE KEY uniq_memories_host_key (host_id, memory_key),
+                INDEX idx_memories_host (host_id),
+                FULLTEXT INDEX idx_memories_search (content, tags_text),
+                CONSTRAINT fk_memories_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS host_auth_states (
                 host_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
                 payload_id BIGINT UNSIGNED NOT NULL,

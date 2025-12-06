@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=2025-12-05-02">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-06-01">
   <link rel="stylesheet" href="dashboard-mobile.css">
 </head>
 <body data-view="desktop">
@@ -301,6 +301,52 @@
                   <th>Filename</th>
                   <th>Description</th>
                   <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card panel" id="memories-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Memories</h2>
+              <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
+            </div>
+            <div class="panel-actions" style="gap:10px;">
+              <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
+            </div>
+          </div>
+          <div class="memory-controls">
+            <div class="field">
+              <label for="memoriesHostFilter" style="font-weight:600;">Host</label>
+              <select id="memoriesHostFilter">
+                <option value="">All hosts</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="memoriesQuery" style="font-weight:600;">Search</label>
+              <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
+            </div>
+            <div class="field">
+              <label for="memoriesTags" style="font-weight:600;">Tags</label>
+              <input id="memoriesTags" type="text" placeholder="tag1, tag2 (optional)">
+            </div>
+            <div class="field narrow-field">
+              <label for="memoriesLimit" style="font-weight:600;">Limit</label>
+              <input id="memoriesLimit" type="number" min="1" max="200" value="50">
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="memories">
+              <thead>
+                <tr>
+                  <th>Host</th>
+                  <th>ID</th>
+                  <th>Content</th>
+                  <th>Tags</th>
+                  <th>Updated</th>
                 </tr>
               </thead>
               <tbody></tbody>

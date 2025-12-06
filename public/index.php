@@ -31,6 +31,7 @@ use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\SlashCommandRepository;
 use App\Repositories\AgentsRepository;
+use App\Repositories\MemoryRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -40,6 +41,7 @@ use App\Services\CostHistoryService;
 use App\Services\UsageCostService;
 use App\Services\SlashCommandService;
 use App\Services\AgentsService;
+use App\Services\MemoryService;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
@@ -91,6 +93,7 @@ $logRepository = new LogRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
 $agentsRepository = new AgentsRepository($database);
+$memoryRepository = new MemoryRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
@@ -120,6 +123,7 @@ $rateLimiter = new RateLimiter($ipRateLimitRepository);
 $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
+$memoryService = new MemoryService($memoryRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -1261,6 +1265,39 @@ $router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agen
     ]);
 });
 
+$router->add('GET', '#^/admin/mcp/memories$#', function () use ($memoryService) {
+    requireAdminAccess();
+
+    $query = isset($_GET['q']) ? (string) $_GET['q'] : ((isset($_GET['query']) ? (string) $_GET['query'] : ''));
+    $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
+    $hostId = isset($_GET['host_id']) ? $_GET['host_id'] : null;
+    $tagsRaw = $_GET['tags'] ?? '';
+    $tags = [];
+    if (is_string($tagsRaw) && trim($tagsRaw) !== '') {
+        $tags = array_filter(array_map('trim', preg_split('/[,\s]+/', $tagsRaw)));
+    }
+
+    try {
+        $result = $memoryService->adminSearch([
+            'query' => $query,
+            'limit' => $limit,
+            'host_id' => $hostId,
+            'tags' => $tags,
+        ]);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/slash-commands$#', function () use ($slashCommandRepository) {
     requireAdminAccess();
 
@@ -1418,6 +1455,45 @@ $router->add('POST', '#^/agents/retrieve$#', function () use ($payload, $service
 
     $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
     $result = $agentsService->retrieve($sha, $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/mcp/memories/store$#', function () use ($payload, $service, $memoryService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $result = $memoryService->store(is_array($payload) ? $payload : [], $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/mcp/memories/retrieve$#', function () use ($payload, $service, $memoryService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $result = $memoryService->retrieve(is_array($payload) ? $payload : [], $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/mcp/memories/search$#', function () use ($payload, $service, $memoryService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $result = $memoryService->search(is_array($payload) ? $payload : [], $host);
 
     Response::json([
         'status' => 'ok',

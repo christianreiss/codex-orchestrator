@@ -77,6 +77,13 @@ const statsEl = document.getElementById('stats');
     const promptsPanel = document.getElementById('prompts-panel');
     const agentsPanel = document.getElementById('agents-panel');
     const settingsPanel = document.getElementById('settings-panel');
+    const memoriesPanel = document.getElementById('memories-panel');
+    const memoriesTableBody = document.querySelector('#memories tbody');
+    const memoriesHostFilter = document.getElementById('memoriesHostFilter');
+    const memoriesQueryInput = document.getElementById('memoriesQuery');
+    const memoriesTagsInput = document.getElementById('memoriesTags');
+    const memoriesLimitInput = document.getElementById('memoriesLimit');
+    const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
     const agentsMeta = document.getElementById('agentsMeta');
     const agentsPreview = document.getElementById('agentsPreview');
     const editAgentsBtn = document.getElementById('editAgentsBtn');
@@ -108,6 +115,7 @@ const statsEl = document.getElementById('stats');
     const upgradeNotesCache = {};
     let currentHosts = [];
     let currentPrompts = [];
+    let currentMemories = [];
     let currentAgents = null;
     let agentsExpanded = false;
     let promptsExpanded = false;
@@ -137,6 +145,7 @@ const statsEl = document.getElementById('stats');
     const INSECURE_WINDOW_DEFAULT = 10;
     const INSECURE_WINDOW_STORAGE_KEY = 'codex.insecureWindowMinutes';
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
+    let memoriesLoading = false;
 
     function escapeHtml(str) {
       return String(str)
@@ -245,6 +254,24 @@ const statsEl = document.getElementById('stats');
     function addCurlFlag(cmd, flag) {
       if (!cmd || !flag) return cmd;
       return cmd.replace(/curl\b/g, (match) => `${match} ${flag}`);
+    }
+
+    function clipText(text, max = 140) {
+      if (!text) return '';
+      const trimmed = String(text).trim();
+      if (trimmed.length <= max) return trimmed;
+      return `${trimmed.slice(0, max - 1)}…`;
+    }
+
+    function parseTagInput(value) {
+      if (!value) return [];
+      return Array.from(new Set(
+        String(value)
+          .split(/[,\\s]+/)
+          .map(t => t.trim())
+          .filter(Boolean)
+          .map(t => t.toLowerCase())
+      ));
     }
 
     async function loadApiState() {
@@ -1216,6 +1243,7 @@ const statsEl = document.getElementById('stats');
         uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`).join('');
         uploadHostSelect.value = 'system';
       }
+      setMemoriesHostOptions();
       if (hostDetailModal?.classList.contains('show') && activeHostId) {
         const active = currentHosts.find(h => h.id === activeHostId);
         if (active) {
@@ -1263,6 +1291,83 @@ const statsEl = document.getElementById('stats');
           retirePrompt(name);
         });
       });
+    }
+
+    function setMemoriesHostOptions() {
+      if (!memoriesHostFilter) return;
+      const previous = memoriesHostFilter.value;
+      const options = ['<option value="">All hosts</option>'].concat(
+        currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`)
+      );
+      memoriesHostFilter.innerHTML = options.join('');
+      if (previous && options.join('').includes(`value="${previous}"`)) {
+        memoriesHostFilter.value = previous;
+      }
+    }
+
+    function renderMemories(memories) {
+      currentMemories = Array.isArray(memories) ? memories : [];
+      if (!memoriesTableBody) return;
+      if (currentMemories.length === 0) {
+        memoriesTableBody.innerHTML = '<tr><td colspan="5" class="muted" style="padding:12px;">No memories found</td></tr>';
+        return;
+      }
+
+      memoriesTableBody.innerHTML = currentMemories.map((row) => {
+        const host = row.host || '—';
+        const id = row.id || '—';
+        const content = clipText(row.content || '', 180).replace(/</g, '&lt;');
+        const updated = row.updated_at ? formatTimestamp(row.updated_at) : '—';
+        const tags = Array.isArray(row.tags) && row.tags.length
+          ? row.tags.map(t => `<span class="tag-badge">${escapeHtml(t)}</span>`).join('')
+          : '—';
+
+        return `<tr>
+          <td data-label="Host">${escapeHtml(host)}</td>
+          <td data-label="ID" class="codeish"><code>${escapeHtml(id)}</code></td>
+          <td data-label="Content">${content || '—'}</td>
+          <td data-label="Tags">${tags}</td>
+          <td data-label="Updated">${updated}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function loadMemories() {
+      if (!memoriesPanel) return;
+      const hostId = memoriesHostFilter?.value || '';
+      const query = memoriesQueryInput?.value?.trim() || '';
+      const tagInput = memoriesTagsInput?.value || '';
+      const tags = parseTagInput(tagInput);
+      let limit = Number(memoriesLimitInput?.value || 50);
+      if (!Number.isFinite(limit) || limit <= 0) limit = 50;
+      if (limit > 200) limit = 200;
+
+      const params = new URLSearchParams();
+      if (query) params.set('q', query);
+      if (hostId) params.set('host_id', hostId);
+      if (tags.length) params.set('tags', tags.join(','));
+      params.set('limit', String(limit));
+
+      if (memoriesRefreshBtn) {
+        memoriesRefreshBtn.disabled = true;
+        memoriesRefreshBtn.textContent = 'Loading…';
+      }
+      memoriesLoading = true;
+      try {
+        const res = await api(`/admin/mcp/memories?${params.toString()}`);
+        renderMemories(res?.data?.matches || []);
+      } catch (err) {
+        console.error('memories', err);
+        if (memoriesTableBody) {
+          memoriesTableBody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:12px;">Error: ${escapeHtml(err.message)}</td></tr>`;
+        }
+      } finally {
+        memoriesLoading = false;
+        if (memoriesRefreshBtn) {
+          memoriesRefreshBtn.disabled = false;
+          memoriesRefreshBtn.textContent = 'Refresh';
+        }
+      }
     }
 
     function renderRunnerCard(info) {
@@ -2442,6 +2547,7 @@ const statsEl = document.getElementById('stats');
         renderHosts(hosts.data.hosts);
         renderPrompts(prompts?.data?.commands || []);
         renderAgents(agents?.data || { status: 'missing' });
+        await loadMemories();
         if (typeof overview.data.quota_limit_percent !== 'undefined') {
           quotaLimitPercent = clampQuotaLimitPercent(overview.data.quota_limit_percent);
         }
@@ -2753,6 +2859,34 @@ const statsEl = document.getElementById('stats');
     }
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
+    }
+    if (memoriesRefreshBtn) {
+      memoriesRefreshBtn.addEventListener('click', () => loadMemories());
+    }
+    if (memoriesHostFilter) {
+      memoriesHostFilter.addEventListener('change', () => loadMemories());
+    }
+    if (memoriesLimitInput) {
+      memoriesLimitInput.addEventListener('change', () => loadMemories());
+    }
+    if (memoriesQueryInput) {
+      memoriesQueryInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          loadMemories();
+        }
+      });
+    }
+    if (memoriesTagsInput) {
+      memoriesTagsInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          loadMemories();
+        }
+      });
+      memoriesTagsInput.addEventListener('blur', () => {
+        if (!memoriesLoading) loadMemories();
+      });
     }
     if (newCommandBtn) {
       newCommandBtn.addEventListener('click', (event) => {

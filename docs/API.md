@@ -52,6 +52,11 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /slash-commands/retrieve` — body: `filename` (required), optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `prompt` when updated).
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
+### MCP memories
+- `POST /mcp/memories/store` — body: `content` (required, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when missing), optional `metadata` (object), optional `tags` (array of up to 32 strings, each ≤64 chars). Returns `status` `created` | `updated` | `unchanged` and `memory` (`id`, `content`, `metadata`, `tags`, timestamps).
+- `POST /mcp/memories/retrieve` — body: `id`|`memory_id`|`key` (required). Returns `status:found|missing` and `memory` when found.
+- `POST /mcp/memories/search` — body: `query`/`q` (string; empty lists recent), optional `limit` (1–100, default 20), optional `tags` (must all match). Results include `matches` ordered by MySQL full-text score (when query provided) with `score` + `memory` payloads.
+
 ### Wrapper
 - `GET /wrapper` — metadata for the baked `cdx` wrapper for this host (`version`, `sha256` per-host, `size_bytes`, `updated_at`, `url`). Auth required.
 - `GET /wrapper/download` — downloads the baked wrapper; headers include `X-SHA256` and `ETag` with the per-host hash. Auth required.

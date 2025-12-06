@@ -368,6 +368,41 @@
       margin: 0;
       font-size: 12px;
     }
+    .memory-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 10px 0 12px;
+      align-items: flex-end;
+    }
+    .memory-controls .field {
+      margin: 0;
+      min-width: 180px;
+    }
+    .memory-controls .narrow-field {
+      max-width: 120px;
+      min-width: 110px;
+    }
+    .memory-controls input,
+    .memory-controls select {
+      width: 100%;
+    }
+    #memories td.codeish {
+      font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 12px;
+      letter-spacing: -0.02em;
+    }
+    #memories .tag-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      background: var(--accent-soft);
+      color: var(--accent-2);
+      border-radius: 999px;
+      font-size: 12px;
+      margin: 0 4px 4px 0;
+      border: 1px solid var(--border);
+    }
     button {
       border: 1px solid rgba(var(--accent-rgb),0.45);
       border-radius: 12px;

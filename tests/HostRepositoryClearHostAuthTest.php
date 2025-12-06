@@ -17,6 +17,12 @@ final class HostRepositoryClearHostAuthTest extends TestCase
 
     protected function setUp(): void
     {
+        if (!defined('SODIUM_CRYPTO_SECRETBOX_KEYBYTES')) {
+            define('SODIUM_CRYPTO_SECRETBOX_KEYBYTES', 32);
+        }
+        if (!extension_loaded('sodium')) {
+            $this->markTestSkipped('sodium extension is required for SecretBox tests');
+        }
         $this->pdo = new PDO('sqlite::memory:');
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
