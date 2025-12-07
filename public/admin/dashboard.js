@@ -1309,12 +1309,11 @@ const statsEl = document.getElementById('stats');
       currentMemories = Array.isArray(memories) ? memories : [];
       if (!memoriesTableBody) return;
       if (currentMemories.length === 0) {
-        memoriesTableBody.innerHTML = '<tr><td colspan="6" class="muted" style="padding:12px;">No memories found</td></tr>';
+        memoriesTableBody.innerHTML = '<tr><td colspan="4" class="muted" style="padding:12px;">No memories found</td></tr>';
         return;
       }
 
       memoriesTableBody.innerHTML = currentMemories.map((row) => {
-        const host = row.host || '—';
         const id = row.id || '—';
         const content = clipText(row.content || '', 180).replace(/</g, '&lt;');
         const updated = row.updated_at ? formatTimestamp(row.updated_at) : '—';
@@ -1323,8 +1322,6 @@ const statsEl = document.getElementById('stats');
           : '—';
 
         return `<tr>
-          <td data-label="Host">${escapeHtml(host)}</td>
-          <td data-label="ID" class="codeish"><code>${escapeHtml(id)}</code></td>
           <td data-label="Content">${content || '—'}</td>
           <td data-label="Tags">${tags}</td>
           <td data-label="Updated">${updated}</td>
@@ -1374,7 +1371,7 @@ const statsEl = document.getElementById('stats');
       } catch (err) {
         console.error('memories', err);
         if (memoriesTableBody) {
-          memoriesTableBody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:12px;">Error: ${escapeHtml(err.message)}</td></tr>`;
+          memoriesTableBody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:12px;">Error: ${escapeHtml(err.message)}</td></tr>`;
         }
       } finally {
         memoriesLoading = false;
