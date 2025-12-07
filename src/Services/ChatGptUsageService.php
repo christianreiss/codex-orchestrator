@@ -52,6 +52,26 @@ class ChatGptUsageService
             'reset_at' => $snapshot['secondary_reset_at'] ?? null,
         ];
 
+        $dailyBaseline = null;
+        $dailyUsedPercent = null;
+        $midnight = gmdate('Y-m-d\T00:00:00\Z');
+        try {
+            $dailyBaseline = $this->repository->earliestSince($midnight);
+        } catch (\Throwable $exception) {
+            $dailyBaseline = null;
+        }
+        if (
+            isset($snapshot['secondary_used_percent'])
+            && isset($snapshot['secondary_limit_seconds'])
+            && $snapshot['secondary_limit_seconds'] !== null
+        ) {
+            $baselinePercent = $dailyBaseline['secondary_used_percent'] ?? null;
+            if (is_int($baselinePercent) && is_int($snapshot['secondary_used_percent'])) {
+                $delta = $snapshot['secondary_used_percent'] - $baselinePercent;
+                $dailyUsedPercent = $delta > 0 ? $delta : 0;
+            }
+        }
+
         return [
             'status' => $snapshot['status'] ?? null,
             'plan_type' => $snapshot['plan_type'] ?? null,
@@ -61,6 +81,8 @@ class ChatGptUsageService
             'next_eligible_at' => $snapshot['next_eligible_at'] ?? null,
             'primary_window' => $primary,
             'secondary_window' => $secondary,
+            'daily_used_percent' => $dailyUsedPercent,
+            'daily_baseline_at' => $dailyBaseline['fetched_at'] ?? null,
         ];
     }
 

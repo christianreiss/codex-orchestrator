@@ -343,10 +343,13 @@ print(
             "chatgpt_secondary_limit": secondary_window.get("limit_seconds"),
             "chatgpt_secondary_reset_after": secondary_window.get("reset_after_seconds"),
             "chatgpt_secondary_reset_at": secondary_window.get("reset_at"),
+            "chatgpt_daily_used_percent": chatgpt_usage.get("daily_used_percent"),
+            "chatgpt_daily_baseline_at": chatgpt_usage.get("daily_baseline_at"),
             "api_calls": payload_data.get("api_calls"),
             "token_usage_month": payload_data.get("token_usage_month"),
             "quota_hard_fail": payload_data.get("quota_hard_fail"),
             "quota_limit_percent": payload_data.get("quota_limit_percent"),
+            "quota_week_partition": payload_data.get("quota_week_partition"),
             "cdx_silent": payload_data.get("cdx_silent"),
         },
         separators=(",", ":"),
@@ -407,6 +410,9 @@ if isinstance(aact, str) and aact.strip():
 amsg = parsed.get("auth_message")
 if isinstance(amsg, str) and amsg.strip():
     print(f"am={amsg.strip()}")
+def _emit_int(key, prefix):
+    if isinstance(key, (int, float)):
+        print(f"{prefix}={int(key)}")
 qh = parsed.get("quota_hard_fail")
 if isinstance(qh, bool):
     print("qh=1" if qh else "qh=0")
@@ -415,6 +421,8 @@ elif isinstance(qh, (int, float)):
 ql = parsed.get("quota_limit_percent")
 if isinstance(ql, (int, float)):
     print(f"ql={int(ql)}")
+qwp = parsed.get("quota_week_partition")
+_emit_int(qwp, "qwp")
 csil = parsed.get("cdx_silent")
 if isinstance(csil, bool):
     print("cs=1" if csil else "cs=0")
@@ -430,9 +438,8 @@ if isinstance(cgpl, str) and cgpl.strip():
 cgnx = parsed.get("chatgpt_next")
 if isinstance(cgnx, str) and cgnx.strip():
     print(f"cgn={cgnx.strip()}")
-def _emit_int(key, prefix):
-    if isinstance(key, (int, float)):
-        print(f"{prefix}={int(key)}")
+cd_u = parsed.get("chatgpt_daily_used_percent") or parsed.get("chatgpt_daily_used")
+_emit_int(cd_u, "cgdu")
 cp_u = parsed.get("chatgpt_primary_used")
 _emit_int(cp_u, "cgu")
 cp_l = parsed.get("chatgpt_primary_limit")
@@ -512,6 +519,9 @@ PY
             ql=*)
               QUOTA_LIMIT_PERCENT="${line#ql=}"
               ;;
+            qwp=*)
+              QUOTA_WEEK_PARTITION="${line#qwp=}"
+              ;;
             cs=*)
               CODEX_SILENT="${line#cs=}"
               ;;
@@ -550,6 +560,9 @@ PY
               ;;
             cgsa=*)
               CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
+              ;;
+            cgdu=*)
+              CHATGPT_DAILY_USED="${line#cgdu=}"
               ;;
             hac=*)
               HOST_API_CALLS="${line#hac=}"

@@ -386,6 +386,18 @@
                 <input type="range" min="50" max="100" step="1" value="100" id="quotaLimitSlider" class="quota-limit-slider">
                 <p class="muted quota-limit-foot">Used percent that triggers warnings (or failures when deny mode is on).</p>
               </div>
+              <div class="quota-partition-control">
+                <div class="quota-limit-head">
+                  <p class="muted" style="margin:0;">Week partition</p>
+                  <div class="quota-limit-value" id="quotaPartitionLabel">Off</div>
+                </div>
+                <select id="quotaPartitionSelect" class="quota-partition-select">
+                  <option value="0">Off (default)</option>
+                  <option value="7">7 days (100/7 daily)</option>
+                  <option value="5">5 days: Mon-Fri (100/5 daily)</option>
+                </select>
+                <p class="muted quota-limit-foot">Adds a daily allowance bar in cdx; honours deny/warn mode.</p>
+              </div>
             </div>
             <div class="setting-block">
               <div class="setting-head">
@@ -393,7 +405,11 @@
                   <h3>API Kill Switch</h3>
                   <p class="muted" style="margin:2px 0 0;">Emergency stop for Codex agents.</p>
                 </div>
-                <button class="ghost tiny-btn" id="api-toggle-btn" title="Emergency stop for Codex agents">API</button>
+                <label class="toggle" for="apiToggle">
+                  <input type="checkbox" id="apiToggle">
+                  <span class="track"><span class="thumb"></span></span>
+                  <span class="toggle-text" id="apiToggleLabel">Enabled</span>
+                </label>
               </div>
             </div>
             <div class="setting-block">

@@ -149,6 +149,17 @@ class ChatGptUsageRepository implements ChatGptUsageStore
         }, $rows ?: []);
     }
 
+    public function earliestSince(string $sinceIso): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT * FROM chatgpt_usage_snapshots WHERE fetched_at >= :since ORDER BY fetched_at ASC, id ASC LIMIT 1'
+        );
+        $statement->execute(['since' => $sinceIso]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row ? $this->normalizeRow($row) : null;
+    }
+
     private function encodeArrayField(mixed $value): ?string
     {
         if (is_array($value)) {

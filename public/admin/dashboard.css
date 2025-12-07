@@ -368,6 +368,23 @@
       margin: 0;
       font-size: 12px;
     }
+    .quota-partition-control {
+      margin-top: 10px;
+      border: 1px solid rgba(15,23,42,0.1);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(15,23,42,0.015);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .quota-partition-select {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(15,23,42,0.2);
+      font-size: 14px;
+      background: #fff;
+    }
     .memory-controls {
       display: flex;
       flex-wrap: wrap;

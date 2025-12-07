@@ -37,6 +37,10 @@ class AuthService
     public const MIN_QUOTA_LIMIT_PERCENT = 50;
     public const MAX_QUOTA_LIMIT_PERCENT = 100;
     public const DEFAULT_QUOTA_LIMIT_PERCENT = 100;
+    public const QUOTA_WEEK_PARTITION_OFF = 0;
+    public const QUOTA_WEEK_PARTITION_FIVE_DAY = 5;
+    public const QUOTA_WEEK_PARTITION_SEVEN_DAY = 7;
+    public const DEFAULT_QUOTA_WEEK_PARTITION = self::QUOTA_WEEK_PARTITION_OFF;
     private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
@@ -250,6 +254,7 @@ class AuthService
             $quotaHardFail = false;
         }
         $quotaLimitPercent = $this->quotaLimitPercent();
+        $quotaWeekPartition = $this->quotaWeekPartition();
         $cdxSilent = $this->versions->getFlag('cdx_silent', false);
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
@@ -324,6 +329,7 @@ class AuthService
                 'versions' => $versions,
                 'quota_hard_fail' => $quotaHardFail,
                 'quota_limit_percent' => $quotaLimitPercent,
+                'quota_week_partition' => $quotaWeekPartition,
                 'cdx_silent' => $cdxSilent,
             ];
 
@@ -343,6 +349,7 @@ class AuthService
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
                         'quota_limit_percent' => $quotaLimitPercent,
+                        'quota_week_partition' => $quotaWeekPartition,
                         'cdx_silent' => $cdxSilent,
                     ];
 
@@ -364,6 +371,7 @@ class AuthService
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
                         'quota_limit_percent' => $quotaLimitPercent,
+                        'quota_week_partition' => $quotaWeekPartition,
                         'cdx_silent' => $cdxSilent,
                     ];
 
@@ -386,6 +394,7 @@ class AuthService
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
                         'quota_limit_percent' => $quotaLimitPercent,
+                        'quota_week_partition' => $quotaWeekPartition,
                         'cdx_silent' => $cdxSilent,
                     ];
 
@@ -457,6 +466,7 @@ class AuthService
                 'versions' => $versions,
                 'quota_hard_fail' => $quotaHardFail,
                 'quota_limit_percent' => $quotaLimitPercent,
+                'quota_week_partition' => $quotaWeekPartition,
                 'cdx_silent' => $cdxSilent,
             ];
             if ($trackHost) {
@@ -478,6 +488,7 @@ class AuthService
                     'versions' => $versions,
                     'quota_hard_fail' => $quotaHardFail,
                     'quota_limit_percent' => $quotaLimitPercent,
+                    'quota_week_partition' => $quotaWeekPartition,
                     'cdx_silent' => $cdxSilent,
                 ];
                 if ($trackHost) {
@@ -493,6 +504,7 @@ class AuthService
                     'versions' => $versions,
                     'quota_hard_fail' => $quotaHardFail,
                     'quota_limit_percent' => $quotaLimitPercent,
+                    'quota_week_partition' => $quotaWeekPartition,
                     'cdx_silent' => $cdxSilent,
                 ];
             }
@@ -577,6 +589,7 @@ class AuthService
                                 'versions' => $versions,
                                 'quota_hard_fail' => $quotaHardFail,
                                 'quota_limit_percent' => $quotaLimitPercent,
+                                'quota_week_partition' => $quotaWeekPartition,
                             ];
                             if ($trackHost) {
                                 $response['host'] = $this->buildHostPayload($host);
@@ -1314,6 +1327,7 @@ class AuthService
             'reported_client_version' => $reported['client_version'],
             'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
             'quota_limit_percent' => $this->quotaLimitPercent(),
+            'quota_week_partition' => $this->quotaWeekPartition(),
             'cdx_silent' => $this->versions->getFlag('cdx_silent', false),
             'runner_enabled' => $this->runnerVerifier !== null,
             'runner_state' => $this->versions->get('runner_state'),
@@ -1348,11 +1362,51 @@ class AuthService
         return $number;
     }
 
+    public static function normalizeQuotaWeekPartition(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return null;
+            }
+            if (strcasecmp($value, 'off') === 0) {
+                return self::QUOTA_WEEK_PARTITION_OFF;
+            }
+        }
+
+        if (is_numeric($value)) {
+            $value = (int) round((float) $value);
+        }
+
+        $allowed = [
+            self::QUOTA_WEEK_PARTITION_OFF,
+            self::QUOTA_WEEK_PARTITION_FIVE_DAY,
+            self::QUOTA_WEEK_PARTITION_SEVEN_DAY,
+        ];
+
+        if (in_array($value, $allowed, true)) {
+            return $value;
+        }
+
+        return null;
+    }
+
     private function quotaLimitPercent(): int
     {
         $stored = $this->versions->get('quota_limit_percent');
         $normalized = self::normalizeQuotaLimitPercent($stored);
         return $normalized ?? self::DEFAULT_QUOTA_LIMIT_PERCENT;
+    }
+
+    private function quotaWeekPartition(): int
+    {
+        $stored = $this->versions->get('quota_week_partition');
+        $normalized = self::normalizeQuotaWeekPartition($stored);
+        return $normalized ?? self::DEFAULT_QUOTA_WEEK_PARTITION;
     }
 
     private function sanitizeUsageLine(string $line): string

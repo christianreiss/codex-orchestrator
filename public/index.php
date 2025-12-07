@@ -608,12 +608,14 @@ $router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository
 
     $hardFail = $versionRepository->getFlag('quota_hard_fail', true);
     $limitPercent = quotaLimitPercent($versionRepository);
+    $weekPartition = quotaWeekPartition($versionRepository);
 
     Response::json([
         'status' => 'ok',
         'data' => [
             'hard_fail' => $hardFail,
             'limit_percent' => $limitPercent,
+            'week_partition' => $weekPartition,
         ],
     ]);
 });
@@ -641,14 +643,27 @@ $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versio
         ], 422);
     }
 
+    $partitionRaw = $payload['week_partition'] ?? null;
+    $weekPartition = $partitionRaw === null
+        ? quotaWeekPartition($versionRepository)
+        : AuthService::normalizeQuotaWeekPartition($partitionRaw);
+    if ($partitionRaw !== null && $weekPartition === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'week_partition must be one of: off, 7, 5',
+        ], 422);
+    }
+
     $versionRepository->set('quota_hard_fail', $hardFail ? '1' : '0');
     $versionRepository->set('quota_limit_percent', (string) $limitPercent);
+    $versionRepository->set('quota_week_partition', (string) $weekPartition);
 
     Response::json([
         'status' => 'ok',
         'data' => [
             'hard_fail' => $hardFail,
             'limit_percent' => $limitPercent,
+            'week_partition' => $weekPartition,
         ],
     ]);
 });
@@ -1060,6 +1075,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
     $quotaLimitPercent = quotaLimitPercent($versionRepository);
+    $quotaWeekPartition = quotaWeekPartition($versionRepository);
     $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
 
     Response::json([
@@ -1089,6 +1105,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
             'quota_hard_fail' => $quotaHardFail,
             'quota_limit_percent' => $quotaLimitPercent,
+            'quota_week_partition' => $quotaWeekPartition,
             'cdx_silent' => $cdxSilent,
         ],
     ]);
@@ -1911,6 +1928,12 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
                 }
                 break;
 
+            case 'notifications/initialized':
+            case 'notifications.initialized':
+                // Optional MCP notification; acknowledge and do nothing.
+                $result = ['ok' => true];
+                break;
+
             case 'tools/call':
             case 'tools.call':
             case 'call_tool':
@@ -2244,6 +2267,13 @@ function quotaLimitPercent(VersionRepository $versionRepository): int
     $raw = $versionRepository->get('quota_limit_percent');
     $normalized = AuthService::normalizeQuotaLimitPercent($raw);
     return $normalized ?? AuthService::DEFAULT_QUOTA_LIMIT_PERCENT;
+}
+
+function quotaWeekPartition(VersionRepository $versionRepository): int
+{
+    $raw = $versionRepository->get('quota_week_partition');
+    $normalized = AuthService::normalizeQuotaWeekPartition($raw);
+    return $normalized ?? AuthService::DEFAULT_QUOTA_WEEK_PARTITION;
 }
 
 function normalizeBaseUrlCandidate(string $value): string

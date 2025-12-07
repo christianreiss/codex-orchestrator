@@ -1254,6 +1254,15 @@ fi
     quota_summary="Warn at ≥${quota_limit}% usage; continue running."
   fi
 
+  partition_days="$QUOTA_WEEK_PARTITION"
+  if [[ ! "$partition_days" =~ ^[0-9]+$ ]]; then
+    partition_days=0
+  fi
+  if (( partition_days != 5 && partition_days != 7 )); then
+    partition_days=0
+  fi
+  QUOTA_WEEK_PARTITION="$partition_days"
+
   command_line=""
   if [[ -n "$command_label" ]]; then
     command_line="Command: $(colorize "$command_label" "$command_tone")"
@@ -1287,6 +1296,9 @@ fi
   fi
 
   policy_entry="Policy: $( (( QUOTA_HARD_FAIL )) && printf "Deny" || printf "Warn" )"
+  if (( QUOTA_WEEK_PARTITION == 5 || QUOTA_WEEK_PARTITION == 7 )); then
+    policy_entry+=" · week partition ${QUOTA_WEEK_PARTITION}d"
+  fi
   core_line_bits=("${core_bits[@]}" "$policy_entry")
   core_line="Core: $(join_with_sep ' | ' "${core_line_bits[@]}")"
 
@@ -1386,6 +1398,55 @@ fi
     fi
   fi
 
+  daily_quota_segment=""
+  daily_reset_hint=""
+  daily_allowance_used_pct=""
+  if (( QUOTA_WEEK_PARTITION == 5 || QUOTA_WEEK_PARTITION == 7 )); then
+    if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]]; then
+      partition_days="$QUOTA_WEEK_PARTITION"
+      allowance_per_day=$(( (100 + partition_days / 2) / partition_days ))
+      (( allowance_per_day < 1 )) && allowance_per_day=1
+      daily_used="${CHATGPT_DAILY_USED:-}"
+      if [[ "$daily_used" =~ ^[0-9]+$ ]]; then
+        bar_pct=$(( (daily_used * 100 + allowance_per_day / 2) / allowance_per_day ))
+        (( bar_pct < 0 )) && bar_pct=0
+        (( bar_pct > 999 )) && bar_pct=999
+        daily_allowance_used_pct=$bar_pct
+        bar_display=$bar_pct
+        (( bar_display > 100 )) && bar_display=100
+        bar="$(build_quota_bar "$bar_display" "$QUOTA_BAR_WIDTH")"
+        qtone3="green"
+        if (( bar_pct >= 95 )); then
+          qtone3="red"
+        elif (( bar_pct >= 80 )); then
+          qtone3="orange"
+        fi
+        printf -v qtext3 "%3d%% [%s]" "$bar_pct" "$bar"
+        note_parts=()
+        note_parts+=("today used ${daily_used}% of week")
+        note_parts+=("allowance ${allowance_per_day}%/day")
+        daily_reset_hint="$(join_with_semicolon "${note_parts[@]}")"
+        note3_disp="$daily_reset_hint"
+        if [[ -n "$note3_disp" ]]; then
+          printf -v note3_disp "%b" "${DIM}${note3_disp}${RESET}"
+        fi
+        daily_quota_segment="$(colorize "$qtext3" "$qtone3")"
+        if [[ -n "$note3_disp" ]]; then
+          daily_quota_segment+=" ${note3_disp}"
+        fi
+      fi
+    fi
+  fi
+
+  if (( QUOTA_WEEK_PARTITION == 5 || QUOTA_WEEK_PARTITION == 7 )) && [[ -z "$daily_quota_segment" ]]; then
+    allowance_per_day=$(( (100 + QUOTA_WEEK_PARTITION / 2) / QUOTA_WEEK_PARTITION ))
+    bar="$(build_quota_bar 0 "$QUOTA_BAR_WIDTH")"
+    qtext3=$(printf "%3d%% [%s]" 0 "$bar")
+    note3_disp=$(printf "%b" "${DIM}allowance ${allowance_per_day}%/day${RESET}")
+    daily_quota_segment="$(colorize "$qtext3" "green") ${note3_disp}"
+    daily_allowance_used_pct=0
+  fi
+
   quota_warn_threshold=$(( quota_limit - 10 ))
   if (( quota_warn_threshold < 0 )); then
     quota_warn_threshold=0
@@ -1421,6 +1482,19 @@ fi
       quota_warnings+=("$reason")
     fi
   fi
+  if [[ "$daily_allowance_used_pct" =~ ^[0-9]+$ ]]; then
+    if (( daily_allowance_used_pct >= quota_limit )); then
+      reason="daily allowance reached (${daily_allowance_used_pct}% of allowance"
+      [[ -n "$daily_reset_hint" ]] && reason+="; ${daily_reset_hint}"
+      reason+=")"
+      quota_reasons+=("$reason")
+    elif (( daily_allowance_used_pct >= quota_warn_threshold )); then
+      reason="daily allowance high (${daily_allowance_used_pct}% of allowance"
+      [[ -n "$daily_reset_hint" ]] && reason+="; ${daily_reset_hint}"
+      reason+=")"
+      quota_warnings+=("$reason")
+    fi
+  fi
   if (( ${#quota_reasons[@]} )); then
     QUOTA_BLOCKED=1
     QUOTA_BLOCK_REASON="$(human_join "${quota_reasons[@]}")"
@@ -1443,19 +1517,27 @@ fi
   if [[ -n "$usage_line" ]]; then
     log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
   fi
+  quota_label_base="Quota"
   if [[ -n "$primary_quota_segment" ]]; then
     quota_line="${primary_quota_segment}"
     if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
       quota_line+=" ⚠"
     fi
-    log_info "$(format_label_prefix "Quota (5h)")${quota_line}"
+    log_info "$(format_label_prefix "${quota_label_base} 5h")${quota_line}"
   fi
   if [[ -n "$secondary_quota_segment" ]]; then
     quota_line2="${secondary_quota_segment}"
     if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
       quota_line2+=" ⚠"
     fi
-    log_info "$(format_label_prefix "Quota (week)")${quota_line2}"
+    log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
+  fi
+  if [[ -n "$daily_quota_segment" ]]; then
+    quota_line3="${daily_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line3+=" ⚠"
+    fi
+    log_info "$(format_label_prefix "${quota_label_base} day")${quota_line3}"
   fi
   log_info "$(format_label_prefix "Result")${result_line#Result: }"
 

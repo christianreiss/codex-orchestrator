@@ -24,7 +24,6 @@ const statsEl = document.getElementById('stats');
     const uploadAuthCancel = document.getElementById('uploadAuthCancel');
     const uploadHostSelect = document.getElementById('uploadHostSelect');
     const uploadStatus = document.getElementById('uploadStatus');
-    const apiToggleBtn = document.getElementById('api-toggle-btn');
     const seedModal = document.getElementById('seedModal');
     const seedUploadBtn = document.getElementById('seedUploadBtn');
     const seedDismissBtn = document.getElementById('seedDismissBtn');
@@ -93,10 +92,14 @@ const statsEl = document.getElementById('stats');
     const agentsStatus = document.getElementById('agentsStatus');
     const agentsCancel = document.getElementById('agentsCancel');
     const agentsSave = document.getElementById('agentsSave');
+    const apiToggle = document.getElementById('apiToggle');
+    const apiToggleLabel = document.getElementById('apiToggleLabel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
     const quotaLimitSlider = document.getElementById('quotaLimitSlider');
     const quotaLimitLabel = document.getElementById('quotaLimitLabel');
+    const quotaPartitionSelect = document.getElementById('quotaPartitionSelect');
+    const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
     const settingsToggle = document.getElementById('settingsToggle');
@@ -112,6 +115,9 @@ const statsEl = document.getElementById('stats');
     const QUOTA_LIMIT_MIN = 50;
     const QUOTA_LIMIT_MAX = 100;
     const QUOTA_LIMIT_DEFAULT = 100;
+    const QUOTA_WEEK_PARTITION_OFF = 0;
+    const QUOTA_WEEK_PARTITION_FIVE = 5;
+    const QUOTA_WEEK_PARTITION_SEVEN = 7;
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -137,6 +143,7 @@ const statsEl = document.getElementById('stats');
     let uploadFileContent = '';
     let quotaHardFail = true;
     let quotaLimitPercent = QUOTA_LIMIT_DEFAULT;
+    let quotaWeekPartition = QUOTA_WEEK_PARTITION_OFF;
     let cdxSilent = false;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
@@ -282,38 +289,42 @@ const statsEl = document.getElementById('stats');
       try {
         const res = await api('/admin/api/state');
         apiDisabled = !!res.data?.disabled;
-        if (apiToggleBtn) {
-          apiToggleBtn.textContent = 'API';
-          apiToggleBtn.title = apiDisabled ? 'API disabled — click to enable' : 'API enabled — click to disable';
-          apiToggleBtn.classList.remove('danger', 'ghost', 'api-enabled', 'api-disabled');
-          apiToggleBtn.classList.add(apiDisabled ? 'api-disabled' : 'api-enabled');
+        if (apiToggle) {
+          apiToggle.checked = !apiDisabled;
+          apiToggle.disabled = false;
+          if (apiToggleLabel) {
+            apiToggleLabel.textContent = apiDisabled ? 'Disabled' : 'Enabled';
+          }
         }
       } catch (err) {
         console.error('api state', err);
-        if (apiToggleBtn) {
-          apiToggleBtn.textContent = 'API: unavailable';
-          apiToggleBtn.classList.add('danger');
+        if (apiToggle) {
+          apiToggle.checked = false;
+          apiToggle.disabled = true;
+        }
+        if (apiToggleLabel) {
+          apiToggleLabel.textContent = 'Unavailable';
         }
       }
     }
 
     async function setApiState(enabled) {
-      if (!apiToggleBtn) return;
-      const original = apiToggleBtn.textContent;
-      apiToggleBtn.disabled = true;
-      apiToggleBtn.textContent = enabled ? 'Enabling…' : 'Disabling…';
+      if (!apiToggle) return;
+      apiToggle.disabled = true;
       try {
         await api('/admin/api/state', {
           method: 'POST',
           json: { disabled: !enabled },
         });
         apiDisabled = !enabled;
+        if (apiToggleLabel) {
+          apiToggleLabel.textContent = apiDisabled ? 'Disabled' : 'Enabled';
+        }
       } catch (err) {
         alert(`API toggle failed: ${err.message}`);
+        apiToggle.checked = !enabled; // revert
       } finally {
-        apiToggleBtn.disabled = false;
-        apiToggleBtn.textContent = original;
-        loadApiState();
+        apiToggle.disabled = false;
       }
     }
 
@@ -323,7 +334,7 @@ const statsEl = document.getElementById('stats');
       try {
         await api('/admin/quota-mode', {
           method: 'POST',
-          json: { hard_fail: !!hardFail, limit_percent: quotaLimitPercent },
+          json: { hard_fail: !!hardFail, limit_percent: quotaLimitPercent, week_partition: quotaWeekPartition },
         });
         quotaHardFail = !!hardFail;
         renderQuotaMode();
@@ -349,7 +360,7 @@ const statsEl = document.getElementById('stats');
       try {
         await api('/admin/quota-mode', {
           method: 'POST',
-          json: { hard_fail: quotaHardFail, limit_percent: normalized },
+          json: { hard_fail: quotaHardFail, limit_percent: normalized, week_partition: quotaWeekPartition },
         });
       } catch (err) {
         alert(`Quota limit update failed: ${err.message}`);
@@ -357,6 +368,31 @@ const statsEl = document.getElementById('stats');
         renderQuotaLimit();
       } finally {
         quotaLimitSlider.disabled = false;
+      }
+    }
+
+    async function setQuotaPartition(nextValue) {
+      if (!quotaPartitionSelect) return;
+      const normalized = normalizeQuotaPartition(nextValue);
+      if (normalized === quotaWeekPartition) {
+        renderQuotaPartition();
+        return;
+      }
+      const previous = quotaWeekPartition;
+      quotaWeekPartition = normalized;
+      renderQuotaPartition();
+      quotaPartitionSelect.disabled = true;
+      try {
+        await api('/admin/quota-mode', {
+          method: 'POST',
+          json: { hard_fail: quotaHardFail, limit_percent: quotaLimitPercent, week_partition: normalized },
+        });
+      } catch (err) {
+        alert(`Week partition update failed: ${err.message}`);
+        quotaWeekPartition = previous;
+        renderQuotaPartition();
+      } finally {
+        quotaPartitionSelect.disabled = false;
       }
     }
 
@@ -2320,12 +2356,45 @@ const statsEl = document.getElementById('stats');
       return limited;
     }
 
+    function normalizeQuotaPartition(value) {
+      const allowed = [QUOTA_WEEK_PARTITION_OFF, QUOTA_WEEK_PARTITION_FIVE, QUOTA_WEEK_PARTITION_SEVEN];
+      if (typeof value === 'string') {
+        const trimmed = value.trim().toLowerCase();
+        if (trimmed === 'off' || trimmed === '0' || trimmed === '') {
+          return QUOTA_WEEK_PARTITION_OFF;
+        }
+      }
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        const rounded = Math.round(num);
+        if (allowed.includes(rounded)) {
+          return rounded;
+        }
+      }
+      return QUOTA_WEEK_PARTITION_OFF;
+    }
+
     function renderQuotaLimit() {
       if (quotaLimitSlider) {
         quotaLimitSlider.value = String(quotaLimitPercent);
       }
       if (quotaLimitLabel) {
         quotaLimitLabel.textContent = `${quotaLimitPercent}%`;
+      }
+    }
+
+    function renderQuotaPartition() {
+      if (quotaPartitionSelect) {
+        quotaPartitionSelect.value = String(quotaWeekPartition);
+      }
+      if (quotaPartitionLabel) {
+        let label = 'Off';
+        if (quotaWeekPartition === QUOTA_WEEK_PARTITION_SEVEN) {
+          label = '7 days (100/7 daily)';
+        } else if (quotaWeekPartition === QUOTA_WEEK_PARTITION_FIVE) {
+          label = '5 days (100/5 daily)';
+        }
+        quotaPartitionLabel.textContent = label;
       }
     }
 
@@ -2341,6 +2410,7 @@ const statsEl = document.getElementById('stats');
         desc.textContent = quotaDesc;
       });
       renderQuotaLimit();
+      renderQuotaPartition();
     }
 
     function clampInsecureWindowMinutes(value) {
@@ -2601,12 +2671,13 @@ const statsEl = document.getElementById('stats');
         if (typeof overview.data.quota_limit_percent !== 'undefined') {
           quotaLimitPercent = clampQuotaLimitPercent(overview.data.quota_limit_percent);
         }
+        if (typeof overview.data.quota_week_partition !== 'undefined') {
+          quotaWeekPartition = normalizeQuotaPartition(overview.data.quota_week_partition);
+        }
         if (typeof overview.data.quota_hard_fail !== 'undefined') {
           quotaHardFail = !!overview.data.quota_hard_fail;
-          renderQuotaMode();
-        } else {
-          renderQuotaLimit();
         }
+        renderQuotaMode();
         if (typeof overview.data.cdx_silent !== 'undefined') {
           cdxSilent = !!overview.data.cdx_silent;
           renderCdxSilent();
@@ -2911,6 +2982,11 @@ const statsEl = document.getElementById('stats');
         updateQuotaLimitPercent(Number(event.target.value));
       });
     }
+    if (quotaPartitionSelect) {
+      quotaPartitionSelect.addEventListener('change', (event) => {
+        setQuotaPartition(event.target.value);
+      });
+    }
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
     }
@@ -3082,10 +3158,9 @@ const statsEl = document.getElementById('stats');
     if (confirmDeleteHostBtn) {
       confirmDeleteHostBtn.addEventListener('click', confirmRemove);
     }
-    if (apiToggleBtn) {
-      apiToggleBtn.addEventListener('click', () => {
-        if (apiDisabled === null) return;
-        setApiState(!apiDisabled);
+    if (apiToggle) {
+      apiToggle.addEventListener('change', () => {
+        setApiState(apiToggle.checked);
       });
     }
     if (quotaToggle) {
