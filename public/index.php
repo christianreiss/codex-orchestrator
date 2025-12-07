@@ -1267,7 +1267,9 @@ $router->add('GET', '#^/admin/mcp/logs$#', function () use ($mcpAccessLogReposit
 $router->add('POST', '#^/admin/config/render$#', function () use ($payload, $clientConfigService) {
     requireAdminAccess();
     $settings = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
-    $rendered = $clientConfigService->render($settings);
+    $baseUrl = resolveBaseUrl();
+    // For preview, inject managed MCP with a placeholder API key so the rendered output matches what hosts receive.
+    $rendered = $clientConfigService->renderForHost($settings, null, $baseUrl, '<host api key>');
 
     Response::json([
         'status' => 'ok',
