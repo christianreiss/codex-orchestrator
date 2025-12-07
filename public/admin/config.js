@@ -67,7 +67,7 @@
     return {
       model: 'gpt-5.1-codex',
       approval_policy: 'on-request',
-      sandbox_mode: 'workspace-write',
+      sandbox_mode: 'read-only',
       model_reasoning_effort: 'medium',
       model_reasoning_summary: 'auto',
       model_verbosity: 'low',
@@ -76,8 +76,8 @@
       model_max_output_tokens: null,
       features: {
         streamable_shell: false,
-        web_search_request: true,
-        view_image_tool: true,
+        web_search_request: false,
+        view_image_tool: false,
       },
       notice: {
         'hide_gpt5_1_migration_prompt': true,

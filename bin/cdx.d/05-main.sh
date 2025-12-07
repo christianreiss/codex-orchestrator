@@ -1549,7 +1549,7 @@ run_codex_command() {
   tmp_output="$(mktemp)"
   set +e
   if [[ -t 1 && "$CODEX_NO_PTY" != "1" ]]; then
-    local cmd_line=("$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@")
+    local cmd_line=("$CODEX_REAL_BIN" "$@")
     if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
       # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
       local cmd_str
@@ -1595,7 +1595,7 @@ PY
       status=${PIPESTATUS[0]}
     fi
   else
-    "$CODEX_REAL_BIN" --ask-for-approval never --sandbox danger-full-access "$@" 2>&1 | tee "$tmp_output"
+    "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
     status=${PIPESTATUS[0]}
   fi
   set -e
