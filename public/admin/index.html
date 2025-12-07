@@ -316,16 +316,11 @@
             </div>
             <div class="panel-actions" style="gap:10px;">
               <a class="ghost tiny-btn" href="/admin/mcp-logs.html" style="text-decoration:none;line-height:28px;">Access Logs</a>
+              <button class="ghost tiny-btn" id="memoriesToggle">Show</button>
               <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
             </div>
           </div>
-          <div class="memory-controls">
-            <div class="field">
-              <label for="memoriesHostFilter" style="font-weight:600;">Host</label>
-              <select id="memoriesHostFilter">
-                <option value="">All hosts</option>
-              </select>
-            </div>
+          <div class="memory-controls" id="memoriesFilters" hidden>
             <div class="field">
               <label for="memoriesQuery" style="font-weight:600;">Search</label>
               <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
@@ -339,7 +334,7 @@
               <input id="memoriesLimit" type="number" min="1" max="200" value="50">
             </div>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" id="memoriesTableWrap" hidden>
             <table id="memories">
               <thead>
                 <tr>

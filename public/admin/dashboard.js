@@ -79,8 +79,7 @@ const statsEl = document.getElementById('stats');
     const settingsPanel = document.getElementById('settings-panel');
     const memoriesPanel = document.getElementById('memories-panel');
     const memoriesTableBody = document.querySelector('#memories tbody');
-    const memoriesHostFilter = document.getElementById('memoriesHostFilter');
-    const memoriesQueryInput = document.getElementById('memoriesQuery');
+        const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
     const memoriesLimitInput = document.getElementById('memoriesLimit');
     const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
@@ -146,6 +145,7 @@ const statsEl = document.getElementById('stats');
     const INSECURE_WINDOW_STORAGE_KEY = 'codex.insecureWindowMinutes';
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
     let memoriesLoading = false;
+    let memoriesOpen = false;
 
     function escapeHtml(str) {
       return String(str)
@@ -1356,7 +1356,6 @@ const statsEl = document.getElementById('stats');
 
       const params = new URLSearchParams();
       if (query) params.set('q', query);
-      if (hostId) params.set('host_id', hostId);
       if (tags.length) params.set('tags', tags.join(','));
       params.set('limit', String(limit));
 
