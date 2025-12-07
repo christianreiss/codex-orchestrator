@@ -47,7 +47,6 @@ use App\Services\MemoryService;
 use App\Services\ClientConfigService;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
-use InvalidArgumentException;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
