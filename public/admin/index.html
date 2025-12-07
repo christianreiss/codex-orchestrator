@@ -22,7 +22,6 @@
           <div id="mtls" class="pill" style="display:none;">mTLS Status</div>
         </div>
         <div class="action-line">
-          <button class="ghost" type="button" onclick="window.location.href='/admin/config.html'">config.toml</button>
           <button class="ghost" type="button" onclick="window.location.href='/admin/logs.html'">Logs</button>
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
         </div>
@@ -427,6 +426,18 @@
                 <button class="ghost" id="uploadAuthBtn">Seed auth.json</button>
                 <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
                 <button class="ghost" id="version-check">Check versions</button>
+              </div>
+            </div>
+
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
+                  <h3>config.toml Generator</h3>
+                  <p class="muted" style="margin:2px 0 0;">Render and download the host config with managed MCP baked in.</p>
+                </div>
+              </div>
+              <div class="setting-actions">
+                <button class="ghost" type="button" onclick="window.location.href='/admin/config.html'">Open generator</button>
               </div>
             </div>
           </div>
