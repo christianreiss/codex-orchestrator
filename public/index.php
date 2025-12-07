@@ -1708,7 +1708,10 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
         ], 403);
     }
 
-    $host = $service->authenticate($apiKey, $clientIp, true);
+    $host = $service->authenticate($apiKey, $clientIp, false);
+
+    // Enforce insecure-host window the same way /auth does (extends window on access, denies when closed).
+    $host = $service->enforceInsecureWindow($host, 'mcp');
 
     $decoded = json_decode($rawBody ?? '', true);
     if (json_last_error() !== JSON_ERROR_NONE) {

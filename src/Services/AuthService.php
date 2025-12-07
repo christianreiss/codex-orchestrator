@@ -1651,6 +1651,22 @@ class AuthService
         return $payload;
     }
 
+    /**
+     * Enforce insecure-host window rules for non-/auth surfaces (e.g. MCP) using the same logic as handleAuth.
+     * Returns the (possibly updated) host with refreshed insecure window timestamps.
+     */
+    public function enforceInsecureWindow(array $host, string $command = 'mcp'): array
+    {
+        $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
+        $trackHost = $hostId > 0;
+
+        if (isset($host['secure']) && !(bool) (int) $host['secure']) {
+            $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost);
+        }
+
+        return $host;
+    }
+
     private function sortRecursive(mixed $value): mixed
     {
         if (!is_array($value)) {
