@@ -10,9 +10,6 @@ fi
 
 platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
-if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
-  print_motd
-fi
 
 can_manage_codex=0
 if (( IS_ROOT )); then
@@ -49,6 +46,10 @@ if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "${MAX_LOCAL_AUTH_RECENT_SECO
 fi
 HAS_LOCAL_AUTH=0
 [[ -f "$HOME/.codex/auth.json" ]] && HAS_LOCAL_AUTH=1
+
+if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
+  print_motd
+fi
 
 os_name="$(uname -s)"
 arch_name="$(uname -m)"
