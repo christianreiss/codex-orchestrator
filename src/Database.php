@@ -523,23 +523,4 @@ class Database
         $this->pdo->exec(sprintf('ALTER TABLE %s ADD CONSTRAINT %s %s', $table, $constraint, $definition));
     }
 
-    private function dropColumnIfExists(string $table, string $column): void
-    {
-        $statement = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column'
-        );
-
-        $statement->execute([
-            'schema' => $this->databaseName,
-            'table' => $table,
-            'column' => $column,
-        ]);
-
-        $exists = (int) $statement->fetchColumn() > 0;
-        if (!$exists) {
-            return;
-        }
-
-        $this->pdo->exec(sprintf('ALTER TABLE %s DROP COLUMN %s', $table, $column));
-    }
 }
