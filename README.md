@@ -18,6 +18,32 @@
 - 🧠 Extras: slash-command distribution, MCP-compatible memories (store/retrieve/search across sessions), ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
 - 🛠️ `config.toml` builder for Codex CLI/IDE defaults, synced automatically to `~/.codex/config.toml` on every `cdx` run.
 
+## MCP for Codex (native HTTP, no node shim)
+
+- `/mcp` speaks the streamable HTTP MCP spec (2025‑03‑26) with host API keys; `cdx` bakes an entry automatically so Codex IDE/CLI can call it without extra wiring.
+- Tools: `memory_store|memory_retrieve|memory_search`, resource browsing (`resources/templates/list`, `resources/list`, `resources/read` as `text/plain`), scoped notes (`memory_append|memory_query|memory_list`), and sandboxed filesystem helpers (`fs_read_file|fs_write_file|fs_list_dir|fs_stat|fs_search_in_files`).
+- Admins get `/admin/mcp/memories` to search/browse stored notes (filter by host/tags/query).
+- Quick taste:
+```bash
+curl -s "$BASE/mcp/memories/store" \
+  -H "Authorization: Bearer $HOST_API_KEY" \
+  -d '{"content":"recorded a fix for ticket-123","tags":["ticket-123","infra"]}'
+```
+- MCP resources are `memory://{id}`; recent ones are discoverable via `resources/list`, and create/update/delete/read are all exposed as MCP tools.
+
+## Config builder (baked per host)
+
+- `/admin/config.html` is a full-fidelity builder for `config.toml` (models/providers/profiles, approval policy, sandbox, notices, MCP servers, OTEL, custom blocks). Live render with sha/size preview, then one-click deploy.
+- `/config/retrieve` bakes that template per host, injecting the caller’s API key into the managed MCP entry and returning both the baked `sha256` and the base template hash so clients can skip unchanged files.
+- `cdx` writes the baked file to `~/.codex/config.toml` on every run and deletes it when the server returns `status:missing`.
+- Managed MCP uses native HTTP—no npm wrapper needed:
+```toml
+[mcp_servers.cdx]
+url = "{base_url}/mcp"
+http_headers = { Authorization = "Bearer {host_api_key}" }
+```
+- Toggle the managed entry off in the builder if you prefer your own MCP list; API keys are never stored server-side, only injected at bake time.
+
 ## See it in action
 
 - **Dashboard overview** — track host health, latest digests, versions, and API usage at a glance.
@@ -58,6 +84,8 @@ Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see 
 - Installation and deployment (including `bin/setup.sh`, TLS/mTLS, and Docker profiles): `docs/INSTALL.md`
 - System overview, request flow, and operational notes: `docs/OVERVIEW.md`
 - Human-friendly API surface overview: `docs/API.md`
+- MCP server usage and tools: `docs/MCP.md`
+- Config builder workflow and per-host baking: `docs/CONFIG_BUILDER.md`
 - Source-of-truth interface contracts: `docs/interface-api.md`, `docs/interface-cdx.md`, `docs/interface-db.md`
 - Auth runner behavior and probes: `docs/auth-runner.md`
 - Security policy and hardening checklist: `docs/SECURITY.md`
