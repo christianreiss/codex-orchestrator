@@ -257,10 +257,12 @@ class Database
             <<<SQL
             CREATE TABLE IF NOT EXISTS install_tokens (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                token CHAR(36) NOT NULL UNIQUE,
+                token CHAR(64) NOT NULL UNIQUE,
+                token_enc LONGTEXT NULL,
                 host_id BIGINT UNSIGNED NOT NULL,
                 fqdn VARCHAR(255) NOT NULL,
                 api_key CHAR(64) NOT NULL,
+                api_key_enc LONGTEXT NULL,
                 base_url VARCHAR(255) NULL,
                 expires_at VARCHAR(100) NOT NULL,
                 used_at VARCHAR(100) NULL,
@@ -445,6 +447,8 @@ class Database
         $this->ensureColumnExists('hosts', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
+        $this->ensureColumnExists('install_tokens', 'token_enc', 'LONGTEXT NULL');
+        $this->ensureColumnExists('install_tokens', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists('token_usages', 'ingest_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'cost', 'DECIMAL(18,6) NULL');
@@ -453,6 +457,7 @@ class Database
         $this->ensureColumnExists('agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnLength('install_tokens', 'token', 64);
 
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
@@ -480,6 +485,26 @@ class Database
         }
 
         $this->pdo->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', $table, $column, $definition));
+    }
+
+    private function ensureColumnLength(string $table, string $column, int $length): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+            'column' => $column,
+        ]);
+
+        $currentLength = $statement->fetchColumn();
+        if ($currentLength !== false && (int) $currentLength >= $length) {
+            return;
+        }
+
+        $this->pdo->exec(sprintf('ALTER TABLE %s MODIFY COLUMN %s CHAR(%d) NOT NULL', $table, $column, $length));
     }
 
     private function ensureIndexExists(string $table, string $index, string $definition): void

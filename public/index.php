@@ -91,7 +91,7 @@ $hostRepository->backfillApiKeyEncryption();
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $hostUserRepository = new HostUserRepository($database);
-$installTokenRepository = new InstallTokenRepository($database);
+$installTokenRepository = new InstallTokenRepository($database, $secretBox);
 $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $logRepository = new LogRepository($database);
@@ -354,7 +354,7 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
     $tokenRow = $installTokenRepository->create(
         generateUuid(),
         (int) $host['id'],
-        (string) $host['api_key'],
+        (string) ($hostPayload['api_key'] ?? ($host['api_key_plain'] ?? '')),
         (string) $host['fqdn'],
         $expiresAt,
         $baseUrl

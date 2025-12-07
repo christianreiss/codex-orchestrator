@@ -10,7 +10,9 @@ fi
 
 platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
-print_motd
+if (( ! CODEX_SKIP_MOTD )); then
+  print_motd
+fi
 
 can_manage_codex=0
 if (( IS_ROOT )); then
@@ -1456,9 +1458,13 @@ fi
   fi
   log_info "$(format_label_prefix "Result")${result_line#Result: }"
 
-if (( wrapper_updated )); then
-  log_warn "Wrapper updated; restart cdx to use the new wrapper."
-  exit 0
+if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
+  if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
+    log_error "Wrapper update loop detected; aborting."
+    exit 1
+  fi
+  log_warn "Wrapper updated; restarting cdx to load the new wrapper."
+  exec CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 "$SCRIPT_REAL" "$@"
 fi
 
 AUTH_LAUNCH_ALLOWED=0
