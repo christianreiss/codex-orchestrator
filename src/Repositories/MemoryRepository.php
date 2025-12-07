@@ -103,7 +103,7 @@ class MemoryRepository
     public function findByKey(int $hostId, string $memoryKey): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT id, memory_key, content, metadata, tags, created_at, updated_at
+            'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at
              FROM mcp_memories
              WHERE host_id = :host_id
                AND memory_key = :memory_key
@@ -125,7 +125,7 @@ class MemoryRepository
     {
         $limit = max(1, min($limit, 500));
         $statement = $this->database->connection()->prepare(
-            'SELECT id, memory_key, content, metadata, tags, created_at, updated_at
+            'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at
              FROM mcp_memories
              WHERE host_id = :host_id
                AND (deleted_at IS NULL)
@@ -150,7 +150,7 @@ class MemoryRepository
 
         if ($query !== '' && $driver === 'mysql') {
             $statement = $pdo->prepare(
-                'SELECT id, memory_key, content, metadata, tags, created_at, updated_at,
+                'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at,
                         MATCH(content, tags_text) AGAINST (:query IN NATURAL LANGUAGE MODE) AS score
                  FROM mcp_memories
                  WHERE host_id = :host_id
@@ -164,7 +164,7 @@ class MemoryRepository
             $statement->bindValue('limit', $limit, PDO::PARAM_INT);
             $statement->execute();
         } else {
-            $sql = 'SELECT id, memory_key, content, metadata, tags, created_at, updated_at
+            $sql = 'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at
                     FROM mcp_memories
                     WHERE host_id = :host_id
                       AND (deleted_at IS NULL)';

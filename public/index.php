@@ -1675,11 +1675,39 @@ $router->add('POST', '#^/usage$#', function () use ($payload, $service) {
     ]);
 });
 
+// MCP streamable_http GET probe (spec requires GET handling; we only advertise POST).
+$router->add('GET', '#^/mcp$#', function () {
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if (!isOriginAllowed($origin)) {
+        Response::json([
+            'jsonrpc' => '2.0',
+            'error' => ['code' => -32099, 'message' => 'Origin not allowed'],
+            'id' => null,
+        ], 403);
+    }
+
+    header('Allow: POST');
+    Response::json([
+        'status' => 'error',
+        'message' => 'GET not supported for MCP stream; use POST JSON-RPC',
+    ], 405);
+});
+
 // MCP streamable_http endpoint (single POST per JSON-RPC message).
 $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memoryService, $mcpServer, $mcpAccessLogRepository) {
     // Authenticate but bypass IP binding for MCP (clients may roam while MCP still needs to work).
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
+
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if (!isOriginAllowed($origin)) {
+        Response::json([
+            'jsonrpc' => '2.0',
+            'error' => ['code' => -32099, 'message' => 'Origin not allowed'],
+            'id' => null,
+        ], 403);
+    }
+
     $host = $service->authenticate($apiKey, $clientIp, true);
 
     $decoded = json_decode($rawBody ?? '', true);
@@ -1715,14 +1743,18 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
 
         $result = null;
         $error = null;
+        $toolError = false;
 
         switch ($method) {
             case 'initialize':
                 $result = [
                     'protocolVersion' => '2025-03-26',
                     'capabilities' => [
-                        'tools' => ['list' => true, 'call' => true],
-                        'resources' => new stdClass(),
+                        'tools' => ['listChanged' => false],
+                        'resources' => [
+                            'subscribe' => false,
+                            'listChanged' => false,
+                        ],
                     ],
                     'serverInfo' => [
                         'name' => 'codex-coordinator',
@@ -1820,16 +1852,26 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
             case 'call_tool':
                 $name = (string) ($params['name'] ?? '');
                 $args = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
+                if ($name === '') {
+                    $result = $mcpServer->wrapContent('Tool name is required', true);
+                    $toolError = true;
+                    break;
+                }
+
                 try {
                     $result = $mcpServer->dispatch($name, $args, $host);
                 } catch (McpToolNotFoundException $exception) {
-                    $error = ['code' => -32601, 'message' => 'Method not found: ' . $name];
+                    $result = $mcpServer->wrapContent('Method not found: ' . $name, true);
+                    $toolError = true;
                 } catch (InvalidArgumentException $exception) {
-                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getMessage()];
+                    $result = $mcpServer->wrapContent($exception->getMessage(), true);
+                    $toolError = true;
                 } catch (ValidationException $exception) {
-                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getErrors()];
+                    $result = $mcpServer->wrapContent(json_encode($exception->getErrors(), JSON_UNESCAPED_SLASHES) ?: 'Invalid params', true);
+                    $toolError = true;
                 } catch (Throwable $exception) {
-                    $error = ['code' => -32000, 'message' => 'Internal error', 'data' => $exception->getMessage()];
+                    $result = $mcpServer->wrapContent('Internal error: ' . $exception->getMessage(), true);
+                    $toolError = true;
                 }
                 break;
 
@@ -1843,7 +1885,7 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
             $clientIp,
             $method,
             isset($params['name']) ? (string) $params['name'] : (isset($params['uri']) ? (string) $params['uri'] : null),
-            $error === null,
+            $error === null && !$toolError,
             $error['code'] ?? null,
             $error['message'] ?? null
         );
@@ -1863,11 +1905,15 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
     }
 
     if ($isBatch) {
+        if (count($responses) === 0) {
+            http_response_code(202);
+            return;
+        }
         header('Content-Type: application/json');
         echo json_encode($responses);
     } else {
         if (count($responses) === 0) {
-            http_response_code(204);
+            http_response_code(202);
             return;
         }
         header('Content-Type: application/json');
@@ -1954,6 +2000,77 @@ function resolveMtls(): array
     }
 
     return $meta;
+}
+
+function normalizeOrigin(?string $origin): ?string
+{
+    if ($origin === null || $origin === '') {
+        return null;
+    }
+
+    $parsed = parse_url($origin);
+    if (!is_array($parsed) || !isset($parsed['scheme'], $parsed['host'])) {
+        return null;
+    }
+
+    $normalized = strtolower((string) $parsed['scheme']) . '://' . strtolower((string) $parsed['host']);
+    if (isset($parsed['port'])) {
+        $normalized .= ':' . (int) $parsed['port'];
+    }
+
+    return $normalized;
+}
+
+function allowedOrigins(): array
+{
+    $origins = [];
+
+    $configured = Config::get('MCP_ALLOWED_ORIGINS');
+    if (is_string($configured) && trim($configured) !== '') {
+        foreach (explode(',', $configured) as $piece) {
+            $normalized = normalizeOrigin(trim($piece));
+            if ($normalized !== null) {
+                $origins[] = $normalized;
+            }
+        }
+    }
+
+    $base = Config::get('PUBLIC_BASE_URL');
+    $baseOrigin = normalizeOrigin(is_string($base) ? $base : null);
+    if ($baseOrigin !== null) {
+        $origins[] = $baseOrigin;
+    }
+
+    $hostHeader = $_SERVER['HTTP_HOST'] ?? '';
+    if ($hostHeader !== '') {
+        $scheme = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http');
+        $requestOrigin = normalizeOrigin($scheme . '://' . $hostHeader);
+        if ($requestOrigin !== null) {
+            $origins[] = $requestOrigin;
+        }
+    }
+
+    return array_values(array_unique($origins));
+}
+
+function isOriginAllowed(?string $origin): bool
+{
+    if ($origin === null || $origin === '') {
+        return true;
+    }
+
+    $normalized = normalizeOrigin($origin);
+    if ($normalized === null) {
+        return false;
+    }
+
+    foreach (allowedOrigins() as $candidate) {
+        if ($candidate === $normalized) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function resolveClientIp(): ?string

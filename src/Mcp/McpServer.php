@@ -341,7 +341,7 @@ class McpServer
             [
                 'name' => 'memory_store',
                 'description' => 'A persistent vector/text memory store for Codex',
-                'uriTemplate' => 'memory://{scope}/{name}',
+                'uriTemplate' => 'memory://{scope}:{name}',
                 'mimeType' => 'text/plain',
                 'inputSchema' => [
                     'type' => 'object',
@@ -463,16 +463,16 @@ class McpServer
             throw new InvalidArgumentException('Unsupported resource URI: ' . $uri);
         }
 
-        // Soft-delete via store with empty content? Instead, mark deleted at repository level would be ideal;
-        // for now, overwrite with empty content to signal removal while keeping audit trail.
-        $result = $this->memories->store(['id' => $id, 'content' => ''], $host);
+        $result = $this->memories->delete(['id' => $id], $host);
+        if (($result['status'] ?? '') !== 'deleted') {
+            throw new InvalidArgumentException('Resource not found: ' . $uri);
+        }
 
         return [
             'resource' => [
                 'uri' => $this->memoryUri($id),
                 'name' => $id,
                 'deleted' => true,
-                'result' => $result,
             ],
         ];
     }
@@ -935,9 +935,15 @@ class McpServer
         return substr($trimmed, 0, 197) . '...';
     }
 
-    private function wrapContent(mixed $data): array
+    public function wrapContent(mixed $data, bool $isError = false): array
     {
         if (is_array($data) && array_key_exists('content', $data) && is_array($data['content'])) {
+            if (!array_key_exists('isError', $data)) {
+                $data['isError'] = $isError;
+            } elseif ($isError) {
+                $data['isError'] = true;
+            }
+
             return $data;
         }
 
@@ -949,6 +955,7 @@ class McpServer
         }
 
         return [
+            'isError' => $isError,
             'content' => [
                 [
                     'type' => 'text',

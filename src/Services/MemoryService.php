@@ -153,6 +153,50 @@ class MemoryService
         ];
     }
 
+    /**
+     * Delete a memory by key for the authenticated host.
+     *
+     * @param array<string,mixed> $payload
+     * @param array<string,mixed> $host
+     */
+    public function delete(array $payload, array $host): array
+    {
+        $errors = [];
+        $memoryKey = $this->normalizeKey($payload['id'] ?? ($payload['memory_id'] ?? ($payload['key'] ?? null)), false, $errors);
+        if ($errors) {
+            throw new ValidationException($errors);
+        }
+
+        $hostId = $this->hostId($host);
+        if ($hostId === null) {
+            throw new ValidationException(['host_id' => ['host_id is required']]);
+        }
+
+        $existing = $this->memories->findByKey($hostId, (string) $memoryKey);
+        if ($existing === null || !isset($existing['id'])) {
+            $this->logs->log($hostId, 'memory.delete', [
+                'id' => $memoryKey,
+                'status' => 'missing',
+            ]);
+
+            return [
+                'status' => 'missing',
+                'id' => $memoryKey,
+            ];
+        }
+
+        $this->memories->deleteById((int) $existing['id']);
+        $this->logs->log($hostId, 'memory.delete', [
+            'id' => $memoryKey,
+            'status' => 'deleted',
+        ]);
+
+        return [
+            'status' => 'deleted',
+            'id' => $memoryKey,
+        ];
+    }
+
     public function adminSearch(array $payload): array
     {
         $errors = [];

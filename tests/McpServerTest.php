@@ -16,6 +16,7 @@ final class SpyMemoryService extends MemoryService
     public array $nextResult = ['ok' => true];
     public array $searchResults = [];
     public array $retrieveResults = [];
+    public array $deleteResults = [];
 
     public function __construct()
     {
@@ -51,6 +52,18 @@ final class SpyMemoryService extends MemoryService
         }
 
         return ['called' => 'search'] + $this->nextResult;
+    }
+
+    public function delete(array $payload, array $host): array
+    {
+        $this->lastMethod = 'delete';
+        $this->lastArgs = [$payload, $host];
+
+        if ($this->deleteResults) {
+            return $this->deleteResults;
+        }
+
+        return ['status' => 'deleted', 'id' => $payload['id'] ?? null];
     }
 }
 
@@ -124,7 +137,7 @@ final class McpServerTest extends TestCase
         $this->assertContains('memory_store', $names);
 
         $store = $templates[array_search('memory_store', $names, true)];
-        $this->assertSame('memory://{scope}/{name}', $store['uriTemplate']);
+        $this->assertSame('memory://{scope}:{name}', $store['uriTemplate']);
         $this->assertSame(['project', 'host', 'global'], $store['inputSchema']['properties']['scope']['enum']);
     }
 
@@ -267,7 +280,8 @@ final class McpServerTest extends TestCase
 
         $this->assertArrayHasKey('resource', $result);
         $this->assertTrue($result['resource']['deleted']);
-        $this->assertSame(['id' => 'note-3', 'content' => ''], $spy->lastArgs[0]);
+        $this->assertSame('delete', $spy->lastMethod);
+        $this->assertSame(['id' => 'note-3'], $spy->lastArgs[0]);
     }
 
     public function testFsReadFileReadsWithinRoot(): void

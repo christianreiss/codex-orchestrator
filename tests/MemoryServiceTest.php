@@ -25,12 +25,14 @@ final class InMemoryMemoryRepository extends MemoryRepository
 
         $row = [
             'id' => count($this->store[$hostId] ?? []) + 1,
+            'host_id' => $hostId,
             'memory_key' => $memoryKey,
             'content' => $content,
             'metadata' => $metadata,
             'tags' => $tags,
             'created_at' => $createdAt,
             'updated_at' => $now,
+            'deleted_at' => null,
             'score' => null,
         ];
 
@@ -41,7 +43,13 @@ final class InMemoryMemoryRepository extends MemoryRepository
 
     public function findByKey(int $hostId, string $memoryKey): ?array
     {
-        return $this->store[$hostId][$memoryKey] ?? null;
+        $row = $this->store[$hostId][$memoryKey] ?? null;
+
+        if ($row !== null && ($row['deleted_at'] ?? null) !== null) {
+            return null;
+        }
+
+        return $row;
     }
 
     public function recent(int $hostId, int $limit): array
@@ -57,6 +65,9 @@ final class InMemoryMemoryRepository extends MemoryRepository
         $queryLower = strtolower($query);
         $matches = [];
         foreach ($this->store[$hostId] ?? [] as $row) {
+            if (($row['deleted_at'] ?? null) !== null) {
+                continue;
+            }
             $haystack = strtolower($row['content'] . ' ' . implode(' ', $row['tags'] ?? []));
             $found = $queryLower === '' || str_contains($haystack, $queryLower);
             if ($found) {
@@ -75,6 +86,18 @@ final class InMemoryMemoryRepository extends MemoryRepository
         });
 
         return array_slice($matches, 0, $limit);
+    }
+
+    public function deleteById(int $id): void
+    {
+        foreach ($this->store as $hostId => $rows) {
+            foreach ($rows as $key => $row) {
+                if (($row['id'] ?? null) === $id) {
+                    $this->store[$hostId][$key]['deleted_at'] = gmdate(DATE_ATOM);
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -149,5 +172,18 @@ final class MemoryServiceTest extends TestCase
         $ids = array_column($result['matches'], 'id');
         $this->assertContains('a', $ids);
         $this->assertContains('c', $ids);
+    }
+
+    public function testDeleteRemovesMemoryForHost(): void
+    {
+        $created = $this->service->store(['id' => 'note-del', 'content' => 'remove me'], $this->host);
+        $this->assertSame('created', $created['status']);
+
+        $deleted = $this->service->delete(['id' => 'note-del'], $this->host);
+
+        $this->assertSame('deleted', $deleted['status']);
+        $this->assertSame('note-del', $deleted['id']);
+        $this->assertNull($this->repository->findByKey($this->host['id'], 'note-del'));
+        $this->assertSame('memory.delete', $this->logs->records[array_key_last($this->logs->records)]['action']);
     }
 }
