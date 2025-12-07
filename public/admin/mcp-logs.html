@@ -7,24 +7,37 @@
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 16px; }
     h1 { margin: 0 0 12px 0; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid #30363d; font-size: 13px; }
-    th { text-align: left; color: #8b949e; }
-    code { color: #91c9ff; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #30363d; font-size: 13px; vertical-align: top; }
+    th { text-align: left; color: #8b949e; font-weight: 600; letter-spacing: 0.02em; }
+    tbody tr:hover { background: #1c2128; cursor: pointer; }
+    .muted { color: #8b949e; font-size: 12px; }
+    code { color: #91c9ff; font-size: 12px; }
+    .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .pill { display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
     .pill.ok { background: #1f6feb33; color: #58a6ff; }
     .pill.err { background: #f8514933; color: #ffa198; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(13, 17, 23, 0.72); display: none; align-items: center; justify-content: center; z-index: 50; padding: 12px; }
+    .modal-backdrop.show { display: flex; }
+    .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; width: min(720px, 100%); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .modal-head h3 { margin: 0; font-size: 18px; }
+    .close-btn { background: transparent; border: 1px solid #30363d; border-radius: 6px; color: #8b949e; padding: 6px 10px; cursor: pointer; }
+    .close-btn:hover { background: #1c2128; color: #e6edf3; }
+    .detail-grid { display: grid; grid-template-columns: 150px 1fr; column-gap: 14px; row-gap: 8px; }
+    .detail-label { color: #8b949e; font-size: 12px; }
+    .detail-value { word-break: break-word; }
   </style>
 </head>
 <body>
   <h1>MCP Access Logs</h1>
   <div class="card">
-    <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center;">
+    <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
       <label for="limit">Limit</label>
       <input id="limit" type="number" min="1" max="500" value="200" style="width:80px;" />
       <button id="refresh">Refresh</button>
-      <span id="status" style="color:#8b949e;"></span>
+      <span id="status" class="muted"></span>
     </div>
     <table id="logTable">
       <thead>
@@ -42,46 +55,174 @@
     </table>
   </div>
 
+  <div class="modal-backdrop" id="detailModal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head">
+        <div>
+          <h3 id="modalTitle">MCP Request</h3>
+          <div class="muted" id="modalSubtitle"></div>
+        </div>
+        <button id="modalClose" class="close-btn" aria-label="Close">×</button>
+      </div>
+      <div id="modalBody" class="detail-grid"></div>
+    </div>
+  </div>
+
   <script>
-    const tbody = document.querySelector('#logTable tbody');
-    const statusEl = document.getElementById('status');
-    async function loadLogs() {
-      const limit = Math.max(1, Math.min(500, parseInt(document.getElementById('limit').value || '200', 10)));
-      statusEl.textContent = 'Loading…';
-      try {
-        const res = await fetch(`/admin/mcp/logs?limit=${limit}`, { credentials: 'include' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        render(data.data.logs || []);
-        statusEl.textContent = `Showing ${Math.min(limit, data.data.logs.length)} entries`;
-      } catch (err) {
-        statusEl.textContent = `Error: ${err.message}`;
+    (function () {
+      const tbody = document.querySelector('#logTable tbody');
+      const statusEl = document.getElementById('status');
+      const modal = document.getElementById('detailModal');
+      const modalBody = document.getElementById('modalBody');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalSubtitle = document.getElementById('modalSubtitle');
+
+      async function loadLogs() {
+        const limit = Math.max(1, Math.min(500, parseInt(document.getElementById('limit').value || '200', 10)));
+        statusEl.textContent = 'Loading…';
+        try {
+          const res = await fetch(`/admin/mcp/logs?limit=${limit}`, { credentials: 'include' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const rows = data?.data?.logs || [];
+          render(rows);
+          statusEl.textContent = `Showing ${Math.min(limit, rows.length)} entries`;
+        } catch (err) {
+          statusEl.textContent = `Error: ${err.message}`;
+        }
       }
-    }
 
-    function render(rows) {
-      tbody.innerHTML = '';
-      rows.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${escapeHtml(row.created_at || '')}</td>
-          <td>${row.host_id ?? ''}</td>
-          <td><code>${escapeHtml(row.method || '')}</code></td>
-          <td>${escapeHtml(row.name || '')}</td>
-          <td>${escapeHtml(row.client_ip || '')}</td>
-          <td>${row.success ? '<span class="pill ok">ok</span>' : '<span class="pill err">fail</span>'}</td>
-          <td>${row.error_code ? escapeHtml(row.error_code + ' ' + (row.error_message || '')) : ''}</td>
-        `;
-        tbody.appendChild(tr);
+      function render(rows) {
+        tbody.innerHTML = '';
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td class="muted" colspan="7">No entries yet.</td></tr>';
+          return;
+        }
+
+        rows.forEach((row) => {
+          const tr = document.createElement('tr');
+          const created = formatUtc(row.created_at);
+          const host = formatHost(row);
+          const ok = normalizeSuccess(row.success);
+          const errorText = formatError(row);
+
+          tr.innerHTML = `
+            <td><span class="mono">${escapeHtml(created)}</span></td>
+            <td>${escapeHtml(host)}</td>
+            <td><code>${escapeHtml(row.method || '')}</code></td>
+            <td>${escapeHtml(row.name || '')}</td>
+            <td><span class="mono">${escapeHtml(row.client_ip || '')}</span></td>
+            <td>${successPill(ok)}</td>
+            <td>${escapeHtml(errorText)}</td>
+          `;
+
+          tr.addEventListener('click', () => openModal(row, { created, host, ok, errorText }));
+          tbody.appendChild(tr);
+        });
+      }
+
+      function formatHost(row) {
+        const host = row.host_fqdn ?? row.fqdn ?? row.host ?? row.host_id ?? '';
+        return host ? String(host) : '—';
+      }
+
+      function normalizeSuccess(value) {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          const lower = value.trim().toLowerCase();
+          if (lower === 'false') return false;
+          if (lower === 'true') return true;
+        }
+        const num = Number(value);
+        if (Number.isFinite(num)) return num > 0;
+        return Boolean(value);
+      }
+
+      function successPill(ok) {
+        return ok ? '<span class="pill ok">ok</span>' : '<span class="pill err">fail</span>';
+      }
+
+      function formatError(row) {
+        if (row.error_code === null || row.error_code === undefined || row.error_code === '') return '';
+        const msg = row.error_message ? ` ${row.error_message}` : '';
+        return `${row.error_code}${msg}`;
+      }
+
+      function parseTimestamp(value) {
+        if (!value) return null;
+        const normalized = String(value).replace(/\.(\d{3})\d*(Z?)/, '.$1$2');
+        const date = new Date(normalized);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+
+      function formatUtc(value) {
+        const date = parseTimestamp(value);
+        if (!date) return value || '—';
+        const dd = String(date.getUTCDate()).padStart(2, '0');
+        const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const yyyy = date.getUTCFullYear();
+        const hh = String(date.getUTCHours()).padStart(2, '0');
+        const min = String(date.getUTCMinutes()).padStart(2, '0');
+        const ss = String(date.getUTCSeconds()).padStart(2, '0');
+        return `${dd}.${mm}.${yyyy}, ${hh}:${min}:${ss}`;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      }
+
+      function detailRow(label, value, mono = false, allowHtml = false) {
+        const classes = `detail-value${mono ? ' mono' : ''}`;
+        const display = value === null || value === undefined || value === '' ? '—' : value;
+        const content = allowHtml ? display : escapeHtml(display);
+        return `<div class="detail-label">${escapeHtml(label)}</div><div class="${classes}">${content}</div>`;
+      }
+
+      function openModal(row, derived = {}) {
+        const created = derived.created ?? formatUtc(row.created_at);
+        const host = derived.host ?? formatHost(row);
+        const ok = typeof derived.ok === 'boolean' ? derived.ok : normalizeSuccess(row.success);
+        const errorText = derived.errorText ?? formatError(row);
+
+        modalTitle.textContent = row.method ? `MCP ${row.method}` : 'MCP Request';
+        modalSubtitle.textContent = created && created !== '—' ? `${created} UTC` : '';
+        modalBody.innerHTML = [
+          detailRow('Time (UTC)', created, true),
+          detailRow('Host', host),
+          detailRow('Client IP', row.client_ip || '—', true),
+          detailRow('Method', row.method || '—', true),
+          detailRow('Name', row.name || '—'),
+          detailRow('Status', successPill(ok), false, true),
+          detailRow('Error Code', row.error_code ?? '—', true),
+          detailRow('Error Message', row.error_message || '—'),
+          detailRow('Log ID', row.id ?? '—', true),
+        ].join('');
+
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeModal() {
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+
+      document.getElementById('refresh').addEventListener('click', loadLogs);
+      document.getElementById('limit').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') loadLogs();
       });
-    }
+      document.getElementById('modalClose').addEventListener('click', closeModal);
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) closeModal();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && modal.classList.contains('show')) {
+          closeModal();
+        }
+      });
 
-    function escapeHtml(str) {
-      return (str || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-    }
-
-    document.getElementById('refresh').addEventListener('click', loadLogs);
-    loadLogs();
+      loadLogs();
+    })();
   </script>
 </body>
 </html>

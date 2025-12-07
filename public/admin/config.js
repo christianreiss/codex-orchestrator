@@ -420,7 +420,7 @@
       .join('\n');
   }
 
-  const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator'];
+  const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator', 'cdx'];
 
   function collectSettings() {
     const base = defaultSettings();
@@ -461,20 +461,22 @@
       };
     }).filter(Boolean);
 
+    const reasoningSummaryValue = (reasoningSummaryInput?.value ?? '').trim();
+
     return {
       ...base,
       model: modelInput.value.trim() || base.model,
       approval_policy: approvalPolicyInput.value.trim() || base.approval_policy,
       sandbox_mode: sandboxModeInput.value.trim() || base.sandbox_mode,
       model_reasoning_effort: reasoningEffortInput.value.trim() || base.model_reasoning_effort,
-      model_reasoning_summary: reasoningSummaryInput.value.trim() || base.model_reasoning_summary,
+      model_reasoning_summary: reasoningSummaryValue,
       model_verbosity: verbosityInput.value.trim() || base.model_verbosity,
       model_supports_reasoning_summaries: supportsSummariesInput.checked,
       model_context_window: numberOrNull(contextWindowInput.value),
       model_max_output_tokens: numberOrNull(maxTokensInput.value),
       notify: parseArgs(notifyInput.value),
       features,
-    notice: defaultSettings().notice,
+      notice: base.notice,
       sandbox_workspace_write: {
         network_access: sandboxNetwork.checked,
         exclude_tmpdir_env_var: sandboxTmpdir.checked,
@@ -619,7 +621,7 @@
       const res = await fetch('/admin/config/store', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ settings }),
+        body: JSON.stringify({ settings, sha256: lastRenderedSha || undefined }),
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -630,6 +632,8 @@
       setStatus(`Saved (${data.status || 'ok'})`, data.sha256 || null, data.updated_at || null);
       if (previewEl) previewEl.textContent = data.content || '';
       if (data.sha256) {
+        lastRenderedSha = data.sha256;
+        lastRenderedSize = data.size_bytes || lastRenderedSize;
         previewMetaEl.textContent = `sha ${data.sha256}${data.size_bytes ? ` · ${data.size_bytes} bytes` : ''}`;
       }
     } catch (err) {

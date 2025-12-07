@@ -41,9 +41,10 @@ class McpAccessLogRepository
     {
         $limit = max(1, min(500, $limit));
         $stmt = $this->database->connection()->prepare(
-            'SELECT id, host_id, client_ip, method, name, success, error_code, error_message, created_at
-             FROM mcp_access_logs
-             ORDER BY id DESC
+            'SELECT m.id, m.host_id, h.fqdn AS host_fqdn, m.client_ip, m.method, m.name, m.success, m.error_code, m.error_message, m.created_at
+             FROM mcp_access_logs m
+             LEFT JOIN hosts h ON h.id = m.host_id
+             ORDER BY m.id DESC
              LIMIT :limit'
         );
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);

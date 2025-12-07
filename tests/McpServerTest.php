@@ -4,10 +4,48 @@ declare(strict_types=1);
 
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
+use App\Repositories\LogRepository;
+use App\Repositories\MemoryRepository;
 use App\Services\MemoryService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
+
+final class McpNullMemoryRepository extends MemoryRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function findByKey(int $hostId, string $memoryKey): ?array
+    {
+        return [
+            'id' => 1,
+            'host_id' => $hostId,
+            'memory_key' => $memoryKey,
+            'content' => '',
+            'metadata' => null,
+            'tags' => [],
+        ];
+    }
+
+    public function deleteById(int $id): void
+    {
+        // no-op for tests
+    }
+}
+
+final class McpNullLogRepository extends LogRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function log(?int $hostId, string $action, array $details = []): void
+    {
+        // no-op for tests
+    }
+}
 
 final class SpyMemoryService extends MemoryService
 {
@@ -20,6 +58,7 @@ final class SpyMemoryService extends MemoryService
 
     public function __construct()
     {
+        parent::__construct(new McpNullMemoryRepository(), new McpNullLogRepository());
     }
 
     public function store(array $payload, array $host): array

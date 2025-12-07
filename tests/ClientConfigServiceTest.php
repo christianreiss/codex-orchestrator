@@ -164,4 +164,45 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame($baseSha, $second['base_sha256']);
         $this->assertNotSame($first['sha256'], $second['sha256'], 'baked sha must change when API key changes');
     }
+
+    public function testStoreDetectsSettingsOnlyChange(): void
+    {
+        $first = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $this->assertSame('created', $first['status']);
+
+        $second = $this->service->store([
+            'settings' => [
+                'model' => 'gpt-5-codex',
+                'orchestrator_mcp_enabled' => false,
+            ],
+        ]);
+
+        $this->assertSame('updated', $second['status'], 'settings-only changes must be detected');
+        $latest = $this->repository->latest();
+        $this->assertNotNull($latest);
+        $this->assertArrayHasKey('settings', $latest);
+        $this->assertFalse($latest['settings']['orchestrator_mcp_enabled']);
+    }
+
+    public function testRenderForHostInjectsManagedMcpAndFiltersReserved(): void
+    {
+        $rendered = $this->service->renderForHost(
+            [
+                'mcp_servers' => [
+                    ['name' => 'codex-memory', 'command' => 'noop'],
+                    ['name' => 'user-custom', 'command' => '/bin/echo'],
+                ],
+            ],
+            ['id' => 9],
+            'https://coord.example',
+            'abc123'
+        );
+
+        $content = $rendered['content'];
+        $this->assertStringContainsString('[mcp_servers.cdx]', $content);
+        $this->assertStringContainsString('url = "https://coord.example/mcp"', $content);
+        $this->assertStringContainsString('Authorization = "Bearer abc123"', $content);
+        $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
+        $this->assertStringNotContainsString('mcp_servers.codex-memory', $content);
+    }
 }

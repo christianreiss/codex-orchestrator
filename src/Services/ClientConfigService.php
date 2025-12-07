@@ -106,7 +106,14 @@ class ClientConfigService
 
         $existing = $this->configs->latest();
         $existingSha = $existing['sha256'] ?? null;
-        $status = $existing === null ? 'created' : (hash_equals((string) $existingSha, $rendered['sha256']) ? 'unchanged' : 'updated');
+
+        $contentUnchanged = $existing !== null && hash_equals((string) $existingSha, $rendered['sha256']);
+        $settingsUnchanged = $existing !== null && hash_equals(
+            $this->settingsHash($existing['settings'] ?? []),
+            $this->settingsHash($rendered['settings'] ?? [])
+        );
+
+        $status = $existing === null ? 'created' : (($contentUnchanged && $settingsUnchanged) ? 'unchanged' : 'updated');
         $hostId = $this->hostId($host);
 
         $saved = $status === 'unchanged'
@@ -810,6 +817,36 @@ class ClientConfigService
         if ($errors) {
             throw new ValidationException($errors);
         }
+    }
+
+    private function settingsHash(mixed $settings): string
+    {
+        $normalized = $this->normalizeForHash($settings);
+        $encoded = json_encode($normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return hash('sha256', $encoded === false ? '' : $encoded);
+    }
+
+    private function normalizeForHash(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $result = $value;
+            if ($this->isAssoc($value)) {
+                ksort($result, SORT_NATURAL);
+            }
+
+            foreach ($result as $key => $child) {
+                $result[$key] = $this->normalizeForHash($child);
+            }
+
+            return $result;
+        }
+
+        if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+            return $value;
+        }
+
+        return (string) $value;
     }
 
     /**
