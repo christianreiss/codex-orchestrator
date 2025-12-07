@@ -1464,7 +1464,7 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
     exit 1
   fi
   log_warn "Wrapper updated; restarting cdx to load the new wrapper."
-  exec CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 "$SCRIPT_REAL" "$@"
+  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "$@"
 fi
 
 AUTH_LAUNCH_ALLOWED=0
