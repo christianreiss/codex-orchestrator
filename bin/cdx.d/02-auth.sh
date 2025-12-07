@@ -240,6 +240,9 @@ def record_versions(vblock):
         re = vblock.get("runner_enabled")
         if isinstance(re, bool):
             out["runner_enabled"] = re
+        silent = vblock.get("cdx_silent")
+        if isinstance(silent, bool):
+            out["cdx_silent"] = silent
         inst = vblock.get("installation_id")
         if isinstance(inst, str) and inst.strip():
             out["installation_id"] = inst.strip()
@@ -344,6 +347,7 @@ print(
             "token_usage_month": payload_data.get("token_usage_month"),
             "quota_hard_fail": payload_data.get("quota_hard_fail"),
             "quota_limit_percent": payload_data.get("quota_limit_percent"),
+            "cdx_silent": payload_data.get("cdx_silent"),
         },
         separators=(",", ":"),
     )
@@ -411,6 +415,9 @@ elif isinstance(qh, (int, float)):
 ql = parsed.get("quota_limit_percent")
 if isinstance(ql, (int, float)):
     print(f"ql={int(ql)}")
+csil = parsed.get("cdx_silent")
+if isinstance(csil, bool):
+    print("cs=1" if csil else "cs=0")
 hs = parsed.get("host_secure")
 if isinstance(hs, bool):
     print("hs=1" if hs else "hs=0")
@@ -504,6 +511,9 @@ PY
               ;;
             ql=*)
               QUOTA_LIMIT_PERCENT="${line#ql=}"
+              ;;
+            cs=*)
+              CODEX_SILENT="${line#cs=}"
               ;;
             hs=*)
               HOST_SECURE="${line#hs=}"

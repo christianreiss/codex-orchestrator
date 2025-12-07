@@ -42,7 +42,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 2) **Every `/auth` call**
    - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot, configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`): refresh the GitHub client-version cache and, when configured, run one runner validation.
    - API key auth: resolves client IP, enforces per-IP binding unless `allow_roaming_ips` or `?force=1` on `DELETE /auth`; insecure hosts must be inside an enabled window.
-   - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, and quota policy (`quota_hard_fail` plus `quota_limit_percent` threshold). VIP hosts force warn-only (`quota_hard_fail=false`) regardless of the global policy.
+   - Versions: reports GitHub latest (cached 3h with stale fallback), wrapper version/sha from server disk, runner state, quota policy (`quota_hard_fail` plus `quota_limit_percent` threshold), and the fleet-wide `cdx_silent` quiet flag. VIP hosts force warn-only (`quota_hard_fail=false`) regardless of the global policy.
    - Retrieve path: compares client `last_refresh`/`digest` to canonical. Returns `valid`, `upload_required`, `outdated`, or `missing`, plus host stats (API calls, monthly token totals) and recent digests (remembered per host).
    - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, synthesizes from tokens when needed, hashes canonical JSON, stores encrypted body + per-target entries, updates canonical pointer, host sync state, and digest cache. Runner may revalidate and apply a fresher `updated_auth` from Codex.
 

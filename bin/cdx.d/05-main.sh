@@ -10,7 +10,7 @@ fi
 
 platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
-if (( ! CODEX_SKIP_MOTD )); then
+if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
   print_motd
 fi
 

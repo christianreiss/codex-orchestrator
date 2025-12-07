@@ -32,6 +32,7 @@ LOG_PREFIX_WARN="${LOG_PREFIX_WARN:-!}"
 LOG_PREFIX_ERROR="${LOG_PREFIX_ERROR:-x}"
 
 log_info() {
+  (( CODEX_SILENT )) && return
   local msg="${1-}"
   while IFS= read -r line; do
     printf "%b%s%b %s\n" "${BLUE}${BOLD}" "$LOG_PREFIX_INFO" "${RESET}" "$line"
@@ -39,6 +40,7 @@ log_info() {
 }
 
 log_warn() {
+  (( CODEX_SILENT )) && return
   local msg="${1-}"
   while IFS= read -r line; do
     printf "%b%s%b %s\n" "${YELLOW}${BOLD}" "$LOG_PREFIX_WARN" "${RESET}" "$line" >&2
@@ -53,6 +55,7 @@ log_error() {
 }
 
 log_debug() {
+  (( CODEX_SILENT )) && return 0
   (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
   return 0
 }
@@ -108,6 +111,7 @@ CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
 CODEX_MODEL_PRESET=""
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
+CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
 
 # Per-host baked configuration (populated by the server at download time).
 CODEX_SYNC_BASE_URL_DEFAULT="__CODEX_SYNC_BASE_URL__"
@@ -218,8 +222,11 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   PURGE_AUTH_AFTER_RUN=1
   emit_insecure_notice
 fi
+if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
+  CODEX_SILENT=0
+fi
 
-WRAPPER_VERSION="2025.12.06-01"
+WRAPPER_VERSION="2025.12.07-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

@@ -325,6 +325,12 @@
               <label for="memoriesQuery" style="font-weight:600;">Search</label>
               <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
             </div>
+            <div class="field narrow-field">
+              <label for="memoriesHostFilter" style="font-weight:600;">Host</label>
+              <select id="memoriesHostFilter">
+                <option value="">All hosts</option>
+              </select>
+            </div>
             <div class="field">
               <label for="memoriesTags" style="font-weight:600;">Tags</label>
               <input id="memoriesTags" type="text" placeholder="tag1, tag2 (optional)">
@@ -393,6 +399,19 @@
             <div class="setting-block">
               <div class="setting-head">
                 <div>
+                  <h3>cdx Silent Mode</h3>
+                  <p class="muted" style="margin:2px 0 0;">Hide wrapper boot logs; only errors print.</p>
+                </div>
+                <label class="toggle" for="cdxSilentToggle">
+                  <input type="checkbox" id="cdxSilentToggle">
+                  <span class="track"><span class="thumb"></span></span>
+                  <span class="toggle-text" id="cdxSilentLabel">Verbose</span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
                   <h3>Insecure Host Window</h3>
                   <p class="muted" style="margin:2px 0 0;">Duration granted when enabling insecure hosts.</p>
                 </div>
@@ -440,6 +459,6 @@
     </div>
   </div>
 
-  <script src="dashboard.js?v=2025-12-05-02"></script>
+  <script src="dashboard.js?v=2025-12-07-02"></script>
 </body>
 </html>

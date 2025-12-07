@@ -79,7 +79,8 @@ const statsEl = document.getElementById('stats');
     const settingsPanel = document.getElementById('settings-panel');
     const memoriesPanel = document.getElementById('memories-panel');
     const memoriesTableBody = document.querySelector('#memories tbody');
-        const memoriesQueryInput = document.getElementById('memoriesQuery');
+    const memoriesHostFilter = document.getElementById('memoriesHostFilter');
+    const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
     const memoriesLimitInput = document.getElementById('memoriesLimit');
     const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
@@ -96,6 +97,8 @@ const statsEl = document.getElementById('stats');
     const quotaModeLabel = document.getElementById('quotaModeLabel');
     const quotaLimitSlider = document.getElementById('quotaLimitSlider');
     const quotaLimitLabel = document.getElementById('quotaLimitLabel');
+    const cdxSilentToggle = document.getElementById('cdxSilentToggle');
+    const cdxSilentLabel = document.getElementById('cdxSilentLabel');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
@@ -134,6 +137,7 @@ const statsEl = document.getElementById('stats');
     let uploadFileContent = '';
     let quotaHardFail = true;
     let quotaLimitPercent = QUOTA_LIMIT_DEFAULT;
+    let cdxSilent = false;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
     let costHistory = null;
@@ -356,6 +360,43 @@ const statsEl = document.getElementById('stats');
       }
     }
 
+    function renderCdxSilent() {
+      if (!cdxSilentToggle || !cdxSilentLabel) return;
+      cdxSilentToggle.checked = !!cdxSilent;
+      cdxSilentLabel.textContent = cdxSilent ? 'Silent' : 'Verbose';
+    }
+
+    async function loadCdxSilent() {
+      if (!cdxSilentToggle) return;
+      try {
+        const res = await api('/admin/cdx-silent');
+        cdxSilent = !!res?.data?.silent;
+        renderCdxSilent();
+      } catch (err) {
+        console.warn('cdx silent state unavailable', err);
+      }
+    }
+
+    async function setCdxSilent(nextValue) {
+      if (!cdxSilentToggle) return;
+      const previous = cdxSilent;
+      cdxSilent = !!nextValue;
+      renderCdxSilent();
+      cdxSilentToggle.disabled = true;
+      try {
+        await api('/admin/cdx-silent', {
+          method: 'POST',
+          json: { silent: !!nextValue },
+        });
+      } catch (err) {
+        alert(`cdx silent update failed: ${err.message}`);
+        cdxSilent = previous;
+        renderCdxSilent();
+      } finally {
+        cdxSilentToggle.disabled = false;
+      }
+    }
+
     function setMtls(meta) {
       mtlsMeta = meta;
       if (!mtlsEl) return;
@@ -426,9 +467,7 @@ const statsEl = document.getElementById('stats');
     function summarizeAgentsContent(content) {
       const text = (content || '').trim();
       if (!text) return 'Empty AGENTS.md (hosts will receive a blank file).';
-      const limit = 900;
-      if (text.length <= limit) return text;
-      return `${text.slice(0, limit)}…`;
+      return text;
     }
 
     function setAgentsExpanded(expanded) {
@@ -2568,6 +2607,10 @@ const statsEl = document.getElementById('stats');
         } else {
           renderQuotaLimit();
         }
+        if (typeof overview.data.cdx_silent !== 'undefined') {
+          cdxSilent = !!overview.data.cdx_silent;
+          renderCdxSilent();
+        }
         evaluateSeedRequirement(overview.data, hosts.data.hosts);
       } catch (err) {
         mtlsEl.textContent = 'mTLS / Admin access failed';
@@ -3050,7 +3093,13 @@ const statsEl = document.getElementById('stats');
         setQuotaMode(quotaToggle.checked);
       });
     }
+    if (cdxSilentToggle) {
+      cdxSilentToggle.addEventListener('change', () => {
+        setCdxSilent(cdxSilentToggle.checked);
+      });
+    }
     loadApiState();
+    loadCdxSilent();
 
     function resetNewHostForm({ focusInput = false } = {}) {
       if (commandField) {

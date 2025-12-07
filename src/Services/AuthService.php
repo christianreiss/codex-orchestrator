@@ -250,6 +250,7 @@ class AuthService
             $quotaHardFail = false;
         }
         $quotaLimitPercent = $this->quotaLimitPercent();
+        $cdxSilent = $this->versions->getFlag('cdx_silent', false);
         $canonicalPayload = $this->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
@@ -323,6 +324,7 @@ class AuthService
                 'versions' => $versions,
                 'quota_hard_fail' => $quotaHardFail,
                 'quota_limit_percent' => $quotaLimitPercent,
+                'cdx_silent' => $cdxSilent,
             ];
 
             if ($canonicalPayload) {
@@ -341,6 +343,7 @@ class AuthService
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
                         'quota_limit_percent' => $quotaLimitPercent,
+                        'cdx_silent' => $cdxSilent,
                     ];
 
                     if ($trackHost) {
@@ -361,6 +364,7 @@ class AuthService
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
                         'quota_limit_percent' => $quotaLimitPercent,
+                        'cdx_silent' => $cdxSilent,
                     ];
 
                     if ($trackHost) {
@@ -382,6 +386,7 @@ class AuthService
                         'versions' => $versions,
                         'quota_hard_fail' => $quotaHardFail,
                         'quota_limit_percent' => $quotaLimitPercent,
+                        'cdx_silent' => $cdxSilent,
                     ];
 
                     if ($trackHost) {
@@ -452,6 +457,7 @@ class AuthService
                 'versions' => $versions,
                 'quota_hard_fail' => $quotaHardFail,
                 'quota_limit_percent' => $quotaLimitPercent,
+                'cdx_silent' => $cdxSilent,
             ];
             if ($trackHost) {
                 $response['host'] = $this->buildHostPayload($host);
@@ -472,6 +478,7 @@ class AuthService
                     'versions' => $versions,
                     'quota_hard_fail' => $quotaHardFail,
                     'quota_limit_percent' => $quotaLimitPercent,
+                    'cdx_silent' => $cdxSilent,
                 ];
                 if ($trackHost) {
                     $response['host'] = $this->buildHostPayload($host);
@@ -486,6 +493,7 @@ class AuthService
                     'versions' => $versions,
                     'quota_hard_fail' => $quotaHardFail,
                     'quota_limit_percent' => $quotaLimitPercent,
+                    'cdx_silent' => $cdxSilent,
                 ];
             }
 
@@ -1306,6 +1314,7 @@ class AuthService
             'reported_client_version' => $reported['client_version'],
             'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
             'quota_limit_percent' => $this->quotaLimitPercent(),
+            'cdx_silent' => $this->versions->getFlag('cdx_silent', false),
             'runner_enabled' => $this->runnerVerifier !== null,
             'runner_state' => $this->versions->get('runner_state'),
             'runner_last_ok' => $this->versions->get('runner_last_ok'),

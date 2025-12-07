@@ -572,6 +572,37 @@ $router->add('POST', '#^/admin/api/state$#', function () use ($payload, $version
     ]);
 });
 
+$router->add('GET', '#^/admin/cdx-silent$#', function () use ($versionRepository) {
+    requireAdminAccess();
+
+    $silent = $versionRepository->getFlag('cdx_silent', false);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['silent' => $silent],
+    ]);
+});
+
+$router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versionRepository) {
+    requireAdminAccess();
+
+    $silentRaw = $payload['silent'] ?? null;
+    $silent = normalizeBoolean($silentRaw);
+    if ($silent === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'silent must be boolean',
+        ], 422);
+    }
+
+    $versionRepository->set('cdx_silent', $silent ? '1' : '0');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['silent' => $silent],
+    ]);
+});
+
 $router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository) {
     requireAdminAccess();
 
@@ -1029,6 +1060,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
     $quotaLimitPercent = quotaLimitPercent($versionRepository);
+    $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
 
     Response::json([
         'status' => 'ok',
@@ -1057,6 +1089,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
             'quota_hard_fail' => $quotaHardFail,
             'quota_limit_percent' => $quotaLimitPercent,
+            'cdx_silent' => $cdxSilent,
         ],
     ]);
 });
