@@ -251,6 +251,17 @@ class MemoryRepository
         return array_values(array_filter(array_map([$this, 'hydrateRow'], $rows)));
     }
 
+    public function deleteById(int $id): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE mcp_memories SET deleted_at = :deleted_at WHERE id = :id'
+        );
+        $statement->execute([
+            'id' => $id,
+            'deleted_at' => gmdate(DATE_ATOM),
+        ]);
+    }
+
     private function hydrateRow(null|array|false $row): ?array
     {
         if (!is_array($row)) {

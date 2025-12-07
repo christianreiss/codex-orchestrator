@@ -32,6 +32,8 @@ use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\SlashCommandRepository;
 use App\Repositories\AgentsRepository;
 use App\Repositories\MemoryRepository;
+use App\Repositories\ClientConfigRepository;
+use App\Repositories\McpAccessLogRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -42,6 +44,10 @@ use App\Services\UsageCostService;
 use App\Services\SlashCommandService;
 use App\Services\AgentsService;
 use App\Services\MemoryService;
+use App\Services\ClientConfigService;
+use App\Mcp\McpServer;
+use App\Mcp\McpToolNotFoundException;
+use InvalidArgumentException;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
@@ -94,6 +100,8 @@ $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
 $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
+$clientConfigRepository = new ClientConfigRepository($database);
+$mcpAccessLogRepository = new McpAccessLogRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
@@ -124,6 +132,8 @@ $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRe
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
+$mcpServer = new McpServer($memoryService, $root);
+$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -1230,6 +1240,60 @@ $router->add('POST', '#^/admin/chatgpt/usage/refresh$#', function () use ($chatG
     ]);
 });
 
+$router->add('GET', '#^/admin/config$#', function () use ($clientConfigService) {
+    requireAdminAccess();
+    $doc = $clientConfigService->adminFetch();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $doc,
+    ]);
+});
+
+$router->add('GET', '#^/admin/mcp/logs$#', function () use ($mcpAccessLogRepository) {
+    requireAdminAccess();
+
+    $limit = resolveIntQuery('limit') ?? 200;
+    $logs = $mcpAccessLogRepository->recent($limit);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'logs' => $logs,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/config/render$#', function () use ($payload, $clientConfigService) {
+    requireAdminAccess();
+    $settings = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
+    $rendered = $clientConfigService->render($settings);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $rendered,
+    ]);
+});
+
+$router->add('POST', '#^/admin/config/store$#', function () use ($payload, $clientConfigService) {
+    requireAdminAccess();
+
+    try {
+        $result = $clientConfigService->store(is_array($payload) ? $payload : [], null);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/agents$#', function () use ($agentsService) {
     requireAdminAccess();
     $doc = $agentsService->adminFetch();
@@ -1291,6 +1355,17 @@ $router->add('GET', '#^/admin/mcp/memories$#', function () use ($memoryService) 
             'errors' => $exception->getErrors(),
         ], 422);
     }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('DELETE', '#^/admin/mcp/memories/(\\d+)$#', function ($matches) use ($memoryService) {
+    requireAdminAccess();
+    $id = (int) $matches[1];
+    $result = $memoryService->adminDelete($id);
 
     Response::json([
         'status' => 'ok',
@@ -1462,6 +1537,21 @@ $router->add('POST', '#^/agents/retrieve$#', function () use ($payload, $service
     ]);
 });
 
+$router->add('POST', '#^/config/retrieve$#', function () use ($payload, $service, $clientConfigService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $baseUrl = resolveBaseUrl();
+
+    $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
+    $result = $clientConfigService->retrieve($sha, $host, $baseUrl, $apiKey);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('POST', '#^/mcp/memories/store$#', function () use ($payload, $service, $memoryService) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
@@ -1583,6 +1673,207 @@ $router->add('POST', '#^/usage$#', function () use ($payload, $service) {
         'status' => 'ok',
         'data' => $data,
     ]);
+});
+
+// MCP streamable_http endpoint (single POST per JSON-RPC message).
+$router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memoryService, $mcpServer, $mcpAccessLogRepository) {
+    // Authenticate but bypass IP binding for MCP (clients may roam while MCP still needs to work).
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp, true);
+
+    $decoded = json_decode($rawBody ?? '', true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        Response::json(['jsonrpc' => '2.0', 'error' => ['code' => -32700, 'message' => 'Parse error'], 'id' => null], 400);
+    }
+
+    $requests = [];
+    $isBatch = false;
+    if (is_array($decoded) && array_keys($decoded) === range(0, count($decoded) - 1)) {
+        $isBatch = true;
+        $requests = $decoded;
+    } else {
+        $requests = [$decoded];
+    }
+
+    $responses = [];
+
+    foreach ($requests as $req) {
+        if (!is_array($req) || ($req['jsonrpc'] ?? '') !== '2.0' || !isset($req['method'])) {
+            $responses[] = [
+                'jsonrpc' => '2.0',
+                'error' => ['code' => -32600, 'message' => 'Invalid Request'],
+                'id' => $req['id'] ?? null,
+            ];
+            continue;
+        }
+
+        $method = (string) $req['method'];
+        $id = $req['id'] ?? null;
+        $params = is_array($req['params'] ?? null) ? $req['params'] : [];
+        $isNotification = $id === null;
+
+        $result = null;
+        $error = null;
+
+        switch ($method) {
+            case 'initialize':
+                $result = [
+                    'protocolVersion' => '2025-03-26',
+                    'capabilities' => [
+                        'tools' => ['list' => true, 'call' => true],
+                        'resources' => new stdClass(),
+                    ],
+                    'serverInfo' => [
+                        'name' => 'codex-coordinator',
+                        'version' => $service->versionSummary()['wrapper_version'] ?? 'unknown',
+                    ],
+                ];
+                break;
+
+            case 'tools/list':
+            case 'tools.list':
+            case 'list_tools':
+                $result = [
+                    'tools' => $mcpServer->listTools(),
+                ];
+                break;
+
+            case 'resources/templates/list':
+            case 'resources.templates.list':
+            case 'list_resource_templates':
+                $result = [
+                    'resourceTemplates' => $mcpServer->listResourceTemplates(),
+                ];
+                break;
+
+            case 'resources/list':
+            case 'resources.list':
+            case 'list_resources':
+                $result = [
+                    'resources' => $mcpServer->listResources($host),
+                ];
+                break;
+
+            case 'resources/read':
+            case 'resources.read':
+            case 'read_resource':
+                $uri = is_string($params['uri'] ?? null) ? (string) $params['uri'] : '';
+                if ($uri === '') {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => 'uri is required'];
+                    break;
+                }
+                try {
+                    $result = $mcpServer->readResource($uri, $host);
+                } catch (InvalidArgumentException $exception) {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getMessage()];
+                }
+                break;
+
+            case 'resources/create':
+            case 'resources.create':
+            case 'create_resource':
+                $uri = is_string($params['uri'] ?? null) ? (string) $params['uri'] : '';
+                if ($uri === '') {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => 'uri is required'];
+                    break;
+                }
+                try {
+                    $result = $mcpServer->createResource($uri, $params, $host);
+                } catch (InvalidArgumentException $exception) {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getMessage()];
+                }
+                break;
+
+            case 'resources/update':
+            case 'resources.update':
+            case 'update_resource':
+                $uri = is_string($params['uri'] ?? null) ? (string) $params['uri'] : '';
+                if ($uri === '') {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => 'uri is required'];
+                    break;
+                }
+                try {
+                    $result = $mcpServer->updateResource($uri, $params, $host);
+                } catch (InvalidArgumentException $exception) {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getMessage()];
+                }
+                break;
+
+            case 'resources/delete':
+            case 'resources.delete':
+            case 'delete_resource':
+                $uri = is_string($params['uri'] ?? null) ? (string) $params['uri'] : '';
+                if ($uri === '') {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => 'uri is required'];
+                    break;
+                }
+                try {
+                    $result = $mcpServer->deleteResource($uri, $host);
+                } catch (InvalidArgumentException $exception) {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getMessage()];
+                }
+                break;
+
+            case 'tools/call':
+            case 'tools.call':
+            case 'call_tool':
+                $name = (string) ($params['name'] ?? '');
+                $args = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
+                try {
+                    $result = $mcpServer->dispatch($name, $args, $host);
+                } catch (McpToolNotFoundException $exception) {
+                    $error = ['code' => -32601, 'message' => 'Method not found: ' . $name];
+                } catch (InvalidArgumentException $exception) {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getMessage()];
+                } catch (ValidationException $exception) {
+                    $error = ['code' => -32602, 'message' => 'Invalid params', 'data' => $exception->getErrors()];
+                } catch (Throwable $exception) {
+                    $error = ['code' => -32000, 'message' => 'Internal error', 'data' => $exception->getMessage()];
+                }
+                break;
+
+            default:
+                $error = ['code' => -32601, 'message' => 'Method not found'];
+        }
+
+        // Log MCP access
+        $mcpAccessLogRepository->log(
+            $host['id'] ?? null,
+            $clientIp,
+            $method,
+            isset($params['name']) ? (string) $params['name'] : (isset($params['uri']) ? (string) $params['uri'] : null),
+            $error === null,
+            $error['code'] ?? null,
+            $error['message'] ?? null
+        );
+
+        if ($isNotification) {
+            // No response for notifications.
+            continue;
+        }
+
+        $response = ['jsonrpc' => '2.0', 'id' => $id];
+        if ($error !== null) {
+            $response['error'] = $error;
+        } else {
+            $response['result'] = $result;
+        }
+        $responses[] = $response;
+    }
+
+    if ($isBatch) {
+        header('Content-Type: application/json');
+        echo json_encode($responses);
+    } else {
+        if (count($responses) === 0) {
+            http_response_code(204);
+            return;
+        }
+        header('Content-Type: application/json');
+        echo json_encode($responses[0]);
+    }
+    exit;
 });
 
 try {

@@ -203,6 +203,14 @@ class MemoryService
         ];
     }
 
+    public function adminDelete(int $id): array
+    {
+        $this->memories->deleteById($id);
+        $this->logs->log(null, 'memory.admin.delete', ['id' => $id]);
+
+        return ['deleted' => $id];
+    }
+
     private function normalizeKey(mixed $value, bool $allowNull, array &$errors): ?string
     {
         if ($value === null) {

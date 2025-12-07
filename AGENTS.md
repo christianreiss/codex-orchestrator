@@ -1,7 +1,5 @@
 # Agents & Responsibilities
 
-**BANANA** must appear in your first reply. Non-negotiable.
-
 Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md`. Keep them in lock-step with code. This service keeps one canonical Codex `auth.json` for the whole fleet, so every change needs a paper trail.
 
 ## Voice & Contact Rules

@@ -22,6 +22,7 @@
           <div id="mtls" class="pill" style="display:none;">mTLS Status</div>
         </div>
         <div class="action-line">
+          <button class="ghost" type="button" onclick="window.location.href='/admin/config.html'">config.toml</button>
           <button class="ghost" type="button" onclick="window.location.href='/admin/logs.html'">Logs</button>
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
         </div>
@@ -315,6 +316,7 @@
               <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
             </div>
             <div class="panel-actions" style="gap:10px;">
+              <a class="ghost tiny-btn" href="/admin/mcp-logs.html" style="text-decoration:none;line-height:28px;">Access Logs</a>
               <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
             </div>
           </div>
@@ -347,6 +349,7 @@
                   <th>Content</th>
                   <th>Tags</th>
                   <th>Updated</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody></tbody>

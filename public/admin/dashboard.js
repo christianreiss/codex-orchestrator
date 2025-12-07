@@ -1309,7 +1309,7 @@ const statsEl = document.getElementById('stats');
       currentMemories = Array.isArray(memories) ? memories : [];
       if (!memoriesTableBody) return;
       if (currentMemories.length === 0) {
-        memoriesTableBody.innerHTML = '<tr><td colspan="5" class="muted" style="padding:12px;">No memories found</td></tr>';
+        memoriesTableBody.innerHTML = '<tr><td colspan="6" class="muted" style="padding:12px;">No memories found</td></tr>';
         return;
       }
 
@@ -1328,8 +1328,23 @@ const statsEl = document.getElementById('stats');
           <td data-label="Content">${content || '—'}</td>
           <td data-label="Tags">${tags}</td>
           <td data-label="Updated">${updated}</td>
+          <td data-label="Actions"><button class="ghost tiny-btn" data-delete-id="${escapeHtml(id)}">Delete</button></td>
         </tr>`;
       }).join('');
+
+      memoriesTableBody.querySelectorAll('button[data-delete-id]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const id = btn.getAttribute('data-delete-id');
+          if (!id || !confirm(`Delete memory ${id}?`)) return;
+          try {
+            await api(`/admin/mcp/memories/${encodeURIComponent(id)}`, 'DELETE');
+            await loadMemories();
+          } catch (err) {
+            alert(err.message || 'Delete failed');
+          }
+        });
+      });
     }
 
     async function loadMemories() {

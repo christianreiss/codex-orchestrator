@@ -154,6 +154,22 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS client_config_documents (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                sha256 CHAR(64) NOT NULL,
+                body LONGTEXT NOT NULL,
+                settings JSON NULL,
+                source_host_id BIGINT UNSIGNED NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                INDEX idx_client_config_documents_updated_at (updated_at),
+                CONSTRAINT fk_client_config_documents_host FOREIGN KEY (source_host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS mcp_memories (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NOT NULL,
@@ -197,6 +213,26 @@ class Database
                 INDEX idx_logs_host (host_id),
                 INDEX idx_logs_created_at (created_at),
                 CONSTRAINT fk_logs_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS mcp_access_logs (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                host_id BIGINT UNSIGNED NULL,
+                client_ip VARCHAR(64) NULL,
+                method VARCHAR(64) NOT NULL,
+                name VARCHAR(128) NULL,
+                success TINYINT(1) NOT NULL DEFAULT 0,
+                error_code INT NULL,
+                error_message TEXT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_mcp_logs_host (host_id),
+                INDEX idx_mcp_logs_method (method),
+                INDEX idx_mcp_logs_created_at (created_at),
+                CONSTRAINT fk_mcp_logs_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
             ) ENGINE=InnoDB {$collation};
             SQL
         );
@@ -415,6 +451,8 @@ class Database
         $this->ensureColumnExists('token_usage_ingests', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
+        $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
 
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');

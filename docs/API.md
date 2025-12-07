@@ -52,6 +52,9 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /slash-commands/retrieve` — body: `filename` (required), optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `prompt` when updated).
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
+### Config
+- `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), canonical `sha256`, `updated_at`, `size_bytes`, and `content` when updated. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
+
 ### MCP memories
 - `POST /mcp/memories/store` — body: `content` (required, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when missing), optional `metadata` (object), optional `tags` (array of up to 32 strings, each ≤64 chars). Returns `status` `created` | `updated` | `unchanged` and `memory` (`id`, `content`, `metadata`, `tags`, timestamps).
 - `POST /mcp/memories/retrieve` — body: `id`|`memory_id`|`key` (required). Returns `status:found|missing` and `memory` when found.
@@ -88,6 +91,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.
 - ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
+- Config builder: `GET /admin/config` (canonical `config.toml` + `settings`), `POST /admin/config/render` (render TOML from `settings` without persisting), `POST /admin/config/store` (persist canonical config from `settings`; returns status + sha + content).
 
 ## Runner & Versions
 - First non-admin request after ~8 hours (or after a boot) triggers a **scheduled preflight** (interval configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800s): refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.

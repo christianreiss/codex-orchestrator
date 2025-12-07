@@ -27,9 +27,31 @@ else
   RESET=""
 fi
 
-log_info() { printf "%b» %s%b\n" "${BLUE}${BOLD}" "$1" "${RESET}"; }
-log_warn() { printf "%b! %s%b\n" "${YELLOW}${BOLD}" "$1" "${RESET}" >&2; }
-log_error() { printf "%bx %s%b\n" "${RED}${BOLD}" "$1" "${RESET}" >&2; }
+LOG_PREFIX_INFO="${LOG_PREFIX_INFO:-»}"
+LOG_PREFIX_WARN="${LOG_PREFIX_WARN:-!}"
+LOG_PREFIX_ERROR="${LOG_PREFIX_ERROR:-x}"
+
+log_info() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${BLUE}${BOLD}" "$LOG_PREFIX_INFO" "${RESET}" "$line"
+  done <<< "$msg"
+}
+
+log_warn() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${YELLOW}${BOLD}" "$LOG_PREFIX_WARN" "${RESET}" "$line" >&2
+  done <<< "$msg"
+}
+
+log_error() {
+  local msg="${1-}"
+  while IFS= read -r line; do
+    printf "%b%s%b %s\n" "${RED}${BOLD}" "$LOG_PREFIX_ERROR" "${RESET}" "$line" >&2
+  done <<< "$msg"
+}
+
 log_debug() {
   (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
   return 0
@@ -181,6 +203,14 @@ AGENTS_REMOTE_SHA=""
 AGENTS_REMOTE_UPDATED_AT=""
 AGENTS_REMOTE_BYTES=""
 AGENTS_REMOVED=0
+CONFIG_PATH="$HOME/.codex/config.toml"
+CONFIG_SYNC_STATUS="skip"
+CONFIG_SYNC_REASON=""
+CONFIG_STATE=""
+CONFIG_REMOTE_SHA=""
+CONFIG_REMOTE_UPDATED_AT=""
+CONFIG_REMOTE_BYTES=""
+CONFIG_REMOVED=0
 
 if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   HOST_IS_SECURE=0
@@ -188,7 +218,7 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   emit_insecure_notice
 fi
 
-WRAPPER_VERSION="2025.12.05-01"
+WRAPPER_VERSION="2025.12.06-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2014,6 +2044,201 @@ PY
   return 0
 }
 
+config_sync_python() {
+  local base="$1"
+  local api_key="$2"
+  local target_file="$3"
+  local cafile="$4"
+  local current_sha="$5"
+  CODEX_SYNC_API_KEY="$api_key" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+
+base = (sys.argv[1] or "").rstrip("/")
+target = pathlib.Path(sys.argv[2]).expanduser()
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+
+
+def contexts():
+    ctxs = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        ctxs.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctxs.append(fallback)
+    except Exception:
+        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            ctxs.append(ssl._create_unverified_context())
+        except Exception:
+            pass
+    return ctxs or [None]
+
+
+def request_json(method: str, url: str, payload=None):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    last_err = None
+    for ctx in contexts():
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:  # noqa: PERF203
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+
+if not base:
+    print("error reason=missing-base")
+    sys.exit(1)
+if not api_key:
+    print("error reason=missing-api-key")
+    sys.exit(1)
+
+payload = {}
+if current_sha and len(current_sha) == 64:
+    payload["sha256"] = current_sha
+
+try:
+    resp = request_json("POST", f"{base}/config/retrieve", payload)
+except Exception as exc:  # noqa: BLE001
+    print(f"error reason={str(exc).replace(' ', '_')}")
+    sys.exit(1)
+
+data = resp.get("data") if isinstance(resp, dict) else {}
+status = (data or {}).get("status")
+sha = (data or {}).get("sha256") or ""
+content = (data or {}).get("content")
+updated_at = (data or {}).get("updated_at") or ""
+size_bytes = data.get("size_bytes") if isinstance(data, dict) else None
+
+if status == "missing":
+    removed = 0
+    try:
+        if target.exists():
+            target.unlink()
+            removed = 1
+    except Exception:
+        pass
+    print(f"ok status=missing removed={removed}")
+    sys.exit(0)
+
+if status == "unchanged":
+    print(f"ok status=unchanged sha256={sha}")
+    sys.exit(0)
+
+if status == "updated":
+    if not isinstance(content, str):
+        print("error reason=missing-content")
+        sys.exit(1)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"error reason=write-failed:{str(exc).replace(' ', '_')}")
+        sys.exit(1)
+    length = len(content.encode("utf-8"))
+    size_label = size_bytes if isinstance(size_bytes, int) else length
+    safe_updated = str(updated_at).replace(" ", "_")
+    print(f"ok status=updated sha256={sha} bytes={size_label} updated_at={safe_updated}")
+    sys.exit(0)
+
+print(f"error reason=unknown-status:{status}")
+sys.exit(1)
+PY
+}
+
+sync_config_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    CONFIG_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    CONFIG_SYNC_STATUS="no-python"
+    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+      log_warn "python3 is required for config.toml sync; skipping."
+      SYNC_WARNED_NO_PYTHON=1
+    fi
+    return 1
+  fi
+  local current_sha=""
+  if [[ -f "$CONFIG_PATH" ]]; then
+    current_sha="$(python3 - "$CONFIG_PATH" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try:
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+except Exception:
+    pass
+PY
+)"
+  fi
+  local summary status_code
+  set +e
+  summary="$(config_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$CONFIG_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
+  status_code=$?
+  set -e
+  CONFIG_SYNC_STATUS="error"
+  CONFIG_STATE=""
+  CONFIG_REMOTE_SHA=""
+  CONFIG_REMOTE_UPDATED_AT=""
+  CONFIG_REMOTE_BYTES=""
+  CONFIG_REMOVED=0
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      CONFIG_SYNC_STATUS="offline"
+      CONFIG_SYNC_REASON="$reason"
+    else
+      CONFIG_SYNC_STATUS="error"
+      CONFIG_SYNC_REASON="$reason"
+    fi
+    return 1
+  fi
+  CONFIG_SYNC_STATUS="${summary%% *}"
+  CONFIG_SYNC_REASON=""
+  local part
+  for part in $summary; do
+    case "$part" in
+      status=*) CONFIG_STATE="${part#status=}" ;;
+      sha256=*) CONFIG_REMOTE_SHA="${part#sha256=}" ;;
+      updated_at=*) CONFIG_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
+      bytes=*) CONFIG_REMOTE_BYTES="${part#bytes=}" ;;
+      removed=*) CONFIG_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
 push_slash_commands_if_changed() {
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
@@ -2567,6 +2792,7 @@ fi
 sync_auth_with_api "pull" || true
 sync_slash_commands_pull || true
 sync_agents_pull || true
+sync_config_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -2917,6 +3143,7 @@ colorize() {
   case "$tone" in
     green) printf "%b%s%b" "${GREEN}${BOLD}" "$text" "${RESET}" ;;
     yellow) printf "%b%s%b" "${YELLOW}${BOLD}" "$text" "${RESET}" ;;
+    orange) printf "%b%s%b" "${ORANGE}${BOLD}" "$text" "${RESET}" ;;
     red) printf "%b%s%b" "${RED}${BOLD}" "$text" "${RESET}" ;;
     *) printf "%s" "$text" ;;
   esac
@@ -2927,18 +3154,125 @@ ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 
 format_status_row() {
-  local label="$1" col1="$2" col2="$3" col3="$4"
-  printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$col1" "$col2" "$col3"
+  local label="$1" installed="$2" target="$3" status="$4"
+  local v1="$installed" v2="$target"
+  [[ "$v1" == *" installed" ]] && v1="${v1% installed}"
+  [[ "$v2" == *" available" ]] && v2="${v2% available}"
+  [[ "$v2" == "n/a" || "$v2" == "unknown" ]] && v2=""
+  local ver="$v1"
+  if [[ -n "$v2" && "$v2" != "$v1" ]]; then
+    ver="${v1} → ${v2}"
+  fi
+  local msg="$ver"
+  [[ -n "$status" ]] && msg="${msg} · ${status}"
+  format_simple_row "$label" "$msg"
 }
 
 format_simple_row() {
   local label="$1" text="$2"
+  if [[ -t 1 && "$text" != *$'\033['* ]]; then
+    local cols="${COLUMNS:-}"
+    if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+      cols="$(tput cols 2>/dev/null || true)"
+    fi
+    if [[ "$cols" =~ ^[0-9]+$ ]]; then
+      local max=$(( cols - ROW_LABEL_WIDTH - 5 ))
+      if (( max >= 20 )) && (( ${#text} > max )); then
+        local first=1 chunk
+        while IFS= read -r chunk; do
+          if (( first )); then
+            printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
+            first=0
+          else
+            printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+          fi
+        done <<< "$(fold -s -w "$max" <<< "$text")"
+        return
+      fi
+    fi
+  fi
   printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
 }
 
 format_quota_row() {
   local label="$1" text="$2" note="$3"
-  printf "%-${ROW_LABEL_WIDTH}s | %-${ROW_VALUE_WIDTH}s | %s" "$label" "$text" "$note"
+  if [[ -n "$note" ]]; then
+    printf "%-${ROW_LABEL_WIDTH}s | %s\n%${ROW_LABEL_WIDTH}s | %s" "$label" "$text" "" "$note"
+  else
+    printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
+  fi
+}
+
+join_with_sep() {
+  local sep="$1"; shift
+  local out="" part
+  for part in "$@"; do
+    [[ -z "$part" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+="$sep"
+    fi
+    out+="$part"
+  done
+  printf "%s" "$out"
+}
+
+status_icon() {
+  case "$1" in
+    green) printf "✅" ;;
+    yellow) printf "⚠" ;;
+    red) printf "⛔" ;;
+    *) printf "•" ;;
+  esac
+}
+
+format_core_entry() {
+  local name="$1" tone="$2" detail="${3-}" note="${4-}"
+  local icon
+  icon="$(status_icon "$tone")"
+  local text="$name $icon"
+  if [[ -n "$detail" ]]; then
+    if [[ "$tone" == "green" ]]; then
+      text+=" $detail"
+    else
+      text+=" $(colorize "$detail" "$tone")"
+    fi
+  elif [[ -n "$note" ]]; then
+    text+=" $note"
+  fi
+  printf "%s" "$text"
+}
+
+extract_version_token() {
+  local display="$1"
+  if [[ "$display" =~ ([0-9]+[0-9A-Za-z\.\-\+_]*) ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+  fi
+}
+
+format_version_entry() {
+  local name="$1" tone="$2" installed="$3" target="$4" status="$5"
+  local icon
+  icon="$(status_icon "$tone")"
+  local ver_inst
+  ver_inst="$(extract_version_token "$installed")"
+  local ver_target
+  ver_target="$(extract_version_token "$target")"
+  local text="$name"
+  if [[ -n "$ver_inst" ]]; then
+    text+=" ${ver_inst}"
+  fi
+  if [[ -n "$ver_target" && "$ver_target" != "$ver_inst" ]]; then
+    text+="→${ver_target}"
+  fi
+  if [[ "$tone" == "green" && ( -z "$ver_target" || "$ver_target" == "$ver_inst" ) ]]; then
+    text+=" ✅"
+  else
+    text+=" ${icon}"
+    if [[ -n "$status" ]]; then
+      text+=" $(colorize "$status" "$tone")"
+    fi
+  fi
+  printf "%s" "$text"
 }
 
 seconds_since_iso() {
@@ -3010,13 +3344,21 @@ build_quota_bar() {
   elif (( pct >= 80 )); then
     fill_color="${ORANGE}${BOLD}"
   fi
+  local fill_char="${CDX_QUOTA_FILL_CHAR:-█}"
+  local empty_char="${CDX_QUOTA_EMPTY_CHAR:-░}"
   local bar=""
   if (( filled > 0 )); then
-    bar+="${fill_color}$(printf '%*s' "$filled" "" | tr ' ' '#')"
+    local filled_part
+    filled_part="$(printf '%*s' "$filled" "")"
+    filled_part="${filled_part// /$fill_char}"
+    bar+="${fill_color}${filled_part}"
   fi
   local empty_count=$(( width - filled ))
   if (( empty_count > 0 )); then
-    bar+="${RESET}${DIM}$(printf '%*s' "$empty_count" "" | tr ' ' '.')"
+    local empty_part
+    empty_part="$(printf '%*s' "$empty_count" "")"
+    empty_part="${empty_part// /$empty_char}"
+    bar+="${RESET}${DIM}${empty_part}"
   fi
   bar+="${RESET}"
   printf -v bar "%b" "$bar"
@@ -3048,7 +3390,7 @@ render_quota_line() {
     if (( pct >= 95 )); then
       tone="red"
     elif (( pct >= 80 )); then
-      tone="yellow"
+      tone="orange"
     else
       tone="green"
     fi
@@ -3074,6 +3416,7 @@ project_quota_usage() {
   (( elapsed > limit_seconds )) && elapsed=limit_seconds
   local projected=$(( (used_pct * limit_seconds + elapsed / 2) / elapsed ))
   (( projected > 999 )) && projected=999
+  (( projected > 100 )) && projected=100
   printf "%d" "$projected"
 }
 
@@ -3233,7 +3576,7 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
   if (( runner_enabled_flag )); then
     if [[ "$state" == "fail" ]]; then
       runner_tone="red"
-      runner_label="auth runner failing"
+      runner_label="runner failing"
       if [[ -n "$last_fail_rel" ]]; then
         runner_label+=" (${last_fail_rel})"
       fi
@@ -3247,9 +3590,9 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
         if [[ "$age_seconds" =~ ^-?[0-9]+$ ]]; then
           (( age_seconds < 0 )) && age_seconds=$(( -age_seconds ))
           if (( age_seconds <= 90 )); then
-            runner_label="auth runner just verified"
+            runner_label="runner verified recently"
           else
-            runner_label="auth runner verified ${last_ok_rel}"
+            runner_label="runner verified ${last_ok_rel}"
           fi
           if (( age_seconds >= RUNNER_STALE_CRIT_SECONDS )); then
             runner_tone="red"
@@ -3259,18 +3602,18 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
             runner_label+=" (stale)"
           fi
         else
-          runner_label="auth runner verified ${last_ok_rel}"
+          runner_label="runner verified ${last_ok_rel}"
         fi
       else
         runner_tone="yellow"
-        runner_label="auth runner enabled; no successful verification yet"
+        runner_label="runner enabled; no successful verification yet"
         if [[ -n "$last_fail_rel" ]]; then
           runner_label+=" (last fail ${last_fail_rel})"
         fi
       fi
     fi
   else
-    runner_label="auth runner disabled"
+    runner_label="runner disabled"
   fi
 fi
 
@@ -3353,6 +3696,44 @@ elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
 elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   agents_label="AGENTS sync failed"
   agents_tone="red"
+fi
+
+config_label="config sync skipped"
+config_tone="yellow"
+if [[ "$CONFIG_SYNC_STATUS" == "ok" ]]; then
+  case "$CONFIG_STATE" in
+    updated)
+      config_label="config updated"
+      config_tone="green"
+      ;;
+    unchanged)
+      config_label="config current"
+      config_tone="green"
+      ;;
+    missing)
+      config_label="config cleared"
+      config_tone="yellow"
+      ;;
+    *)
+      config_label="config synced"
+      config_tone="green"
+      ;;
+  esac
+elif [[ "$CONFIG_SYNC_STATUS" == "missing-config" ]]; then
+  config_label="config sync config missing"
+  config_tone="red"
+elif [[ "$CONFIG_SYNC_STATUS" == "no-python" ]]; then
+  config_label="config sync requires python3"
+  config_tone="yellow"
+elif [[ "$CONFIG_SYNC_STATUS" == "offline" ]]; then
+  config_label="config sync unavailable"
+  if [[ -n "$CONFIG_SYNC_REASON" ]]; then
+    config_label+=" (${CONFIG_SYNC_REASON})"
+  fi
+  config_tone="yellow"
+elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
+  config_label="config sync failed"
+  config_tone="red"
 fi
 
 case "$PROMPT_PUSH_STATUS" in
@@ -3503,6 +3884,34 @@ elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
 elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   result_parts+=("AGENTS.md sync failed")
 fi
+if [[ "$CONFIG_SYNC_STATUS" == "ok" ]]; then
+  case "$CONFIG_STATE" in
+    updated)
+      result_parts+=("config.toml updated")
+      ;;
+    unchanged)
+      result_parts+=("config.toml current")
+      ;;
+    missing)
+      result_parts+=("config.toml cleared")
+      ;;
+    *)
+      result_parts+=("config.toml synced")
+      ;;
+  esac
+elif [[ "$CONFIG_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("config.toml config missing")
+elif [[ "$CONFIG_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("config.toml python missing")
+elif [[ "$CONFIG_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$CONFIG_SYNC_REASON" ]]; then
+    result_parts+=("config.toml offline (${CONFIG_SYNC_REASON})")
+  else
+    result_parts+=("config.toml offline")
+  fi
+elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("config.toml sync failed")
+fi
 if (( QUOTA_BLOCKED )); then
   result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
 fi
@@ -3558,6 +3967,10 @@ elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   result_tone="red"
 elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
   result_tone="yellow"
+elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
+  result_tone="red"
+elif [[ "$CONFIG_SYNC_STATUS" != "ok" && "$CONFIG_SYNC_STATUS" != "skip" ]]; then
+  result_tone="yellow"
 elif (( QUOTA_WARNING )); then
   result_tone="yellow"
 elif (( QUOTA_BLOCKED )); then
@@ -3579,53 +3992,6 @@ if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "
   result_label="Codex go Brrrr!"
 fi
 
-  declare -A SUMMARY_ROWS=()
-  add_summary_row() {
-    local key="$1"
-    local value="$2"
-    [[ -z "$key" || -z "$value" ]] && return
-    SUMMARY_ROWS["$key"]="$value"
-  }
-  print_summary_rows() {
-    if (( ${#SUMMARY_ROWS[@]} == 0 )); then
-      return
-    fi
-    local key
-    while IFS= read -r key; do
-      log_info "${SUMMARY_ROWS[$key]}"
-    done < <(printf '%s\n' "${!SUMMARY_ROWS[@]}" | LC_ALL=C sort)
-  }
-
-  add_summary_row "api" "$(format_simple_row "api" "$(colorize "$api_label" "$api_tone")")"
-  add_summary_row "auth" "$(format_simple_row "auth" "$(colorize "$auth_label" "$auth_tone")")"
-  add_summary_row "codex" "$(format_status_row "codex" "$codex_installed_display" "$codex_target_display" "$(colorize "$codex_status_display" "$codex_tone")")"
-  add_summary_row "agents" "$(format_simple_row "AGENTS.md" "$(colorize "$agents_label" "$agents_tone")")"
-  add_summary_row "prompts" "$(format_simple_row "prompts" "$(colorize "$prompt_label" "$prompt_tone")")"
-  add_summary_row "wrapper" "$(format_status_row "wrapper" "$wrapper_installed_display" "$wrapper_target_display" "$(colorize "$wrapper_status_display" "$wrapper_tone")")"
-  if [[ -n "$runner_label" ]]; then
-    add_summary_row "runner" "$(format_simple_row "runner" "$(colorize "$runner_label" "$runner_tone")")"
-  fi
-  host_usage_parts=()
-  if [[ -n "$HOST_API_CALLS" ]]; then
-    host_usage_parts+=("api calls ${HOST_API_CALLS}")
-  fi
-  if [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]]; then
-    token_bits=()
-    [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
-    [[ -n "$HOST_TOKENS_MONTH_INPUT" ]] && token_bits+=("in ${HOST_TOKENS_MONTH_INPUT}")
-    [[ -n "$HOST_TOKENS_MONTH_OUTPUT" ]] && token_bits+=("out ${HOST_TOKENS_MONTH_OUTPUT}")
-    [[ -n "$HOST_TOKENS_MONTH_CACHED" ]] && token_bits+=("cached ${HOST_TOKENS_MONTH_CACHED}")
-    [[ -n "$HOST_TOKENS_MONTH_REASONING" ]] && token_bits+=("reason ${HOST_TOKENS_MONTH_REASONING}")
-    token_line="$(join_with_semicolon "${token_bits[@]}")"
-    host_usage_parts+=("tokens this month: ${token_line}")
-  fi
-  if (( ${#host_usage_parts[@]} )); then
-    host_usage_text="$(join_with_semicolon "${host_usage_parts[@]}")"
-    add_summary_row "host usage" "$(format_simple_row "host usage" "$host_usage_text")"
-  fi
-  if [[ -n "$usage_summary" ]]; then
-    add_summary_row "tokens" "$(format_simple_row "tokens" "$usage_summary")"
-  fi
   quota_limit="$QUOTA_LIMIT_PERCENT"
   if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
     quota_limit=100
@@ -3641,11 +4007,86 @@ fi
   else
     quota_summary="Warn at ≥${quota_limit}% usage; continue running."
   fi
-  add_summary_row "command" "$(format_simple_row "command" "$(colorize "$command_label" "$command_tone")")"
-  add_summary_row "Policy" "$(format_simple_row "Policy" "$quota_summary")"
-  add_summary_row "result" "$(format_simple_row "result" "$(colorize "$result_label" "$result_tone")")"
-  print_summary_rows
+
+  command_line=""
+  if [[ -n "$command_label" ]]; then
+    command_line="Command: $(colorize "$command_label" "$command_tone")"
+  fi
+
+  core_bits=()
+  api_detail=""
+  [[ "$api_tone" != "green" ]] && api_detail="$api_label"
+  core_bits+=("$(format_core_entry "API" "$api_tone" "$api_detail")")
+
+  auth_detail=""
+  if [[ "$auth_tone" != "green" ]]; then
+    auth_detail="$auth_label"
+  fi
+  core_bits+=("$(format_core_entry "Auth" "$auth_tone" "$auth_detail")")
+
+  prompt_detail=""
+  if [[ "$prompt_tone" == "green" ]]; then
+    if [[ "$prompt_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
+      prompt_detail="(${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+    fi
+  else
+    prompt_detail="$prompt_label"
+  fi
+  core_bits+=("$(format_core_entry "Prompts" "$prompt_tone" "$prompt_detail")")
+
+  if [[ -n "$runner_label" ]]; then
+    runner_detail="$runner_label"
+    [[ "$runner_tone" == "green" ]] && runner_detail="(${runner_label})"
+    core_bits+=("$(format_core_entry "Runner" "$runner_tone" "$runner_detail")")
+  fi
+
+  policy_entry="Policy: $( (( QUOTA_HARD_FAIL )) && printf "Deny" || printf "Warn" )"
+  core_line_bits=("${core_bits[@]}" "$policy_entry")
+  core_line="Core: $(join_with_sep ' | ' "${core_line_bits[@]}")"
+
+  versions_bits=()
+  versions_bits+=("$(format_version_entry "codex" "$codex_tone" "$codex_installed_display" "$codex_target_display" "$codex_status_display")")
+  versions_bits+=("$(format_version_entry "wrapper" "$wrapper_tone" "$wrapper_installed_display" "$wrapper_target_display" "$wrapper_status_display")")
+  if [[ -n "$agents_label" ]]; then
+    if [[ "$agents_tone" == "green" ]]; then
+      versions_bits+=("AGENTS ✅")
+    else
+      versions_bits+=("$(format_core_entry "AGENTS" "$agents_tone" "$agents_label")")
+    fi
+  fi
+  if [[ -n "$config_label" ]]; then
+    if [[ "$config_tone" == "green" ]]; then
+      versions_bits+=("config.toml ✅")
+    else
+      versions_bits+=("$(format_core_entry "config" "$config_tone" "$config_label")")
+    fi
+  fi
+  versions_line=""
+  if (( ${#versions_bits[@]} )); then
+    versions_line="Versions: $(join_with_sep ' | ' "${versions_bits[@]}")"
+  fi
+
+  usage_bits=()
+  if [[ -n "$HOST_API_CALLS" ]]; then
+    usage_bits+=("calls ${HOST_API_CALLS}")
+  fi
+  token_bits=()
+  [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
+  token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
+  if [[ -n "$token_line" ]]; then
+    usage_bits+=("tokens ${token_line}")
+  fi
+  if [[ -n "$usage_summary" ]]; then
+    usage_bits+=("$usage_summary")
+  fi
+  usage_line=""
+  if (( ${#usage_bits[@]} )); then
+    usage_line="Usage: $(join_with_sep ' | ' "${usage_bits[@]}")"
+  fi
+
+  result_line="Result: $(colorize "$result_label" "$result_tone")"
   primary_reset_hint=""
+  primary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
   if [[ -n "$qline" ]]; then
     qtone="${qline%%$'\t'*}"
@@ -3653,10 +4094,19 @@ fi
     qtext="${rest%%$'\t'*}"
     qnote="${rest#*$'\t'}"
     primary_reset_hint="$qnote"
-    log_info "$(format_quota_row "5h quota" "$(colorize "$qtext" "$qtone")" "$(colorize "$qnote" "$qtone")")"
+    qnote_disp="$qnote"
+    if [[ -n "$qnote_disp" ]]; then
+      printf -v qnote_disp "%b" "${DIM}${qnote_disp}${RESET}"
+    fi
+    # qtext looks like "  7% [bars]"
+    primary_quota_segment="$(colorize "$qtext" "$qtone")"
+    if [[ -n "$qnote_disp" ]]; then
+      primary_quota_segment+=" ${qnote_disp}"
+    fi
   fi
 
   secondary_reset_hint=""
+  secondary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_RESET_AFTER" "$CHATGPT_SECONDARY_RESET_AT")
   if [[ -n "$qline" ]]; then
     qtone2="${qline%%$'\t'*}"
@@ -3664,13 +4114,30 @@ fi
     qtext2="${rest2%%$'\t'*}"
     qnote2="${rest2#*$'\t'}"
     projection_note=""
+    projection_alert=0
     projection_pct="$(project_quota_usage "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER")"
     if [[ -n "$projection_pct" ]]; then
-      projection_note="proj ~${projection_pct}% at reset"
+      if (( projection_pct >= 100 )); then
+        projection_note="proj 100% at reset"
+        projection_alert=1
+      else
+        projection_note="proj ~${projection_pct}% at reset"
+      fi
     fi
     qnote_full="$(join_with_semicolon "$qnote2" "$projection_note")"
     secondary_reset_hint="$qnote_full"
-    log_info "$(format_quota_row "week quota" "$(colorize "$qtext2" "$qtone2")" "$(colorize "$qnote_full" "$qtone2")")"
+    qnote2_disp="$qnote_full"
+    if [[ -n "$qnote2_disp" ]]; then
+      if (( projection_alert )); then
+        printf -v qnote2_disp "%b" "${RED}${BOLD}${qnote2_disp}${RESET}"
+      else
+        printf -v qnote2_disp "%b" "${DIM}${qnote2_disp}${RESET}"
+      fi
+    fi
+    secondary_quota_segment="$(colorize "$qtext2" "$qtone2")"
+    if [[ -n "$qnote2_disp" ]]; then
+      secondary_quota_segment+=" ${qnote2_disp}"
+    fi
   fi
 
   quota_warn_threshold=$(( quota_limit - 10 ))
@@ -3716,6 +4183,35 @@ fi
     QUOTA_WARNING=1
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
+
+  format_label_prefix() {
+    local label="$1"
+    local width="${SUMMARY_LABEL_WIDTH:-12}"
+    printf "%-${width}s: " "$label"
+  }
+
+  log_info "$(format_label_prefix "Core")${core_line#Core: }"
+  if [[ -n "$versions_line" ]]; then
+    log_info "$(format_label_prefix "Versions")${versions_line#Versions: }"
+  fi
+  if [[ -n "$usage_line" ]]; then
+    log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
+  fi
+  if [[ -n "$primary_quota_segment" ]]; then
+    quota_line="${primary_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line+=" ⚠"
+    fi
+    log_info "$(format_label_prefix "Quota (5h)")${quota_line}"
+  fi
+  if [[ -n "$secondary_quota_segment" ]]; then
+    quota_line2="${secondary_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line2+=" ⚠"
+    fi
+    log_info "$(format_label_prefix "Quota (week)")${quota_line2}"
+  fi
+  log_info "$(format_label_prefix "Result")${result_line#Result: }"
 
 if (( wrapper_updated )); then
   log_warn "Wrapper updated; restart cdx to use the new wrapper."

@@ -35,6 +35,7 @@ fi
 sync_auth_with_api "pull" || true
 sync_slash_commands_pull || true
 sync_agents_pull || true
+sync_config_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -940,6 +941,44 @@ elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   agents_tone="red"
 fi
 
+config_label="config sync skipped"
+config_tone="yellow"
+if [[ "$CONFIG_SYNC_STATUS" == "ok" ]]; then
+  case "$CONFIG_STATE" in
+    updated)
+      config_label="config updated"
+      config_tone="green"
+      ;;
+    unchanged)
+      config_label="config current"
+      config_tone="green"
+      ;;
+    missing)
+      config_label="config cleared"
+      config_tone="yellow"
+      ;;
+    *)
+      config_label="config synced"
+      config_tone="green"
+      ;;
+  esac
+elif [[ "$CONFIG_SYNC_STATUS" == "missing-config" ]]; then
+  config_label="config sync config missing"
+  config_tone="red"
+elif [[ "$CONFIG_SYNC_STATUS" == "no-python" ]]; then
+  config_label="config sync requires python3"
+  config_tone="yellow"
+elif [[ "$CONFIG_SYNC_STATUS" == "offline" ]]; then
+  config_label="config sync unavailable"
+  if [[ -n "$CONFIG_SYNC_REASON" ]]; then
+    config_label+=" (${CONFIG_SYNC_REASON})"
+  fi
+  config_tone="yellow"
+elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
+  config_label="config sync failed"
+  config_tone="red"
+fi
+
 case "$PROMPT_PUSH_STATUS" in
   ok)
     if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
@@ -1088,6 +1127,34 @@ elif [[ "$AGENTS_SYNC_STATUS" == "offline" ]]; then
 elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   result_parts+=("AGENTS.md sync failed")
 fi
+if [[ "$CONFIG_SYNC_STATUS" == "ok" ]]; then
+  case "$CONFIG_STATE" in
+    updated)
+      result_parts+=("config.toml updated")
+      ;;
+    unchanged)
+      result_parts+=("config.toml current")
+      ;;
+    missing)
+      result_parts+=("config.toml cleared")
+      ;;
+    *)
+      result_parts+=("config.toml synced")
+      ;;
+  esac
+elif [[ "$CONFIG_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("config.toml config missing")
+elif [[ "$CONFIG_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("config.toml python missing")
+elif [[ "$CONFIG_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$CONFIG_SYNC_REASON" ]]; then
+    result_parts+=("config.toml offline (${CONFIG_SYNC_REASON})")
+  else
+    result_parts+=("config.toml offline")
+  fi
+elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("config.toml sync failed")
+fi
 if (( QUOTA_BLOCKED )); then
   result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
 fi
@@ -1142,6 +1209,10 @@ elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); th
 elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   result_tone="red"
 elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
+  result_tone="yellow"
+elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
+  result_tone="red"
+elif [[ "$CONFIG_SYNC_STATUS" != "ok" && "$CONFIG_SYNC_STATUS" != "skip" ]]; then
   result_tone="yellow"
 elif (( QUOTA_WARNING )); then
   result_tone="yellow"
@@ -1224,6 +1295,13 @@ fi
       versions_bits+=("AGENTS ✅")
     else
       versions_bits+=("$(format_core_entry "AGENTS" "$agents_tone" "$agents_label")")
+    fi
+  fi
+  if [[ -n "$config_label" ]]; then
+    if [[ "$config_tone" == "green" ]]; then
+      versions_bits+=("config.toml ✅")
+    else
+      versions_bits+=("$(format_core_entry "config" "$config_tone" "$config_label")")
     fi
   fi
   versions_line=""

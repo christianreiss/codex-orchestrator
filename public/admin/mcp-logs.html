@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCP Access Logs</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 16px; }
+    h1 { margin: 0 0 12px 0; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #30363d; font-size: 13px; }
+    th { text-align: left; color: #8b949e; }
+    code { color: #91c9ff; }
+    .pill { display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
+    .pill.ok { background: #1f6feb33; color: #58a6ff; }
+    .pill.err { background: #f8514933; color: #ffa198; }
+  </style>
+</head>
+<body>
+  <h1>MCP Access Logs</h1>
+  <div class="card">
+    <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center;">
+      <label for="limit">Limit</label>
+      <input id="limit" type="number" min="1" max="500" value="200" style="width:80px;" />
+      <button id="refresh">Refresh</button>
+      <span id="status" style="color:#8b949e;"></span>
+    </div>
+    <table id="logTable">
+      <thead>
+        <tr>
+          <th>Time (UTC)</th>
+          <th>Host</th>
+          <th>Method</th>
+          <th>Name</th>
+          <th>IP</th>
+          <th>Status</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const tbody = document.querySelector('#logTable tbody');
+    const statusEl = document.getElementById('status');
+    async function loadLogs() {
+      const limit = Math.max(1, Math.min(500, parseInt(document.getElementById('limit').value || '200', 10)));
+      statusEl.textContent = 'Loading…';
+      try {
+        const res = await fetch(`/admin/mcp/logs?limit=${limit}`, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        render(data.data.logs || []);
+        statusEl.textContent = `Showing ${Math.min(limit, data.data.logs.length)} entries`;
+      } catch (err) {
+        statusEl.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    function render(rows) {
+      tbody.innerHTML = '';
+      rows.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(row.created_at || '')}</td>
+          <td>${row.host_id ?? ''}</td>
+          <td><code>${escapeHtml(row.method || '')}</code></td>
+          <td>${escapeHtml(row.name || '')}</td>
+          <td>${escapeHtml(row.client_ip || '')}</td>
+          <td>${row.success ? '<span class="pill ok">ok</span>' : '<span class="pill err">fail</span>'}</td>
+          <td>${row.error_code ? escapeHtml(row.error_code + ' ' + (row.error_message || '')) : ''}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+
+    document.getElementById('refresh').addEventListener('click', loadLogs);
+    loadLogs();
+  </script>
+</body>
+</html>

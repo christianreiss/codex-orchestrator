@@ -16,6 +16,7 @@
 - 📊 Auditing and usage: token usage rows plus per-request ingests (client IP + normalized payload), cost estimates from GPT‑5.1 pricing, versions, IPs, and runner validation logs.
 - 🔒 Canonical auth + tokens encrypted at rest (libsodium).
 - 🧠 Extras: slash-command distribution, MCP-compatible memories (store/retrieve/search across sessions), ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
+- 🛠️ `config.toml` builder for Codex CLI/IDE defaults, synced automatically to `~/.codex/config.toml` on every `cdx` run.
 
 ## See it in action
 
