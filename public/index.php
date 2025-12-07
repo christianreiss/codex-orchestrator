@@ -1566,6 +1566,33 @@ $router->add('POST', '#^/mcp/memories/store$#', function () use ($payload, $serv
     ]);
 });
 
+$router->add('POST', '#^/mcp/memories/delete$#', function () use ($payload, $service, $memoryService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $result = $memoryService->delete(is_array($payload) ? $payload : [], $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('DELETE', '#^/mcp/memories/([^/]+)$#', function ($matches) use ($service, $memoryService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $id = rawurldecode($matches[1]);
+    $result = $memoryService->delete(['id' => $id], $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('POST', '#^/mcp/memories/retrieve$#', function () use ($payload, $service, $memoryService) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
