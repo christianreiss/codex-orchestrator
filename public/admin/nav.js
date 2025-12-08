@@ -1,4 +1,9 @@
 (() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('embed') === '1') {
+    document.body.classList.add('embed');
+  }
+
   const nav = document.querySelector('.main-nav');
   if (!nav) return;
 

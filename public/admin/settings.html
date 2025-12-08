@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-09">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-29">
   <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
 <body data-view="desktop" data-view-mode="settings">
@@ -20,32 +20,9 @@
     </div>
     <nav class="nav-groups">
       <a class="nav-item" href="/admin/?view=dashboard" data-nav="dashboard">Dashboard</a>
-      <div class="nav-item has-children" data-nav="hosts">
-        <button type="button" class="nav-trigger" aria-expanded="false"><span>Hosts</span><span class="caret">▾</span></button>
-        <div class="nav-dropdown">
-          <a href="/admin/hosts.html?host=secure" data-nav-host="secure">Secure hosts</a>
-          <a href="/admin/hosts.html?host=insecure" data-nav-host="insecure">Insecure hosts</a>
-          <a href="/admin/hosts.html?host=unprovisioned" data-nav-host="unprovisioned">Unprovisioned</a>
-          <a href="/admin/hosts.html?newHost=1" data-nav-newhost>+ New host</a>
-        </div>
-      </div>
-      <div class="nav-item has-children" data-nav="logs">
-        <button type="button" class="nav-trigger" aria-expanded="false"><span>Logs</span><span class="caret">▾</span></button>
-        <div class="nav-dropdown">
-          <a href="/admin/logs.html">Client logs</a>
-          <a href="/admin/mcp-logs.html">MCP access</a>
-        </div>
-      </div>
-      <div class="nav-item has-children" data-nav="settings">
-        <button type="button" class="nav-trigger" aria-expanded="false"><span>Settings</span><span class="caret">▾</span></button>
-        <div class="nav-dropdown">
-          <a href="/admin/settings.html" data-nav-jump="settings">cdx settings</a>
-          <a href="/admin/agents.html" data-nav-jump="agents">Agents</a>
-          <a href="/admin/prompts.html" data-nav-jump="prompts">Slash commands</a>
-          <a href="/admin/memories.html" data-nav-jump="memories">Memories</a>
-          <a href="/admin/config.html">config.toml</a>
-        </div>
-      </div>
+      <a class="nav-item" href="/admin/hosts.html" data-nav="hosts">Hosts</a>
+      <a class="nav-item" href="/admin/logs.html" data-nav="logs">Logs</a>
+      <a class="nav-item" href="/admin/settings.html" data-nav="settings">Settings</a>
     </nav>
     <div class="nav-actions">
       <button class="nav-btn primary" id="navNewHost">New host</button>
@@ -53,7 +30,22 @@
   </header>
   <div class="app">
     <div class="content">
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h1>Administration</h1>
+          <p class="muted">One place for toggles, agents, slash commands, memories, and config.</p>
+        </div>
+      </section>
     <main class="main">
+      <div class="host-tabs settings-tabs" role="tablist" aria-label="Settings tabs">
+        <a class="host-tab settings-tab active" data-tab="settings" href="#settings">Settings</a>
+        <a class="host-tab settings-tab" data-tab="agents" href="#agents">Agents</a>
+        <a class="host-tab settings-tab" data-tab="prompts" href="#prompts">Slash commands</a>
+        <a class="host-tab settings-tab" data-tab="memories" href="#memories">Memories</a>
+        <a class="host-tab settings-tab" data-tab="config" href="#config">config.toml</a>
+      </div>
+      <div class="settings-pane active" data-pane="settings">
         <div class="modal-backdrop" id="seedModal">
           <div class="modal seed-modal">
             <h3>Initial seeding required</h3>
@@ -262,7 +254,7 @@
             </div>
             <div class="panel-actions" style="gap:10px;">
               <a class="ghost tiny-btn" href="/admin/mcp-logs.html" style="text-decoration:none;line-height:28px;">Access Logs</a>
-              <button class="ghost tiny-btn" id="memoriesToggle">Show</button>
+              
               <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
             </div>
           </div>
@@ -308,7 +300,7 @@
               <p class="muted" style="margin:4px 0 0;">Emergency toggles and runner utilities.</p>
             </div>
             <div class="panel-actions">
-              <button class="ghost tiny-btn" id="settingsToggle">Show</button>
+              
             </div>
           </div>
           <div class="settings-grid">
@@ -416,11 +408,406 @@
             </div>
           </div>
         </section>
+      </div>
+      <div class="settings-pane" data-pane="agents">
+        <section class="card panel" id="agents-panel">
+          <div class="panel-head">
+            <div>
+              <h2>AGENTS.md</h2>
+              <p class="muted" style="margin:4px 0 0;">Canonical instructions synced to hosts at <code>~/.codex/AGENTS.md</code></p>
+            </div>
+            <div class="panel-actions" style="gap:10px; align-items:center;">
+              <span class="muted" id="agentsMeta"></span>
+              <button class="ghost tiny-btn" id="editAgentsBtn">Edit</button>
+            </div>
+          </div>
+          <div class="agents-preview" id="agentsPreview">Loading…</div>
+        </section>
+      </div>
 
-      </main>
+      <div class="settings-pane" data-pane="prompts">
+        <div class="modal-backdrop" id="promptModal">
+          <div class="modal prompt-modal">
+            <h3 id="promptModalTitle">Slash Command</h3>
+            <div class="field">
+              <label for="promptFilename" style="font-weight:600;">Filename</label>
+              <input id="promptFilename" type="text" placeholder="example.sh">
+            </div>
+            <div class="field">
+              <label for="promptDescription" style="font-weight:600;">Description</label>
+              <input id="promptDescription" type="text" placeholder="Short summary">
+            </div>
+            <div class="field">
+              <label for="promptArgument" style="font-weight:600;">Argument (optional)</label>
+              <input id="promptArgument" type="text" placeholder="e.g. hostname">
+            </div>
+            <div class="field">
+              <label for="promptBody" style="font-weight:600;">Body</label>
+              <textarea id="promptBody" rows="10" placeholder="Slash command prompt…"></textarea>
+            </div>
+            <div id="promptStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+              <button class="ghost" id="promptCancel">Cancel</button>
+              <button id="promptSave">Save</button>
+            </div>
+          </div>
+        </div>
+        <section class="card panel" id="prompts-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Slash Commands</h2>
+              <p class="muted" style="margin:4px 0 0;">Server-stored prompts baked into hosts (synced by cdx)</p>
+            </div>
+            <div class="panel-actions">
+              <button class="ghost tiny-btn" id="newCommandBtn">+ New Command</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="prompts">
+              <thead>
+                <tr>
+                  <th>Filename</th>
+                  <th>Description</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="settings-pane" data-pane="memories">
+        <section class="card panel" id="memories-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Memories</h2>
+              <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
+            </div>
+            <div class="panel-actions" style="gap:10px;">
+              <a class="ghost tiny-btn" href="/admin/mcp-logs.html" style="text-decoration:none;line-height:28px;">Access Logs</a>
+              <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
+            </div>
+          </div>
+          <div class="memory-controls" id="memoriesFilters">
+            <div class="field">
+              <label for="memoriesQuery" style="font-weight:600;">Search</label>
+              <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
+            </div>
+            <div class="field narrow-field">
+              <label for="memoriesHostFilter" style="font-weight:600;">Host</label>
+              <select id="memoriesHostFilter">
+                <option value="">All hosts</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="memoriesTags" style="font-weight:600;">Tags</label>
+              <input id="memoriesTags" type="text" placeholder="tag1, tag2 (optional)">
+            </div>
+            <div class="field narrow-field">
+              <label for="memoriesLimit" style="font-weight:600;">Limit</label>
+              <input id="memoriesLimit" type="number" min="1" max="200" value="50">
+            </div>
+          </div>
+          <div class="table-wrap" id="memoriesTableWrap">
+            <table id="memories">
+              <thead>
+                <tr>
+                  <th>Content</th>
+                  <th>Tags</th>
+                  <th>Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="settings-pane" data-pane="config">
+        <section class="card panel" id="config-panel">
+          <div class="panel-head">
+            <div>
+              <h2>config.toml Builder</h2>
+              <p class="muted" style="margin:4px 0 0;">Generate, preview, and deploy the fleet-wide config.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="renderConfig" class="ghost tiny-btn">Preview</button>
+              <button id="saveConfig" class="primary">Save &amp; Deploy</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="inline-group" style="margin-bottom:12px;">
+              <div class="pill-quiet">Status: <span id="configStatus">Loading…</span></div>
+              <div class="pill-quiet">SHA: <span id="configSha">—</span></div>
+              <div class="pill-quiet">Updated: <span id="configUpdated">—</span></div>
+            </div>
+            <div class="config-grid">
+              <div class="config-card">
+                <h3>Model &amp; Behavior</h3>
+                <p>Pick the model and how it reasons, responds, and sizes outputs.</p>
+                <div class="field">
+                  <label for="modelInput">Model</label>
+                  <select id="modelInput">
+                    <option value="gpt-5.1-codex">gpt-5.1-codex</option>
+                    <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
+                    <option value="gpt-5.1-codex-mini">gpt-5.1-codex-mini</option>
+                    <option value="gpt-5.1">gpt-5.1</option>
+                  </select>
+                </div>
+                <div class="inline-group">
+                  <div class="field">
+                    <label for="reasoningEffortInput">Model Reasoning Effort</label>
+                    <select id="reasoningEffortInput">
+                      <option value="">—</option>
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                      <option value="xhigh">xhigh</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="reasoningSummaryInput">Reasoning Summary</label>
+                    <select id="reasoningSummaryInput">
+                      <option value="">—</option>
+                      <option value="auto">auto</option>
+                      <option value="concise">concise</option>
+                      <option value="detailed">detailed</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="verbosityInput">Verbosity</label>
+                    <select id="verbosityInput">
+                      <option value="">—</option>
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="inline-group">
+                  <div class="field">
+                    <label for="contextWindowInput">Context Window</label>
+                    <input id="contextWindowInput" type="number" min="0" placeholder="e.g. 128000">
+                  </div>
+                  <div class="field">
+                    <label for="maxTokensInput">Max Output Tokens</label>
+                    <input id="maxTokensInput" type="number" min="0" placeholder="e.g. 4096">
+                  </div>
+                  <div class="field">
+                    <label style="align-items:center; gap:8px;">
+                      <span>Force reasoning summaries</span>
+                      <input id="supportsSummariesInput" type="checkbox" style="width:auto; accent-color: var(--accent);">
+                    </label>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="notifyInput">Notify command</label>
+                  <textarea id="notifyInput" placeholder="One argument per line, e.g.&#10;python3&#10;/path/to/notify.py"></textarea>
+                  <div class="muted-note">Maps to <code>notify = [\"arg1\",\"arg2\",...]</code>.</div>
+                </div>
+              </div>
+
+              <div class="config-card">
+                <h3>Security &amp; Features</h3>
+                <p>Guardrails plus the extras you want surfaced to users.</p>
+                <div class="field">
+                  <label for="approvalPolicyInput">Approval policy</label>
+                  <select id="approvalPolicyInput">
+                    <option value="on-request">on-request</option>
+                    <option value="untrusted">untrusted</option>
+                    <option value="on-failure">on-failure</option>
+                    <option value="never">never</option>
+                  </select>
+                </div>
+                <div class="feature-list">
+                  <label class="feature-toggle">
+                    <input type="checkbox" id="featureStreamShell" style="width:auto; accent-color: var(--accent);">
+                    <div>
+                      <div class="feature-title">Stream shell output</div>
+                      <div class="feature-desc">Show long-running command output live instead of in one big dump.</div>
+                    </div>
+                  </label>
+                  <label class="feature-toggle">
+                    <input type="checkbox" id="featureWebSearch" style="width:auto; accent-color: var(--accent);">
+                    <div>
+                      <div class="feature-title">Allow web search</div>
+                      <div class="feature-desc">Let Codex reach out for fresh context when it needs it.</div>
+                    </div>
+                  </label>
+                  <label class="feature-toggle">
+                    <input type="checkbox" id="featureViewImage" style="width:auto; accent-color: var(--accent);" checked>
+                    <div>
+                      <div class="feature-title">Allow image viewer</div>
+                      <div class="feature-desc">Preview images directly in the conversation instead of downloading them.</div>
+                    </div>
+                  </label>
+                </div>
+                <div class="field">
+                  <label for="extraFeaturesInput">Advanced flags (optional)</label>
+                  <textarea id="extraFeaturesInput" placeholder='feature_name=true or JSON object e.g. {"feature":true}'></textarea>
+                  <div class="muted-note">For niche toggles. One per line works, or drop in a JSON object.</div>
+                </div>
+              </div>
+
+              <div class="config-card">
+                <h3>Sandbox &amp; Environment</h3>
+                <p>Control workspace access, env visibility, and permissions.</p>
+                <div class="field">
+                  <label for="sandboxModeInput">Sandbox mode</label>
+                  <select id="sandboxModeInput">
+                    <option value="workspace-write">workspace-write</option>
+                    <option value="read-only">read-only</option>
+                    <option value="danger-full-access">danger-full-access</option>
+                  </select>
+                </div>
+                <div class="feature-list">
+                  <label class="feature-toggle">
+                    <input type="checkbox" id="sandboxNetwork" style="width:auto; accent-color: var(--accent);">
+                    <div>
+                      <div class="feature-title">Allow network access</div>
+                      <div class="feature-desc">Let workspace commands reach the internet. Turn off for air-gapped runs.</div>
+                    </div>
+                  </label>
+                  <label class="feature-toggle">
+                    <input type="checkbox" id="sandboxTmpdir" style="width:auto; accent-color: var(--accent);">
+                    <div>
+                      <div class="feature-title">Exclude $TMPDIR</div>
+                      <div class="feature-desc">Skip the host's $TMPDIR to keep temp files private.</div>
+                    </div>
+                  </label>
+                  <label class="feature-toggle">
+                    <input type="checkbox" id="sandboxSlashTmp" style="width:auto; accent-color: var(--accent);">
+                    <div>
+                      <div class="feature-title">Exclude /tmp</div>
+                      <div class="feature-desc">Hide /tmp from the sandbox to avoid leaking host temp artifacts.</div>
+                    </div>
+                  </label>
+                </div>
+                <div class="field">
+                  <label for="writableRootsInput">Writable roots</label>
+                  <textarea id="writableRootsInput" placeholder="/path/one&#10;/path/two"></textarea>
+                </div>
+                <div class="field">
+                  <label for="envInheritInput">Shell env inherit</label>
+                  <input id="envInheritInput" type="text" placeholder="safe | none | full">
+                </div>
+                <div class="field">
+                  <label for="envIncludeInput">Include only</label>
+                  <textarea id="envIncludeInput" placeholder="PATH&#10;HOME"></textarea>
+                </div>
+                <div class="field">
+                  <label for="envExcludeInput">Exclude patterns</label>
+                  <textarea id="envExcludeInput" placeholder="AWS_*&#10;AZURE_*"></textarea>
+                </div>
+                <div class="field">
+                  <label for="envSetInput">Set env (key=value per line)</label>
+                  <textarea id="envSetInput" placeholder="PATH=/usr/bin&#10;MY_FLAG=1"></textarea>
+                </div>
+                <label class="feature-toggle" style="margin-top:6px;">
+                  <input type="checkbox" id="ignoreDefaultExcludesInput" style="width:auto; accent-color: var(--accent);">
+                  <div>
+                    <div class="feature-title">Ignore default env excludes</div>
+                    <div class="feature-desc">Skip the built-in env blacklist (AWS_*, etc.); only the filters you set above will apply.</div>
+                  </div>
+                </label>
+              </div>
+
+              <div class="config-card">
+                <h3>Profiles</h3>
+                <p>Define multiple profiles for different host roles.</p>
+                <div class="row-actions">
+                  <button class="ghost tiny-btn" id="addProfileBtn">+ Add profile</button>
+                  <span class="muted-note">Profiles render under <code>[profiles."name"]</code></span>
+                </div>
+                <div class="list-rows" id="profileRows"></div>
+              </div>
+
+              <div class="config-card">
+                <h3>MCP Servers</h3>
+                <p>Servers baked into config.toml; hosts sync them automatically.</p>
+                <div class="row-actions">
+                  <button class="ghost tiny-btn" id="addMcpBtn">+ Add MCP</button>
+                  <span class="muted-note">Count: <span id="mcpCount">0</span></span>
+                </div>
+                <details class="mcp-accordion" id="mcpAccordion" open>
+                  <summary><span id="orchestratorMcpSummary">Managed MCP (auto)</span><span class="muted" id="orchestratorMcpSummaryWrap">Loading…</span></summary>
+                  <div class="list-rows" id="mcpRows"></div>
+                </details>
+              </div>
+
+              <div class="config-card">
+                <h3>OTEL &amp; Observability</h3>
+                <p>Telemetry wiring for OTEL exporters.</p>
+                <div class="field">
+                  <label for="otelExporterInput">Exporter</label>
+                  <input id="otelExporterInput" type="text" placeholder="otlphttp">
+                </div>
+                <div class="inline-group">
+                  <div class="field">
+                    <label for="otelEndpointInput">Endpoint</label>
+                    <input id="otelEndpointInput" type="text" placeholder="https://otel.example.com/v1/logs">
+                  </div>
+                  <div class="field">
+                    <label for="otelProtocolInput">Protocol</label>
+                    <input id="otelProtocolInput" type="text" placeholder="http/protobuf">
+                  </div>
+                  <div class="field">
+                    <label for="otelHeadersInput">Headers</label>
+                    <textarea id="otelHeadersInput" placeholder="X-API-KEY=..."></textarea>
+                  </div>
+                </div>
+                <label class="feature-toggle" style="margin-top:6px;">
+                  <input type="checkbox" id="otelLogPromptsInput" style="width:auto; accent-color: var(--accent);">
+                  <div>
+                    <div class="feature-title">Log prompts</div>
+                    <div class="feature-desc">Send prompts to OTEL; disable to log metadata only.</div>
+                  </div>
+                </label>
+              </div>
+
+              <div class="config-card">
+                <h3>Custom TOML</h3>
+                <p>Paste raw TOML to append verbatim to the rendered file.</p>
+                <div class="field">
+                  <label for="customTomlInput">Custom TOML</label>
+                  <textarea id="customTomlInput" placeholder="# extra config"></textarea>
+                </div>
+              </div>
+            </div>
+            <div class="config-card" style="margin-top:14px;">
+              <div class="preview-actions">
+                <p class="tagline">Preview of rendered config.toml</p>
+                <div class="row-actions">
+                  <button class="ghost tiny-btn" id="copyPreview">Copy</button>
+                </div>
+              </div>
+              <div class="mono-block" id="configPreview">Waiting for render…</div>
+              <div class="muted" id="previewMeta" style="margin-top:6px;">—</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
     </div>
   </div>
-  <script src="nav.js?v=2025-12-08-05"></script>
-  <script src="dashboard.js?v=2025-12-08-05"></script>
+  <script src="nav.js?v=2025-12-08-06"></script>
+  <script src="dashboard.js?v=2025-12-08-06"></script>
+  <script src="config.js?v=2025-12-06-03"></script>
+  <script>
+    (() => {
+      const tabs = Array.from(document.querySelectorAll('.settings-tab'));
+      const panes = Array.from(document.querySelectorAll('.settings-pane'));
+      const activate = (name) => {
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+        panes.forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+      };
+      tabs.forEach(t => t.addEventListener('click', (e) => {
+        e.preventDefault();
+        activate(t.dataset.tab);
+      }));
+    })();
+  </script>
 </body>
 </html>

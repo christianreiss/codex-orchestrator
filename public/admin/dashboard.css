@@ -233,7 +233,7 @@ body {
       background: linear-gradient(135deg, #1f2937, #4b5563);
       box-shadow: none;
     }
-    .content { padding: 32px 18px 56px; width: 100%; max-width: 1220px; margin: 0 auto; }
+    .content { padding: 16px 18px 24px; width: 100%; max-width: 1220px; margin: 0 auto; }
     .page-hero {
       display: flex;
       align-items: flex-start;
@@ -962,7 +962,7 @@ body {
     .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
     .digest-cell { display: flex; flex-direction: column; gap: 6px; }
     .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
-    .usage-card { margin-top: 10px; }
+.usage-card { margin-top: 14px; margin-bottom: 0; }
     .usage-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
     .usage-plan { font-size: 20px; font-weight: 800; letter-spacing: -0.2px; }
     .usage-meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -1661,3 +1661,570 @@ body {
   font-weight: 600;
 }
 .mono { font-family: 'JetBrains Mono', monospace; }
+
+/* === Admin top nav: flat, square, no green glow === */
+
+.main-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  height: 56px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: none;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-title {
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.brand-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* top-level nav groups */
+
+.nav-groups {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  height: 100%;
+}
+
+/* top-level items (Dashboard / Hosts / Logs / Settings) */
+
+.nav-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #64748b;              /* neutral grey */
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible {
+  color: #0f172a;
+}
+
+.nav-item.active,
+.nav-item.has-children.open {
+  color: #0f172a;
+}
+
+/* bottom bar to show active / open state */
+.nav-item::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.nav-item.active::after,
+.nav-item.has-children.open::after {
+  background: #0f172a;         /* dark neutral, not green */
+}
+
+/* trigger button inside items with dropdowns */
+
+.nav-item .nav-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-item .caret {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* dropdown menu */
+
+.nav-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  margin-top: 8px;
+  padding: 4px 0;
+  display: none;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.nav-item.has-children.open .nav-dropdown {
+  display: flex;
+}
+
+.nav-dropdown a {
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.nav-dropdown a:hover {
+  background: #f1f5f9;
+}
+
+/* right-side buttons (New host, Settings, …) */
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-btn {
+  border-radius: 3px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 7px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.nav-btn.primary {
+  background: #0f172a;       /* dark neutral instead of green gradient */
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.nav-btn.ghost {
+  background: transparent;
+}
+
+/* === Secondary dashboard menu (Overview / Hosts / Logs / …) === */
+
+.menu-line {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0 12px;
+}
+
+.menu-link {
+  padding: 8px 14px;
+  text-decoration: none;
+  color: #64748b;
+  font-weight: 500;
+  border-right: 1px solid #e2e8f0;
+}
+
+.menu-link:last-child {
+  border-right: 0;
+}
+
+.menu-link:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.menu-link.active {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* small screens: scroll instead of wrapping into chaos */
+
+@media (max-width: 720px) {
+  .menu-line {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .menu-link {
+    white-space: nowrap;
+  }
+}
+
+/* strip legacy pill styles from old nav rules (force flat/underline look) */
+.main-nav {
+  padding: 0 20px;
+  height: 56px;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: none !important;
+}
+
+.nav-item {
+  padding: 0;
+  margin: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+  transition: color 120ms ease !important;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible,
+.nav-item.active,
+.nav-item.has-children.open {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.nav-item::after {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.nav-item.active::after,
+.nav-item.has-children.open::after {
+  background: #0f172a !important;
+  box-shadow: none !important;
+}
+
+.nav-trigger,
+.nav-item .nav-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  background-image: none;
+  appearance: none;
+  -webkit-appearance: none;
+  width: auto;
+}
+
+.nav-dropdown {
+  z-index: 300;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.nav-dropdown a {
+  background: transparent;
+}
+
+.nav-dropdown a:hover,
+.nav-dropdown a:focus-visible {
+  background: #f1f5f9;
+}
+
+.nav-btn,
+.nav-btn.primary,
+.nav-btn.ghost {
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+
+.nav-btn.primary {
+  background: #0f172a !important;
+  border-color: #0f172a !important;
+  color: #ffffff !important;
+}
+
+/* ==== Final header nav overrides: make it look like the segmented lower bar and kill underline/pill artifacts ==== */
+.main-nav {
+  grid-template-columns: 220px auto auto;
+  height: 60px;
+}
+
+.nav-groups {
+  gap: 0 !important;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  align-self: stretch;
+  height: 40px;
+}
+
+.nav-item {
+  padding: 8px 14px !important;
+  border-right: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+  font-weight: 600 !important;
+}
+
+.nav-item:last-child {
+  border-right: 0 !important;
+}
+
+.nav-item::after {
+  display: none !important;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible,
+.nav-item.active,
+.nav-item.has-children.open {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.nav-item .caret {
+  color: #94a3b8 !important;
+}
+
+.nav-dropdown {
+  margin-top: 6px;
+  border-radius: 3px;
+}
+
+.menu-line {
+  display: none !important; /* hide duplicate lower bar now that header owns the segmented look */
+}
+
+/* ==== Ultra-flat header nav: plain text, no pills, no hover background ==== */
+.main-nav {
+  grid-template-columns: 220px 1fr auto;
+  height: 56px;
+  padding: 0 20px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: none !important;
+}
+
+.nav-groups {
+  gap: 18px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+  height: 100% !important;
+  align-items: center !important;
+}
+
+.nav-item {
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: #0f172a !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  gap: 6px !important;
+}
+
+.nav-item::after {
+  display: none !important;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible,
+.nav-item.active,
+.nav-item.has-children.open {
+  background: transparent !important;
+  color: #0f172a !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.nav-item .nav-trigger,
+.nav-trigger {
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.nav-item .caret {
+  color: #94a3b8 !important;
+}
+
+.nav-dropdown {
+  margin-top: 6px !important;
+  border-radius: 4px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+.nav-dropdown a {
+  background: transparent !important;
+  color: #0f172a !important;
+}
+
+.nav-dropdown a:hover,
+.nav-dropdown a:focus-visible {
+  background: #f1f5f9 !important;
+}
+
+.host-tabs,
+.log-tabs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0 12px;
+}
+
+.host-tab,
+.log-tab {
+  padding: 6px 0;
+  text-decoration: none;
+  color: #64748b;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+}
+
+.host-tab:hover,
+.host-tab:focus-visible,
+.log-tab:hover,
+.log-tab:focus-visible {
+  color: #0f172a;
+}
+
+.host-tab.active,
+.log-tab.active {
+  color: #0f172a;
+  border-color: #0f172a;
+}
+body[data-view-mode="hosts"] .content {
+  padding-bottom: 16px;
+}
+body[data-view-mode="hosts"] main.main {
+  padding-bottom: 8px;
+}
+body[data-view-mode="logs"] .content {
+  padding-bottom: 16px;
+}
+body[data-view-mode="logs"] main.main {
+  padding-bottom: 8px;
+}
+.logs-main { gap: 12px; }
+.panel:last-child { margin-bottom: 0; }
+
+/* Settings tab hub */
+.settings-tabs {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin: 6px 0 12px;
+}
+
+.settings-tab {
+  padding: 6px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #64748b;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-tab:focus-visible,
+.settings-tab:hover {
+  color: #0f172a;
+}
+
+.settings-tab.active {
+  color: #0f172a;
+  border-color: #0f172a;
+}
+
+.settings-pane { display: none; }
+.settings-pane.active { display: block; }
+.tab-frame {
+  width: 100%;
+  min-height: 900px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+body.embed .main-nav { display: none !important; }
+body.embed .menu-line { display: none !important; }
+body.embed .app { padding-top: 0; }
+body.embed .content { padding-top: 8px; padding-bottom: 0; }
+body.embed .page-hero { display: none !important; }
+body.embed .nav-actions { display: none !important; }
+body.embed .hero-actions { display: none !important; }
+
+/* config builder styles reused inside settings tab */
+.config-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-top: 12px; }
+.config-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+.config-card h3 { margin: 0 0 8px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.config-card p { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.config-card .field { margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+.config-card .field label { font-weight: 600; font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+.config-card .field input,
+.config-card .field select,
+.config-card .field textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: #fff; font-size: 14px; color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+.config-card .field textarea { min-height: 80px; resize: vertical; }
+.muted-note { color: var(--muted); font-size: 12px; }
+.inline-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.pill-quiet { background: var(--frost); color: var(--muted); border-radius: 999px; padding: 6px 10px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.list-rows { display: flex; flex-direction: column; gap: 10px; }
+.row-card { border: 1px dashed var(--border); border-radius: 12px; padding: 10px; background: #fff; }
+.mono-block { background: #0f172a; color: #e5e7eb; border-radius: 12px; padding: 12px; font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 13px; white-space: pre; overflow-x: auto; }
+.preview-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tagline { color: var(--muted); font-size: 14px; margin: 0; }
+.feature-list { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+.feature-toggle { border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 10px; display: flex; gap: 10px; align-items: flex-start; box-shadow: var(--shadow); }
+.feature-toggle input { margin-top: 3px; }
+.feature-title { font-weight: 600; color: var(--text); font-size: 13px; }
+.feature-desc { color: var(--muted); font-size: 12px; }
+.mcp-accordion { margin-top: 8px; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: var(--shadow-soft, 0 1px 2px rgba(0,0,0,0.04)); }
+.mcp-accordion[hidden] { display: none; }
+.mcp-accordion summary { cursor: pointer; list-style: none; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mcp-accordion summary::-webkit-details-marker { display: none; }
+.mcp-accordion .list-rows { padding: 0 12px 12px; margin-bottom: 0; }
+
+/* dashboard specific spacing: tighter top padding when hero removed */
+body[data-view-mode="dashboard"] .content {
+  padding-top: 8px;
+  padding-bottom: 0;
+}
+body[data-view-mode="dashboard"] .app {
+  padding-bottom: 0;
+}
+body[data-view-mode="dashboard"] main.main {
+  padding-bottom: 0;
+}
+body[data-view-mode="dashboard"] .card:last-child,
+body[data-view-mode="dashboard"] .panel:last-child {
+  margin-bottom: 0;
+}
+body[data-view-mode="hosts"] .content {
+  padding-bottom: 16px;
+}
+body[data-view-mode="hosts"] main.main {
+  padding-bottom: 8px;
+}

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-09">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-29">
   <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
 <body data-view="desktop" data-view-mode="hosts">
@@ -20,32 +20,9 @@
     </div>
     <nav class="nav-groups">
       <a class="nav-item" href="/admin/?view=dashboard" data-nav="dashboard">Dashboard</a>
-      <div class="nav-item has-children" data-nav="hosts">
-        <button type="button" class="nav-trigger" aria-expanded="false"><span>Hosts</span><span class="caret">▾</span></button>
-        <div class="nav-dropdown">
-          <a href="/admin/hosts.html?host=secure" data-nav-host="secure">Secure hosts</a>
-          <a href="/admin/hosts.html?host=insecure" data-nav-host="insecure">Insecure hosts</a>
-          <a href="/admin/hosts.html?host=unprovisioned" data-nav-host="unprovisioned">Unprovisioned</a>
-          <a href="/admin/hosts.html?newHost=1" data-nav-newhost>+ New host</a>
-        </div>
-      </div>
-      <div class="nav-item has-children" data-nav="logs">
-        <button type="button" class="nav-trigger" aria-expanded="false"><span>Logs</span><span class="caret">▾</span></button>
-        <div class="nav-dropdown">
-          <a href="/admin/logs.html">Client logs</a>
-          <a href="/admin/mcp-logs.html">MCP access</a>
-        </div>
-      </div>
-      <div class="nav-item has-children" data-nav="settings">
-        <button type="button" class="nav-trigger" aria-expanded="false"><span>Settings</span><span class="caret">▾</span></button>
-        <div class="nav-dropdown">
-          <a href="/admin/settings.html" data-nav-jump="settings">cdx settings</a>
-          <a href="/admin/agents.html" data-nav-jump="agents">Agents</a>
-          <a href="/admin/prompts.html" data-nav-jump="prompts">Slash commands</a>
-          <a href="/admin/memories.html" data-nav-jump="memories">Memories</a>
-          <a href="/admin/config.html">config.toml</a>
-        </div>
-      </div>
+      <a class="nav-item" href="/admin/hosts.html" data-nav="hosts">Hosts</a>
+      <a class="nav-item" href="/admin/logs.html" data-nav="logs">Logs</a>
+      <a class="nav-item" href="/admin/settings.html" data-nav="settings">Settings</a>
     </nav>
     <div class="nav-actions">
       <button class="nav-btn primary" id="navNewHost">New host</button>
@@ -53,6 +30,13 @@
   </header>
   <div class="app">
     <div class="content">
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Hosts</p>
+          <h1>Fleet Hosts</h1>
+          <p class="muted">Register, filter, and manage secure or insecure nodes.</p>
+        </div>
+      </section>
     <main class="main">
         <div class="modal-backdrop" id="seedModal">
           <div class="modal seed-modal">
@@ -237,6 +221,12 @@
               <input type="search" id="host-filter" placeholder="Search host, IP, or version">
             </div>
           </div>
+          <div class="host-tabs" role="tablist" aria-label="Host status tabs">
+            <a class="host-tab" data-host-tab="" href="/admin/hosts.html">All</a>
+            <a class="host-tab" data-host-tab="secure" href="/admin/hosts.html?host=secure">Secure</a>
+            <a class="host-tab" data-host-tab="insecure" href="/admin/hosts.html?host=insecure">Insecure</a>
+            <a class="host-tab" data-host-tab="unprovisioned" href="/admin/hosts.html?host=unprovisioned">Unprovisioned</a>
+          </div>
           <div class="table-wrap">
             <table id="hosts">
               <thead>
@@ -420,7 +410,7 @@
       </main>
     </div>
   </div>
-  <script src="nav.js?v=2025-12-08-05"></script>
-  <script src="dashboard.js?v=2025-12-08-05"></script>
+  <script src="nav.js?v=2025-12-08-06"></script>
+  <script src="dashboard.js?v=2025-12-08-06"></script>
 </body>
 </html>

@@ -128,9 +128,9 @@ const statsEl = document.getElementById('stats');
     let currentPrompts = [];
     let currentMemories = [];
     let currentAgents = null;
-    let agentsExpanded = false;
-    let promptsExpanded = false;
-    let settingsExpanded = false;
+    let agentsExpanded = true;
+    let promptsExpanded = true;
+    let settingsExpanded = true;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -139,6 +139,7 @@ const statsEl = document.getElementById('stats');
     let insecureExpanded = true;
     let secureExpanded = false;
     let hostStatusFilter = ''; // maintained for clarity
+    const hostTabLinks = Array.from(document.querySelectorAll('.host-tab'));
 
     const urlParams = new URLSearchParams(window.location.search);
     const bodyView = (document.body?.dataset?.viewMode || '').toLowerCase();
@@ -160,6 +161,23 @@ const statsEl = document.getElementById('stats');
     if (initialHostParam) {
       hostStatusFilter = initialHostParam;
     }
+    function updateHostQueryParam(value) {
+      const url = new URL(window.location.href);
+      if (value) {
+        url.searchParams.set('host', value);
+      } else {
+        url.searchParams.delete('host');
+      }
+      window.history.replaceState({}, '', url.toString());
+    }
+    function syncHostTabs() {
+      hostTabLinks.forEach((link) => {
+        const status = (link.dataset.hostTab || '').toLowerCase();
+        const active = status === (hostStatusFilter || '');
+        link.classList.toggle('active', active);
+      });
+    }
+    syncHostTabs();
     let lastOverview = null;
     let chatgptUsage = null;
     let apiDisabled = null;
@@ -893,6 +911,8 @@ const statsEl = document.getElementById('stats');
 
     function setHostStatusFilter(value) {
       hostStatusFilter = (value || '').toLowerCase();
+      updateHostQueryParam(hostStatusFilter);
+      syncHostTabs();
       paintHosts();
     }
 
@@ -1331,20 +1351,7 @@ const statsEl = document.getElementById('stats');
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
       const filtered = applyHostFilters(currentHosts);
-      const insecureHosts = filtered.filter(h => !isHostSecure(h));
-      const secureHosts = filtered.filter(h => isHostSecure(h));
-
-      const sortedInsecure = [...insecureHosts].sort((a, b) => {
-        const aActive = isInsecureActive(a) ? 1 : 0;
-        const bActive = isInsecureActive(b) ? 1 : 0;
-        if (aActive !== bActive) return bActive - aActive;
-        return String(a.fqdn || '').localeCompare(String(b.fqdn || ''), undefined, { sensitivity: 'base' });
-      });
-      const sortedSecure = [...secureHosts].sort((a, b) =>
-        String(a.fqdn || '').localeCompare(String(b.fqdn || ''), undefined, { sensitivity: 'base' })
-      );
-
-      const hasInsecure = insecureHosts.length > 0;
+      const hasInsecure = filtered.some((h) => !isHostSecure(h));
       const insecureHeader = document.querySelector('th.insecure-col');
       if (insecureHeader) {
         insecureHeader.style.display = hasInsecure ? '' : 'none';
@@ -1352,43 +1359,14 @@ const statsEl = document.getElementById('stats');
 
       hostsTbody.innerHTML = '';
       const cols = hasInsecure ? 6 : 5;
-      if (!sortedInsecure.length && !sortedSecure.length) {
+      if (!filtered.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
-        hostSort = { key: 'grouped', direction: 'asc' };
         updateSortIndicators();
         return;
       }
 
-      const appendGroup = (key, label, expanded, list) => {
-        const header = document.createElement('tr');
-        header.className = 'group-row';
-        const td = document.createElement('td');
-        td.colSpan = cols;
-        const btn = document.createElement('button');
-        btn.className = 'group-toggle';
-        btn.setAttribute('data-group', key);
-        btn.textContent = `${expanded ? '▼' : '▶'} ${label} (${list.length})`;
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          if (key === 'insecure') {
-            insecureExpanded = !insecureExpanded;
-          } else {
-            secureExpanded = !secureExpanded;
-          }
-          paintHosts();
-        });
-        td.appendChild(btn);
-        header.appendChild(td);
-        hostsTbody.appendChild(header);
-        if (expanded) {
-          list.forEach(host => hostsTbody.appendChild(createHostRow(host, hasInsecure)));
-        }
-      };
-
-      appendGroup('insecure', 'Insecure Hosts', insecureExpanded, sortedInsecure);
-      appendGroup('secure', 'Secure Hosts', secureExpanded, sortedSecure);
-
-      hostSort = { key: 'grouped', direction: 'asc' };
+      const sorted = sortHosts(filtered);
+      sorted.forEach((host) => hostsTbody.appendChild(createHostRow(host, hasInsecure)));
       updateSortIndicators();
     }
 
@@ -3012,6 +2990,16 @@ const statsEl = document.getElementById('stats');
         hostFilterText = event.target.value.trim().toLowerCase();
         paintHosts();
       });
+    }
+    if (hostTabLinks.length) {
+      hostTabLinks.forEach((link) => {
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          const status = (link.dataset.hostTab || '').toLowerCase();
+          setHostStatusFilter(status);
+        });
+      });
+      syncHostTabs();
     }
     document.querySelectorAll('.sort-link[data-sort]').forEach((link) => {
       const activate = () => {
