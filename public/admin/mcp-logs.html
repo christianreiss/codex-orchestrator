@@ -4,55 +4,91 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MCP Access Logs</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 16px; }
-    h1 { margin: 0 0 12px 0; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid #30363d; font-size: 13px; vertical-align: top; }
-    th { text-align: left; color: #8b949e; font-weight: 600; letter-spacing: 0.02em; }
-    tbody tr:hover { background: #1c2128; cursor: pointer; }
-    .muted { color: #8b949e; font-size: 12px; }
-    code { color: #91c9ff; font-size: 12px; }
-    .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-    .pill { display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
-    .pill.ok { background: #1f6feb33; color: #58a6ff; }
-    .pill.err { background: #f8514933; color: #ffa198; }
-    .modal-backdrop { position: fixed; inset: 0; background: rgba(13, 17, 23, 0.72); display: none; align-items: center; justify-content: center; z-index: 50; padding: 12px; }
-    .modal-backdrop.show { display: flex; }
-    .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; width: min(720px, 100%); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45); }
-    .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-    .modal-head h3 { margin: 0; font-size: 18px; }
-    .close-btn { background: transparent; border: 1px solid #30363d; border-radius: 6px; color: #8b949e; padding: 6px 10px; cursor: pointer; }
-    .close-btn:hover { background: #1c2128; color: #e6edf3; }
-    .detail-grid { display: grid; grid-template-columns: 150px 1fr; column-gap: 14px; row-gap: 8px; }
-    .detail-label { color: #8b949e; font-size: 12px; }
-    .detail-value { word-break: break-word; }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="dashboard-mobile.css">
 </head>
-<body>
-  <h1>MCP Access Logs</h1>
-  <div class="card">
-    <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
-      <label for="limit">Limit</label>
-      <input id="limit" type="number" min="1" max="500" value="200" style="width:80px;" />
-      <button id="refresh">Refresh</button>
-      <span id="status" class="muted"></span>
+<body data-view="desktop">
+  <header class="main-nav">
+    <div class="nav-brand">
+      <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
+      <div>
+        <div class="brand-title">Codex Coordinator</div>
+        <div class="brand-sub">Admin</div>
+      </div>
     </div>
-    <table id="logTable">
-      <thead>
-        <tr>
-          <th>Time (UTC)</th>
-          <th>Host</th>
-          <th>Method</th>
-          <th>Name</th>
-          <th>IP</th>
-          <th>Status</th>
-          <th>Error</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <nav class="nav-groups">
+      <a class="nav-item" href="/admin/" data-nav="dashboard">Dashboard</a>
+      <div class="nav-item has-children" data-nav="hosts">
+        <button type="button" class="nav-trigger">Hosts ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/?host=secure#hosts-panel" data-nav-host="secure">Secure hosts</a>
+          <a href="/admin/?host=insecure#hosts-panel" data-nav-host="insecure">Insecure hosts</a>
+          <a href="/admin/?host=unprovisioned#hosts-panel" data-nav-host="unprovisioned">Unprovisioned</a>
+          <a href="/admin/?newHost=1#hosts-panel" data-nav-newhost>+ New host</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="logs">
+        <button type="button" class="nav-trigger">Logs ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/logs.html">Client logs</a>
+          <a href="/admin/mcp-logs.html">MCP access</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="settings">
+        <button type="button" class="nav-trigger">Settings ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/#settings-panel" data-nav-jump="settings">cdx settings</a>
+          <a href="/admin/#agents-panel" data-nav-jump="agents">Agents</a>
+          <a href="/admin/#prompts-panel" data-nav-jump="prompts">Slash commands</a>
+          <a href="/admin/#memories-panel" data-nav-jump="memories">Memories</a>
+          <a href="/admin/config.html">config.toml</a>
+        </div>
+      </div>
+    </nav>
+    <div class="nav-actions">
+      <button class="nav-btn primary" onclick="window.location.href='/admin/?newHost=1#hosts-panel'">New host</button>
+      <button class="nav-btn ghost" onclick="window.location.href='/admin/logs.html'">Client logs</button>
+    </div>
+  </header>
+
+  <div class="app">
+    <div class="content">
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Logs</p>
+          <h1>MCP Access</h1>
+          <p class="muted">Latest MCP requests from hosts. Click a row for details.</p>
+        </div>
+        <div class="hero-actions">
+          <label class="muted" for="limit">Limit</label>
+          <input id="limit" type="number" min="1" max="500" value="200" style="width:100px;">
+          <button id="refresh" class="ghost tiny-btn" type="button">Refresh</button>
+          <span id="status" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="card panel log-panel">
+        <div class="table-wrap log-table-wrap">
+          <table id="logTable">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Host</th>
+                <th>Method</th>
+                <th>Name</th>
+                <th>IP</th>
+                <th>Status</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   </div>
 
   <div class="modal-backdrop" id="detailModal" aria-hidden="true">
@@ -62,12 +98,13 @@
           <h3 id="modalTitle">MCP Request</h3>
           <div class="muted" id="modalSubtitle"></div>
         </div>
-        <button id="modalClose" class="close-btn" aria-label="Close">×</button>
+        <button id="modalClose" class="close-btn ghost tiny-btn" aria-label="Close">×</button>
       </div>
       <div id="modalBody" class="detail-grid"></div>
     </div>
   </div>
 
+  <script src="nav.js?v=2025-12-08-01"></script>
   <script>
     (function () {
       const tbody = document.querySelector('#logTable tbody');

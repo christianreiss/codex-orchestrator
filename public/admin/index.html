@@ -11,21 +11,62 @@
   <link rel="stylesheet" href="dashboard-mobile.css">
 </head>
 <body data-view="desktop">
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
+  <header class="main-nav">
+    <div class="nav-brand">
+      <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
+      <div>
+        <div class="brand-title">Codex Coordinator</div>
+        <div class="brand-sub">Admin</div>
+      </div>
+    </div>
+    <nav class="nav-groups">
+      <a class="nav-item" href="/admin/" data-nav="dashboard">Dashboard</a>
+      <div class="nav-item has-children" data-nav="hosts">
+        <button type="button" class="nav-trigger">Hosts ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/?host=secure#hosts-panel" data-nav-host="secure">Secure hosts</a>
+          <a href="/admin/?host=insecure#hosts-panel" data-nav-host="insecure">Insecure hosts</a>
+          <a href="/admin/?host=unprovisioned#hosts-panel" data-nav-host="unprovisioned">Unprovisioned</a>
+          <a href="/admin/?newHost=1#hosts-panel" data-nav-newhost>+ New host</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="logs">
+        <button type="button" class="nav-trigger">Logs ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/logs.html">Client logs</a>
+          <a href="/admin/mcp-logs.html">MCP access</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="settings">
+        <button type="button" class="nav-trigger">Settings ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/#settings-panel" data-nav-jump="settings">cdx settings</a>
+          <a href="/admin/#agents-panel" data-nav-jump="agents">Agents</a>
+          <a href="/admin/#prompts-panel" data-nav-jump="prompts">Slash commands</a>
+          <a href="/admin/#memories-panel" data-nav-jump="memories">Memories</a>
+          <a href="/admin/config.html">config.toml</a>
+        </div>
+      </div>
+    </nav>
+    <div class="nav-actions">
+      <button class="nav-btn primary" id="navNewHost">New host</button>
+      <button class="nav-btn ghost" id="navSeedAuth">Seed auth.json</button>
+      <div id="mtls" class="pill" style="display:none;">mTLS Status</div>
+    </div>
+  </header>
   <div class="app">
     <div class="content">
-      <header class="topbar">
-        <div class="title-line">
-          <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
-          <h2>Codex-Coordinator</h2>
-          <div id="mtls" class="pill" style="display:none;">mTLS Status</div>
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Dashboard</p>
+          <h1>Fleet overview</h1>
+          <p class="muted">Lightweight, square, and consistent across every admin page.</p>
         </div>
-        <div class="action-line">
-          <button class="ghost" type="button" onclick="window.location.href='/admin/logs.html'">Logs</button>
+        <div class="hero-actions">
           <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
+          <button class="ghost" type="button" onclick="window.location.href='/admin/logs.html'">View Logs</button>
         </div>
-      </header>
+      </section>
     <main class="main">
         <div class="modal-backdrop" id="seedModal">
           <div class="modal seed-modal">
@@ -474,7 +515,7 @@
       </main>
     </div>
   </div>
-
+  <script src="nav.js?v=2025-12-08-01"></script>
   <script src="dashboard.js?v=2025-12-07-02"></script>
 </body>
 </html>

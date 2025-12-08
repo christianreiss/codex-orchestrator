@@ -741,8 +741,22 @@ const statsEl = document.getElementById('stats');
       `;
     }
 
+    function hostMatchesStatus(host) {
+      switch ((hostStatusFilter || '').toLowerCase()) {
+        case 'secure':
+          return isHostSecure(host);
+        case 'insecure':
+          return !isHostSecure(host);
+        case 'unprovisioned':
+          return !host?.authed;
+        default:
+          return true;
+      }
+    }
+
     function applyHostFilters(list) {
       return list.filter(host => {
+        if (!hostMatchesStatus(host)) return false;
         if (!hostFilterText) return true;
         const haystacks = [host.fqdn, host.ip, host.client_version, host.wrapper_version]
           .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
@@ -812,6 +826,11 @@ const statsEl = document.getElementById('stats');
         hostSort = { key, direction: defaultDirection };
       }
       updateSortIndicators();
+      paintHosts();
+    }
+
+    function setHostStatusFilter(value) {
+      hostStatusFilter = (value || '').toLowerCase();
       paintHosts();
     }
 
@@ -2421,6 +2440,17 @@ const statsEl = document.getElementById('stats');
       return Math.round(num);
     }
 
+    function applyQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      const hostParam = params.get('host');
+      if (hostParam) {
+        setHostStatusFilter(hostParam);
+      }
+      if (params.has('newHost')) {
+        setTimeout(() => showNewHostModal(true), 180);
+      }
+    }
+
     function setInsecureWindowMinutes(value, persist = false) {
       insecureWindowMinutes = clampInsecureWindowMinutes(value);
       if (insecureWindowSlider && insecureWindowSlider.value !== String(insecureWindowMinutes)) {
@@ -3175,6 +3205,53 @@ const statsEl = document.getElementById('stats');
     }
     loadApiState();
     loadCdxSilent();
+
+    function wireNavShortcuts() {
+      const navNewHost = document.getElementById('navNewHost');
+      if (navNewHost) {
+        navNewHost.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          showNewHostModal(true);
+        });
+      }
+      const navSeedAuth = document.getElementById('navSeedAuth');
+      if (navSeedAuth) {
+        navSeedAuth.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          showUploadModal(true);
+        });
+      }
+      document.querySelectorAll('[data-nav-host]').forEach((el) => {
+        el.addEventListener('click', (ev) => {
+          const target = el.getAttribute('data-nav-host');
+          const samePage = ['/admin', '/admin/'].includes(window.location.pathname);
+          if (!samePage) return;
+          ev.preventDefault();
+          setHostStatusFilter(target);
+          secureExpanded = true;
+          insecureExpanded = true;
+          const panel = document.getElementById('hosts-panel');
+          if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+      document.querySelectorAll('[data-nav-jump]').forEach((el) => {
+        el.addEventListener('click', (ev) => {
+          const targetKey = el.getAttribute('data-nav-jump');
+          const samePage = ['/admin', '/admin/'].includes(window.location.pathname);
+          if (!samePage) return;
+          ev.preventDefault();
+          const targetId = `${targetKey}-panel`;
+          const section = document.getElementById(targetId);
+          if (targetKey === 'settings') setSettingsExpanded(true);
+          if (targetKey === 'agents') setAgentsExpanded(true);
+          if (targetKey === 'prompts') setPromptsExpanded(true);
+          if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
+    wireNavShortcuts();
+    applyQueryParams();
 
     function resetNewHostForm({ focusInput = false } = {}) {
       if (commandField) {

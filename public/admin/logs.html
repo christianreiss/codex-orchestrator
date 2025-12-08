@@ -11,20 +11,57 @@
   <link rel="stylesheet" href="dashboard-mobile.css">
 </head>
 <body data-view="desktop">
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
+  <header class="main-nav">
+    <div class="nav-brand">
+      <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
+      <div>
+        <div class="brand-title">Codex Coordinator</div>
+        <div class="brand-sub">Admin</div>
+      </div>
+    </div>
+    <nav class="nav-groups">
+      <a class="nav-item" href="/admin/" data-nav="dashboard">Dashboard</a>
+      <div class="nav-item has-children" data-nav="hosts">
+        <button type="button" class="nav-trigger">Hosts ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/?host=secure#hosts-panel" data-nav-host="secure">Secure hosts</a>
+          <a href="/admin/?host=insecure#hosts-panel" data-nav-host="insecure">Insecure hosts</a>
+          <a href="/admin/?host=unprovisioned#hosts-panel" data-nav-host="unprovisioned">Unprovisioned</a>
+          <a href="/admin/?newHost=1#hosts-panel" data-nav-newhost>+ New host</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="logs">
+        <button type="button" class="nav-trigger">Logs ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/logs.html">Client logs</a>
+          <a href="/admin/mcp-logs.html">MCP access</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="settings">
+        <button type="button" class="nav-trigger">Settings ▾</button>
+        <div class="nav-dropdown">
+          <a href="/admin/#settings-panel" data-nav-jump="settings">cdx settings</a>
+          <a href="/admin/#agents-panel" data-nav-jump="agents">Agents</a>
+          <a href="/admin/#prompts-panel" data-nav-jump="prompts">Slash commands</a>
+          <a href="/admin/#memories-panel" data-nav-jump="memories">Memories</a>
+          <a href="/admin/config.html">config.toml</a>
+        </div>
+      </div>
+    </nav>
+    <div class="nav-actions">
+      <button class="nav-btn primary" onclick="window.location.href='/admin/?newHost=1#hosts-panel'">New host</button>
+      <button class="nav-btn ghost" onclick="window.location.href='/admin/'">Dashboard</button>
+    </div>
+  </header>
   <div class="app">
     <div class="content">
-      <header class="topbar">
-        <div class="title-line">
-          <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
-          <h2>Client Logs</h2>
-          <div class="pill pill-soft">Reports</div>
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Logs</p>
+          <h1>Client Reports</h1>
+          <p class="muted">Search, sort, and page through recent ingests.</p>
         </div>
-        <div class="action-line">
-          <a class="nav-btn" href="/admin/">Dashboard</a>
-        </div>
-      </header>
+      </section>
       <main class="main logs-main">
         <section class="card panel log-panel">
           <div class="panel-head">
@@ -73,6 +110,7 @@
       </main>
     </div>
   </div>
+  <script src="nav.js?v=2025-12-08-01"></script>
   <script src="logs.js?v=2025-11-29-05"></script>
 </body>
 </html>
