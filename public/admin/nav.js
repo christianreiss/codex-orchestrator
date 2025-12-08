@@ -102,7 +102,7 @@
   ).toLowerCase();
   const hereStatus = (currentUrl.searchParams.get('host') || currentUrl.searchParams.get('status') || '').toLowerCase();
 
-  nav.querySelectorAll('a.nav-item, .nav-dropdown a').forEach((link) => {
+  document.querySelectorAll('a.nav-item, .nav-dropdown a, a.menu-link').forEach((link) => {
     const href = link.getAttribute('href');
     let linkUrl = null;
     try {

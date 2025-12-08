@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-08">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-09">
   <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
 <body data-view="desktop" data-view-mode="dashboard">
@@ -53,7 +53,23 @@
   </header>
   <div class="app">
     <div class="content">
-    <main class="main">
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Dashboard</p>
+          <h1>Fleet overview</h1>
+          <p class="muted">Lightweight, square, and consistent across every admin page.</p>
+        </div>
+      </section>
+      <nav class="menu-line" aria-label="Dashboard menu">
+        <a class="menu-link" href="/admin/?view=dashboard">Overview</a>
+        <a class="menu-link" href="/admin/?view=hosts">Hosts</a>
+        <a class="menu-link" href="/admin/logs.html">Logs</a>
+        <a class="menu-link" href="/admin/?view=agents">Agents</a>
+        <a class="menu-link" href="/admin/?view=prompts">Slash commands</a>
+        <a class="menu-link" href="/admin/?view=memories">Memories</a>
+        <a class="menu-link" href="/admin/?view=settings">Settings</a>
+      </nav>
+      <main class="main">
         <div class="modal-backdrop" id="seedModal">
           <div class="modal seed-modal">
             <h3>Initial seeding required</h3>
@@ -420,7 +436,7 @@
       </main>
     </div>
   </div>
-  <script src="nav.js?v=2025-12-08-04"></script>
+  <script src="nav.js?v=2025-12-08-05"></script>
   <script src="dashboard.js?v=2025-12-08-05"></script>
 </body>
 </html>
