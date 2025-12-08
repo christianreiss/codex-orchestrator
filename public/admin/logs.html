@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css">
-  <link rel="stylesheet" href="dashboard-mobile.css">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-08">
+  <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
 <body data-view="desktop">
   <header class="main-nav">
@@ -16,34 +16,33 @@
       <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
       <div>
         <div class="brand-title">Codex Coordinator</div>
-        <div class="brand-sub">Admin</div>
       </div>
     </div>
     <nav class="nav-groups">
-      <a class="nav-item" href="/admin/" data-nav="dashboard">Dashboard</a>
+      <a class="nav-item" href="/admin/?view=dashboard" data-nav="dashboard">Dashboard</a>
       <div class="nav-item has-children" data-nav="hosts">
-        <button type="button" class="nav-trigger">Hosts ▾</button>
+        <button type="button" class="nav-trigger" aria-expanded="false"><span>Hosts</span><span class="caret">▾</span></button>
         <div class="nav-dropdown">
-          <a href="/admin/?host=secure#hosts-panel" data-nav-host="secure">Secure hosts</a>
-          <a href="/admin/?host=insecure#hosts-panel" data-nav-host="insecure">Insecure hosts</a>
-          <a href="/admin/?host=unprovisioned#hosts-panel" data-nav-host="unprovisioned">Unprovisioned</a>
-          <a href="/admin/?newHost=1#hosts-panel" data-nav-newhost>+ New host</a>
+          <a href="/admin/hosts.html?host=secure" data-nav-host="secure">Secure hosts</a>
+          <a href="/admin/hosts.html?host=insecure" data-nav-host="insecure">Insecure hosts</a>
+          <a href="/admin/hosts.html?host=unprovisioned" data-nav-host="unprovisioned">Unprovisioned</a>
+          <a href="/admin/hosts.html?newHost=1" data-nav-newhost>+ New host</a>
         </div>
       </div>
       <div class="nav-item has-children" data-nav="logs">
-        <button type="button" class="nav-trigger">Logs ▾</button>
+        <button type="button" class="nav-trigger" aria-expanded="false"><span>Logs</span><span class="caret">▾</span></button>
         <div class="nav-dropdown">
           <a href="/admin/logs.html">Client logs</a>
           <a href="/admin/mcp-logs.html">MCP access</a>
         </div>
       </div>
       <div class="nav-item has-children" data-nav="settings">
-        <button type="button" class="nav-trigger">Settings ▾</button>
+        <button type="button" class="nav-trigger" aria-expanded="false"><span>Settings</span><span class="caret">▾</span></button>
         <div class="nav-dropdown">
-          <a href="/admin/#settings-panel" data-nav-jump="settings">cdx settings</a>
-          <a href="/admin/#agents-panel" data-nav-jump="agents">Agents</a>
-          <a href="/admin/#prompts-panel" data-nav-jump="prompts">Slash commands</a>
-          <a href="/admin/#memories-panel" data-nav-jump="memories">Memories</a>
+          <a href="/admin/settings.html" data-nav-jump="settings">cdx settings</a>
+          <a href="/admin/agents.html" data-nav-jump="agents">Agents</a>
+          <a href="/admin/prompts.html" data-nav-jump="prompts">Slash commands</a>
+          <a href="/admin/memories.html" data-nav-jump="memories">Memories</a>
           <a href="/admin/config.html">config.toml</a>
         </div>
       </div>
@@ -110,7 +109,7 @@
       </main>
     </div>
   </div>
-  <script src="nav.js?v=2025-12-08-01"></script>
+  <script src="nav.js?v=2025-12-08-04"></script>
   <script src="logs.js?v=2025-11-29-05"></script>
 </body>
 </html>

@@ -1,6 +1,5 @@
 const statsEl = document.getElementById('stats');
     const hostsTbody = document.querySelector('#hosts tbody');
-    const mtlsEl = document.getElementById('mtls');
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
@@ -105,6 +104,10 @@ const statsEl = document.getElementById('stats');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
+    const pageHero = document.querySelector('.page-hero');
+    const heroEyebrow = pageHero?.querySelector('.eyebrow');
+    const heroTitle = pageHero?.querySelector('h1');
+    const heroCopy = pageHero?.querySelector('p.muted');
     const USAGE_HISTORY_DAYS = 60;
     const COST_SERIES = [
       { key: 'total', label: 'Total', color: '#312e81', emphasis: true },
@@ -136,6 +139,27 @@ const statsEl = document.getElementById('stats');
     let insecureExpanded = true;
     let secureExpanded = false;
     let hostStatusFilter = ''; // maintained for clarity
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const bodyView = (document.body?.dataset?.viewMode || '').toLowerCase();
+    const viewMode = (bodyView || urlParams.get('view') || 'dashboard').toLowerCase();
+    const redirectTargets = {
+      agents: '/admin/agents.html',
+      prompts: '/admin/prompts.html',
+      hosts: '/admin/hosts.html',
+      memories: '/admin/memories.html',
+      settings: '/admin/settings.html',
+    };
+    if (['agents', 'prompts', 'hosts', 'memories', 'settings'].includes(viewMode)) {
+      const targetId = `${viewMode}-panel`;
+      if (!document.getElementById(targetId) && redirectTargets[viewMode]) {
+        window.location.href = redirectTargets[viewMode];
+      }
+    }
+    const initialHostParam = (urlParams.get('host') || '').toLowerCase();
+    if (initialHostParam) {
+      hostStatusFilter = initialHostParam;
+    }
     let lastOverview = null;
     let chatgptUsage = null;
     let apiDisabled = null;
@@ -157,6 +181,70 @@ const statsEl = document.getElementById('stats');
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
     let memoriesLoading = false;
     let memoriesOpen = false;
+
+    const VIEW_LAYOUTS = {
+      dashboard: {
+        eyebrow: 'Dashboard',
+        title: 'Fleet overview',
+        copy: 'Lightweight, square, and consistent across every admin page.',
+        show: ['stats', 'chatgpt-usage-card'],
+      },
+      hosts: {
+        eyebrow: 'Hosts',
+        title: 'Authorized hosts',
+        copy: 'Search, filter, and manage host state.',
+        show: ['hosts-panel'],
+      },
+      agents: {
+        eyebrow: 'Agents',
+        title: 'Canonical AGENTS.md',
+        copy: 'Synced to every host via cdx.',
+        show: ['agents-panel'],
+      },
+      prompts: {
+        eyebrow: 'Slash commands',
+        title: 'Server-stored prompts',
+        copy: 'Edit the prompts baked into hosts.',
+        show: ['prompts-panel'],
+      },
+      memories: {
+        eyebrow: 'Memories',
+        title: 'Host memories',
+        copy: 'Browse MCP memories stored by hosts.',
+        show: ['memories-panel'],
+      },
+      settings: {
+        eyebrow: 'Settings',
+        title: 'Operations & settings',
+        copy: 'Emergency toggles and runner utilities.',
+        show: ['settings-panel'],
+      },
+    };
+
+    function toggleSection(id, visible) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.display = visible ? '' : 'none';
+    }
+
+    function applyViewMode() {
+      const config = VIEW_LAYOUTS[viewMode] || VIEW_LAYOUTS.dashboard;
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'agents-panel', 'prompts-panel', 'memories-panel', 'settings-panel'];
+      allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
+      if (pageHero) {
+        if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
+        if (heroTitle) heroTitle.textContent = config.title;
+        if (heroCopy) heroCopy.textContent = config.copy;
+      }
+      if (document && config.eyebrow) {
+        try {
+          const baseTitle = document.title.replace(/ · .+$/, '');
+          document.title = `${baseTitle} · ${config.eyebrow}`;
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
 
     function escapeHtml(str) {
       return String(str)
@@ -434,33 +522,7 @@ const statsEl = document.getElementById('stats');
     }
 
     function setMtls(meta) {
-      mtlsMeta = meta;
-      if (!mtlsEl) return;
-      mtlsEl.style.display = 'inline-flex';
-
-      const required = meta && meta.required === false ? false : true;
-      const present = !!(meta && (meta.present || meta.fingerprint));
-
-      if (!required) {
-        mtlsEl.textContent = present ? 'mTLS: presented (optional)' : 'mTLS: optional';
-        mtlsEl.classList.remove('error');
-        if (present) {
-          mtlsEl.classList.add('success');
-        } else {
-          mtlsEl.classList.remove('success');
-        }
-        return;
-      }
-
-      if (present) {
-        mtlsEl.textContent = 'mTLS: presented';
-        mtlsEl.classList.add('success');
-        mtlsEl.classList.remove('error');
-      } else {
-        mtlsEl.textContent = 'mTLS: missing (admin blocked)';
-        mtlsEl.classList.remove('success');
-        mtlsEl.classList.add('error');
-      }
+      mtlsMeta = meta; // kept for future use; pill removed from UI
     }
 
     function compareVersions(a, b) {
@@ -1574,81 +1636,8 @@ const statsEl = document.getElementById('stats');
         reset_after_seconds: snapshot.secondary_reset_after_seconds ?? null,
         reset_at: snapshot.secondary_reset_at ?? null,
       };
-      const daily = (lastOverview?.tokens_day) || { input: 0, output: 0, cached: 0, total: 0 };
-      const weekly = (lastOverview?.tokens_week) || { input: 0, output: 0, cached: 0, total: 0 };
-      const monthly = (lastOverview?.tokens_month) || { input: 0, output: 0, cached: 0, total: 0 };
-      const dailyCost = Number(lastOverview?.pricing_day_cost ?? 0);
-      const weeklyCost = Number(lastOverview?.pricing_week_cost ?? 0);
-      const monthlyCost = Number(lastOverview?.pricing_month_cost ?? 0);
-      const costCurrency = typeof lastOverview?.pricing?.currency === 'string'
-        ? lastOverview.pricing.currency.toUpperCase()
-        : 'USD';
-      const formatCost = (value) => formatCurrency(value, costCurrency);
       const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
       const planLabel = plan;
-      const getTokenValue = (usage, key) => {
-        if (!usage) return 0;
-        const value = Number(usage[key]);
-        return Number.isFinite(value) ? value : 0;
-      };
-      const sumUsageTokens = (usage) => {
-        if (!usage) return 0;
-        if (Number.isFinite(usage.total)) return usage.total;
-        return getTokenValue(usage, 'input') + getTokenValue(usage, 'output') + getTokenValue(usage, 'cached');
-      };
-      const monthlyTotalTokens = Number.isFinite(monthly.total)
-        ? monthly.total
-        : ((Number.isFinite(monthly.input) ? monthly.input : 0) + (Number.isFinite(monthly.output) ? monthly.output : 0) + (Number.isFinite(monthly.cached) ? monthly.cached : 0));
-      const renderTokenChips = (dayValue = 0, weekValue = 0, monthValue = 0) => {
-        const chips = [
-          { label: 'Today', value: dayValue },
-          { label: 'Week', value: weekValue },
-          { label: 'Month', value: monthValue },
-        ];
-        return chips.map((chip) => `
-          <div class="cost-chip">
-            <span>${chip.label}</span>
-            <strong>${formatNumber(Number.isFinite(chip.value) ? chip.value : 0)} tokens</strong>
-          </div>
-        `).join('');
-      };
-      const renderTokenCard = (title, key) => `
-        <div class="cost-card token-card">
-          <div class="total-head">
-            <div class="total-kicker">${title}</div>
-          </div>
-          <div class="stat-line strong">${formatNumber(getTokenValue(monthly, key))} tokens this month</div>
-          <div class="total-breakdown">
-            ${renderTokenChips(getTokenValue(daily, key), getTokenValue(weekly, key), getTokenValue(monthly, key))}
-          </div>
-        </div>
-      `;
-      const renderCostChips = (dayValue = 0, weekValue = 0, monthValue = 0) => {
-        const chips = [
-          { label: 'Today', value: Number.isFinite(dayValue) ? dayValue : 0 },
-          { label: 'Week', value: Number.isFinite(weekValue) ? weekValue : 0 },
-          { label: 'Month', value: Number.isFinite(monthValue) ? monthValue : 0 },
-        ];
-        return chips.map((chip) => `
-          <div class="cost-chip">
-            <span>${chip.label}</span>
-            <strong>${formatCost(chip.value)}</strong>
-          </div>
-        `).join('');
-      };
-      const totalCard = `
-        <div class="cost-card total">
-          <div class="total-head">
-            <div class="total-kicker">Estimated Total <span class="total-sub">${costCurrency}</span></div>
-            <button class="total-icon-btn cost-history-btn" type="button" title="Open cost trend" aria-label="Open cost trend">
-              <span class="total-icon" aria-hidden="true">📈</span>
-            </button>
-          </div>
-          <div class="total-breakdown">
-            ${renderCostChips(dailyCost, weeklyCost, monthlyCost)}
-          </div>
-        </div>
-      `;
 
       chatgptUsageCard.innerHTML = `
         <div class="usage-head">
@@ -1669,15 +1658,6 @@ const statsEl = document.getElementById('stats');
         <div class="usage-bars">
           ${renderUsageWindow('5-hour limit', primary, 'primary')}
           ${renderUsageWindow('Weekly limit', secondary, 'secondary')}
-        </div>
-        <div class="usage-credits">
-          <strong>Costs</strong>
-          <div class="cost-grid">
-            ${renderTokenCard('Input', 'input')}
-            ${renderTokenCard('Output', 'output')}
-            ${renderTokenCard('Cached', 'cached')}
-            ${totalCard}
-          </div>
         </div>
       `;
 
@@ -2525,6 +2505,7 @@ const statsEl = document.getElementById('stats');
 
     function renderStats(data, runnerInfo = null) {
       lastOverview = data;
+      if (!statsEl) return;
       const checkedAt = formatRelative(data.versions.client_version_checked_at);
       const latestLog = formatRelative(data.latest_log_at);
       const lastRefresh = data.last_refresh ? formatRelative(data.last_refresh) : 'n/a';
@@ -2581,6 +2562,60 @@ const statsEl = document.getElementById('stats');
       if (runnerInfo) {
         cards.push(renderRunnerCard(runnerInfo));
       }
+
+      const tokensDay = data.tokens_day || {};
+      const tokensWeek = data.tokens_week || {};
+      const tokensMonth = data.tokens_month || {};
+      const getToken = (bucket, key) => {
+        const v = Number(bucket?.[key]);
+        return Number.isFinite(v) ? v : 0;
+      };
+      const tokenCard = (label, key) => {
+        const month = getToken(tokensMonth, key);
+        const week = getToken(tokensWeek, key);
+        const day = getToken(tokensDay, key);
+        return `
+          <div class="card">
+            <div class="stat-head">
+              <span class="stat-label">${label}</span>
+            </div>
+            <div class="stat-value">${formatNumber(month)}</div>
+            <small>${formatNumber(week)} this week · ${formatNumber(day)} today</small>
+          </div>
+        `;
+      };
+
+      const currency = typeof data?.pricing?.currency === 'string'
+        ? data.pricing.currency.toUpperCase()
+        : 'USD';
+      const normalizeCost = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const dayCost = normalizeCost(data?.pricing_day_cost);
+      const weekCost = normalizeCost(data?.pricing_week_cost);
+      const monthCost = normalizeCost(data?.pricing_month_cost);
+      const costCard = () => `
+        <div class="card">
+          <div class="stat-head">
+            <span class="stat-label">Estimated Total</span>
+            <span class="stat-sub">${currency}</span>
+          </div>
+          <div class="stat-value">${formatCurrency(monthCost, currency)}</div>
+          <div class="stat-meta-line">
+            <span>${formatCurrency(weekCost, currency)} this week</span>
+            <span>${formatCurrency(dayCost, currency)} today</span>
+            <button class="ghost tiny-btn cost-history-btn" type="button" aria-label="Open cost trend">Trend</button>
+          </div>
+        </div>
+      `;
+
+      cards.push(
+        tokenCard('Input tokens', 'input'),
+        tokenCard('Output tokens', 'output'),
+        tokenCard('Cached tokens', 'cached'),
+        costCard(),
+      );
 
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();
@@ -3214,14 +3249,8 @@ const statsEl = document.getElementById('stats');
           showNewHostModal(true);
         });
       }
-      const navSeedAuth = document.getElementById('navSeedAuth');
-      if (navSeedAuth) {
-        navSeedAuth.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          showUploadModal(true);
-        });
-      }
       document.querySelectorAll('[data-nav-host]').forEach((el) => {
+        if (el.href && el.href.includes('view=')) return; // new pages handle navigation
         el.addEventListener('click', (ev) => {
           const target = el.getAttribute('data-nav-host');
           const samePage = ['/admin', '/admin/'].includes(window.location.pathname);
@@ -3235,6 +3264,7 @@ const statsEl = document.getElementById('stats');
         });
       });
       document.querySelectorAll('[data-nav-jump]').forEach((el) => {
+        if (el.href && el.href.includes('view=')) return; // let navigation handle split pages
         el.addEventListener('click', (ev) => {
           const targetKey = el.getAttribute('data-nav-jump');
           const samePage = ['/admin', '/admin/'].includes(window.location.pathname);
@@ -3252,6 +3282,7 @@ const statsEl = document.getElementById('stats');
 
     wireNavShortcuts();
     applyQueryParams();
+    applyViewMode();
 
     function resetNewHostForm({ focusInput = false } = {}) {
       if (commandField) {

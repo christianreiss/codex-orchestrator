@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex-Coordinator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-08">
+  <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
+</head>
+<body data-view="desktop" data-view-mode="prompts">
+  <header class="main-nav">
+    <div class="nav-brand">
+      <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
+      <div>
+        <div class="brand-title">Codex Coordinator</div>
+      </div>
+    </div>
+    <nav class="nav-groups">
+      <a class="nav-item" href="/admin/?view=dashboard" data-nav="dashboard">Dashboard</a>
+      <div class="nav-item has-children" data-nav="hosts">
+        <button type="button" class="nav-trigger" aria-expanded="false"><span>Hosts</span><span class="caret">▾</span></button>
+        <div class="nav-dropdown">
+          <a href="/admin/hosts.html?host=secure" data-nav-host="secure">Secure hosts</a>
+          <a href="/admin/hosts.html?host=insecure" data-nav-host="insecure">Insecure hosts</a>
+          <a href="/admin/hosts.html?host=unprovisioned" data-nav-host="unprovisioned">Unprovisioned</a>
+          <a href="/admin/hosts.html?newHost=1" data-nav-newhost>+ New host</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="logs">
+        <button type="button" class="nav-trigger" aria-expanded="false"><span>Logs</span><span class="caret">▾</span></button>
+        <div class="nav-dropdown">
+          <a href="/admin/logs.html">Client logs</a>
+          <a href="/admin/mcp-logs.html">MCP access</a>
+        </div>
+      </div>
+      <div class="nav-item has-children" data-nav="settings">
+        <button type="button" class="nav-trigger" aria-expanded="false"><span>Settings</span><span class="caret">▾</span></button>
+        <div class="nav-dropdown">
+          <a href="/admin/settings.html" data-nav-jump="settings">cdx settings</a>
+          <a href="/admin/agents.html" data-nav-jump="agents">Agents</a>
+          <a href="/admin/prompts.html" data-nav-jump="prompts">Slash commands</a>
+          <a href="/admin/memories.html" data-nav-jump="memories">Memories</a>
+          <a href="/admin/config.html">config.toml</a>
+        </div>
+      </div>
+    </nav>
+    <div class="nav-actions">
+      <button class="nav-btn primary" id="navNewHost">New host</button>
+    </div>
+  </header>
+  <div class="app">
+    <div class="content">
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Slash commands</p>
+          <h1>Server-stored prompts</h1>
+          <p class="muted">Edit the slash commands baked into each host.</p>
+        </div>
+        <div class="hero-actions">
+          <button class="ghost runner-ghost" id="newHostBtn">+ New Host</button>
+          <button class="ghost" type="button" onclick="window.location.href='/admin/agents.html'">Agents</button>
+        </div>
+      </section>
+      <main class="main">
+        <div class="modal-backdrop" id="seedModal">
+          <div class="modal seed-modal">
+            <h3>Initial seeding required</h3>
+            <p class="muted" id="seedModalCopy">This installation has no hosts or canonical auth.json yet. Seed auth.json before issuing installers.</p>
+            <div class="seed-status">
+              <div class="seed-chip warn" id="seedHostsStatus"><span class="dot"></span>No hosts registered</div>
+              <div class="seed-chip warn" id="seedAuthStatus"><span class="dot"></span>Canonical auth.json missing</div>
+            </div>
+            <div class="actions">
+              <button class="ghost" id="seedDismissBtn">Close</button>
+              <button id="seedUploadBtn">Seed auth.json</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="newHostModal">
+          <div class="modal">
+            <h3>New Host</h3>
+            <p>Issue a one-time installer link for this FQDN. The API key is baked in and bound to this host on first contact.</p>
+            <div class="field">
+              <label for="new-host-name" style="font-weight:600;">Host FQDN</label>
+              <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
+            </div>
+            <div class="field">
+              <label class="toggle state-toggle" for="secureHostToggle">
+                <input type="checkbox" id="secureHostToggle" checked>
+                <span class="track"><span class="thumb"></span></span>
+                <span class="toggle-text">Secure host (keep auth.json after runs)</span>
+              </label>
+              <p class="muted" style="margin:6px 0 0;">Off = treat as insecure; cdx removes auth.json after each run.</p>
+            </div>
+            <div class="field">
+              <label class="toggle state-toggle" for="insecureToggle">
+                <input type="checkbox" id="insecureToggle">
+                <span class="track"><span class="thumb"></span></span>
+                <span class="toggle-text">Allow insecure curl (-k)</span>
+              </label>
+            </div>
+            <div class="field">
+              <label class="toggle state-toggle" for="ipv4Toggle">
+                <input type="checkbox" id="ipv4Toggle">
+                <span class="track"><span class="thumb"></span></span>
+                <span class="toggle-text">Force IPv4 (curl -4)</span>
+              </label>
+            </div>
+            <div class="field">
+              <label class="toggle state-toggle" for="vipToggle">
+                <input type="checkbox" id="vipToggle">
+                <span class="track"><span class="thumb"></span></span>
+                <span class="toggle-text">VIP host (ignore quota kill switch)</span>
+              </label>
+            </div>
+            <div class="field" id="commandField" style="display:none;">
+              <label style="font-weight:600;">Run on the target host</label>
+              <div class="command-box">
+                <span class="cmd-text" id="bootstrapCmd"></span>
+                <button class="copy-btn" id="copyCmd">Copy</button>
+              </div>
+              <p class="muted" id="installerMeta" style="margin-top:8px; display:none;"></p>
+              <p class="muted" style="margin-top:8px;">Single command downloads the baked installer and configures the host.</p>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+              <button class="ghost" id="cancelNewHost">Cancel</button>
+              <button id="createHost">Generate</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-backdrop" id="promptModal">
+          <div class="modal">
+            <h3>Edit Slash Command</h3>
+            <div class="field">
+              <label style="font-weight:600;">Filename</label>
+              <input id="promptFilename" type="text" readonly>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Description</label>
+              <input id="promptDescription" type="text" placeholder="Short description">
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Argument hint</label>
+              <input id="promptArgument" type="text" placeholder='e.g. [MESSAGE="<commit message>"]'>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Prompt</label>
+              <textarea id="promptBody" rows="12" placeholder="Full prompt content"></textarea>
+            </div>
+            <div id="promptStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+              <button class="ghost" id="promptCancel">Cancel</button>
+              <button id="promptSave">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="card panel" id="prompts-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Slash Commands</h2>
+              <p class="muted" style="margin:4px 0 0;">Server-stored prompts baked into hosts (synced by cdx)</p>
+            </div>
+            <div class="panel-actions">
+              <button class="ghost tiny-btn" id="promptsToggle">Show</button>
+              <button class="ghost tiny-btn" id="newCommandBtn">+ New Command</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="prompts">
+              <thead>
+                <tr>
+                  <th>Filename</th>
+                  <th>Description</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="nav.js?v=2025-12-08-04"></script>
+  <script src="dashboard.js?v=2025-12-08-05"></script>
+</body>
+</html>
