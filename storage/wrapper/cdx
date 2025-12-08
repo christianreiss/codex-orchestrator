@@ -228,7 +228,7 @@ if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.07-12"
+WRAPPER_VERSION="2025.12.08-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -4315,19 +4315,19 @@ fi
     fi
     log_info "$(format_label_prefix "${quota_label_base} 5h")${quota_line}"
   fi
-  if [[ -n "$secondary_quota_segment" ]]; then
-    quota_line2="${secondary_quota_segment}"
-    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-      quota_line2+=" ⚠"
-    fi
-    log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
-  fi
   if [[ -n "$daily_quota_segment" ]]; then
     quota_line3="${daily_quota_segment}"
     if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
       quota_line3+=" ⚠"
     fi
     log_info "$(format_label_prefix "${quota_label_base} day")${quota_line3}"
+  fi
+  if [[ -n "$secondary_quota_segment" ]]; then
+    quota_line2="${secondary_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line2+=" ⚠"
+    fi
+    log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
   fi
   log_info "$(format_label_prefix "Result")${result_line#Result: }"
 

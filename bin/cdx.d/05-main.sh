@@ -1525,19 +1525,19 @@ fi
     fi
     log_info "$(format_label_prefix "${quota_label_base} 5h")${quota_line}"
   fi
-  if [[ -n "$secondary_quota_segment" ]]; then
-    quota_line2="${secondary_quota_segment}"
-    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-      quota_line2+=" ⚠"
-    fi
-    log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
-  fi
   if [[ -n "$daily_quota_segment" ]]; then
     quota_line3="${daily_quota_segment}"
     if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
       quota_line3+=" ⚠"
     fi
     log_info "$(format_label_prefix "${quota_label_base} day")${quota_line3}"
+  fi
+  if [[ -n "$secondary_quota_segment" ]]; then
+    quota_line2="${secondary_quota_segment}"
+    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+      quota_line2+=" ⚠"
+    fi
+    log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
   fi
   log_info "$(format_label_prefix "Result")${result_line#Result: }"
 
