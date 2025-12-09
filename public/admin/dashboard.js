@@ -157,7 +157,7 @@ const statsEl = document.getElementById('stats');
         window.location.href = redirectTargets[viewMode];
       }
     }
-    const initialHostParam = (urlParams.get('host') || '').toLowerCase();
+    const initialHostParam = (urlParams.get('host') || 'insecure').toLowerCase();
     if (initialHostParam) {
       hostStatusFilter = initialHostParam;
     }
@@ -2973,7 +2973,7 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    setSettingsExpanded(false);
+    setSettingsExpanded(true);
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
     }

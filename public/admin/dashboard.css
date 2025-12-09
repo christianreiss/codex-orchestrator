@@ -177,7 +177,7 @@ body {
     .nav-btn.ghost {
       background: var(--frost);
     }
-    .app {
+.app {
       min-height: 100vh;
       width: 100%;
       display: flex;
@@ -962,7 +962,7 @@ body {
     .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
     .digest-cell { display: flex; flex-direction: column; gap: 6px; }
     .empty-row td { text-align: center; padding: 40px 12px; color: var(--muted); font-size: 15px; }
-.usage-card { margin-top: 14px; margin-bottom: 0; }
+.usage-card { margin-top: 14px; margin-bottom: 14px; }
     .usage-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
     .usage-plan { font-size: 20px; font-weight: 800; letter-spacing: -0.2px; }
     .usage-meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -1592,8 +1592,8 @@ body {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
-  min-height: 140px;
-  max-height: 260px;
+  min-height: 280px;
+  max-height: 520px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -2214,9 +2214,11 @@ body[data-view-mode="dashboard"] .content {
 }
 body[data-view-mode="dashboard"] .app {
   padding-bottom: 0;
+  min-height: auto;
 }
 body[data-view-mode="dashboard"] main.main {
   padding-bottom: 0;
+  min-height: auto;
 }
 body[data-view-mode="dashboard"] .card:last-child,
 body[data-view-mode="dashboard"] .panel:last-child {

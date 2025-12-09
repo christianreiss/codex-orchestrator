@@ -26,7 +26,6 @@
     </nav>
     <div class="nav-actions">
       <button class="nav-btn primary" onclick="window.location.href='/admin/?newHost=1#hosts-panel'">New host</button>
-      <button class="nav-btn ghost" onclick="window.location.href='/admin/logs.html'">Client logs</button>
     </div>
   </header>
 
@@ -38,12 +37,6 @@
           <h1>MCP Access</h1>
           <p class="muted">Latest MCP requests from hosts. Click a row for details.</p>
         </div>
-        <div class="hero-actions">
-          <label class="muted" for="limit">Limit</label>
-          <input id="limit" type="number" min="1" max="500" value="200" style="width:100px;">
-          <button id="refresh" class="ghost tiny-btn" type="button">Refresh</button>
-          <span id="status" class="muted"></span>
-        </div>
       </section>
       <div class="log-tabs" role="tablist" aria-label="Log type tabs">
         <a class="log-tab" data-log-tab="client" href="/admin/logs.html">Client logs</a>
@@ -51,21 +44,45 @@
       </div>
 
       <section class="card panel log-panel">
+        <div class="panel-head">
+          <div>
+            <h2>MCP Access</h2>
+            <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
+          </div>
+          <div class="panel-actions log-actions">
+            <input type="search" id="mcp-search" placeholder="Search host or IP">
+            <select id="mcp-page-size" title="Rows per page">
+              <option value="25">25 / page</option>
+              <option value="50" selected>50 / page</option>
+              <option value="100">100 / page</option>
+            </select>
+            <button id="mcp-refresh" class="ghost tiny-btn" type="button">↻ Refresh</button>
+            <span id="mcp-status" class="muted" style="min-width:120px;text-align:right;"></span>
+          </div>
+        </div>
         <div class="table-wrap log-table-wrap">
           <table id="logTable">
             <thead>
               <tr>
-                <th>Time (UTC)</th>
-                <th>Host</th>
-                <th>Method</th>
-                <th>Name</th>
-                <th>IP</th>
-                <th>Status</th>
-                <th>Error</th>
+                <th class="sortable" data-sort="created_at">Time (UTC)</th>
+                <th class="sortable" data-sort="host">Host</th>
+                <th class="sortable" data-sort="method">Method</th>
+                <th class="sortable" data-sort="name">Name</th>
+                <th class="sortable" data-sort="client_ip">IP</th>
+                <th class="sortable" data-sort="success">Status</th>
+                <th class="sortable" data-sort="error_code">Error</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+        <div class="log-footer">
+          <div id="mcp-footer-status" class="muted">Loading…</div>
+          <div class="log-pagination">
+            <button id="mcp-page-prev" class="ghost tiny-btn">← Prev</button>
+            <div class="page-indicator" id="mcp-page-indicator">Page 1 / 1</div>
+            <button id="mcp-page-next" class="ghost tiny-btn">Next →</button>
+          </div>
         </div>
       </section>
     </div>
@@ -88,24 +105,76 @@
   <script>
     (function () {
       const tbody = document.querySelector('#logTable tbody');
-      const statusEl = document.getElementById('status');
+      const statusEl = document.getElementById('mcp-status');
+      const footerStatusEl = document.getElementById('mcp-footer-status');
+      const searchInput = document.getElementById('mcp-search');
+      const pageSizeSelect = document.getElementById('mcp-page-size');
+      const refreshBtn = document.getElementById('mcp-refresh');
+      const pagePrevBtn = document.getElementById('mcp-page-prev');
+      const pageNextBtn = document.getElementById('mcp-page-next');
+      const pageIndicator = document.getElementById('mcp-page-indicator');
+      let rowsCache = [];
+      let filteredRows = [];
+      let currentPage = 1;
+      let pageSize = 50;
+      let sortKey = 'created_at';
+      let sortDir = 'desc';
       const modal = document.getElementById('detailModal');
       const modalBody = document.getElementById('modalBody');
       const modalTitle = document.getElementById('modalTitle');
       const modalSubtitle = document.getElementById('modalSubtitle');
 
+      function renderPage() {
+        const start = (currentPage - 1) * pageSize;
+        const pageRows = filteredRows.slice(start, start + pageSize);
+        render(pageRows);
+        const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+        pageIndicator.textContent = `Page ${Math.min(currentPage, totalPages)} / ${totalPages}`;
+        pagePrevBtn.disabled = currentPage <= 1;
+        pageNextBtn.disabled = currentPage >= totalPages;
+        footerStatusEl.textContent = filteredRows.length
+          ? `Showing ${pageRows.length} of ${filteredRows.length}`
+          : 'No entries yet.';
+      }
+
+      function applyFilters() {
+        const q = (searchInput?.value || '').trim().toLowerCase();
+        filteredRows = rowsCache.filter((row) => {
+          if (!q) return true;
+          const haystack = [row.host_fqdn, row.fqdn, row.host, row.host_id, row.client_ip]
+            .map(v => (v || '').toString().toLowerCase());
+          return haystack.some(v => v.includes(q));
+        });
+        sortRows();
+        currentPage = 1;
+        renderPage();
+      }
+
+      function sortRows() {
+        const dir = sortDir === 'asc' ? 1 : -1;
+        filteredRows.sort((a, b) => {
+          const av = a[sortKey];
+          const bv = b[sortKey];
+          if (av === bv) return 0;
+          if (av === undefined || av === null) return 1;
+          if (bv === undefined || bv === null) return -1;
+          return av > bv ? dir : -dir;
+        });
+      }
+
       async function loadLogs() {
-        const limit = Math.max(1, Math.min(500, parseInt(document.getElementById('limit').value || '200', 10)));
+        const limit = 500; // fetch plenty; we page client-side
         statusEl.textContent = 'Loading…';
         try {
           const res = await fetch(`/admin/mcp/logs?limit=${limit}`, { credentials: 'include' });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
-          const rows = data?.data?.logs || [];
-          render(rows);
-          statusEl.textContent = `Showing ${Math.min(limit, rows.length)} entries`;
+          rowsCache = data?.data?.logs || [];
+          statusEl.textContent = `${rowsCache.length} loaded`;
+          applyFilters();
         } catch (err) {
           statusEl.textContent = `Error: ${err.message}`;
+          footerStatusEl.textContent = 'Error loading logs';
         }
       }
 
@@ -224,9 +293,34 @@
         modal.setAttribute('aria-hidden', 'true');
       }
 
-      document.getElementById('refresh').addEventListener('click', loadLogs);
-      document.getElementById('limit').addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') loadLogs();
+      refreshBtn.addEventListener('click', loadLogs);
+      if (searchInput) {
+        searchInput.addEventListener('input', () => applyFilters());
+      }
+      if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', () => {
+          const val = parseInt(pageSizeSelect.value || '50', 10);
+          if (Number.isFinite(val) && val > 0) {
+            pageSize = val;
+            currentPage = 1;
+            renderPage();
+          }
+        });
+      }
+      pagePrevBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        if (currentPage > 1) {
+          currentPage -= 1;
+          renderPage();
+        }
+      });
+      pageNextBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          renderPage();
+        }
       });
       document.getElementById('modalClose').addEventListener('click', closeModal);
       modal.addEventListener('click', (event) => {
@@ -236,6 +330,21 @@
         if (event.key === 'Escape' && modal.classList.contains('show')) {
           closeModal();
         }
+      });
+
+      const sortableHeaders = document.querySelectorAll('th.sortable');
+      sortableHeaders.forEach((th) => {
+        th.addEventListener('click', () => {
+          const key = th.getAttribute('data-sort') || 'created_at';
+          if (sortKey === key) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortKey = key;
+            sortDir = key === 'created_at' ? 'desc' : 'asc';
+          }
+          sortRows();
+          renderPage();
+        });
       });
 
       loadLogs();
