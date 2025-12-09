@@ -105,6 +105,7 @@ const statsEl = document.getElementById('stats');
     const passkeyCreatedCell = document.getElementById('passkeyCreatedCell');
     const passkeyAuthCell = document.getElementById('passkeyAuthCell');
     const passkeyCreateBtn = document.getElementById('passkeyCreateBtn');
+    const passkeyTestBtn = document.getElementById('passkeyTestBtn');
     const passkeyRemoveBtn = document.getElementById('passkeyRemoveBtn');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
@@ -523,25 +524,50 @@ const statsEl = document.getElementById('stats');
       let authLabel = 'No passkey presented';
       if (auth === 'ok') authLabel = 'Passkey auth OK';
       else if (auth === 'failed') authLabel = 'Passkey auth failed';
+      else if (auth === 'none' && created) authLabel = 'Passkey enrolled; no auth yet';
       passkeyAuthCell.textContent = authLabel;
-      renderPasskeyButtons(created && auth === 'ok');
+      renderPasskeyButtons(created);
     }
 
     function renderPasskeyButtons(created) {
       if (passkeyCreateBtn) passkeyCreateBtn.disabled = !!created;
       if (passkeyRemoveBtn) passkeyRemoveBtn.disabled = !created;
+      if (passkeyTestBtn) passkeyTestBtn.disabled = !created;
     }
 
     async function createPasskey() {
       if (!passkeyCreateBtn) return;
       passkeyCreateBtn.disabled = true;
       try {
-        await api('/admin/passkey', { method: 'POST' });
+        const creation = await api('/admin/passkey/registration/options', { method: 'POST' });
+        const options = normalizeCreationOptions(creation.data);
+        const cred = await navigator.credentials.create({ publicKey: options });
+        const finishPayload = serializeCredential(cred);
+        await api('/admin/passkey/registration/finish', { method: 'POST', json: finishPayload });
         await loadAll();
       } catch (err) {
+        console.error(err);
         alert(`Passkey create failed: ${err.message}`);
       } finally {
         passkeyCreateBtn.disabled = false;
+      }
+    }
+
+    async function testPasskeyAuth() {
+      if (!passkeyTestBtn) return;
+      passkeyTestBtn.disabled = true;
+      try {
+        const request = await api('/admin/passkey/auth/options', { method: 'POST' });
+        const options = normalizeRequestOptions(request.data);
+        const assertion = await navigator.credentials.get({ publicKey: options });
+        const finishPayload = serializeCredential(assertion);
+        await api('/admin/passkey/auth/finish', { method: 'POST', json: finishPayload });
+        await loadAll();
+      } catch (err) {
+        console.error(err);
+        alert(`Passkey auth failed: ${err.message}`);
+      } finally {
+        passkeyTestBtn.disabled = false;
       }
     }
 
@@ -2388,6 +2414,56 @@ const statsEl = document.getElementById('stats');
       return limited;
     }
 
+    function bufferToBase64(buf) {
+      return btoa(String.fromCharCode(...new Uint8Array(buf)));
+    }
+
+    function base64ToBuffer(b64) {
+      return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+    }
+
+    function normalizeCreationOptions(opts) {
+      const copy = structuredClone(opts || {});
+      copy.challenge = base64ToBuffer(copy.challenge);
+      if (copy.user?.id) copy.user.id = base64ToBuffer(copy.user.id);
+      copy.excludeCredentials = (copy.excludeCredentials || []).map((c) => ({
+        ...c,
+        id: base64ToBuffer(c.id),
+      }));
+      return copy;
+    }
+
+    function normalizeRequestOptions(opts) {
+      const copy = structuredClone(opts || {});
+      copy.challenge = base64ToBuffer(copy.challenge);
+      copy.allowCredentials = (copy.allowCredentials || []).map((c) => ({
+        ...c,
+        id: base64ToBuffer(c.id),
+      }));
+      return copy;
+    }
+
+    function serializeCredential(cred) {
+      if (!cred || cred.type !== 'public-key') throw new Error('Invalid credential');
+      const clientDataJSON = bufferToBase64(cred.response.clientDataJSON);
+      const authenticatorData = cred.response.authenticatorData ? bufferToBase64(cred.response.authenticatorData) : null;
+      const signature = cred.response.signature ? bufferToBase64(cred.response.signature) : null;
+      const userHandle = cred.response.userHandle ? bufferToBase64(cred.response.userHandle) : null;
+      const attestationObject = cred.response.attestationObject ? bufferToBase64(cred.response.attestationObject) : null;
+      return {
+        id: cred.id,
+        rawId: bufferToBase64(cred.rawId),
+        type: cred.type,
+        response: {
+          clientDataJSON,
+          authenticatorData,
+          signature,
+          userHandle,
+          attestationObject,
+        },
+      };
+    }
+
     function normalizeQuotaPartition(value) {
       const allowed = [QUOTA_WEEK_PARTITION_OFF, QUOTA_WEEK_PARTITION_FIVE, QUOTA_WEEK_PARTITION_SEVEN];
       if (typeof value === 'string') {
@@ -3289,6 +3365,9 @@ const statsEl = document.getElementById('stats');
     // Passkey controls only exist on settings page; no-ops when absent.
     if (passkeyCreateBtn) {
       passkeyCreateBtn.addEventListener('click', createPasskey);
+    }
+    if (passkeyTestBtn) {
+      passkeyTestBtn.addEventListener('click', testPasskeyAuth);
     }
     if (passkeyRemoveBtn) {
       passkeyRemoveBtn.addEventListener('click', removePasskey);

@@ -458,6 +458,18 @@ class Database
         $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnLength('install_tokens', 'token', 64);
+        // Single-admin passkey storage (one row max enforced in code).
+        $this->ensureTableExists('admin_passkeys', <<<SQL
+            CREATE TABLE admin_passkeys (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                credential_id VARBINARY(255) NOT NULL UNIQUE,
+                public_key TEXT NOT NULL,
+                user_handle VARBINARY(64) NOT NULL,
+                counter BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL
+            ) ENGINE=InnoDB {$collation}
+        SQL);
 
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
@@ -546,6 +558,28 @@ class Database
         }
 
         $this->pdo->exec(sprintf('ALTER TABLE %s ADD CONSTRAINT %s %s', $table, $constraint, $definition));
+    }
+
+    /**
+     * Create a table if missing. $createStatement must be a full CREATE TABLE ... statement.
+     */
+    public function ensureTableExists(string $table, string $createStatement): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+        ]);
+
+        $exists = (int) $statement->fetchColumn() > 0;
+        if ($exists) {
+            return;
+        }
+
+        $this->pdo->exec($createStatement);
     }
 
 }

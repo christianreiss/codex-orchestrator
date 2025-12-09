@@ -208,6 +208,7 @@ auth_to_write = None
 chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}
 host_info = payload_data.get("host") if isinstance(payload_data, dict) else {}
 host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
+host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else None
 
 
 def record_versions(vblock):
@@ -298,6 +299,7 @@ if status in ("missing", "upload_required"):
     payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
     versions_out = record_versions(payload_data.get("versions", {})) or versions_out
     host_info = payload_data.get("host") if isinstance(payload_data, dict) else host_info
+    host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else host_vip
     host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else host_secure
     server_installation = versions_out.get("installation_id")
     if server_installation and installation_id and server_installation != installation_id:
@@ -351,6 +353,7 @@ print(
             "quota_limit_percent": payload_data.get("quota_limit_percent"),
             "quota_week_partition": payload_data.get("quota_week_partition"),
             "cdx_silent": payload_data.get("cdx_silent"),
+            "host_vip": host_vip,
         },
         separators=(",", ":"),
     )
@@ -413,6 +416,9 @@ if isinstance(amsg, str) and amsg.strip():
 def _emit_int(key, prefix):
     if isinstance(key, (int, float)):
         print(f"{prefix}={int(key)}")
+hv = parsed.get("host_vip")
+if isinstance(hv, bool):
+    print("hv=1" if hv else "hv=0")
 qh = parsed.get("quota_hard_fail")
 if isinstance(qh, bool):
     print("qh=1" if qh else "qh=0")
@@ -515,6 +521,9 @@ PY
               ;;
             qh=*)
               QUOTA_HARD_FAIL="${line#qh=}"
+              ;;
+            hv=*)
+              HOST_VIP="${line#hv=}"
               ;;
             ql=*)
               QUOTA_LIMIT_PERCENT="${line#ql=}"

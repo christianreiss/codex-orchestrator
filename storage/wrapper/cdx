@@ -179,6 +179,7 @@ QUOTA_HARD_FAIL="${CODEX_QUOTA_HARD_FAIL:-1}"
 QUOTA_LIMIT_PERCENT="${CODEX_QUOTA_LIMIT_PERCENT:-100}"
 QUOTA_WEEK_PARTITION="${CODEX_QUOTA_WEEK_PARTITION:-0}"
 HOST_SECURE="$CODEX_HOST_SECURE"
+HOST_VIP=0
 HOST_IS_SECURE=1
 PURGE_AUTH_AFTER_RUN=0
 HOST_SECURITY_NOTICE_EMITTED=0
@@ -228,7 +229,7 @@ if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.08-01"
+WRAPPER_VERSION="2025.12.09-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -974,6 +975,7 @@ auth_to_write = None
 chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}
 host_info = payload_data.get("host") if isinstance(payload_data, dict) else {}
 host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
+host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else None
 
 
 def record_versions(vblock):
@@ -1035,6 +1037,8 @@ if versions_out.get("wrapper_url"):
 
 primary_window = window(chatgpt_usage.get("primary_window"))
 secondary_window = window(chatgpt_usage.get("secondary_window"))
+if isinstance(host_vip, bool):
+    print(f"hv={'1' if host_vip else '0'}")
 
 if status == "valid":
     auth_to_write = current
@@ -1064,6 +1068,7 @@ if status in ("missing", "upload_required"):
     payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
     versions_out = record_versions(payload_data.get("versions", {})) or versions_out
     host_info = payload_data.get("host") if isinstance(payload_data, dict) else host_info
+    host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else host_vip
     host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else host_secure
     server_installation = versions_out.get("installation_id")
     if server_installation and installation_id and server_installation != installation_id:
@@ -1281,6 +1286,9 @@ PY
               ;;
             qh=*)
               QUOTA_HARD_FAIL="${line#qh=}"
+              ;;
+            hv=*)
+              HOST_VIP="${line#hv=}"
               ;;
             ql=*)
               QUOTA_LIMIT_PERCENT="${line#ql=}"
@@ -4133,6 +4141,9 @@ fi
   fi
 
   result_line="Result: $(colorize "$result_label" "$result_tone")"
+  if [[ "${HOST_VIP:-0}" == "1" ]]; then
+    result_line+=" 👑"
+  fi
   primary_reset_hint=""
   primary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
@@ -4352,9 +4363,9 @@ case "$AUTH_PULL_STATUS" in
     if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
       AUTH_LAUNCH_ALLOWED=1
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; using cached auth.json"
-    elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+    elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; secure host using cached auth.json (older than 24h)"
+      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; secure host using cached auth.json"
     elif (( HAS_LOCAL_AUTH )); then
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; cached auth.json older than allowed window"
     else

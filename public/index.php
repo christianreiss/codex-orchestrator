@@ -34,6 +34,7 @@ use App\Repositories\AgentsRepository;
 use App\Repositories\MemoryRepository;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\McpAccessLogRepository;
+use App\Repositories\AdminPasskeyRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -45,6 +46,7 @@ use App\Services\SlashCommandService;
 use App\Services\AgentsService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
+use App\Services\PasskeyService;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
 use App\Security\EncryptionKeyManager;
@@ -101,6 +103,7 @@ $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
 $clientConfigRepository = new ClientConfigRepository($database);
 $mcpAccessLogRepository = new McpAccessLogRepository($database);
+$adminPasskeyRepository = new AdminPasskeyRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
@@ -142,6 +145,13 @@ $chatGptUsageService = new ChatGptUsageService(
 );
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
+$rpHost = parse_url(resolveBaseUrl(), PHP_URL_HOST) ?: ($_SERVER['HTTP_HOST'] ?? 'localhost');
+$passkeyService = new PasskeyService(
+    $adminPasskeyRepository,
+    $versionRepository,
+    $rpHost,
+    'Codex Admin'
+);
 $wrapperService->ensureSeeded();
 $usageCostService->backfillMissingCosts();
 
@@ -1381,27 +1391,77 @@ $router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agen
     ]);
 });
 
-$router->add('POST', '#^/admin/passkey$#', function () use ($versionRepository) {
+$router->add('POST', '#^/admin/passkey/registration/options$#', function () use ($passkeyService) {
     requireAdminAccess();
-    // Stub enrollment until AUTH2 lands.
-    $versionRepository->set('passkey_created', '1');
-    // We do not have real WebAuthn verification here; mark auth as none until a future flow sets it.
-    $versionRepository->set('passkey_auth', 'none');
-
-    Response::json([
-        'status' => 'ok',
-        'data' => passkeyMeta($versionRepository),
-    ]);
+    try {
+        $options = $passkeyService->registrationOptions();
+        Response::json([
+            'status' => 'ok',
+            'data' => json_decode(json_encode($options), true),
+        ]);
+    } catch (\Throwable $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], 400);
+    }
 });
 
-$router->add('DELETE', '#^/admin/passkey$#', function () use ($versionRepository) {
+$router->add('POST', '#^/admin/passkey/registration/finish$#', function () use ($passkeyService) {
     requireAdminAccess();
-    $versionRepository->delete('passkey_created');
-    $versionRepository->delete('passkey_auth');
+    try {
+        $result = $passkeyService->finishRegistration($_POST ?: json_decode(file_get_contents('php://input'), true) ?? []);
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    } catch (\Throwable $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], 400);
+    }
+});
+
+$router->add('POST', '#^/admin/passkey/auth/options$#', function () use ($passkeyService) {
+    requireAdminAccess();
+    try {
+        $options = $passkeyService->authOptions();
+        Response::json([
+            'status' => 'ok',
+            'data' => json_decode(json_encode($options), true),
+        ]);
+    } catch (\Throwable $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], 400);
+    }
+});
+
+$router->add('POST', '#^/admin/passkey/auth/finish$#', function () use ($passkeyService) {
+    requireAdminAccess();
+    try {
+        $result = $passkeyService->finishAuth($_POST ?: json_decode(file_get_contents('php://input'), true) ?? []);
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    } catch (\Throwable $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], 400);
+    }
+});
+
+$router->add('DELETE', '#^/admin/passkey$#', function () use ($passkeyService) {
+    requireAdminAccess();
+    $passkeyService->delete();
 
     Response::json([
         'status' => 'ok',
-        'data' => passkeyMeta($versionRepository),
+        'data' => passkeyMeta(new VersionRepository(new Database())),
     ]);
 });
 

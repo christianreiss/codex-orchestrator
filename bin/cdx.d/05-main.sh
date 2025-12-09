@@ -1343,6 +1343,9 @@ fi
   fi
 
   result_line="Result: $(colorize "$result_label" "$result_tone")"
+  if [[ "${HOST_VIP:-0}" == "1" ]]; then
+    result_line+=" 👑"
+  fi
   primary_reset_hint=""
   primary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
