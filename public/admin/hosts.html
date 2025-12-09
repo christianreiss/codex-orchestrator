@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="dashboard.css?v=2025-12-08-30">
   <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
-<body data-view="desktop" data-view-mode="dashboard">
+<body data-view="desktop" data-view-mode="hosts">
   <header class="main-nav">
     <div class="nav-brand">
       <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
@@ -30,16 +30,14 @@
   </header>
   <div class="app">
     <div class="content">
-      <nav class="menu-line" aria-label="Dashboard menu">
-        <a class="menu-link" href="/admin/?view=dashboard">Overview</a>
-        <a class="menu-link" href="/admin/?view=hosts">Hosts</a>
-        <a class="menu-link" href="/admin/logs.html">Logs</a>
-        <a class="menu-link" href="/admin/?view=agents">Agents</a>
-        <a class="menu-link" href="/admin/?view=prompts">Slash commands</a>
-        <a class="menu-link" href="/admin/?view=memories">Memories</a>
-        <a class="menu-link" href="/admin/?view=settings">Settings</a>
-      </nav>
-      <main class="main">
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Hosts</p>
+          <h1>Fleet Hosts</h1>
+          <p class="muted">Register, filter, and manage secure or insecure nodes.</p>
+        </div>
+      </section>
+    <main class="main">
         <div class="modal-backdrop" id="seedModal">
           <div class="modal seed-modal">
             <h3>Initial seeding required</h3>
@@ -208,11 +206,11 @@
           </div>
         </div>
 
+        <section class="grid metrics" id="stats"></section>
+
         <section class="card usage-card" id="chatgpt-usage-card">
           <div class="muted">Loading ChatGPT usage…</div>
         </section>
-
-        <section class="grid metrics" id="stats"></section>
 
         <section class="card panel" id="hosts-panel">
           <div class="panel-head">
@@ -222,6 +220,12 @@
             <div class="panel-actions">
               <input type="search" id="host-filter" placeholder="Search host, IP, or version">
             </div>
+          </div>
+          <div class="host-tabs" role="tablist" aria-label="Host status tabs">
+            <a class="host-tab" data-host-tab="" href="/admin/hosts.html">All</a>
+            <a class="host-tab" data-host-tab="secure" href="/admin/hosts.html?host=secure">Secure</a>
+            <a class="host-tab" data-host-tab="insecure" href="/admin/hosts.html?host=insecure">Insecure</a>
+            <a class="host-tab" data-host-tab="unprovisioned" href="/admin/hosts.html?host=unprovisioned">Unprovisioned</a>
           </div>
           <div class="table-wrap">
             <table id="hosts">

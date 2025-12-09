@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="dashboard.css?v=2025-12-08-30">
   <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
-<body data-view="desktop" data-view-mode="dashboard">
+<body data-view="desktop" data-view-mode="memories">
   <header class="main-nav">
     <div class="nav-brand">
       <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
@@ -30,16 +30,7 @@
   </header>
   <div class="app">
     <div class="content">
-      <nav class="menu-line" aria-label="Dashboard menu">
-        <a class="menu-link" href="/admin/?view=dashboard">Overview</a>
-        <a class="menu-link" href="/admin/?view=hosts">Hosts</a>
-        <a class="menu-link" href="/admin/logs.html">Logs</a>
-        <a class="menu-link" href="/admin/?view=agents">Agents</a>
-        <a class="menu-link" href="/admin/?view=prompts">Slash commands</a>
-        <a class="menu-link" href="/admin/?view=memories">Memories</a>
-        <a class="menu-link" href="/admin/?view=settings">Settings</a>
-      </nav>
-      <main class="main">
+    <main class="main">
         <div class="modal-backdrop" id="seedModal">
           <div class="modal seed-modal">
             <h3>Initial seeding required</h3>
@@ -208,11 +199,11 @@
           </div>
         </div>
 
+        <section class="grid metrics" id="stats"></section>
+
         <section class="card usage-card" id="chatgpt-usage-card">
           <div class="muted">Loading ChatGPT usage…</div>
         </section>
-
-        <section class="grid metrics" id="stats"></section>
 
         <section class="card panel" id="hosts-panel">
           <div class="panel-head">
@@ -241,17 +232,16 @@
         </section>
 
         <section class="card panel" id="memories-panel">
-          <div class="panel-head">
-            <div>
-              <h2>Memories</h2>
-              <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
+            <div class="panel-head">
+              <div>
+                <h2>Memories</h2>
+                <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
+              </div>
+              <div class="panel-actions" style="gap:10px;">
+                <a class="ghost tiny-btn" href="/admin/mcp-logs.html" style="text-decoration:none;line-height:28px;">Access Logs</a>
+                <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
+              </div>
             </div>
-            <div class="panel-actions" style="gap:10px;">
-              <a class="ghost tiny-btn" href="/admin/mcp-logs.html" style="text-decoration:none;line-height:28px;">Access Logs</a>
-              <button class="ghost tiny-btn" id="memoriesToggle">Show</button>
-              <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
-            </div>
-          </div>
           <div class="memory-controls" id="memoriesFilters" hidden>
             <div class="field">
               <label for="memoriesQuery" style="font-weight:600;">Search</label>

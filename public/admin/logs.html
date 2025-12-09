@@ -7,24 +7,40 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css">
-  <link rel="stylesheet" href="dashboard-mobile.css">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-30">
+  <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
 </head>
 <body data-view="desktop">
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
+  <header class="main-nav">
+    <div class="nav-brand">
+      <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
+      <div>
+        <div class="brand-title">Codex Coordinator</div>
+      </div>
+    </div>
+    <nav class="nav-groups">
+      <a class="nav-item" href="/admin/?view=dashboard" data-nav="dashboard">Dashboard</a>
+      <a class="nav-item" href="/admin/hosts.html" data-nav="hosts">Hosts</a>
+      <a class="nav-item" href="/admin/logs.html" data-nav="logs">Logs</a>
+      <a class="nav-item" href="/admin/settings.html" data-nav="settings">Settings</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="nav-btn primary" onclick="window.location.href='/admin/?newHost=1#hosts-panel'">New host</button>
+    </div>
+  </header>
   <div class="app">
     <div class="content">
-      <header class="topbar">
-        <div class="title-line">
-          <img class="brand-logo" src="openai-logo.svg" alt="OpenAI logo">
-          <h2>Client Logs</h2>
-          <div class="pill pill-soft">Reports</div>
+      <section class="page-hero">
+        <div>
+          <p class="eyebrow">Logs</p>
+          <h1>Client Reports</h1>
+          <p class="muted">Search, sort, and page through recent ingests.</p>
         </div>
-        <div class="action-line">
-          <a class="nav-btn" href="/admin/">Dashboard</a>
-        </div>
-      </header>
+      </section>
+      <div class="log-tabs" role="tablist" aria-label="Log type tabs">
+        <a class="log-tab active" data-log-tab="client" href="/admin/logs.html">Client logs</a>
+        <a class="log-tab" data-log-tab="mcp" href="/admin/mcp-logs.html">MCP access</a>
+      </div>
       <main class="main logs-main">
         <section class="card panel log-panel">
           <div class="panel-head">
@@ -73,6 +89,7 @@
       </main>
     </div>
   </div>
+  <script src="nav.js?v=2025-12-08-06"></script>
   <script src="logs.js?v=2025-11-29-05"></script>
 </body>
 </html>

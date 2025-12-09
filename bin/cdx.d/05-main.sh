@@ -1562,9 +1562,9 @@ case "$AUTH_PULL_STATUS" in
     if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
       AUTH_LAUNCH_ALLOWED=1
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; using cached auth.json"
-    elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+    elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; secure host using cached auth.json (older than 24h)"
+      AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; secure host using cached auth.json"
     elif (( HAS_LOCAL_AUTH )); then
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; cached auth.json older than allowed window"
     else
