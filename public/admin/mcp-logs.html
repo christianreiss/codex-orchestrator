@@ -46,7 +46,7 @@
       <section class="card panel log-panel">
         <div class="panel-head">
           <div>
-            <h2>MCP Access</h2>
+            <h2>Client Reports</h2>
             <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
           </div>
           <div class="panel-actions log-actions">
@@ -57,7 +57,6 @@
               <option value="100">100 / page</option>
             </select>
             <button id="mcp-refresh" class="ghost tiny-btn" type="button">↻ Refresh</button>
-            <span id="mcp-status" class="muted" style="min-width:120px;text-align:right;"></span>
           </div>
         </div>
         <div class="table-wrap log-table-wrap">
@@ -105,7 +104,7 @@
   <script>
     (function () {
       const tbody = document.querySelector('#logTable tbody');
-      const statusEl = document.getElementById('mcp-status');
+      const statusEl = document.getElementById('mcp-status') || document.getElementById('mcp-footer-status');
       const footerStatusEl = document.getElementById('mcp-footer-status');
       const searchInput = document.getElementById('mcp-search');
       const pageSizeSelect = document.getElementById('mcp-page-size');
@@ -132,9 +131,11 @@
         pageIndicator.textContent = `Page ${Math.min(currentPage, totalPages)} / ${totalPages}`;
         pagePrevBtn.disabled = currentPage <= 1;
         pageNextBtn.disabled = currentPage >= totalPages;
-        footerStatusEl.textContent = filteredRows.length
-          ? `Showing ${pageRows.length} of ${filteredRows.length}`
-          : 'No entries yet.';
+        if (footerStatusEl) {
+          footerStatusEl.textContent = filteredRows.length
+            ? `Showing ${pageRows.length} of ${filteredRows.length}`
+            : 'No entries yet.';
+        }
       }
 
       function applyFilters() {
@@ -164,16 +165,16 @@
 
       async function loadLogs() {
         const limit = 500; // fetch plenty; we page client-side
-        statusEl.textContent = 'Loading…';
+        if (statusEl) statusEl.textContent = 'Loading…';
         try {
           const res = await fetch(`/admin/mcp/logs?limit=${limit}`, { credentials: 'include' });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           rowsCache = data?.data?.logs || [];
-          statusEl.textContent = `${rowsCache.length} loaded`;
+          if (statusEl) statusEl.textContent = `${rowsCache.length} loaded`;
           applyFilters();
         } catch (err) {
-          statusEl.textContent = `Error: ${err.message}`;
+          if (statusEl) statusEl.textContent = `Error: ${err.message}`;
           footerStatusEl.textContent = 'Error loading logs';
         }
       }
