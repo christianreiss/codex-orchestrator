@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=2025-12-08-30">
-  <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-08-02">
+  <link rel="stylesheet" href="dashboard.css?v=2025-12-09-02">
+  <link rel="stylesheet" href="dashboard-mobile.css?v=2025-12-09-03">
 </head>
 <body data-view="desktop" data-view-mode="settings">
   <header class="main-nav">
@@ -37,7 +37,7 @@
           <p class="muted">One place for toggles, agents, slash commands, memories, and config.</p>
         </div>
       </section>
-    <main class="main">
+      <main class="main">
       <div class="host-tabs settings-tabs" role="tablist" aria-label="Settings tabs">
         <a class="host-tab settings-tab active" data-tab="settings" href="#settings">Settings</a>
         <a class="host-tab settings-tab" data-tab="agents" href="#agents">Agents</a>
@@ -218,6 +218,29 @@
 
         <section class="card usage-card" id="chatgpt-usage-card">
           <div class="muted">Loading ChatGPT usage…</div>
+        </section>
+
+        <section class="card panel" id="passkey-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Passkey</h2>
+              <p class="muted" style="margin:4px 0 0;">Dashboard passkey enrollment and latest auth state.</p>
+            </div>
+          </div>
+          <div class="passkey-actions">
+            <div>
+              <div class="muted" style="font-weight:600;">Passkey enrollment</div>
+              <div id="passkeyCreatedCell">Checking…</div>
+            </div>
+            <div>
+              <div class="muted" style="font-weight:600;">Last auth attempt</div>
+              <div id="passkeyAuthCell">Checking…</div>
+            </div>
+            <div class="passkey-buttons">
+              <button class="nav-btn primary small" id="passkeyCreateBtn">Create</button>
+              <button class="nav-btn ghost small" id="passkeyRemoveBtn">Remove</button>
+            </div>
+          </div>
         </section>
 
         <section class="card panel" id="hosts-panel">
@@ -793,7 +816,7 @@
     </div>
   </div>
   <script src="nav.js?v=2025-12-08-06"></script>
-  <script src="dashboard.js?v=2025-12-08-06"></script>
+  <script src="dashboard.js?v=2025-12-09-03"></script>
   <script src="config.js?v=2025-12-06-03"></script>
   <script>
     (() => {

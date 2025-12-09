@@ -82,4 +82,12 @@ class VersionRepository
         }
         return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
     }
+
+    public function delete(string $name): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM versions WHERE name = :name'
+        );
+        $statement->execute(['name' => $name]);
+    }
 }

@@ -50,7 +50,8 @@ body {
       z-index: 100;
       width: 100%;
       display: grid;
-      grid-template-columns: 220px 1fr auto;
+      grid-template-columns: auto 1fr auto auto;
+      grid-auto-flow: column;
       align-items: center;
       gap: 12px;
       padding: 10px 16px;
@@ -181,7 +182,7 @@ body {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       justify-content: flex-end;
     }
     .nav-btn {
@@ -453,7 +454,8 @@ body {
     .panel-actions input:focus,
     .panel-actions select:focus { outline: 1px solid var(--accent); }
     .settings-panel .settings-grid {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 16px;
       padding: 18px;
     }
@@ -487,6 +489,56 @@ body {
     }
     .settings-panel.settings-collapsed .settings-grid {
       display: none;
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .mini-table th,
+    .mini-table td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .mini-table th:last-child,
+    .mini-table td:last-child {
+      text-align: right;
+    }
+
+    .mini-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .button-column {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .nav-btn.small {
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+
+    .passkey-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin: 8px 18px 2px;
+    }
+
+    .passkey-actions .passkey-buttons {
+      display: flex;
+      gap: 8px;
     }
     .quota-limit-control {
       margin-top: 14px;

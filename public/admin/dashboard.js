@@ -101,6 +101,11 @@ const statsEl = document.getElementById('stats');
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
+    // Passkey UI is removed on the main dashboard; keep selectors for settings view safety.
+    const passkeyCreatedCell = document.getElementById('passkeyCreatedCell');
+    const passkeyAuthCell = document.getElementById('passkeyAuthCell');
+    const passkeyCreateBtn = document.getElementById('passkeyCreateBtn');
+    const passkeyRemoveBtn = document.getElementById('passkeyRemoveBtn');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
@@ -235,7 +240,7 @@ const statsEl = document.getElementById('stats');
         eyebrow: 'Settings',
         title: 'Operations & settings',
         copy: 'Emergency toggles and runner utilities.',
-        show: ['settings-panel'],
+        show: ['settings-panel', 'passkey-panel'],
       },
     };
 
@@ -508,6 +513,51 @@ const statsEl = document.getElementById('stats');
       cdxSilentLabel.textContent = cdxSilent ? 'Silent' : 'Verbose';
     }
 
+    function setPasskey(meta) {
+      // Reflect passkey state in nav chip + panel cells.
+      if (window.__navStatus?.setPasskey) window.__navStatus.setPasskey(meta);
+      if (!passkeyCreatedCell || !passkeyAuthCell) return;
+      const created = Boolean(meta?.created ?? meta?.present ?? false);
+      const auth = meta?.auth || 'none';
+      passkeyCreatedCell.textContent = created ? 'Created' : 'Not created';
+      let authLabel = 'No passkey presented';
+      if (auth === 'ok') authLabel = 'Passkey auth OK';
+      else if (auth === 'failed') authLabel = 'Passkey auth failed';
+      passkeyAuthCell.textContent = authLabel;
+      renderPasskeyButtons(created && auth === 'ok');
+    }
+
+    function renderPasskeyButtons(created) {
+      if (passkeyCreateBtn) passkeyCreateBtn.disabled = !!created;
+      if (passkeyRemoveBtn) passkeyRemoveBtn.disabled = !created;
+    }
+
+    async function createPasskey() {
+      if (!passkeyCreateBtn) return;
+      passkeyCreateBtn.disabled = true;
+      try {
+        await api('/admin/passkey', { method: 'POST' });
+        await loadAll();
+      } catch (err) {
+        alert(`Passkey create failed: ${err.message}`);
+      } finally {
+        passkeyCreateBtn.disabled = false;
+      }
+    }
+
+    async function removePasskey() {
+      if (!passkeyRemoveBtn) return;
+      passkeyRemoveBtn.disabled = true;
+      try {
+        await api('/admin/passkey', { method: 'DELETE' });
+        await loadAll();
+      } catch (err) {
+        alert(`Passkey removal failed: ${err.message}`);
+      } finally {
+        passkeyRemoveBtn.disabled = false;
+      }
+    }
+
     async function loadCdxSilent() {
       if (!cdxSilentToggle) return;
       try {
@@ -546,11 +596,7 @@ const statsEl = document.getElementById('stats');
       }
     }
 
-    function setPasskey(meta) {
-      if (window.__navStatus?.setPasskey) {
-        window.__navStatus.setPasskey(meta);
-      }
-    }
+    // (passkey handled above)
 
     function compareVersions(a, b) {
       const normalize = (v) => {
@@ -2737,9 +2783,13 @@ const statsEl = document.getElementById('stats');
         }
         evaluateSeedRequirement(overview.data, hosts.data.hosts);
       } catch (err) {
-        mtlsEl.textContent = 'mTLS / Admin access failed';
-        mtlsEl.classList.add('error');
-        statsEl.innerHTML = `<div class="card"><div class="error">Error: ${err.message}</div></div>`;
+        if (mtlsStatus) {
+          mtlsStatus.textContent = 'mTLS / Admin access failed';
+          mtlsStatus.classList.add('error');
+        }
+        if (statsEl) {
+          statsEl.innerHTML = `<div class="card"><div class="error">Error: ${err.message}</div></div>`;
+        }
       }
     }
 
@@ -3235,6 +3285,13 @@ const statsEl = document.getElementById('stats');
       cdxSilentToggle.addEventListener('change', () => {
         setCdxSilent(cdxSilentToggle.checked);
       });
+    }
+    // Passkey controls only exist on settings page; no-ops when absent.
+    if (passkeyCreateBtn) {
+      passkeyCreateBtn.addEventListener('click', createPasskey);
+    }
+    if (passkeyRemoveBtn) {
+      passkeyRemoveBtn.addEventListener('click', removePasskey);
     }
     loadApiState();
     loadCdxSilent();

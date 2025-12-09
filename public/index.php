@@ -1082,10 +1082,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
         'status' => 'ok',
         'data' => [
             'mtls' => resolveMtls(),
-            'passkey' => [
-                'required' => isPasskeyRequired(),
-                'present' => isPasskeyPresent(),
-            ],
+            'passkey' => passkeyMeta($versionRepository),
             'totals' => [
                 'hosts' => $countHosts,
             ],
@@ -1381,6 +1378,30 @@ $router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agen
     Response::json([
         'status' => 'ok',
         'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/admin/passkey$#', function () use ($versionRepository) {
+    requireAdminAccess();
+    // Stub enrollment until AUTH2 lands.
+    $versionRepository->set('passkey_created', '1');
+    // We do not have real WebAuthn verification here; mark auth as none until a future flow sets it.
+    $versionRepository->set('passkey_auth', 'none');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => passkeyMeta($versionRepository),
+    ]);
+});
+
+$router->add('DELETE', '#^/admin/passkey$#', function () use ($versionRepository) {
+    requireAdminAccess();
+    $versionRepository->delete('passkey_created');
+    $versionRepository->delete('passkey_auth');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => passkeyMeta($versionRepository),
     ]);
 });
 
@@ -2576,15 +2597,38 @@ function requireAdminAccess(): void
 
 function isPasskeyPresent(): bool
 {
-    // Placeholder: actual passkey/session enforcement will land with AUTH2.
-    // For now, assume passkey absent so UI shows "required" when enforced later.
-    return false;
+    return passkeyCreated(new VersionRepository(new Database()));
 }
 
 function isPasskeyRequired(): bool
 {
     // Placeholder until AUTH2 lands; treated as optional so existing setups keep working.
     return false;
+}
+
+function passkeyCreated(VersionRepository $repo): bool
+{
+    return $repo->getFlag('passkey_created', false);
+}
+
+function passkeyAuthStatus(VersionRepository $repo): string
+{
+    // stored as string: ok | failed | none
+    return $repo->get('passkey_auth') ?? 'none';
+}
+
+function passkeyMeta(VersionRepository $repo): array
+{
+    $created = passkeyCreated($repo);
+    $auth = passkeyAuthStatus($repo);
+    // Treat "present" as "created AND last auth succeeded" so we don't claim OK without proof.
+    $present = $created && $auth === 'ok';
+    return [
+        'required' => isPasskeyRequired(),
+        'present' => $present,
+        'created' => $created,
+        'auth' => $auth,
+    ];
 }
 
 function resolveIntQuery(string $key): ?int

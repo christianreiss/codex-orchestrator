@@ -87,19 +87,33 @@
     setMtls: (meta) => {
       if (!mtlsStatus) return;
       if (!meta) return setStatusChip(mtlsStatus, { label: 'mTLS: unknown', variant: 'warn' });
-      if (meta.required && !meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: missing', variant: 'err' });
-      if (!meta.required && !meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: optional', variant: 'warn' });
-      const subject = meta.subject ? ` (${meta.subject})` : '';
-      return setStatusChip(mtlsStatus, { label: `mTLS: OK${subject}`, variant: 'ok' });
+      if (meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: OK', variant: 'ok' });
+      return setStatusChip(mtlsStatus, { label: 'mTLS: missing', variant: 'err' });
     },
     setPasskey: (meta) => {
       if (!passkeyStatus) return;
       if (!meta) return setStatusChip(passkeyStatus, { label: 'Passkey: unknown', variant: 'warn' });
-      if (meta.required && !meta.present) return setStatusChip(passkeyStatus, { label: 'Passkey: required', variant: 'err' });
-      if (!meta.required && !meta.present) return setStatusChip(passkeyStatus, { label: 'Passkey: optional', variant: 'warn' });
-      return setStatusChip(passkeyStatus, { label: 'Passkey: OK', variant: 'ok' });
+      if (meta.present) return setStatusChip(passkeyStatus, { label: 'Passkey: OK', variant: 'ok' });
+      if (meta.created) return setStatusChip(passkeyStatus, { label: 'Passkey: enrolled', variant: 'warn' });
+      return setStatusChip(passkeyStatus, { label: 'Passkey: missing', variant: 'warn' });
     },
   };
+
+  async function hydrateStatus() {
+    try {
+      const resp = await fetch('/admin/overview', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      window.__navStatus.setMtls(json?.data?.mtls ?? null);
+      window.__navStatus.setPasskey(json?.data?.passkey ?? null);
+    } catch (err) {
+      // If mTLS/auth fail, surface a clear missing state so the chip doesn't sit on "checking…".
+      window.__navStatus.setMtls({ required: true, present: false });
+      window.__navStatus.setPasskey({ required: false, present: false });
+    }
+  }
+
+  hydrateStatus();
 
   const normalize = (path) => {
     if (!path) return '/';
@@ -114,15 +128,15 @@
 
   const inferViewFromPath = (pathname) => {
     if (!pathname) return '';
-    if (/agents\\.html$/.test(pathname)) return 'agents';
-    if (/prompts\\.html$/.test(pathname)) return 'prompts';
-    if (/settings\\.html$/.test(pathname)) return 'settings';
-    if (/hosts\\.html$/.test(pathname)) return 'hosts';
-    if (/memories\\.html$/.test(pathname)) return 'memories';
-    if (/mcp-logs\\.html$/.test(pathname)) return 'memories';
-    if (/logs\\.html$/.test(pathname)) return 'logs';
-    if (/config\\.html$/.test(pathname)) return 'settings';
-    if (/\\/admin\\/?$/.test(pathname)) return 'dashboard';
+    if (/agents\.html$/.test(pathname)) return 'agents';
+    if (/prompts\.html$/.test(pathname)) return 'prompts';
+    if (/settings\.html$/.test(pathname)) return 'settings';
+    if (/hosts\.html$/.test(pathname)) return 'hosts';
+    if (/memories\.html$/.test(pathname)) return 'memories';
+    if (/mcp-logs\.html$/.test(pathname)) return 'memories';
+    if (/logs\.html$/.test(pathname)) return 'logs';
+    if (/config\.html$/.test(pathname)) return 'settings';
+    if (/\/admin\/?$/.test(pathname)) return 'dashboard';
     return '';
   };
 
