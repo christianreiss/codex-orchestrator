@@ -540,7 +540,16 @@ const statsEl = document.getElementById('stats');
     }
 
     function setMtls(meta) {
-      mtlsMeta = meta; // kept for future use; pill removed from UI
+      mtlsMeta = meta;
+      if (window.__navStatus?.setMtls) {
+        window.__navStatus.setMtls(meta);
+      }
+    }
+
+    function setPasskey(meta) {
+      if (window.__navStatus?.setPasskey) {
+        window.__navStatus.setPasskey(meta);
+      }
     }
 
     function compareVersions(a, b) {
@@ -2689,8 +2698,8 @@ const statsEl = document.getElementById('stats');
 
     async function loadAll() {
       try {
-        const [overview, hosts, runner, prompts, agents] = await Promise.all([
-          api('/admin/overview'),
+    const [overview, hosts, runner, prompts, agents] = await Promise.all([
+      api('/admin/overview'),
           api('/admin/hosts'),
           api('/admin/runner').catch(err => {
             console.warn('Runner status unavailable', err);
@@ -2705,7 +2714,8 @@ const statsEl = document.getElementById('stats');
             return null;
           }),
         ]);
-        setMtls(overview.data.mtls);
+    setMtls(overview.data.mtls);
+    setPasskey(overview.data.passkey ?? null);
         renderStats(overview.data, runner?.data || null);
         renderHosts(hosts.data.hosts);
         renderPrompts(prompts?.data?.commands || []);

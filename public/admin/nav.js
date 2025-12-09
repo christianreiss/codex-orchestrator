@@ -5,6 +5,8 @@
   }
 
   const nav = document.querySelector('.main-nav');
+  const mtlsStatus = document.getElementById('mtlsStatus');
+  const passkeyStatus = document.getElementById('passkeyStatus');
   if (!nav) return;
 
   const groups = Array.from(nav.querySelectorAll('.nav-item.has-children'));
@@ -71,6 +73,33 @@
   nav.querySelectorAll('.nav-dropdown a').forEach((link) => {
     link.addEventListener('click', () => closeAll());
   });
+
+  function setStatusChip(el, state) {
+    if (!el) return;
+    el.classList.remove('ok', 'warn', 'err');
+    const { label, variant } = state;
+    if (variant) el.classList.add(variant);
+    el.textContent = label;
+  }
+
+  // Expose setters so dashboard.js can reflect backend state
+  window.__navStatus = {
+    setMtls: (meta) => {
+      if (!mtlsStatus) return;
+      if (!meta) return setStatusChip(mtlsStatus, { label: 'mTLS: unknown', variant: 'warn' });
+      if (meta.required && !meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: missing', variant: 'err' });
+      if (!meta.required && !meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: optional', variant: 'warn' });
+      const subject = meta.subject ? ` (${meta.subject})` : '';
+      return setStatusChip(mtlsStatus, { label: `mTLS: OK${subject}`, variant: 'ok' });
+    },
+    setPasskey: (meta) => {
+      if (!passkeyStatus) return;
+      if (!meta) return setStatusChip(passkeyStatus, { label: 'Passkey: unknown', variant: 'warn' });
+      if (meta.required && !meta.present) return setStatusChip(passkeyStatus, { label: 'Passkey: required', variant: 'err' });
+      if (!meta.required && !meta.present) return setStatusChip(passkeyStatus, { label: 'Passkey: optional', variant: 'warn' });
+      return setStatusChip(passkeyStatus, { label: 'Passkey: OK', variant: 'ok' });
+    },
+  };
 
   const normalize = (path) => {
     if (!path) return '/';

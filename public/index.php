@@ -1082,6 +1082,10 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
         'status' => 'ok',
         'data' => [
             'mtls' => resolveMtls(),
+            'passkey' => [
+                'required' => isPasskeyRequired(),
+                'present' => isPasskeyPresent(),
+            ],
             'totals' => [
                 'hosts' => $countHosts,
             ],
@@ -2568,6 +2572,19 @@ function requireAdminAccess(): void
             'message' => 'Admin key required',
         ], 401);
     }
+}
+
+function isPasskeyPresent(): bool
+{
+    // Placeholder: actual passkey/session enforcement will land with AUTH2.
+    // For now, assume passkey absent so UI shows "required" when enforced later.
+    return false;
+}
+
+function isPasskeyRequired(): bool
+{
+    // Placeholder until AUTH2 lands; treated as optional so existing setups keep working.
+    return false;
 }
 
 function resolveIntQuery(string $key): ?int
