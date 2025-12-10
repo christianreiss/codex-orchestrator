@@ -36,7 +36,16 @@ class PasskeyService
         private VersionRepository $versionRepository,
         private string $rpId,
         private string $rpName,
+        /** @var string[] */
+        private array $allowedOrigins = [],
     ) {
+        if ($this->allowedOrigins === []) {
+            // Default to both https and http for the host to keep local/dev dashboards working.
+            $this->allowedOrigins = [
+                'https://' . $this->rpId,
+                'http://' . $this->rpId,
+            ];
+        }
     }
 
     public function registrationOptions(): PublicKeyCredentialCreationOptions
@@ -86,7 +95,7 @@ class PasskeyService
                 $response,
                 $expectedChallenge,
                 $this->rpId,
-                ['https://' . $this->rpId],
+                $this->allowedOrigins,
                 TokenBindingNotSupportedHandler::create()
             );
 
@@ -179,7 +188,7 @@ class PasskeyService
             $response,
             $expectedChallenge,
             $this->rpId,
-            ['https://' . $this->rpId],
+            $this->allowedOrigins,
             $credentialRepo,
             TokenBindingNotSupportedHandler::create()
         );

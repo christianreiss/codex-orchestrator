@@ -2415,11 +2415,18 @@ const statsEl = document.getElementById('stats');
     }
 
     function bufferToBase64(buf) {
-      return btoa(String.fromCharCode(...new Uint8Array(buf)));
+      // Produce base64url so it round-trips server-provided challenges/ids.
+      return btoa(String.fromCharCode(...new Uint8Array(buf)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
     }
 
     function base64ToBuffer(b64) {
-      return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+      // Accept both standard and url-safe base64; add required padding.
+      const normalized = b64.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+      return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)).buffer;
     }
 
     function normalizeCreationOptions(opts) {
@@ -2451,7 +2458,8 @@ const statsEl = document.getElementById('stats');
       const userHandle = cred.response.userHandle ? bufferToBase64(cred.response.userHandle) : null;
       const attestationObject = cred.response.attestationObject ? bufferToBase64(cred.response.attestationObject) : null;
       return {
-        id: cred.id,
+        // id/rawId must be base64url to match server expectations
+        id: typeof cred.id === 'string' ? cred.id : bufferToBase64(cred.rawId),
         rawId: bufferToBase64(cred.rawId),
         type: cred.type,
         response: {
