@@ -540,6 +540,33 @@ body {
       display: flex;
       gap: 8px;
     }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      border: 1px solid transparent;
+    }
+    .pill.ok {
+      color: #0f5132;
+      background: #d1f4e0;
+      border-color: #9ae7c0;
+    }
+    .pill.warn {
+      color: #8a5300;
+      background: #fff4d6;
+      border-color: #ffd48a;
+    }
+    .pill.error {
+      color: #842029;
+      background: #fde2e4;
+      border-color: #f5b8c1;
+    }
     .quota-limit-control {
       margin-top: 14px;
       border: 1px solid rgba(15,23,42,0.1);

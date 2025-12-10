@@ -22,3 +22,16 @@ All tables are migrated on boot (MySQL only).
 - **ip_rate_limits** — per-IP buckets for request throttling (`ip`, `bucket`, `count`, `reset_at`, `last_hit`, `created_at`; unique by `ip` + `bucket`, opportunistically pruned once expired). Used for the `global` and `auth-fail` buckets.
 
 Encryption: `AUTH_ENCRYPTION_KEY` (libsodium secretbox) is generated into `.env` on first boot if missing. `api_key_enc`, `auth_payloads.body`, and `auth_entries.token` are stored as `sbox:v1` ciphertexts; `AuthEncryptionMigrator` backfills any legacy plaintext rows at startup.
+### admin_passkeys
+
+Single stored admin WebAuthn credential (enforced in code; table allows one row but not constrained).
+
+| column       | type            | notes                                      |
+|--------------|-----------------|--------------------------------------------|
+| id           | BIGINT PK AI    |                                            |
+| credential_id| VARBINARY(255)  | Base64url raw credential ID, unique        |
+| public_key   | TEXT            | Base64-encoded public key                  |
+| user_handle  | VARBINARY(64)   | Binary user handle                         |
+| counter      | BIGINT          | WebAuthn counter                           |
+| created_at   | VARCHAR(100)    | ISO8601                                    |
+| updated_at   | VARCHAR(100)    | ISO8601                                    |

@@ -6,21 +6,35 @@ namespace App\Services;
 
 use App\Repositories\AdminPasskeyRepository;
 use App\Repositories\VersionRepository;
+use Cose\Algorithm\Manager as CoseAlgorithmManager;
+use Cose\Algorithm\Signature\ECDSA\ES256;
+use Cose\Algorithm\Signature\RSA\RS256;
 use DateInterval;
 use DateTimeImmutable;
 use Throwable;
+use Webauthn\AttestationStatement\AndroidKeyAttestationStatementSupport;
+use Webauthn\AttestationStatement\AndroidSafetyNetAttestationStatementSupport;
+use Webauthn\AttestationStatement\AppleAttestationStatementSupport;
+use Webauthn\AttestationStatement\AttestationObjectLoader;
+use Webauthn\AttestationStatement\AttestationStatementSupportManager;
+use Webauthn\AttestationStatement\FidoU2FAttestationStatementSupport;
+use Webauthn\AttestationStatement\PackedAttestationStatementSupport;
+use Webauthn\AttestationStatement\TPMAttestationStatementSupport;
 use Webauthn\AuthenticatorAssertionResponse;
+use Webauthn\AuthenticatorAssertionResponseValidator;
 use Webauthn\AuthenticatorAttestationResponse;
+use Webauthn\AuthenticatorAttestationResponseValidator;
 use Webauthn\AuthenticatorSelectionCriteria;
-use Webauthn\CredentialRepository;
+use Webauthn\PublicKeyCredentialUserEntity;
 use Webauthn\PublicKeyCredentialCreationOptions;
 use Webauthn\PublicKeyCredentialDescriptor;
+use Webauthn\PublicKeyCredentialLoader;
 use Webauthn\PublicKeyCredentialParameters;
 use Webauthn\PublicKeyCredentialRequestOptions;
 use Webauthn\PublicKeyCredentialRpEntity;
-use Webauthn\PublicKeyCredentialUserEntity;
 use Webauthn\TokenBinding\TokenBindingNotSupportedHandler;
-use Webauthn\Webauthn;
+use Webauthn\PublicKeyCredentialSource;
+use Webauthn\PublicKeyCredentialSourceRepository;
 
 /**
  * One-admin passkey orchestration: issues WebAuthn options, verifies responses, stores single credential.
@@ -53,7 +67,7 @@ class PasskeyService
         $userHandle = random_bytes(32);
         $challenge = random_bytes(32);
 
-        $this->persistChallenge(self::VERSION_KEY_REGISTER, $challenge);
+        $this->persistRegistrationContext($challenge, $userHandle);
 
         $rp = new PublicKeyCredentialRpEntity($this->rpName, $this->rpId, null);
         $user = new PublicKeyCredentialUserEntity('admin', $userHandle, 'admin');
@@ -77,27 +91,26 @@ class PasskeyService
 
     public function finishRegistration(array $requestBody): array
     {
-        $expectedChallenge = $this->pullChallenge(self::VERSION_KEY_REGISTER);
-        if ($expectedChallenge === null) {
+        $requestBody = $this->stripNulls($requestBody);
+        $context = $this->pullRegistrationContext();
+        if ($context === null) {
             throw new \RuntimeException('No registration challenge in flight or it expired');
         }
+        $expectedChallenge = $context['challenge'];
+        $userHandle = $context['user_handle'];
 
-        $publicKeyCredential = \Webauthn\PublicKeyCredentialLoader::create()->loadArray($requestBody);
+        $publicKeyCredential = $this->publicKeyCredentialLoader()->loadArray($requestBody);
         $response = $publicKeyCredential->getResponse();
         if (!$response instanceof AuthenticatorAttestationResponse) {
             throw new \RuntimeException('Invalid attestation response');
         }
 
-        $publicKeyCredentialSource = Webauthn::factory()
-            ->validateAttestation(
-                $publicKeyCredential->getRawId(),
-                $publicKeyCredential->getType(),
-                $response,
-                $expectedChallenge,
-                $this->rpId,
-                $this->allowedOrigins,
-                TokenBindingNotSupportedHandler::create()
-            );
+        $creationOptions = $this->rebuildCreationOptions($userHandle, $expectedChallenge);
+        $publicKeyCredentialSource = $this->attestationValidator()->check(
+            $response,
+            $creationOptions,
+            $this->rpId
+        );
 
         $this->repo->saveSingle(
             $publicKeyCredentialSource->getPublicKeyCredentialId(),
@@ -125,21 +138,22 @@ class PasskeyService
         $this->persistChallenge(self::VERSION_KEY_AUTH, $challenge);
 
         return PublicKeyCredentialRequestOptions::create(
-            $challenge
-        )
-            ->setRpId($this->rpId)
-            ->setAllowCredentials([
+            $challenge,
+            $this->rpId,
+            [
                 new PublicKeyCredentialDescriptor(
                     'public-key',
                     $stored['credential_id']
                 ),
-            ])
-            ->setUserVerification(PublicKeyCredentialRequestOptions::USER_VERIFICATION_REQUIREMENT_REQUIRED)
-            ->setTimeout(60000);
+            ],
+            PublicKeyCredentialRequestOptions::USER_VERIFICATION_REQUIREMENT_REQUIRED,
+            60000
+        );
     }
 
     public function finishAuth(array $requestBody): array
     {
+        $requestBody = $this->stripNulls($requestBody);
         $expectedChallenge = $this->pullChallenge(self::VERSION_KEY_AUTH);
         if ($expectedChallenge === null) {
             throw new \RuntimeException('No auth challenge in flight or it expired');
@@ -150,7 +164,7 @@ class PasskeyService
             throw new \RuntimeException('Passkey not created');
         }
 
-        $credentialRepo = new class($stored) implements CredentialRepository {
+        $credentialRepo = new class($stored) implements PublicKeyCredentialSourceRepository {
             public function __construct(private array $stored)
             {
             }
@@ -174,23 +188,24 @@ class PasskeyService
             {
                 return [];
             }
+            public function saveCredentialSource(\Webauthn\PublicKeyCredentialSource $publicKeyCredentialSource): void
+            {
+                // No-op: single credential is persisted via repository updateCounter.
+            }
         };
 
-        $publicKeyCredential = \Webauthn\PublicKeyCredentialLoader::create()->loadArray($requestBody);
+        $publicKeyCredential = $this->publicKeyCredentialLoader()->loadArray($requestBody);
         $response = $publicKeyCredential->getResponse();
         if (!$response instanceof AuthenticatorAssertionResponse) {
             throw new \RuntimeException('Invalid assertion response');
         }
 
-        $validated = Webauthn::factory()->validateAssertion(
+        $requestOptions = $this->rebuildRequestOptions($expectedChallenge, $stored['credential_id']);
+        $validated = $this->assertionValidator($credentialRepo)->check(
             $publicKeyCredential->getRawId(),
-            $publicKeyCredential->getType(),
             $response,
-            $expectedChallenge,
-            $this->rpId,
-            $this->allowedOrigins,
-            $credentialRepo,
-            TokenBindingNotSupportedHandler::create()
+            $requestOptions,
+            $this->rpId
         );
 
         $this->repo->updateCounter($stored['credential_id'], $validated->getPublicKeyCredentialSource()->getCounter());
@@ -199,6 +214,24 @@ class PasskeyService
         return [
             'counter' => $validated->getPublicKeyCredentialSource()->getCounter(),
         ];
+    }
+
+    /**
+     * Some browsers/clients send explicit nulls for optional WebAuthn fields; the Webauthn loader
+     * treats the presence of a null attestationObject as fatal. Strip nulls recursively.
+     */
+    private function stripNulls(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if ($value === null) {
+                unset($data[$key]);
+                continue;
+            }
+            if (is_array($value)) {
+                $data[$key] = $this->stripNulls($value);
+            }
+        }
+        return $data;
     }
 
     public function delete(): void
@@ -213,6 +246,16 @@ class PasskeyService
         $expiresAt = (new DateTimeImmutable())->add(new DateInterval('PT' . self::CHALLENGE_TTL_SECONDS . 'S'))->format(DATE_ATOM);
         $this->versionRepository->set($key, json_encode([
             'challenge' => $this->b64urlEncode($challenge),
+            'expires_at' => $expiresAt,
+        ]));
+    }
+
+    private function persistRegistrationContext(string $challenge, string $userHandle): void
+    {
+        $expiresAt = (new DateTimeImmutable())->add(new DateInterval('PT' . self::CHALLENGE_TTL_SECONDS . 'S'))->format(DATE_ATOM);
+        $this->versionRepository->set(self::VERSION_KEY_REGISTER, json_encode([
+            'challenge' => $this->b64urlEncode($challenge),
+            'user_handle' => $this->b64urlEncode($userHandle),
             'expires_at' => $expiresAt,
         ]));
     }
@@ -234,6 +277,126 @@ class PasskeyService
         } catch (Throwable) {
             return null;
         }
+    }
+
+    private function pullRegistrationContext(): ?array
+    {
+        $raw = $this->versionRepository->get(self::VERSION_KEY_REGISTER);
+        if (!$raw) {
+            return null;
+        }
+        $this->versionRepository->delete(self::VERSION_KEY_REGISTER);
+        try {
+            $parsed = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+            $expires = isset($parsed['expires_at']) ? new DateTimeImmutable((string) $parsed['expires_at']) : null;
+            if ($expires && $expires < new DateTimeImmutable()) {
+                return null;
+            }
+            if (!isset($parsed['challenge'], $parsed['user_handle'])) {
+                throw new \RuntimeException('Registration context missing required fields');
+            }
+            return [
+                'challenge' => $this->b64urlDecode($parsed['challenge']),
+                'user_handle' => $this->b64urlDecode($parsed['user_handle']),
+            ];
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function publicKeyCredentialLoader(): PublicKeyCredentialLoader
+    {
+        $attestationManager = $this->createAttestationSupportManager();
+        $attestationLoader = AttestationObjectLoader::create($attestationManager);
+
+        return PublicKeyCredentialLoader::create($attestationLoader);
+    }
+
+    private function createAttestationSupportManager(): AttestationStatementSupportManager
+    {
+        $algoManager = $this->createAlgorithmManager();
+
+        // SafetyNet support requires web-token/jwt-library; avoid throwing if absent.
+        $supports = [
+            new PackedAttestationStatementSupport($algoManager),
+            new FidoU2FAttestationStatementSupport(),
+            new AndroidKeyAttestationStatementSupport(),
+            new TPMAttestationStatementSupport(),
+            new AppleAttestationStatementSupport(),
+        ];
+
+        if (class_exists(\Jose\Component\Signature\Algorithm\RS256::class)) {
+            $supports[] = new AndroidSafetyNetAttestationStatementSupport();
+        }
+
+        return AttestationStatementSupportManager::create($supports);
+    }
+
+    private function createAlgorithmManager(): CoseAlgorithmManager
+    {
+        $manager = new CoseAlgorithmManager();
+        $manager->add(new ES256());
+        $manager->add(new RS256());
+        return $manager;
+    }
+
+    private function attestationValidator(): AuthenticatorAttestationResponseValidator
+    {
+        return AuthenticatorAttestationResponseValidator::create(
+            $this->createAttestationSupportManager(),
+            null,
+            TokenBindingNotSupportedHandler::create()
+        );
+    }
+
+    private function assertionValidator(PublicKeyCredentialSourceRepository $credentialRepo): AuthenticatorAssertionResponseValidator
+    {
+        $algorithmManager = $this->createAlgorithmManager();
+
+        return AuthenticatorAssertionResponseValidator::create(
+            $credentialRepo,
+            TokenBindingNotSupportedHandler::create(),
+            null,
+            $algorithmManager
+        );
+    }
+
+    private function rebuildCreationOptions(string $userHandle, string $challenge): PublicKeyCredentialCreationOptions
+    {
+        $rp = new PublicKeyCredentialRpEntity($this->rpName, $this->rpId, null);
+        $user = new PublicKeyCredentialUserEntity('admin', $userHandle, 'admin');
+
+        return PublicKeyCredentialCreationOptions::create(
+            $rp,
+            $user,
+            $challenge,
+            [
+                new PublicKeyCredentialParameters('public-key', -7), // ES256
+                new PublicKeyCredentialParameters('public-key', -257), // RS256
+            ]
+        )
+            ->setAuthenticatorSelection(
+                AuthenticatorSelectionCriteria::create()
+                    ->setResidentKey(AuthenticatorSelectionCriteria::RESIDENT_KEY_REQUIREMENT_PREFERRED)
+                    ->setUserVerification(AuthenticatorSelectionCriteria::USER_VERIFICATION_REQUIREMENT_REQUIRED)
+            )
+            ->setTimeout(60000);
+    }
+
+    private function rebuildRequestOptions(string $challenge, string $credentialId): PublicKeyCredentialRequestOptions
+    {
+        return PublicKeyCredentialRequestOptions::create(
+            $challenge,
+            $this->rpId,
+            [
+                new PublicKeyCredentialDescriptor(
+                    'public-key',
+                    $credentialId
+                ),
+            ],
+            PublicKeyCredentialRequestOptions::USER_VERIFICATION_REQUIREMENT_REQUIRED,
+            60000
+        );
     }
 
     private function b64urlEncode(string $binary): string

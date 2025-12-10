@@ -86,3 +86,21 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 - Global throttle for non-admin paths: per-IP `global` bucket defaults to `RATE_LIMIT_GLOBAL_PER_MINUTE=120` over `RATE_LIMIT_GLOBAL_WINDOW=60` seconds. Exceeding the limit returns HTTP 429 with `{ bucket: "global", reset_at, limit }`.
 - Brute-force guard: repeated missing/invalid API keys are counted per IP in the `auth-fail` bucket. Defaults: `RATE_LIMIT_AUTH_FAIL_COUNT=20` failures within `RATE_LIMIT_AUTH_FAIL_WINDOW=600` seconds, extending the block for `RATE_LIMIT_AUTH_FAIL_BLOCK=1800` seconds once tripped. Limit hits return HTTP 429 `Too many failed authentication attempts` with `reset_at` + `bucket`.
 - Admin routes are exempt; when no client IP can be resolved the request proceeds without throttling. Tune the env vars above to tighten or disable the windows (zero/negative disables the guard).
+## Admin passkey endpoints
+
+- `POST /admin/passkey/registration/options`
+  - Auth: admin key + admin access mode (mTLS/passkey) as configured.
+  - Returns WebAuthn creation options JSON. Challenge TTL: 300s.
+- `POST /admin/passkey/registration/finish`
+  - Verifies attestation, stores single credential (`admin_passkeys`), sets `passkey_created=1`, `passkey_auth=ok` in versions.
+  - Response: `{"credential_id": base64url, "counter": int}`.
+  - Notes: request body may not include null fields; backend strips nulls defensively.
+- `POST /admin/passkey/auth/options`
+  - Issues assertion options for the stored credential; requires credential to exist.
+- `POST /admin/passkey/auth/finish`
+  - Verifies assertion, updates credential counter, sets `passkey_auth=ok`.
+  - Response: `{"counter": int}`.
+- `DELETE /admin/passkey`
+  - Deletes stored credential and clears passkey flags.
+
+Errors are returned as `{"status":"error","message":"..."}` with appropriate HTTP status (400/401/403/500).

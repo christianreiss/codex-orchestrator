@@ -1470,13 +1470,13 @@ $router->add('POST', '#^/admin/passkey/auth/finish$#', function () use ($passkey
     }
 });
 
-$router->add('DELETE', '#^/admin/passkey$#', function () use ($passkeyService) {
+$router->add('DELETE', '#^/admin/passkey$#', function () use ($passkeyService, $versionRepository) {
     requireAdminAccess();
     $passkeyService->delete();
 
     Response::json([
         'status' => 'ok',
-        'data' => passkeyMeta(new VersionRepository(new Database())),
+        'data' => passkeyMeta($versionRepository),
     ]);
 });
 
@@ -2629,56 +2629,87 @@ function resolveAdminKey(): ?string
     return null;
 }
 
-function isMtlsRequired(): bool
+function adminAccessMode(): string
 {
-    $value = Config::get('ADMIN_REQUIRE_MTLS', '1');
-    $normalized = strtolower(trim((string) $value));
-
-    return !in_array($normalized, ['0', 'false', 'off', 'no'], true);
+    $mode = strtolower((string) Config::get('ADMIN_ACCESS_MODE', 'mtls_and_passkey'));
+    return match ($mode) {
+        'none', 'mtls_only', 'passkey_only', 'mtls_and_passkey' => $mode,
+        default => 'mtls_and_passkey',
+    };
 }
 
-function requireMtls(): void
+function isMtlsRequired(): bool
 {
-    if (!isMtlsRequired()) {
-        return;
+    $mode = adminAccessMode();
+    return in_array($mode, ['mtls_only', 'mtls_and_passkey'], true);
+}
+
+function isPasskeyRequired(): bool
+{
+    $mode = adminAccessMode();
+    return in_array($mode, ['passkey_only', 'mtls_and_passkey'], true);
+}
+
+function isMtlsSatisfied(): bool
+{
+    $present = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
+    return $present !== '';
+}
+
+function requireAdminAccess(): void
+{
+    $mode = adminAccessMode();
+    // Reuse the already-booted DB config/env.
+    $dbConfig = [
+        'driver' => Config::get('DB_DRIVER', 'mysql'),
+        'host' => Config::get('DB_HOST', 'mysql'),
+        'port' => (int) Config::get('DB_PORT', 3306),
+        'database' => Config::get('DB_DATABASE', 'codex_auth'),
+        'username' => Config::get('DB_USERNAME', 'root'),
+        'password' => Config::get('DB_PASSWORD', ''),
+        'charset' => Config::get('DB_CHARSET', 'utf8mb4'),
+    ];
+    $passkeyRepo = new VersionRepository(new Database($dbConfig));
+    $passkeyPresent = passkeyCreated($passkeyRepo);
+    $passkeyOk = passkeyAuthStatus($passkeyRepo) === 'ok';
+
+    $configuredAdminKey = Config::get('DASHBOARD_ADMIN_KEY', '');
+    $adminKeyProvided = $configuredAdminKey === '' || ($provided = resolveAdminKey()) !== null && hash_equals($configuredAdminKey, $provided);
+
+    $mtlsOk = isMtlsSatisfied();
+
+    $mtlsRequired = $mode === 'mtls_only' || $mode === 'mtls_and_passkey';
+    $passkeyRequired = $mode === 'passkey_only' || $mode === 'mtls_and_passkey';
+
+    // Allow passkey bootstrap: when passkey is required but not present, only passkey endpoints may proceed.
+    $isPasskeyRoute = str_starts_with(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '', '/admin/passkey/');
+    if ($passkeyRequired && !$passkeyPresent && !$isPasskeyRoute) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Passkey enrollment required',
+        ], 401);
     }
 
-    $present = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
-    if ($present === '') {
+    if ($mtlsRequired && !$mtlsOk) {
         Response::json([
             'status' => 'error',
             'message' => 'Client certificate required for admin access',
         ], 403);
     }
-}
 
-function requireAdminAccess(): void
-{
-    requireMtls();
-
-    $configured = Config::get('DASHBOARD_ADMIN_KEY', '');
-    if ($configured === '') {
-        return;
+    if ($passkeyRequired && $passkeyPresent && !$passkeyOk && !$isPasskeyRoute) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Passkey authentication required',
+        ], 401);
     }
 
-    $provided = resolveAdminKey();
-    if ($provided === null || !hash_equals($configured, $provided)) {
+    if (!$adminKeyProvided) {
         Response::json([
             'status' => 'error',
             'message' => 'Admin key required',
         ], 401);
     }
-}
-
-function isPasskeyPresent(): bool
-{
-    return passkeyCreated(new VersionRepository(new Database()));
-}
-
-function isPasskeyRequired(): bool
-{
-    // Placeholder until AUTH2 lands; treated as optional so existing setups keep working.
-    return false;
 }
 
 function passkeyCreated(VersionRepository $repo): bool

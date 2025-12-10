@@ -18,7 +18,12 @@ class AdminPasskeyRepository
     {
         $stmt = $this->db->connection()->query('SELECT * FROM admin_passkeys LIMIT 1');
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ?: null;
+        if (!$row) {
+            return null;
+        }
+        // Stored as base64 to keep binary-safe; decode for consumers.
+        $row['public_key'] = base64_decode($row['public_key'], true) ?: '';
+        return $row;
     }
 
     public function deleteAll(): void
@@ -37,7 +42,8 @@ class AdminPasskeyRepository
         );
         $stmt->execute([
             'cid' => $credentialId,
-            'pk' => $publicKey,
+            // Store base64 to avoid charset issues with binary key blobs.
+            'pk' => base64_encode($publicKey),
             'uh' => $userHandle,
             'ctr' => $counter,
             'created' => $now,

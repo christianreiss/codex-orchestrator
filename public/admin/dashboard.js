@@ -520,11 +520,22 @@ const statsEl = document.getElementById('stats');
       if (!passkeyCreatedCell || !passkeyAuthCell) return;
       const created = Boolean(meta?.created ?? meta?.present ?? false);
       const auth = meta?.auth || 'none';
+      passkeyCreatedCell.className = 'pill ' + (created ? 'ok' : 'warn');
       passkeyCreatedCell.textContent = created ? 'Created' : 'Not created';
+
       let authLabel = 'No passkey presented';
-      if (auth === 'ok') authLabel = 'Passkey auth OK';
-      else if (auth === 'failed') authLabel = 'Passkey auth failed';
-      else if (auth === 'none' && created) authLabel = 'Passkey enrolled; no auth yet';
+      let authClass = 'warn';
+      if (auth === 'ok') {
+        authLabel = 'Passkey auth OK';
+        authClass = 'ok';
+      } else if (auth === 'failed') {
+        authLabel = 'Passkey auth failed';
+        authClass = 'error';
+      } else if (auth === 'none' && created) {
+        authLabel = 'Passkey enrolled; no auth yet';
+        authClass = 'warn';
+      }
+      passkeyAuthCell.className = 'pill ' + authClass;
       passkeyAuthCell.textContent = authLabel;
       renderPasskeyButtons(created);
     }
@@ -2452,23 +2463,30 @@ const statsEl = document.getElementById('stats');
 
     function serializeCredential(cred) {
       if (!cred || cred.type !== 'public-key') throw new Error('Invalid credential');
-      const clientDataJSON = bufferToBase64(cred.response.clientDataJSON);
-      const authenticatorData = cred.response.authenticatorData ? bufferToBase64(cred.response.authenticatorData) : null;
-      const signature = cred.response.signature ? bufferToBase64(cred.response.signature) : null;
-      const userHandle = cred.response.userHandle ? bufferToBase64(cred.response.userHandle) : null;
-      const attestationObject = cred.response.attestationObject ? bufferToBase64(cred.response.attestationObject) : null;
+      const response = {
+        clientDataJSON: bufferToBase64(cred.response.clientDataJSON),
+      };
+
+      // Only include fields that are actually present; sending null attestationObject confuses the WebAuthn loader.
+      if (cred.response.authenticatorData) {
+        response.authenticatorData = bufferToBase64(cred.response.authenticatorData);
+      }
+      if (cred.response.signature) {
+        response.signature = bufferToBase64(cred.response.signature);
+      }
+      if (cred.response.userHandle) {
+        response.userHandle = bufferToBase64(cred.response.userHandle);
+      }
+      if (cred.response.attestationObject) {
+        response.attestationObject = bufferToBase64(cred.response.attestationObject);
+      }
+
       return {
         // id/rawId must be base64url to match server expectations
         id: typeof cred.id === 'string' ? cred.id : bufferToBase64(cred.rawId),
         rawId: bufferToBase64(cred.rawId),
         type: cred.type,
-        response: {
-          clientDataJSON,
-          authenticatorData,
-          signature,
-          userHandle,
-          attestationObject,
-        },
+        response,
       };
     }
 
