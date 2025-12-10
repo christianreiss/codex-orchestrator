@@ -150,7 +150,12 @@ $passkeyService = new PasskeyService(
     $adminPasskeyRepository,
     $versionRepository,
     $rpHost,
-    'Codex Admin'
+    'Codex Admin',
+    // Allow both http/https for the resolved host to keep dev + TLS behind proxies working.
+    [
+        'https://' . $rpHost,
+        'http://' . $rpHost,
+    ]
 );
 $wrapperService->ensureSeeded();
 $usageCostService->backfillMissingCosts();
@@ -287,6 +292,16 @@ $router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         installerError('Installer host missing', 404);
+    }
+
+    // Some legacy/insecure-host paths ended up writing install_tokens with an empty api_key
+    // (hash of ""), which breaks the installer emission. Recover by decrypting the host's
+    // encrypted API key when the token payload is blank.
+    if (empty($tokenRow['api_key'] ?? '')) {
+        $hostPlain = $hostRepository->decryptApiKey($host['api_key_enc'] ?? null);
+        if ($hostPlain) {
+            $tokenRow['api_key'] = $hostPlain;
+        }
     }
 
     $baseUrl = resolveInstallerBaseUrl($tokenRow);
