@@ -638,12 +638,12 @@
     }
 
     function maybeShowAccessBlock() {
-      const passkeyRequired = overviewData?.passkey?.required === true;
-      const passkeyCreated = overviewData?.passkey?.created === true;
-      const passkeyPresent = overviewData?.passkey?.present === true;
-      const passkeyAuth = overviewData?.passkey?.auth || 'none';
-      const mtlsRequired = overviewData?.mtls?.required === true;
-      const mtlsPresent = overviewData?.mtls?.present === true;
+      const passkeyRequired = currentOverview?.passkey?.required === true;
+      const passkeyCreated = currentOverview?.passkey?.created === true;
+      const passkeyPresent = currentOverview?.passkey?.present === true;
+      const passkeyAuth = currentOverview?.passkey?.auth || 'none';
+      const mtlsRequired = currentOverview?.mtls?.required === true;
+      const mtlsPresent = currentOverview?.mtls?.present === true;
 
       // If mTLS is required and missing, block immediately.
       if (mtlsRequired && !mtlsPresent) {
@@ -787,6 +787,7 @@
     let hostsInited = false;
     let dataLoaded = false;
     let loadAllPromise = null;
+    let currentOverview = null;
 
     window.__initClientLogs = () => {
       if (clientLogsInited) return;
@@ -2965,35 +2966,35 @@
           }),
         ]);
 
-        const overviewData = overview.data || {};
+        currentOverview = overview.data || {};
         const hostsList = hosts?.data?.hosts || [];
 
-        setMtls(overviewData.mtls);
-        setPasskey(overviewData.passkey ?? null);
+        setMtls(currentOverview.mtls);
+        setPasskey(currentOverview.passkey ?? null);
 
-        renderStats(overviewData, runner?.data || null);
-        renderDashboardGrid(overviewData, runner?.data || null, hostsList);
+        renderStats(currentOverview, runner?.data || null);
+        renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
         renderPrompts(prompts?.data?.commands || []);
         renderAgents(agents?.data || { status: 'missing' });
         await loadMemories();
 
-        if (typeof overviewData.quota_limit_percent !== 'undefined') {
-          quotaLimitPercent = clampQuotaLimitPercent(overviewData.quota_limit_percent);
+        if (typeof currentOverview.quota_limit_percent !== 'undefined') {
+          quotaLimitPercent = clampQuotaLimitPercent(currentOverview.quota_limit_percent);
         }
-        if (typeof overviewData.quota_week_partition !== 'undefined') {
-          quotaWeekPartition = normalizeQuotaPartition(overviewData.quota_week_partition);
+        if (typeof currentOverview.quota_week_partition !== 'undefined') {
+          quotaWeekPartition = normalizeQuotaPartition(currentOverview.quota_week_partition);
         }
-        if (typeof overviewData.quota_hard_fail !== 'undefined') {
-          quotaHardFail = !!overviewData.quota_hard_fail;
+        if (typeof currentOverview.quota_hard_fail !== 'undefined') {
+          quotaHardFail = !!currentOverview.quota_hard_fail;
         }
         renderQuotaMode();
 
-        if (typeof overviewData.cdx_silent !== 'undefined') {
-          cdxSilent = !!overviewData.cdx_silent;
+        if (typeof currentOverview.cdx_silent !== 'undefined') {
+          cdxSilent = !!currentOverview.cdx_silent;
           renderCdxSilent();
         }
-        evaluateSeedRequirement(overviewData, hostsList);
+        evaluateSeedRequirement(currentOverview, hostsList);
       } catch (err) {
         if (mtlsStatus) {
           mtlsStatus.textContent = 'mTLS / Admin access failed';
