@@ -47,6 +47,7 @@ use App\Services\AgentsService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
 use App\Services\PasskeyService;
+use App\Security\AdminSession;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
 use App\Security\EncryptionKeyManager;
@@ -108,6 +109,8 @@ $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $versionRepository = new VersionRepository($database);
+$adminSession = new AdminSession();
+$adminSession->start();
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $pricingModel = 'gpt-5.1';
 $pricingService = new PricingService(
@@ -1458,6 +1461,19 @@ $router->add('POST', '#^/admin/passkey/auth/finish$#', function () use ($passkey
     requireAdminAccess();
     try {
         $result = $passkeyService->finishAuth($_POST ?: json_decode(file_get_contents('php://input'), true) ?? []);
+
+        // Bind passkey success to a short-lived session.
+        global $adminSession;
+        if ($adminSession instanceof AdminSession) {
+            $adminSession->start();
+            $adminSession->markAuthenticated(
+                $_SERVER['HTTP_USER_AGENT'] ?? '',
+                resolveClientIp() ?? '',
+                is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null,
+                1800 // 30 minutes default
+            );
+        }
+
         Response::json([
             'status' => 'ok',
             'data' => $result,
@@ -2173,7 +2189,7 @@ function resolveMtls(): array
 {
     $required = isMtlsRequired();
     $fingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
-    $present = $fingerprint !== '';
+    $present = is_string($fingerprint) && preg_match('/^[A-Fa-f0-9]{64}$/', $fingerprint) === 1;
 
     $meta = [
         'required' => $required,
@@ -2657,8 +2673,13 @@ function requireAdminAccess(): void
     $mtlsRequired = $mode === 'mtls_only' || $mode === 'mtls_and_passkey';
     $passkeyRequired = $mode === 'passkey_only' || $mode === 'mtls_and_passkey';
 
-    // Allow passkey bootstrap: when passkey is required but not present, only passkey endpoints may proceed.
     $isPasskeyRoute = str_starts_with(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '', '/admin/passkey/');
+    $adminSession = $GLOBALS['adminSession'] ?? null;
+    $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+    $clientIp = resolveClientIp() ?? '';
+    $mtlsFingerprint = is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null;
+
+    // Allow passkey bootstrap: when passkey is required but not present, only passkey endpoints may proceed.
     if ($passkeyRequired && !$passkeyPresent && !$isPasskeyRoute) {
         Response::json([
             'status' => 'error',
@@ -2673,11 +2694,17 @@ function requireAdminAccess(): void
         ], 403);
     }
 
-    if ($passkeyRequired && $passkeyPresent && !$passkeyOk && !$isPasskeyRoute) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'Passkey authentication required',
-        ], 401);
+    // Sessionized passkey: require a valid session if passkey is required.
+    if ($passkeyRequired && $passkeyPresent) {
+        $sessionValid = $adminSession instanceof AdminSession
+            && $adminSession->isValid($userAgent, $clientIp, $mtlsFingerprint);
+
+        if (!$sessionValid && !$isPasskeyRoute) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Passkey authentication required',
+            ], 401);
+        }
     }
 
     // Admin key overlay removed; mTLS/passkey gating handled above.
@@ -2698,15 +2725,28 @@ function passkeyMeta(VersionRepository $repo): array
 {
     $created = passkeyCreated($repo);
     $auth = passkeyAuthStatus($repo);
-    // Treat "present" as "created AND last auth succeeded" so we don't claim OK without proof.
     $lastAuthAt = $repo->get('passkey_auth_at');
-    $present = $created && $auth === 'ok';
+    $sessionValid = false;
+
+    // Only surface "present" when the current request has a valid admin session (IP/UA/mTLS-bound).
+    $adminSession = $GLOBALS['adminSession'] ?? null;
+    if ($adminSession instanceof AdminSession) {
+        $sessionValid = $adminSession->isValid(
+            $_SERVER['HTTP_USER_AGENT'] ?? '',
+            resolveClientIp() ?? '',
+            is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null
+        );
+    }
+
+    $present = $created && $auth === 'ok' && $sessionValid;
+
     return [
         'required' => isPasskeyRequired(),
         'present' => $present,
         'created' => $created,
         'auth' => $auth,
         'auth_at' => $lastAuthAt,
+        'session' => $sessionValid ? 'ok' : 'missing',
     ];
 }
 

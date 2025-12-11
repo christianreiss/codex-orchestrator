@@ -15,9 +15,22 @@ RUN set -eux; \
     printf '<Directory %s>\n    Require all granted\n    FallbackResource /index.php\n</Directory>\n' "$APACHE_DOCUMENT_ROOT" > /etc/apache2/conf-available/app-fallback.conf
 RUN set -eux; \
     cat > /etc/apache2/conf-available/app-admin-mtls.conf <<'EOF' && a2enconf app-fallback app-admin-mtls
+# Admin UI: serve shell/assets directly; any other /admin/* path rewrites to root front controller (/index.php)
 <Directory ${APACHE_DOCUMENT_ROOT}/admin>
     DirectoryIndex index.php index.html
-    Require expr "%{HTTP:X-MTLS-FINGERPRINT} =~ m#^[A-Fa-f0-9]{64}$#"
+    Options FollowSymLinks
+    AllowOverride None
+    <IfModule mod_rewrite.c>
+        RewriteEngine On
+        # Allow assets to pass through.
+        RewriteCond %{REQUEST_URI} ^/admin/assets/ [NC]
+        RewriteRule .* - [L]
+        # Allow base shell.
+        RewriteCond %{REQUEST_URI} ^/admin/?$ [NC]
+        RewriteRule .* - [L]
+        # Everything else under /admin/* goes to root front controller.
+        RewriteRule ^/admin/.* /index.php [L]
+    </IfModule>
 </Directory>
 EOF
 RUN set -eux; \

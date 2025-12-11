@@ -1,37 +1,44 @@
-# Admin Revamp Plan (single routed page)
+# Admin UI Migration Checklist (single routed page)
 
-## Goals
-- [ ] Serve the entire admin experience from one routed entrypoint (`/admin`) instead of discrete HTML files.
-- [ ] Centralize auth enforcement: mTLS + passkey handled once, visibly surfaced in UI state.
-- [ ] Eliminate static-leak paths: all admin resources flow through PHP routing; assets loaded via that page.
-- [ ] Move admin-facing rendering logic into PHP (server-driven routes + JSON endpoints) rather than ad‑hoc API paths.
+Goal: one `/admin` shell, hash-routed, no standalone HTML leaks. Sections and tabs must mirror current functionality before cutover.
 
-## Current State (pain points)
-- [ ] Multiple static HTML files (`public/admin/*.html`) can bypass new gating rules if the web server maps them directly.
-- [ ] Auth gate duplicated in `public/admin/index.php` and `public/index.php`; “last passkey ok” is global, not per session.
-- [ ] Caddy/Apache rules are inconsistent; optional mTLS at proxy, but PHP gate expects headers.
-- [ ] Admin JS hardcodes paths to several JSON endpoints under `/admin/*` from public/index.php router.
+## Global prerequisites
+- [x] Keep `/admin` front controller only; assets under `/admin/assets/*`.
+- [x] Hash router drives panel visibility; deep links supported (basic hash→data attributes in index.html).
+- [x] Guard JS init so modules run only when their panel is shown (router hooks wired to lazy init).
 
-## Target Architecture
-- [ ] Single page shell at `/admin` (or `/admin/`) served by `public/admin/index.php`.
-- [ ] PHP router dispatches sub-routes (settings, hosts, logs, memories, config builder, agents, etc.) and renders via server-driven views/components or hydrates a JS app with JSON from the same PHP entrypoint.
-- [ ] Strict auth middleware (mTLS + passkey) executes before any admin route; passkey becomes per-session (cookie) instead of global flag.
-- [ ] Static assets served via versioned paths but only after auth (or from a signed asset bucket if desired).
+## Top-level tabs
+- [x] Dashboard (shell stub present)
+- [x] Hosts (subtabs scaffolded: All, Secure, Insecure, Unprovisioned)
+- [x] Logs (subtabs scaffolded: API logs, MCP logs)
+- [x] Settings (subtabs scaffolded: General, Agents, Slash commands, Memories, config.toml)
 
-## Work Plan
-- [ ] Routing consolidation: replace per-file HTML with a single routed page; mount sub-routes under `/admin/*` via PHP; add canonical rewrites in Caddy/Apache to funnel everything to the front controller.
-- [ ] Auth hardening: add session-bound passkey state (secure, HttpOnly, SameSite=Strict, short TTL, UA/IP binding); keep DB flags for enrollment only; enforce mTLS when required; surface status in UI.
-- [ ] UI/UX rebuild: one SPA-like shell (progressive-enhancement friendly) that swaps views via routed states; show mTLS/passkey status + re-auth control; consolidate JS bundles.
-- [ ] Backend cleanup: move admin JSON endpoints into a dedicated admin controller layer; standardize responses; align docs (`docs/interface-api.md`, `docs/ADMIN.md`).
-- [ ] Tests & smokes: feature tests for all auth mode combos; curl smokes for /admin with/without cert and with/without passkey cookie.
+## Page migrations
+- [x] Dashboard: move content/metrics from legacy index.html; hook existing dashboard.js overview fetch; add summary grid.
+- [x] Hosts: migrate hosts.html table + filters + modals; ensure tab filters map to hostStatusFilter logic (hash-driven).
+- [x] Logs: migrate logs.html + mcp-logs.html into one panel with subtabs; tab-driven lazy init for logs modules.
+- [x] Settings/General: content pasted (quota/kill/silent/insecure/runner).
+- [x] Settings/Agents: content pasted.
+- [x] Settings/Slash commands: content pasted.
+- [x] Settings/Memories: content pasted.
+- [x] Settings/config.toml: content pasted.
 
-## Risks / Mitigations
-- [ ] Session fixation/theft: bind cookie to UA/IP hash + short TTL + secure/httponly/strict.
-- [ ] Proxy misconfig: keep explicit header validation; add auth-gated debug endpoint.
-- [ ] Regression in admin APIs: shim legacy paths during migration; deprecate with 302 or JSON warning.
+## Auth/display correctness
+- [x] mTLS/passkey chips read from `/admin/overview` (session-aware passkey).
+- [x] No “Passkey OK” without session; no mTLS OK without valid fingerprint.
 
-## Deliverables
-- [ ] Unified admin front controller + templates.
-- [ ] Hardened auth middleware with sessionized passkey.
-- [ ] Updated Caddy/Apache rewrites and docs.
-- [ ] Test suite + smokes demonstrating enforced modes.
+## Routing & nav
+- [x] Top nav uses hashes only; no links to legacy .html files.
+- [x] Subtabs update hash fragments (e.g., `#hosts/secure`, `#logs/mcp`, `#settings/config`).
+- [x] Deep-linking restores correct tab/panel on load.
+
+## Cleanup
+- [x] Remove or ignore legacy HTML files from nav; optional delete after migration.
+- [x] Apache/Caddy already funnel `/admin/*` to PHP; assets load via `/admin/assets/*`.
+
+## Verification
+- [x] Smoke: `#dashboard`, `#hosts`, `#hosts/secure`, `#logs/api`, `#logs/mcp`, `#settings/general`, `#settings/agents`, `#settings/prompts`, `#settings/memories`, `#settings/config`.
+- [x] cdx runner status and mTLS/passkey chips display correctly on pages.
+
+## Out of scope (explicitly deferred)
+- [x] Backend refactors (not required for SPA migration in this pass).

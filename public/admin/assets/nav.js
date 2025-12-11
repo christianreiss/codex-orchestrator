@@ -128,14 +128,8 @@
 
   const inferViewFromPath = (pathname) => {
     if (!pathname) return '';
-    if (/agents\.html$/.test(pathname)) return 'agents';
-    if (/prompts\.html$/.test(pathname)) return 'prompts';
-    if (/settings\.html$/.test(pathname)) return 'settings';
-    if (/hosts\.html$/.test(pathname)) return 'hosts';
-    if (/memories\.html$/.test(pathname)) return 'memories';
-    if (/mcp-logs\.html$/.test(pathname)) return 'memories';
-    if (/logs\.html$/.test(pathname)) return 'logs';
-    if (/config\.html$/.test(pathname)) return 'settings';
+    const anchor = (window.location.hash || '').replace(/^#/, '');
+    if (anchor) return anchor.toLowerCase();
     if (/\/admin\/?$/.test(pathname)) return 'dashboard';
     return '';
   };

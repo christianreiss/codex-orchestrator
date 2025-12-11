@@ -44,37 +44,7 @@ if ($mtlsRequired && !$hasValidFingerprint) {
     exit;
 }
 
-// Require passkey when configured (passkey_present + last auth ok).
-if ($passkeyRequired) {
-    // Build DB config from environment (mirrors public/index.php bootstrap).
-    $dbConfig = [
-        'driver' => getenv('DB_DRIVER') ?: 'mysql',
-        'host' => getenv('DB_HOST') ?: 'mysql',
-        'port' => (int) (getenv('DB_PORT') ?: 3306),
-        'database' => getenv('DB_DATABASE') ?: 'codex_auth',
-        'username' => getenv('DB_USERNAME') ?: 'root',
-        'password' => getenv('DB_PASSWORD') ?: '',
-        'charset' => getenv('DB_CHARSET') ?: 'utf8mb4',
-    ];
-    $repo = new \App\Repositories\VersionRepository(
-        new \App\Database($dbConfig)
-    );
-    $created = $repo->getFlag('passkey_created', false);
-    $auth = $repo->get('passkey_auth') ?? 'none';
-    $isPasskeyRoute = str_starts_with(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '', '/admin/passkey/');
-
-    if (!$created && !$isPasskeyRoute) {
-        header('Content-Type: text/plain; charset=utf-8', true, 401);
-        echo 'Passkey enrollment required.';
-        exit;
-    }
-
-    if ($created && $auth !== 'ok' && !$isPasskeyRoute) {
-        header('Content-Type: text/plain; charset=utf-8', true, 401);
-        echo 'Passkey authentication required.';
-        exit;
-    }
-}
+// Passkey requirement is enforced via public/index.php for JSON routes; the front controller remains thin.
 
 $html = __DIR__ . '/index.html';
 if (!is_file($html)) {

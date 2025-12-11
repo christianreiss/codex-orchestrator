@@ -1,57 +1,58 @@
 (() => {
-  const statusEl = document.getElementById('configStatus');
-  const shaEl = document.getElementById('configSha');
-  const updatedEl = document.getElementById('configUpdated');
-  const previewEl = document.getElementById('configPreview');
-  const previewMetaEl = document.getElementById('previewMeta');
+  // DOM refs are resolved lazily so the builder can live inside the SPA and only bind when the tab is visible.
+  let statusEl;
+  let shaEl;
+  let updatedEl;
+  let previewEl;
+  let previewMetaEl;
 
-  const modelInput = document.getElementById('modelInput');
-  const approvalPolicyInput = document.getElementById('approvalPolicyInput');
-  const sandboxModeInput = document.getElementById('sandboxModeInput');
-  const reasoningEffortInput = document.getElementById('reasoningEffortInput');
-  const reasoningSummaryInput = document.getElementById('reasoningSummaryInput');
-  const verbosityInput = document.getElementById('verbosityInput');
-  const contextWindowInput = document.getElementById('contextWindowInput');
-  const maxTokensInput = document.getElementById('maxTokensInput');
-  const supportsSummariesInput = document.getElementById('supportsSummariesInput');
-  const notifyInput = document.getElementById('notifyInput');
+  let modelInput;
+  let approvalPolicyInput;
+  let sandboxModeInput;
+  let reasoningEffortInput;
+  let reasoningSummaryInput;
+  let verbosityInput;
+  let contextWindowInput;
+  let maxTokensInput;
+  let supportsSummariesInput;
+  let notifyInput;
 
-  const featureStreamShell = document.getElementById('featureStreamShell');
-  const featureWebSearch = document.getElementById('featureWebSearch');
-  const featureViewImage = document.getElementById('featureViewImage');
-  const extraFeaturesInput = document.getElementById('extraFeaturesInput');
+  let featureStreamShell;
+  let featureWebSearch;
+  let featureViewImage;
+  let extraFeaturesInput;
 
-  const sandboxNetwork = document.getElementById('sandboxNetwork');
-  const sandboxTmpdir = document.getElementById('sandboxTmpdir');
-  const sandboxSlashTmp = document.getElementById('sandboxSlashTmp');
-  const writableRootsInput = document.getElementById('writableRootsInput');
-  const envInheritInput = document.getElementById('envInheritInput');
-  const envIncludeInput = document.getElementById('envIncludeInput');
-  const envExcludeInput = document.getElementById('envExcludeInput');
-  const envSetInput = document.getElementById('envSetInput');
-  const ignoreDefaultExcludesInput = document.getElementById('ignoreDefaultExcludesInput');
+  let sandboxNetwork;
+  let sandboxTmpdir;
+  let sandboxSlashTmp;
+  let writableRootsInput;
+  let envInheritInput;
+  let envIncludeInput;
+  let envExcludeInput;
+  let envSetInput;
+  let ignoreDefaultExcludesInput;
 
-  const profileRows = document.getElementById('profileRows');
-  const mcpRows = document.getElementById('mcpRows');
-  const mcpAccordion = document.getElementById('mcpAccordion');
-  const mcpCount = document.getElementById('mcpCount');
-  const orchestratorMcpToggle = document.getElementById('orchestratorMcpToggle');
-  const orchestratorMcpSummaryWrap = document.getElementById('orchestratorMcpSummaryWrap');
-  const orchestratorMcpSummary = document.getElementById('orchestratorMcpSummary');
+  let profileRows;
+  let mcpRows;
+  let mcpAccordion;
+  let mcpCount;
+  let orchestratorMcpToggle;
+  let orchestratorMcpSummaryWrap;
+  let orchestratorMcpSummary;
 
-  const otelExporterInput = document.getElementById('otelExporterInput');
-  const otelEndpointInput = document.getElementById('otelEndpointInput');
-  const otelProtocolInput = document.getElementById('otelProtocolInput');
-  const otelHeadersInput = document.getElementById('otelHeadersInput');
-  const otelLogPromptsInput = document.getElementById('otelLogPromptsInput');
+  let otelExporterInput;
+  let otelEndpointInput;
+  let otelProtocolInput;
+  let otelHeadersInput;
+  let otelLogPromptsInput;
 
-  const customTomlInput = document.getElementById('customTomlInput');
+  let customTomlInput;
 
-  const saveBtn = document.getElementById('saveConfig');
-  const renderBtn = document.getElementById('renderConfig');
-  const copyBtn = document.getElementById('copyPreview');
-  const addProfileBtn = document.getElementById('addProfileBtn');
-  const addMcpBtn = document.getElementById('addMcpBtn');
+  let saveBtn;
+  let renderBtn;
+  let copyBtn;
+  let addProfileBtn;
+  let addMcpBtn;
 
   let lastRenderedSha = '';
   let lastRenderedSize = 0;
@@ -232,169 +233,67 @@
     return Number.isFinite(num) ? num : null;
   }
 
-  function setSelectValue(selectEl, value) {
-    if (!selectEl) return;
-    const val = value || '';
-    const options = Array.from(selectEl.options || []);
-    const exists = options.some((opt) => opt.value === val);
-    if (!exists && val !== '') {
-      const opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = val;
-      selectEl.appendChild(opt);
-    }
-    selectEl.value = val;
-  }
-
   function clearRows(container) {
+    if (!container) return;
     while (container.firstChild) {
       container.removeChild(container.firstChild);
     }
   }
 
-  function updateMcpVisibility(options = {}) {
-    const { forceOpen = false, resetToCollapsed = false } = options;
-    const count = mcpRows ? mcpRows.querySelectorAll('.mcp-row').length : 0;
-    if (mcpCount) mcpCount.textContent = String(count);
-    if (!mcpAccordion) return;
-    if (count === 0) {
-      mcpAccordion.hidden = true;
-      mcpAccordion.open = false;
-      return;
-    }
-    mcpAccordion.hidden = false;
-    if (forceOpen) {
-      mcpAccordion.open = true;
-    } else if (resetToCollapsed) {
-      mcpAccordion.open = false;
-    }
-  }
-
-  function managedMcpSnippet(baseUrl) {
-    const base = (baseUrl || '').replace(/\/$/, '') || 'https://your-coordinator.example.com';
-    return [
-      '[mcp_servers.cdx]',
-      `url = "${base}/mcp"`,
-      'http_headers = { Authorization = "Bearer <host api key>" }',
-    ].join('\n');
-  }
-
-  function updateManagedMcpSummary(enabled) {
-    if (!orchestratorMcpSummaryWrap || !orchestratorMcpSummary) return;
-    if (!enabled) {
-      orchestratorMcpSummaryWrap.hidden = true;
-      orchestratorMcpSummary.textContent = '';
-      return;
-    }
-    const origin = (window.location.origin || '').replace(/\/$/, '');
-    orchestratorMcpSummary.textContent = managedMcpSnippet(origin);
-    orchestratorMcpSummaryWrap.hidden = false;
-  }
-
   function renderProfileRow(data = {}) {
+    if (!profileRows) return;
     const row = document.createElement('div');
-    row.className = 'row-card profile-row';
+    row.className = 'profile-row';
     row.innerHTML = `
-      <div class="inline-group">
-        <div class="field">
-          <label>Name</label>
-          <input type="text" class="profile-name" placeholder="deep-review">
-        </div>
-        <div class="field">
-          <label>Model</label>
-          <input type="text" class="profile-model" placeholder="gpt-5-pro">
-        </div>
-        <div class="field">
-          <label>Model provider</label>
-          <input type="text" class="profile-provider" placeholder="openai">
-        </div>
-      </div>
-      <div class="inline-group">
-        <div class="field">
-          <label>Approval policy</label>
-          <input type="text" class="profile-approval" placeholder="never">
-        </div>
-        <div class="field">
-          <label>Sandbox mode</label>
-          <input type="text" class="profile-sandbox" placeholder="workspace-write">
-        </div>
-        <div class="field">
-          <label>Reasoning effort</label>
-          <input type="text" class="profile-effort" placeholder="high">
-        </div>
-      </div>
-      <div class="inline-group">
-        <div class="field">
-          <label>Reasoning summary</label>
-          <select class="profile-summary">
-            <option value="">—</option>
-            <option value="auto">auto</option>
-            <option value="concise">concise</option>
-            <option value="detailed">detailed</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Verbosity</label>
-          <input type="text" class="profile-verbosity" placeholder="low">
-        </div>
-        <div class="field">
-          <label style="display:flex; align-items:center; gap:8px;">
-            <span>Force reasoning summaries</span>
-            <input type="checkbox" class="profile-supports" style="width:auto; accent-color: var(--accent);">
-          </label>
-        </div>
-      </div>
-      <div class="inline-group">
-        <div class="field">
-          <label>Context window</label>
-          <input type="number" class="profile-context" min="0" placeholder="128000">
-        </div>
-        <div class="field">
-          <label>Max output tokens</label>
-          <input type="number" class="profile-max" min="0" placeholder="4096">
-        </div>
-      </div>
       <div class="row-actions">
         <button type="button" class="ghost tiny-btn remove-profile">Remove</button>
       </div>
+      <div class="inline-group">
+        <div class="field"><label>Name</label><input type="text" class="profile-name" placeholder="cli" value="${data.name || ''}"></div>
+        <div class="field"><label>Model</label><input type="text" class="profile-model" value="${data.model || ''}" placeholder="gpt-5.1-codex"></div>
+        <div class="field"><label>Provider</label><input type="text" class="profile-provider" value="${data.model_provider || ''}" placeholder="openai"></div>
+      </div>
+      <div class="inline-group">
+        <div class="field"><label>Approval</label><input type="text" class="profile-approval" value="${data.approval_policy || ''}" placeholder="on-request"></div>
+        <div class="field"><label>Sandbox</label><input type="text" class="profile-sandbox" value="${data.sandbox_mode || ''}" placeholder="workspace-write"></div>
+        <div class="field"><label>Reasoning effort</label><input type="text" class="profile-effort" value="${data.model_reasoning_effort || ''}" placeholder="medium"></div>
+      </div>
+      <div class="inline-group">
+        <div class="field"><label>Reasoning summary</label><input type="text" class="profile-summary" value="${data.model_reasoning_summary || ''}" placeholder="auto"></div>
+        <div class="field"><label>Verbosity</label><input type="text" class="profile-verbosity" value="${data.model_verbosity || ''}" placeholder="low"></div>
+        <div class="field"><label>Context window</label><input type="number" class="profile-context" value="${data.model_context_window ?? ''}" min="0"></div>
+        <div class="field"><label>Max tokens</label><input type="number" class="profile-max" value="${data.model_max_output_tokens ?? ''}" min="0"></div>
+      </div>
+      <label class="feature-toggle" style="margin-top:6px;">
+        <input type="checkbox" class="profile-supports" ${data.model_supports_reasoning_summaries ? 'checked' : ''} style="width:auto; accent-color: var(--accent);">
+        <div>
+          <div class="feature-title">Force reasoning summaries</div>
+          <div class="feature-desc">Treat this profile as supporting structured reasoning summaries.</div>
+        </div>
+      </label>
     `;
-    row.querySelector('.profile-name').value = data.name || '';
-    row.querySelector('.profile-model').value = data.model || '';
-    row.querySelector('.profile-provider').value = data.model_provider || '';
-    row.querySelector('.profile-approval').value = data.approval_policy || '';
-    row.querySelector('.profile-sandbox').value = data.sandbox_mode || '';
-    row.querySelector('.profile-effort').value = data.model_reasoning_effort || '';
-    const profileSummary = (data.model_reasoning_summary || '').toLowerCase() === 'none' ? '' : (data.model_reasoning_summary || '');
-    row.querySelector('.profile-summary').value = profileSummary;
-    row.querySelector('.profile-verbosity').value = data.model_verbosity || '';
-    row.querySelector('.profile-context').value = data.model_context_window ?? '';
-    row.querySelector('.profile-max').value = data.model_max_output_tokens ?? '';
-    row.querySelector('.profile-supports').checked = Boolean(data.model_supports_reasoning_summaries);
-    row.querySelector('.remove-profile').addEventListener('click', () => row.remove());
-    row.querySelectorAll('input, textarea, select').forEach((el) => {
+    row.querySelector('.remove-profile').addEventListener('click', () => { row.remove(); debouncedPreview(); });
+    row.querySelectorAll('input').forEach((el) => {
       el.addEventListener('input', debouncedPreview);
       el.addEventListener('change', debouncedPreview);
     });
     profileRows.appendChild(row);
   }
 
-  function renderMcpRow(data = {}, options = {}) {
+  const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator', 'cdx'];
+
+  function renderMcpRow(data = {}) {
+    if (!mcpRows) return;
     const row = document.createElement('div');
-    row.className = 'row-card mcp-row';
+    row.className = 'mcp-row';
     row.innerHTML = `
       <div class="inline-group">
-        <div class="field">
-          <label>Name</label>
-          <input type="text" class="mcp-name" placeholder="coordinator-memory">
-        </div>
-        <div class="field">
-          <label>Command</label>
-          <input type="text" class="mcp-command" placeholder="npx">
-        </div>
+        <div class="field"><label>Name</label><input type="text" class="mcp-name" placeholder="my-server" value="${data.name || ''}"></div>
+        <div class="field"><label>Command</label><input type="text" class="mcp-command" placeholder="/usr/bin/mcp" value="${data.command || ''}"></div>
       </div>
       <div class="field">
-        <label>Args (one per line)</label>
-        <textarea class="mcp-args" placeholder='-y&#10;@upstash/context7-mcp'></textarea>
+        <label>Args</label>
+        <textarea class="mcp-args" placeholder="--flag=value">${(data.args || []).join('\n')}</textarea>
       </div>
       <div class="row-actions">
         <button type="button" class="ghost tiny-btn remove-mcp">Remove</button>
@@ -420,9 +319,8 @@
       .join('\n');
   }
 
-  const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator', 'cdx'];
-
   function collectSettings() {
+    if (!modelInput) return defaultSettings();
     const base = defaultSettings();
     const features = {
       streamable_shell: featureStreamShell.checked,
@@ -432,7 +330,7 @@
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
     Object.assign(features, extraFeatures);
 
-    const profiles = Array.from(profileRows.querySelectorAll('.profile-row')).map((row) => {
+    const profiles = Array.from(profileRows?.querySelectorAll('.profile-row') || []).map((row) => {
       const name = row.querySelector('.profile-name')?.value.trim() || '';
       if (!name) return null;
       return {
@@ -450,7 +348,7 @@
       };
     }).filter(Boolean);
 
-    const mcpServers = Array.from(mcpRows.querySelectorAll('.mcp-row')).map((row) => {
+    const mcpServers = Array.from(mcpRows?.querySelectorAll('.mcp-row') || []).map((row) => {
       const name = row.querySelector('.mcp-name')?.value.trim() || '';
       const command = row.querySelector('.mcp-command')?.value.trim() || '';
       if (!name || !command) return null;
@@ -504,7 +402,12 @@
     };
   }
 
+  function parseFeatureExtras(text) {
+    return parseKeyValue(text);
+  }
+
   function populateForm(settings) {
+    if (!modelInput) return;
     const cfg = deepMerge(defaultSettings(), settings || {});
     setSelectValue(modelInput, cfg.model || '');
     setSelectValue(approvalPolicyInput, cfg.approval_policy || '');
@@ -561,6 +464,28 @@
     customTomlInput.value = cfg.custom_toml || '';
   }
 
+  function updateMcpVisibility(options = {}) {
+    if (!mcpAccordion) return;
+    const { forceOpen = false, resetToCollapsed = false } = options;
+    const count = mcpRows ? mcpRows.querySelectorAll('.mcp-row').length : 0;
+    if (mcpCount) mcpCount.textContent = String(count);
+    if (resetToCollapsed) {
+      mcpAccordion.open = false;
+    }
+    if (forceOpen && count > 0) {
+      mcpAccordion.open = true;
+    }
+    mcpAccordion.hidden = count === 0;
+  }
+
+  function updateManagedMcpSummary(enabled) {
+    if (!orchestratorMcpSummaryWrap || !orchestratorMcpSummary) return;
+    orchestratorMcpSummaryWrap.hidden = !enabled;
+    orchestratorMcpSummary.textContent = enabled
+      ? '[[mcp_servers]]\nname = "codex-orchestrator"\ncommand = "codex-orchestrator"\nargs = ["--addr", "${AUTH_RUNNER_URL:-http://127.0.0.1:8788}"]'
+      : '';
+  }
+
   function setStatus(text, sha = null, updated = null) {
     if (statusEl) statusEl.textContent = text;
     if (shaEl) shaEl.textContent = sha || '—';
@@ -568,6 +493,7 @@
   }
 
   async function loadConfig() {
+    if (!statusEl) return;
     setStatus('Loading…');
     try {
       const res = await fetch('/admin/config', { headers: { Accept: 'application/json' } });
@@ -592,6 +518,7 @@
   }
 
   async function renderPreview() {
+    if (!previewMetaEl) return;
     const settings = collectSettings();
     previewMetaEl.textContent = 'Rendering…';
     try {
@@ -615,6 +542,7 @@
   }
 
   async function saveConfig() {
+    if (!statusEl) return;
     const settings = collectSettings();
     setStatus('Saving…');
     try {
@@ -660,7 +588,70 @@
     });
   }
 
+  function initDomRefs() {
+    statusEl = document.getElementById('configStatus');
+    shaEl = document.getElementById('configSha');
+    updatedEl = document.getElementById('configUpdated');
+    previewEl = document.getElementById('configPreview');
+    previewMetaEl = document.getElementById('previewMeta');
+
+    modelInput = document.getElementById('modelInput');
+    approvalPolicyInput = document.getElementById('approvalPolicyInput');
+    sandboxModeInput = document.getElementById('sandboxModeInput');
+    reasoningEffortInput = document.getElementById('reasoningEffortInput');
+    reasoningSummaryInput = document.getElementById('reasoningSummaryInput');
+    verbosityInput = document.getElementById('verbosityInput');
+    contextWindowInput = document.getElementById('contextWindowInput');
+    maxTokensInput = document.getElementById('maxTokensInput');
+    supportsSummariesInput = document.getElementById('supportsSummariesInput');
+    notifyInput = document.getElementById('notifyInput');
+
+    featureStreamShell = document.getElementById('featureStreamShell');
+    featureWebSearch = document.getElementById('featureWebSearch');
+    featureViewImage = document.getElementById('featureViewImage');
+    extraFeaturesInput = document.getElementById('extraFeaturesInput');
+
+    sandboxNetwork = document.getElementById('sandboxNetwork');
+    sandboxTmpdir = document.getElementById('sandboxTmpdir');
+    sandboxSlashTmp = document.getElementById('sandboxSlashTmp');
+    writableRootsInput = document.getElementById('writableRootsInput');
+    envInheritInput = document.getElementById('envInheritInput');
+    envIncludeInput = document.getElementById('envIncludeInput');
+    envExcludeInput = document.getElementById('envExcludeInput');
+    envSetInput = document.getElementById('envSetInput');
+    ignoreDefaultExcludesInput = document.getElementById('ignoreDefaultExcludesInput');
+
+    profileRows = document.getElementById('profileRows');
+    mcpRows = document.getElementById('mcpRows');
+    mcpAccordion = document.getElementById('mcpAccordion');
+    mcpCount = document.getElementById('mcpCount');
+    orchestratorMcpToggle = document.getElementById('orchestratorMcpToggle');
+    orchestratorMcpSummaryWrap = document.getElementById('orchestratorMcpSummaryWrap');
+    orchestratorMcpSummary = document.getElementById('orchestratorMcpSummary');
+
+    otelExporterInput = document.getElementById('otelExporterInput');
+    otelEndpointInput = document.getElementById('otelEndpointInput');
+    otelProtocolInput = document.getElementById('otelProtocolInput');
+    otelHeadersInput = document.getElementById('otelHeadersInput');
+    otelLogPromptsInput = document.getElementById('otelLogPromptsInput');
+
+    customTomlInput = document.getElementById('customTomlInput');
+
+    saveBtn = document.getElementById('saveConfig');
+    renderBtn = document.getElementById('renderConfig');
+    copyBtn = document.getElementById('copyPreview');
+    addProfileBtn = document.getElementById('addProfileBtn');
+    addMcpBtn = document.getElementById('addMcpBtn');
+  }
+
+  let inited = false;
   function init() {
+    if (inited) return;
+    initDomRefs();
+    // If the panel is not present (different tab), bail silently.
+    if (!modelInput || !previewEl || !statusEl) return;
+    inited = true;
+
     addProfileBtn?.addEventListener('click', () => renderProfileRow());
     addMcpBtn?.addEventListener('click', () => {
       renderMcpRow();
@@ -686,14 +677,28 @@
       try {
         await navigator.clipboard.writeText(previewEl.textContent || '');
         previewMetaEl.textContent = 'Copied';
-        setTimeout(() => { previewMetaEl.textContent = lastRenderedSha ? `sha ${lastRenderedSha}${lastRenderedSize ? ` · ${lastRenderedSize} bytes` : ''}` : ''; }, 800);
+        setTimeout(() => {
+          previewMetaEl.textContent = lastRenderedSha ? `sha ${lastRenderedSha}${lastRenderedSize ? ` · ${lastRenderedSize} bytes` : ''}` : '';
+        }, 800);
       } catch (_) {
         previewMetaEl.textContent = 'Copy failed';
       }
     });
+
     wireChangeEvents();
     loadConfig().then(renderPreview);
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  // Expose to dashboard router for lazy init when #settings/config is shown.
+  window.__initConfigBuilder = init;
+
+  // Auto-init if the current hash already targets the config tab (deep links / reload).
+  const hash = (window.location.hash || '').toLowerCase();
+  if (hash.startsWith('#settings/config')) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  }
 })();

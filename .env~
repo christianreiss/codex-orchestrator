@@ -19,7 +19,7 @@ DASHBOARD_ADMIN_KEY=
 
 # Admin access policy: mtls_and_passkey enforces both factors on /admin.
 #ADMIN_ACCESS_MODE=mtls_and_passkey
-#ADMIN_ACCESS_MODE=mtls_only     # Check OK
+#ADMIN_ACCESS_MODE=mtls_only
 ADMIN_ACCESS_MODE=passkey_only
 #ADMIN_ACCESS_MODE=none
 

@@ -1,4 +1,4 @@
-const statsEl = document.getElementById('stats');
+    const statsEl = document.getElementById('stats');
     const hostsTbody = document.querySelector('#hosts tbody');
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
@@ -114,6 +114,7 @@ const statsEl = document.getElementById('stats');
     const heroEyebrow = pageHero?.querySelector('.eyebrow');
     const heroTitle = pageHero?.querySelector('h1');
     const heroCopy = pageHero?.querySelector('p.muted');
+    const dashboardGrid = document.getElementById('dashboardGrid');
     const USAGE_HISTORY_DAYS = 60;
     const COST_SERIES = [
       { key: 'total', label: 'Total', color: '#312e81', emphasis: true },
@@ -148,21 +149,12 @@ const statsEl = document.getElementById('stats');
     const hostTabLinks = Array.from(document.querySelectorAll('.host-tab'));
 
     const urlParams = new URLSearchParams(window.location.search);
+    const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
+    const [panelFromHash, subFromHash] = hash.split('/');
     const bodyView = (document.body?.dataset?.viewMode || '').toLowerCase();
-    const viewMode = (bodyView || urlParams.get('view') || 'dashboard').toLowerCase();
-    const redirectTargets = {
-      agents: '/admin/agents.html',
-      prompts: '/admin/prompts.html',
-      hosts: '/admin/hosts.html',
-      memories: '/admin/memories.html',
-      settings: '/admin/settings.html',
-    };
-    if (['agents', 'prompts', 'hosts', 'memories', 'settings'].includes(viewMode)) {
-      const targetId = `${viewMode}-panel`;
-      if (!document.getElementById(targetId) && redirectTargets[viewMode]) {
-        window.location.href = redirectTargets[viewMode];
-      }
-    }
+    const viewMode = (panelFromHash || bodyView || urlParams.get('view') || 'dashboard').toLowerCase();
+    const subView = (subFromHash || '').toLowerCase();
+    // Legacy redirect guard: in SPA we keep everything inline, so no redirects needed.
     const initialHostParam = (urlParams.get('host') || 'insecure').toLowerCase();
     if (initialHostParam) {
       hostStatusFilter = initialHostParam;
@@ -253,7 +245,7 @@ const statsEl = document.getElementById('stats');
 
     function applyViewMode() {
       const config = VIEW_LAYOUTS[viewMode] || VIEW_LAYOUTS.dashboard;
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'agents-panel', 'prompts-panel', 'memories-panel', 'settings-panel'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'agents-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -711,6 +703,28 @@ const statsEl = document.getElementById('stats');
         settingsPanel.classList.toggle('settings-collapsed', !settingsExpanded);
       }
     }
+
+    // One-time init guards for lazily loaded panels
+    let clientLogsInited = false;
+    let mcpLogsInited = false;
+    let configInited = false;
+    let hostsInited = false;
+
+    window.__initClientLogs = () => {
+      if (clientLogsInited) return;
+      clientLogsInited = true;
+      if (typeof initClientLogs === 'function') initClientLogs();
+    };
+    window.__initMcpLogs = () => {
+      if (mcpLogsInited) return;
+      mcpLogsInited = true;
+      if (typeof initMcpLogs === 'function') initMcpLogs();
+    };
+    window.__initConfigBuilder = () => {
+      if (configInited) return;
+      configInited = true;
+      if (typeof initConfigBuilder === 'function') initConfigBuilder();
+    };
 
     function renderAgents(doc) {
       currentAgents = doc || null;
@@ -2768,6 +2782,12 @@ const statsEl = document.getElementById('stats');
       renderChatGptUsage(chatgptUsage);
     }
 
+    function renderDashboardGrid(data, runnerInfo = null, hostsList = []) {
+      if (!dashboardGrid) return;
+      // Fleet snapshot grid removed per request; keep function no-op to avoid null checks elsewhere.
+      dashboardGrid.innerHTML = '';
+    }
+
     function wireRunnerCardControls() {
       const btn = document.getElementById('runner-toggle');
       if (btn) {
@@ -2850,8 +2870,8 @@ const statsEl = document.getElementById('stats');
 
     async function loadAll() {
       try {
-    const [overview, hosts, runner, prompts, agents] = await Promise.all([
-      api('/admin/overview'),
+        const [overview, hosts, runner, prompts, agents] = await Promise.all([
+          api('/admin/overview'),
           api('/admin/hosts'),
           api('/admin/runner').catch(err => {
             console.warn('Runner status unavailable', err);
@@ -2866,28 +2886,36 @@ const statsEl = document.getElementById('stats');
             return null;
           }),
         ]);
-    setMtls(overview.data.mtls);
-    setPasskey(overview.data.passkey ?? null);
-        renderStats(overview.data, runner?.data || null);
-        renderHosts(hosts.data.hosts);
+
+        const overviewData = overview.data || {};
+        const hostsList = hosts?.data?.hosts || [];
+
+        setMtls(overviewData.mtls);
+        setPasskey(overviewData.passkey ?? null);
+
+        renderStats(overviewData, runner?.data || null);
+        renderDashboardGrid(overviewData, runner?.data || null, hostsList);
+        renderHosts(hostsList);
         renderPrompts(prompts?.data?.commands || []);
         renderAgents(agents?.data || { status: 'missing' });
         await loadMemories();
-        if (typeof overview.data.quota_limit_percent !== 'undefined') {
-          quotaLimitPercent = clampQuotaLimitPercent(overview.data.quota_limit_percent);
+
+        if (typeof overviewData.quota_limit_percent !== 'undefined') {
+          quotaLimitPercent = clampQuotaLimitPercent(overviewData.quota_limit_percent);
         }
-        if (typeof overview.data.quota_week_partition !== 'undefined') {
-          quotaWeekPartition = normalizeQuotaPartition(overview.data.quota_week_partition);
+        if (typeof overviewData.quota_week_partition !== 'undefined') {
+          quotaWeekPartition = normalizeQuotaPartition(overviewData.quota_week_partition);
         }
-        if (typeof overview.data.quota_hard_fail !== 'undefined') {
-          quotaHardFail = !!overview.data.quota_hard_fail;
+        if (typeof overviewData.quota_hard_fail !== 'undefined') {
+          quotaHardFail = !!overviewData.quota_hard_fail;
         }
         renderQuotaMode();
-        if (typeof overview.data.cdx_silent !== 'undefined') {
-          cdxSilent = !!overview.data.cdx_silent;
+
+        if (typeof overviewData.cdx_silent !== 'undefined') {
+          cdxSilent = !!overviewData.cdx_silent;
           renderCdxSilent();
         }
-        evaluateSeedRequirement(overview.data, hosts.data.hosts);
+        evaluateSeedRequirement(overviewData, hostsList);
       } catch (err) {
         if (mtlsStatus) {
           mtlsStatus.textContent = 'mTLS / Admin access failed';
@@ -3140,6 +3168,85 @@ const statsEl = document.getElementById('stats');
     }
 
     setSettingsExpanded(true);
+
+    function setActiveLinks(selector, match) {
+      document.querySelectorAll(selector).forEach((link) => {
+        const key = (link.dataset.hostTab || link.dataset.logTab || link.dataset.settingsTab || '').toLowerCase();
+        link.classList.toggle('active', key === match);
+      });
+    }
+
+    async function ensureHostsLoaded() {
+      if (hostsInited) return;
+      hostsInited = true;
+      await loadAll();
+    }
+
+    function applyHashRouting() {
+      const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
+      const [panelRaw, subRaw] = hash.split('/');
+      const panel = (panelRaw || 'dashboard').toLowerCase();
+      const sub = (subRaw || '').toLowerCase();
+
+      document.querySelectorAll('.panel-set').forEach((section) => {
+        const p = (section.dataset.panel || '').toLowerCase();
+        section.hidden = p !== panel;
+      });
+      document.body.dataset.viewMode = panel;
+
+      // Clean up host/status query params when leaving hosts, so dashboard links
+      // don't carry stale ?host=unprovisioned into other views.
+      if (panel !== 'hosts') {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('host');
+        url.searchParams.delete('status');
+        window.history.replaceState({}, '', url.toString());
+      }
+
+      if (panel === 'hosts') {
+        hostStatusFilter = sub || '';
+        setHostStatusFilter(hostStatusFilter);
+        setActiveLinks('.host-tab', hostStatusFilter);
+        ensureHostsLoaded();
+      }
+
+      if (panel === 'logs') {
+        const logTab = sub === 'mcp' ? 'mcp' : 'client';
+        setActiveLinks('.log-tab', logTab);
+        const clientPanel = document.getElementById('client-logs-panel');
+        const mcpPanel = document.getElementById('mcp-logs-panel');
+        if (clientPanel) clientPanel.hidden = logTab !== 'client';
+        if (mcpPanel) mcpPanel.hidden = logTab !== 'mcp';
+        // lazy init each view once
+        if (logTab === 'client' && window.__initClientLogs) {
+          window.__initClientLogs();
+          window.__initClientLogs = null;
+        }
+        if (logTab === 'mcp' && window.__initMcpLogs) {
+          window.__initMcpLogs();
+          window.__initMcpLogs = null;
+        }
+      }
+
+      if (panel === 'settings') {
+        const settingsTab = sub || 'general';
+        setActiveLinks('.settings-tab', settingsTab);
+        document.querySelectorAll('[data-settings-panel]').forEach((panelEl) => {
+          const tab = (panelEl.dataset.settingsPanel || '').toLowerCase();
+          panelEl.hidden = tab !== settingsTab;
+        });
+        if (settingsTab === 'config' && window.__initConfigBuilder) window.__initConfigBuilder();
+        if (settingsTab === 'memories' && window.__initMemoriesOnce) {
+          window.__initMemoriesOnce();
+          window.__initMemoriesOnce = null;
+        }
+      }
+
+      applyViewMode();
+    }
+
+    window.addEventListener('hashchange', applyHashRouting);
+    applyHashRouting();
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
     }
@@ -3446,7 +3553,7 @@ const statsEl = document.getElementById('stats');
 
     wireNavShortcuts();
     applyQueryParams();
-    applyViewMode();
+    applyHashRouting(); // ensure deep links after query param normalization
 
     function resetNewHostForm({ focusInput = false } = {}) {
       if (commandField) {
