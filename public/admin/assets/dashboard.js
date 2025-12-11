@@ -106,6 +106,10 @@
     const passkeyCreateBtn = document.getElementById('passkeyCreateBtn');
     const passkeyTestBtn = document.getElementById('passkeyTestBtn');
     const passkeyRemoveBtn = document.getElementById('passkeyRemoveBtn');
+    const accessBlockModal = document.getElementById('accessBlockModal');
+    const accessBlockTitle = document.getElementById('accessBlockTitle');
+    const accessBlockBody = document.getElementById('accessBlockBody');
+    const accessBlockDismiss = document.getElementById('accessBlockDismiss');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
@@ -534,6 +538,7 @@
       passkeyAuthCell.className = 'pill ' + authClass;
       passkeyAuthCell.textContent = authLabel;
       renderPasskeyButtons(created);
+      maybeShowAccessBlock();
     }
 
     function renderPasskeyButtons(created) {
@@ -590,6 +595,44 @@
       } finally {
         passkeyRemoveBtn.disabled = false;
       }
+    }
+
+    function showAccessBlock(title, body) {
+      if (!accessBlockModal) return;
+      if (accessBlockTitle && title) accessBlockTitle.textContent = title;
+      if (accessBlockBody && body) accessBlockBody.textContent = body;
+      accessBlockModal.classList.add('show');
+    }
+
+    function hideAccessBlock() {
+      accessBlockModal?.classList.remove('show');
+    }
+
+    function maybeShowAccessBlock() {
+      const passkeyRequired = overviewData?.passkey?.required === true;
+      const passkeyCreated = overviewData?.passkey?.created === true;
+      const passkeyPresent = overviewData?.passkey?.present === true;
+      const mtlsRequired = overviewData?.mtls?.required === true;
+      const mtlsPresent = overviewData?.mtls?.present === true;
+
+      // If mTLS is required and missing, block immediately.
+      if (mtlsRequired && !mtlsPresent) {
+        showAccessBlock('mTLS required', 'Present a valid client certificate to continue.');
+        return;
+      }
+
+      // If passkey is required and not yet created/present, prompt enrollment.
+      if (passkeyRequired && !passkeyCreated) {
+        showAccessBlock('Passkey enrollment required', 'Create a passkey to finish admin sign-in. mTLS is already satisfied.');
+        return;
+      }
+
+      if (passkeyRequired && passkeyCreated && !passkeyPresent) {
+        showAccessBlock('Passkey authentication required', 'Authenticate with your passkey to continue.');
+        return;
+      }
+
+      hideAccessBlock();
     }
 
     async function loadCdxSilent() {

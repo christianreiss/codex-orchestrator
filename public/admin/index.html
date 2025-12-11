@@ -178,9 +178,18 @@
             <div class="upgrade-notes" id="upgradeNotes">Loading…</div>
             <div class="actions">
               <button class="ghost" id="upgradeGithubLink" type="button">Open on GitHub</button>
-              <button class="ghost" id="upgradeClose">Close</button>
+            <button class="ghost" id="upgradeClose">Close</button>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="accessBlockModal">
+          <div class="modal">
+            <h3 id="accessBlockTitle">Admin access blocked</h3>
+            <p class="muted" id="accessBlockBody">mTLS or passkey is required before continuing.</p>
+            <div class="actions" style="margin-top:12px; justify-content:flex-end;">
+              <button class="ghost" id="accessBlockDismiss">Close</button>
             </div>
           </div>
+        </div>
         </div>
         <div class="modal-backdrop" id="usageHistoryModal">
           <div class="modal usage-history-modal">
