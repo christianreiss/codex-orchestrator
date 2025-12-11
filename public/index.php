@@ -2188,12 +2188,15 @@ function enforceGlobalRateLimit(?RateLimiter $rateLimiter, ?string $clientIp, st
 function resolveMtls(): array
 {
     $required = isMtlsRequired();
-    $fingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
-    $present = is_string($fingerprint) && preg_match('/^[A-Fa-f0-9]{64}$/', $fingerprint) === 1;
+    $fingerprintRaw = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? ($_SERVER['HTTP_X_MTLS_PRESENT'] ?? '');
+    $fingerprint = is_string($fingerprintRaw) ? preg_replace('/[^A-Fa-f0-9]/', '', $fingerprintRaw) : '';
+    // Accept colon/dash separated or bare hex; treat as present if we have >=64 hex chars.
+    $present = is_string($fingerprint) && strlen($fingerprint) >= 64 && preg_match('/^[A-Fa-f0-9]+$/', $fingerprint) === 1;
 
     $meta = [
         'required' => $required,
         'present' => $present,
+        'enforced' => $required && $present,
     ];
 
     if ($present) {
