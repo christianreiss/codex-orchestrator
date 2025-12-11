@@ -101,7 +101,6 @@
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
-    // Passkey UI is removed on the main dashboard; keep selectors for settings view safety.
     const passkeyCreatedCell = document.getElementById('passkeyCreatedCell');
     const passkeyAuthCell = document.getElementById('passkeyAuthCell');
     const passkeyCreateBtn = document.getElementById('passkeyCreateBtn');

@@ -399,6 +399,27 @@
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
+                    <h3>Passkey</h3>
+                    <p class="muted" style="margin:2px 0 0;">Admin passkey creation and auth check.</p>
+                  </div>
+                </div>
+                <div class="setting-body">
+                  <div class="kv-grid" style="grid-template-columns: 160px 1fr;">
+                    <div class="muted">Created</div>
+                    <div id="passkeyCreatedCell" class="pill warn">Not created</div>
+                    <div class="muted">Last auth</div>
+                    <div id="passkeyAuthCell" class="pill warn">Never</div>
+                  </div>
+                  <div class="row-actions" style="margin-top:10px; gap:8px;">
+                    <button class="ghost tiny-btn" id="passkeyCreateBtn">Create / enroll</button>
+                    <button class="ghost tiny-btn" id="passkeyTestBtn">Test auth</button>
+                    <button class="ghost tiny-btn danger" id="passkeyRemoveBtn">Remove</button>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
                     <h3>cdx Silent Mode</h3>
                     <p class="muted" style="margin:2px 0 0;">Hide wrapper boot logs; only errors print.</p>
                   </div>
