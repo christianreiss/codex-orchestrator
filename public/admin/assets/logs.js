@@ -227,6 +227,20 @@
     const refreshBtn = document.getElementById('mcp-refresh');
     if (!tableBody) return;
 
+    const formatStatus = (item) => {
+      if (item.success) return 'ok';
+      const code = item.error_code ? `code ${item.error_code}` : null;
+      const msg = item.error_message || null;
+      if (code && msg) return `fail (${code}: ${msg})`;
+      if (msg) return `fail (${msg})`;
+      if (code) return `fail (${code})`;
+      return 'fail';
+    };
+
+    const formatHost = (item) => item.host_fqdn || item.host || '—';
+    const formatTool = (item) => item.name || item.method || '—';
+    const formatTime = (ts) => ts || '—';
+
     async function loadMcpLogs() {
       try {
         tableBody.innerHTML = '<tr class="loading-row"><td colspan="4">Loading…</td></tr>';
@@ -239,10 +253,10 @@
           return;
         }
         tableBody.innerHTML = items.map((item) => {
-          const ts = item.created_at || '—';
-          const host = item.host || '—';
-          const tool = item.tool || '—';
-          const status = item.status || '—';
+          const ts = formatTime(item.created_at);
+          const host = formatHost(item);
+          const tool = formatTool(item);
+          const status = formatStatus(item);
           return `<tr><td>${ts}</td><td>${host}</td><td>${tool}</td><td>${status}</td></tr>`;
         }).join('');
       } catch (err) {
