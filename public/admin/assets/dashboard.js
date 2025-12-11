@@ -244,7 +244,9 @@
     }
 
     function applyViewMode() {
-      const config = VIEW_LAYOUTS[viewMode] || VIEW_LAYOUTS.dashboard;
+      // Use the live body dataset view to reflect navigation without reloads.
+      const activeView = (document.body?.dataset?.viewMode || viewMode || 'dashboard').toLowerCase();
+      const config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
       const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'agents-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
@@ -709,6 +711,8 @@
     let mcpLogsInited = false;
     let configInited = false;
     let hostsInited = false;
+    let dataLoaded = false;
+    let loadAllPromise = null;
 
     window.__initClientLogs = () => {
       if (clientLogsInited) return;
@@ -3176,10 +3180,16 @@
       });
     }
 
+    async function ensureDataLoaded() {
+      if (loadAllPromise) return loadAllPromise;
+      loadAllPromise = loadAll().finally(() => { dataLoaded = true; });
+      return loadAllPromise;
+    }
+
     async function ensureHostsLoaded() {
       if (hostsInited) return;
       hostsInited = true;
-      await loadAll();
+      await ensureDataLoaded();
     }
 
     function applyHashRouting() {
@@ -3208,6 +3218,10 @@
         setHostStatusFilter(hostStatusFilter);
         setActiveLinks('.host-tab', hostStatusFilter);
         ensureHostsLoaded();
+      }
+
+      if (panel === 'dashboard') {
+        ensureDataLoaded();
       }
 
       if (panel === 'logs') {
@@ -3684,7 +3698,7 @@
       }
     }
 
-    loadAll();
+    ensureDataLoaded();
 
     function handleAuthFile() {
       const file = uploadAuthFile?.files?.[0];
