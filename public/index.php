@@ -2669,6 +2669,8 @@ function requireAdminAccess(): void
     $passkeyOk = passkeyAuthStatus($passkeyRepo) === 'ok';
 
     $mtlsOk = isMtlsSatisfied();
+    $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+    $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 
     $mtlsRequired = $mode === 'mtls_only' || $mode === 'mtls_and_passkey';
     $passkeyRequired = $mode === 'passkey_only' || $mode === 'mtls_and_passkey';
@@ -2679,19 +2681,28 @@ function requireAdminAccess(): void
     $clientIp = resolveClientIp() ?? '';
     $mtlsFingerprint = is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null;
 
-    // Allow passkey bootstrap: when passkey is required but not present, only passkey endpoints may proceed.
-    if ($passkeyRequired && !$passkeyPresent && !$isPasskeyRoute) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'Passkey enrollment required',
-        ], 401);
-    }
-
     if ($mtlsRequired && !$mtlsOk) {
         Response::json([
             'status' => 'error',
             'message' => 'Client certificate required for admin access',
         ], 403);
+    }
+
+    // Allow passkey bootstrap when mTLS is satisfied:
+    // - passkey endpoints always allowed
+    // - GET requests allowed so the UI can load and prompt enrollment
+    // - mutating requests remain blocked until a passkey is created
+    if ($passkeyRequired && !$passkeyPresent) {
+        if ($isPasskeyRoute) {
+            return;
+        }
+        if ($method === 'GET') {
+            return;
+        }
+        Response::json([
+            'status' => 'error',
+            'message' => 'Passkey enrollment required',
+        ], 401);
     }
 
     // Sessionized passkey: require a valid session if passkey is required.
