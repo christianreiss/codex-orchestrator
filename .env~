@@ -18,8 +18,10 @@ ADMIN_REQUIRE_MTLS=0
 DASHBOARD_ADMIN_KEY=
 
 # Admin access policy: mtls_and_passkey enforces both factors on /admin.
-ADMIN_ACCESS_MODE=mtls_and_passkey
-DASHBOARD_ADMIN_KEY=
+#ADMIN_ACCESS_MODE=mtls_and_passkey
+#ADMIN_ACCESS_MODE=mtls_only     # Check OK
+ADMIN_ACCESS_MODE=passkey_only
+#ADMIN_ACCESS_MODE=none
 
 CODEX_SYNC_BASE_URL=http://api
 CODEX_DEBUG=0

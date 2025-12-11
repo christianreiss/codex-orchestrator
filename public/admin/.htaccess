@@ -1,3 +1,9 @@
-<IfModule mod_authz_core.c>
-    Require expr %{HTTP:X-MTLS-PRESENT} != ""
-</IfModule>
+RewriteEngine On
+
+# Let static assets through unchanged (css/js/svg/png/jpg/ico/woff/woff2)
+RewriteCond %{REQUEST_URI} \.(css|js|svg|png|jpg|jpeg|ico|woff2?|ttf|map)$ [NC]
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Everything else under /admin goes through index.php for mTLS/passkey gating.
+RewriteRule ^ index.php [L]
