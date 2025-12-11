@@ -293,30 +293,6 @@
           </div>
         </section>
 
-        <section class="card panel" id="passkey-panel">
-          <div class="panel-head">
-            <div>
-              <h2>Passkey</h2>
-              <p class="muted" style="margin:4px 0 0;">Dashboard passkey enrollment and latest auth state.</p>
-            </div>
-          </div>
-          <div class="passkey-actions">
-            <div>
-              <div class="muted" style="font-weight:600;">Passkey enrollment</div>
-              <div id="passkeyCreatedCell">Checking…</div>
-            </div>
-            <div>
-              <div class="muted" style="font-weight:600;">Last auth attempt</div>
-              <div id="passkeyAuthCell">Checking…</div>
-            </div>
-            <div class="passkey-buttons">
-              <button class="nav-btn primary small" id="passkeyCreateBtn">Create</button>
-              <button class="nav-btn ghost small" id="passkeyTestBtn">Test auth</button>
-              <button class="nav-btn ghost small" id="passkeyRemoveBtn">Remove</button>
-            </div>
-          </div>
-        </section>
-
         <section class="card panel settings-panel" id="settings-panel">
           <div class="panel-head">
             <div>
@@ -428,6 +404,30 @@
               </div>
               <div class="setting-actions">
                 <button class="ghost" type="button" onclick="window.location.href='/admin/config.html'">Open generator</button>
+              </div>
+            </div>
+
+            <div class="setting-block">
+              <div class="setting-head">
+                <div>
+                  <h3>Passkey</h3>
+                  <p class="muted" style="margin:2px 0 0;">Enroll the dashboard passkey and check the last auth.</p>
+                </div>
+              </div>
+              <div class="passkey-actions" style="margin: 10px 0 0;">
+                <div>
+                  <div class="muted" style="font-weight:600;">Passkey enrollment</div>
+                  <div id="passkeyCreatedCell">Checking…</div>
+                </div>
+                <div>
+                  <div class="muted" style="font-weight:600;">Last auth attempt</div>
+                  <div id="passkeyAuthCell">Checking…</div>
+                </div>
+                <div class="passkey-buttons">
+                  <button class="nav-btn primary small" id="passkeyCreateBtn">Create</button>
+                  <button class="nav-btn ghost small" id="passkeyTestBtn">Test auth</button>
+                  <button class="nav-btn ghost small" id="passkeyRemoveBtn">Remove</button>
+                </div>
               </div>
             </div>
           </div>

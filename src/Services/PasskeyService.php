@@ -109,7 +109,8 @@ class PasskeyService
         $publicKeyCredentialSource = $this->attestationValidator()->check(
             $response,
             $creationOptions,
-            $this->rpId
+            $this->rpId,
+            null
         );
 
         $this->repo->saveSingle(
@@ -205,7 +206,9 @@ class PasskeyService
             $publicKeyCredential->getRawId(),
             $response,
             $requestOptions,
-            $this->rpId
+            $this->rpId,
+            $stored['user_handle'],
+            null
         );
 
         $this->repo->updateCounter($stored['credential_id'], $validated->getPublicKeyCredentialSource()->getCounter());
