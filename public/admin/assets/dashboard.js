@@ -106,6 +106,9 @@
     const passkeyCreateBtn = document.getElementById('passkeyCreateBtn');
     const passkeyTestBtn = document.getElementById('passkeyTestBtn');
     const passkeyRemoveBtn = document.getElementById('passkeyRemoveBtn');
+    const passkeyReauthModal = document.getElementById('passkeyReauthModal');
+    const passkeyReauthBtn = document.getElementById('passkeyReauthBtn');
+    const passkeyReauthDismiss = document.getElementById('passkeyReauthDismiss');
     const accessBlockModal = document.getElementById('accessBlockModal');
     const accessBlockTitle = document.getElementById('accessBlockTitle');
     const accessBlockBody = document.getElementById('accessBlockBody');
@@ -597,6 +600,32 @@
       }
     }
 
+    async function autoReauthPasskey() {
+      try {
+        const request = await api('/admin/passkey/auth/options', { method: 'POST' });
+        const options = normalizeRequestOptions(request.data);
+        const assertion = await navigator.credentials.get({ publicKey: options });
+        const finishPayload = serializeCredential(assertion);
+        await api('/admin/passkey/auth/finish', { method: 'POST', json: finishPayload });
+        await loadAll();
+        hidePasskeyReauth();
+      } catch (err) {
+        console.error('passkey reauth failed', err);
+        showPasskeyReauth(err?.message || 'Passkey authentication required');
+      }
+    }
+
+    function showPasskeyReauth(reason) {
+      if (!passkeyReauthModal) return;
+      const body = passkeyReauthModal.querySelector('p.muted');
+      if (body && reason) body.textContent = reason;
+      passkeyReauthModal.classList.add('show');
+    }
+
+    function hidePasskeyReauth() {
+      passkeyReauthModal?.classList.remove('show');
+    }
+
     function showAccessBlock(title, body) {
       if (!accessBlockModal) return;
       if (accessBlockTitle && title) accessBlockTitle.textContent = title;
@@ -612,6 +641,7 @@
       const passkeyRequired = overviewData?.passkey?.required === true;
       const passkeyCreated = overviewData?.passkey?.created === true;
       const passkeyPresent = overviewData?.passkey?.present === true;
+      const passkeyAuth = overviewData?.passkey?.auth || 'none';
       const mtlsRequired = overviewData?.mtls?.required === true;
       const mtlsPresent = overviewData?.mtls?.present === true;
 
@@ -629,6 +659,8 @@
 
       if (passkeyRequired && passkeyCreated && !passkeyPresent) {
         showAccessBlock('Passkey authentication required', 'Authenticate with your passkey to continue.');
+        showPasskeyReauth('Passkey session expired. Continue to re-auth.');
+        autoReauthPasskey();
         return;
       }
 
@@ -3564,6 +3596,18 @@
     }
     if (passkeyRemoveBtn) {
       passkeyRemoveBtn.addEventListener('click', removePasskey);
+    }
+    if (passkeyReauthBtn) {
+      passkeyReauthBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        autoReauthPasskey();
+      });
+    }
+    if (passkeyReauthDismiss) {
+      passkeyReauthDismiss.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        hidePasskeyReauth();
+      });
     }
     loadApiState();
     loadCdxSilent();
