@@ -19,7 +19,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Hardening Checklist (code-backed)
 
-- **TLS/mTLS for admin**: Admin routes require mTLS by default (`ADMIN_REQUIRE_MTLS=1`) and optionally an admin key (`DASHBOARD_ADMIN_KEY`). If you disable mTLS (`ADMIN_REQUIRE_MTLS=0`), put the admin surface behind VPN/firewall and keep `DASHBOARD_ADMIN_KEY` set.
+- **TLS/mTLS for admin**: Admin routes require mTLS by default (`ADMIN_REQUIRE_MTLS=1`). If you disable mTLS (`ADMIN_REQUIRE_MTLS=0`), put the admin surface behind VPN/firewall; the `DASHBOARD_ADMIN_KEY` overlay has been removed.
 - **API key binding**: Host API keys are IP-bound on first use; later calls from a different IP are 403 unless roaming is allowed or an admin toggles the roaming flag. Runner-only bypass can be enabled via `AUTH_RUNNER_IP_BYPASS` + CIDRs.
 - **Encryption at rest**: Canonical auth bodies and per-target tokens are encrypted with libsodium `secretbox` (`sbox:v1:`) using `AUTH_ENCRYPTION_KEY` (auto-generated into `.env` on first boot). Host API keys are hashed (SHA-256) for lookup and also stored encrypted (`api_key_enc`).
 - **Rate limits**: Global IP bucket (default 120 req / 60s, non-admin) and a dedicated auth-failure bucket (default 20 fails / 10m, 30m block) backed by `ip_rate_limits`.
@@ -38,7 +38,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 ## Authentication & Authorization
 
 - **Host calls** (`/auth`, `/usage`, `/wrapper*`, `/slash-commands*`, `/host/users`): require API key + IP binding. Roaming must be explicitly allowed per host.
-- **Admin routes** (`/admin/*`): mTLS gate by default; optional `DASHBOARD_ADMIN_KEY` overlay. Admins can view/upload raw canonical auth and rotate keys—restrict to trusted operators only.
+- **Admin routes** (`/admin/*`): mTLS gate by default. Admins can view/upload raw canonical auth and rotate keys—restrict to trusted operators only.
 - **Installer** (`/install/{token}`): public endpoint that returns a shell script; token is validated for expiry/one-time use and tags host/base URL. Returned script bakes API key/FQDN/base URL into the wrapper.
 - **Runner**: Optional external validator invoked daily/on store and on admin trigger. Runner receives full auth JSON; deploy it on a trusted, TLS-protected network and secure the endpoint separately (no auth headers are sent by default).
 

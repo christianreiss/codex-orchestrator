@@ -4,7 +4,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 
 ## Auth & Transport
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`. Admin endpoints also accept `X-Admin-Key`/Bearer when `DASHBOARD_ADMIN_KEY` is set.
-- **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, secure the path via VPN/firewall and/or `DASHBOARD_ADMIN_KEY`.
+- **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, secure the path via VPN/firewall; `DASHBOARD_ADMIN_KEY` overlay has been removed.
 - **IP binding**: first successful `/auth` (or wrapper fetch) pins the caller IP; later calls from another IP return `403` unless `allow_roaming_ips` is enabled or `DELETE /auth?force=1` is used. Runner calls may bypass IP binding when `AUTH_RUNNER_IP_BYPASS=1` and the runner IP is inside `AUTH_RUNNER_BYPASS_SUBNETS`.
 - **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 2–60 minute sliding window (default 10, set via dashboard slider or `duration_minutes`) with `POST /admin/hosts/{id}/insecure/enable`. Disabling the window blocks `retrieve` immediately with `403 insecure_api_disabled` but starts a 60‑minute grace period during which `store` calls remain allowed so hosts can finish uploading changes.
 - **Kill switch**: `POST /admin/api/state` sets a persistent `api_disabled` flag. When enabled, every non-`/admin/api/state` route (including `/auth`) returns HTTP 503.

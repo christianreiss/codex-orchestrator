@@ -4,7 +4,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 
 ## Access & Auth
 - Base path: `/admin/`.
-- mTLS is enforced when `ADMIN_REQUIRE_MTLS=1` (default). If you disable it, gate the path another way (VPN/firewall) and optionally set `DASHBOARD_ADMIN_KEY` for a shared secret overlay.
+- mTLS is enforced when `ADMIN_REQUIRE_MTLS=1` (default). If you disable it, gate the path another way (VPN/firewall).
 - Behind a proxy, make sure it forwards `X-MTLS-*` headers and real client IPs.
 
 ## Page-by-page

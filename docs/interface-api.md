@@ -35,7 +35,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 
 - `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register` (one pending token per host; issuing a new one rotates the API key and deletes prior tokens), expire after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s), and embed the resolved public base URL (from token metadata, `PUBLIC_BASE_URL`, or forwarded Host/proto) plus the API key/FQDN into `cdx`. Used/expired/missing tokens return shell-script errors.
 
-## Admin (mTLS on by default + optional `DASHBOARD_ADMIN_KEY`)
+## Admin (mTLS on by default)
 
 - `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions (runner/quota flags included), token totals (including reasoning tokens) plus `tokens_month`, ChatGPT usage snapshot (cached ≤5m), pricing snapshot + `pricing_month_cost`, mTLS metadata (includes `required`/`present` + fingerprint details when provided), and seed signals for new installs (`has_canonical_auth`, `seed_required`, `seed_reasons`), plus the enforced ChatGPT quota threshold (`quota_limit_percent`), week-partition setting (`quota_week_partition`), and `cdx_silent` (wrapper quiet mode).
 - `GET /admin/hosts` — list hosts with canonical digest, digests history, versions, API calls, IP, roaming flag, security flag (`secure`), VIP flag (`vip`), insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4` (true = bake IPv4-only installer/wrapper and clear IP binding), latest token usage (including reasoning tokens), `auth_outdated` (true when host digest differs from the current canonical auth), and recorded users (username/hostname/first/last seen).
@@ -78,7 +78,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 ## Auth + IP rules
 
 - API key is bound to first caller IP; subsequent calls from a new IP are blocked unless `allow_roaming_ips` is enabled via admin or `?force=1` on `DELETE /auth`.
-- Admin endpoints require mTLS (`X-mTLS-Present` header) when `ADMIN_REQUIRE_MTLS=1` (default) and, if set, `DASHBOARD_ADMIN_KEY`. With `ADMIN_REQUIRE_MTLS=0`, mTLS headers become optional—lock down `/admin` via another control (VPN, firewall, or admin key).
+- Admin endpoints require mTLS (`X-mTLS-Present` header) when `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, mTLS headers become optional—lock down `/admin` via another control (VPN, firewall); `DASHBOARD_ADMIN_KEY` overlay removed.
 - Runner IP bypass: when `AUTH_RUNNER_IP_BYPASS=1` and `AUTH_RUNNER_BYPASS_SUBNETS` contains CIDRs, runner-originated `/auth` validation can proceed without rebinding the stored host IP (logged as `auth.runner_ip_bypass`).
 
 ## Rate limiting

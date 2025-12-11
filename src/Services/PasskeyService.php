@@ -12,6 +12,7 @@ use Cose\Algorithm\Signature\RSA\RS256;
 use DateInterval;
 use DateTimeImmutable;
 use Throwable;
+use Symfony\Component\Uid\Uuid;
 use Webauthn\AttestationStatement\AndroidKeyAttestationStatementSupport;
 use Webauthn\AttestationStatement\AndroidSafetyNetAttestationStatementSupport;
 use Webauthn\AttestationStatement\AppleAttestationStatementSupport;
@@ -32,9 +33,13 @@ use Webauthn\PublicKeyCredentialLoader;
 use Webauthn\PublicKeyCredentialParameters;
 use Webauthn\PublicKeyCredentialRequestOptions;
 use Webauthn\PublicKeyCredentialRpEntity;
-use Webauthn\TokenBinding\TokenBindingNotSupportedHandler;
 use Webauthn\PublicKeyCredentialSource;
 use Webauthn\PublicKeyCredentialSourceRepository;
+use Webauthn\TokenBinding\TokenBindingNotSupportedHandler;
+use Webauthn\TrustPath\EmptyTrustPath;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
+use Nyholm\Psr7\Factory\Psr17Factory;
 
 /**
  * One-admin passkey orchestration: issues WebAuthn options, verifies responses, stores single credential.
@@ -109,8 +114,8 @@ class PasskeyService
         $publicKeyCredentialSource = $this->attestationValidator()->check(
             $response,
             $creationOptions,
-            $this->rpId,
-            null
+            $this->currentServerRequest(),
+            [$this->rpId]
         );
 
         $this->repo->saveSingle(
@@ -121,6 +126,7 @@ class PasskeyService
         );
         $this->versionRepository->set('passkey_created', '1');
         $this->versionRepository->set('passkey_auth', 'ok');
+        $this->versionRepository->set('passkey_auth_at', (new DateTimeImmutable())->format(DATE_ATOM));
 
         return [
             'credential_id' => $this->b64urlEncode($publicKeyCredentialSource->getPublicKeyCredentialId()),
@@ -177,12 +183,16 @@ class PasskeyService
                 return \Webauthn\PublicKeyCredentialSource::create(
                     $publicKeyCredentialId,
                     'public-key',
+                    [], // transports unknown; stored credential permits all
+                    'none',
+                    new EmptyTrustPath(),
+                    Uuid::fromString('00000000-0000-0000-0000-000000000000'),
                     $this->stored['public_key'],
                     $this->stored['user_handle'],
-                    [],
+                    (int) $this->stored['counter'],
                     null,
-                    [],
-                    (int) $this->stored['counter']
+                    null,
+                    null
                 );
             }
             public function findAllForUserEntity(\Webauthn\PublicKeyCredentialUserEntity $userEntity): array
@@ -206,16 +216,17 @@ class PasskeyService
             $publicKeyCredential->getRawId(),
             $response,
             $requestOptions,
-            $this->rpId,
+            $this->currentServerRequest(),
             $stored['user_handle'],
-            null
+            [$this->rpId]
         );
 
-        $this->repo->updateCounter($stored['credential_id'], $validated->getPublicKeyCredentialSource()->getCounter());
+        $this->repo->updateCounter($stored['credential_id'], $validated->getCounter());
         $this->versionRepository->set('passkey_auth', 'ok');
+        $this->versionRepository->set('passkey_auth_at', (new DateTimeImmutable())->format(DATE_ATOM));
 
         return [
-            'counter' => $validated->getPublicKeyCredentialSource()->getCounter(),
+            'counter' => $validated->getCounter(),
         ];
     }
 
@@ -242,6 +253,7 @@ class PasskeyService
         $this->repo->deleteAll();
         $this->versionRepository->delete('passkey_created');
         $this->versionRepository->delete('passkey_auth');
+        $this->versionRepository->delete('passkey_auth_at');
     }
 
     private function persistChallenge(string $key, string $challenge): void
@@ -261,6 +273,21 @@ class PasskeyService
             'user_handle' => $this->b64urlEncode($userHandle),
             'expires_at' => $expiresAt,
         ]));
+    }
+
+    private function currentRequest(): Request
+    {
+        // Only origin / host headers are needed for WebAuthn validation; avoid re-reading the body.
+        return Request::createFromGlobals();
+    }
+
+    private function currentServerRequest(): \Psr\Http\Message\ServerRequestInterface
+    {
+        // Bridge Symfony Request to PSR-7 for web-authn validator signatures.
+        $symfonyRequest = $this->currentRequest();
+        $psr17Factory = new Psr17Factory();
+        $psrHttpFactory = new PsrHttpFactory($psr17Factory, $psr17Factory, $psr17Factory, $psr17Factory);
+        return $psrHttpFactory->createRequest($symfonyRequest);
     }
 
     private function pullChallenge(string $key): ?string

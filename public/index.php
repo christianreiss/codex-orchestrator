@@ -2606,29 +2606,6 @@ function installerError(string $message, int $status = 400, ?string $expiresAt =
     emitInstaller('echo "' . addslashes($message) . "\" >&2\nexit 1\n", $status, $expiresAt);
 }
 
-function resolveAdminKey(): ?string
-{
-    $headerKeys = [
-        'HTTP_X_ADMIN_KEY',
-        'HTTP_AUTHORIZATION',
-    ];
-
-    foreach ($headerKeys as $key) {
-        if (isset($_SERVER[$key]) && is_string($_SERVER[$key])) {
-            $value = trim($_SERVER[$key]);
-            if ($value !== '') {
-                if (str_starts_with($value, 'Bearer ')) {
-                    return substr($value, 7);
-                }
-
-                return $value;
-            }
-        }
-    }
-
-    return null;
-}
-
 function adminAccessMode(): string
 {
     $mode = strtolower((string) Config::get('ADMIN_ACCESS_MODE', 'mtls_and_passkey'));
@@ -2652,8 +2629,10 @@ function isPasskeyRequired(): bool
 
 function isMtlsSatisfied(): bool
 {
-    $present = $_SERVER['HTTP_X_MTLS_PRESENT'] ?? '';
-    return $present !== '';
+    // Treat mTLS as satisfied only when we actually got a 64-hex fingerprint header
+    // (Caddy may pass literal placeholders when no cert is presented; filter that out).
+    $fp = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? ($_SERVER['HTTP_X_MTLS_PRESENT'] ?? '');
+    return is_string($fp) && preg_match('/^[A-Fa-f0-9]{64}$/', $fp) === 1;
 }
 
 function requireAdminAccess(): void
@@ -2672,9 +2651,6 @@ function requireAdminAccess(): void
     $passkeyRepo = new VersionRepository(new Database($dbConfig));
     $passkeyPresent = passkeyCreated($passkeyRepo);
     $passkeyOk = passkeyAuthStatus($passkeyRepo) === 'ok';
-
-    $configuredAdminKey = Config::get('DASHBOARD_ADMIN_KEY', '');
-    $adminKeyProvided = $configuredAdminKey === '' || ($provided = resolveAdminKey()) !== null && hash_equals($configuredAdminKey, $provided);
 
     $mtlsOk = isMtlsSatisfied();
 
@@ -2704,12 +2680,7 @@ function requireAdminAccess(): void
         ], 401);
     }
 
-    if (!$adminKeyProvided) {
-        Response::json([
-            'status' => 'error',
-            'message' => 'Admin key required',
-        ], 401);
-    }
+    // Admin key overlay removed; mTLS/passkey gating handled above.
 }
 
 function passkeyCreated(VersionRepository $repo): bool
@@ -2728,12 +2699,14 @@ function passkeyMeta(VersionRepository $repo): array
     $created = passkeyCreated($repo);
     $auth = passkeyAuthStatus($repo);
     // Treat "present" as "created AND last auth succeeded" so we don't claim OK without proof.
+    $lastAuthAt = $repo->get('passkey_auth_at');
     $present = $created && $auth === 'ok';
     return [
         'required' => isPasskeyRequired(),
         'present' => $present,
         'created' => $created,
         'auth' => $auth,
+        'auth_at' => $lastAuthAt,
     ];
 }
 

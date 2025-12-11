@@ -535,15 +535,19 @@ const statsEl = document.getElementById('stats');
         authLabel = 'Passkey enrolled; no auth yet';
         authClass = 'warn';
       }
+      if (meta?.auth_at) {
+        authLabel += ` · ${formatRelative(meta.auth_at)}`;
+      }
       passkeyAuthCell.className = 'pill ' + authClass;
       passkeyAuthCell.textContent = authLabel;
       renderPasskeyButtons(created);
     }
 
     function renderPasskeyButtons(created) {
-      if (passkeyCreateBtn) passkeyCreateBtn.disabled = !!created;
-      if (passkeyRemoveBtn) passkeyRemoveBtn.disabled = !created;
-      if (passkeyTestBtn) passkeyTestBtn.disabled = !created;
+      if (passkeyCreateBtn) passkeyCreateBtn.style.display = created ? 'none' : 'inline-block';
+      const showManage = created ? 'inline-block' : 'none';
+      if (passkeyRemoveBtn) passkeyRemoveBtn.style.display = showManage;
+      if (passkeyTestBtn) passkeyTestBtn.style.display = showManage;
     }
 
     async function createPasskey() {

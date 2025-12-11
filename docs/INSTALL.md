@@ -82,7 +82,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD/DB_ROOT_PASSWORD`
    - `AUTH_ENCRYPTION_KEY` (leave empty to auto-generate on first boot).
    - `DATA_ROOT` if you want a different bind-mount root.
-   - Admin surface: `DASHBOARD_ADMIN_KEY` (second factor for admin APIs), `ADMIN_REQUIRE_MTLS` (default `1`).
+  - Admin surface: `ADMIN_REQUIRE_MTLS` (default `1`).
    - Runner knobs: `AUTH_RUNNER_URL` (blank to disable), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
    - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.1 price hints (`GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`).
@@ -97,7 +97,7 @@ docker compose up --build
 
 - Starts `api`, `quota-cron`, `auth-runner`, and `mysql`. Add `--profile caddy` for TLS proxy and `--profile backup` for nightly SQL dumps (`mysql-backup`).
 - API defaults to `http://localhost:8488`.
-- Admin dashboard: `/admin/` (mTLS required unless `ADMIN_REQUIRE_MTLS=0`; optional `DASHBOARD_ADMIN_KEY`).
+- Admin dashboard: `/admin/` (mTLS required unless `ADMIN_REQUIRE_MTLS=0`).
 - Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner. Runner probes can bypass host IP pinning when the IP is in `AUTH_RUNNER_BYPASS_SUBNETS` and `AUTH_RUNNER_IP_BYPASS=1`.
 - A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds).
 - Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
@@ -130,7 +130,7 @@ docker compose up --build
 ## Security Notes
 
 - Treat `.env`, `storage/`, and MySQL volumes as secrets (contain API/encryption keys and auth payloads).
-- By default `/admin/` enforces mTLS. If you set `ADMIN_REQUIRE_MTLS=0`, lock it down via another control (VPN, firewall, and/or `DASHBOARD_ADMIN_KEY`).
+- By default `/admin/` enforces mTLS. If you set `ADMIN_REQUIRE_MTLS=0`, lock it down via another control (VPN, firewall).
 - IP binding relies on `X-Forwarded-For`/`X-Real-IP`; ensure your proxy sets and sanitizes them.
 - If you keep `AUTH_RUNNER_IP_BYPASS=1`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to internal CIDRs only.
 - Global rate limiting is off for admin routes but on for everything else; tune or disable with `RATE_LIMIT_GLOBAL_PER_MINUTE`/`RATE_LIMIT_GLOBAL_WINDOW` if your proxy already rate-limits.
