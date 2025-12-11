@@ -87,15 +87,18 @@
     setMtls: (meta) => {
       if (!mtlsStatus) return;
       if (!meta) return setStatusChip(mtlsStatus, { label: 'mTLS: unknown', variant: 'warn' });
-      if (meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: OK', variant: 'ok' });
-      return setStatusChip(mtlsStatus, { label: 'mTLS: missing', variant: 'err' });
+      // expected states: none, offered, enforced
+      if (meta.enforced) return setStatusChip(mtlsStatus, { label: 'mTLS: enforced', variant: 'ok' });
+      if (meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: offered', variant: 'warn' });
+      return setStatusChip(mtlsStatus, { label: 'mTLS: none', variant: 'err' });
     },
     setPasskey: (meta) => {
       if (!passkeyStatus) return;
       if (!meta) return setStatusChip(passkeyStatus, { label: 'Passkey: unknown', variant: 'warn' });
-      if (meta.present) return setStatusChip(passkeyStatus, { label: 'Passkey: OK', variant: 'ok' });
-      if (meta.created) return setStatusChip(passkeyStatus, { label: 'Passkey: enrolled', variant: 'warn' });
-      return setStatusChip(passkeyStatus, { label: 'Passkey: missing', variant: 'warn' });
+      // expected states: none, offered, enforced
+      if (meta.enforced) return setStatusChip(passkeyStatus, { label: 'Passkey: enforced', variant: 'ok' });
+      if (meta.present || meta.created) return setStatusChip(passkeyStatus, { label: 'Passkey: offered', variant: 'warn' });
+      return setStatusChip(passkeyStatus, { label: 'Passkey: none', variant: 'err' });
     },
   };
 
