@@ -2710,7 +2710,8 @@ function requireAdminAccess(): void
         $sessionValid = $adminSession instanceof AdminSession
             && $adminSession->isValid($userAgent, $clientIp, $mtlsFingerprint);
 
-        if (!$sessionValid && !$isPasskeyRoute) {
+        // Allow UI + passkey endpoints to load so the user can re-auth.
+        if (!$sessionValid && !$isPasskeyRoute && $method !== 'GET') {
             Response::json([
                 'status' => 'error',
                 'message' => 'Passkey authentication required',
