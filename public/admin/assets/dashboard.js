@@ -3077,10 +3077,10 @@
       if (insecureHostsList) insecureHostsList.innerHTML = '';
     }
 
-    function openInsecureHostsModal(insecureHosts) {
-      if (!insecureHostsModal || !insecureHostsList) return;
-      const now = Date.now();
-      const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
+	    function openInsecureHostsModal(insecureHosts) {
+	      if (!insecureHostsModal || !insecureHostsList) return;
+	      const now = Date.now();
+	      const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
       const activeFirst = (a, b) => {
         const aActive = parseTimestamp(a?.insecure_enabled_until)?.getTime?.() > now;
         const bActive = parseTimestamp(b?.insecure_enabled_until)?.getTime?.() > now;
@@ -3089,19 +3089,24 @@
       };
       items.sort(activeFirst);
 
-      insecureHostsList.innerHTML = items.map((host) => {
-        const state = insecureState(host);
-        const label = state.enabledActive ? 'Disable' : 'Enable';
-        const btnClass = state.enabledActive ? 'ghost' : '';
-        return `
-          <div class="quick-hosts-row" data-host-id="${host.id}">
-            <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
-            <div class="quick-hosts-actions">
-              <button class="${btnClass}" data-action="toggle">${label}</button>
-            </div>
-          </div>
-        `;
-      }).join('');
+	      insecureHostsList.innerHTML = items.map((host) => {
+	        const state = insecureState(host);
+	        const label = state.enabledActive ? 'Disable' : 'Enable';
+	        const btnClass = state.enabledActive ? 'ghost' : '';
+	        const onlineFor = state.enabledActive ? formatCountdown(host?.insecure_enabled_until) : '';
+	        const onlineLine = state.enabledActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Online: ${escapeHtml(onlineFor)}</div>` : '';
+	        return `
+	          <div class="quick-hosts-row" data-host-id="${host.id}">
+	            <div class="quick-hosts-info">
+	              <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
+	              ${onlineLine}
+	            </div>
+	            <div class="quick-hosts-actions">
+	              <button class="${btnClass}" data-action="toggle">${label}</button>
+	            </div>
+	          </div>
+	        `;
+	      }).join('');
 
       insecureHostsModal.classList.add('show');
     }

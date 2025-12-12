@@ -27,4 +27,12 @@ final class AdminAgentsUiWiringTest extends TestCase
 
         $this->assertStringContainsString('/admin/assets/config.js?v=', $html);
     }
+
+    public function testQuickInsecureHostsStylesIncludeOnlineSubline(): void
+    {
+        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
+        $this->assertIsString($css);
+
+        $this->assertStringContainsString('.quick-hosts-sub', $css);
+    }
 }
