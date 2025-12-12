@@ -3224,6 +3224,10 @@
         ensureDataLoaded();
       }
 
+      if (panel === 'agents') {
+        ensureDataLoaded();
+      }
+
       if (panel === 'logs') {
         const logTab = sub === 'mcp' ? 'mcp' : 'client';
         setActiveLinks('.log-tab', logTab);
