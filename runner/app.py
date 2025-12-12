@@ -92,9 +92,8 @@ def _run_probe(payload: VerifyRequest) -> dict:
         "/usr/local/bin/codex",
         "exec",
         "Reply Banana if this works.",
-        "--dangerously-bypass-approvals-and-sandbox",
         "-s",
-        "danger-full-access",
+        "read-only",
         "--skip-git-repo-check",
     ]
 
