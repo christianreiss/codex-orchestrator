@@ -109,6 +109,10 @@
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
+    const quickInsecureHostsLink = document.getElementById('quickInsecureHostsLink');
+    const insecureHostsModal = document.getElementById('insecureHostsModal');
+    const insecureHostsList = document.getElementById('insecureHostsList');
+    const insecureHostsCloseBtn = document.getElementById('insecureHostsCloseBtn');
     const pageHero = document.querySelector('.page-hero');
     const heroEyebrow = pageHero?.querySelector('.eyebrow');
     const heroTitle = pageHero?.querySelector('h1');
@@ -1132,6 +1136,39 @@
         <div class="host-toggle-list">
           ${toggles.join('')}
         </div>
+        <div class="host-model-overrides" style="margin-top:12px;">
+          <div class="muted" style="font-weight:600; margin-bottom:6px;">Model &amp; reasoning overrides</div>
+          <div class="inline-group" style="gap:10px; align-items:flex-end;">
+            <div class="field" style="min-width:240px;">
+              <label for="hostModelOverrideSelect">Model</label>
+              <select id="hostModelOverrideSelect">
+                <option value="">Standard (global)</option>
+                <option value="gpt-5.2">gpt-5.2</option>
+                <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
+                <option value="gpt-5.1-codex">gpt-5.1-codex</option>
+                <option value="gpt-5.1-codex-mini">gpt-5.1-codex-mini</option>
+                <option value="gpt-5.1">gpt-5.1</option>
+              </select>
+            </div>
+            <div class="field" style="min-width:180px;">
+              <label for="hostReasoningEffortSelect">Reasoning effort</label>
+              <select id="hostReasoningEffortSelect">
+                <option value="">Standard (global)</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+              </select>
+            </div>
+            <div class="field" style="min-width:120px;">
+              <label>&nbsp;</label>
+              <button class="ghost tiny-btn" type="button" id="saveHostModelOverrides">Save</button>
+            </div>
+          </div>
+          <div class="muted-note" style="margin-top:6px;">
+            Overrides affect the baked <code>cdx</code> wrapper for this host. “Standard” = use fleet-wide config.
+          </div>
+        </div>
         <div class="host-action-buttons">
           <button class="ghost secondary" data-action="install">Install script</button>
           <button class="ghost" data-action="clear">Clear auth</button>
@@ -1280,6 +1317,26 @@
         key: 'Token usage',
         value: renderTokenUsageValue(host.token_usage),
         desc: '',
+        full: true,
+      });
+
+      const modelOverride = (host.model_override || '').trim();
+      const reasoningOverride = (host.reasoning_effort_override || '').trim();
+      rows.push({
+        key: 'Model overrides',
+        value: `
+          <div class="kv-stack">
+            <div class="kv-rowline">
+              <span class="muted">Model</span>
+              ${modelOverride ? `<code>${escapeHtml(modelOverride)}</code>` : '<span class="muted">Standard (global)</span>'}
+            </div>
+            <div class="kv-rowline" style="margin-top:4px;">
+              <span class="muted">Reasoning effort</span>
+              ${reasoningOverride ? `<code>${escapeHtml(reasoningOverride)}</code>` : '<span class="muted">Standard (global)</span>'}
+            </div>
+          </div>
+        `,
+        desc: 'Optional per-host model + reasoning-effort overrides. “Standard” means use fleet-wide config.',
         full: true,
       });
 
@@ -2900,6 +2957,7 @@
         renderStats(currentOverview, runner?.data || null);
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
+        renderQuickInsecureHostsLink(hostsList);
         renderPrompts(prompts?.data?.commands || []);
         renderAgents(agents?.data || { status: 'missing' });
         await loadMemories();
@@ -2931,6 +2989,114 @@
       }
     }
 
+    function isInsecureHost(host) {
+      return host && !isHostSecure(host);
+    }
+
+    function renderQuickInsecureHostsLink(hostsList) {
+      if (!quickInsecureHostsLink) return;
+      const insecureCount = Array.isArray(hostsList) ? hostsList.filter(isInsecureHost).length : 0;
+      if (insecureCount > 0) {
+        quickInsecureHostsLink.style.display = '';
+        quickInsecureHostsLink.textContent = `Quick: Insecure hosts (${insecureCount})`;
+      } else {
+        quickInsecureHostsLink.style.display = 'none';
+      }
+    }
+
+    function closeInsecureHostsModal() {
+      if (!insecureHostsModal) return;
+      insecureHostsModal.classList.remove('show');
+      if (insecureHostsList) insecureHostsList.innerHTML = '';
+    }
+
+    function openInsecureHostsModal(insecureHosts) {
+      if (!insecureHostsModal || !insecureHostsList) return;
+      const now = Date.now();
+      const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
+      const activeFirst = (a, b) => {
+        const aActive = parseTimestamp(a?.insecure_enabled_until)?.getTime?.() > now;
+        const bActive = parseTimestamp(b?.insecure_enabled_until)?.getTime?.() > now;
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return String(a?.fqdn || '').localeCompare(String(b?.fqdn || ''), undefined, { sensitivity: 'base' });
+      };
+      items.sort(activeFirst);
+
+      insecureHostsList.innerHTML = items.map((host) => {
+        const state = insecureState(host);
+        const label = state.enabledActive ? 'Disable' : 'Enable';
+        const btnClass = state.enabledActive ? 'ghost' : '';
+        return `
+          <div class="quick-hosts-row" data-host-id="${host.id}">
+            <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
+            <div class="quick-hosts-actions">
+              <button class="${btnClass}" data-action="toggle">${label}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      insecureHostsModal.classList.add('show');
+    }
+
+    async function loadAndOpenInsecureHostsModal() {
+      try {
+        const resp = await api('/admin/hosts/insecure');
+        const insecureHosts = resp?.data?.hosts || [];
+        openInsecureHostsModal(insecureHosts);
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    }
+
+    function bindInsecureHostsQuickAction() {
+      if (quickInsecureHostsLink) {
+        quickInsecureHostsLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          loadAndOpenInsecureHostsModal();
+        });
+      }
+      if (insecureHostsCloseBtn) {
+        insecureHostsCloseBtn.addEventListener('click', () => closeInsecureHostsModal());
+      }
+      if (insecureHostsModal) {
+        insecureHostsModal.addEventListener('click', (e) => {
+          if (e.target === insecureHostsModal) closeInsecureHostsModal();
+        });
+      }
+      if (insecureHostsList) {
+        insecureHostsList.addEventListener('click', async (e) => {
+          const btn = e.target?.closest?.('button[data-action="toggle"]');
+          if (!btn) return;
+          const row = btn.closest('.quick-hosts-row');
+          const hostIdRaw = row?.getAttribute?.('data-host-id');
+          const hostId = hostIdRaw ? parseInt(hostIdRaw, 10) : NaN;
+          if (!Number.isFinite(hostId)) return;
+
+          btn.disabled = true;
+          const originalLabel = btn.textContent;
+          btn.textContent = originalLabel === 'Enable' ? 'Turning on…' : 'Turning off…';
+          try {
+            const resp = await api('/admin/hosts/insecure');
+            const hosts = resp?.data?.hosts || [];
+            const target = hosts.find(h => (h?.id | 0) === hostId);
+            if (!target) {
+              throw new Error('Host not found (refresh and retry).');
+            }
+            const state = insecureState(target);
+            await toggleInsecureApi(target, null, !state.enabledActive);
+            const refreshed = await api('/admin/hosts/insecure');
+            openInsecureHostsModal(refreshed?.data?.hosts || []);
+          } catch (err) {
+            alert(`Error: ${err.message}`);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+          }
+        });
+      }
+    }
+
     async function runVersionCheck() {
       if (!versionCheckBtn) return;
       const original = versionCheckBtn.textContent;
@@ -2946,6 +3112,8 @@
         versionCheckBtn.textContent = original;
       }
     }
+
+    bindInsecureHostsQuickAction();
 
     async function runRunnerNow(logFn = null) {
       try {

@@ -39,6 +39,7 @@
         <a class="menu-link" href="#hosts">Hosts</a>
         <a class="menu-link" href="#logs">Logs</a>
         <a class="menu-link" href="#settings">Settings</a>
+        <a class="menu-link" href="#" id="quickInsecureHostsLink" style="display:none;">Quick: Insecure hosts</a>
       </nav>
 
       <main class="main">
@@ -129,6 +130,16 @@
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="uploadAuthCancel">Cancel</button>
               <button id="uploadAuthSubmit">Upload</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="insecureHostsModal">
+          <div class="modal">
+            <h3>Insecure hosts</h3>
+            <p class="muted">Enable or disable the insecure API window. Active windows are listed first.</p>
+            <div id="insecureHostsList" class="quick-hosts-list"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
+              <button class="ghost" id="insecureHostsCloseBtn">Close</button>
             </div>
           </div>
         </div>

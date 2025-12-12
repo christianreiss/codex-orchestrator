@@ -1960,6 +1960,46 @@ body {
   font-weight: 600;
 }
 
+.quick-hosts-list {
+  max-height: 60vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.quick-hosts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.quick-hosts-row:last-child {
+  border-bottom: 0;
+}
+
+.quick-hosts-fqdn {
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-hosts-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.quick-hosts-row button {
+  min-width: 84px;
+}
+
 /* small screens: scroll instead of wrapping into chaos */
 
 @media (max-width: 720px) {

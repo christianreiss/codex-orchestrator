@@ -106,6 +106,8 @@
 - Fixed `cdx --execute` so `--skip-git-repo-check` is passed after `exec`, matching Codex CLI expectations.
 - Fixed cdx runner telemetry so the status line reflects the fresh verification time immediately after the runner is triggered.
 - cdx now shows “auth runner just verified” when the runner completed within ~90 seconds, replacing “<1m ago”; wrapper version bumped to 2025.12.02-01.
+- Admin dashboard adds a “Quick: Insecure hosts” menu action (only visible when insecure hosts exist) that opens a scrollable modal listing insecure hosts (FQDN + enable/disable) with active windows pinned to the top.
+- Added `GET /admin/hosts/insecure` for a minimal insecure-hosts list suitable for quick UI actions.
 
 # 2025-12-01
 - Estimated Total card no longer repeats the month-to-date total in its header, relying on the breakdown chips below.

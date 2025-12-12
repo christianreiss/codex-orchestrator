@@ -984,7 +984,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/ipv4$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
@@ -1017,6 +1017,57 @@ $router->add('POST', '#^/admin/hosts/(\d+)/ipv4$#', function ($matches) use ($ho
                 'id' => $hostId,
                 'force_ipv4' => $force,
                 'ip' => null,
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $modelRaw = $payload['model_override'] ?? null;
+    $reasoningRaw = $payload['reasoning_effort_override'] ?? null;
+    if ($modelRaw !== null && !is_string($modelRaw)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'model_override must be string or null',
+        ], 422);
+    }
+    if ($reasoningRaw !== null && !is_string($reasoningRaw)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'reasoning_effort_override must be string or null',
+        ], 422);
+    }
+
+    $hostRepository->updateModelOverrides(
+        $hostId,
+        is_string($modelRaw) ? $modelRaw : null,
+        is_string($reasoningRaw) ? $reasoningRaw : null
+    );
+    $logRepository->log($hostId, 'admin.host.model_overrides', [
+        'fqdn' => $host['fqdn'] ?? null,
+        'model_override' => is_string($modelRaw) ? $modelRaw : null,
+        'reasoning_effort_override' => is_string($reasoningRaw) ? $reasoningRaw : null,
+    ]);
+
+    $updated = $hostRepository->findById($hostId);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'model_override' => $updated['model_override'] ?? null,
+                'reasoning_effort_override' => $updated['reasoning_effort_override'] ?? null,
             ],
         ],
     ]);
@@ -1171,6 +1222,8 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
                 ? (int) $host['insecure_window_minutes']
                 : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
+            'model_override' => $host['model_override'] ?? null,
+            'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
@@ -1185,6 +1238,59 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
     Response::json([
         'status' => 'ok',
         'data' => [
+            'hosts' => $items,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepository, $service) {
+    requireAdminAccess();
+    $service->pruneStaleHosts();
+
+    $hosts = $hostRepository->all();
+
+    $items = [];
+    $active = 0;
+    foreach ($hosts as $host) {
+        $isSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+        if ($isSecure) {
+            continue;
+        }
+
+        $enabledUntil = $host['insecure_enabled_until'] ?? null;
+        $enabledTs = null;
+        if (is_string($enabledUntil) && trim($enabledUntil) !== '') {
+            $ts = strtotime($enabledUntil);
+            if ($ts !== false) {
+                $enabledTs = $ts;
+            }
+        }
+
+        $isActive = ($enabledTs !== null) && ($enabledTs > time());
+        if ($isActive) {
+            $active += 1;
+        }
+
+        $items[] = [
+            'id' => (int) $host['id'],
+            'fqdn' => $host['fqdn'],
+            'active' => $isActive,
+            'insecure_enabled_until' => $enabledUntil,
+        ];
+    }
+
+    usort($items, static function (array $a, array $b): int {
+        if ($a['active'] !== $b['active']) {
+            return $a['active'] ? -1 : 1;
+        }
+        return strcasecmp((string) ($a['fqdn'] ?? ''), (string) ($b['fqdn'] ?? ''));
+    });
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'count' => count($items),
+            'active' => $active,
             'hosts' => $items,
         ],
     ]);
