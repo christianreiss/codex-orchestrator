@@ -4,6 +4,7 @@
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
+    const navInsecureHosts = document.getElementById('navInsecureHosts');
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
@@ -109,7 +110,6 @@
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
-    const quickInsecureHostsLink = document.getElementById('quickInsecureHostsLink');
     const insecureHostsModal = document.getElementById('insecureHostsModal');
     const insecureHostsList = document.getElementById('insecureHostsList');
     const insecureHostsCloseBtn = document.getElementById('insecureHostsCloseBtn');
@@ -2993,7 +2993,7 @@
         renderStats(currentOverview, runner?.data || null);
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
-        renderQuickInsecureHostsLink(hostsList);
+        renderInsecureHostsQuickButton(hostsList);
         renderPrompts(prompts?.data?.commands || []);
         renderAgents(agents?.data || { status: 'missing' });
         await loadMemories();
@@ -3029,14 +3029,14 @@
       return host && !isHostSecure(host);
     }
 
-    function renderQuickInsecureHostsLink(hostsList) {
-      if (!quickInsecureHostsLink) return;
+    function renderInsecureHostsQuickButton(hostsList) {
+      if (!navInsecureHosts) return;
       const insecureCount = Array.isArray(hostsList) ? hostsList.filter(isInsecureHost).length : 0;
       if (insecureCount > 0) {
-        quickInsecureHostsLink.style.display = '';
-        quickInsecureHostsLink.textContent = `Quick: Insecure hosts (${insecureCount})`;
+        navInsecureHosts.style.display = '';
+        navInsecureHosts.textContent = `Toggler (${insecureCount})`;
       } else {
-        quickInsecureHostsLink.style.display = 'none';
+        navInsecureHosts.style.display = 'none';
       }
     }
 
@@ -3086,11 +3086,8 @@
     }
 
     function bindInsecureHostsQuickAction() {
-      if (quickInsecureHostsLink) {
-        quickInsecureHostsLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          loadAndOpenInsecureHostsModal();
-        });
+      if (navInsecureHosts) {
+        navInsecureHosts.addEventListener('click', () => loadAndOpenInsecureHostsModal());
       }
       if (insecureHostsCloseBtn) {
         insecureHostsCloseBtn.addEventListener('click', () => closeInsecureHostsModal());
