@@ -383,11 +383,11 @@
                     <p class="muted" style="margin:0;">Week partition</p>
                     <div class="quota-limit-value" id="quotaPartitionLabel">Off</div>
                   </div>
-                  <select id="quotaPartitionSelect" class="quota-partition-select">
-                    <option value="0">Off (default)</option>
-                    <option value="7" data-days="7">7 days</option>
-                    <option value="5" data-days="5">5 days: Mon-Fri</option>
-                  </select>
+                  <div class="quota-partition-buttons" role="group" aria-label="Week partition">
+                    <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="0" aria-pressed="true">Off</button>
+                    <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="7" aria-pressed="false">7 days</button>
+                    <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="5" aria-pressed="false">Mon-Fri</button>
+                  </div>
                   <p class="muted quota-limit-foot">Adds a daily allowance bar in cdx; honours deny/warn mode.</p>
                 </div>
               </div>
@@ -509,22 +509,18 @@
             </div>
             <div class="muted" id="promptStatus" style="margin-top:8px;"></div>
           </section>
-          <section class="card panel" data-settings-panel="memories" hidden>
-            <div class="panel-head">
-              <div>
-                <h2>Memories</h2>
-                <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
-              </div>
-              <div class="panel-actions" style="gap:10px;">
-                <button class="ghost tiny-btn" id="memoriesToggle">Show</button>
-                <button class="ghost tiny-btn" id="memoriesRefreshBtn">Refresh</button>
-              </div>
-            </div>
-            <div class="memory-controls" id="memoriesFilters" hidden>
-              <div class="field">
-                <label for="memoriesQuery" style="font-weight:600;">Search</label>
-                <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
-              </div>
+	          <section class="card panel" data-settings-panel="memories" hidden>
+	            <div class="panel-head">
+	              <div>
+	                <h2>Memories</h2>
+	                <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
+	              </div>
+	            </div>
+	            <div class="memory-controls" id="memoriesFilters">
+	              <div class="field">
+	                <label for="memoriesQuery" style="font-weight:600;">Search</label>
+	                <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
+	              </div>
               <div class="field narrow-field">
                 <label for="memoriesHostFilter" style="font-weight:600;">Host</label>
                 <select id="memoriesHostFilter">
@@ -552,17 +548,14 @@
                 </thead>
                 <tbody></tbody>
               </table>
-            </div>
-            <div id="memoriesEmptyState" class="empty-state-box" hidden>
-              <div class="empty-state-title">No memories yet</div>
-              <div class="muted" style="margin-top:6px;">
-                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
-              </div>
-              <div class="muted" style="margin-top:10px;">
-                Tip: start with “Show” → “Refresh”, then search by tag (e.g. <code>project:foo</code>).
-              </div>
-            </div>
-          </section>
+	            </div>
+	            <div id="memoriesEmptyState" class="empty-state-box" hidden>
+	              <div class="empty-state-title">No memories yet</div>
+	              <div class="muted" style="margin-top:6px;">
+	                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
+	              </div>
+	            </div>
+	          </section>
           <section class="card panel" data-settings-panel="config" hidden>
             <div class="panel-head">
               <div>

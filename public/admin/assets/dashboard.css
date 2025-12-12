@@ -592,12 +592,15 @@ body {
       flex-direction: column;
       gap: 10px;
     }
-    .quota-partition-select {
-      padding: 8px 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(15,23,42,0.2);
-      font-size: 14px;
-      background: #fff;
+    .quota-partition-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .quota-partition-btn[aria-pressed="true"] {
+      background: rgba(var(--accent-rgb), 0.12);
+      border-color: rgba(var(--accent-rgb), 0.60);
+      color: var(--accent-2);
     }
     .memory-controls {
       display: flex;

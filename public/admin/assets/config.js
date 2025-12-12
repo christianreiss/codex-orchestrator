@@ -58,6 +58,7 @@
   let lastRenderedSize = 0;
 
   const MODEL_REASONING = {
+    'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.1-codex': ['', 'low', 'medium', 'high'],
     'gpt-5.1-codex-max': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.1-codex-mini': ['', 'medium', 'high'],

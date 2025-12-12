@@ -98,7 +98,7 @@
     const quotaModeLabel = document.getElementById('quotaModeLabel');
     const quotaLimitSlider = document.getElementById('quotaLimitSlider');
     const quotaLimitLabel = document.getElementById('quotaLimitLabel');
-    const quotaPartitionSelect = document.getElementById('quotaPartitionSelect');
+    const quotaPartitionButtons = Array.from(document.querySelectorAll('.quota-partition-btn'));
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
@@ -529,7 +529,7 @@
     }
 
     async function setQuotaPartition(nextValue) {
-      if (!quotaPartitionSelect) return;
+      if (!quotaPartitionButtons.length) return;
       const normalized = normalizeQuotaPartition(nextValue);
       if (normalized === quotaWeekPartition) {
         renderQuotaPartition();
@@ -538,7 +538,7 @@
       const previous = quotaWeekPartition;
       quotaWeekPartition = normalized;
       renderQuotaPartition();
-      quotaPartitionSelect.disabled = true;
+      quotaPartitionButtons.forEach((btn) => { btn.disabled = true; });
       try {
         await api('/admin/quota-mode', {
           method: 'POST',
@@ -549,7 +549,7 @@
         quotaWeekPartition = previous;
         renderQuotaPartition();
       } finally {
-        quotaPartitionSelect.disabled = false;
+        quotaPartitionButtons.forEach((btn) => { btn.disabled = false; });
       }
     }
 
@@ -1539,9 +1539,11 @@
       if (currentMemories.length === 0) {
         memoriesTableBody.innerHTML = '';
         if (memoriesEmptyState) memoriesEmptyState.hidden = false;
+        if (memoriesTableWrap) memoriesTableWrap.hidden = true;
         return;
       }
       if (memoriesEmptyState) memoriesEmptyState.hidden = true;
+      if (memoriesTableWrap) memoriesTableWrap.hidden = false;
 
       memoriesTableBody.innerHTML = currentMemories.map((row) => {
         const id = row.id || '—';
@@ -1590,10 +1592,6 @@
       if (tags.length) params.set('tags', tags.join(','));
       params.set('limit', String(limit));
 
-      if (memoriesRefreshBtn) {
-        memoriesRefreshBtn.disabled = true;
-        memoriesRefreshBtn.textContent = 'Loading…';
-      }
       memoriesLoading = true;
       try {
         const res = await api(`/admin/mcp/memories?${params.toString()}`);
@@ -1606,10 +1604,6 @@
         if (memoriesEmptyState) memoriesEmptyState.hidden = true;
       } finally {
         memoriesLoading = false;
-        if (memoriesRefreshBtn) {
-          memoriesRefreshBtn.disabled = false;
-          memoriesRefreshBtn.textContent = 'Refresh';
-        }
       }
     }
 
@@ -2532,9 +2526,6 @@
     }
 
     function renderQuotaPartition() {
-      if (quotaPartitionSelect) {
-        quotaPartitionSelect.value = String(quotaWeekPartition);
-      }
       if (quotaPartitionLabel) {
         let label = 'Off';
         if (quotaWeekPartition === QUOTA_WEEK_PARTITION_SEVEN) {
@@ -2547,15 +2538,19 @@
         quotaPartitionLabel.textContent = label;
       }
 
-      // Keep <select> option labels in sync with the live quota slider.
-      if (quotaPartitionSelect) {
-        const options = Array.from(quotaPartitionSelect.querySelectorAll('option'));
-        options.forEach((opt) => {
-          const days = Number(opt.getAttribute('data-days'));
-          if (!(days === 5 || days === 7)) return;
-          const perDay = computeDailyAllowance(quotaLimitPercent, days);
-          const base = days === 7 ? '7 days' : '5 days: Mon-Fri';
-          opt.textContent = perDay ? `${base} (${quotaLimitPercent}/${days} daily ≈ ${perDay}%)` : base;
+      // Keep buttons in sync with the live quota slider + selection.
+      if (quotaPartitionButtons.length) {
+        quotaPartitionButtons.forEach((btn) => {
+          const days = Number(btn.getAttribute('data-days'));
+          const isSelected = days === quotaWeekPartition;
+          btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+          if (days === 7 || days === 5) {
+            const perDay = computeDailyAllowance(quotaLimitPercent, days);
+            const base = days === 7 ? '7 days' : 'Mon-Fri';
+            btn.textContent = perDay ? `${base} (${quotaLimitPercent}/${days} ≈ ${perDay}%)` : base;
+          } else if (days === 0) {
+            btn.textContent = 'Off';
+          }
         });
       }
     }
@@ -3327,17 +3322,17 @@
         updateQuotaLimitPercent(Number(event.target.value));
       });
     }
-    if (quotaPartitionSelect) {
-      quotaPartitionSelect.addEventListener('change', (event) => {
-        setQuotaPartition(event.target.value);
+    quotaPartitionButtons.forEach((btn) => {
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const days = btn.getAttribute('data-days') ?? '0';
+        setQuotaPartition(days);
       });
-    }
+    });
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
     }
-    if (memoriesRefreshBtn) {
-      memoriesRefreshBtn.addEventListener('click', () => loadMemories());
-    }
+    // Memories view is live-updating via filters; no explicit refresh button.
     if (memoriesHostFilter) {
       memoriesHostFilter.addEventListener('change', () => loadMemories());
     }
