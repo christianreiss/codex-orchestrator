@@ -30,6 +30,7 @@ use App\Services\RunnerVerifier;
 class AuthService
 {
     private const DEFAULT_INACTIVITY_WINDOW_DAYS = 30;
+    private const MAX_INACTIVITY_WINDOW_DAYS = 60;
     private const PROVISIONING_WINDOW_MINUTES = 30;
     public const MIN_INSECURE_WINDOW_MINUTES = 2;
     public const MAX_INSECURE_WINDOW_MINUTES = 60;
@@ -2093,14 +2094,15 @@ class AuthService
 
     private function inactivityWindowDays(): int
     {
-        $raw = Config::get('INACTIVITY_WINDOW_DAYS', self::DEFAULT_INACTIVITY_WINDOW_DAYS);
+        $stored = $this->versions->get('inactivity_window_days');
+        $raw = $stored !== null ? $stored : Config::get('INACTIVITY_WINDOW_DAYS', self::DEFAULT_INACTIVITY_WINDOW_DAYS);
         $value = is_numeric($raw) ? (int) $raw : self::DEFAULT_INACTIVITY_WINDOW_DAYS;
 
         if ($value < 0) {
             return 0;
         }
 
-        return $value;
+        return min($value, self::MAX_INACTIVITY_WINDOW_DAYS);
     }
 
     private function pruneInactiveHosts(): void

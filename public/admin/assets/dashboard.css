@@ -1584,6 +1584,41 @@ body {
       font-size: 12px;
       color: var(--muted);
     }
+    .prune-window-control {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 12px;
+      border: 1px solid rgba(15,23,42,0.12);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(15,23,42,0.03);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+    }
+    .prune-window-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .prune-window-copy {
+      margin: 0;
+      font-size: 13px;
+    }
+    .prune-window-value {
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.5px;
+    }
+    .prune-window-slider {
+      width: 100%;
+      accent-color: #10a37f;
+    }
+    .prune-window-foot {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
     .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
 .digest-pill {
   font-family: 'JetBrains Mono', monospace;

@@ -46,7 +46,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 - **Global rate limit**: Configured via `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (defaults 120 req/60s) for non-admin paths.
 - **Auth-fail rate limit**: `RATE_LIMIT_AUTH_FAIL_COUNT`/`WINDOW`/`BLOCK` guard repeated bad API keys and respond 429 with reset hints.
-- **Pruning**: Hosts inactive for 30 days or never provisioned within 30 minutes are pruned and logged (`host.pruned`).
+- **Pruning**: Hosts inactive for 30 days (configurable in Admin Settings → General; 0 disables) or never provisioned within 30 minutes are pruned and logged (`host.pruned`).
 
 ## Logging & PII
 

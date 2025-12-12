@@ -36,6 +36,15 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('.quick-hosts-sub', $css);
     }
 
+    public function testAdminSettingsGeneralIncludesPruneWindowControls(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="pruneWindowLabel"', $html);
+        $this->assertStringContainsString('id="pruneWindowSlider"', $html);
+    }
+
     public function testQuickInsecureHostsToggleUsesServerActiveFlag(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');

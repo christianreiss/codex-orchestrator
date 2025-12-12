@@ -678,6 +678,34 @@ $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versio
     ]);
 });
 
+$router->add('POST', '#^/admin/prune-policy$#', function () use ($payload, $versionRepository) {
+    requireAdminAccess();
+
+    $daysRaw = $payload['inactivity_days'] ?? null;
+    if (!is_numeric($daysRaw)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'inactivity_days must be an integer between 0 and 60',
+        ], 422);
+    }
+
+    $days = (int) $daysRaw;
+    if ($days < 0) {
+        $days = 0;
+    } elseif ($days > 60) {
+        $days = 60;
+    }
+
+    $versionRepository->set('inactivity_window_days', (string) $days);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'inactivity_window_days' => $days,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hostRepository, $hostStateRepository, $authPayloadRepository, $service, $digestRepository) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
@@ -1162,6 +1190,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $quotaLimitPercent = quotaLimitPercent($versionRepository);
     $quotaWeekPartition = quotaWeekPartition($versionRepository);
     $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
+    $inactivityWindowDays = inactivityWindowDays($versionRepository);
 
     Response::json([
         'status' => 'ok',
@@ -1193,6 +1222,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'quota_limit_percent' => $quotaLimitPercent,
             'quota_week_partition' => $quotaWeekPartition,
             'cdx_silent' => $cdxSilent,
+            'inactivity_window_days' => $inactivityWindowDays,
         ],
     ]);
 });
@@ -2407,6 +2437,25 @@ function quotaWeekPartition(VersionRepository $versionRepository): int
     $raw = $versionRepository->get('quota_week_partition');
     $normalized = AuthService::normalizeQuotaWeekPartition($raw);
     return $normalized ?? AuthService::DEFAULT_QUOTA_WEEK_PARTITION;
+}
+
+function inactivityWindowDays(VersionRepository $versionRepository): int
+{
+    $stored = $versionRepository->get('inactivity_window_days');
+    if (is_numeric($stored)) {
+        $value = (int) $stored;
+    } else {
+        $raw = Config::get('INACTIVITY_WINDOW_DAYS', 30);
+        $value = is_numeric($raw) ? (int) $raw : 30;
+    }
+
+    if ($value < 0) {
+        $value = 0;
+    } elseif ($value > 60) {
+        $value = 60;
+    }
+
+    return $value;
 }
 
 function normalizeBaseUrlCandidate(string $value): string

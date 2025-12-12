@@ -11,7 +11,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **Rate limits** (non-admin paths only):
   - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
   - Auth-fail bucket: missing/invalid API keys count toward `RATE_LIMIT_AUTH_FAIL_COUNT` (default 20) over `RATE_LIMIT_AUTH_FAIL_WINDOW` seconds (600); tripping the bucket blocks for `RATE_LIMIT_AUTH_FAIL_BLOCK` seconds (1800) and returns `429 Too many failed authentication attempts` with `reset_at` + `bucket`.
-- **Pruning**: hosts inactive for `INACTIVITY_WINDOW_DAYS` (default 30; set to `0` to disable), or never-provisioned hosts older than 30 minutes, are deleted during auth/register/admin host listings (logs `host.pruned`).
+- **Pruning**: hosts inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), or never-provisioned hosts older than 30 minutes, are deleted during auth/register/admin host listings (logs `host.pruned`).
 
 ## Host Endpoints
 

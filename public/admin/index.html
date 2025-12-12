@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-		  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2025-12-12-03">
+		  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2025-12-12-08">
 		  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2025-12-12-03">
 </head>
 <body data-view="desktop" data-view-mode="dashboard">
@@ -449,6 +449,24 @@
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
+                    <h3>Host Pruning</h3>
+                    <p class="muted" style="margin:2px 0 0;">Delete inactive hosts after N days (0 disables pruning).</p>
+                  </div>
+                </div>
+                <div class="prune-window-control">
+                  <div class="prune-window-head">
+                    <div>
+                      <p class="muted prune-window-copy">Applies to inactive hosts only; unprovisioned hosts still prune after 30 minutes.</p>
+                    </div>
+                    <div class="prune-window-value" id="pruneWindowLabel">30 days</div>
+                  </div>
+                  <input type="range" min="0" max="60" step="1" value="30" id="pruneWindowSlider" class="prune-window-slider">
+                  <p class="muted prune-window-foot">Honoured during auth/register/admin host listings.</p>
+                </div>
+              </div>
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
                     <h3>Maintenance</h3>
                     <p class="muted" style="margin:2px 0 0;">Run the runner, seed auth.json, or check versions.</p>
                   </div>
@@ -859,7 +877,7 @@
     })();
   </script>
 	  <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-	  <script src="/admin/assets/dashboard.js?v=2025-12-12-07"></script>
+	  <script src="/admin/assets/dashboard.js?v=2025-12-12-08"></script>
 		  <script src="/admin/assets/logs.js?v=2025-12-12-04"></script>
 	  <script src="/admin/assets/config.js?v=2025-12-12-02"></script>
 </body>

@@ -106,6 +106,8 @@
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
+    const pruneWindowSlider = document.getElementById('pruneWindowSlider');
+    const pruneWindowLabel = document.getElementById('pruneWindowLabel');
     const insecureHostsModal = document.getElementById('insecureHostsModal');
     const insecureHostsList = document.getElementById('insecureHostsList');
     const insecureHostsCloseBtn = document.getElementById('insecureHostsCloseBtn');
@@ -244,6 +246,10 @@
     const INSECURE_WINDOW_DEFAULT = 10;
     const INSECURE_WINDOW_STORAGE_KEY = 'codex.insecureWindowMinutes';
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
+    const PRUNE_WINDOW_MIN = 0;
+    const PRUNE_WINDOW_MAX = 60;
+    const PRUNE_WINDOW_DEFAULT = 30;
+    let inactivityWindowDays = PRUNE_WINDOW_DEFAULT;
     let memoriesLoading = false;
     let memoriesOpen = false;
 
@@ -2713,6 +2719,14 @@
       return Math.round(num);
     }
 
+    function clampInactivityWindowDays(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return PRUNE_WINDOW_DEFAULT;
+      if (num < PRUNE_WINDOW_MIN) return PRUNE_WINDOW_MIN;
+      if (num > PRUNE_WINDOW_MAX) return PRUNE_WINDOW_MAX;
+      return Math.round(num);
+    }
+
     function applyQueryParams() {
       const params = new URLSearchParams(window.location.search);
       const hostParam = params.get('host');
@@ -2738,6 +2752,40 @@
         } catch {
           // ignore storage failures
         }
+      }
+    }
+
+    function renderInactivityWindowDays() {
+      if (pruneWindowSlider && pruneWindowSlider.value !== String(inactivityWindowDays)) {
+        pruneWindowSlider.value = String(inactivityWindowDays);
+      }
+      if (pruneWindowLabel) {
+        pruneWindowLabel.textContent = inactivityWindowDays === 0 ? 'Never' : `${inactivityWindowDays} days`;
+      }
+    }
+
+    async function updateInactivityWindowDays(nextValue) {
+      if (!pruneWindowSlider) return;
+      const normalized = clampInactivityWindowDays(nextValue);
+      if (normalized === inactivityWindowDays) {
+        renderInactivityWindowDays();
+        return;
+      }
+      const previous = inactivityWindowDays;
+      inactivityWindowDays = normalized;
+      renderInactivityWindowDays();
+      pruneWindowSlider.disabled = true;
+      try {
+        await api('/admin/prune-policy', {
+          method: 'POST',
+          json: { inactivity_days: normalized },
+        });
+      } catch (err) {
+        toast(`Prune policy update failed: ${err.message}`, 'error');
+        inactivityWindowDays = previous;
+        renderInactivityWindowDays();
+      } finally {
+        pruneWindowSlider.disabled = false;
       }
     }
 
@@ -3101,6 +3149,10 @@
         if (typeof currentOverview.cdx_silent !== 'undefined') {
           cdxSilent = !!currentOverview.cdx_silent;
           renderCdxSilent();
+        }
+        if (typeof currentOverview.inactivity_window_days !== 'undefined') {
+          inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
+          renderInactivityWindowDays();
         }
         evaluateSeedRequirement(currentOverview, hostsList);
       } catch (err) {
@@ -3612,6 +3664,17 @@
     if (insecureWindowSlider) {
       insecureWindowSlider.addEventListener('input', (event) => {
         setInsecureWindowMinutes(event.target.value, true);
+      });
+    }
+    if (pruneWindowSlider) {
+      pruneWindowSlider.addEventListener('input', (event) => {
+        const preview = clampInactivityWindowDays(event.target.value);
+        if (pruneWindowLabel) {
+          pruneWindowLabel.textContent = preview === 0 ? 'Never' : `${preview} days`;
+        }
+      });
+      pruneWindowSlider.addEventListener('change', (event) => {
+        updateInactivityWindowDays(Number(event.target.value));
       });
     }
     if (quotaLimitSlider) {
