@@ -706,15 +706,15 @@
       return `<span class="chip ${tone}">${escapeHtml(normalized)}</span>`;
     }
 
-	    function renderStatusPill(status) {
-	      const normalized = typeof status === 'string' ? status.toLowerCase() : 'unknown';
-	      const slug = ['active', 'suspended'].includes(normalized) ? normalized : 'unknown';
-	      return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
-	    }
+    function renderStatusPill(status) {
+      const normalized = typeof status === 'string' ? status.toLowerCase() : 'unknown';
+      const slug = ['active', 'suspended'].includes(normalized) ? normalized : 'unknown';
+      return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
+    }
 
-	    function renderVipCrown() {
-	      return '<span class="vip-crown" title="VIP host: quota hard-fail disabled">👑</span>';
-	    }
+    function renderVipCrown() {
+      return '<span class="vip-crown" title="VIP host: quota hard-fail disabled">👑</span>';
+    }
 
     function setPromptsExpanded(expanded) {
       promptsExpanded = !!expanded;
@@ -1458,15 +1458,15 @@
       if (hostDetailTitle) {
         hostDetailTitle.textContent = host.fqdn || `Host #${host.id}`;
       }
-	      if (hostDetailPills) {
-	        const pills = [];
-	        if (host.vip) {
-	          pills.push(renderVipCrown());
-	        }
-	        if (isHostSecure(host) && host.auth_outdated) {
-	          pills.push('<span class="chip warn">Outdated auth</span>');
-	        }
-	        if (!isHostSecure(host)) {
+      if (hostDetailPills) {
+        const pills = [];
+        if (host.vip) {
+          pills.push(renderVipCrown());
+        }
+        if (isHostSecure(host) && host.auth_outdated) {
+          pills.push('<span class="chip warn">Outdated auth</span>');
+        }
+        if (!isHostSecure(host)) {
           pills.push('<span class="chip warn">Insecure</span>');
         }
         hostDetailPills.innerHTML = pills.join('');
@@ -1511,12 +1511,12 @@
       const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
       const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
       const isSecure = isHostSecure(host);
-	      const securityChip = isSecure
-	        ? ''
-	        : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
-	      const vipChip = host.vip
-	        ? renderVipCrown()
-	        : '';
+      const securityChip = isSecure
+        ? ''
+        : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
+      const vipChip = host.vip
+        ? renderVipCrown()
+        : '';
       const insecureStateNow = insecureState(host);
       const minutesActive = countdownMinutes(host.insecure_enabled_until);
       const minutesGrace = countdownMinutes(host.insecure_grace_until);
