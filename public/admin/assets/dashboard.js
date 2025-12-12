@@ -173,6 +173,57 @@
         link.classList.toggle('active', active);
       });
     }
+
+    function updateHostTabVisibility(hosts) {
+      const list = Array.isArray(hosts) ? hosts : [];
+      const counts = {
+        secure: 0,
+        insecure: 0,
+        unprovisioned: 0,
+      };
+      list.forEach((host) => {
+        if (!host?.authed) {
+          counts.unprovisioned += 1;
+          return;
+        }
+        if (isHostSecure(host)) {
+          counts.secure += 1;
+        } else {
+          counts.insecure += 1;
+        }
+      });
+
+      const categoriesWithServers = Object.values(counts).filter((n) => n > 0).length;
+
+      hostTabLinks.forEach((link) => {
+        const tab = (link.dataset.hostTab || '').toLowerCase();
+        if (tab === '') {
+          // Show "All" only when there is more than one non-empty category.
+          link.style.display = categoriesWithServers > 1 ? '' : 'none';
+          return;
+        }
+        if (tab === 'any') {
+          // "Any" is only useful when there is at least one server to show.
+          const anyCount = list.length;
+          link.style.display = anyCount > 0 ? '' : 'none';
+          return;
+        }
+        if (Object.prototype.hasOwnProperty.call(counts, tab)) {
+          link.style.display = counts[tab] > 0 ? '' : 'none';
+          return;
+        }
+        link.style.display = '';
+      });
+
+      // If current selection becomes hidden, fall back to the first visible tab.
+      const active = hostTabLinks.find((l) => l.classList.contains('active'));
+      if (active && active.style.display === 'none') {
+        const firstVisible = hostTabLinks.find((l) => l.style.display !== 'none');
+        if (firstVisible) {
+          setHostStatusFilter((firstVisible.dataset.hostTab || '').toLowerCase());
+        }
+      }
+    }
     syncHostTabs();
     let lastOverview = null;
     let chatgptUsage = null;
@@ -1421,6 +1472,7 @@
 
     function renderHosts(hosts) {
       currentHosts = Array.isArray(hosts) ? hosts : [];
+      updateHostTabVisibility(currentHosts);
       // Populate upload host select
       if (uploadHostSelect) {
         uploadHostSelect.innerHTML = '<option value="system">System (no host attribution)</option>' + currentHosts.map(h => `<option value="${h.id}">${escapeHtml(h.fqdn)}</option>`).join('');
