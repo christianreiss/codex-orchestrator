@@ -1276,6 +1276,7 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
             'fqdn' => $host['fqdn'],
             'active' => $isActive,
             'insecure_enabled_until' => $enabledUntil,
+            'secure' => $isSecure,
         ];
     }
 

@@ -3147,9 +3147,6 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
-            if (isHostSecure(target)) {
-              return;
-            }
             const state = insecureState(target);
             await toggleInsecureApi(target, null, !state.enabledActive);
             const refreshed = await api('/admin/hosts/insecure');
