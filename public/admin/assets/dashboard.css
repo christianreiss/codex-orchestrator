@@ -409,6 +409,14 @@ body {
       border-radius: 999px;
       padding: 6px 10px;
     }
+    .cost-savings-inline {
+      margin-top: 0;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
     .cost-savings-ok {
       color: var(--accent-2);
       background: rgba(var(--accent-rgb),0.10);

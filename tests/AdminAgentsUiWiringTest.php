@@ -35,4 +35,13 @@ final class AdminAgentsUiWiringTest extends TestCase
 
         $this->assertStringContainsString('.quick-hosts-sub', $css);
     }
+
+    public function testQuickInsecureHostsToggleUsesServerActiveFlag(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('target?.active === true', $js);
+        $this->assertStringContainsString('typeof host?.active ===', $js);
+    }
 }

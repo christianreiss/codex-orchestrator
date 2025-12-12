@@ -246,8 +246,6 @@
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
     let memoriesLoading = false;
     let memoriesOpen = false;
-    const COST_PLAN_STORAGE_KEY = 'codex.costPlan';
-    let costPlanKey = 'pro';
 
     const VIEW_LAYOUTS = {
       dashboard: {
@@ -369,18 +367,6 @@
       if (!Number.isFinite(num)) return '—';
       const safeDigits = Number.isFinite(digits) ? Math.max(0, Math.min(2, Math.floor(digits))) : 0;
       return `${num.toFixed(safeDigits)}%`;
-    }
-
-    function initCostPlanControl() {
-      let stored = null;
-      try {
-        stored = window.localStorage.getItem(COST_PLAN_STORAGE_KEY);
-      } catch {
-        stored = null;
-      }
-      if (stored === 'plus' || stored === 'pro') {
-        costPlanKey = stored;
-      }
     }
 
     function formatCountdown(value) {
@@ -2911,10 +2897,18 @@
       const planOptions = [];
       if (planPlusCost > 0) planOptions.push({ key: 'plus', label: 'Plus', cost: planPlusCost });
       if (planProCost > 0) planOptions.push({ key: 'pro', label: 'Pro', cost: planProCost });
-      if (planOptions.length > 0 && !planOptions.some((p) => p.key === costPlanKey)) {
-        costPlanKey = planOptions.some((p) => p.key === 'pro') ? 'pro' : planOptions[0].key;
-      }
-      const selectedPlan = planOptions.find((p) => p.key === costPlanKey) || null;
+      const planKeyFromStats = (() => {
+        const planType = data?.chatgpt_usage?.plan_type;
+        if (typeof planType !== 'string') return null;
+        const lower = planType.toLowerCase();
+        if (lower.includes('pro')) return 'pro';
+        if (lower.includes('plus')) return 'plus';
+        return null;
+      })();
+      const selectedPlanKey = planOptions.some((p) => p.key === planKeyFromStats)
+        ? planKeyFromStats
+        : (planOptions.some((p) => p.key === 'pro') ? 'pro' : (planOptions[0]?.key ?? null));
+      const selectedPlan = selectedPlanKey ? (planOptions.find((p) => p.key === selectedPlanKey) || null) : null;
       const planCost = selectedPlan ? selectedPlan.cost : 0;
       const monthPercentOfPlan = planCost > 0 ? (monthCost / planCost) * 100 : null;
       const costLevelClass = (() => {
@@ -2930,21 +2924,6 @@
       const overpayPct = planCost > 0 && monthCost > 0 && monthCost < planCost
         ? ((planCost - monthCost) / planCost) * 100
         : null;
-      const planButtons = planOptions.length > 1
-        ? `
-          <div class="cost-plan-controls" role="group" aria-label="Select subscription plan">
-            ${planOptions.map((plan) => `
-              <button
-                class="ghost tiny-btn cost-plan-btn"
-                type="button"
-                data-plan="${plan.key}"
-                aria-pressed="${plan.key === costPlanKey ? 'true' : 'false'}"
-                title="${plan.label} plan (${formatCurrency(plan.cost, planCurrency)})"
-              >${plan.label}</button>
-            `).join('')}
-          </div>
-        `
-        : '';
       const costCard = () => `
         <div class="card cost-card ${costLevelClass}">
           <div class="stat-head">
@@ -2953,13 +2932,15 @@
           </div>
           <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
           <div class="cost-plan-row">
-            ${planButtons}
             ${selectedPlan && monthPercentOfPlan !== null
               ? `<span class="cost-plan-note">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)} · ${formatPercent(monthPercentOfPlan, 0)}</span>`
               : ''
             }
+            ${savingsPct !== null
+              ? `<span class="cost-savings-inline cost-savings-ok">${formatPercent(savingsPct, 0)} Saved!</span>`
+              : ''
+            }
           </div>
-          ${savingsPct !== null ? `<div class="cost-savings cost-savings-ok">${formatPercent(savingsPct, 0)} saved this month!</div>` : ''}
           ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">${formatPercent(overpayPct, 0)} over plan this month</div>` : ''}
           <div class="stat-meta-line">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>
@@ -2979,20 +2960,6 @@
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();
       wireUpgradeNotesControls();
-      document.querySelectorAll('button.cost-plan-btn[data-plan]').forEach((btn) => {
-        btn.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          const plan = (btn.getAttribute('data-plan') || '').toLowerCase();
-          if (plan !== 'plus' && plan !== 'pro') return;
-          costPlanKey = plan;
-          try {
-            window.localStorage.setItem(COST_PLAN_STORAGE_KEY, plan);
-          } catch {
-            // ignore storage failures
-          }
-          renderStats(data, runnerInfo);
-        });
-      });
 
       chatgptUsage = {
         snapshot: data.chatgpt_usage || null,
@@ -3170,22 +3137,25 @@
 
 	    function openInsecureHostsModal(insecureHosts) {
 	      if (!insecureHostsModal || !insecureHostsList) return;
-	      const now = Date.now();
 	      const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
+      const hostActive = (host) => {
+        if (typeof host?.active === 'boolean') return host.active;
+        return insecureState(host).enabledActive;
+      };
       const activeFirst = (a, b) => {
-        const aActive = parseTimestamp(a?.insecure_enabled_until)?.getTime?.() > now;
-        const bActive = parseTimestamp(b?.insecure_enabled_until)?.getTime?.() > now;
+        const aActive = hostActive(a);
+        const bActive = hostActive(b);
         if (aActive !== bActive) return aActive ? -1 : 1;
         return String(a?.fqdn || '').localeCompare(String(b?.fqdn || ''), undefined, { sensitivity: 'base' });
       };
       items.sort(activeFirst);
 
 	      insecureHostsList.innerHTML = items.map((host) => {
-	        const state = insecureState(host);
-	        const label = state.enabledActive ? 'Disable' : 'Enable';
-	        const btnClass = state.enabledActive ? 'ghost' : '';
-	        const onlineFor = state.enabledActive ? formatCountdown(host?.insecure_enabled_until) : '';
-	        const onlineLine = state.enabledActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Online: ${escapeHtml(onlineFor)}</div>` : '';
+	        const isActive = hostActive(host);
+	        const label = isActive ? 'Disable' : 'Enable';
+	        const btnClass = isActive ? 'ghost' : '';
+	        const onlineFor = isActive ? formatCountdown(host?.insecure_enabled_until) : '';
+	        const onlineLine = isActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Online: ${escapeHtml(onlineFor)}</div>` : '';
 	        return `
 	          <div class="quick-hosts-row" data-host-id="${host.id}">
 	            <div class="quick-hosts-info">
@@ -3243,8 +3213,8 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
-            const state = insecureState(target);
-            await toggleInsecureApi(target, null, !state.enabledActive);
+            const enableTarget = !(target?.active === true);
+            await toggleInsecureApi(target, null, enableTarget);
             const refreshed = await api('/admin/hosts/insecure');
             openInsecureHostsModal(refreshed?.data?.hosts || []);
           } catch (err) {
@@ -3639,7 +3609,6 @@
     });
     updateSortIndicators();
     initInsecureWindowControl();
-    initCostPlanControl();
     if (insecureWindowSlider) {
       insecureWindowSlider.addEventListener('input', (event) => {
         setInsecureWindowMinutes(event.target.value, true);
