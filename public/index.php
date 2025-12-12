@@ -132,7 +132,7 @@ $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepo
 $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
 $mcpServer = new McpServer($memoryService, $root);
-$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository);
+$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,

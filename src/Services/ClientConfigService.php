@@ -12,6 +12,7 @@ namespace App\Services;
 use App\Exceptions\ValidationException;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\VersionRepository;
 
 class ClientConfigService
 {
@@ -25,7 +26,8 @@ class ClientConfigService
 
     public function __construct(
         private readonly ClientConfigRepository $configs,
-        private readonly LogRepository $logs
+        private readonly LogRepository $logs,
+        private readonly ?VersionRepository $versions = null
     ) {
     }
 
@@ -121,6 +123,9 @@ class ClientConfigService
             : $this->configs->upsert($rendered['content'], $rendered['settings'], $hostId, $rendered['sha256']);
 
         $this->logs->log($hostId, 'config.store', ['status' => $status]);
+        if ($status !== 'unchanged') {
+            $this->writeGlobalModelDefaults($rendered['settings'] ?? []);
+        }
 
         $body = (string) ($saved['body'] ?? $rendered['content']);
         $sha = $saved['sha256'] ?? $rendered['sha256'];
@@ -133,6 +138,21 @@ class ClientConfigService
             'content' => $body,
             'settings' => $saved['settings'] ?? $rendered['settings'],
         ];
+    }
+
+    private function writeGlobalModelDefaults(array $settings): void
+    {
+        if ($this->versions === null) {
+            return;
+        }
+        $model = $this->normalizeString($settings['model'] ?? null);
+        $effort = $this->normalizeString($settings['model_reasoning_effort'] ?? null);
+        if ($model !== null) {
+            $this->versions->set('cdx_model', $model);
+        }
+        if ($effort !== null) {
+            $this->versions->set('cdx_reasoning_effort', $effort);
+        }
     }
 
     public function retrieve(?string $sha256, ?array $host = null, ?string $baseUrl = null, ?string $apiKey = null): array

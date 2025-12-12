@@ -1220,6 +1220,42 @@
           }
         });
       });
+
+      const modelSelect = hostDetailActions.querySelector('#hostModelOverrideSelect');
+      const effortSelect = hostDetailActions.querySelector('#hostReasoningEffortSelect');
+      const saveBtn = hostDetailActions.querySelector('#saveHostModelOverrides');
+      if (modelSelect) {
+        modelSelect.value = (host.model_override || '').trim();
+      }
+      if (effortSelect) {
+        effortSelect.value = (host.reasoning_effort_override || '').trim();
+      }
+      if (saveBtn) {
+        saveBtn.onclick = async (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const original = saveBtn.textContent;
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Saving…';
+          try {
+            const modelVal = modelSelect ? String(modelSelect.value || '') : '';
+            const effortVal = effortSelect ? String(effortSelect.value || '') : '';
+            await api(`/admin/hosts/${host.id}/model`, {
+              method: 'POST',
+              json: {
+                model_override: modelVal === '' ? null : modelVal,
+                reasoning_effort_override: effortVal === '' ? null : effortVal,
+              },
+            });
+            await loadAll();
+          } catch (err) {
+            alert(`Save failed: ${err.message}`);
+          } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = original;
+          }
+        };
+      }
     }
 
     function renderHostSummary(host) {

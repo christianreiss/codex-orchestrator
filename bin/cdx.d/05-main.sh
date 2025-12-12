@@ -1722,6 +1722,12 @@ PY
 
 if [[ -n "$CODEX_MODEL_PRESET" ]]; then
   set -- --model "$CODEX_MODEL_PRESET" "$@"
+elif [[ -n "$CODEX_HOST_MODEL" ]]; then
+  set -- --model "$CODEX_HOST_MODEL" "$@"
+fi
+
+if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
+  set -- --reasoning-effort "$CODEX_HOST_REASONING_EFFORT" "$@"
 fi
 
 CODEX_COMMAND_STARTED=1
