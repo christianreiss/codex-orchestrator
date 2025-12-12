@@ -4,3 +4,4 @@
 /storage/*.db
 /vendor
 /storage/backups/
+.env.local

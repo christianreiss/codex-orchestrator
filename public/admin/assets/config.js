@@ -56,6 +56,7 @@
 
   let lastRenderedSha = '';
   let lastRenderedSize = 0;
+  let lastSavedSha = '';
 
   const MODEL_REASONING = {
     'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
@@ -511,6 +512,7 @@
       }
       if (data.sha256) {
         lastRenderedSha = data.sha256;
+        lastSavedSha = data.sha256;
         previewMetaEl.textContent = `saved sha ${data.sha256}${data.size_bytes ? ` · ${data.size_bytes} bytes` : ''}`;
       }
     } catch (err) {
@@ -549,10 +551,38 @@
     const settings = collectSettings();
     setStatus('Saving…');
     try {
+      // Always re-render server-side right before store so the sha matches the
+      // exact normalized + rendered TOML (avoids races with the debounced preview).
+      let normalizedSettings = settings;
+      let renderedSha = '';
+      try {
+        const renderRes = await fetch('/admin/config/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ settings }),
+        });
+        if (renderRes.ok) {
+          const renderJson = await renderRes.json();
+          const rendered = renderJson.data || {};
+          normalizedSettings = rendered.settings || settings;
+          renderedSha = rendered.sha256 || '';
+          if (previewEl) previewEl.textContent = rendered.content || '';
+          if (renderedSha) {
+            lastRenderedSha = renderedSha;
+            lastRenderedSize = rendered.size_bytes || lastRenderedSize;
+            if (previewMetaEl) {
+              previewMetaEl.textContent = `sha ${renderedSha}${lastRenderedSize ? ` · ${lastRenderedSize} bytes` : ''}`;
+            }
+          }
+        }
+      } catch (_) {
+        // render is best-effort; store endpoint can still succeed without sha.
+      }
+
       const res = await fetch('/admin/config/store', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ settings, sha256: lastRenderedSha || undefined }),
+        body: JSON.stringify({ settings: normalizedSettings, sha256: lastSavedSha || undefined }),
       });
       if (!res.ok) {
         let message = `HTTP ${res.status}`;
@@ -591,6 +621,7 @@
       if (data.sha256) {
         lastRenderedSha = data.sha256;
         lastRenderedSize = data.size_bytes || lastRenderedSize;
+        lastSavedSha = data.sha256;
         previewMetaEl.textContent = `sha ${data.sha256}${data.size_bytes ? ` · ${data.size_bytes} bytes` : ''}`;
       }
     } catch (err) {
@@ -613,8 +644,19 @@
   function wireChangeEvents() {
     const inputs = document.querySelectorAll('input, textarea, select');
     inputs.forEach((el) => {
-      el.addEventListener('input', debouncedPreview);
-      el.addEventListener('change', debouncedPreview);
+      const markDirty = () => {
+        lastRenderedSha = '';
+        lastRenderedSize = 0;
+        if (previewMetaEl) previewMetaEl.textContent = 'Edited (preview pending)';
+      };
+      el.addEventListener('input', () => {
+        markDirty();
+        debouncedPreview();
+      });
+      el.addEventListener('change', () => {
+        markDirty();
+        debouncedPreview();
+      });
     });
   }
 

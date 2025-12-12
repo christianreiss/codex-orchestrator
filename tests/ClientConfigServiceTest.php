@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\LogRepository;
+use App\Exceptions\ValidationException;
 use App\Services\ClientConfigService;
 use PHPUnit\Framework\TestCase;
 
@@ -135,6 +136,34 @@ final class ClientConfigServiceTest extends TestCase
         $second = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
         $this->assertSame('unchanged', $second['status']);
         $this->assertCount(2, $this->logs->records); // store + store
+    }
+
+    public function testStoreRejectsMismatchedProvidedSha(): void
+    {
+        $created = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $this->assertSame('created', $created['status']);
+        $currentSha = $created['sha256'];
+
+        $wrongSha = str_repeat('b', 64);
+        $this->assertNotSame($currentSha, $wrongSha);
+
+        try {
+            $this->service->store([
+                'settings' => ['model' => 'gpt-5.1-codex'],
+                'sha256' => $wrongSha,
+            ]);
+            $this->fail('Expected store() to reject mismatched sha256');
+        } catch (ValidationException $e) {
+            $errors = $e->getErrors();
+            $this->assertArrayHasKey('sha256', $errors);
+            $this->assertContains('sha256 does not match current saved config.toml (reload before saving)', $errors['sha256']);
+        }
+
+        $updated = $this->service->store([
+            'settings' => ['model' => 'gpt-5.1-codex'],
+            'sha256' => $currentSha,
+        ]);
+        $this->assertSame('updated', $updated['status']);
     }
 
     public function testRetrieveHonorsSha(): void

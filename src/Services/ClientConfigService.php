@@ -88,13 +88,16 @@ class ClientConfigService
         $providedSha = $payload['sha256'] ?? null;
         $rendered = $this->render($settingsRaw);
 
+        $existing = $this->configs->latest();
+        $existingSha = $existing['sha256'] ?? null;
+
         $errors = [];
         if ($providedSha !== null) {
             $normalizedProvided = strtolower(trim((string) $providedSha));
             if ($normalizedProvided === '' || !preg_match('/^[a-f0-9]{64}$/', $normalizedProvided)) {
                 $errors['sha256'][] = 'sha256 must be 64 hex characters when provided';
-            } elseif (!hash_equals($normalizedProvided, strtolower($rendered['sha256']))) {
-                $errors['sha256'][] = 'sha256 does not match rendered config.toml';
+            } elseif ($existing !== null && !hash_equals($normalizedProvided, strtolower((string) $existingSha))) {
+                $errors['sha256'][] = 'sha256 does not match current saved config.toml (reload before saving)';
             }
         }
 
@@ -105,9 +108,6 @@ class ClientConfigService
         if ($errors) {
             throw new ValidationException($errors);
         }
-
-        $existing = $this->configs->latest();
-        $existingSha = $existing['sha256'] ?? null;
 
         $contentUnchanged = $existing !== null && hash_equals((string) $existingSha, $rendered['sha256']);
         $settingsUnchanged = $existing !== null && hash_equals(
