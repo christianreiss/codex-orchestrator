@@ -1134,6 +1134,30 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $dailyCost = $pricingService->calculateCost($pricing, $tokensDay);
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);
+    $moneyEnv = static function (mixed $value): ?float {
+        if ($value === null) {
+            return null;
+        }
+        if (is_string($value)) {
+            $trim = trim($value);
+            if ($trim === '' || !is_numeric($trim)) {
+                return null;
+            }
+            return (float) $trim;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+        return null;
+    };
+    $planCurrency = is_array($pricing) && isset($pricing['currency']) && is_string($pricing['currency']) && $pricing['currency'] !== ''
+        ? strtoupper($pricing['currency'])
+        : strtoupper((string) Config::get('PRICING_CURRENCY', 'USD'));
+    $subscriptionPlans = [
+        'currency' => $planCurrency,
+        'plus_cost' => $moneyEnv(Config::get('CHATGPT_PLUS_PLAN_COST', 20)) ?? 20.0,
+        'pro_cost' => $moneyEnv(Config::get('CHATGPT_PRO_PLAN_COST', 200)) ?? 200.0,
+    ];
     $quotaHardFail = $versionRepository->getFlag('quota_hard_fail', true);
     $quotaLimitPercent = quotaLimitPercent($versionRepository);
     $quotaWeekPartition = quotaWeekPartition($versionRepository);
@@ -1161,6 +1185,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'pricing_day_cost' => $dailyCost,
             'pricing_month_cost' => $monthlyCost,
             'pricing_week_cost' => $weeklyCost,
+            'subscription_plans' => $subscriptionPlans,
             'chatgpt_usage' => $chatgpt['snapshot'] ?? null,
             'chatgpt_cached' => $chatgpt['cached'] ?? false,
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
