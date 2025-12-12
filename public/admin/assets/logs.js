@@ -69,13 +69,13 @@
       return num.toLocaleString('en-US');
     }
 
-    function formatCost(value) {
-      if (value === null || value === undefined) return '—';
-      const num = Number(value);
-      if (!Number.isFinite(num)) return '—';
-      const formatted = num.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-      return state.currency ? `${formatted} ${state.currency}` : formatted;
-    }
+	    function formatCost(value) {
+	      if (value === null || value === undefined) return '—';
+	      const num = Number(value);
+	      if (!Number.isFinite(num)) return '—';
+	      const formatted = num.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+	      return state.currency ? `${formatted} ${state.currency}` : formatted;
+	    }
 
     function applySortState() {
       sortableHeaders.forEach((th) => {
