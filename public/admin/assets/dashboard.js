@@ -246,6 +246,8 @@
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
     let memoriesLoading = false;
     let memoriesOpen = false;
+    const COST_PLAN_STORAGE_KEY = 'codex.costPlan';
+    let costPlanKey = 'pro';
 
     const VIEW_LAYOUTS = {
       dashboard: {
@@ -359,6 +361,25 @@
         }).format(num);
       } catch {
         return `${currency} ${num.toFixed(2)}`;
+      }
+    }
+
+    function formatPercent(value, digits = 0) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      const safeDigits = Number.isFinite(digits) ? Math.max(0, Math.min(2, Math.floor(digits))) : 0;
+      return `${num.toFixed(safeDigits)}%`;
+    }
+
+    function initCostPlanControl() {
+      let stored = null;
+      try {
+        stored = window.localStorage.getItem(COST_PLAN_STORAGE_KEY);
+      } catch {
+        stored = null;
+      }
+      if (stored === 'plus' || stored === 'pro') {
+        costPlanKey = stored;
       }
     }
 
@@ -2881,16 +2902,64 @@
       const dayCost = normalizeCost(data?.pricing_day_cost);
       const weekCost = normalizeCost(data?.pricing_week_cost);
       const monthCost = normalizeCost(data?.pricing_month_cost);
+      const subscriptionPlans = data?.subscription_plans || {};
+      const planCurrency = typeof subscriptionPlans?.currency === 'string' && subscriptionPlans.currency.trim() !== ''
+        ? subscriptionPlans.currency.trim().toUpperCase()
+        : currency;
+      const planPlusCost = normalizeCost(subscriptionPlans?.plus_cost);
+      const planProCost = normalizeCost(subscriptionPlans?.pro_cost);
+      const planOptions = [];
+      if (planPlusCost > 0) planOptions.push({ key: 'plus', label: 'Plus', cost: planPlusCost });
+      if (planProCost > 0) planOptions.push({ key: 'pro', label: 'Pro', cost: planProCost });
+      if (planOptions.length > 0 && !planOptions.some((p) => p.key === costPlanKey)) {
+        costPlanKey = planOptions.some((p) => p.key === 'pro') ? 'pro' : planOptions[0].key;
+      }
+      const selectedPlan = planOptions.find((p) => p.key === costPlanKey) || null;
+      const planCost = selectedPlan ? selectedPlan.cost : 0;
+      const monthPercentOfPlan = planCost > 0 ? (monthCost / planCost) * 100 : null;
+      const costLevelClass = (() => {
+        if (monthPercentOfPlan === null) return '';
+        if (monthPercentOfPlan < 50) return 'cost-red';
+        if (monthPercentOfPlan < 91) return 'cost-yellow';
+        if (monthPercentOfPlan <= 120) return 'cost-green';
+        return 'cost-blue';
+      })();
+      const savingsPct = planCost > 0 && monthCost < planCost
+        ? ((planCost - monthCost) / planCost) * 100
+        : null;
+      const planButtons = planOptions.length > 1
+        ? `
+          <div class="cost-plan-controls" role="group" aria-label="Select subscription plan">
+            ${planOptions.map((plan) => `
+              <button
+                class="ghost tiny-btn cost-plan-btn"
+                type="button"
+                data-plan="${plan.key}"
+                aria-pressed="${plan.key === costPlanKey ? 'true' : 'false'}"
+                title="${plan.label} plan (${formatCurrency(plan.cost, planCurrency)})"
+              >${plan.label}</button>
+            `).join('')}
+          </div>
+        `
+        : '';
       const costCard = () => `
-        <div class="card">
+        <div class="card cost-card ${costLevelClass}">
           <div class="stat-head">
             <span class="stat-label">Estimated Total</span>
-            <span class="stat-sub">${currency}</span>
+            <span class="stat-sub">${planCurrency}</span>
           </div>
-          <div class="stat-value">${formatCurrency(monthCost, currency)}</div>
+          <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
+          <div class="cost-plan-row">
+            ${planButtons}
+            ${selectedPlan && monthPercentOfPlan !== null
+              ? `<span class="cost-plan-note">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)} · ${formatPercent(monthPercentOfPlan, 0)}</span>`
+              : ''
+            }
+          </div>
+          ${savingsPct !== null ? `<div class="cost-savings">${formatPercent(savingsPct, 0)} saved this month!</div>` : ''}
           <div class="stat-meta-line">
-            <span>${formatCurrency(weekCost, currency)} this week</span>
-            <span>${formatCurrency(dayCost, currency)} today</span>
+            <span>${formatCurrency(weekCost, planCurrency)} this week</span>
+            <span>${formatCurrency(dayCost, planCurrency)} today</span>
             <button class="ghost tiny-btn cost-history-btn" type="button" aria-label="Open cost trend">Trend</button>
           </div>
         </div>
@@ -2906,6 +2975,20 @@
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();
       wireUpgradeNotesControls();
+      document.querySelectorAll('button.cost-plan-btn[data-plan]').forEach((btn) => {
+        btn.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const plan = (btn.getAttribute('data-plan') || '').toLowerCase();
+          if (plan !== 'plus' && plan !== 'pro') return;
+          costPlanKey = plan;
+          try {
+            window.localStorage.setItem(COST_PLAN_STORAGE_KEY, plan);
+          } catch {
+            // ignore storage failures
+          }
+          renderStats(data, runnerInfo);
+        });
+      });
 
       chatgptUsage = {
         snapshot: data.chatgpt_usage || null,
@@ -3552,6 +3635,7 @@
     });
     updateSortIndicators();
     initInsecureWindowControl();
+    initCostPlanControl();
     if (insecureWindowSlider) {
       insecureWindowSlider.addEventListener('input', (event) => {
         setInsecureWindowMinutes(event.target.value, true);

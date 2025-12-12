@@ -370,6 +370,48 @@ body {
       font-size: 13px;
       margin-top: 6px;
     }
+    .cost-card .stat-value { transition: color 0.12s ease; }
+    .cost-card.cost-red .stat-value { color: var(--danger); }
+    .cost-card.cost-yellow .stat-value { color: var(--warning); }
+    .cost-card.cost-green .stat-value { color: var(--success); }
+    .cost-card.cost-blue .stat-value { color: #2563eb; }
+    .cost-plan-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .cost-plan-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    button.cost-plan-btn[aria-pressed="true"] {
+      background: rgba(var(--accent-rgb),0.12);
+      border-color: rgba(var(--accent-rgb),0.35);
+      font-weight: 800;
+    }
+    .cost-plan-note {
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .cost-savings {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--accent-2);
+      background: rgba(var(--accent-rgb),0.10);
+      border: 1px solid rgba(var(--accent-rgb),0.22);
+      border-radius: 999px;
+      padding: 6px 10px;
+    }
     .info-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
