@@ -83,16 +83,12 @@
     const memoriesTagsInput = document.getElementById('memoriesTags');
     const memoriesLimitInput = document.getElementById('memoriesLimit');
     const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
-    const agentsMeta = document.getElementById('agentsMeta') || document.getElementById('agentsMetaStandalone');
-    const agentsPreview = document.getElementById('agentsPreview') || document.getElementById('agentsPreviewStandalone');
-    const agentsStatus = document.getElementById('agentsStatus') || document.getElementById('agentsStatusStandalone');
-    const editAgentsBtn = document.getElementById('editAgentsBtn') || document.getElementById('editAgentsBtnStandalone');
-    const agentsToggle = document.getElementById('agentsToggle');
-    const agentsModal = document.getElementById('agentsModal');
-    const agentsBody = document.getElementById('agentsBody');
-    const agentsModalStatus = document.getElementById('agentsModalStatus');
-    const agentsCancel = document.getElementById('agentsCancel');
-    const agentsSave = document.getElementById('agentsSave');
+    const agentsMeta = document.getElementById('agentsMeta');
+    const agentsPreview = document.getElementById('agentsPreview');
+    const agentsEditorInline = document.getElementById('agentsEditorInline');
+    const agentsStatus = document.getElementById('agentsStatus');
+    const agentsEditToggle = document.getElementById('agentsEditToggle');
+    const agentsSaveInline = document.getElementById('agentsSaveInline');
     const apiToggle = document.getElementById('apiToggle');
     const apiToggleLabel = document.getElementById('apiToggleLabel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
@@ -138,7 +134,6 @@
     let currentPrompts = [];
     let currentMemories = [];
     let currentAgents = null;
-    let agentsExpanded = true;
     let promptsExpanded = true;
     let settingsExpanded = true;
     let latestVersions = { client: null, wrapper: null };
@@ -696,16 +691,6 @@
       return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
     }
 
-    function setAgentsExpanded(expanded) {
-      agentsExpanded = !!expanded;
-      if (agentsToggle) {
-        agentsToggle.textContent = agentsExpanded ? 'Hide' : 'Show';
-      }
-      if (agentsPanel) {
-        agentsPanel.classList.toggle('agents-collapsed', !agentsExpanded);
-      }
-    }
-
     function setPromptsExpanded(expanded) {
       promptsExpanded = !!expanded;
       if (promptsToggle) {
@@ -755,7 +740,6 @@
       currentAgents = doc || null;
       if (!agentsPanel) return;
       agentsPanel.style.display = 'block';
-      setAgentsExpanded(agentsExpanded);
 
       const status = doc?.status || 'missing';
       const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
@@ -777,6 +761,10 @@
         const text = typeof doc?.content === 'string' ? doc.content : '';
         agentsPreview.textContent = text;
         agentsPreview.classList.toggle('muted', status === 'missing');
+      }
+
+      if (agentsEditorInline && (agentsEditorInline.value || '').trim() === '' && typeof doc?.content === 'string') {
+        agentsEditorInline.value = doc.content;
       }
     }
 
@@ -3228,44 +3216,45 @@
       }
     }
 
-    function showAgentsModal(show) {
-      if (!agentsModal) return;
-      if (show) {
-        agentsModal.classList.add('show');
-      } else {
-        agentsModal.classList.remove('show');
-        if (agentsModalStatus) agentsModalStatus.textContent = '';
+    function setAgentsInlineEditing(editing) {
+      const on = !!editing;
+      if (agentsPreview) agentsPreview.hidden = on;
+      if (agentsEditorInline) agentsEditorInline.hidden = !on;
+      if (agentsSaveInline) agentsSaveInline.hidden = !on;
+      if (agentsEditToggle) agentsEditToggle.textContent = on ? 'Cancel' : 'Edit';
+      if (on && agentsEditorInline) {
+        const content = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
+        agentsEditorInline.value = content;
+        try { agentsEditorInline.focus(); } catch (_) {}
+      }
+      if (!on && agentsEditorInline) {
+        agentsEditorInline.value = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
       }
     }
 
-    function openAgentsModal() {
-      if (!agentsBody) return;
-      const content = currentAgents?.content || '';
-      agentsBody.value = content;
-      if (agentsModalStatus) agentsModalStatus.textContent = '';
-      showAgentsModal(true);
-    }
-
-    async function saveAgents() {
-      if (!agentsBody || !agentsSave) return;
-      const content = agentsBody.value;
-      agentsSave.disabled = true;
-      const original = agentsSave.textContent;
-      agentsSave.textContent = 'Saving…';
-      if (agentsModalStatus) agentsModalStatus.textContent = 'Saving…';
+    async function saveAgentsInline() {
+      if (!agentsEditorInline || !agentsSaveInline) return;
+      const content = agentsEditorInline.value;
+      agentsSaveInline.disabled = true;
+      const original = agentsSaveInline.textContent;
+      agentsSaveInline.textContent = 'Saving…';
+      if (agentsStatus) agentsStatus.textContent = 'Saving…';
       try {
         await api('/admin/agents/store', {
           method: 'POST',
           json: { content },
         });
-        if (agentsModalStatus) agentsModalStatus.textContent = 'Saved';
         await loadAll();
-        showAgentsModal(false);
+        setAgentsInlineEditing(false);
+        if (agentsStatus) agentsStatus.textContent = 'Saved';
+        setTimeout(() => {
+          if (agentsStatus && agentsStatus.textContent === 'Saved') agentsStatus.textContent = '';
+        }, 1500);
       } catch (err) {
-        if (agentsModalStatus) agentsModalStatus.textContent = `Save failed: ${err.message}`;
+        if (agentsStatus) agentsStatus.textContent = `Save failed: ${err.message}`;
       } finally {
-        agentsSave.disabled = false;
-        agentsSave.textContent = original;
+        agentsSaveInline.disabled = false;
+        agentsSaveInline.textContent = original;
       }
     }
 
@@ -3614,22 +3603,20 @@
         openPromptModal('');
       });
     }
-    if (editAgentsBtn) {
-      editAgentsBtn.addEventListener('click', (event) => {
+    if (agentsPreview) {
+      agentsPreview.addEventListener('click', () => setAgentsInlineEditing(true));
+    }
+    if (agentsEditToggle) {
+      agentsEditToggle.addEventListener('click', (event) => {
         event.preventDefault();
-        openAgentsModal();
+        const editing = !!agentsEditorInline && !agentsEditorInline.hidden;
+        setAgentsInlineEditing(!editing);
       });
     }
     if (promptsToggle) {
       promptsToggle.addEventListener('click', (event) => {
         event.preventDefault();
         setPromptsExpanded(!promptsExpanded);
-      });
-    }
-    if (agentsToggle) {
-      agentsToggle.addEventListener('click', (event) => {
-        event.preventDefault();
-        setAgentsExpanded(!agentsExpanded);
       });
     }
     if (uploadAuthBtn) {
@@ -3674,22 +3661,14 @@
         if (e.target === promptModal) showPromptModal(false);
       });
     }
-    if (agentsModal) {
-      agentsModal.addEventListener('click', (e) => {
-        if (e.target === agentsModal) showAgentsModal(false);
-      });
-    }
     if (promptCancel) {
       promptCancel.addEventListener('click', () => showPromptModal(false));
     }
     if (promptSave) {
       promptSave.addEventListener('click', () => savePrompt());
     }
-    if (agentsCancel) {
-      agentsCancel.addEventListener('click', () => showAgentsModal(false));
-    }
-    if (agentsSave) {
-      agentsSave.addEventListener('click', () => saveAgents());
+    if (agentsSaveInline) {
+      agentsSaveInline.addEventListener('click', () => saveAgentsInline());
     }
     if (deleteHostModal) {
       deleteHostModal.addEventListener('click', (e) => {
@@ -3798,7 +3777,6 @@
           const targetId = `${targetKey}-panel`;
           const section = document.getElementById(targetId);
           if (targetKey === 'settings') setSettingsExpanded(true);
-          if (targetKey === 'agents') setAgentsExpanded(true);
           if (targetKey === 'prompts') setPromptsExpanded(true);
           if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
