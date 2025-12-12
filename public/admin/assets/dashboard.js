@@ -89,6 +89,7 @@
     const agentsModal = document.getElementById('agentsModal');
     const agentsBody = document.getElementById('agentsBody');
     const agentsStatus = document.getElementById('agentsStatus');
+    const agentsModalStatus = document.getElementById('agentsModalStatus');
     const agentsCancel = document.getElementById('agentsCancel');
     const agentsSave = document.getElementById('agentsSave');
     const apiToggle = document.getElementById('apiToggle');
@@ -656,12 +657,6 @@
       return `<span class="status-pill status-${slug}">${status ?? 'unknown'}</span>`;
     }
 
-    function summarizeAgentsContent(content) {
-      const text = (content || '').trim();
-      if (!text) return 'Empty AGENTS.md (hosts will receive a blank file).';
-      return text;
-    }
-
     function setAgentsExpanded(expanded) {
       agentsExpanded = !!expanded;
       if (agentsToggle) {
@@ -735,13 +730,9 @@
       }
 
       if (agentsPreview) {
-        if (status === 'missing') {
-          agentsPreview.textContent = 'No canonical AGENTS.md stored. Hosts will remove local copies.';
-          agentsPreview.classList.add('muted');
-        } else {
-          agentsPreview.textContent = summarizeAgentsContent(doc?.content || '');
-          agentsPreview.classList.remove('muted');
-        }
+        const text = typeof doc?.content === 'string' ? doc.content : '';
+        agentsPreview.textContent = text;
+        agentsPreview.classList.toggle('muted', status === 'missing');
       }
     }
 
@@ -3002,7 +2993,7 @@
         agentsModal.classList.add('show');
       } else {
         agentsModal.classList.remove('show');
-        if (agentsStatus) agentsStatus.textContent = '';
+        if (agentsModalStatus) agentsModalStatus.textContent = '';
       }
     }
 
@@ -3010,7 +3001,7 @@
       if (!agentsBody) return;
       const content = currentAgents?.content || '';
       agentsBody.value = content;
-      if (agentsStatus) agentsStatus.textContent = '';
+      if (agentsModalStatus) agentsModalStatus.textContent = '';
       showAgentsModal(true);
     }
 
@@ -3020,17 +3011,17 @@
       agentsSave.disabled = true;
       const original = agentsSave.textContent;
       agentsSave.textContent = 'Saving…';
-      if (agentsStatus) agentsStatus.textContent = 'Saving…';
+      if (agentsModalStatus) agentsModalStatus.textContent = 'Saving…';
       try {
         await api('/admin/agents/store', {
           method: 'POST',
           json: { content },
         });
-        if (agentsStatus) agentsStatus.textContent = 'Saved';
+        if (agentsModalStatus) agentsModalStatus.textContent = 'Saved';
         await loadAll();
         showAgentsModal(false);
       } catch (err) {
-        if (agentsStatus) agentsStatus.textContent = `Save failed: ${err.message}`;
+        if (agentsModalStatus) agentsModalStatus.textContent = `Save failed: ${err.message}`;
       } finally {
         agentsSave.disabled = false;
         agentsSave.textContent = original;

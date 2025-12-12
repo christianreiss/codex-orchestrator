@@ -464,8 +464,23 @@
             </div>
             <div id="agentsStatus" class="muted" style="margin-bottom:8px;"></div>
             <div id="agentsMeta" class="muted" style="margin-bottom:8px;"></div>
-            <pre id="agentsPreview" class="code-block" style="max-height:320px; overflow:auto;"></pre>
+            <pre id="agentsPreview" class="code-block" style="max-height:65vh; overflow:auto;"></pre>
           </section>
+          <div class="modal-backdrop" id="agentsModal">
+            <div class="modal">
+              <h3>Edit canonical AGENTS.md</h3>
+              <p class="muted">Saved content syncs to every host on the next cdx run.</p>
+              <div class="field">
+                <label for="agentsBody" style="font-weight:600;">AGENTS.md</label>
+                <textarea id="agentsBody" rows="18" spellcheck="false" placeholder="# AGENTS.md"></textarea>
+              </div>
+              <div id="agentsModalStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
+              <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+                <button class="ghost" id="agentsCancel">Cancel</button>
+                <button id="agentsSave">Save</button>
+              </div>
+            </div>
+          </div>
           <section class="card panel" data-settings-panel="prompts" hidden>
             <div class="panel-head">
               <div>
