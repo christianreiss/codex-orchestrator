@@ -2924,7 +2924,10 @@
         if (monthPercentOfPlan <= 120) return 'cost-green';
         return 'cost-blue';
       })();
-      const savingsPct = planCost > 0 && monthCost < planCost
+      const savingsPct = planCost > 0 && monthCost > planCost
+        ? ((monthCost - planCost) / monthCost) * 100
+        : null;
+      const overpayPct = planCost > 0 && monthCost > 0 && monthCost < planCost
         ? ((planCost - monthCost) / planCost) * 100
         : null;
       const planButtons = planOptions.length > 1
@@ -2956,7 +2959,8 @@
               : ''
             }
           </div>
-          ${savingsPct !== null ? `<div class="cost-savings">${formatPercent(savingsPct, 0)} saved this month!</div>` : ''}
+          ${savingsPct !== null ? `<div class="cost-savings cost-savings-ok">${formatPercent(savingsPct, 0)} saved this month!</div>` : ''}
+          ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">${formatPercent(overpayPct, 0)} over plan this month</div>` : ''}
           <div class="stat-meta-line">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>
             <span>${formatCurrency(dayCost, planCurrency)} today</span>

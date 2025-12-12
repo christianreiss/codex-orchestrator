@@ -406,11 +406,18 @@ body {
       text-align: center;
       font-size: 13px;
       font-weight: 800;
+      border-radius: 999px;
+      padding: 6px 10px;
+    }
+    .cost-savings-ok {
       color: var(--accent-2);
       background: rgba(var(--accent-rgb),0.10);
       border: 1px solid rgba(var(--accent-rgb),0.22);
-      border-radius: 999px;
-      padding: 6px 10px;
+    }
+    .cost-savings-warn {
+      color: var(--warning);
+      background: rgba(255,208,103,0.14);
+      border: 1px solid rgba(255,208,103,0.35);
     }
     .info-grid {
       display: grid;
