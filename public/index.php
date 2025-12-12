@@ -2281,19 +2281,7 @@ function isOriginAllowed(?string $origin): bool
 
 function resolveClientIp(): ?string
 {
-    $headers = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'];
-    foreach ($headers as $header) {
-        $value = $_SERVER[$header] ?? null;
-        if ($value) {
-            $parts = array_filter(array_map('trim', explode(',', $value)));
-            if ($parts) {
-                return $parts[0];
-            }
-        }
-    }
-
-    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
-    return $remote ?: null;
+    return \App\Http\ClientIp::fromServer($_SERVER);
 }
 
 function extractClientVersion(mixed $payload): ?string
