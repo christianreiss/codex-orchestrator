@@ -11,7 +11,7 @@ set -euo pipefail
 # Intended for local/dev stacks. This will create and delete a host record.
 
 BASE_URL="${BASE_URL:-http://localhost:8488}"
-ADMIN_KEY="${ADMIN_KEY:-${DASHBOARD_ADMIN_KEY:-}}"
+ADMIN_KEY="${ADMIN_KEY:-}"
 CA_FILE="${CA_FILE:-}"
 HOST_HEADER="${HOST_HEADER:-}"
 KEEP_HOST="${KEEP_HOST:-0}"

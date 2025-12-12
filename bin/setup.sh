@@ -285,18 +285,18 @@ configure_caddy() {
   local env_file="$1" data_root="$2"
 
   local mtls_default_choice mtls_env_val
-  mtls_env_val="$(read_env_value "ADMIN_REQUIRE_MTLS" "$env_file" || true)"
-  if [[ "$mtls_env_val" == "0" ]]; then
+  mtls_env_val="$(read_env_value "ADMIN_ACCESS_MODE" "$env_file" || true)"
+  if [[ "$mtls_env_val" == "none" ]]; then
     mtls_default_choice="n"
   else
     mtls_default_choice="y"
   fi
 
   if ask_yes_no "Require client mTLS for /admin?" "$mtls_default_choice" "$MTLS_REQUIRED_ARG"; then
-    set_env_value "ADMIN_REQUIRE_MTLS" "1" "$env_file"
+    set_env_value "ADMIN_ACCESS_MODE" "mtls" "$env_file"
   else
-    set_env_value "ADMIN_REQUIRE_MTLS" "0" "$env_file"
-    info "mTLS requirement disabled; ensure /admin is protected another way (VPN, firewall, DASHBOARD_ADMIN_KEY)."
+    set_env_value "ADMIN_ACCESS_MODE" "none" "$env_file"
+    info "mTLS requirement disabled; ensure /admin is protected another way (VPN, firewall)."
   fi
 
   if ! ask_yes_no "Enable bundled Caddy TLS/mTLS reverse proxy on ports 80/443?" "y" "$CADDY_FORCE"; then

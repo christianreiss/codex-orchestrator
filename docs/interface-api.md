@@ -79,7 +79,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 ## Auth + IP rules
 
 - API key is bound to first caller IP; subsequent calls from a new IP are blocked unless `allow_roaming_ips` is enabled via admin or `?force=1` on `DELETE /auth`.
-- Admin endpoints require mTLS (`X-mTLS-Present` header) when `ADMIN_REQUIRE_MTLS=1` (default). With `ADMIN_REQUIRE_MTLS=0`, mTLS headers become optional—lock down `/admin` via another control (VPN, firewall).
+- Admin endpoints require mTLS (`X-mTLS-Present` header) when `ADMIN_ACCESS_MODE=mtls` (default). With `ADMIN_ACCESS_MODE=none`, mTLS headers become optional—lock down `/admin` via another control (VPN, firewall).
 - Runner IP bypass: when `AUTH_RUNNER_IP_BYPASS=1` and `AUTH_RUNNER_BYPASS_SUBNETS` contains CIDRs, runner-originated `/auth` validation can proceed without rebinding the stored host IP (logged as `auth.runner_ip_bypass`).
 
 ## Rate limiting

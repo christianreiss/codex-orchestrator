@@ -23,13 +23,13 @@ $mtlsSubject = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? '';
 $mtlsIssuer = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? '';
 
 // Admin TLS policy (kept in sync with public/index.php).
-// Default is mTLS required unless ADMIN_REQUIRE_MTLS is explicitly set false-y.
-$requireMtls = getenv('ADMIN_REQUIRE_MTLS');
-if ($requireMtls === false && array_key_exists('ADMIN_REQUIRE_MTLS', $_ENV)) {
-    $requireMtls = (string) $_ENV['ADMIN_REQUIRE_MTLS'];
+// Default is mTLS required unless ADMIN_ACCESS_MODE is explicitly set to "none".
+$mode = getenv('ADMIN_ACCESS_MODE');
+if ($mode === false && array_key_exists('ADMIN_ACCESS_MODE', $_ENV)) {
+    $mode = (string) $_ENV['ADMIN_ACCESS_MODE'];
 }
-$requireMtls = strtolower(trim((string) ($requireMtls === false ? '1' : $requireMtls)));
-$mtlsRequired = !in_array($requireMtls, ['0', 'false', 'off', 'no', ''], true);
+$mode = strtolower(trim((string) ($mode === false ? 'mtls' : $mode)));
+$mtlsRequired = $mode !== 'none';
 
 function isMobileUserAgent(string $userAgent): bool
 {
