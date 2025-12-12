@@ -36,7 +36,9 @@ function isMobileUserAgent(string $userAgent): bool
     return preg_match('/android|iphone|ipad|ipod|mobile|blackberry|phone|opera mini|windows phone/i', $userAgent) === 1;
 }
 
-$hasValidFingerprint = is_string($mtlsFingerprint) && preg_match('/^[A-Fa-f0-9]{64}$/', $mtlsFingerprint) === 1;
+$fpRaw = is_string($mtlsFingerprint) && $mtlsFingerprint !== '' ? $mtlsFingerprint : $mtlsPresent;
+$fp = is_string($fpRaw) ? preg_replace('/[^A-Fa-f0-9]/', '', $fpRaw) : '';
+$hasValidFingerprint = is_string($fp) && strlen($fp) >= 64 && preg_match('/^[A-Fa-f0-9]+$/', $fp) === 1;
 
 // Require mTLS when configured.
 if ($mtlsRequired && !$hasValidFingerprint) {
