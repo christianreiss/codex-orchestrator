@@ -280,7 +280,9 @@
     profileRows.appendChild(row);
   }
 
-  const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator', 'cdx'];
+  // Built-in servers are injected per-host by the coordinator and should not be shown
+  // as “Configured MCP servers” in the UI. Only show ADDED / other MCP servers.
+  const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator', 'cdx', 'codex-coordinator'];
 
   function renderMcpRow(data = {}) {
     if (!mcpRows) return;

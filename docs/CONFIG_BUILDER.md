@@ -28,6 +28,21 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
   ```
 - Keys are injected at bake time only; the server never stores host API keys inside the template.
 
+## OTEL wiring
+
+The builder can also emit an `[otel]` block. The wrapper (`cdx`) reads this and exports `OTEL_*` environment variables when launching the Codex CLI, so your existing collector can ingest traces without per-host shell glue.
+
+Example:
+```toml
+[otel]
+environment = "prod"
+exporter = "otlp-http" # or otlp-grpc
+endpoint = "https://otel.example.com"
+protocol = "http/protobuf" # optional; defaults to http/protobuf for otlp-http
+headers = { "x-otlp-api-key" = "${OTLP_TOKEN}" }
+log_user_prompt = false
+```
+
 ## Failure modes / edge cases
 
 - API key + IP binding enforced (same as `/auth`); roaming hosts need `allow_roaming_ips` toggled if their IP changes.

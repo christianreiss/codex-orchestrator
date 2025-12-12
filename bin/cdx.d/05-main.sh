@@ -1636,6 +1636,28 @@ if (( AUTH_LAUNCH_ALLOWED == 0 )); then
   exit 1
 fi
 
+apply_otel_env_from_config() {
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  local line key val
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    case "$key" in
+      OTEL_*|CODEX_OTEL_LOG_USER_PROMPT)
+        export "$key=$val"
+        ;;
+    esac
+  done < <(otel_env_from_config_python 2>/dev/null || true)
+}
+
+apply_otel_env_from_config
+
 run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"

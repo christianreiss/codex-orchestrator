@@ -711,6 +711,133 @@ PY
   return 0
 }
 
+otel_env_from_config_python() {
+  python3 - "$CONFIG_PATH" <<'PY'
+import os, re, sys
+
+path = sys.argv[1]
+try:
+    raw = open(path, "r", encoding="utf-8", errors="ignore").read()
+except Exception:
+    sys.exit(0)
+
+def find_block(name: str) -> str:
+    m = re.search(r'(?m)^\\[' + re.escape(name) + r'\\]\\s*$', raw)
+    if not m:
+        return ""
+    start = m.end()
+    m2 = re.search(r'(?m)^\\[', raw[start:])
+    end = start + (m2.start() if m2 else len(raw[start:]))
+    return raw[start:end]
+
+block = find_block("otel")
+if not block.strip():
+    sys.exit(0)
+
+def parse_value(v: str):
+    v = v.strip()
+    if v.startswith('"') and v.endswith('"'):
+        return v[1:-1]
+    if v.lower() in ("true", "false"):
+        return v.lower()
+    return v
+
+def parse_inline_table(v: str):
+    # Very small TOML-ish parser for { k = "v", ... } used by our builder.
+    v = v.strip()
+    if not (v.startswith("{") and v.endswith("}")):
+        return {}
+    inner = v[1:-1].strip()
+    if not inner:
+        return {}
+    parts = []
+    buf = ""
+    in_str = False
+    esc = False
+    for ch in inner:
+        if esc:
+            buf += ch
+            esc = False
+            continue
+        if ch == "\\":
+            buf += ch
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            buf += ch
+            continue
+        if ch == "," and not in_str:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        parts.append(buf)
+    out = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        k, val = part.split("=", 1)
+        k = k.strip()
+        out[k] = parse_value(val)
+    return out
+
+otel = {}
+for line in block.splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    k = k.strip()
+    otel[k] = v.strip()
+
+exporter = parse_value(otel.get("exporter", "")).strip()
+environment = parse_value(otel.get("environment", "")).strip()
+log_prompts = parse_value(otel.get("log_user_prompt", "")).strip()
+
+if exporter in ("", "none"):
+    sys.exit(0)
+
+endpoint = parse_value(otel.get("endpoint", "")).strip()
+protocol = parse_value(otel.get("protocol", "")).strip()
+headers = parse_inline_table(otel.get("headers", "{}"))
+
+def emit(k: str, v: str):
+    if v is None:
+        return
+    v = str(v).strip()
+    if v == "":
+        return
+    print(f"{k}={v}")
+
+# Emit env vars as k=v lines; shell will export them.
+emit("OTEL_SERVICE_NAME", "cdx")
+if environment:
+    emit("OTEL_RESOURCE_ATTRIBUTES", f"deployment.environment={environment}")
+
+if exporter == "otlp-http":
+    emit("OTEL_TRACES_EXPORTER", "otlp")
+    emit("OTEL_EXPORTER_OTLP_PROTOCOL", protocol or "http/protobuf")
+    if endpoint:
+        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+elif exporter == "otlp-grpc":
+    emit("OTEL_TRACES_EXPORTER", "otlp")
+    emit("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    if endpoint:
+        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+
+if headers:
+    # OTEL expects comma-separated key=value
+    header_str = ",".join([f"{k}={v}" for k, v in headers.items() if str(k).strip() and str(v).strip()])
+    emit("OTEL_EXPORTER_OTLP_HEADERS", header_str)
+
+# Optional: prompt logging toggle. We expose as CODEX wrapper env, not OpenTelemetry standard.
+if log_prompts in ("true", "false"):
+    emit("CODEX_OTEL_LOG_USER_PROMPT", log_prompts)
+PY
+}
+
 push_slash_commands_if_changed() {
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
