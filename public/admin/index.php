@@ -23,12 +23,11 @@ $mtlsSubject = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? '';
 $mtlsIssuer = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? '';
 
 // Interpret admin access mode (kept in sync with public/index.php)
-$mode = strtolower((string) (getenv('ADMIN_ACCESS_MODE') ?: ($_ENV['ADMIN_ACCESS_MODE'] ?? 'mtls_and_passkey')));
-if (!in_array($mode, ['none', 'mtls_only', 'passkey_only', 'mtls_and_passkey'], true)) {
-    $mode = 'mtls_and_passkey';
+$mode = strtolower((string) (getenv('ADMIN_ACCESS_MODE') ?: ($_ENV['ADMIN_ACCESS_MODE'] ?? 'mtls_only')));
+if (!in_array($mode, ['none', 'mtls_only'], true)) {
+    $mode = 'mtls_only';
 }
-$mtlsRequired = in_array($mode, ['mtls_only', 'mtls_and_passkey'], true);
-$passkeyRequired = in_array($mode, ['passkey_only', 'mtls_and_passkey'], true);
+$mtlsRequired = $mode === 'mtls_only';
 
 function isMobileUserAgent(string $userAgent): bool
 {

@@ -34,7 +34,6 @@ use App\Repositories\AgentsRepository;
 use App\Repositories\MemoryRepository;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\McpAccessLogRepository;
-use App\Repositories\AdminPasskeyRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -46,8 +45,6 @@ use App\Services\SlashCommandService;
 use App\Services\AgentsService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
-use App\Services\PasskeyService;
-use App\Security\AdminSession;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
 use App\Security\EncryptionKeyManager;
@@ -104,13 +101,10 @@ $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
 $clientConfigRepository = new ClientConfigRepository($database);
 $mcpAccessLogRepository = new McpAccessLogRepository($database);
-$adminPasskeyRepository = new AdminPasskeyRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $versionRepository = new VersionRepository($database);
-$adminSession = new AdminSession();
-$adminSession->start();
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $pricingModel = 'gpt-5.1';
 $pricingService = new PricingService(
@@ -148,18 +142,6 @@ $chatGptUsageService = new ChatGptUsageService(
 );
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
-$rpHost = parse_url(resolveBaseUrl(), PHP_URL_HOST) ?: ($_SERVER['HTTP_HOST'] ?? 'localhost');
-$passkeyService = new PasskeyService(
-    $adminPasskeyRepository,
-    $versionRepository,
-    $rpHost,
-    'Codex Admin',
-    // Allow both http/https for the resolved host to keep dev + TLS behind proxies working.
-    [
-        'https://' . $rpHost,
-        'http://' . $rpHost,
-    ]
-);
 $wrapperService->ensureSeeded();
 $usageCostService->backfillMissingCosts();
 
@@ -1110,7 +1092,6 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
         'status' => 'ok',
         'data' => [
             'mtls' => resolveMtls(),
-            'passkey' => passkeyMeta($versionRepository),
             'totals' => [
                 'hosts' => $countHosts,
             ],
@@ -1406,93 +1387,6 @@ $router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agen
     Response::json([
         'status' => 'ok',
         'data' => $result,
-    ]);
-});
-
-$router->add('POST', '#^/admin/passkey/registration/options$#', function () use ($passkeyService) {
-    requireAdminAccess();
-    try {
-        $options = $passkeyService->registrationOptions();
-        Response::json([
-            'status' => 'ok',
-            'data' => json_decode(json_encode($options), true),
-        ]);
-    } catch (\Throwable $exception) {
-        Response::json([
-            'status' => 'error',
-            'message' => $exception->getMessage(),
-        ], 400);
-    }
-});
-
-$router->add('POST', '#^/admin/passkey/registration/finish$#', function () use ($passkeyService) {
-    requireAdminAccess();
-    try {
-        $result = $passkeyService->finishRegistration($_POST ?: json_decode(file_get_contents('php://input'), true) ?? []);
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
-    } catch (\Throwable $exception) {
-        Response::json([
-            'status' => 'error',
-            'message' => $exception->getMessage(),
-        ], 400);
-    }
-});
-
-$router->add('POST', '#^/admin/passkey/auth/options$#', function () use ($passkeyService) {
-    requireAdminAccess();
-    try {
-        $options = $passkeyService->authOptions();
-        Response::json([
-            'status' => 'ok',
-            'data' => json_decode(json_encode($options), true),
-        ]);
-    } catch (\Throwable $exception) {
-        Response::json([
-            'status' => 'error',
-            'message' => $exception->getMessage(),
-        ], 400);
-    }
-});
-
-$router->add('POST', '#^/admin/passkey/auth/finish$#', function () use ($passkeyService) {
-    requireAdminAccess();
-    try {
-        $result = $passkeyService->finishAuth($_POST ?: json_decode(file_get_contents('php://input'), true) ?? []);
-
-        // Bind passkey success to a short-lived session.
-        global $adminSession;
-        if ($adminSession instanceof AdminSession) {
-            $adminSession->start();
-            $adminSession->markAuthenticated(
-                $_SERVER['HTTP_USER_AGENT'] ?? '',
-                resolveClientIp() ?? '',
-                is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null,
-                1800 // 30 minutes default
-            );
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
-    } catch (\Throwable $exception) {
-        Response::json([
-            'status' => 'error',
-            'message' => $exception->getMessage(),
-        ], 400);
-    }
-});
-
-$router->add('DELETE', '#^/admin/passkey$#', function () use ($passkeyService, $versionRepository) {
-    requireAdminAccess();
-    $passkeyService->delete();
-
-    Response::json([
-        'status' => 'ok',
-        'data' => passkeyMeta($versionRepository),
     ]);
 });
 
@@ -2615,23 +2509,17 @@ function installerError(string $message, int $status = 400, ?string $expiresAt =
 
 function adminAccessMode(): string
 {
-    $mode = strtolower((string) Config::get('ADMIN_ACCESS_MODE', 'mtls_and_passkey'));
+    $mode = strtolower((string) Config::get('ADMIN_ACCESS_MODE', 'mtls_only'));
     return match ($mode) {
-        'none', 'mtls_only', 'passkey_only', 'mtls_and_passkey' => $mode,
-        default => 'mtls_and_passkey',
+        'none', 'mtls_only' => $mode,
+        default => 'mtls_only',
     };
 }
 
 function isMtlsRequired(): bool
 {
     $mode = adminAccessMode();
-    return in_array($mode, ['mtls_only', 'mtls_and_passkey'], true);
-}
-
-function isPasskeyRequired(): bool
-{
-    $mode = adminAccessMode();
-    return in_array($mode, ['passkey_only', 'mtls_and_passkey'], true);
+    return $mode === 'mtls_only';
 }
 
 function isMtlsSatisfied(): bool
@@ -2645,32 +2533,11 @@ function isMtlsSatisfied(): bool
 function requireAdminAccess(): void
 {
     $mode = adminAccessMode();
-    // Reuse the already-booted DB config/env.
-    $dbConfig = [
-        'driver' => Config::get('DB_DRIVER', 'mysql'),
-        'host' => Config::get('DB_HOST', 'mysql'),
-        'port' => (int) Config::get('DB_PORT', 3306),
-        'database' => Config::get('DB_DATABASE', 'codex_auth'),
-        'username' => Config::get('DB_USERNAME', 'root'),
-        'password' => Config::get('DB_PASSWORD', ''),
-        'charset' => Config::get('DB_CHARSET', 'utf8mb4'),
-    ];
-    $passkeyRepo = new VersionRepository(new Database($dbConfig));
-    $passkeyPresent = passkeyCreated($passkeyRepo);
-    $passkeyOk = passkeyAuthStatus($passkeyRepo) === 'ok';
-
     $mtlsOk = isMtlsSatisfied();
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 
-    $mtlsRequired = $mode === 'mtls_only' || $mode === 'mtls_and_passkey';
-    $passkeyRequired = $mode === 'passkey_only' || $mode === 'mtls_and_passkey';
-
-    $isPasskeyRoute = str_starts_with(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '', '/admin/passkey/');
-    $adminSession = $GLOBALS['adminSession'] ?? null;
-    $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
-    $clientIp = resolveClientIp() ?? '';
-    $mtlsFingerprint = is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null;
+    $mtlsRequired = $mode === 'mtls_only';
 
     if ($mtlsRequired && !$mtlsOk) {
         Response::json([
@@ -2678,79 +2545,6 @@ function requireAdminAccess(): void
             'message' => 'Client certificate required for admin access',
         ], 403);
     }
-
-    // Allow passkey bootstrap when mTLS is satisfied:
-    // - passkey endpoints always allowed
-    // - GET requests allowed so the UI can load and prompt enrollment
-    // - mutating requests remain blocked until a passkey is created
-    if ($passkeyRequired && !$passkeyPresent) {
-        if ($isPasskeyRoute) {
-            return;
-        }
-        if ($method === 'GET') {
-            return;
-        }
-        Response::json([
-            'status' => 'error',
-            'message' => 'Passkey enrollment required',
-        ], 401);
-    }
-
-    // Sessionized passkey: require a valid session if passkey is required.
-    if ($passkeyRequired && $passkeyPresent) {
-        $sessionValid = $adminSession instanceof AdminSession
-            && $adminSession->isValid($userAgent, $clientIp, $mtlsFingerprint);
-
-        // Allow UI + passkey endpoints to load so the user can re-auth.
-        if (!$sessionValid && !$isPasskeyRoute && $method !== 'GET') {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Passkey authentication required',
-            ], 401);
-        }
-    }
-
-    // Admin key overlay removed; mTLS/passkey gating handled above.
-}
-
-function passkeyCreated(VersionRepository $repo): bool
-{
-    return $repo->getFlag('passkey_created', false);
-}
-
-function passkeyAuthStatus(VersionRepository $repo): string
-{
-    // stored as string: ok | failed | none
-    return $repo->get('passkey_auth') ?? 'none';
-}
-
-function passkeyMeta(VersionRepository $repo): array
-{
-    $created = passkeyCreated($repo);
-    $auth = passkeyAuthStatus($repo);
-    $lastAuthAt = $repo->get('passkey_auth_at');
-    $sessionValid = false;
-
-    // Only surface "present" when the current request has a valid admin session (IP/UA/mTLS-bound).
-    $adminSession = $GLOBALS['adminSession'] ?? null;
-    if ($adminSession instanceof AdminSession) {
-        $sessionValid = $adminSession->isValid(
-            $_SERVER['HTTP_USER_AGENT'] ?? '',
-            resolveClientIp() ?? '',
-            is_string($_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? null) ? $_SERVER['HTTP_X_MTLS_FINGERPRINT'] : null
-        );
-    }
-
-    $present = $created && $auth === 'ok' && $sessionValid;
-
-    return [
-        'required' => isPasskeyRequired(),
-        'present' => $present,
-        'created' => $created,
-        'auth' => $auth,
-        'auth_at' => $lastAuthAt,
-        'session' => $sessionValid ? 'ok' : 'missing',
-    ];
 }
 
 function resolveIntQuery(string $key): ?int

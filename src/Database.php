@@ -458,25 +458,34 @@ class Database
         $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnLength('install_tokens', 'token', 64);
-        // Single-admin passkey storage (one row max enforced in code).
-        $this->ensureTableExists('admin_passkeys', <<<SQL
-            CREATE TABLE admin_passkeys (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                credential_id VARBINARY(255) NOT NULL UNIQUE,
-                public_key TEXT NOT NULL,
-                user_handle VARBINARY(64) NOT NULL,
-                counter BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at VARCHAR(100) NOT NULL,
-                updated_at VARCHAR(100) NOT NULL
-            ) ENGINE=InnoDB {$collation}
-        SQL);
-
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
+
+        // Clean up deprecated/removed tables.
+        $this->dropTableIfExists('admin_passkeys');
 
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid
         // extra information_schema lookups on every boot.
+    }
+
+    private function dropTableIfExists(string $table): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+        ]);
+
+        $exists = (int) $statement->fetchColumn() > 0;
+        if (!$exists) {
+            return;
+        }
+
+        $this->pdo->exec(sprintf('DROP TABLE %s', $table));
     }
 
     private function ensureColumnExists(string $table, string $column, string $definition): void

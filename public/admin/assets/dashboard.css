@@ -528,19 +528,6 @@ body {
       font-size: 13px;
     }
 
-    .passkey-actions {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-      margin: 8px 18px 2px;
-    }
-
-    .passkey-actions .passkey-buttons {
-      display: flex;
-      gap: 8px;
-    }
-
     .pill {
       display: inline-flex;
       align-items: center;

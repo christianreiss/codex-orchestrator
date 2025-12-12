@@ -101,14 +101,6 @@
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
-    const passkeyCreatedCell = document.getElementById('passkeyCreatedCell');
-    const passkeyAuthCell = document.getElementById('passkeyAuthCell');
-    const passkeyCreateBtn = document.getElementById('passkeyCreateBtn');
-    const passkeyTestBtn = document.getElementById('passkeyTestBtn');
-    const passkeyRemoveBtn = document.getElementById('passkeyRemoveBtn');
-    const passkeyReauthModal = document.getElementById('passkeyReauthModal');
-    const passkeyReauthBtn = document.getElementById('passkeyReauthBtn');
-    const passkeyReauthDismiss = document.getElementById('passkeyReauthDismiss');
     const accessBlockModal = document.getElementById('accessBlockModal');
     const accessBlockTitle = document.getElementById('accessBlockTitle');
     const accessBlockBody = document.getElementById('accessBlockBody');
@@ -239,7 +231,7 @@
         eyebrow: 'Settings',
         title: 'Operations & settings',
         copy: 'Emergency toggles and runner utilities.',
-        show: ['settings-panel', 'passkey-panel'],
+        show: ['settings-panel'],
       },
     };
 
@@ -513,119 +505,6 @@
       cdxSilentToggle.checked = !!cdxSilent;
       cdxSilentLabel.textContent = cdxSilent ? 'Silent' : 'Verbose';
     }
-
-    function setPasskey(meta) {
-      // Reflect passkey state in nav chip + panel cells.
-      if (window.__navStatus?.setPasskey) window.__navStatus.setPasskey(meta);
-      if (!passkeyCreatedCell || !passkeyAuthCell) return;
-      const created = Boolean(meta?.created ?? meta?.present ?? false);
-      const auth = meta?.auth || 'none';
-      passkeyCreatedCell.className = 'pill ' + (created ? 'ok' : 'warn');
-      passkeyCreatedCell.textContent = created ? 'Created' : 'Not created';
-
-      let authLabel = 'No passkey presented';
-      let authClass = 'warn';
-      if (auth === 'ok') {
-        authLabel = 'Passkey auth OK';
-        authClass = 'ok';
-      } else if (auth === 'failed') {
-        authLabel = 'Passkey auth failed';
-        authClass = 'error';
-      } else if (auth === 'none' && created) {
-        authLabel = 'Passkey enrolled; no auth yet';
-        authClass = 'warn';
-      }
-      if (meta?.auth_at) {
-        authLabel += ` · ${formatRelative(meta.auth_at)}`;
-      }
-      passkeyAuthCell.className = 'pill ' + authClass;
-      passkeyAuthCell.textContent = authLabel;
-      renderPasskeyButtons(created);
-      maybeShowAccessBlock();
-    }
-
-    function renderPasskeyButtons(created) {
-      if (passkeyCreateBtn) passkeyCreateBtn.style.display = created ? 'none' : 'inline-block';
-      const showManage = created ? 'inline-block' : 'none';
-      if (passkeyRemoveBtn) passkeyRemoveBtn.style.display = showManage;
-      if (passkeyTestBtn) passkeyTestBtn.style.display = showManage;
-    }
-
-    async function createPasskey() {
-      if (!passkeyCreateBtn) return;
-      passkeyCreateBtn.disabled = true;
-      try {
-        const creation = await api('/admin/passkey/registration/options', { method: 'POST' });
-        const options = normalizeCreationOptions(creation.data);
-        const cred = await navigator.credentials.create({ publicKey: options });
-        const finishPayload = serializeCredential(cred);
-        await api('/admin/passkey/registration/finish', { method: 'POST', json: finishPayload });
-        await loadAll();
-      } catch (err) {
-        console.error(err);
-        alert(`Passkey create failed: ${err.message}`);
-      } finally {
-        passkeyCreateBtn.disabled = false;
-      }
-    }
-
-    async function testPasskeyAuth() {
-      if (!passkeyTestBtn) return;
-      passkeyTestBtn.disabled = true;
-      try {
-        const request = await api('/admin/passkey/auth/options', { method: 'POST' });
-        const options = normalizeRequestOptions(request.data);
-        const assertion = await navigator.credentials.get({ publicKey: options });
-        const finishPayload = serializeCredential(assertion);
-        await api('/admin/passkey/auth/finish', { method: 'POST', json: finishPayload });
-        await loadAll();
-      } catch (err) {
-        console.error(err);
-        alert(`Passkey auth failed: ${err.message}`);
-      } finally {
-        passkeyTestBtn.disabled = false;
-      }
-    }
-
-    async function removePasskey() {
-      if (!passkeyRemoveBtn) return;
-      passkeyRemoveBtn.disabled = true;
-      try {
-        await api('/admin/passkey', { method: 'DELETE' });
-        await loadAll();
-      } catch (err) {
-        alert(`Passkey removal failed: ${err.message}`);
-      } finally {
-        passkeyRemoveBtn.disabled = false;
-      }
-    }
-
-    async function autoReauthPasskey() {
-      try {
-        const request = await api('/admin/passkey/auth/options', { method: 'POST' });
-        const options = normalizeRequestOptions(request.data);
-        const assertion = await navigator.credentials.get({ publicKey: options });
-        const finishPayload = serializeCredential(assertion);
-        await api('/admin/passkey/auth/finish', { method: 'POST', json: finishPayload });
-        await loadAll();
-        hidePasskeyReauth();
-      } catch (err) {
-        console.error('passkey reauth failed', err);
-        showPasskeyReauth(err?.message || 'Passkey authentication required');
-      }
-    }
-
-    function showPasskeyReauth(reason) {
-      if (!passkeyReauthModal) return;
-      const body = passkeyReauthModal.querySelector('p.muted');
-      if (body && reason) body.textContent = reason;
-      passkeyReauthModal.classList.add('show');
-    }
-
-    function hidePasskeyReauth() {
-      passkeyReauthModal?.classList.remove('show');
-    }
-
     function showAccessBlock(title, body) {
       if (!accessBlockModal) return;
       if (accessBlockTitle && title) accessBlockTitle.textContent = title;
@@ -638,34 +517,17 @@
     }
 
     function maybeShowAccessBlock() {
-      const passkeyRequired = currentOverview?.passkey?.required === true;
-      const passkeyCreated = currentOverview?.passkey?.created === true;
-      const passkeyPresent = currentOverview?.passkey?.present === true;
-      const passkeyAuth = currentOverview?.passkey?.auth || 'none';
       const mtlsRequired = currentOverview?.mtls?.required === true;
       const mtlsPresent = currentOverview?.mtls?.present === true;
 
-      // If mTLS is required and missing, block immediately.
       if (mtlsRequired && !mtlsPresent) {
         showAccessBlock('mTLS required', 'Present a valid client certificate to continue.');
         return;
       }
 
-      // If passkey is required and not yet created/present, prompt enrollment.
-      if (passkeyRequired && !passkeyCreated) {
-        showAccessBlock('Passkey enrollment required', 'Create a passkey to finish admin sign-in. mTLS is already satisfied.');
-        return;
-      }
-
-      if (passkeyRequired && passkeyCreated && !passkeyPresent) {
-        showAccessBlock('Passkey authentication required', 'Authenticate with your passkey to continue.');
-        showPasskeyReauth('Passkey session expired. Continue to re-auth.');
-        autoReauthPasskey();
-        return;
-      }
-
       hideAccessBlock();
     }
+
 
     async function loadCdxSilent() {
       if (!cdxSilentToggle) return;
@@ -704,8 +566,6 @@
         window.__navStatus.setMtls(meta);
       }
     }
-
-    // (passkey handled above)
 
     function compareVersions(a, b) {
       const normalize = (v) => {
@@ -2970,7 +2830,6 @@
         const hostsList = hosts?.data?.hosts || [];
 
         setMtls(currentOverview.mtls);
-        setPasskey(currentOverview.passkey ?? null);
 
         renderStats(currentOverview, runner?.data || null);
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
@@ -3586,28 +3445,6 @@
     if (cdxSilentToggle) {
       cdxSilentToggle.addEventListener('change', () => {
         setCdxSilent(cdxSilentToggle.checked);
-      });
-    }
-    // Passkey controls only exist on settings page; no-ops when absent.
-    if (passkeyCreateBtn) {
-      passkeyCreateBtn.addEventListener('click', createPasskey);
-    }
-    if (passkeyTestBtn) {
-      passkeyTestBtn.addEventListener('click', testPasskeyAuth);
-    }
-    if (passkeyRemoveBtn) {
-      passkeyRemoveBtn.addEventListener('click', removePasskey);
-    }
-    if (passkeyReauthBtn) {
-      passkeyReauthBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        autoReauthPasskey();
-      });
-    }
-    if (passkeyReauthDismiss) {
-      passkeyReauthDismiss.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        hidePasskeyReauth();
       });
     }
     loadApiState();

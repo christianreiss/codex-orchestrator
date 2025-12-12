@@ -26,7 +26,6 @@
     </nav>
     <div class="nav-status">
       <span class="status-chip" id="mtlsStatus">mTLS: checking…</span>
-      <span class="status-chip" id="passkeyStatus">Passkey: n/a</span>
     </div>
     <div class="nav-actions">
       <button class="nav-btn primary" id="navNewHost">New host</button>
@@ -184,19 +183,9 @@
         <div class="modal-backdrop" id="accessBlockModal">
           <div class="modal">
             <h3 id="accessBlockTitle">Admin access blocked</h3>
-            <p class="muted" id="accessBlockBody">mTLS or passkey is required before continuing.</p>
+            <p class="muted" id="accessBlockBody">mTLS is required before continuing.</p>
             <div class="actions" style="margin-top:12px; justify-content:flex-end;">
               <button class="ghost" id="accessBlockDismiss">Close</button>
-            </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="passkeyReauthModal">
-          <div class="modal">
-            <h3>Re-authenticate with passkey</h3>
-            <p class="muted">Your session expired. Continue with your passkey to resume admin access.</p>
-            <div class="actions" style="margin-top:12px; justify-content:flex-end; gap:10px;">
-              <button class="ghost" id="passkeyReauthDismiss">Cancel</button>
-              <button class="primary" id="passkeyReauthBtn">Continue with passkey</button>
             </div>
           </div>
         </div>
@@ -413,27 +402,6 @@
                     <span class="track"><span class="thumb"></span></span>
                     <span class="toggle-text" id="apiToggleLabel">Enabled</span>
                   </label>
-                </div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Passkey</h3>
-                    <p class="muted" style="margin:2px 0 0;">Admin passkey creation and auth check.</p>
-                  </div>
-                </div>
-                <div class="setting-body">
-                  <div class="kv-grid" style="grid-template-columns: 160px 1fr;">
-                    <div class="muted">Created</div>
-                    <div id="passkeyCreatedCell" class="pill warn">Not created</div>
-                    <div class="muted">Last auth</div>
-                    <div id="passkeyAuthCell" class="pill warn">Never</div>
-                  </div>
-                  <div class="row-actions" style="margin-top:10px; gap:8px;">
-                    <button class="ghost tiny-btn" id="passkeyCreateBtn">Create / enroll</button>
-                    <button class="ghost tiny-btn" id="passkeyTestBtn">Test auth</button>
-                    <button class="ghost tiny-btn danger" id="passkeyRemoveBtn">Remove</button>
-                  </div>
                 </div>
               </div>
               <div class="setting-block">

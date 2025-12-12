@@ -6,7 +6,6 @@
 
   const nav = document.querySelector('.main-nav');
   const mtlsStatus = document.getElementById('mtlsStatus');
-  const passkeyStatus = document.getElementById('passkeyStatus');
   if (!nav) return;
 
   const groups = Array.from(nav.querySelectorAll('.nav-item.has-children'));
@@ -92,14 +91,6 @@
       if (meta.present) return setStatusChip(mtlsStatus, { label: 'mTLS: offered', variant: 'warn' });
       return setStatusChip(mtlsStatus, { label: 'mTLS: none', variant: 'err' });
     },
-    setPasskey: (meta) => {
-      if (!passkeyStatus) return;
-      if (!meta) return setStatusChip(passkeyStatus, { label: 'Passkey: unknown', variant: 'warn' });
-      // expected states: none, offered, enforced
-      if (meta.enforced) return setStatusChip(passkeyStatus, { label: 'Passkey: enforced', variant: 'ok' });
-      if (meta.present || meta.created) return setStatusChip(passkeyStatus, { label: 'Passkey: offered', variant: 'warn' });
-      return setStatusChip(passkeyStatus, { label: 'Passkey: none', variant: 'err' });
-    },
   };
 
   async function hydrateStatus() {
@@ -108,11 +99,9 @@
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       window.__navStatus.setMtls(json?.data?.mtls ?? null);
-      window.__navStatus.setPasskey(json?.data?.passkey ?? null);
     } catch (err) {
       // If mTLS/auth fail, surface a clear missing state so the chip doesn't sit on "checking…".
       window.__navStatus.setMtls({ required: true, present: false });
-      window.__navStatus.setPasskey({ required: false, present: false });
     }
   }
 
