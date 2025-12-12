@@ -411,6 +411,41 @@
       });
     }
 
+    function toast(message, tone = 'warn', { timeoutMs = 3500 } = {}) {
+      const msg = String(message || '').trim();
+      if (!msg) return;
+      const el = document.createElement('div');
+      el.className = `toast toast-${tone}`;
+      el.textContent = msg;
+      el.style.cssText = [
+        'position: fixed',
+        'right: 16px',
+        'bottom: 16px',
+        'z-index: 99999',
+        'max-width: 420px',
+        'padding: 10px 12px',
+        'border: 1px solid rgba(255,255,255,0.10)',
+        'border-radius: 10px',
+        'background: rgba(20,20,20,0.92)',
+        'color: #eee',
+        'box-shadow: 0 10px 30px rgba(0,0,0,0.40)',
+        'font-size: 13px',
+        'line-height: 1.35',
+      ].join(';');
+      if (tone === 'ok') {
+        el.style.borderColor = 'rgba(55, 188, 137, 0.55)';
+      } else if (tone === 'error') {
+        el.style.borderColor = 'rgba(255, 107, 107, 0.55)';
+      } else {
+        el.style.borderColor = 'rgba(246, 190, 0, 0.55)';
+      }
+      document.body.appendChild(el);
+      const kill = () => {
+        try { el.remove(); } catch {}
+      };
+      window.setTimeout(kill, timeoutMs);
+    }
+
     function copyToClipboard(text) {
       return navigator.clipboard?.writeText(text).catch(() => {
         const ta = document.createElement('textarea');
@@ -481,7 +516,7 @@
           apiToggleLabel.textContent = apiDisabled ? 'Disabled' : 'Enabled';
         }
       } catch (err) {
-        alert(`API toggle failed: ${err.message}`);
+        toast(`API toggle failed: ${err.message}`, 'error');
         apiToggle.checked = !enabled; // revert
       } finally {
         apiToggle.disabled = false;
@@ -499,7 +534,7 @@
         quotaHardFail = !!hardFail;
         renderQuotaMode();
       } catch (err) {
-        alert(`Quota policy update failed: ${err.message}`);
+        toast(`Quota policy update failed: ${err.message}`, 'error');
         quotaToggle.checked = quotaHardFail;
       } finally {
         quotaToggle.disabled = false;
@@ -524,7 +559,7 @@
           json: { hard_fail: quotaHardFail, limit_percent: normalized, week_partition: quotaWeekPartition },
         });
       } catch (err) {
-        alert(`Quota limit update failed: ${err.message}`);
+        toast(`Quota limit update failed: ${err.message}`, 'error');
         quotaLimitPercent = previous;
         renderQuotaLimit();
       } finally {
@@ -549,7 +584,7 @@
           json: { hard_fail: quotaHardFail, limit_percent: quotaLimitPercent, week_partition: normalized },
         });
       } catch (err) {
-        alert(`Week partition update failed: ${err.message}`);
+        toast(`Week partition update failed: ${err.message}`, 'error');
         quotaWeekPartition = previous;
         renderQuotaPartition();
       } finally {
@@ -609,7 +644,7 @@
           json: { silent: !!nextValue },
         });
       } catch (err) {
-        alert(`cdx silent update failed: ${err.message}`);
+        toast(`cdx silent update failed: ${err.message}`, 'error');
         cdxSilent = previous;
         renderCdxSilent();
       } finally {
@@ -1187,8 +1222,10 @@
             showHostDetailModal(false);
             regenerateInstaller(host.fqdn, host.id);
           } else if (action === 'clear') {
+            if (!confirm(`Clear auth for ${host.fqdn}?`)) return;
             confirmClear(host.id);
           } else if (action === 'remove') {
+            if (!confirm(`Remove ${host.fqdn}? This cannot be undone.`)) return;
             showHostDetailModal(false);
             openDeleteModal(host.id);
           }
