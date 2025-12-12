@@ -25,7 +25,7 @@ services:
       AUTH_RUNNER_TIMEOUT: ${AUTH_RUNNER_TIMEOUT:-8}
       AUTH_RUNNER_IP_BYPASS: ${AUTH_RUNNER_IP_BYPASS:-1}
       AUTH_RUNNER_BYPASS_SUBNETS: ${AUTH_RUNNER_BYPASS_SUBNETS:-172.28.0.0/16,172.30.0.0/16}
-      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls_only}
+      ADMIN_REQUIRE_MTLS: ${ADMIN_REQUIRE_MTLS:-1}
     volumes:
       - ${ENV_FILE:-./.env}:/var/www/html/.env
       - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
@@ -106,7 +106,7 @@ services:
       CADDY_TLS_CERT_FILE: ${CADDY_TLS_CERT_FILE:-/etc/caddy/tls/tls.crt}
       CADDY_TLS_KEY_FILE: ${CADDY_TLS_KEY_FILE:-/etc/caddy/tls/tls.key}
       CADDY_MTLS_CA_FILE: ${CADDY_MTLS_CA_FILE:-/etc/caddy/mtls/ca.crt}
-      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls_only}
+      ADMIN_REQUIRE_MTLS: ${ADMIN_REQUIRE_MTLS:-1}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/tls-acme.caddy:/etc/caddy/tls-acme.caddy:ro

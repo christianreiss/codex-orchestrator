@@ -22,12 +22,14 @@ $mtlsFingerprint = $_SERVER['HTTP_X_MTLS_FINGERPRINT'] ?? '';
 $mtlsSubject = $_SERVER['HTTP_X_MTLS_SUBJECT'] ?? '';
 $mtlsIssuer = $_SERVER['HTTP_X_MTLS_ISSUER'] ?? '';
 
-// Interpret admin access mode (kept in sync with public/index.php)
-$mode = strtolower((string) (getenv('ADMIN_ACCESS_MODE') ?: ($_ENV['ADMIN_ACCESS_MODE'] ?? 'mtls_only')));
-if (!in_array($mode, ['none', 'mtls_only'], true)) {
-    $mode = 'mtls_only';
+// Admin TLS policy (kept in sync with public/index.php).
+// Default is mTLS required unless ADMIN_REQUIRE_MTLS is explicitly set false-y.
+$requireMtls = getenv('ADMIN_REQUIRE_MTLS');
+if ($requireMtls === false && array_key_exists('ADMIN_REQUIRE_MTLS', $_ENV)) {
+    $requireMtls = (string) $_ENV['ADMIN_REQUIRE_MTLS'];
 }
-$mtlsRequired = $mode === 'mtls_only';
+$requireMtls = strtolower(trim((string) ($requireMtls === false ? '1' : $requireMtls)));
+$mtlsRequired = !in_array($requireMtls, ['0', 'false', 'off', 'no', ''], true);
 
 function isMobileUserAgent(string $userAgent): bool
 {
@@ -43,7 +45,7 @@ if ($mtlsRequired && !$hasValidFingerprint) {
     exit;
 }
 
-// Passkey requirement is enforced via public/index.php for JSON routes; the front controller remains thin.
+// No passkey system; admin enforcement is mTLS-only (or disabled explicitly).
 
 $html = __DIR__ . '/index.html';
 if (!is_file($html)) {

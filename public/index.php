@@ -2616,11 +2616,10 @@ function installerError(string $message, int $status = 400, ?string $expiresAt =
 
 function adminAccessMode(): string
 {
-    $mode = strtolower((string) Config::get('ADMIN_ACCESS_MODE', 'mtls_only'));
-    return match ($mode) {
-        'none', 'mtls_only' => $mode,
-        default => 'mtls_only',
-    };
+    $require = Config::get('ADMIN_REQUIRE_MTLS', '1');
+    $normalized = strtolower(trim((string) $require));
+    $enabled = !in_array($normalized, ['0', 'false', 'off', 'no', ''], true);
+    return $enabled ? 'mtls_only' : 'none';
 }
 
 function isMtlsRequired(): bool

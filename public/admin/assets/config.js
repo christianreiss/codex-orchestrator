@@ -555,8 +555,34 @@
         body: JSON.stringify({ settings, sha256: lastRenderedSha || undefined }),
       });
       if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`HTTP ${res.status}${errText ? `: ${errText}` : ''}`);
+        let message = `HTTP ${res.status}`;
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+          try {
+            const json = await res.json();
+            const serverMessage = typeof json?.message === 'string' ? json.message : '';
+            const errors = json?.errors && typeof json.errors === 'object' ? json.errors : null;
+            const errorList = [];
+            if (errors) {
+              Object.entries(errors).forEach(([key, vals]) => {
+                if (Array.isArray(vals)) {
+                  vals.forEach((v) => errorList.push(`${key}: ${String(v)}`));
+                } else if (vals) {
+                  errorList.push(`${key}: ${String(vals)}`);
+                }
+              });
+            }
+            if (serverMessage) message += ` · ${serverMessage}`;
+            if (errorList.length) message += ` · ${errorList.join('; ')}`;
+          } catch (_) {
+            // fall through to text
+          }
+        }
+        if (message === `HTTP ${res.status}`) {
+          const errText = await res.text();
+          if (errText) message += `: ${errText}`;
+        }
+        throw new Error(message);
       }
       const json = await res.json();
       const data = json.data || {};
@@ -569,7 +595,8 @@
       }
     } catch (err) {
       console.error('save config', err);
-      setStatus('Save failed');
+      const details = err && err.message ? String(err.message) : '';
+      setStatus(details ? `Save failed (${details})` : 'Save failed');
     }
   }
 

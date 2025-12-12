@@ -19,7 +19,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Hardening Checklist (code-backed)
 
-- **TLS/mTLS for admin**: Admin routes require mTLS by default (`ADMIN_REQUIRE_MTLS=1`). If you disable mTLS (`ADMIN_REQUIRE_MTLS=0`), put the admin surface behind VPN/firewall; the `DASHBOARD_ADMIN_KEY` overlay has been removed.
+- **TLS/mTLS for admin**: Admin routes require mTLS by default (`ADMIN_REQUIRE_MTLS=1`). If you disable mTLS (`ADMIN_REQUIRE_MTLS=0`), put the admin surface behind VPN/firewall.
 - **API key binding**: Host API keys are IP-bound on first use; later calls from a different IP are 403 unless roaming is allowed or an admin toggles the roaming flag. Runner-only bypass can be enabled via `AUTH_RUNNER_IP_BYPASS` + CIDRs.
 - **Encryption at rest**: Canonical auth bodies and per-target tokens are encrypted with libsodium `secretbox` (`sbox:v1:`) using `AUTH_ENCRYPTION_KEY` (auto-generated into `.env` on first boot). Host API keys are hashed (SHA-256) for lookup and also stored encrypted (`api_key_enc`).
 - **Rate limits**: Global IP bucket (default 120 req / 60s, non-admin) and a dedicated auth-failure bucket (default 20 fails / 10m, 30m block) backed by `ip_rate_limits`.
