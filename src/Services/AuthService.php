@@ -1395,6 +1395,23 @@ class AuthService
         return null;
     }
 
+    public static function dailyAllowanceForPartition(int $quotaLimitPercent, int $partitionDays): int
+    {
+        $limit = $quotaLimitPercent;
+        if ($limit < self::MIN_QUOTA_LIMIT_PERCENT) {
+            $limit = self::MIN_QUOTA_LIMIT_PERCENT;
+        } elseif ($limit > self::MAX_QUOTA_LIMIT_PERCENT) {
+            $limit = self::MAX_QUOTA_LIMIT_PERCENT;
+        }
+        if ($partitionDays !== self::QUOTA_WEEK_PARTITION_FIVE_DAY && $partitionDays !== self::QUOTA_WEEK_PARTITION_SEVEN_DAY) {
+            return 0;
+        }
+
+        // Match cdx bash rounding: (limit + days/2) / days
+        $allowance = (int) floor(($limit + ($partitionDays / 2)) / $partitionDays);
+        return max(1, $allowance);
+    }
+
     private function quotaLimitPercent(): int
     {
         $stored = $this->versions->get('quota_limit_percent');
