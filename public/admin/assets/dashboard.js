@@ -74,7 +74,7 @@
     const promptCancel = document.getElementById('promptCancel');
     const promptStatus = document.getElementById('promptStatus');
     const promptsPanel = document.getElementById('prompts-panel');
-    const agentsPanel = document.getElementById('agents-panel');
+    const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
     const memoriesPanel = document.getElementById('memories-panel');
     const memoriesTableBody = document.querySelector('#memories tbody');
@@ -264,7 +264,7 @@
         eyebrow: 'Agents',
         title: 'Canonical AGENTS.md',
         copy: 'Synced to every host via cdx.',
-        show: ['agents-panel'],
+        show: ['settings-panel'],
       },
       prompts: {
         eyebrow: 'Slash commands',
@@ -296,7 +296,7 @@
       // Use the live body dataset view to reflect navigation without reloads.
       const activeView = (document.body?.dataset?.viewMode || viewMode || 'dashboard').toLowerCase();
       const config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'agents-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -738,8 +738,6 @@
 
     function renderAgents(doc) {
       currentAgents = doc || null;
-      if (!agentsPanel) return;
-      agentsPanel.style.display = 'block';
 
       const status = doc?.status || 'missing';
       const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
@@ -763,8 +761,11 @@
         agentsPreview.classList.toggle('muted', status === 'missing');
       }
 
-      if (agentsEditorInline && (agentsEditorInline.value || '').trim() === '' && typeof doc?.content === 'string') {
-        agentsEditorInline.value = doc.content;
+      if (agentsEditorInline) {
+        const editing = !agentsEditorInline.hidden;
+        if (!editing && typeof doc?.content === 'string') {
+          agentsEditorInline.value = doc.content;
+        }
       }
     }
 

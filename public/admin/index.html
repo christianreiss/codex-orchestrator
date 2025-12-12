@@ -470,28 +470,15 @@
                 <p class="muted">Synced to every host via cdx.</p>
               </div>
               <div class="panel-actions">
-                <button class="ghost tiny-btn" id="editAgentsBtn">Edit</button>
+                <button class="ghost tiny-btn" id="agentsEditToggle" title="Click to edit inline">Edit</button>
+                <button class="primary tiny-btn" id="agentsSaveInline" hidden>Save</button>
               </div>
             </div>
             <div id="agentsStatus" class="muted" style="margin-bottom:8px;"></div>
             <div id="agentsMeta" class="muted" style="margin-bottom:8px;"></div>
-            <pre id="agentsPreview" class="code-block" style="max-height:65vh; overflow:auto;"></pre>
+            <pre id="agentsPreview" class="code-block" style="max-height:65vh; overflow:auto; cursor:text;"></pre>
+            <textarea id="agentsEditorInline" rows="18" spellcheck="false" hidden style="width:100%; max-height:65vh; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;"></textarea>
           </section>
-          <div class="modal-backdrop" id="agentsModal">
-            <div class="modal">
-              <h3>Edit canonical AGENTS.md</h3>
-              <p class="muted">Saved content syncs to every host on the next cdx run.</p>
-              <div class="field">
-                <label for="agentsBody" style="font-weight:600;">AGENTS.md</label>
-                <textarea id="agentsBody" rows="18" spellcheck="false" placeholder="# AGENTS.md"></textarea>
-              </div>
-              <div id="agentsModalStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
-              <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
-                <button class="ghost" id="agentsCancel">Cancel</button>
-                <button id="agentsSave">Save</button>
-              </div>
-            </div>
-          </div>
           <section class="card panel" data-settings-panel="prompts" hidden>
             <div class="panel-head">
               <div>
