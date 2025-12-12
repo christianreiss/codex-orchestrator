@@ -1213,7 +1213,7 @@
               await toggleInsecureApi(host, null, desired);
             }
           } catch (err) {
-            alert(`Error: ${err.message}`);
+            console.error('host toggle failed', { action, err });
             input.checked = !desired;
           } finally {
             input.disabled = false;
@@ -1249,7 +1249,7 @@
             });
             await loadAll();
           } catch (err) {
-            alert(`Save failed: ${err.message}`);
+            console.error('save host model overrides failed', err);
           } finally {
             saveBtn.disabled = false;
             saveBtn.textContent = original;
@@ -4059,7 +4059,6 @@
 
     async function toggleInsecureApi(host, button = null, desiredState = null) {
       if (!host || isHostSecure(host)) {
-        alert('Host is secure; insecure API window not available.');
         return;
       }
       const state = insecureState(host);
@@ -4080,7 +4079,7 @@
         await api(path, request);
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        console.error('toggleInsecureApi failed', err);
       } finally {
         if (button) {
           button.disabled = false;
