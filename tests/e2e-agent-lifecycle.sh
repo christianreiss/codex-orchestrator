@@ -99,7 +99,7 @@ installer_headers="$TMP_ROOT/installer.hdr"
 curl "${curl_base_args[@]}" -D "$installer_headers" -o "$installer_path" -sS "$INSTALL_URL" || fail "installer download failed"
 inst_status=$(awk 'NR==1 {print $2}' "$installer_headers")
 [[ "$inst_status" == "200" ]] || fail "installer expected 200, got ${inst_status:-unknown}"
-grep -q "curl -fsSL \"$BASE_URL/wrapper/download\"" "$installer_path" || fail "installer missing wrapper download URL"
+grep -Eq "curl(_fetch)? -fsSL \\\"$BASE_URL/wrapper/download\\\"" "$installer_path" || fail "installer missing wrapper download URL"
 grep -q "X-API-Key: ${API_KEY}" "$installer_path" || fail "installer missing API key"
 grep -q "Installing Codex for ${HOST_FQDN} via ${BASE_URL}" "$installer_path" || fail "installer missing fqdn/base line"
 second_status=$(curl "${curl_base_args[@]}" -s -o /dev/null -w '%{http_code}' "$INSTALL_URL")

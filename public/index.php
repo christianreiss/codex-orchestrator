@@ -122,7 +122,7 @@ $pricingService = new PricingService(
 );
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId);
+$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox);
 $runnerVerifier = null;
 $runnerUrl = Config::get('AUTH_RUNNER_URL', '');
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {

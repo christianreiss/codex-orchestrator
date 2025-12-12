@@ -10,6 +10,7 @@
 namespace App\Services;
 
 use App\Repositories\VersionRepository;
+use App\Security\SecretBox;
 use RuntimeException;
 
 class WrapperService
@@ -18,7 +19,8 @@ class WrapperService
         private readonly VersionRepository $versions,
         private readonly string $storagePath,
         private readonly string $seedPath,
-        private readonly ?string $installationId = null
+        private readonly ?string $installationId = null,
+        private readonly ?SecretBox $secretBox = null
     ) {
         $directory = dirname($this->storagePath);
         if (!is_dir($directory)) {
@@ -101,7 +103,11 @@ class WrapperService
             return array_merge($meta, ['content' => null]);
         }
 
-        $apiKey = (string) ($host['api_key'] ?? '');
+        // hosts.api_key stores a hash for lookup/back-compat; the baked wrapper needs the plaintext key.
+        $apiKey = (string) ($host['api_key_plain'] ?? '');
+        if ($apiKey === '' && $this->secretBox !== null && isset($host['api_key_enc'])) {
+            $apiKey = $this->secretBox->decrypt((string) $host['api_key_enc']);
+        }
         $fqdn = (string) ($host['fqdn'] ?? '');
         $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
