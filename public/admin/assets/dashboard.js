@@ -511,6 +511,7 @@
       const previous = quotaLimitPercent;
       quotaLimitPercent = normalized;
       renderQuotaLimit();
+      renderQuotaPartition();
       quotaLimitSlider.disabled = true;
       try {
         await api('/admin/quota-mode', {
@@ -1543,10 +1544,13 @@
     function renderMemories(memories) {
       currentMemories = Array.isArray(memories) ? memories : [];
       if (!memoriesTableBody) return;
+      const memoriesEmptyState = document.getElementById('memoriesEmptyState');
       if (currentMemories.length === 0) {
-        memoriesTableBody.innerHTML = '<tr><td colspan="4" class="muted" style="padding:12px;">No memories found</td></tr>';
+        memoriesTableBody.innerHTML = '';
+        if (memoriesEmptyState) memoriesEmptyState.hidden = false;
         return;
       }
+      if (memoriesEmptyState) memoriesEmptyState.hidden = true;
 
       memoriesTableBody.innerHTML = currentMemories.map((row) => {
         const id = row.id || '—';
@@ -1588,6 +1592,7 @@
       let limit = Number(memoriesLimitInput?.value || 50);
       if (!Number.isFinite(limit) || limit <= 0) limit = 50;
       if (limit > 200) limit = 200;
+      const memoriesEmptyState = document.getElementById('memoriesEmptyState');
 
       const params = new URLSearchParams();
       if (query) params.set('q', query);
@@ -1607,6 +1612,7 @@
         if (memoriesTableBody) {
           memoriesTableBody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:12px;">Error: ${escapeHtml(err.message)}</td></tr>`;
         }
+        if (memoriesEmptyState) memoriesEmptyState.hidden = true;
       } finally {
         memoriesLoading = false;
         if (memoriesRefreshBtn) {
@@ -2517,6 +2523,14 @@
       return QUOTA_WEEK_PARTITION_OFF;
     }
 
+    function computeDailyAllowance(limitPercent, partitionDays) {
+      const limit = clampQuotaLimitPercent(limitPercent);
+      const days = Number(partitionDays);
+      if (!Number.isFinite(days) || (days !== 5 && days !== 7)) return null;
+      // Match bash rounding: (limit + days/2) / days
+      return Math.max(1, Math.round((limit + days / 2) / days));
+    }
+
     function renderQuotaLimit() {
       if (quotaLimitSlider) {
         quotaLimitSlider.value = String(quotaLimitPercent);
@@ -2533,11 +2547,25 @@
       if (quotaPartitionLabel) {
         let label = 'Off';
         if (quotaWeekPartition === QUOTA_WEEK_PARTITION_SEVEN) {
-          label = '7 days (100/7 daily)';
+          const perDay = computeDailyAllowance(quotaLimitPercent, 7);
+          label = perDay ? `7 days (${quotaLimitPercent}/${7} daily ≈ ${perDay}%)` : '7 days';
         } else if (quotaWeekPartition === QUOTA_WEEK_PARTITION_FIVE) {
-          label = '5 days (100/5 daily)';
+          const perDay = computeDailyAllowance(quotaLimitPercent, 5);
+          label = perDay ? `5 days (${quotaLimitPercent}/${5} daily ≈ ${perDay}%)` : '5 days';
         }
         quotaPartitionLabel.textContent = label;
+      }
+
+      // Keep <select> option labels in sync with the live quota slider.
+      if (quotaPartitionSelect) {
+        const options = Array.from(quotaPartitionSelect.querySelectorAll('option'));
+        options.forEach((opt) => {
+          const days = Number(opt.getAttribute('data-days'));
+          if (!(days === 5 || days === 7)) return;
+          const perDay = computeDailyAllowance(quotaLimitPercent, days);
+          const base = days === 7 ? '7 days' : '5 days: Mon-Fri';
+          opt.textContent = perDay ? `${base} (${quotaLimitPercent}/${days} daily ≈ ${perDay}%)` : base;
+        });
       }
     }
 

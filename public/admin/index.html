@@ -385,8 +385,8 @@
                   </div>
                   <select id="quotaPartitionSelect" class="quota-partition-select">
                     <option value="0">Off (default)</option>
-                    <option value="7">7 days (100/7 daily)</option>
-                    <option value="5">5 days: Mon-Fri (100/5 daily)</option>
+                    <option value="7" data-days="7">7 days</option>
+                    <option value="5" data-days="5">5 days: Mon-Fri</option>
                   </select>
                   <p class="muted quota-limit-foot">Adds a daily allowance bar in cdx; honours deny/warn mode.</p>
                 </div>
@@ -537,6 +537,15 @@
                 </thead>
                 <tbody></tbody>
               </table>
+            </div>
+            <div id="memoriesEmptyState" class="empty-state-box" hidden>
+              <div class="empty-state-title">No memories yet</div>
+              <div class="muted" style="margin-top:6px;">
+                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
+              </div>
+              <div class="muted" style="margin-top:10px;">
+                Tip: start with “Show” → “Refresh”, then search by tag (e.g. <code>project:foo</code>).
+              </div>
             </div>
           </section>
           <section class="card panel" data-settings-panel="config" hidden>

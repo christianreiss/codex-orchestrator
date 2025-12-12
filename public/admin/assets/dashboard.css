@@ -2298,6 +2298,29 @@ body.embed .hero-actions { display: none !important; }
 .mcp-accordion summary::-webkit-details-marker { display: none; }
 .mcp-accordion .list-rows { padding: 0 12px 12px; margin-bottom: 0; }
 
+.empty-state-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.empty-state-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.empty-state-box code {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 12px;
+  background: var(--frost);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
 /* dashboard specific spacing: tighter top padding when hero removed */
 body[data-view-mode="dashboard"] .content {
   padding-top: 8px;
