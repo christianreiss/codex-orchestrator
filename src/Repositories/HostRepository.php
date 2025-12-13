@@ -138,8 +138,8 @@ class HostRepository
         $encrypted = $this->encryptApiKey($apiKey);
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, vip, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :vip, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, vip, model_override, reasoning_effort_override, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :vip, :model_override, :reasoning_effort_override, :created_at, :updated_at)'
         );
         $statement->execute([
             'fqdn' => $fqdn,
@@ -149,6 +149,8 @@ class HostRepository
             'status' => 'active',
             'secure' => $secure ? 1 : 0,
             'vip' => 0,
+            'model_override' => null,
+            'reasoning_effort_override' => null,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -357,6 +359,24 @@ class HostRepository
 
         $statement->execute([
             'vip' => $vip ? 1 : 0,
+            'id' => $hostId,
+        ]);
+    }
+
+    public function updateModelOverrides(int $hostId, ?string $modelOverride, ?string $reasoningEffortOverride): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts
+             SET model_override = :model_override,
+                 reasoning_effort_override = :reasoning_effort_override,
+                 updated_at = :updated_at
+             WHERE id = :id'
+        );
+
+        $statement->execute([
+            'model_override' => $modelOverride,
+            'reasoning_effort_override' => $reasoningEffortOverride,
+            'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
     }

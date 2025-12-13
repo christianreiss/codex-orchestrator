@@ -1720,10 +1720,10 @@ PY
   return "$status"
 }
 
-if [[ -n "$CODEX_MODEL_PRESET" ]]; then
-  set -- --model "$CODEX_MODEL_PRESET" "$@"
-elif [[ -n "$CODEX_HOST_MODEL" ]]; then
+if [[ -n "$CODEX_HOST_MODEL" ]]; then
   set -- --model "$CODEX_HOST_MODEL" "$@"
+elif [[ -n "$CODEX_MODEL_PRESET" ]]; then
+  set -- --model "$CODEX_MODEL_PRESET" "$@"
 fi
 
 if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then

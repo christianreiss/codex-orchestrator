@@ -112,6 +112,14 @@ class WrapperService
         $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
         $cdxSilent = $this->versions->getFlag('cdx_silent', false);
+        $escapeBashDefault = static function (string $value): string {
+            $value = str_replace(["\r", "\n"], '', $value);
+            return str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $value);
+        };
+
+        $modelOverride = trim((string) ($host['model_override'] ?? ''));
+        $reasoningOverride = trim((string) ($host['reasoning_effort_override'] ?? ''));
+
         $replacements = [
             '__CODEX_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
             '__CODEX_SYNC_API_KEY__' => $apiKey,
@@ -123,6 +131,12 @@ class WrapperService
             '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
             '__CODEX_SILENT__' => $cdxSilent ? '1' : '0',
         ];
+        if ($modelOverride !== '') {
+            $replacements['__CODEX_HOST_MODEL__'] = $escapeBashDefault($modelOverride);
+        }
+        if ($reasoningOverride !== '') {
+            $replacements['__CODEX_HOST_REASONING_EFFORT__'] = $escapeBashDefault($reasoningOverride);
+        }
 
         $rendered = strtr($template, $replacements);
         $sha = hash('sha256', $rendered) ?: null;

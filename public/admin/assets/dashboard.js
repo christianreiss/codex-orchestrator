@@ -1,5 +1,5 @@
     const statsEl = document.getElementById('stats');
-    const hostsTbody = document.querySelector('#hosts tbody');
+    const hostsTbody = document.querySelector('#hosts-table tbody');
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
@@ -1206,13 +1206,10 @@
                 <option value="xhigh">xhigh</option>
               </select>
             </div>
-            <div class="field" style="min-width:120px;">
-              <label>&nbsp;</label>
-              <button class="ghost tiny-btn" type="button" id="saveHostModelOverrides">Save</button>
-            </div>
           </div>
           <div class="muted-note" style="margin-top:6px;">
             Overrides affect the baked <code>cdx</code> wrapper for this host. “Standard” = use fleet-wide config.
+            <span id="hostModelOverrideSaveState" class="muted" style="margin-left:10px;"></span>
           </div>
         </div>
         <div class="host-action-buttons">
@@ -1271,38 +1268,54 @@
 
       const modelSelect = hostDetailActions.querySelector('#hostModelOverrideSelect');
       const effortSelect = hostDetailActions.querySelector('#hostReasoningEffortSelect');
-      const saveBtn = hostDetailActions.querySelector('#saveHostModelOverrides');
+      const saveState = hostDetailActions.querySelector('#hostModelOverrideSaveState');
       if (modelSelect) {
         modelSelect.value = (host.model_override || '').trim();
       }
       if (effortSelect) {
         effortSelect.value = (host.reasoning_effort_override || '').trim();
       }
-      if (saveBtn) {
-        saveBtn.onclick = async (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          const original = saveBtn.textContent;
-          saveBtn.disabled = true;
-          saveBtn.textContent = 'Saving…';
-          try {
-            const modelVal = modelSelect ? String(modelSelect.value || '') : '';
-            const effortVal = effortSelect ? String(effortSelect.value || '') : '';
-            await api(`/admin/hosts/${host.id}/model`, {
-              method: 'POST',
-              json: {
-                model_override: modelVal === '' ? null : modelVal,
-                reasoning_effort_override: effortVal === '' ? null : effortVal,
-              },
-            });
-            await loadAll();
-          } catch (err) {
-            console.error('save host model overrides failed', err);
-          } finally {
-            saveBtn.disabled = false;
-            saveBtn.textContent = original;
+      const saveOverrides = async () => {
+        const modelVal = modelSelect ? String(modelSelect.value || '') : '';
+        const effortVal = effortSelect ? String(effortSelect.value || '') : '';
+        if (saveState) saveState.textContent = 'Saving…';
+        if (modelSelect) modelSelect.disabled = true;
+        if (effortSelect) effortSelect.disabled = true;
+        try {
+          await api(`/admin/hosts/${host.id}/model`, {
+            method: 'POST',
+            json: {
+              model_override: modelVal === '' ? null : modelVal,
+              reasoning_effort_override: effortVal === '' ? null : effortVal,
+            },
+          });
+          if (saveState) saveState.textContent = 'Saved';
+          await loadAll();
+        } catch (err) {
+          if (saveState) saveState.textContent = 'Save failed';
+          console.error('save host model overrides failed', err);
+        } finally {
+          if (modelSelect) modelSelect.disabled = false;
+          if (effortSelect) effortSelect.disabled = false;
+          if (saveState) {
+            window.setTimeout(() => {
+              if (saveState.textContent === 'Saved') saveState.textContent = '';
+            }, 1500);
           }
-        };
+        }
+      };
+
+      if (modelSelect) {
+        modelSelect.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          await saveOverrides();
+        });
+      }
+      if (effortSelect) {
+        effortSelect.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          await saveOverrides();
+        });
       }
     }
 

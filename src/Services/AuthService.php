@@ -1723,6 +1723,8 @@ class AuthService
                 ? (int) $host['insecure_window_minutes']
                 : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
+            'model_override' => $host['model_override'] ?? null,
+            'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
         ];
 
         if ($includeApiKey) {

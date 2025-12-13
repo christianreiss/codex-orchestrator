@@ -443,6 +443,8 @@ class Database
         $this->ensureColumnExists('hosts', 'insecure_window_minutes', 'INT NULL');
         $this->ensureColumnExists('hosts', 'force_ipv4', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'vip', 'TINYINT(1) NOT NULL DEFAULT 0');
+        $this->ensureColumnExists('hosts', 'model_override', 'VARCHAR(128) NULL');
+        $this->ensureColumnExists('hosts', 'reasoning_effort_override', 'VARCHAR(32) NULL');
         $this->ensureColumnExists('hosts', 'api_key_hash', 'CHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');

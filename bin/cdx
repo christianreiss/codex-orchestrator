@@ -237,7 +237,7 @@ if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.12-01"
+WRAPPER_VERSION="2025.12.13-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -4655,10 +4655,10 @@ PY
   return "$status"
 }
 
-if [[ -n "$CODEX_MODEL_PRESET" ]]; then
-  set -- --model "$CODEX_MODEL_PRESET" "$@"
-elif [[ -n "$CODEX_HOST_MODEL" ]]; then
+if [[ -n "$CODEX_HOST_MODEL" ]]; then
   set -- --model "$CODEX_HOST_MODEL" "$@"
+elif [[ -n "$CODEX_MODEL_PRESET" ]]; then
+  set -- --model "$CODEX_MODEL_PRESET" "$@"
 fi
 
 if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
