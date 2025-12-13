@@ -194,6 +194,23 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertNotSame($first['sha256'], $second['sha256'], 'baked sha must change when API key changes');
     }
 
+    public function testRenderForHostAppliesPerHostModelOverrides(): void
+    {
+        $rendered = $this->service->renderForHost([
+            'model' => 'gpt-5.2',
+            'model_reasoning_effort' => 'xhigh',
+            'approval_policy' => 'on-request',
+            'sandbox_mode' => 'workspace-write',
+        ], [
+            'id' => 1,
+            'model_override' => 'gpt-5.1-codex-mini',
+            'reasoning_effort_override' => 'medium',
+        ], 'https://example.test', 'api-key-one');
+
+        $this->assertStringContainsString('model = "gpt-5.1-codex-mini"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+    }
+
     public function testStoreDetectsSettingsOnlyChange(): void
     {
         $first = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);

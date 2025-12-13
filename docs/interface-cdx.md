@@ -12,14 +12,15 @@
 - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`. Server-retired prompts are removed locally.
   - Slash command sync treats API outages/HTTP 5xx as offline (warn) instead of a hard failure; prompt push still runs when possible.
   - AGENTS.md is pulled from `/agents/retrieve` on every run and written to `~/.codex/AGENTS.md` (directory created if missing). The file is **never** pushed upstream; if the server reports `status:missing`, the local AGENTS.md is deleted to avoid stale instructions. Python is required for sync; missing config or offline servers are reported but do not block auth.
-  - `config.toml` is pulled from `/config/retrieve` and written to `~/.codex/config.toml`. The server bakes it per host using the caller’s API key and native HTTP MCP:  
-    ```toml
-    [mcp_servers.cdx]
-    url = "{base_url}/mcp"
-    http_headers = { Authorization = "Bearer {host_api_key}" }
-    ```  
-    Responses include `status:updated|unchanged|missing`, baked `sha256`, `base_sha256`, and `content` only when changed. When the server reports `status:missing`, the local file is deleted; offline/missing-config states are surfaced as warnings but do not block auth.
-  - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
+	  - `config.toml` is pulled from `/config/retrieve` and written to `~/.codex/config.toml`. The server bakes it per host using the caller’s API key and native HTTP MCP:  
+	    ```toml
+	    [mcp_servers.cdx]
+	    url = "{base_url}/mcp"
+	    http_headers = { Authorization = "Bearer {host_api_key}" }
+	    ```  
+	    When per-host model overrides are set (via the admin Hosts modal), the server also applies them to the baked `config.toml` (`model` and `model_reasoning_effort`) so the host’s file reflects its effective defaults.
+	    Responses include `status:updated|unchanged|missing`, baked `sha256`, `base_sha256`, and `content` only when changed. When the server reports `status:missing`, the local file is deleted; offline/missing-config states are surfaced as warnings but do not block auth.
+	  - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary, and self-updates the wrapper.
   - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`. The server calculates and stores per-entry/aggregate costs from pricing (env fallbacks `GPT51_*`/`PRICING_CURRENCY`).
   - MCP-compatible memory endpoints live under `/mcp/memories/*` (store/retrieve/search) and reuse the host API key; clients can sync cross-session memories there (content ≤32k, up to 32 tags).
   - The streamable MCP server at `/mcp` (protocol `2025-03-26`) advertises `memory_store|memory_retrieve|memory_search` tool names (underscores only to satisfy `^[a-zA-Z0-9_-]+$`); `tools/call` tolerates dot aliases. It also implements `resources/templates/list` (template `memory_by_id`, URI `memory://{id}`), `resources/list` (recent memories for the host, up to 20), and `resources/read` (returns `text/plain` memory content for the given URI).

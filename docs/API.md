@@ -53,7 +53,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
 ### Config
-- `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), canonical `sha256`, `updated_at`, `size_bytes`, and `content` when updated. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
+- `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), canonical `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When per-host model overrides are set, the baked config also overrides `model` and `model_reasoning_effort` so the host’s `~/.codex/config.toml` reflects its effective defaults. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
 
 ### MCP memories
 - `POST /mcp/memories/store` — body: `content` (required, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when missing), optional `metadata` (object), optional `tags` (array of up to 32 strings, each ≤64 chars). Returns `status` `created` | `updated` | `unchanged` and `memory` (`id`, `content`, `metadata`, `tags`, timestamps).

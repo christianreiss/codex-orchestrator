@@ -20,6 +20,7 @@
   url = "{base_url}/mcp"
   http_headers = { Authorization = "Bearer {host_api_key}" }
   ```  
+  When `hosts.model_override` / `hosts.reasoning_effort_override` are set, the baked config also overrides `model` and `model_reasoning_effort` so `~/.codex/config.toml` matches the host’s effective defaults.
   Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256` (template sha), `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/config.toml`.
 - MCP memories (host API key auth, same rate limits):
   - `POST /mcp/memories/store` — body: `content` (required string, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when omitted), optional `metadata` (object), optional `tags` (up to 32 strings, ≤64 chars each). Status: `created` | `updated` | `unchanged`; echoes `memory` (`id`, `content`, `metadata`, `tags`, `created_at`, `updated_at`).

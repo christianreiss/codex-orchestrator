@@ -69,6 +69,7 @@ class ClientConfigService
 
     public function renderForHost(array $settings, ?array $host, ?string $baseUrl, ?string $apiKey): array
     {
+        $settings = $this->applyHostModelOverrides($settings, $host);
         $normalized = $this->normalizeSettings($settings);
         $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey);
         $content = $this->buildToml($withManaged);
@@ -80,6 +81,57 @@ class ClientConfigService
             'size_bytes' => strlen($content),
             'settings' => $normalized,
         ];
+    }
+
+    private function applyHostModelOverrides(array $settings, ?array $host): array
+    {
+        if (!is_array($host)) {
+            return $settings;
+        }
+
+        $modelOverride = $this->normalizeString($host['model_override'] ?? null);
+        $effortOverride = $this->normalizeString($host['reasoning_effort_override'] ?? null);
+        if ($modelOverride === null && $effortOverride === null) {
+            return $settings;
+        }
+
+        if ($modelOverride !== null) {
+            $settings['model'] = $modelOverride;
+        }
+        if ($effortOverride !== null) {
+            $settings['model_reasoning_effort'] = $effortOverride;
+        }
+
+        $activeProfile = $this->normalizeString($settings['profile'] ?? null);
+        if ($activeProfile === null) {
+            return $settings;
+        }
+
+        $profiles = $settings['profiles'] ?? null;
+        if (!is_array($profiles)) {
+            return $settings;
+        }
+
+        $updatedProfiles = [];
+        foreach ($profiles as $entry) {
+            if (!is_array($entry)) {
+                $updatedProfiles[] = $entry;
+                continue;
+            }
+            $name = $this->normalizeString($entry['name'] ?? null);
+            if ($name !== null && hash_equals($activeProfile, $name)) {
+                if ($modelOverride !== null) {
+                    $entry['model'] = $modelOverride;
+                }
+                if ($effortOverride !== null) {
+                    $entry['model_reasoning_effort'] = $effortOverride;
+                }
+            }
+            $updatedProfiles[] = $entry;
+        }
+        $settings['profiles'] = $updatedProfiles;
+
+        return $settings;
     }
 
     public function store(array $payload, ?array $host = null): array
