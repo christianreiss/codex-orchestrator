@@ -6,3 +6,4 @@
 /storage/backups/
 .env.local
 /.home/
+/.docker-config/
