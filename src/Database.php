@@ -406,22 +406,6 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
-            CREATE TABLE IF NOT EXISTS host_users (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                host_id BIGINT UNSIGNED NOT NULL,
-                username VARCHAR(255) NOT NULL,
-                hostname VARCHAR(255) NULL,
-                first_seen VARCHAR(100) NOT NULL,
-                last_seen VARCHAR(100) NOT NULL,
-                UNIQUE KEY uniq_host_user (host_id, username),
-                INDEX idx_host_users_host (host_id),
-                CONSTRAINT fk_host_users_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB {$collation};
-            SQL
-        );
-
-        $this->pdo->exec(
-            <<<SQL
             CREATE TABLE IF NOT EXISTS versions (
                 name VARCHAR(191) NOT NULL PRIMARY KEY,
                 version VARCHAR(191) NOT NULL,
@@ -570,28 +554,6 @@ class Database
         }
 
         $this->pdo->exec(sprintf('ALTER TABLE %s ADD CONSTRAINT %s %s', $table, $constraint, $definition));
-    }
-
-    /**
-     * Create a table if missing. $createStatement must be a full CREATE TABLE ... statement.
-     */
-    public function ensureTableExists(string $table, string $createStatement): void
-    {
-        $statement = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table'
-        );
-
-        $statement->execute([
-            'schema' => $this->databaseName,
-            'table' => $table,
-        ]);
-
-        $exists = (int) $statement->fetchColumn() > 0;
-        if ($exists) {
-            return;
-        }
-
-        $this->pdo->exec($createStatement);
     }
 
 }

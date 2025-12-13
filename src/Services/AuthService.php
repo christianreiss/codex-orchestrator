@@ -2121,16 +2121,6 @@ class AuthService
         ];
     }
 
-    public function publishedVersions(): array
-    {
-        $all = $this->versions->all();
-
-        return [
-            'client_version' => $all['client'] ?? null,
-            'wrapper_version' => $all['wrapper'] ?? null,
-        ];
-    }
-
     private function inactivityWindowDays(): int
     {
         $stored = $this->versions->get('inactivity_window_days');

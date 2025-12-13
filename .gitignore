@@ -5,5 +5,7 @@
 /vendor
 /storage/backups/
 .env.local
+__pycache__/
+*.pyc
 /.home/
 /.docker-config/

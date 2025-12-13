@@ -224,17 +224,6 @@ class HostRepository
         ]);
     }
 
-    public function touch(int $hostId): void
-    {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET updated_at = :updated_at WHERE id = :id'
-        );
-        $statement->execute([
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
-    }
-
     public function all(): array
     {
         $statement = $this->database->connection()->query(
@@ -289,19 +278,6 @@ class HostRepository
         $statement->execute(['id' => $id]);
     }
 
-    public function updateAuthDigest(int $hostId, ?string $authDigest, ?string $updatedAt = null): void
-    {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET auth_digest = :auth_digest, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
-            'auth_digest' => $authDigest,
-            'updated_at' => $updatedAt ?? gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
-    }
-
     public function incrementApiCalls(int $hostId, int $by = 1): void
     {
         $statement = $this->database->connection()->prepare(
@@ -310,18 +286,6 @@ class HostRepository
 
         $statement->execute([
             'by' => $by,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
-    }
-
-    public function clearIp(int $hostId): void
-    {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET ip = NULL, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
