@@ -75,7 +75,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 ## Admin Endpoints (mTLS + optional admin key)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.
 - `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
-- `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + insecure window timestamp) for quick actions.
+- `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + insecure window timestamp, RFC3339 / `DATE_ATOM`) for quick actions.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.

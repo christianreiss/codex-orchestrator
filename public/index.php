@@ -1304,6 +1304,18 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
 
     $hosts = $hostRepository->all();
 
+    $normalizeTs = static function ($value): ?string {
+        if ($value === null) {
+            return null;
+        }
+        try {
+            $dt = new DateTimeImmutable((string) $value);
+            return $dt->format(DATE_ATOM);
+        } catch (\Exception) {
+            return is_string($value) ? $value : null;
+        }
+    };
+
     $items = [];
     $active = 0;
     foreach ($hosts as $host) {
@@ -1312,7 +1324,7 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
             continue;
         }
 
-        $enabledUntil = $host['insecure_enabled_until'] ?? null;
+        $enabledUntil = $normalizeTs($host['insecure_enabled_until'] ?? null);
         $enabledTs = null;
         if (is_string($enabledUntil) && trim($enabledUntil) !== '') {
             $ts = strtotime($enabledUntil);
