@@ -1316,6 +1316,21 @@
         <div class="host-toggle-list">
           ${toggles.join('')}
         </div>
+        <div class="host-codex-version" style="margin-top:12px;">
+          <div class="muted" style="font-weight:600; margin-bottom:6px;">Codex CLI version</div>
+          <div class="inline-group" style="gap:10px; align-items:flex-end;">
+            <div class="field" style="min-width:240px;">
+              <label for="hostCodexVersionSelect">Version</label>
+              <select id="hostCodexVersionSelect">
+                <option value="global">Global (fleet)</option>
+              </select>
+            </div>
+          </div>
+          <div class="muted-note" style="margin-top:6px;">
+            “Global” follows the fleet setting; picking a version pins this host and forces upgrade/downgrade on the next run.
+            <span id="hostCodexVersionSaveState" class="muted" style="margin-left:10px;"></span>
+          </div>
+        </div>
         <div class="host-model-overrides" style="margin-top:12px;">
           <div class="muted" style="font-weight:600; margin-bottom:6px;">Model &amp; reasoning overrides</div>
           <div class="inline-group" style="gap:10px; align-items:flex-end;">
@@ -1354,7 +1369,7 @@
       `;
     }
 
-    function bindHostDetailActions(host) {
+    async function bindHostDetailActions(host) {
       if (!hostDetailActions) return;
       hostDetailActions.querySelectorAll('button[data-action]').forEach((btn) => {
         btn.onclick = (ev) => {
@@ -1399,6 +1414,79 @@
           }
         });
       });
+
+      const codexSelect = hostDetailActions.querySelector('#hostCodexVersionSelect');
+      const codexSaveState = hostDetailActions.querySelector('#hostCodexVersionSaveState');
+      if (codexSelect) {
+        const override = normalizeCodexVersion(host.client_version_override || '');
+        const target = normalizeCodexVersion(currentOverview?.versions?.client_version ?? '');
+        const hostReported = normalizeCodexVersion(host.client_version || '');
+        codexSelect.disabled = true;
+        try {
+          const recent = await fetchRecentCodexReleases(10);
+          const githubLatest = recent[0] || '';
+          const orderedVersions = [
+            ...recent,
+            ...(target && !recent.includes(target) ? [target] : []),
+            ...(hostReported && !recent.includes(hostReported) && hostReported !== target ? [hostReported] : []),
+            ...(override && !recent.includes(override) && override !== target && override !== hostReported ? [override] : []),
+          ].filter(Boolean);
+
+          codexSelect.innerHTML = '';
+          const globalLabel = target ? `Global (fleet · ${target})` : 'Global (fleet)';
+          const globalOpt = document.createElement('option');
+          globalOpt.value = 'global';
+          globalOpt.textContent = globalLabel;
+          codexSelect.appendChild(globalOpt);
+
+          for (const version of orderedVersions) {
+            const suffix = [];
+            if (githubLatest && version === githubLatest) suffix.push('latest');
+            if (target && version === target) suffix.push('fleet');
+            if (hostReported && version === hostReported) suffix.push('host');
+            if (override && version === override) suffix.push('pinned');
+            const label = suffix.length ? `${version} (${suffix.join(', ')})` : version;
+            const el = document.createElement('option');
+            el.value = version;
+            el.textContent = label;
+            codexSelect.appendChild(el);
+          }
+        } catch (err) {
+          console.warn('Unable to load Codex releases for host override', err);
+        } finally {
+          codexSelect.disabled = false;
+          codexSelect.value = override || 'global';
+        }
+
+        const saveCodexOverride = async () => {
+          const selection = codexSelect ? String(codexSelect.value || 'global') : 'global';
+          if (codexSaveState) codexSaveState.textContent = 'Saving…';
+          if (codexSelect) codexSelect.disabled = true;
+          try {
+            await api(`/admin/hosts/${host.id}/codex-version`, {
+              method: 'POST',
+              json: { selection },
+            });
+            if (codexSaveState) codexSaveState.textContent = 'Saved';
+            await loadAll();
+          } catch (err) {
+            if (codexSaveState) codexSaveState.textContent = 'Save failed';
+            console.error('save host codex version override failed', err);
+          } finally {
+            if (codexSelect) codexSelect.disabled = false;
+            if (codexSaveState) {
+              window.setTimeout(() => {
+                if (codexSaveState.textContent === 'Saved') codexSaveState.textContent = '';
+              }, 1500);
+            }
+          }
+        };
+
+        codexSelect.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          await saveCodexOverride();
+        });
+      }
 
       const modelSelect = hostDetailActions.querySelector('#hostModelOverrideSelect');
       const effortSelect = hostDetailActions.querySelector('#hostReasoningEffortSelect');
@@ -1568,6 +1656,14 @@
           </div>
         `,
         desc: 'Optional per-host model + reasoning-effort overrides. “Standard” means use fleet-wide config.',
+        full: true,
+      });
+
+      const versionOverride = normalizeCodexVersion(host.client_version_override || '');
+      rows.push({
+        key: 'Codex version',
+        value: versionOverride ? `<code>${escapeHtml(versionOverride)}</code>` : '<span class="muted">Global (fleet)</span>',
+        desc: 'Optional per-host Codex CLI version pin. “Global” means use fleet-wide policy.',
         full: true,
       });
 

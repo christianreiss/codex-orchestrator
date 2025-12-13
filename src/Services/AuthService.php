@@ -251,6 +251,9 @@ class AuthService
         ];
 
         $versions = $this->versionSnapshot($bakedWrapperMeta);
+        if ($trackHost) {
+            $versions = $this->applyClientVersionOverrideForHost($versions, $host);
+        }
         $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
         if ($hostVip) {
             $quotaHardFail = false;
@@ -307,6 +310,9 @@ class AuthService
 
         // Refresh the version snapshot after runner activity so we return the latest runner telemetry.
         $versions = $this->versionSnapshot($bakedWrapperMeta);
+        if ($trackHost) {
+            $versions = $this->applyClientVersionOverrideForHost($versions, $host);
+        }
 
         $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];
         if ($trackHost && $canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
@@ -1721,6 +1727,7 @@ class AuthService
             'last_refresh' => $host['last_refresh'] ?? null,
             'updated_at' => $host['updated_at'] ?? null,
             'client_version' => $host['client_version'] ?? null,
+            'client_version_override' => $host['client_version_override'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
@@ -1741,6 +1748,27 @@ class AuthService
         }
 
         return $payload;
+    }
+
+    private function applyClientVersionOverrideForHost(array $versions, array $host): array
+    {
+        $override = $host['client_version_override'] ?? null;
+        if (!is_string($override)) {
+            return $versions;
+        }
+
+        $override = trim($override);
+        if ($override === '' || strtolower($override) === 'global') {
+            return $versions;
+        }
+
+        $normalized = $this->canonicalVersion($override) ?? $override;
+
+        $versions['client_version'] = $normalized;
+        $versions['client_version_source'] = 'locked';
+        $versions['client_version_checked_at'] = null;
+
+        return $versions;
     }
 
     /**

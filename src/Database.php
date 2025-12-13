@@ -433,6 +433,7 @@ class Database
         // Backfill new columns for existing databases.
         $this->ensureColumnExists('hosts', 'ip', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version', 'VARCHAR(64) NULL');
+        $this->ensureColumnExists('hosts', 'client_version_override', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'wrapper_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'auth_digest', 'VARCHAR(128) NULL');
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');

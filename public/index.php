@@ -1142,6 +1142,61 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $selectionRaw = $payload['selection'] ?? ($payload['client_version_override'] ?? null);
+    if ($selectionRaw !== null && !is_string($selectionRaw)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'selection must be one of: global, or a version like 0.63.0',
+        ], 422);
+    }
+
+    $selection = is_string($selectionRaw) ? trim($selectionRaw) : 'global';
+    $selectionLower = strtolower($selection);
+    if ($selectionLower === '' || $selectionLower === 'global' || $selectionLower === 'fleet' || $selectionLower === 'default') {
+        $hostRepository->updateClientVersionOverride($hostId, null);
+    } else {
+        $normalized = trim($selection);
+        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
+        $normalized = ltrim($normalized, 'vV');
+        if ($normalized === '' || !preg_match('/^\\d+\\.\\d+\\.\\d+$/', $normalized)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'selection must be a semantic version like 0.63.0',
+            ], 422);
+        }
+        $hostRepository->updateClientVersionOverride($hostId, $normalized);
+    }
+
+    $updated = $hostRepository->findById($hostId);
+    $override = $updated['client_version_override'] ?? null;
+
+    $logRepository->log($hostId, 'admin.host.client_version_override', [
+        'fqdn' => $host['fqdn'] ?? null,
+        'client_version_override' => $override,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'client_version_override' => $override,
+            ],
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
@@ -1309,6 +1364,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'updated_at' => $normalizeTs($host['updated_at'] ?? null),
             'created_at' => $normalizeTs($host['created_at'] ?? null),
             'client_version' => $host['client_version'] ?? null,
+            'client_version_override' => $host['client_version_override'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'ip' => $host['ip'] ?? null,
