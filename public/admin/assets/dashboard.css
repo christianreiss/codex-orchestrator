@@ -1693,6 +1693,25 @@ body {
 #log-search {
   min-width: 220px;
 }
+#event-search,
+#event-prefix {
+  min-width: 220px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(15,23,42,0.12);
+  background: rgba(15,23,42,0.05);
+  color: var(--text);
+}
+#event-host,
+#event-window,
+#event-limit {
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(15,23,42,0.12);
+  background: rgba(15,23,42,0.05);
+  color: var(--text);
+  font-weight: 600;
+}
 #log-page-size {
   padding: 8px 10px;
   border-radius: 12px;
@@ -1729,6 +1748,12 @@ body {
   border: 1px solid rgba(15,23,42,0.12);
   background: rgba(15,23,42,0.05);
   color: var(--text);
+}
+.event-details {
+  max-width: 680px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .badge {
   display: inline-flex;

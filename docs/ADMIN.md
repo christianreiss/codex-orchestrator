@@ -26,6 +26,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **AGENTS**: edit the canonical `AGENTS.md` (sha + size shown). Hosts sync it on wrapper runs.
 - **MCP Memories**: search/browse memories by text, tags, host, limit (1–200).
 - **Versions Check**: force-refresh the GitHub client release cache.
+- **Codex Version**: in Settings → Operations & Settings, choose `Latest` (track GitHub latest) or pin the fleet to a specific Codex release (useful for freezing upgrades during incidents).
 - **Logs**: recent audit events.
 
 ## Common workflows

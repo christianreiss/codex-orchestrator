@@ -613,6 +613,47 @@ $router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versio
     ]);
 });
 
+$router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $versionRepository, $service) {
+    requireAdminAccess();
+
+    $selectionRaw = $payload['selection'] ?? null;
+    if (!is_string($selectionRaw) || trim($selectionRaw) === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'selection must be one of: latest, or a version like 0.63.0',
+        ], 422);
+    }
+
+    $selection = trim($selectionRaw);
+    $selectionLower = strtolower($selection);
+    if ($selectionLower === 'latest' || $selectionLower === 'auto') {
+        $versionRepository->delete('client_version_lock');
+        // Opportunistically refresh the cached GitHub latest value so dashboards update quickly.
+        $service->availableClientVersion(true);
+    } else {
+        $normalized = trim($selection);
+        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
+        $normalized = ltrim($normalized, 'vV');
+        if ($normalized === '' || !preg_match('/^\d+\.\d+\.\d+$/', $normalized)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'selection must be a semantic version like 0.63.0',
+            ], 422);
+        }
+        $versionRepository->set('client_version_lock', $normalized);
+    }
+
+    $lock = $versionRepository->getWithMetadata('client_version_lock');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'locked_version' => $lock['version'] ?? null,
+            'locked_at' => $lock['updated_at'] ?? null,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository) {
     requireAdminAccess();
 
@@ -1191,6 +1232,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $quotaWeekPartition = quotaWeekPartition($versionRepository);
     $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
     $inactivityWindowDays = inactivityWindowDays($versionRepository);
+    $clientVersionLock = $versionRepository->getWithMetadata('client_version_lock');
 
     Response::json([
         'status' => 'ok',
@@ -1223,6 +1265,8 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'quota_week_partition' => $quotaWeekPartition,
             'cdx_silent' => $cdxSilent,
             'inactivity_window_days' => $inactivityWindowDays,
+            'client_version_lock' => $clientVersionLock['version'] ?? null,
+            'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,
         ],
     ]);
 });
@@ -2728,7 +2772,7 @@ function requireAdminAccess(): void
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 
-    $mtlsRequired = $mode === 'mtls_only';
+    $mtlsRequired = $mode === 'mtls';
 
     if ($mtlsRequired && !$mtlsOk) {
         Response::json([

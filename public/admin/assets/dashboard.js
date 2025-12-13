@@ -99,6 +99,8 @@
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
+    const codexVersionSelect = document.getElementById('codexVersionSelect');
+    const codexVersionMeta = document.getElementById('codexVersionMeta');
     const accessBlockModal = document.getElementById('accessBlockModal');
     const accessBlockTitle = document.getElementById('accessBlockTitle');
     const accessBlockBody = document.getElementById('accessBlockBody');
@@ -129,6 +131,8 @@
     const QUOTA_WEEK_PARTITION_OFF = 0;
     const QUOTA_WEEK_PARTITION_FIVE = 5;
     const QUOTA_WEEK_PARTITION_SEVEN = 7;
+    const CODEX_RELEASES_CACHE_MS = 10 * 60 * 1000;
+    let cachedCodexReleases = { fetchedAt: 0, versions: null, error: null };
     let pendingDeleteId = null;
 
     const upgradeNotesCache = {};
@@ -688,6 +692,136 @@
         if (l < r) return -1;
       }
       return 0;
+    }
+
+    function normalizeCodexVersion(value) {
+      if (typeof value !== 'string') return '';
+      let normalized = value.trim();
+      normalized = normalized.replace(/^(codex-cli|codex|rust-)/i, '');
+      normalized = normalized.replace(/^v/i, '');
+      return normalized;
+    }
+
+    async function fetchRecentCodexReleases(limit = 10) {
+      const now = Date.now();
+      if (cachedCodexReleases.versions && (now - cachedCodexReleases.fetchedAt) < CODEX_RELEASES_CACHE_MS) {
+        return cachedCodexReleases.versions;
+      }
+
+      const previous = cachedCodexReleases.versions;
+      try {
+        const resp = await fetch(`https://api.github.com/repos/openai/codex/releases?per_page=${limit}`, {
+          headers: { 'Accept': 'application/vnd.github+json' },
+        });
+        if (!resp.ok) {
+          throw new Error(`GitHub ${resp.status}`);
+        }
+        const json = await resp.json();
+        const versions = Array.isArray(json)
+          ? Array.from(new Set(json.map((item) => normalizeCodexVersion(item?.tag_name || item?.name || '')).filter(Boolean)))
+          : [];
+        cachedCodexReleases = { fetchedAt: now, versions, error: null };
+        return versions;
+      } catch (err) {
+        cachedCodexReleases = { fetchedAt: now, versions: previous, error: err };
+        return Array.isArray(previous) ? previous : [];
+      }
+    }
+
+    function renderCodexVersionMeta() {
+      if (!codexVersionMeta) return;
+      const lock = normalizeCodexVersion(currentOverview?.client_version_lock ?? '');
+      const lockAt = currentOverview?.client_version_lock_updated_at ?? null;
+      const target = normalizeCodexVersion(currentOverview?.versions?.client_version ?? '');
+      const reported = normalizeCodexVersion(currentOverview?.versions?.reported_client_version ?? '');
+      const checkedAt = currentOverview?.versions?.client_version_checked_at ?? null;
+
+      if (lock) {
+        const at = lockAt ? formatRelative(lockAt) : 'unknown time';
+        const extra = reported && reported !== lock ? ` · Reported in use: ${reported}` : '';
+        codexVersionMeta.textContent = `Pinned to ${lock} (set ${at})${extra}.`;
+        return;
+      }
+      if (target) {
+        const at = checkedAt ? formatRelative(checkedAt) : 'unknown time';
+        const extra = reported && reported !== target ? ` · Reported in use: ${reported}` : '';
+        codexVersionMeta.textContent = `Latest targeting ${target} (checked ${at})${extra}.`;
+        return;
+      }
+      codexVersionMeta.textContent = 'Latest targeting: unknown (no GitHub version cached yet).';
+    }
+
+    async function loadCodexVersionControl() {
+      if (!codexVersionSelect) return;
+
+      const lock = normalizeCodexVersion(currentOverview?.client_version_lock ?? '');
+      const target = normalizeCodexVersion(currentOverview?.versions?.client_version ?? '');
+      const reported = normalizeCodexVersion(currentOverview?.versions?.reported_client_version ?? '');
+
+      const selectedValue = lock || 'latest';
+
+      let recent = [];
+      recent = await fetchRecentCodexReleases(10);
+      const githubLatest = recent[0] || '';
+      const baseOptions = [
+        { value: 'latest', label: githubLatest ? `Latest (${githubLatest})` : 'Latest' },
+      ];
+
+      const orderedVersions = [
+        ...recent,
+        ...(target && !recent.includes(target) ? [target] : []),
+        ...(reported && !recent.includes(reported) && reported !== target ? [reported] : []),
+        ...(lock && lock !== target && !recent.includes(lock) ? [lock] : []),
+      ].filter(Boolean);
+
+      codexVersionSelect.innerHTML = '';
+      for (const opt of baseOptions) {
+        const el = document.createElement('option');
+        el.value = opt.value;
+        el.textContent = opt.label;
+        codexVersionSelect.appendChild(el);
+      }
+
+      if (orderedVersions.length) {
+        for (const version of orderedVersions) {
+          const suffix = [];
+          if (version && target && version === target) suffix.push('target');
+          if (version && reported && version === reported) suffix.push('in use');
+          if (version && lock && version === lock) suffix.push('pinned');
+          const label = suffix.length ? `${version} (${suffix.join(', ')})` : version;
+          const el = document.createElement('option');
+          el.value = version;
+          el.textContent = label;
+          codexVersionSelect.appendChild(el);
+        }
+      } else if (target) {
+        const el = document.createElement('option');
+        el.value = target;
+        el.textContent = `${target} (in use)`;
+        codexVersionSelect.appendChild(el);
+      }
+
+      codexVersionSelect.value = selectedValue;
+      renderCodexVersionMeta();
+    }
+
+    async function setCodexVersionSelection(selection) {
+      if (!codexVersionSelect) return;
+      const previous = normalizeCodexVersion(currentOverview?.client_version_lock ?? '') || 'latest';
+      codexVersionSelect.disabled = true;
+      try {
+        await api('/admin/codex-version', {
+          method: 'POST',
+          json: { selection },
+        });
+        toast('Codex version policy updated', 'ok');
+        await loadAll();
+      } catch (err) {
+        toast(`Codex version update failed: ${err.message}`, 'error');
+        codexVersionSelect.value = previous;
+      } finally {
+        codexVersionSelect.disabled = false;
+      }
     }
 
     function renderVersionTag(version, current) {
@@ -1537,6 +1671,9 @@
       }
       const health = hostHealth(host);
       const authOutdatedChip = isSecure && host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
+      const healthChip = isSecure && host.auth_outdated && health.label === 'Can login'
+        ? ''
+        : `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`;
       tr.classList.add(`status-${health.tone}`);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
@@ -1547,7 +1684,7 @@
             <strong>${escapeHtml(host.fqdn)}</strong>
             <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
               <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
-              <span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>
+              ${healthChip}
               ${authOutdatedChip}
               ${securityChip}
               ${vipChip}
@@ -3167,6 +3304,7 @@
           inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
           renderInactivityWindowDays();
         }
+        await loadCodexVersionControl();
         evaluateSeedRequirement(currentOverview, hostsList);
       } catch (err) {
         if (mtlsStatus) {
@@ -3593,12 +3731,16 @@
       }
 
       if (panel === 'logs') {
-        const logTab = sub === 'mcp' ? 'mcp' : 'client';
+        const logTab = sub === 'mcp'
+          ? 'mcp'
+          : (sub === 'events' ? 'events' : 'client');
         setActiveLinks('.log-tab', logTab);
         const clientPanel = document.getElementById('client-logs-panel');
         const mcpPanel = document.getElementById('mcp-logs-panel');
+        const eventsPanel = document.getElementById('events-logs-panel');
         if (clientPanel) clientPanel.hidden = logTab !== 'client';
         if (mcpPanel) mcpPanel.hidden = logTab !== 'mcp';
+        if (eventsPanel) eventsPanel.hidden = logTab !== 'events';
         // lazy init each view once
         if (logTab === 'client' && window.__initClientLogs) {
           window.__initClientLogs();
@@ -3607,6 +3749,10 @@
         if (logTab === 'mcp' && window.__initMcpLogs) {
           window.__initMcpLogs();
           window.__initMcpLogs = null;
+        }
+        if (logTab === 'events' && window.__initEventLogs) {
+          window.__initEventLogs();
+          window.__initEventLogs = null;
         }
       }
 
@@ -3880,6 +4026,11 @@
     if (cdxSilentToggle) {
       cdxSilentToggle.addEventListener('change', () => {
         setCdxSilent(cdxSilentToggle.checked);
+      });
+    }
+    if (codexVersionSelect) {
+      codexVersionSelect.addEventListener('change', () => {
+        setCodexVersionSelection(codexVersionSelect.value);
       });
     }
     loadApiState();

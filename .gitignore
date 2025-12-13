@@ -5,3 +5,4 @@
 /vendor
 /storage/backups/
 .env.local
+/.home/

@@ -94,6 +94,11 @@ remote_tag=""
 remote_source=""
 remote_timestamp=0
 prefer_npm_update=0
+enforce_exact_codex_version=0
+
+if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
+  enforce_exact_codex_version=1
+fi
 
 if (( ! skip_update_check )); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
@@ -118,7 +123,9 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
   else
     norm_local="$(normalize_version "$LOCAL_VERSION")"
     if [[ "$norm_remote" != "$norm_local" ]]; then
-      if [[ "$(printf '%s\n%s\n' "$norm_local" "$norm_remote" | sort -V | tail -n1)" == "$norm_remote" ]]; then
+      if (( enforce_exact_codex_version )); then
+        need_update=1
+      elif [[ "$(printf '%s\n%s\n' "$norm_local" "$norm_remote" | sort -V | tail -n1)" == "$norm_remote" ]]; then
         need_update=1
       fi
     fi

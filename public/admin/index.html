@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-		  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2025-12-13-01">
+		  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2025-12-13-02">
 		  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2025-12-12-03">
 </head>
 <body data-view="desktop" data-view-mode="dashboard">
@@ -272,15 +272,16 @@
         </section>
 
         <!-- Logs -->
-        <section class="panel-set" data-panel="logs" hidden>
-          <div class="subtabs log-tabs" role="tablist" aria-label="Logs tabs">
-            <a class="log-tab active" data-log-tab="client" href="#logs/api">API logs</a>
-            <a class="log-tab" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
-          </div>
-          <section class="card panel log-panel" id="client-logs-panel">
-            <div class="panel-head">
-              <div>
-                <h2>Client Reports</h2>
+	        <section class="panel-set" data-panel="logs" hidden>
+	          <div class="subtabs log-tabs" role="tablist" aria-label="Logs tabs">
+	            <a class="log-tab active" data-log-tab="client" href="#logs/api">API logs</a>
+	            <a class="log-tab" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
+	            <a class="log-tab" data-log-tab="events" href="#logs/events">Events</a>
+	          </div>
+	          <section class="card panel log-panel" id="client-logs-panel">
+	            <div class="panel-head">
+	              <div>
+	                <h2>Client Reports</h2>
                 <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
               </div>
               <div class="panel-actions log-actions">
@@ -331,8 +332,8 @@
                 <button id="mcp-refresh" class="ghost tiny-btn">↻ Refresh</button>
               </div>
             </div>
-            <div class="table-wrap log-table-wrap">
-              <table id="mcp-log-table">
+	            <div class="table-wrap log-table-wrap">
+	              <table id="mcp-log-table">
                 <thead>
                   <tr>
                     <th>Time</th>
@@ -344,10 +345,68 @@
                 <tbody>
                   <tr class="loading-row"><td colspan="4">Loading…</td></tr>
                 </tbody>
-              </table>
-            </div>
-          </section>
-        </section>
+	              </table>
+	            </div>
+	          </section>
+	          <section class="card panel log-panel" id="events-logs-panel" hidden>
+	            <div class="panel-head">
+	              <div>
+	                <h2>Events / Audit Log</h2>
+	                <p class="muted" style="margin:4px 0 0;">Newest first · filter by host/action/time · copy JSON for incident tickets.</p>
+	              </div>
+	              <div class="panel-actions log-actions">
+	                <select id="event-host" title="Host filter">
+	                  <option value="" selected>All hosts</option>
+	                  <option value="system">System</option>
+	                </select>
+	                <input type="text" id="event-prefix" placeholder="Action prefix (e.g. admin.host.)" list="event-prefixes">
+	                <datalist id="event-prefixes">
+	                  <option value="admin.host."></option>
+	                  <option value="auth."></option>
+	                  <option value="runner."></option>
+	                  <option value="host."></option>
+	                  <option value="register"></option>
+	                </datalist>
+	                <select id="event-window" title="Time window">
+	                  <option value="0" selected>Any time</option>
+	                  <option value="15m">Last 15 min</option>
+	                  <option value="1h">Last 1 hour</option>
+	                  <option value="6h">Last 6 hours</option>
+	                  <option value="24h">Last 24 hours</option>
+	                  <option value="7d">Last 7 days</option>
+	                  <option value="30d">Last 30 days</option>
+	                </select>
+	                <input type="search" id="event-search" placeholder="Search action, host, or details">
+	                <select id="event-limit" title="Rows to load">
+	                  <option value="50">50</option>
+	                  <option value="100" selected>100</option>
+	                  <option value="200">200</option>
+	                  <option value="500">500</option>
+	                </select>
+	                <button id="event-refresh" class="ghost tiny-btn">↻ Refresh</button>
+	              </div>
+	            </div>
+	            <div class="table-wrap log-table-wrap">
+	              <table id="event-log-table">
+	                <thead>
+	                  <tr>
+	                    <th>Time</th>
+	                    <th>Host</th>
+	                    <th>Action</th>
+	                    <th>Details</th>
+	                    <th></th>
+	                  </tr>
+	                </thead>
+	                <tbody>
+	                  <tr class="loading-row"><td colspan="5">Loading…</td></tr>
+	                </tbody>
+	              </table>
+	            </div>
+	            <div class="log-footer">
+	              <div id="event-log-status" class="muted">Loading…</div>
+	            </div>
+	          </section>
+	        </section>
 
         <!-- Settings -->
         <section class="panel-set" data-panel="settings" hidden>
@@ -427,6 +486,20 @@
                     <span class="toggle-text" id="cdxSilentLabel">Verbose</span>
                   </label>
                 </div>
+              </div>
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
+                    <h3>Codex Version</h3>
+                    <p class="muted" style="margin:2px 0 0;">Latest tracks GitHub; selecting a version pins the fleet.</p>
+                  </div>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <select id="codexVersionSelect" title="Codex target version">
+                    <option value="latest">Latest</option>
+                  </select>
+                </div>
+                <p class="muted" id="codexVersionMeta" style="margin:8px 0 0;">Loading…</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
@@ -877,8 +950,8 @@
     })();
   </script>
 	  <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-	  <script src="/admin/assets/dashboard.js?v=2025-12-13-02"></script>
-		  <script src="/admin/assets/logs.js?v=2025-12-12-04"></script>
+		  <script src="/admin/assets/dashboard.js?v=2025-12-13-08"></script>
+		  <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
 	  <script src="/admin/assets/config.js?v=2025-12-12-02"></script>
 </body>
 </html>

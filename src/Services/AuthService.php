@@ -52,6 +52,7 @@ class AuthService
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
     private const RUNNER_STALE_OK_SECONDS = 21600; // 6 hours
+    private const CLIENT_VERSION_LOCK_KEY = 'client_version_lock';
     private int $runnerPreflightIntervalSeconds;
 
     public function __construct(
@@ -1306,11 +1307,19 @@ class AuthService
 
     private function versionSnapshot(?array $wrapperMetaOverride = null): array
     {
-        $available = $this->availableClientVersion();
+        $locked = $this->versions->getWithMetadata(self::CLIENT_VERSION_LOCK_KEY);
+        $lockedVersion = $this->canonicalVersion($locked['version'] ?? null);
+        $available = $lockedVersion !== null
+            ? [
+                'version' => $lockedVersion,
+                'updated_at' => $locked['updated_at'] ?? null,
+                'source' => 'locked',
+            ]
+            : $this->availableClientVersion();
         $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata();
         $reported = $this->latestReportedVersions();
 
-        // Only trust GitHub (cached for 3h). If unavailable, client_version will be null.
+        // Client version comes from either an admin lock or GitHub (cached for 3h). If unavailable, client_version will be null.
         $clientVersion = $this->canonicalVersion($available['version'] ?? null);
         $clientCheckedAt = $available['updated_at'] ?? null;
         $clientSource = $available['source'] ?? null;

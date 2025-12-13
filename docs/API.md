@@ -71,6 +71,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 ## Observability
 - `GET /versions` — same versions block returned by `/auth`; useful for dashboards or health checks.
 - `POST /admin/versions/check` — forces a fresh GitHub release lookup (bypassing 3h cache) and returns `{available_client, versions}`.
+- `POST /admin/codex-version` — set the fleet Codex CLI version policy. Body: `{ selection: "latest" | "<x.y.z>" }`. `latest` keeps the GitHub-latest flow; selecting a specific version pins the server-reported `versions.client_version` to that release.
 
 ## Admin Endpoints (mTLS + optional admin key)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.

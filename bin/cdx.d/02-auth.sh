@@ -217,6 +217,9 @@ def record_versions(vblock):
         cv = vblock.get("client_version")
         if isinstance(cv, str) and cv.strip():
             out["client_version"] = cv.strip()
+        cvs = vblock.get("client_version_source")
+        if isinstance(cvs, str) and cvs.strip():
+            out["client_version_source"] = cvs.strip()
         wv = vblock.get("wrapper_version")
         if isinstance(wv, str) and wv.strip():
             out["wrapper_version"] = wv.strip()
@@ -378,11 +381,14 @@ versions = parsed.get("versions")
 if not isinstance(versions, dict):
     sys.exit(0)
 cv = versions.get("client_version")
+cvs = versions.get("client_version_source")
 wv = versions.get("wrapper_version")
 ws = versions.get("wrapper_sha256")
 wu = versions.get("wrapper_url")
 if isinstance(cv, str) and cv.strip():
     print(f"cv={cv.strip()}")
+if isinstance(cvs, str) and cvs.strip():
+    print(f"cvs={cvs.strip()}")
 if isinstance(wv, str) and wv.strip():
     print(f"wv={wv.strip()}")
 if isinstance(ws, str) and ws.strip():
@@ -485,6 +491,9 @@ PY
           case "$line" in
             cv=*)
               SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
+              ;;
+            cvs=*)
+              SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
               ;;
             wv=*)
               SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"

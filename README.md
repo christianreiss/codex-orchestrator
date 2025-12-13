@@ -82,6 +82,7 @@ Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see 
 ## Documentation
 
 - Installation and deployment (including `bin/setup.sh`, TLS/mTLS, and Docker profiles): `docs/INSTALL.md`
+- Host provisioning and running Codex via the `cdx` wrapper: `docs/USAGE.md`
 - System overview, request flow, and operational notes: `docs/OVERVIEW.md`
 - Human-friendly API surface overview: `docs/API.md`
 - MCP server usage and tools: `docs/MCP.md`
