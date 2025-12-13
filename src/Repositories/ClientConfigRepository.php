@@ -20,6 +20,15 @@ class ClientConfigRepository
 
     public function latest(): ?array
     {
+        // Canonical row is id=1; prefer it when present so stray rows (legacy/manual)
+        // don't override the fleet config.
+        $canonical = $this->fetchById(1);
+        if (is_array($canonical)) {
+            return $canonical;
+        }
+
+        // Back-compat: older deployments may have inserted an auto-increment row
+        // before we standardized on id=1.
         $statement = $this->database->connection()->query(
             'SELECT id, sha256, body, settings, source_host_id, created_at, updated_at
              FROM client_config_documents
@@ -28,20 +37,7 @@ class ClientConfigRepository
         );
 
         $row = $statement->fetch(PDO::FETCH_ASSOC);
-
-        if (!is_array($row)) {
-            return null;
-        }
-
-        $settings = $row['settings'] ?? null;
-        if (is_string($settings)) {
-            $decoded = json_decode($settings, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $row['settings'] = $decoded;
-            }
-        }
-
-        return $row;
+        return is_array($row) ? $this->decodeSettings($row) : null;
     }
 
     public function upsert(string $body, ?array $settings = null, ?int $sourceHostId = null, ?string $sha256 = null): array
@@ -71,5 +67,44 @@ class ClientConfigRepository
         ]);
 
         return $this->latest() ?? [];
+    }
+
+    private function fetchById(int $id): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, sha256, body, settings, source_host_id, created_at, updated_at
+             FROM client_config_documents
+             WHERE id = :id
+             LIMIT 1'
+        );
+        $statement->execute(['id' => $id]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        return is_array($row) ? $this->decodeSettings($row) : null;
+    }
+
+    private function decodeSettings(array $row): array
+    {
+        $settings = $row['settings'] ?? null;
+        if (!is_string($settings) || trim($settings) === '') {
+            return $row;
+        }
+
+        $decoded = json_decode($settings, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            if (is_array($decoded)) {
+                $row['settings'] = $decoded;
+                return $row;
+            }
+
+            // Handle double-encoded legacy values (JSON string that itself contains JSON).
+            if (is_string($decoded)) {
+                $decoded2 = json_decode($decoded, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded2)) {
+                    $row['settings'] = $decoded2;
+                }
+            }
+        }
+
+        return $row;
     }
 }
