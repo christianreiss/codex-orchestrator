@@ -1,22 +1,35 @@
 # Codex Auth Central API
 
 > **Is this for you?**
-> - You run Codex on multiple hosts and want a central `auth.json`.
+> - You run Codex on multiple hosts and want a central `~/.codex/auth.json`.
 > - You’re comfortable with Docker and TLS/mTLS.
 > - You’re okay storing tokens and usage logs in MySQL.
 
-🔒 Keep one canonical Codex `auth.json` for your whole fleet. 🚀 Mint per-host API keys from the dashboard, bake them into the `cdx` wrapper, and let hosts pull/push auth + usage with a single call.
+🔒 Keep one canonical Codex `auth.json` for your whole fleet. 🚀 Mint per-host API keys from the dashboard, bake them into the `cdx` wrapper, and let hosts sync auth/config/prompts automatically while reporting token usage back.
 
 ![cdx wrapper baking a host-specific installer and syncing auth](docs/img/cdx.png)
 
+## The 60-second mental model
+
+1. **Admin provisions a host** → mints a host API key + a single-use installer token.
+2. **Host runs one command** (`curl …/install/<token> | bash`) → installs a baked `cdx` wrapper.
+3. Every time someone runs `cdx …`, it:
+   - syncs canonical auth (`/auth`)
+   - syncs fleet `config.toml` + profiles (`/config/retrieve` → `~/.codex/config.toml`)
+   - syncs slash commands (`/slash-commands` → `~/.codex/prompts/`)
+   - syncs canonical AGENTS (`/agents/retrieve` → `~/.codex/AGENTS.md`)
+   - self-updates Codex + the wrapper (and can enforce pinned versions)
+   - posts token usage telemetry (`/usage`)
+
 ## Why you might like it
 
-- 🌐 One `/auth` flow to keep every host in sync (retrieve/store with version metadata).
+- 🌐 One `/auth` call to keep every host in sync (retrieve/store with version metadata).
 - 🗝️ Per-host API keys, IP-bound on first contact; single-use installer tokens bake config into `cdx`.
+- 🔁 Auto updates + version pinning: self-updating wrapper, automatic Codex updates, and fleet/per-host version pinning (upgrade *or* downgrade).
 - 📊 Auditing and usage: token usage rows plus per-request ingests (client IP + normalized payload), cost estimates from GPT‑5.1 pricing, versions, IPs, and runner validation logs.
 - 🔒 Canonical auth + tokens encrypted at rest (libsodium).
-- 🧠 Extras: slash-command distribution, MCP-compatible memories (store/retrieve/search across sessions), ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
-- 🛠️ `config.toml` builder for Codex CLI/IDE defaults, synced automatically to `~/.codex/config.toml` on every `cdx` run.
+- 🧠 Extras: slash command management, canonical AGENTS.md distribution, MCP-compatible memories (store/retrieve/search across sessions), ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
+- 🛠️ Fleet `config.toml` builder + distributor (profiles, approval policy, sandbox, MCP servers, OTEL), synced automatically to `~/.codex/config.toml` on every `cdx` run.
 
 ## MCP for Codex (native HTTP, no node shim)
 
@@ -34,6 +47,7 @@ curl -s "$BASE/mcp/memories/store" \
 ## Config builder (baked per host)
 
 - `/admin/config.html` is a full-fidelity builder for `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, custom blocks). Profiles are managed under **Settings → Profiles**.
+- Profiles are first-class: per-profile overrides for CLI `--profile` (model/provider, approval policy, sandbox, reasoning knobs, etc.).
 - `/config/retrieve` bakes that template per host, injecting the caller’s API key into the managed MCP entry and returning both the baked `sha256` and the base template hash so clients can skip unchanged files.
 - `cdx` writes the baked file to `~/.codex/config.toml` on every run and deletes it when the server returns `status:missing`.
 - Managed MCP uses native HTTP—no npm wrapper needed:
@@ -43,6 +57,32 @@ url = "{base_url}/mcp"
 http_headers = { Authorization = "Bearer {host_api_key}" }
 ```
 - Toggle the managed entry off in the builder if you prefer your own MCP list; API keys are never stored server-side, only injected at bake time.
+
+## Auto updates & version pinning (Codex + wrapper)
+
+- **Codex updates**: `cdx` updates the Codex binary to the server-reported target when it has permission (Linux + root/passwordless sudo).
+- **Fleet pinning**: admins can set the whole fleet to “Latest” or pin to an exact Codex release; pinned hosts get `client_version_source=locked` so `cdx` enforces the exact version.
+- **Per-host overrides**: a single host can override the fleet pin (useful for phased rollouts / debugging).
+- **Wrapper self-update**: `cdx` can replace itself from `/wrapper/download`, verifying hashes so hosts converge on a known wrapper build.
+
+Host-side force update:
+```bash
+cdx --update
+```
+
+## Slash command management (prompts as fleet-owned artifacts)
+
+- Server stores prompts in MySQL (sha256-addressed) and exposes them via `/slash-commands`.
+- Admins can create/update/retire prompts from the dashboard; delete marks propagate to hosts on next sync.
+- `cdx` keeps `~/.codex/prompts/` in sync:
+  - pulls on start (hash mismatch → retrieve)
+  - removes server-retired prompts locally
+  - pushes changed/new prompts back on exit (so editing locally still works)
+
+## Wrapper QoL (`cdx`)
+
+- Offline-friendly: treats HTTP 5xx/network outages as “offline” and can proceed with cached auth (≤24h for insecure hosts, ≤7 days for secure hosts, with warnings).
+- Convenience modes: `cdx shell`, `cdx code`, `cdx --execute "<prompt>"`, and `cdx --uninstall`.
 
 ## See it in action
 
@@ -87,6 +127,7 @@ Need TLS/mTLS via the bundled Caddy frontend? `bin/setup.sh --caddy ...` or see 
 - Human-friendly API surface overview: `docs/API.md`
 - MCP server usage and tools: `docs/MCP.md`
 - Config builder workflow and per-host baking: `docs/CONFIG_BUILDER.md`
+- Admin dashboard workflows (hosts, version pinning, quotas, kill switch, prompts, agents): `docs/ADMIN.md`
 - Source-of-truth interface contracts: `docs/interface-api.md`, `docs/interface-cdx.md`, `docs/interface-db.md`
 - Auth runner behavior and probes: `docs/auth-runner.md`
 - Security policy and hardening checklist: `docs/SECURITY.md`
