@@ -76,8 +76,9 @@
     const promptsPanel = document.getElementById('prompts-panel');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
-    const memoriesPanel = document.getElementById('memories-panel');
+    const memoriesPanel = document.querySelector('.panel-set[data-panel="settings"] [data-settings-panel="memories"]');
     const memoriesTableBody = document.querySelector('#memories tbody');
+    const memoriesTableWrap = document.getElementById('memoriesTableWrap');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
