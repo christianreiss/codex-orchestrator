@@ -2478,6 +2478,10 @@ body.embed .hero-actions { display: none !important; }
 .profile-chevron::before { content: '▸'; font-size: 14px; line-height: 1; }
 .profile-accordion[open] .profile-chevron::before { content: '▾'; }
 .profile-body { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.profile-body .feature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 720px) {
+  .profile-body .feature-list { grid-template-columns: 1fr; }
+}
 .mono-block { background: #0f172a; color: #e5e7eb; border-radius: 12px; padding: 12px; font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 13px; white-space: pre; overflow-x: auto; }
 .preview-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tagline { color: var(--muted); font-size: 14px; margin: 0; }
