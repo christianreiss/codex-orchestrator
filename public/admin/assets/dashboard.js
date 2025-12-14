@@ -888,6 +888,7 @@
     let clientLogsInited = false;
     let mcpLogsInited = false;
     let configInited = false;
+    let memoriesInited = false;
     let hostsInited = false;
     let dataLoaded = false;
     let loadAllPromise = null;
@@ -907,6 +908,11 @@
       if (configInited) return;
       configInited = true;
       if (typeof initConfigBuilder === 'function') initConfigBuilder();
+    };
+    window.__initMemoriesOnce = () => {
+      if (memoriesInited) return;
+      memoriesInited = true;
+      loadMemories();
     };
 
     function renderAgents(doc) {
@@ -1998,6 +2004,7 @@
 
       const params = new URLSearchParams();
       if (query) params.set('q', query);
+      if (hostId) params.set('host_id', hostId);
       if (tags.length) params.set('tags', tags.join(','));
       params.set('limit', String(limit));
 

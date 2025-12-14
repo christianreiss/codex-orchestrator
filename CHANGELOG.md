@@ -1,3 +1,4 @@
+- Admin settings/memories: fixed the Memories tab showing an empty page by wiring it to the correct panel id + lazy loader; host filter now passes `host_id`; cache bump to dashboard.js v=2025-12-14-11.
 - Admin settings: fixed Settings → config.toml (and other settings tabs) sticking around when navigating back to the dashboard (HTML nesting bug: Settings panel-set was closed early).
 - Admin settings/profiles: profile rows are now collapsed by default (click to expand) and the per-profile feature toggles render in a 2×2 grid; cache bump to dashboard.css/profiles.js v=2025-12-14-10.
 - Admin dashboard: Validation Service card now shows the host that last wrote the current canonical auth.json (source FQDN + stored time); cache bump to dashboard.js v=2025-12-14-07.
