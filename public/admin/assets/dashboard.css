@@ -841,6 +841,12 @@ body {
     tbody tr:nth-child(odd) { background: var(--table-row); }
     tbody tr:hover { box-shadow: 0 12px 26px rgba(15,23,42,0.14); }
     tbody tr:not(.status-ok):not(.status-warning):not(.status-critical):hover { background: var(--table-hover); }
+
+    /* Hosts table: no row backgrounds (no zebra, hover fill, or status shading). */
+    #hosts-table tbody tr { background: transparent !important; }
+    #hosts-table tbody tr:nth-child(odd) { background: transparent !important; }
+    #hosts-table tbody tr:hover { background: transparent !important; }
+
     .status-ok { background: linear-gradient(90deg, rgba(82,242,196,0.2), rgba(23,74,68,0.2)); }
     .status-ok:nth-child(even) { background: linear-gradient(90deg, rgba(52,178,141,0.24), rgba(16,48,52,0.3)); }
     .status-warning { background: linear-gradient(90deg, rgba(255,208,103,0.18), rgba(66,44,12,0.35)); }

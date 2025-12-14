@@ -190,6 +190,10 @@ body[data-view="mobile"] tbody tr {
   border: 1px solid rgba(15,23,42,0.08);
 }
 
+body[data-view="mobile"] #hosts-table tbody tr {
+  background: transparent !important;
+}
+
 body[data-view="mobile"] tbody td {
   display: flex;
   flex-direction: column;
