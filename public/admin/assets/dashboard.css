@@ -2466,6 +2466,18 @@ body.embed .hero-actions { display: none !important; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .list-rows { display: flex; flex-direction: column; gap: 10px; }
 .row-card { border: 1px dashed var(--border); border-radius: 12px; padding: 10px; background: #fff; }
+.profile-accordion summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.profile-accordion summary::-webkit-details-marker { display: none; }
+.profile-accordion summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
+.profile-summary-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.profile-summary-line { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); min-width: 0; }
+.profile-summary-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-summary-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-summary-actions { flex: none; display: flex; gap: 8px; align-items: center; }
+.profile-chevron { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+.profile-chevron::before { content: '▸'; font-size: 14px; line-height: 1; }
+.profile-accordion[open] .profile-chevron::before { content: '▾'; }
+.profile-body { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .mono-block { background: #0f172a; color: #e5e7eb; border-radius: 12px; padding: 12px; font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 13px; white-space: pre; overflow-x: auto; }
 .preview-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tagline { color: var(--muted); font-size: 14px; margin: 0; }

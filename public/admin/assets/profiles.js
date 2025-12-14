@@ -86,72 +86,87 @@
     setStatus('Edited (not saved)', shaEl?.textContent || null, updatedEl?.textContent || null);
   }
 
-  function renderProfileRow(data = {}, defaults = {}) {
+  function renderProfileRow(data = {}, defaults = {}, options = {}) {
     if (!profilesRows) return;
-    const row = document.createElement('div');
-    row.className = 'row-card profile-row';
+    const row = document.createElement('details');
+    row.className = 'row-card profile-row profile-accordion';
+    row.open = Boolean(options.open);
     row.__profileOriginal = deepClone(data || {});
 
     row.innerHTML = `
-      <div class="row-actions">
-        <button type="button" class="ghost tiny-btn remove-profile">Delete</button>
-      </div>
-      <div class="inline-group">
-        <div class="field">
-          <label>Name</label>
-          <input type="text" class="profile-name" placeholder="ultra" value="">
-          <div class="muted-note">Allowed: <code>A–Z a–z 0–9 _ -</code></div>
-        </div>
-        <div class="field">
-          <label>Model</label>
-          <select class="profile-model"></select>
-        </div>
-        <div class="field">
-          <label>Model Reasoning Effort</label>
-          <select class="profile-effort"></select>
-        </div>
-      </div>
-      <div class="inline-group">
-        <div class="field">
-          <label>Approval policy</label>
-          <select class="profile-approval"></select>
-        </div>
-        <div class="field">
-          <label>Sandbox mode</label>
-          <select class="profile-sandbox"></select>
-        </div>
-      </div>
-      <div class="feature-list">
-        <label class="feature-toggle">
-          <input type="checkbox" class="profile-stream" style="width:auto; accent-color: var(--accent);">
-          <div>
-            <div class="feature-title">Stream shell output</div>
-            <div class="feature-desc">Show long-running command output live instead of in one big dump.</div>
+      <summary class="profile-summary">
+        <div class="profile-summary-main">
+          <div class="profile-summary-line">
+            <span class="profile-chevron" aria-hidden="true"></span>
+            <span class="profile-summary-name">Unnamed profile</span>
           </div>
-        </label>
-        <label class="feature-toggle">
-          <input type="checkbox" class="profile-search" style="width:auto; accent-color: var(--accent);">
-          <div>
-            <div class="feature-title">Allow web search</div>
-            <div class="feature-desc">Let Codex reach out for fresh context when it needs it.</div>
+          <div class="profile-summary-meta muted-note">Click to expand</div>
+        </div>
+        <div class="profile-summary-actions">
+          <button type="button" class="ghost tiny-btn remove-profile">Delete</button>
+        </div>
+      </summary>
+      <div class="profile-body">
+        <div class="inline-group">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" class="profile-name" placeholder="ultra" value="">
+            <div class="muted-note">Allowed: <code>A–Z a–z 0–9 _ -</code></div>
           </div>
-        </label>
-        <label class="feature-toggle">
-          <input type="checkbox" class="profile-image" style="width:auto; accent-color: var(--accent);">
-          <div>
-            <div class="feature-title">Allow image viewer</div>
-            <div class="feature-desc">Preview images directly in the conversation instead of downloading them.</div>
+          <div class="field">
+            <label>Model</label>
+            <select class="profile-model"></select>
           </div>
-        </label>
-        <label class="feature-toggle">
-          <input type="checkbox" class="profile-network" style="width:auto; accent-color: var(--accent);">
-          <div>
-            <div class="feature-title">Allow network access</div>
-            <div class="feature-desc">Let workspace commands reach the internet.</div>
+          <div class="field">
+            <label>Model Reasoning Effort</label>
+            <select class="profile-effort"></select>
           </div>
-        </label>
+        </div>
+        <div class="inline-group">
+          <div class="field">
+            <label>Approval policy</label>
+            <select class="profile-approval"></select>
+          </div>
+          <div class="field">
+            <label>Sandbox mode</label>
+            <select class="profile-sandbox"></select>
+          </div>
+        </div>
+        <div class="feature-list">
+          <label class="feature-toggle">
+            <input type="checkbox" class="profile-stream" style="width:auto; accent-color: var(--accent);">
+            <div>
+              <div class="feature-title">Stream shell output</div>
+              <div class="feature-desc">Show long-running command output live instead of in one big dump.</div>
+            </div>
+          </label>
+          <label class="feature-toggle">
+            <input type="checkbox" class="profile-search" style="width:auto; accent-color: var(--accent);">
+            <div>
+              <div class="feature-title">Allow web search</div>
+              <div class="feature-desc">Let Codex reach out for fresh context when it needs it.</div>
+            </div>
+          </label>
+          <label class="feature-toggle">
+            <input type="checkbox" class="profile-image" style="width:auto; accent-color: var(--accent);">
+            <div>
+              <div class="feature-title">Allow image viewer</div>
+              <div class="feature-desc">Preview images directly in the conversation instead of downloading them.</div>
+            </div>
+          </label>
+          <label class="feature-toggle">
+            <input type="checkbox" class="profile-network" style="width:auto; accent-color: var(--accent);">
+            <div>
+              <div class="feature-title">Allow network access</div>
+              <div class="feature-desc">Let workspace commands reach the internet.</div>
+            </div>
+          </label>
+        </div>
       </div>
     `;
+
+    const summaryNameEl = row.querySelector('.profile-summary-name');
+    const summaryMetaEl = row.querySelector('.profile-summary-meta');
 
     const nameInput = row.querySelector('.profile-name');
     const modelSelect = row.querySelector('.profile-model');
@@ -203,17 +218,53 @@
       rebuildReasoningOptions(effortSelect, modelSelect.value, effortSelect.value);
     });
 
-    row.querySelector('.remove-profile')?.addEventListener('click', () => {
+    const updateSummary = () => {
+      if (!summaryNameEl || !summaryMetaEl) return;
+      const name = (nameInput?.value || '').trim();
+      summaryNameEl.textContent = name || (row.open ? 'New profile' : 'Unnamed profile');
+
+      const bits = [];
+      const model = (modelSelect?.value || '').trim();
+      if (model) bits.push(model);
+      const effort = (effortSelect?.value || '').trim();
+      if (effort) bits.push(`effort=${effort}`);
+
+      const approval = (approvalSelect?.value || '').trim();
+      bits.push(`approval=${approval || 'default'}`);
+      const sandbox = (sandboxSelect?.value || '').trim();
+      bits.push(`sandbox=${sandbox || 'default'}`);
+
+      const flags = [];
+      if (streamToggle?.checked) flags.push('stream');
+      if (searchToggle?.checked) flags.push('web');
+      if (imageToggle?.checked) flags.push('image');
+      if (networkToggle?.checked) flags.push('net');
+      if (flags.length) bits.push(flags.join(','));
+
+      summaryMetaEl.textContent = bits.length ? bits.join(' · ') : 'Click to expand';
+    };
+
+    row.querySelector('.remove-profile')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       row.remove();
       markDirty();
     });
 
     row.querySelectorAll('input, select').forEach((el) => {
-      el.addEventListener('input', markDirty);
-      el.addEventListener('change', markDirty);
+      el.addEventListener('input', () => { updateSummary(); markDirty(); });
+      el.addEventListener('change', () => { updateSummary(); markDirty(); });
     });
 
     profilesRows.appendChild(row);
+
+    updateSummary();
+    row.addEventListener('toggle', updateSummary);
+    if (options.focusName) {
+      nameInput?.focus();
+    }
+
+    return row;
   }
 
   function collectProfiles() {
@@ -306,7 +357,7 @@
       };
 
       clearRows(profilesRows);
-      (cfg.profiles || []).forEach((p) => renderProfileRow(p, defaults));
+      (cfg.profiles || []).forEach((p) => renderProfileRow(p, defaults, { open: false }));
 
       setStatus(data.status === 'missing' ? 'No saved config yet' : 'Loaded', data.sha256 || null, data.updated_at || null);
     } catch (err) {
@@ -374,7 +425,7 @@
 
     addBtn?.addEventListener('click', () => {
       const defaults = loadedSettings && typeof loadedSettings === 'object' ? loadedSettings : defaultSettings();
-      renderProfileRow({}, defaults);
+      renderProfileRow({}, defaults, { open: true, focusName: true });
       markDirty();
     });
     saveBtn?.addEventListener('click', (e) => {

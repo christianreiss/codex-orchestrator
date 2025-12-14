@@ -82,7 +82,7 @@ cdx --update
 ## Wrapper QoL (`cdx`)
 
 - Offline-friendly: treats HTTP 5xx/network outages as “offline” and can proceed with cached auth (≤24h for insecure hosts, ≤7 days for secure hosts, with warnings).
-- Convenience modes: `cdx shell`, `cdx code`, `cdx --execute "<prompt>"`, and `cdx --uninstall`.
+- Convenience modes: `cdx <profile>` (alias for `--profile <profile>` when it exists in synced `config.toml`), `cdx --execute "<prompt>"`, and `cdx --uninstall`.
 
 ## See it in action
 
