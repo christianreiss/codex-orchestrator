@@ -495,6 +495,27 @@ format_core_entry() {
   printf "%s" "$text"
 }
 
+toml_table_enabled() {
+  local path="$1" table="$2"
+  [[ -f "$path" ]] || return 2
+  local header="[$table]"
+  awk -v header="$header" '
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    BEGIN { in_table=0; found=0; disabled=0 }
+    {
+      line = trim($0)
+      if (line == header) { in_table=1; found=1; next }
+      if (in_table && line ~ /^\[/) { in_table=0 }
+      if (in_table && line ~ /^enabled[[:space:]]*=[[:space:]]*false([[:space:]]*(#.*)?)?$/) { disabled=1 }
+    }
+    END {
+      if (!found) exit 2
+      if (disabled) exit 1
+      exit 0
+    }
+  ' "$path"
+}
+
 extract_version_token() {
   local display="$1"
   if [[ "$display" =~ ([0-9]+[0-9A-Za-z\.\-\+_]*) ]]; then
@@ -1297,15 +1318,30 @@ fi
   core_bits+=("$(format_core_entry "Prompts" "$prompt_tone" "$prompt_detail")")
 
   if [[ -n "$runner_label" ]]; then
-    runner_detail="$runner_label"
-    [[ "$runner_tone" == "green" ]] && runner_detail="(${runner_label})"
-    core_bits+=("$(format_core_entry "Runner" "$runner_tone" "$runner_detail")")
+    core_bits+=("$(format_core_entry "Runner" "$runner_tone")")
+  fi
+
+  # MCP status (managed codex-orchestrator server in config.toml).
+  if [[ -f "$CONFIG_PATH" ]]; then
+    mcp_tone="yellow"
+    if toml_table_enabled "$CONFIG_PATH" "mcp_servers.cdx"; then
+      mcp_tone="green"
+    else
+      case $? in
+        1) mcp_tone="yellow" ;; # explicitly disabled
+        2)
+          if toml_table_enabled "$CONFIG_PATH" "mcp_servers.codex-orchestrator"; then
+            mcp_tone="green"
+          else
+            mcp_tone="yellow"
+          fi
+          ;;
+      esac
+    fi
+    core_bits+=("$(format_core_entry "MCP" "$mcp_tone")")
   fi
 
   policy_entry="Policy: $( (( QUOTA_HARD_FAIL )) && printf "Deny" || printf "Warn" )"
-  if (( QUOTA_WEEK_PARTITION == 5 || QUOTA_WEEK_PARTITION == 7 )); then
-    policy_entry+=" · week partition ${QUOTA_WEEK_PARTITION}d"
-  fi
   core_line_bits=("${core_bits[@]}" "$policy_entry")
   core_line="Core: $(join_with_sep ' | ' "${core_line_bits[@]}")"
 
@@ -1434,7 +1470,7 @@ fi
         printf -v qtext3 "%3d%% [%s]" "$bar_pct" "$bar"
         note_parts=()
         note_parts+=("today used ${daily_used}% of week")
-        note_parts+=("allowance ${allowance_per_day}%/day")
+        note_parts+=("allowance ${allowance_per_day}%/day | ${partition_days} day partition")
         daily_reset_hint="$(join_with_semicolon "${note_parts[@]}")"
         note3_disp="$daily_reset_hint"
         if [[ -n "$note3_disp" ]]; then
@@ -1452,7 +1488,7 @@ fi
     allowance_per_day=$(( (100 + QUOTA_WEEK_PARTITION / 2) / QUOTA_WEEK_PARTITION ))
     bar="$(build_quota_bar 0 "$QUOTA_BAR_WIDTH")"
     qtext3=$(printf "%3d%% [%s]" 0 "$bar")
-    note3_disp=$(printf "%b" "${DIM}allowance ${allowance_per_day}%/day${RESET}")
+    note3_disp=$(printf "%b" "${DIM}allowance ${allowance_per_day}%/day | ${QUOTA_WEEK_PARTITION} day partition${RESET}")
     daily_quota_segment="$(colorize "$qtext3" "green") ${note3_disp}"
     daily_allowance_used_pct=0
   fi
@@ -1727,11 +1763,19 @@ PY
   return "$status"
 }
 
-if [[ -n "$CODEX_HOST_MODEL" ]]; then
-  set -- --model "$CODEX_HOST_MODEL" "$@"
-elif [[ -n "$CODEX_MODEL_PRESET" ]]; then
-  set -- --model "$CODEX_MODEL_PRESET" "$@"
-fi
+	if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
+	  candidate="$CODEX_PROFILE_CANDIDATE"
+	  CODEX_PROFILE_CANDIDATE=""
+	  if [[ "$candidate" =~ ^[A-Za-z0-9_-]+$ && -f "$CONFIG_PATH" ]] && grep -qE "^[[:space:]]*\\[profiles\\.${candidate}\\][[:space:]]*$" "$CONFIG_PATH"; then
+	    set -- --profile "$candidate" "$@"
+	  else
+	    set -- "$candidate" "$@"
+	  fi
+	fi
+
+	if [[ -n "$CODEX_HOST_MODEL" ]]; then
+	  set -- --model "$CODEX_HOST_MODEL" "$@"
+	fi
 
 if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
   set -- --reasoning-effort "$CODEX_HOST_REASONING_EFFORT" "$@"

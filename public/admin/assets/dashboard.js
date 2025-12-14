@@ -694,37 +694,59 @@
       return 0;
     }
 
-    function normalizeCodexVersion(value) {
-      if (typeof value !== 'string') return '';
-      let normalized = value.trim();
-      normalized = normalized.replace(/^(codex-cli|codex|rust-)/i, '');
-      normalized = normalized.replace(/^v/i, '');
-      return normalized;
-    }
+	    function normalizeCodexVersion(value) {
+	      if (typeof value !== 'string') return '';
+	      let normalized = value.trim();
+	      normalized = normalized.replace(/^(codex-cli|codex|rust-)/i, '');
+	      normalized = normalized.replace(/^v/i, '');
+	      return normalized;
+	    }
 
-    async function fetchRecentCodexReleases(limit = 10) {
-      const now = Date.now();
-      if (cachedCodexReleases.versions && (now - cachedCodexReleases.fetchedAt) < CODEX_RELEASES_CACHE_MS) {
-        return cachedCodexReleases.versions;
-      }
+	    function isFullCodexRelease(version) {
+	      const normalized = normalizeCodexVersion(String(version || ''));
+	      if (!normalized) return false;
+	      const lower = normalized.toLowerCase();
+	      if (lower.includes('alpha') || lower.includes('beta')) return false;
+	      // Semver prereleases contain a hyphen (e.g., 0.80.0-rc.1).
+	      if (/-[0-9a-z]/i.test(normalized)) return false;
+	      return true;
+	    }
 
-      const previous = cachedCodexReleases.versions;
-      try {
-        const resp = await fetch(`https://api.github.com/repos/openai/codex/releases?per_page=${limit}`, {
-          headers: { 'Accept': 'application/vnd.github+json' },
-        });
-        if (!resp.ok) {
-          throw new Error(`GitHub ${resp.status}`);
-        }
-        const json = await resp.json();
-        const versions = Array.isArray(json)
-          ? Array.from(new Set(json.map((item) => normalizeCodexVersion(item?.tag_name || item?.name || '')).filter(Boolean)))
-          : [];
-        cachedCodexReleases = { fetchedAt: now, versions, error: null };
-        return versions;
-      } catch (err) {
-        cachedCodexReleases = { fetchedAt: now, versions: previous, error: err };
-        return Array.isArray(previous) ? previous : [];
+	    async function fetchRecentCodexReleases(limit = 10) {
+	      const now = Date.now();
+	      if (cachedCodexReleases.versions && (now - cachedCodexReleases.fetchedAt) < CODEX_RELEASES_CACHE_MS) {
+	        return cachedCodexReleases.versions;
+	      }
+
+	      const previous = cachedCodexReleases.versions;
+	      try {
+	        const perPage = Math.min(100, Math.max(limit * 10, 30));
+	        const resp = await fetch(`https://api.github.com/repos/openai/codex/releases?per_page=${perPage}`, {
+	          headers: { 'Accept': 'application/vnd.github+json' },
+	        });
+	        if (!resp.ok) {
+	          throw new Error(`GitHub ${resp.status}`);
+	        }
+	        const json = await resp.json();
+	        const versions = [];
+	        const seen = new Set();
+	        if (Array.isArray(json)) {
+	          for (const item of json) {
+	            if (!item || item.draft || item.prerelease) continue;
+	            const raw = item?.tag_name || item?.name || '';
+	            const normalized = normalizeCodexVersion(raw);
+	            if (!isFullCodexRelease(normalized)) continue;
+	            if (seen.has(normalized)) continue;
+	            seen.add(normalized);
+	            versions.push(normalized);
+	            if (versions.length >= limit) break;
+	          }
+	        }
+	        cachedCodexReleases = { fetchedAt: now, versions, error: null };
+	        return versions;
+	      } catch (err) {
+	        cachedCodexReleases = { fetchedAt: now, versions: previous, error: err };
+	        return Array.isArray(previous) ? previous : [];
       }
     }
 
@@ -767,12 +789,12 @@
         { value: 'latest', label: githubLatest ? `Latest (${githubLatest})` : 'Latest' },
       ];
 
-      const orderedVersions = [
-        ...recent,
-        ...(target && !recent.includes(target) ? [target] : []),
-        ...(reported && !recent.includes(reported) && reported !== target ? [reported] : []),
-        ...(lock && lock !== target && !recent.includes(lock) ? [lock] : []),
-      ].filter(Boolean);
+	      const orderedVersions = Array.from(new Set([
+	        ...recent,
+	        ...(target && !recent.includes(target) ? [target] : []),
+	        ...(reported && !recent.includes(reported) && reported !== target ? [reported] : []),
+	        ...(lock && lock !== target && !recent.includes(lock) ? [lock] : []),
+	      ].filter(Boolean)));
 
       codexVersionSelect.innerHTML = '';
       for (const opt of baseOptions) {
@@ -1425,12 +1447,12 @@
         try {
           const recent = await fetchRecentCodexReleases(10);
           const githubLatest = recent[0] || '';
-          const orderedVersions = [
-            ...recent,
-            ...(target && !recent.includes(target) ? [target] : []),
-            ...(hostReported && !recent.includes(hostReported) && hostReported !== target ? [hostReported] : []),
-            ...(override && !recent.includes(override) && override !== target && override !== hostReported ? [override] : []),
-          ].filter(Boolean);
+	          const orderedVersions = Array.from(new Set([
+	            ...recent,
+	            ...(target && !recent.includes(target) ? [target] : []),
+	            ...(hostReported && !recent.includes(hostReported) && hostReported !== target ? [hostReported] : []),
+	            ...(override && !recent.includes(override) && override !== target && override !== hostReported ? [override] : []),
+	          ].filter(Boolean)));
 
           codexSelect.innerHTML = '';
           const globalLabel = target ? `Global (fleet · ${target})` : 'Global (fleet)';
@@ -3859,6 +3881,7 @@
           const tab = (panelEl.dataset.settingsPanel || '').toLowerCase();
           panelEl.hidden = tab !== settingsTab;
         });
+        if (settingsTab === 'profiles' && window.__initProfiles) window.__initProfiles();
         if (settingsTab === 'config' && window.__initConfigBuilder) window.__initConfigBuilder();
         if (settingsTab === 'memories' && window.__initMemoriesOnce) {
           window.__initMemoriesOnce();

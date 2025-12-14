@@ -33,7 +33,7 @@ curl -s "$BASE/mcp/memories/store" \
 
 ## Config builder (baked per host)
 
-- `/admin/config.html` is a full-fidelity builder for `config.toml` (models/providers/profiles, approval policy, sandbox, notices, MCP servers, OTEL, custom blocks). Live render with sha/size preview, then one-click deploy.
+- `/admin/config.html` is a full-fidelity builder for `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, custom blocks). Profiles are managed under **Settings → Profiles**.
 - `/config/retrieve` bakes that template per host, injecting the caller’s API key into the managed MCP entry and returning both the baked `sha256` and the base template hash so clients can skip unchanged files.
 - `cdx` writes the baked file to `~/.codex/config.toml` on every run and deletes it when the server returns `status:missing`.
 - Managed MCP uses native HTTP—no npm wrapper needed:

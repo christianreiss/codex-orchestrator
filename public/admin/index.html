@@ -410,13 +410,14 @@
 
         <!-- Settings -->
         <section class="panel-set" data-panel="settings" hidden>
-          <div class="subtabs settings-tabs" role="tablist" aria-label="Settings tabs">
-            <a class="settings-tab active" data-settings-tab="general" href="#settings/general">General</a>
-            <a class="settings-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
-            <a class="settings-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
-            <a class="settings-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
-            <a class="settings-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
-          </div>
+	          <div class="subtabs settings-tabs" role="tablist" aria-label="Settings tabs">
+	            <a class="settings-tab active" data-settings-tab="general" href="#settings/general">General</a>
+	            <a class="settings-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
+	            <a class="settings-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
+	            <a class="settings-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
+	            <a class="settings-tab" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
+	            <a class="settings-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
+	          </div>
           <section class="card panel settings-panel" data-settings-panel="general">
             <div class="panel-head">
               <div>
@@ -638,20 +639,49 @@
                 <tbody></tbody>
               </table>
 	            </div>
-	            <div id="memoriesEmptyState" class="empty-state-box" hidden>
-	              <div class="empty-state-title">No memories yet</div>
-	              <div class="muted" style="margin-top:6px;">
-	                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
+		            <div id="memoriesEmptyState" class="empty-state-box" hidden>
+		              <div class="empty-state-title">No memories yet</div>
+		              <div class="muted" style="margin-top:6px;">
+		                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
+		              </div>
+		            </div>
+		          </section>
+	          <section class="card panel" data-settings-panel="profiles" hidden>
+	            <div class="panel-head">
+	              <div>
+	                <p class="eyebrow">Config Builder</p>
+	                <h2>Profiles</h2>
+	                <p class="muted">Define reusable CLI profiles; hosts can run <code>cdx &lt;name&gt;</code> (alias for <code>--profile</code>).</p>
+	              </div>
+	              <div class="panel-actions">
+	                <button id="reloadProfiles" class="ghost tiny-btn">Reload</button>
+	                <button id="saveProfiles" class="primary">Save &amp; Deploy</button>
+	              </div>
+	            </div>
+	            <div class="panel-body">
+	              <div class="inline-group" style="margin-bottom:12px;">
+	                <div class="pill-quiet">Status: <span id="profilesStatus">Loading…</span></div>
+	                <div class="pill-quiet">SHA: <span id="profilesSha">—</span></div>
+	                <div class="pill-quiet">Updated: <span id="profilesUpdated">—</span></div>
+	              </div>
+
+	              <div class="config-card">
+	                <p>Per-profile overrides for Codex CLI <code>--profile</code>.</p>
+	                <div class="row-actions">
+	                  <button type="button" id="addProfileSettingsBtn" class="ghost tiny-btn">+ Add profile</button>
+	                  <span class="muted-note">Model / reasoning / approval / sandbox / features.</span>
+	                </div>
+	                <div id="profilesRows" class="list-rows"></div>
 	              </div>
 	            </div>
 	          </section>
-          <section class="card panel" data-settings-panel="config" hidden>
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Config Builder</p>
-                <h2>config.toml generator</h2>
-                <p class="muted">Generate, preview, and deploy the fleet-wide config in one place.</p>
-              </div>
+	          <section class="card panel" data-settings-panel="config" hidden>
+	            <div class="panel-head">
+	              <div>
+	                <p class="eyebrow">Config Builder</p>
+	                <h2>config.toml generator</h2>
+	                <p class="muted">Generate, preview, and deploy the fleet-wide config in one place. Profiles live under <strong>Settings → Profiles</strong>.</p>
+	              </div>
               <div class="panel-actions">
                 <button id="renderConfig" class="ghost tiny-btn">Preview</button>
                 <button id="copyPreview" class="ghost tiny-btn">Copy</button>
@@ -837,16 +867,6 @@
                 </div>
 
                 <div class="config-card">
-                  <h3>Profiles</h3>
-                  <p>Per-profile overrides for CLI <code>--profile</code>.</p>
-                  <div class="row-actions">
-                    <button type="button" id="addProfileBtn" class="ghost tiny-btn">+ Add profile</button>
-                    <span class="muted-note">Model / provider / approval / sandbox / reasoning.</span>
-                  </div>
-                  <div id="profileRows" class="list-rows"></div>
-                </div>
-
-                <div class="config-card">
                   <h3>MCP &amp; Telemetry</h3>
                   <p>Wire Codex-Coordinator memory MCP or other servers, plus OTEL.</p>
                   <div class="row-actions" style="align-items:center;">
@@ -949,9 +969,10 @@
       window.addEventListener('hashchange', applyFromHash);
     })();
   </script>
-	  <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-		  <script src="/admin/assets/dashboard.js?v=2025-12-13-09"></script>
-		  <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
-	  <script src="/admin/assets/config.js?v=2025-12-12-02"></script>
+  <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
+  <script src="/admin/assets/dashboard.js?v=2025-12-14-06"></script>
+  <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
+  <script src="/admin/assets/config.js?v=2025-12-14-06"></script>
+  <script src="/admin/assets/profiles.js?v=2025-12-14-06"></script>
 </body>
 </html>

@@ -81,7 +81,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
   - Report host users, sync slash commands + AGENTS.md (delete local file when API says `missing`), parse Codex stdout token lines, POST `/usage`, and display ChatGPT quota bars (`chatgpt_usage`) plus runner state.
   - Honor `quota_hard_fail` + `quota_limit_percent` from `/auth`. VIP hosts always see `quota_hard_fail=false` so they keep launching but warn when usage meets the configured percent; non-VIP hosts stop once the threshold is hit when hard-fail mode is enabled.
   - Purge `~/.codex/auth.json` after each run when the host is insecure/baked as insecure.
-  - `--update` forces wrapper download; `--uninstall` cleans Codex artifacts and calls `DELETE /auth`; `--execute` runs a one-off Codex command with sandbox defaults; `shell`/`code` subcommands coerce GPT-5.1 Codex models.
+  - `--update` forces wrapper download; `--uninstall` cleans Codex artifacts and calls `DELETE /auth`; `--execute` runs a one-off Codex command with sandbox defaults; `cdx <profile>` is shorthand for `cdx --profile <profile>` when the named profile exists in the synced `config.toml`.
 - `migrate-sqlite-to-mysql.php` exists for legacy migrations: copies SQLite into MySQL, truncates when `--force`, and skips orphaned rows.
 
 ## Extension Playbook

@@ -251,4 +251,51 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
         $this->assertStringNotContainsString('mcp_servers.codex-memory', $content);
     }
+
+    public function testRenderRendersProfilesWithFeaturesAndSandboxOverrides(): void
+    {
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.2',
+            'approval_policy' => 'on-request',
+            'sandbox_mode' => 'workspace-write',
+            'profiles' => [
+                [
+                    'name' => 'ultra',
+                    'model' => 'gpt-5.1-codex-max',
+                    'model_provider' => 'ignored',
+                    'approval_policy' => 'on-request',
+                    'sandbox_mode' => 'workspace-write',
+                    'model_reasoning_effort' => 'xhigh',
+                    'features' => [
+                        'streamable_shell' => true,
+                        'web_search_request' => false,
+                        'view_image_tool' => true,
+                    ],
+                    'sandbox_workspace_write' => [
+                        'network_access' => true,
+                    ],
+                ],
+            ],
+        ]);
+
+        $content = $rendered['content'];
+        $this->assertStringContainsString('[profiles.ultra]', $content);
+        $this->assertStringContainsString('model = "gpt-5.1-codex-max"', $content);
+        $this->assertStringContainsString('[profiles.ultra.features]', $content);
+        $this->assertStringContainsString('streamable_shell = true', $content);
+        $this->assertStringContainsString('web_search_request = false', $content);
+        $this->assertStringContainsString('view_image_tool = true', $content);
+        $this->assertStringContainsString('[profiles.ultra.sandbox_workspace_write]', $content);
+        $this->assertStringContainsString('network_access = true', $content);
+        $this->assertStringNotContainsString('model_provider', $content);
+
+        $settings = $rendered['settings'];
+        $this->assertIsArray($settings);
+        $this->assertIsArray($settings['profiles']);
+        $this->assertSame('ultra', $settings['profiles'][0]['name']);
+        $this->assertArrayNotHasKey('model_provider', $settings['profiles'][0]);
+        $this->assertSame(true, $settings['profiles'][0]['features']['streamable_shell']);
+        $this->assertSame(false, $settings['profiles'][0]['features']['web_search_request']);
+        $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);
+    }
 }

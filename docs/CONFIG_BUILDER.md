@@ -4,7 +4,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 
 ## Surfaces
 
-- Web UI: `/admin/config.html` — full-form builder (models/providers/profiles, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks).
+- Web UI: `/admin/config.html` — full-form builder for fleet `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
 - API: `/admin/config` (GET metadata), `/admin/config/render` (preview without saving), `/admin/config/store` (persist), `/config/retrieve` (host-facing baked download).
 
 ## Flow

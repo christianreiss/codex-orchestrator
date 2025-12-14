@@ -32,7 +32,7 @@
   let envSetInput;
   let ignoreDefaultExcludesInput;
 
-  let profileRows;
+  let preservedProfiles = [];
   let mcpRows;
   let mcpAccordion;
   let mcpCount;
@@ -51,7 +51,6 @@
   let saveBtn;
   let renderBtn;
   let copyBtn;
-  let addProfileBtn;
   let addMcpBtn;
 
   let lastRenderedSha = '';
@@ -242,46 +241,6 @@
     }
   }
 
-  function renderProfileRow(data = {}) {
-    if (!profileRows) return;
-    const row = document.createElement('div');
-    row.className = 'profile-row';
-    row.innerHTML = `
-      <div class="row-actions">
-        <button type="button" class="ghost tiny-btn remove-profile">Remove</button>
-      </div>
-      <div class="inline-group">
-        <div class="field"><label>Name</label><input type="text" class="profile-name" placeholder="cli" value="${data.name || ''}"></div>
-        <div class="field"><label>Model</label><input type="text" class="profile-model" value="${data.model || ''}" placeholder="gpt-5.1-codex"></div>
-        <div class="field"><label>Provider</label><input type="text" class="profile-provider" value="${data.model_provider || ''}" placeholder="openai"></div>
-      </div>
-      <div class="inline-group">
-        <div class="field"><label>Approval</label><input type="text" class="profile-approval" value="${data.approval_policy || ''}" placeholder="on-request"></div>
-        <div class="field"><label>Sandbox</label><input type="text" class="profile-sandbox" value="${data.sandbox_mode || ''}" placeholder="workspace-write"></div>
-        <div class="field"><label>Reasoning effort</label><input type="text" class="profile-effort" value="${data.model_reasoning_effort || ''}" placeholder="medium"></div>
-      </div>
-      <div class="inline-group">
-        <div class="field"><label>Reasoning summary</label><input type="text" class="profile-summary" value="${data.model_reasoning_summary || ''}" placeholder="auto"></div>
-        <div class="field"><label>Verbosity</label><input type="text" class="profile-verbosity" value="${data.model_verbosity || ''}" placeholder="low"></div>
-        <div class="field"><label>Context window</label><input type="number" class="profile-context" value="${data.model_context_window ?? ''}" min="0"></div>
-        <div class="field"><label>Max tokens</label><input type="number" class="profile-max" value="${data.model_max_output_tokens ?? ''}" min="0"></div>
-      </div>
-      <label class="feature-toggle" style="margin-top:6px;">
-        <input type="checkbox" class="profile-supports" ${data.model_supports_reasoning_summaries ? 'checked' : ''} style="width:auto; accent-color: var(--accent);">
-        <div>
-          <div class="feature-title">Force reasoning summaries</div>
-          <div class="feature-desc">Treat this profile as supporting structured reasoning summaries.</div>
-        </div>
-      </label>
-    `;
-    row.querySelector('.remove-profile').addEventListener('click', () => { row.remove(); debouncedPreview(); });
-    row.querySelectorAll('input').forEach((el) => {
-      el.addEventListener('input', debouncedPreview);
-      el.addEventListener('change', debouncedPreview);
-    });
-    profileRows.appendChild(row);
-  }
-
   // Built-in servers are injected per-host by the coordinator and should not be shown
   // as “Configured MCP servers” in the UI. Only show ADDED / other MCP servers.
   const MANAGED_MCP_NAMES = ['codex-memory', 'codex-orchestrator', 'cdx', 'codex-coordinator'];
@@ -334,23 +293,7 @@
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
     Object.assign(features, extraFeatures);
 
-    const profiles = Array.from(profileRows?.querySelectorAll('.profile-row') || []).map((row) => {
-      const name = row.querySelector('.profile-name')?.value.trim() || '';
-      if (!name) return null;
-      return {
-        name,
-        model: row.querySelector('.profile-model')?.value.trim() || '',
-        model_provider: row.querySelector('.profile-provider')?.value.trim() || '',
-        approval_policy: row.querySelector('.profile-approval')?.value.trim() || '',
-        sandbox_mode: row.querySelector('.profile-sandbox')?.value.trim() || '',
-        model_reasoning_effort: row.querySelector('.profile-effort')?.value.trim() || '',
-        model_reasoning_summary: row.querySelector('.profile-summary')?.value.trim() || '',
-        model_verbosity: row.querySelector('.profile-verbosity')?.value.trim() || '',
-        model_supports_reasoning_summaries: row.querySelector('.profile-supports')?.checked || false,
-        model_context_window: numberOrNull(row.querySelector('.profile-context')?.value),
-        model_max_output_tokens: numberOrNull(row.querySelector('.profile-max')?.value),
-      };
-    }).filter(Boolean);
+    const profiles = Array.isArray(preservedProfiles) ? preservedProfiles : [];
 
     const mcpServers = Array.from(mcpRows?.querySelectorAll('.mcp-row') || []).map((row) => {
       const name = row.querySelector('.mcp-name')?.value.trim() || '';
@@ -413,6 +356,7 @@
   function populateForm(settings) {
     if (!modelInput) return;
     const cfg = deepMerge(defaultSettings(), settings || {});
+    preservedProfiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
     setSelectValue(modelInput, cfg.model || '');
     setSelectValue(approvalPolicyInput, cfg.approval_policy || '');
     setSelectValue(sandboxModeInput, cfg.sandbox_mode || '');
@@ -444,9 +388,6 @@
     envExcludeInput.value = (cfg.shell_environment_policy?.exclude || []).join('\n');
     envSetInput.value = mapToText(cfg.shell_environment_policy?.set || {});
     ignoreDefaultExcludesInput.checked = Boolean(cfg.shell_environment_policy?.ignore_default_excludes);
-
-    clearRows(profileRows);
-    (cfg.profiles || []).forEach((profile) => renderProfileRow(profile));
 
     clearRows(mcpRows);
     const orchestratorEnabled = cfg.orchestrator_mcp_enabled !== false;
@@ -641,8 +582,9 @@
 
   const debouncedPreview = debounce(renderPreview, 400);
 
-  function wireChangeEvents() {
-    const inputs = document.querySelectorAll('input, textarea, select');
+  function wireChangeEvents(rootEl) {
+    const scope = rootEl || document;
+    const inputs = scope.querySelectorAll('input, textarea, select');
     inputs.forEach((el) => {
       const markDirty = () => {
         lastRenderedSha = '';
@@ -693,7 +635,6 @@
     envSetInput = document.getElementById('envSetInput');
     ignoreDefaultExcludesInput = document.getElementById('ignoreDefaultExcludesInput');
 
-    profileRows = document.getElementById('profileRows');
     mcpRows = document.getElementById('mcpRows');
     mcpAccordion = document.getElementById('mcpAccordion');
     mcpCount = document.getElementById('mcpCount');
@@ -712,7 +653,6 @@
     saveBtn = document.getElementById('saveConfig');
     renderBtn = document.getElementById('renderConfig');
     copyBtn = document.getElementById('copyPreview');
-    addProfileBtn = document.getElementById('addProfileBtn');
     addMcpBtn = document.getElementById('addMcpBtn');
   }
 
@@ -724,7 +664,6 @@
     if (!modelInput || !previewEl || !statusEl) return;
     inited = true;
 
-    addProfileBtn?.addEventListener('click', () => renderProfileRow());
     addMcpBtn?.addEventListener('click', () => {
       renderMcpRow();
       updateMcpVisibility({ forceOpen: true });
@@ -757,7 +696,7 @@
       }
     });
 
-    wireChangeEvents();
+    wireChangeEvents(document.querySelector('[data-settings-panel="config"]'));
     loadConfig().then(renderPreview);
   }
 

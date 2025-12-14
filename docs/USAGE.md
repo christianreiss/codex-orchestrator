@@ -94,7 +94,7 @@ On the host:
 
 ```bash
 cdx --version
-cdx shell
+cdx
 ```
 
 If the host is marked **insecure**, make sure its insecure window is currently open (see “Secure vs insecure hosts” below).
@@ -114,17 +114,17 @@ The wrapper is the supported entrypoint because it:
 Common commands:
 
 ```bash
-# Interactive Codex shell (forces the codex shell model)
-cdx shell
+# Interactive Codex (uses the fleet config defaults)
+cdx
 
-# Code-focused mode (forces the codex-max model)
-cdx code
+# Run with a named profile (shorthand for `--profile <name>`)
+cdx ultra
 
 # One-shot, script-friendly execution (prints only the final assistant reply)
 cdx --execute "explain what this repo does in 5 bullets"
 ```
 
-Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards arguments after `shell` / `code`.
+Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
 
 ### Where files land
 

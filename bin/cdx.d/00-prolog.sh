@@ -109,7 +109,7 @@ CODEX_NO_PTY=${CODEX_NO_PTY:-0}
 CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
-CODEX_MODEL_PRESET=""
+CODEX_PROFILE_CANDIDATE=""
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
 CODEX_HOST_MODEL="${CODEX_HOST_MODEL:-__CODEX_HOST_MODEL__}"
@@ -238,7 +238,7 @@ if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.13-02"
+WRAPPER_VERSION="2025.12.14-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -306,16 +306,10 @@ case "${1-}" in
     ;;
 esac
 
-case "${1-}" in
-  shell)
-    CODEX_MODEL_PRESET="gpt-5.1-codex"
-    shift
-    ;;
-  code)
-    CODEX_MODEL_PRESET="gpt-5.1-codex-max"
-    shift
-    ;;
-esac
+if [[ -n "${1-}" && "${1-}" != -* ]]; then
+  CODEX_PROFILE_CANDIDATE="$1"
+  shift
+fi
 
 if (( ! IS_ROOT )) && (( CAN_SUDO == 0 )); then
   log_info "Non-root execution detected; skipping automatic Codex install/update (passwordless sudo required)."

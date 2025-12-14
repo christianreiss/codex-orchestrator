@@ -425,10 +425,24 @@ class ClientConfigService
             }
 
             $profileModel = $normalizeString($entry['model'] ?? null);
+            $profileFeaturesRaw = is_array($entry['features'] ?? null) ? $entry['features'] : [];
+            $profileFeatures = [];
+            foreach ($profileFeaturesRaw as $key => $value) {
+                $boolValue = $normalizeBool($value);
+                if ($boolValue === null) {
+                    continue;
+                }
+                $featureName = $normalizeString((string) $key);
+                if ($featureName === null || $featureName === '') {
+                    continue;
+                }
+                $profileFeatures[$featureName] = $boolValue;
+            }
+
+            $profileSandboxRaw = is_array($entry['sandbox_workspace_write'] ?? null) ? $entry['sandbox_workspace_write'] : [];
             $profiles[] = [
                 'name' => $name,
                 'model' => $profileModel,
-                'model_provider' => $normalizeString($entry['model_provider'] ?? null),
                 'approval_policy' => $normalizeString($entry['approval_policy'] ?? null),
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
                 'model_reasoning_effort' => $normalizeString($entry['model_reasoning_effort'] ?? null),
@@ -437,6 +451,10 @@ class ClientConfigService
                 'model_supports_reasoning_summaries' => $normalizeBool($entry['model_supports_reasoning_summaries'] ?? null),
                 'model_context_window' => $this->normalizeInt($entry['model_context_window'] ?? null),
                 'model_max_output_tokens' => $this->normalizeInt($entry['model_max_output_tokens'] ?? null),
+                'features' => $profileFeatures,
+                'sandbox_workspace_write' => [
+                    'network_access' => $normalizeBool($profileSandboxRaw['network_access'] ?? null),
+                ],
             ];
         }
         $result['profiles'] = $profiles;
@@ -566,9 +584,9 @@ class ClientConfigService
                     continue;
                 }
                 $this->addBlankLine($lines);
-                $lines[] = '[profiles.' . $this->formatKey($name) . ']';
+                $profileKey = $this->formatKey($name);
+                $lines[] = '[profiles.' . $profileKey . ']';
                 $this->addKeyValue($lines, 'model', $profile['model'] ?? null);
-                $this->addKeyValue($lines, 'model_provider', $profile['model_provider'] ?? null);
                 $this->addKeyValue($lines, 'approval_policy', $profile['approval_policy'] ?? null);
                 $this->addKeyValue($lines, 'sandbox_mode', $profile['sandbox_mode'] ?? null);
                 $this->addKeyValue($lines, 'model_reasoning_effort', $profile['model_reasoning_effort'] ?? null);
@@ -577,6 +595,21 @@ class ClientConfigService
                 $this->addKeyValue($lines, 'model_supports_reasoning_summaries', $profile['model_supports_reasoning_summaries'] ?? null);
                 $this->addKeyValue($lines, 'model_context_window', $profile['model_context_window'] ?? null);
                 $this->addKeyValue($lines, 'model_max_output_tokens', $profile['model_max_output_tokens'] ?? null);
+
+                if ($this->hasAny($profile['features'] ?? [])) {
+                    $this->addBlankLine($lines);
+                    $lines[] = '[profiles.' . $profileKey . '.features]';
+                    foreach ($this->sortedAssoc($profile['features'] ?? []) as $key => $value) {
+                        $this->addKeyValue($lines, (string) $key, $value);
+                    }
+                }
+
+                if ($this->hasAny($profile['sandbox_workspace_write'] ?? [])) {
+                    $this->addBlankLine($lines);
+                    $lines[] = '[profiles.' . $profileKey . '.sandbox_workspace_write]';
+                    $sandbox = $profile['sandbox_workspace_write'] ?? [];
+                    $this->addKeyValue($lines, 'network_access', $sandbox['network_access'] ?? null);
+                }
             }
         }
 
