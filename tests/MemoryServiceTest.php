@@ -141,6 +141,7 @@ final class MemoryServiceTest extends TestCase
         $this->assertSame('created', $result['status']);
         $this->assertNotEmpty($result['id']);
         $this->assertSame('first note', $result['memory']['content']);
+        $this->assertNotEmpty($result['memory']['record_id']);
         $this->assertSame([], $result['memory']['tags']);
         $this->assertCount(1, $this->logs->records);
     }

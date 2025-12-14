@@ -1962,31 +1962,47 @@
       if (memoriesTableWrap) memoriesTableWrap.hidden = false;
 
       memoriesTableBody.innerHTML = currentMemories.map((row) => {
-        const id = row.id || '—';
+        const memoryKey = row.id || '—';
+        const recordId = Number.isFinite(row.record_id) ? row.record_id : null;
         const content = clipText(row.content || '', 180).replace(/</g, '&lt;');
         const updated = row.updated_at ? formatTimestamp(row.updated_at) : '—';
         const tags = Array.isArray(row.tags) && row.tags.length
           ? row.tags.map(t => `<span class="tag-badge">${escapeHtml(t)}</span>`).join('')
           : '—';
+        const hostLabel = row.host ? `<span class="memories-host">${escapeHtml(row.host)}</span>` : '';
+        const keyLabel = memoryKey && memoryKey !== '—' ? `<code class="memories-key">${escapeHtml(memoryKey)}</code>` : '';
+        const metaParts = [hostLabel, keyLabel].filter(Boolean).join(' · ');
+        const meta = metaParts ? `<div class="muted memories-meta">${metaParts}</div>` : '';
+        const deleteTitle = recordId === null ? 'Delete unavailable (missing record id)' : `Delete memory ${memoryKey}`;
 
         return `<tr>
-          <td data-label="Content">${content || '—'}</td>
+          <td data-label="Content">${content || '—'}${meta}</td>
           <td data-label="Tags">${tags}</td>
           <td data-label="Updated">${updated}</td>
-          <td data-label="Actions"><button class="ghost tiny-btn" data-delete-id="${escapeHtml(id)}">Delete</button></td>
+          <td data-label="Actions">
+            <button class="ghost tiny-btn danger"
+              title="${deleteTitle}"
+              data-memory-key="${escapeHtml(memoryKey)}"
+              ${recordId === null ? 'disabled' : `data-delete-record-id="${recordId}"`}
+            >Delete</button>
+          </td>
         </tr>`;
       }).join('');
 
-      memoriesTableBody.querySelectorAll('button[data-delete-id]').forEach((btn) => {
+      memoriesTableBody.querySelectorAll('button[data-delete-record-id]').forEach((btn) => {
         btn.addEventListener('click', async (e) => {
           e.preventDefault();
-          const id = btn.getAttribute('data-delete-id');
-          if (!id || !confirm(`Delete memory ${id}?`)) return;
+          const recordId = btn.getAttribute('data-delete-record-id');
+          const memoryKey = btn.getAttribute('data-memory-key') || recordId;
+          const label = memoryKey ? `memory ${memoryKey}` : `record #${recordId}`;
+          if (!recordId || !confirm(`Delete ${label}? This cannot be undone.`)) return;
           try {
-            await api(`/admin/mcp/memories/${encodeURIComponent(id)}`, 'DELETE');
+            btn.disabled = true;
+            await api(`/admin/mcp/memories/${encodeURIComponent(recordId)}`, 'DELETE');
             await loadMemories();
           } catch (err) {
             alert(err.message || 'Delete failed');
+            btn.disabled = false;
           }
         });
       });

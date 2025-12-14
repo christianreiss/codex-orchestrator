@@ -24,7 +24,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **ChatGPT Usage**: latest `/wham/usage` snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly).
 - **Slash Commands**: list/create/update/delete prompt files; delete marks propagate to hosts.
 - **AGENTS**: edit the canonical `AGENTS.md` (sha + size shown). Hosts sync it on wrapper runs.
-- **MCP Memories**: search/browse memories by text, tags, host, limit (1–200).
+- **MCP Memories**: search/browse memories by text, tags, host, limit (1–200) and delete entries directly from the table (uses the numeric `record_id`).
 - **Versions Check**: force-refresh the GitHub client release cache.
 - **Codex Version**: in Settings → Operations & Settings, choose `Latest` (tracks GitHub latest stable/full release) or pin the fleet to a specific Codex release (dropdown hides alpha/beta prereleases; the currently pinned/in-use version still shows for visibility).
 - **Logs**: recent audit events.

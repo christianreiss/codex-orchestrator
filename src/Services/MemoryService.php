@@ -378,6 +378,7 @@ class MemoryService
     {
         return [
             'id' => $row['memory_key'] ?? null,
+            'record_id' => isset($row['id']) ? (int) $row['id'] : null,
             'host_id' => $row['host_id'] ?? null,
             'host' => $row['host_fqdn'] ?? null,
             'content' => $row['content'] ?? '',

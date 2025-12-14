@@ -35,7 +35,7 @@
 
 - `/mcp` speaks the streamable HTTP MCP spec (2025‑03‑26) with host API keys; `cdx` bakes an entry automatically so Codex IDE/CLI can call it without extra wiring.
 - Tools: `memory_store|memory_retrieve|memory_search`, resource browsing (`resources/templates/list`, `resources/list`, `resources/read` as `text/plain`), scoped notes (`memory_append|memory_query|memory_list`), and sandboxed filesystem helpers (`fs_read_file|fs_write_file|fs_list_dir|fs_stat|fs_search_in_files`).
-- Admins get `/admin/mcp/memories` to search/browse stored notes (filter by host/tags/query).
+- Admins get `/admin/mcp/memories` to search/browse stored notes (filter by host/tags/query) and can delete entries with `DELETE /admin/mcp/memories/{record_id}`.
 - Quick taste:
 ```bash
 curl -s "$BASE/mcp/memories/store" \
