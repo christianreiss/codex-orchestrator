@@ -61,6 +61,17 @@ class AuthPayloadRepository
         return $payload;
     }
 
+    public function findMetadataById(int $id): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, last_refresh, sha256, source_host_id, created_at FROM auth_payloads WHERE id = :id LIMIT 1'
+        );
+        $statement->execute(['id' => $id]);
+        $payload = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $payload ?: null;
+    }
+
     public function latest(): ?array
     {
         $statement = $this->database->connection()->query(
@@ -75,6 +86,16 @@ class AuthPayloadRepository
         $payload['entries'] = $this->entries->listByPayload((int) $payload['id']);
 
         return $payload;
+    }
+
+    public function latestMetadata(): ?array
+    {
+        $statement = $this->database->connection()->query(
+            'SELECT id, last_refresh, sha256, source_host_id, created_at FROM auth_payloads ORDER BY created_at DESC, id DESC LIMIT 1'
+        );
+        $payload = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $payload ?: null;
     }
 
     private function decryptBody(?string $body): ?string

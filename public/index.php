@@ -390,7 +390,7 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
     ]);
 });
 
-$router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostRepository, $versionRepository) {
+$router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostRepository, $versionRepository, $authPayloadRepository) {
     requireAdminAccess();
 
     $runnerUrl = (string) Config::get('AUTH_RUNNER_URL', '');
@@ -401,6 +401,17 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
     $since = gmdate(DATE_ATOM, time() - 86400);
     $latestValidationRow = $logRepository->recentByActions(['auth.validate'], 1);
     $latestRunnerStoreRow = $logRepository->recentByActions(['auth.runner_store'], 1);
+
+    $formatHostBrief = static function (?array $host): ?array {
+        if ($host === null) {
+            return null;
+        }
+        return [
+            'id' => isset($host['id']) ? (int) $host['id'] : null,
+            'fqdn' => $host['fqdn'] ?? null,
+            'ip' => $host['ip'] ?? null,
+        ];
+    };
 
     $formatLog = static function (?array $row) use ($hostRepository): ?array {
         if (!$row) {
@@ -433,6 +444,39 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
         ];
     };
 
+    $canonicalPayload = null;
+    $canonicalPayloadId = $versionRepository->get('canonical_payload_id');
+    if ($canonicalPayloadId !== null && ctype_digit((string) $canonicalPayloadId)) {
+        $canonicalPayload = $authPayloadRepository->findMetadataById((int) $canonicalPayloadId);
+    }
+    if ($canonicalPayload === null) {
+        $canonicalPayload = $authPayloadRepository->latestMetadata();
+    }
+
+    $canonicalSourceHostId = null;
+    $canonicalSourceHost = null;
+    if ($canonicalPayload !== null) {
+        $raw = $canonicalPayload['source_host_id'] ?? null;
+        if ($raw !== null && is_numeric($raw)) {
+            $canonicalSourceHostId = (int) $raw;
+        }
+        if ($canonicalSourceHostId !== null && $canonicalSourceHostId > 0) {
+            $canonicalSourceHost = $formatHostBrief($hostRepository->findById($canonicalSourceHostId));
+        }
+    }
+
+    $canonicalAuth = null;
+    if ($canonicalPayload !== null) {
+        $canonicalAuth = [
+            'payload_id' => isset($canonicalPayload['id']) ? (int) $canonicalPayload['id'] : null,
+            'created_at' => $canonicalPayload['created_at'] ?? null,
+            'last_refresh' => $canonicalPayload['last_refresh'] ?? null,
+            'digest' => $canonicalPayload['sha256'] ?? null,
+            'source_host_id' => $canonicalSourceHostId,
+            'source_host' => $canonicalSourceHost,
+        ];
+    }
+
     Response::json([
         'status' => 'ok',
         'data' => [
@@ -451,6 +495,7 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
             ],
             'latest_validation' => $formatLog($latestValidationRow[0] ?? null),
             'latest_runner_store' => $formatLog($latestRunnerStoreRow[0] ?? null),
+            'canonical_auth' => $canonicalAuth,
         ],
     ]);
 });

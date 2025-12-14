@@ -2036,7 +2036,13 @@
       const runnerStore = info.latest_runner_store || null;
       const runnerStoreLabel = runnerStore?.last_refresh ? formatTimestamp(runnerStore.last_refresh) : '—';
       const runnerStoreWhen = runnerStore?.created_at ? formatRelative(runnerStore.created_at) : '—';
-      const runnerHost = '';
+      const canonicalAuth = info.canonical_auth || null;
+      const canonicalSource = canonicalAuth?.source_host || null;
+      const canonicalSourceLabel = escapeHtml(
+        canonicalSource?.fqdn
+          || (canonicalAuth ? (canonicalAuth.source_host_id ? `host #${canonicalAuth.source_host_id}` : 'system') : '—')
+      );
+      const canonicalStoredWhen = canonicalAuth?.created_at ? formatRelative(canonicalAuth.created_at) : null;
       const lastRun = hasValidation ? validationWhen : (info.enabled ? 'No runs yet' : '—');
       const statusLabel = (hasValidation ? validationStatus : (info.enabled ? 'VALID' : 'DISABLED')).toString().toUpperCase();
       return `
@@ -2046,6 +2052,7 @@
           </div>
           <div class="stat-value">${statusLabel}</div>
           <small class="muted">Timeout ${info.timeout_seconds ?? '—'}s, Last run ${lastRun}${validationLatency ? ` · ${validationLatency}` : ''}</small>
+          <small class="muted">Auth source ${canonicalSourceLabel}${canonicalStoredWhen ? ` · stored ${canonicalStoredWhen}` : ''}</small>
           <div class="runner-meta" style="margin-top:12px;">
             ${validationReason ? `<div><div class="label">Notes</div><div>${validationReason}</div></div>` : ''}
           </div>
