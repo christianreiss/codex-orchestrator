@@ -8,6 +8,44 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 final class AdminAgentsUiWiringTest extends TestCase
 {
+    public function testAdminSettingsPanelsStayInsideSettingsPanelSet(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML($html);
+        libxml_clear_errors();
+
+        $xpath = new DOMXPath($dom);
+
+        $settingsPanelSets = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " panel-set ")][@data-panel="settings"]');
+        $this->assertNotFalse($settingsPanelSets);
+        $this->assertSame(1, $settingsPanelSets->length, 'Expected exactly one settings panel-set container.');
+
+        $settingsPanels = $xpath->query('//*[@data-settings-panel]');
+        $this->assertNotFalse($settingsPanels);
+        $this->assertGreaterThan(0, $settingsPanels->length, 'Expected at least one settings panel.');
+
+        foreach ($settingsPanels as $panel) {
+            $ancestor = $panel->parentNode;
+            $insideSettingsPanelSet = false;
+            while ($ancestor !== null && $ancestor->nodeType === XML_ELEMENT_NODE) {
+                $class = $ancestor->attributes?->getNamedItem('class')?->nodeValue ?? '';
+                $dataPanel = $ancestor->attributes?->getNamedItem('data-panel')?->nodeValue ?? '';
+                if (str_contains(" {$class} ", ' panel-set ') && strtolower(trim($dataPanel)) === 'settings') {
+                    $insideSettingsPanelSet = true;
+                    break;
+                }
+                $ancestor = $ancestor->parentNode;
+            }
+
+            $panelName = $panel->attributes?->getNamedItem('data-settings-panel')?->nodeValue ?? '(unknown)';
+            $this->assertTrue($insideSettingsPanelSet, "Settings panel '{$panelName}' must be nested under the settings panel-set.");
+        }
+    }
+
     public function testAdminAgentsSettingsPanelContainsInlineEditorIds(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
