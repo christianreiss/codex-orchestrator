@@ -37,6 +37,7 @@ final class HostRepositoryModelOverridesTest extends TestCase
                 allow_roaming_ips INTEGER DEFAULT 0,
                 model_override TEXT NULL,
                 reasoning_effort_override TEXT NULL,
+                expires_at TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )'
@@ -92,4 +93,3 @@ final class HostRepositoryModelOverridesTest extends TestCase
         return $database;
     }
 }
-

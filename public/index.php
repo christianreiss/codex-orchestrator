@@ -331,6 +331,18 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         ], 422);
     }
 
+    $temporary = null;
+    if (array_key_exists('temporary', $payload)) {
+        $temporaryRaw = $payload['temporary'];
+        $temporary = $temporaryRaw === null ? false : normalizeBoolean($temporaryRaw);
+        if ($temporary === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'temporary must be boolean',
+            ], 422);
+        }
+    }
+
     $hostPayload = $service->register($fqdn, $secure);
     $host = $hostRepository->findByFqdn($fqdn);
     if (!$host) {
@@ -344,6 +356,16 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         $hostRepository->updateVip((int) $host['id'], $vip);
         $host = $hostRepository->findById((int) $host['id']) ?? $host;
         $hostPayload['vip'] = $vip;
+    }
+
+    if ($temporary !== null) {
+        $expiresAt = null;
+        if ($temporary) {
+            $expiresAt = gmdate(DATE_ATOM, time() + 7200);
+        }
+        $hostRepository->updateExpiresAt((int) $host['id'], $expiresAt);
+        $host = $hostRepository->findById((int) $host['id']) ?? $host;
+        $hostPayload['expires_at'] = $expiresAt;
     }
 
     $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));

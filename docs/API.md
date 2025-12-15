@@ -11,7 +11,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **Rate limits** (non-admin paths only):
   - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
   - Auth-fail bucket: missing/invalid API keys count toward `RATE_LIMIT_AUTH_FAIL_COUNT` (default 20) over `RATE_LIMIT_AUTH_FAIL_WINDOW` seconds (600); tripping the bucket blocks for `RATE_LIMIT_AUTH_FAIL_BLOCK` seconds (1800) and returns `429 Too many failed authentication attempts` with `reset_at` + `bucket`.
-- **Pruning**: hosts inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), or never-provisioned hosts older than 30 minutes, are deleted during auth/register/admin host listings (logs `host.pruned`).
+- **Pruning**: hosts inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never-provisioned hosts older than 30 minutes, or hosts with `expires_at` in the past are deleted during auth/register/admin host listings (logs `host.pruned`). `expires_at` is used for temporary hosts and is refreshed on successful host contact (2-hour idle window).
 
 ## Host Endpoints
 
@@ -32,7 +32,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
-- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/`vip`/insecure window timestamps/`insecure_window_minutes`.
+- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/`vip`/optional `expires_at`/insecure window timestamps/`insecure_window_minutes`.
 - `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag, `quota_limit_percent`.
 - `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `quota_limit_percent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
@@ -65,7 +65,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /wrapper/download` — downloads the baked wrapper; headers include `X-SHA256` and `ETag` with the per-host hash. Auth required.
 
 ## Provisioning & Installer
-- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
+- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; when `true` enables a sliding 2-hour idle expiry by setting `expires_at` and refreshing it on each successful authenticated host request; when `false` clears it). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
 - `GET /install/{token}` — public, single-use installer (TTL `INSTALL_TOKEN_TTL_SECONDS`, default 1800). Marks token used before emitting. Script downloads `/wrapper/download` baked with API key/FQDN/base URL and installs Codex CLI from GitHub; falls back to version `0.63.0` when no cached client version. Errors return a short shell snippet and non-zero exit.
 
 ## Observability
@@ -75,7 +75,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 
 ## Admin Endpoints (mTLS + optional admin key)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.
-- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
 - `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + insecure window timestamp, RFC3339 / `DATE_ATOM`) for quick actions.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).

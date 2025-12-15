@@ -228,3 +228,7 @@ load_sync_config() {
   log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
   SYNC_CONFIG_LOADED=1
 }
+
+if (( CODEX_DO_UNINSTALL )); then
+  cmd_uninstall
+fi

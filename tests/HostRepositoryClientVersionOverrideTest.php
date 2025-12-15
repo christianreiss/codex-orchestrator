@@ -36,6 +36,7 @@ final class HostRepositoryClientVersionOverrideTest extends TestCase
                 secure INTEGER DEFAULT 1,
                 allow_roaming_ips INTEGER DEFAULT 0,
                 client_version_override TEXT NULL,
+                expires_at TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )'
@@ -99,4 +100,3 @@ final class HostRepositoryClientVersionOverrideTest extends TestCase
         return $database;
     }
 }
-

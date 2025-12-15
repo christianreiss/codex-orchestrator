@@ -75,6 +75,14 @@
               <p class="muted" style="margin:6px 0 0;">Off = treat as insecure; cdx removes auth.json after each run.</p>
             </div>
             <div class="field">
+              <label class="toggle state-toggle" for="temporaryHostToggle">
+                <input type="checkbox" id="temporaryHostToggle">
+                <span class="track"><span class="thumb"></span></span>
+                <span class="toggle-text">Temporary host (auto-remove after 2h idle)</span>
+              </label>
+              <p class="muted" style="margin:6px 0 0;">Useful for rescue/live systems; the host entry + API key are pruned two hours after the last successful contact.</p>
+            </div>
+            <div class="field">
               <label class="toggle state-toggle" for="insecureToggle">
                 <input type="checkbox" id="insecureToggle">
                 <span class="track"><span class="thumb"></span></span>
@@ -969,7 +977,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2025-12-14-13"></script>
+  <script src="/admin/assets/dashboard.js?v=2025-12-15-20"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/config.js?v=2025-12-14-06"></script>
   <script src="/admin/assets/profiles.js?v=2025-12-14-09"></script>

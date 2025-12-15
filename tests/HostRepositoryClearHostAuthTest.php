@@ -43,6 +43,7 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 client_version TEXT NULL,
                 wrapper_version TEXT NULL,
                 api_calls INTEGER DEFAULT 0,
+                expires_at TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )'

@@ -917,7 +917,7 @@ pattern = re.compile(
 kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
 
 
-def clean_int(val: str | None) -> int | None:
+def clean_int(val):
     if val is None:
         return None
     try:
@@ -926,9 +926,9 @@ def clean_int(val: str | None) -> int | None:
         return None
 
 
-entries: list[dict[str, object]] = []
+entries = []
 for raw in lines:
-    entry: dict[str, object] = {}
+    entry = {}
     safe_line = raw.strip()
     if len(safe_line) > 240:
         safe_line = safe_line[:240] + "…"

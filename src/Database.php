@@ -427,6 +427,7 @@ class Database
         $this->ensureColumnExists('hosts', 'insecure_grace_until', 'DATETIME NULL');
         $this->ensureColumnExists('hosts', 'insecure_window_minutes', 'INT NULL');
         $this->ensureColumnExists('hosts', 'force_ipv4', 'TINYINT(1) NOT NULL DEFAULT 0');
+        $this->ensureColumnExists('hosts', 'expires_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('hosts', 'vip', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'model_override', 'VARCHAR(128) NULL');
         $this->ensureColumnExists('hosts', 'reasoning_effort_override', 'VARCHAR(32) NULL');
@@ -445,6 +446,7 @@ class Database
         $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnLength('install_tokens', 'token', 64);
+        $this->ensureIndexExists('hosts', 'idx_hosts_expires_at', 'INDEX idx_hosts_expires_at (expires_at)');
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
 

@@ -32,6 +32,11 @@ class HostRepository
         return $this->secretBox->encrypt($apiKey);
     }
 
+    public function decryptApiKey(?string $apiKeyEnc): ?string
+    {
+        return $this->secretBox->decrypt($apiKeyEnc);
+    }
+
     private function normalizeStoredHost(array $host): array
     {
         // For backwards compatibility, populate api_key_hash if missing but api_key exists (legacy plaintext/hash).
@@ -43,6 +48,9 @@ class HostRepository
         }
         if (!array_key_exists('vip', $host)) {
             $host['vip'] = 0;
+        }
+        if (!array_key_exists('expires_at', $host)) {
+            $host['expires_at'] = null;
         }
         return $host;
     }
@@ -257,6 +265,19 @@ class HostRepository
         return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
+    public function findExpiredBefore(string $cutoff): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT * FROM hosts
+             WHERE expires_at IS NOT NULL
+               AND expires_at != \'\'
+               AND expires_at < :cutoff'
+        );
+        $statement->execute(['cutoff' => $cutoff]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
     public function deleteByIds(array $ids): void
     {
         if (!$ids) {
@@ -311,6 +332,19 @@ class HostRepository
 
         $statement->execute([
             'secure' => $secure ? 1 : 0,
+            'id' => $hostId,
+        ]);
+    }
+
+    public function updateExpiresAt(int $hostId, ?string $expiresAt): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET expires_at = :expires_at, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'expires_at' => $expiresAt,
+            'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
     }

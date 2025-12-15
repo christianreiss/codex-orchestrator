@@ -32,6 +32,7 @@ class AuthService
     private const DEFAULT_INACTIVITY_WINDOW_DAYS = 30;
     private const MAX_INACTIVITY_WINDOW_DAYS = 60;
     private const PROVISIONING_WINDOW_MINUTES = 30;
+    private const TEMPORARY_HOST_TTL_SECONDS = 7200; // 2 hours
     public const MIN_INSECURE_WINDOW_MINUTES = 2;
     public const MAX_INSECURE_WINDOW_MINUTES = 60;
     public const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
@@ -102,6 +103,11 @@ class AuthService
                 $this->openInitialInsecureWindow((int) $existing['id']);
                 $host = $this->hosts->findById((int) $existing['id']) ?? $host;
             }
+            if ($host !== null) {
+                $host['api_key_plain'] = $apiKey;
+            } else {
+                $existing['api_key_plain'] = $apiKey;
+            }
             $this->logs->log((int) $existing['id'], 'register', ['result' => 'rotated']);
             $payload = $this->buildHostPayload($host ?? $existing, true);
             return $payload;
@@ -113,6 +119,7 @@ class AuthService
             $this->openInitialInsecureWindow((int) $host['id']);
             $host = $this->hosts->findById((int) $host['id']) ?? $host;
         }
+        $host['api_key_plain'] = $apiKey;
         $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
 
         $payload = $this->buildHostPayload($host, true);
@@ -203,6 +210,24 @@ class AuthService
                 $ipLogReason
             ));
         }
+
+        $host = $this->refreshTemporaryHostExpiry($hostId, $host);
+
+        return $host;
+    }
+
+    private function refreshTemporaryHostExpiry(int $hostId, array $host): array
+    {
+        $expiresAt = $host['expires_at'] ?? null;
+        if (!is_string($expiresAt) || trim($expiresAt) === '') {
+            return $host;
+        }
+
+        $newExpiresAt = gmdate(DATE_ATOM, time() + self::TEMPORARY_HOST_TTL_SECONDS);
+        $this->hosts->updateExpiresAt($hostId, $newExpiresAt);
+
+        $host = $this->hosts->findById($hostId) ?? $host;
+        $host['expires_at'] = $newExpiresAt;
 
         return $host;
     }
@@ -1726,6 +1751,7 @@ class AuthService
             'status' => $host['status'],
             'last_refresh' => $host['last_refresh'] ?? null,
             'updated_at' => $host['updated_at'] ?? null,
+            'expires_at' => $host['expires_at'] ?? null,
             'client_version' => $host['client_version'] ?? null,
             'client_version_override' => $host['client_version_override'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
@@ -2136,6 +2162,7 @@ class AuthService
 
     private function pruneInactiveHosts(): void
     {
+        $nowTimestamp = gmdate(DATE_ATOM);
         $inactivityDays = $this->inactivityWindowDays();
         $cutoffTimestamp = null;
         $staleHosts = [];
@@ -2147,12 +2174,28 @@ class AuthService
         }
         $provisionCutoff = (new DateTimeImmutable(sprintf('-%d minutes', self::PROVISIONING_WINDOW_MINUTES)))->format(DATE_ATOM);
         $unprovisionedHosts = $this->hosts->findUnprovisionedBefore($provisionCutoff);
+        $expiredHosts = $this->hosts->findExpiredBefore($nowTimestamp);
 
         $deleteIds = [];
         $logged = [];
 
+        foreach ($expiredHosts as $host) {
+            $hostId = (int) $host['id'];
+            $deleteIds[] = $hostId;
+            $logged[$hostId] = true;
+            $this->logs->log($hostId, 'host.pruned', [
+                'reason' => 'expired',
+                'cutoff' => $nowTimestamp,
+                'expires_at' => $host['expires_at'] ?? null,
+                'fqdn' => $host['fqdn'],
+            ]);
+        }
+
         foreach ($staleHosts as $host) {
             $hostId = (int) $host['id'];
+            if (isset($logged[$hostId])) {
+                continue;
+            }
             $deleteIds[] = $hostId;
             $logged[$hostId] = true;
             $this->logs->log($hostId, 'host.pruned', [
@@ -2166,6 +2209,10 @@ class AuthService
         foreach ($unprovisionedHosts as $host) {
             $hostId = (int) $host['id'];
             if (isset($logged[$hostId])) {
+                continue;
+            }
+            $expiresAt = $host['expires_at'] ?? null;
+            if (is_string($expiresAt) && trim($expiresAt) !== '' && Timestamp::compare($expiresAt, $nowTimestamp) > 0) {
                 continue;
             }
             $deleteIds[] = $hostId;

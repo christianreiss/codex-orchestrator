@@ -7,6 +7,7 @@
     const navInsecureHosts = document.getElementById('navInsecureHosts');
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
+    const temporaryHostToggle = document.getElementById('temporaryHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
     const ipv4Toggle = document.getElementById('ipv4Toggle');
     const vipToggle = document.getElementById('vipToggle');
@@ -4246,6 +4247,9 @@
       if (secureHostToggle) {
         secureHostToggle.checked = true;
       }
+      if (temporaryHostToggle) {
+        temporaryHostToggle.checked = false;
+      }
       if (insecureToggle) {
         insecureToggle.checked = false;
       }
@@ -4303,6 +4307,9 @@
       if (secureHostToggle && existingHost) {
         secureHostToggle.checked = isHostSecure(existingHost);
       }
+      if (temporaryHostToggle && existingHost) {
+        temporaryHostToggle.checked = !!existingHost.expires_at;
+      }
       if (ipv4Toggle && existingHost) {
         ipv4Toggle.checked = !!existingHost.force_ipv4;
       }
@@ -4311,6 +4318,7 @@
       }
       const secure = secureHostToggle ? secureHostToggle.checked : true;
       const vip = vipToggle ? vipToggle.checked : false;
+      const temporary = temporaryHostToggle ? temporaryHostToggle.checked : false;
       if (createHostBtn) {
         createHostBtn.disabled = true;
         createHostBtn.textContent = 'Generating…';
@@ -4318,7 +4326,7 @@
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure, vip },
+          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure, vip, temporary: !!temporary },
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');

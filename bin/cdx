@@ -109,6 +109,7 @@ CODEX_NO_PTY=${CODEX_NO_PTY:-0}
 CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
+CODEX_DO_UNINSTALL=0
 CODEX_PROFILE_CANDIDATE=""
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
@@ -238,7 +239,7 @@ if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.15-01"
+WRAPPER_VERSION="2025.12.15-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -290,7 +291,8 @@ case "${1-}" in
     exit 0
     ;;
   --uninstall)
-    cmd_uninstall
+    CODEX_DO_UNINSTALL=1
+    shift
     ;;
   --update|-U)
     CODEX_FORCE_WRAPPER_UPDATE=1
@@ -767,6 +769,10 @@ load_sync_config() {
   log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
   SYNC_CONFIG_LOADED=1
 }
+
+if (( CODEX_DO_UNINSTALL )); then
+  cmd_uninstall
+fi
 
 sync_auth_with_api() {
   local phase="$1"
@@ -2500,7 +2506,7 @@ pattern = re.compile(
 kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
 
 
-def clean_int(val: str | None) -> int | None:
+def clean_int(val):
     if val is None:
         return None
     try:
@@ -2509,9 +2515,9 @@ def clean_int(val: str | None) -> int | None:
         return None
 
 
-entries: list[dict[str, object]] = []
+entries = []
 for raw in lines:
-    entry: dict[str, object] = {}
+    entry = {}
     safe_line = raw.strip()
     if len(safe_line) > 240:
         safe_line = safe_line[:240] + "…"
