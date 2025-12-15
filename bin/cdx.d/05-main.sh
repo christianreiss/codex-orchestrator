@@ -60,18 +60,22 @@ if (( ! can_manage_codex )); then
 fi
 case "$os_name" in
   Linux)
-    case "$arch_name" in
-      x86_64|amd64)
-        asset_name="codex-x86_64-unknown-linux-gnu.tar.gz"
-        glibc_version="$(detect_glibc_version)"
-        if [[ -z "$glibc_version" ]]; then
-          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
-          log_info "Unable to detect glibc version; using musl Codex build for compatibility."
-        elif version_lt "$glibc_version" "2.39"; then
-          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
-          log_info "glibc ${glibc_version} detected; using musl Codex build for compatibility."
-        fi
-        ;;
+	    case "$arch_name" in
+	      x86_64|amd64)
+	        asset_name="codex-x86_64-unknown-linux-gnu.tar.gz"
+	        glibc_version="$(detect_glibc_version)"
+	        if [[ -z "$glibc_version" ]]; then
+	          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
+	          if [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
+	            log_info "Unable to detect glibc version; using musl Codex build for compatibility."
+	          fi
+	        elif version_lt "$glibc_version" "2.39"; then
+	          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
+	          if [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
+	            log_info "glibc ${glibc_version} detected; using musl Codex build for compatibility."
+	          fi
+	        fi
+	        ;;
       aarch64|arm64)
         asset_name="codex-aarch64-unknown-linux-gnu.tar.gz"
         ;;
@@ -1550,42 +1554,44 @@ fi
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
 
-  format_label_prefix() {
-    local label="$1"
-    local width="${SUMMARY_LABEL_WIDTH:-12}"
-    printf "%-${width}s: " "$label"
-  }
-
-  log_info "$(format_label_prefix "Core")${core_line#Core: }"
-  if [[ -n "$versions_line" ]]; then
-    log_info "$(format_label_prefix "Versions")${versions_line#Versions: }"
-  fi
-  if [[ -n "$usage_line" ]]; then
-    log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
-  fi
-  quota_label_base="Quota"
-  if [[ -n "$primary_quota_segment" ]]; then
-    quota_line="${primary_quota_segment}"
-    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-      quota_line+=" ⚠"
-    fi
-    log_info "$(format_label_prefix "${quota_label_base} 5h")${quota_line}"
-  fi
-  if [[ -n "$daily_quota_segment" ]]; then
-    quota_line3="${daily_quota_segment}"
-    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-      quota_line3+=" ⚠"
-    fi
-    log_info "$(format_label_prefix "${quota_label_base} day")${quota_line3}"
-  fi
-  if [[ -n "$secondary_quota_segment" ]]; then
-    quota_line2="${secondary_quota_segment}"
-    if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-      quota_line2+=" ⚠"
-    fi
-    log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
-  fi
-  log_info "$(format_label_prefix "Result")${result_line#Result: }"
+	  if (( ! wrapper_updated )); then
+	    format_label_prefix() {
+	      local label="$1"
+	      local width="${SUMMARY_LABEL_WIDTH:-12}"
+	      printf "%-${width}s: " "$label"
+	    }
+	
+	    log_info "$(format_label_prefix "Core")${core_line#Core: }"
+	    if [[ -n "$versions_line" ]]; then
+	      log_info "$(format_label_prefix "Versions")${versions_line#Versions: }"
+	    fi
+	    if [[ -n "$usage_line" ]]; then
+	      log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
+	    fi
+	    quota_label_base="Quota"
+	    if [[ -n "$primary_quota_segment" ]]; then
+	      quota_line="${primary_quota_segment}"
+	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	        quota_line+=" ⚠"
+	      fi
+	      log_info "$(format_label_prefix "${quota_label_base} 5h")${quota_line}"
+	    fi
+	    if [[ -n "$daily_quota_segment" ]]; then
+	      quota_line3="${daily_quota_segment}"
+	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	        quota_line3+=" ⚠"
+	      fi
+	      log_info "$(format_label_prefix "${quota_label_base} day")${quota_line3}"
+	    fi
+	    if [[ -n "$secondary_quota_segment" ]]; then
+	      quota_line2="${secondary_quota_segment}"
+	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	        quota_line2+=" ⚠"
+	      fi
+	      log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
+	    fi
+	    log_info "$(format_label_prefix "Result")${result_line#Result: }"
+	  fi
 
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
   if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
