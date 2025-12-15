@@ -65,13 +65,39 @@
     'gpt-5.1': ['', 'low', 'medium', 'high'],
   };
 
+  function isGpt51CodexModel(model) {
+    return String(model || '').toLowerCase().startsWith('gpt-5.1-codex');
+  }
+
+  function clampReasoningSummaryForModel(model) {
+    if (!reasoningSummaryInput) return;
+    const codex = isGpt51CodexModel(model);
+    const options = Array.from(reasoningSummaryInput.options || []);
+    options.forEach((opt) => {
+      const value = String(opt.value || '').toLowerCase();
+      if (!value) return;
+      if (value === 'detailed') {
+        opt.disabled = false;
+        return;
+      }
+      if (value === 'auto' || value === 'concise') {
+        opt.disabled = codex;
+      }
+    });
+
+    const current = String(reasoningSummaryInput.value || '').trim().toLowerCase();
+    if (codex && current !== '' && current !== 'detailed') {
+      reasoningSummaryInput.value = 'detailed';
+    }
+  }
+
   function defaultSettings() {
     return {
       model: 'gpt-5.1-codex',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       model_reasoning_effort: 'medium',
-      model_reasoning_summary: 'auto',
+      model_reasoning_summary: 'detailed',
       model_verbosity: 'low',
       model_supports_reasoning_summaries: false,
       model_context_window: null,
@@ -363,6 +389,7 @@
     rebuildReasoningOptions(cfg.model || '', cfg.model_reasoning_effort || '');
     const summaryValue = (cfg.model_reasoning_summary || '').toLowerCase() === 'none' ? '' : (cfg.model_reasoning_summary || '');
     setSelectValue(reasoningSummaryInput, summaryValue);
+    clampReasoningSummaryForModel(cfg.model || '');
     setSelectValue(verbosityInput, cfg.model_verbosity || '');
     contextWindowInput.value = cfg.model_context_window ?? '';
     maxTokensInput.value = cfg.model_max_output_tokens ?? '';
@@ -674,6 +701,10 @@
     });
     modelInput?.addEventListener('change', (e) => {
       rebuildReasoningOptions(e.target.value, reasoningEffortInput?.value || '');
+      clampReasoningSummaryForModel(e.target.value);
+    });
+    reasoningSummaryInput?.addEventListener('change', () => {
+      clampReasoningSummaryForModel(modelInput?.value || '');
     });
     renderBtn?.addEventListener('click', (e) => {
       e.preventDefault();

@@ -116,11 +116,18 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model_reasoning_summary = "auto"', $rendered['content']);
     }
 
-    public function testReasoningSummaryForcedDetailedForCodexMax(): void
+    public function testReasoningSummaryForcedDetailedForGpt51CodexModels(): void
     {
         $rendered = $this->service->render([
-            'model' => 'gpt-5.1-codex-max',
+            'model' => 'gpt-5.1-codex',
             'model_reasoning_summary' => 'concise',
+        ]);
+
+        $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);
+
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.1-codex-mini',
+            'model_reasoning_summary' => 'auto',
         ]);
 
         $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);

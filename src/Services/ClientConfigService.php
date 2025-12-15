@@ -828,18 +828,22 @@ class ClientConfigService
         }
 
         $allowed = ['auto', 'concise', 'detailed'];
-        if ($model !== null && $this->isCodexMaxModel($model)) {
-            // gpt-5.1-codex-max only supports detailed summaries.
+        if (!in_array($lower, $allowed, true)) {
+            return null;
+        }
+
+        if ($model !== null && $this->isGpt51CodexModel($model)) {
+            // gpt-5.1-codex* only supports detailed summaries.
             return 'detailed';
         }
 
-        return in_array($lower, $allowed, true) ? $lower : null;
+        return $lower;
     }
 
-    private function isCodexMaxModel(string $model): bool
+    private function isGpt51CodexModel(string $model): bool
     {
         $m = strtolower(trim($model));
-        return $m === 'gpt-5.1-codex-max';
+        return str_starts_with($m, 'gpt-5.1-codex');
     }
 
     private function normalizeInt(mixed $value): ?int
