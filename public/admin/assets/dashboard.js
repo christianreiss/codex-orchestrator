@@ -85,6 +85,7 @@
     const skillSave = document.getElementById('skillSave');
     const skillCancel = document.getElementById('skillCancel');
     const skillStatus = document.getElementById('skillStatus');
+    const skillsPanel = document.querySelector('[data-settings-panel="skills"]');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
     const memoriesPanel = document.querySelector('.panel-set[data-panel="settings"] [data-settings-panel="memories"]');
@@ -3807,23 +3808,23 @@
     }
 
     async function openSkillModal(slug) {
-      if (!skillSlug || !skillManifest) return;
+      if (!skillModal) return;
       const target = typeof slug === 'string' ? slug.trim() : '';
-      skillSlug.value = target;
+      if (skillSlug) skillSlug.value = target;
       if (skillDisplayName) skillDisplayName.value = '';
       if (skillDescriptionInput) skillDescriptionInput.value = '';
-      skillManifest.value = '';
+      if (skillManifest) skillManifest.value = '';
+      if (skillStatus) skillStatus.textContent = skillManifest ? '' : 'Skill form is missing the manifest field.';
+      showSkillModal(true);
       if (!target) {
-        if (skillStatus) skillStatus.textContent = '';
-        showSkillModal(true);
         return;
       }
+      if (!skillManifest) return;
       if (skillStatus) skillStatus.textContent = 'Loading…';
-      showSkillModal(true);
       try {
         const resp = await api(`/admin/skills/${encodeURIComponent(target)}`);
         const data = resp?.data || {};
-        skillSlug.value = data.slug || target || '';
+        if (skillSlug) skillSlug.value = data.slug || target || '';
         if (skillDisplayName) skillDisplayName.value = data.display_name || '';
         if (skillDescriptionInput) skillDescriptionInput.value = data.description || '';
         skillManifest.value = data.manifest || '';
@@ -3834,7 +3835,10 @@
     }
 
     async function saveSkill() {
-      if (!skillSlug || !skillManifest) return;
+      if (!skillSlug || !skillManifest) {
+        if (skillStatus) skillStatus.textContent = 'Skill form missing required fields';
+        return;
+      }
       const payload = {
         slug: skillSlug.value.trim(),
         display_name: skillDisplayName?.value ?? '',
@@ -3981,11 +3985,13 @@
       let panel = (panelRaw || 'dashboard').toLowerCase();
       let sub = (subRaw || '').toLowerCase();
 
-      if (panel === 'settings' && sub === 'skills') {
-        if (window.location.hash !== '#skills') {
-          window.location.hash = '#skills';
+      if (panel === 'skills') {
+        if (window.location.hash !== '#settings/skills') {
+          window.location.hash = '#settings/skills';
+          return;
         }
-        return;
+        panel = 'settings';
+        sub = 'skills';
       }
 
       document.querySelectorAll('.panel-set').forEach((section) => {
@@ -4044,11 +4050,6 @@
         }
       }
 
-      if (panel === 'skills') {
-        ensureDataLoaded();
-        renderSkills(currentSkills);
-      }
-
       if (panel === 'settings') {
         const settingsTab = sub || 'general';
         setActiveLinks('.settings-tab', settingsTab);
@@ -4057,6 +4058,9 @@
           panelEl.hidden = tab !== settingsTab;
         });
         if (settingsTab === 'profiles' && window.__initProfiles) window.__initProfiles();
+        if (settingsTab === 'skills') {
+          renderSkills(currentSkills);
+        }
         if (settingsTab === 'config' && window.__initConfigBuilder) window.__initConfigBuilder();
         if (settingsTab === 'memories' && window.__initMemoriesOnce) {
           window.__initMemoriesOnce();
