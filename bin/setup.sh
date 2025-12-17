@@ -630,10 +630,10 @@ ensure_db_credentials() {
 
 ensure_data_dirs() {
   local root="$1"
-  mkdir -p "$root"/{store,store/sql,store/logs,mysql_data,caddy/tls,caddy/mtls} || fatal "Failed to create data dirs under $root"
-  chmod -R 775 "$root/store" "$root/caddy" 2>/dev/null || true
+  mkdir -p "$root"/{store,store/sql,store/logs,mysql_data,caddy/tls,caddy/mtls,backups} || fatal "Failed to create data dirs under $root"
+  chmod -R 775 "$root/store" "$root/caddy" "$root/backups" 2>/dev/null || true
   if id -u www-data >/dev/null 2>&1; then
-    chown -R www-data:www-data "$root/store" "$root/caddy" 2>/dev/null || true
+    chown -R www-data:www-data "$root/store" "$root/caddy" "$root/backups" 2>/dev/null || true
   fi
   info "Ensured data directories under $root"
 }

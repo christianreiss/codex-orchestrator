@@ -31,7 +31,7 @@ What it does
 - Copies `.env.example` to `.env` if missing, sets strict perms, and auto-fills secrets:
   - `AUTH_ENCRYPTION_KEY` (libsodium secretbox key) if empty.
   - Random `DB_USERNAME`, `DB_PASSWORD`, `DB_ROOT_PASSWORD` if defaults are still present.
-- Prompts for `DATA_ROOT` (default `/var/docker_data/codex-auth.example.com`) and creates `store`, `store/sql`, `store/logs`, `mysql_data`, `caddy/tls`, `caddy/mtls` under it.
+- Prompts for `DATA_ROOT` (default `/var/docker_data/codex-auth.example.com`) and creates `store`, `store/sql`, `store/logs`, `mysql_data`, `caddy/tls`, `caddy/mtls`, and `backups` under it.
 - Prompts for external URLs used by hosts/runner:
   - `CODEX_SYNC_BASE_URL` (API URL baked into installers/wrapper)
   - `AUTH_RUNNER_CODEX_BASE_URL` (runner’s Codex base URL; defaults to the same value)
@@ -95,7 +95,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
 docker compose up --build
 ```
 
-- Starts `api`, `quota-cron`, `auth-runner`, and `mysql`. Add `--profile caddy` for TLS proxy and `--profile backup` for nightly SQL dumps (`mysql-backup`).
+- Starts `api`, `quota-cron`, `auth-runner`, `mysql`, and the `mysql-backup` sidecar. Add `--profile caddy` for the TLS proxy.
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (mTLS required unless `ADMIN_ACCESS_MODE=none`).
 - Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner. Runner probes can bypass host IP pinning when the IP is in `AUTH_RUNNER_BYPASS_SUBNETS` and `AUTH_RUNNER_IP_BYPASS=1`.
@@ -111,9 +111,9 @@ docker compose up --build
    - **Custom cert**: set `CADDY_TLS_FRAGMENT=/etc/caddy/tls-custom.caddy` and drop `tls.crt` / `tls.key` (or update `CADDY_TLS_CERT_FILE`/`CADDY_TLS_KEY_FILE`) into `${CADDY_TLS_DIR}`.
 4. Start the stack with Caddy: `docker compose --profile caddy up --build -d`. External clients should use `https://<CADDY_DOMAIN>`; the API is still reachable on `8488` inside the compose network.
 
-## Optional: backups & cost visibility
+## Backups & cost visibility
 
-- Enable nightly SQL dumps: `docker compose --profile backup up -d`. Defaults come from `DB_BACKUP_CRON` (cron spec) and `DB_BACKUP_MAX` (retained files); dumps land in `${DATA_ROOT}/store/sql`.
+- Nightly SQL dumps run automatically via the `mysql-backup` sidecar. Tune `DB_BACKUP_CRON` (cron spec), `DB_BACKUP_MAX` (retained files), `DB_BACKUP_BEGIN`, and `DB_BACKUP_FREQUENCY`. Dumps land in `${DATA_ROOT}/backups`.
 - Admin cost estimates read GPT-5.1 unit prices from env (`GPT51_*`, `PRICING_CURRENCY`) or, when `PRICING_URL` is set, from that JSON endpoint. This only affects dashboard calculations, not enforcement.
 
 ## First-Time Flow

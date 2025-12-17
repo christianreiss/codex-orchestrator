@@ -147,8 +147,7 @@ services:
 
   mysql-backup:
     image: databack/mysql-backup
-    profiles:
-      - backup
+    user: "0:0"
     environment:
       DB_SERVER: mysql
       DB_PORT: 3306
@@ -179,7 +178,7 @@ services:
       - --retention
       - "${DB_BACKUP_MAX:-30}c"
     volumes:
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store/sql:/backup
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/backups:/backup
     depends_on:
       - mysql
     networks:
