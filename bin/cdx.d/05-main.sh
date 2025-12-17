@@ -33,6 +33,7 @@ fi
 # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
 sync_auth_with_api "pull" || true
 sync_slash_commands_pull || true
+sync_skills_pull || true
 sync_agents_pull || true
 sync_config_pull || true
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
@@ -938,6 +939,49 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_tone="red"
 fi
 
+skill_label="skills sync skipped"
+skill_tone="yellow"
+if [[ "$SKILL_SYNC_STATUS" == "ok" ]]; then
+  skill_label="skills synced"
+  counts=()
+  if [[ "$SKILL_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
+    counts+=("local ${SKILL_LOCAL_COUNT}")
+  fi
+  if [[ "$SKILL_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
+    counts+=("remote ${SKILL_REMOTE_COUNT}")
+  fi
+  if (( ${#counts[@]} )); then
+    skill_label+=" ($(join_with_semicolon "${counts[@]}"))"
+  fi
+  if [[ "$SKILL_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( SKILL_PULL_UPDATED > 0 )); then
+    skill_label+=" (${SKILL_PULL_UPDATED} updated)"
+  fi
+  if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+    skill_label+=" (${SKILL_REMOVED} removed)"
+  fi
+  if [[ "$SKILL_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PULL_ERRORS > 0 )); then
+    skill_label+=" (${SKILL_PULL_ERRORS} fetch errors)"
+    skill_tone="yellow"
+  else
+    skill_tone="green"
+  fi
+elif [[ "$SKILL_SYNC_STATUS" == "missing-config" ]]; then
+  skill_label="sync config missing"
+  skill_tone="red"
+elif [[ "$SKILL_SYNC_STATUS" == "no-python" ]]; then
+  skill_label="sync requires python3"
+  skill_tone="yellow"
+elif [[ "$SKILL_SYNC_STATUS" == "offline" ]]; then
+  skill_label="sync unavailable"
+  if [[ -n "$SKILL_SYNC_REASON" ]]; then
+    skill_label+=" (${SKILL_SYNC_REASON})"
+  fi
+  skill_tone="yellow"
+elif [[ "$SKILL_SYNC_STATUS" == "error" ]]; then
+  skill_label="sync failed"
+  skill_tone="red"
+fi
+
 agents_label="AGENTS sync skipped"
 agents_tone="yellow"
 if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
@@ -1040,6 +1084,32 @@ case "$PROMPT_PUSH_STATUS" in
     ;;
 esac
 
+case "$SKILL_PUSH_STATUS" in
+  ok)
+    if [[ "$SKILL_PUSHED" =~ ^[0-9]+$ ]] && (( SKILL_PUSHED > 0 )); then
+      skill_label+="; pushed ${SKILL_PUSHED}"
+    fi
+    if [[ "$SKILL_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PUSH_ERRORS > 0 )); then
+      skill_label+="; push errors ${SKILL_PUSH_ERRORS}"
+      skill_tone="yellow"
+    fi
+    ;;
+  no-baseline)
+    skill_label+="; push skipped (no baseline)"
+    ;;
+  no-python)
+    skill_label+="; push skipped (python missing)"
+    ;;
+  missing-config)
+    skill_label+="; push skipped (config missing)"
+    skill_tone="red"
+    ;;
+  error)
+    skill_label+="; push failed"
+    skill_tone="red"
+    ;;
+esac
+
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
@@ -1133,6 +1203,44 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
 fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
+fi
+if [[ "$SKILL_SYNC_STATUS" == "ok" ]]; then
+  skill_result="skills synced"
+  if [[ "$SKILL_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
+    skill_result+=" (local ${SKILL_LOCAL_COUNT}"
+    if [[ "$SKILL_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
+      skill_result+=", remote ${SKILL_REMOTE_COUNT}"
+    fi
+    skill_result+=")"
+  fi
+  if [[ "$SKILL_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( SKILL_PULL_UPDATED > 0 )); then
+    skill_result+=" (${SKILL_PULL_UPDATED} updated)"
+  fi
+  if [[ "$SKILL_PUSHED" =~ ^[0-9]+$ ]] && (( SKILL_PUSHED > 0 )); then
+    skill_result+="; pushed ${SKILL_PUSHED}"
+  fi
+  if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+    skill_result+="; removed ${SKILL_REMOVED}"
+  fi
+  if [[ "$SKILL_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PUSH_ERRORS > 0 )); then
+    skill_result+="; push errors ${SKILL_PUSH_ERRORS}"
+  fi
+  result_parts+=("$skill_result")
+elif [[ "$SKILL_SYNC_STATUS" == "missing-config" ]]; then
+  result_parts+=("skills config missing")
+elif [[ "$SKILL_SYNC_STATUS" == "no-python" ]]; then
+  result_parts+=("skills python missing")
+elif [[ "$SKILL_SYNC_STATUS" == "offline" ]]; then
+  if [[ -n "$SKILL_SYNC_REASON" ]]; then
+    result_parts+=("skills offline (${SKILL_SYNC_REASON})")
+  else
+    result_parts+=("skills offline")
+  fi
+elif [[ "$SKILL_SYNC_STATUS" == "error" ]]; then
+  result_parts+=("skills sync failed")
+fi
+if [[ "$SKILL_PUSH_STATUS" == "error" ]]; then
+  result_parts+=("skills push failed")
 fi
 if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
   case "$AGENTS_STATE" in
@@ -1320,6 +1428,16 @@ fi
     prompt_detail="$prompt_label"
   fi
   core_bits+=("$(format_core_entry "Prompts" "$prompt_tone" "$prompt_detail")")
+
+  skill_detail=""
+  if [[ "$skill_tone" == "green" ]]; then
+    if [[ "$skill_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
+      skill_detail="(${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+    fi
+  else
+    skill_detail="$skill_label"
+  fi
+  core_bits+=("$(format_core_entry "Skills" "$skill_tone" "$skill_detail")")
 
   if [[ -n "$runner_label" ]]; then
     core_bits+=("$(format_core_entry "Runner" "$runner_tone")")
@@ -1667,6 +1785,7 @@ cleanup() {
   local exit_status=$?
   trap - EXIT
   push_slash_commands_if_changed || true
+  push_skills_if_changed || true
   if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
     push_auth_if_changed "push" || true
   fi

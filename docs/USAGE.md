@@ -106,7 +106,7 @@ If the host is marked **insecure**, make sure its insecure window is currently o
 The wrapper is the supported entrypoint because it:
 
 - Pulls/pushes canonical `auth.json` via `/auth`.
-- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, and slash command prompts.
+- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.codex/skills/`).
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed.
 - Reports token usage back to `/usage`.
@@ -134,6 +134,7 @@ Passing flags through to Codex works the same way you’d pass them to `codex`; 
 - `~/.codex/config.toml` — baked/synced from the server (`/config/retrieve`).
 - `~/.codex/AGENTS.md` — synced from the server (`/agents/retrieve`).
 - `~/.codex/prompts/` — slash commands synced from `/slash-commands`.
+- `~/.codex/skills/` — Skill manifests synced from `/skills`.
 
 ## Secure vs insecure hosts (and why it matters)
 

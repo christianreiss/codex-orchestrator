@@ -273,6 +273,267 @@ print("skip reason=unknown-mode errors=0")
 PY
 }
 
+skill_sync_python() {
+  local mode="$1"
+  local base="$2"
+  local api_key="$3"
+  local skill_dir="$4"
+  local cafile="$5"
+  local baseline_file="$6"
+  CODEX_SYNC_API_KEY="$api_key" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
+import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+
+mode = sys.argv[1] if len(sys.argv) > 1 else ""
+base = (sys.argv[2] or "").rstrip("/")
+skill_dir = pathlib.Path(sys.argv[3]).expanduser()
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else skill_dir.parent / ".skill-baseline.json"
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+
+
+def contexts():
+    ctxs = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        ctxs.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctxs.append(fallback)
+    except Exception:
+        pass
+    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            ctxs.append(ssl._create_unverified_context())
+        except Exception:
+            pass
+    return ctxs or [None]
+
+
+def request_json(method: str, url: str, payload=None):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    last_err = None
+    for ctx in contexts():
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:  # noqa: PERF203
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+
+def load_local(include_content: bool = False):
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skills = {}
+    for path in skill_dir.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            continue
+        sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        entry = {"slug": path.name, "sha": sha}
+        if include_content:
+            entry["content"] = content
+        skills[path.name] = entry
+    return skills
+
+
+def save_baseline(skills: dict):
+    try:
+        baseline_file.parent.mkdir(parents=True, exist_ok=True)
+        baseline_file.write_text(json.dumps(skills, indent=2) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def extract_metadata(content: str):
+    display_name = None
+    description = None
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict):
+            display_name = data.get("display_name") or data.get("name")
+            description = data.get("description")
+    except Exception:  # noqa: BLE001
+        pass
+    return display_name, description
+
+
+if not base:
+    print("error reason=missing-base")
+    sys.exit(1)
+if not api_key:
+    print("error reason=missing-api-key")
+    sys.exit(1)
+
+skill_dir.mkdir(parents=True, exist_ok=True)
+
+if mode == "pull":
+    try:
+        list_resp = request_json("GET", f"{base}/skills")
+    except Exception as exc:  # noqa: BLE001
+        print(f"error reason={str(exc).replace(' ', '_')}")
+        sys.exit(1)
+
+    skills = []
+    if isinstance(list_resp, dict):
+        data = list_resp.get("data") or {}
+        skills = data.get("skills") or []
+    downloaded = 0
+    errors = 0
+    removed = 0
+    local = load_local()
+
+    for skill in skills:
+        if not isinstance(skill, dict):
+            continue
+        slug = skill.get("slug")
+        rsha = skill.get("sha256")
+        deleted = bool(skill.get("deleted_at"))
+        if not slug:
+            continue
+        target_path = skill_dir / slug
+        if deleted:
+            try:
+                target_path.unlink(missing_ok=True)
+                removed += 1
+            except Exception:
+                pass
+            continue
+        if not rsha:
+            continue
+        local_sha = (local.get(slug) or {}).get("sha")
+        payload = {"slug": slug}
+        if local_sha:
+            payload["sha256"] = local_sha
+            if local_sha == rsha:
+                continue
+        try:
+            resp = request_json("POST", f"{base}/skills/retrieve", payload)
+        except Exception:
+            errors += 1
+            continue
+        data = resp.get("data") if isinstance(resp, dict) else {}
+        status = (data or {}).get("status")
+        manifest = (data or {}).get("manifest")
+        if status == "unchanged":
+            continue
+        if not isinstance(manifest, str):
+            errors += 1
+            continue
+        try:
+            target_path.write_text(manifest, encoding="utf-8")
+            downloaded += 1
+        except Exception:  # noqa: BLE001
+            errors += 1
+
+    updated_local = load_local()
+    baseline = {name: entry["sha"] for name, entry in updated_local.items()}
+    remote_names = {skill["slug"] for skill in skills if isinstance(skill, dict) and skill.get("slug") and not skill.get("deleted_at")}
+    filtered_baseline = {name: sha for name, sha in baseline.items() if name in remote_names}
+    save_baseline(filtered_baseline)
+    print(
+        "ok "
+        f"updated={downloaded} "
+        f"errors={errors} "
+        f"remote={len(skills)} "
+        f"local={len(updated_local)} "
+        f"removed={removed}"
+    )
+    sys.exit(0)
+
+if mode == "push":
+    if not baseline_file.exists():
+        print("skip reason=no-baseline errors=0")
+        sys.exit(0)
+    try:
+        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        baseline_data = {}
+    if not isinstance(baseline_data, dict):
+        baseline_data = {}
+
+    current = load_local(include_content=True)
+    changes = []
+    for slug, entry in current.items():
+        if baseline_data.get(slug) != entry.get("sha"):
+            changes.append(entry)
+
+    if not changes:
+        print("ok pushed=0 errors=0")
+        sys.exit(0)
+
+    errors = 0
+    pushed = 0
+    for entry in changes:
+        slug = entry.get("slug")
+        content = entry.get("content")
+        sha = entry.get("sha")
+        if not slug or not content or not sha:
+            continue
+        display_name, description = extract_metadata(content)
+        payload = {
+            "slug": slug,
+            "manifest": content,
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        }
+        if display_name:
+            payload["display_name"] = display_name
+        if description:
+            payload["description"] = description
+        try:
+            resp = request_json("POST", f"{base}/skills/store", payload)
+        except Exception:
+            errors += 1
+            continue
+        data = resp.get("data") if isinstance(resp, dict) else {}
+        status = (data or {}).get("status")
+        if status in ("created", "updated", "unchanged"):
+            pushed += 1
+        else:
+            errors += 1
+
+    if errors == 0:
+        latest_baseline = {name: entry["sha"] for name, entry in current.items()}
+        save_baseline(latest_baseline)
+
+    print(
+        "ok "
+        f"pushed={pushed} "
+        f"errors={errors} "
+        f"changes={len(changes)} "
+        f"local={len(current)}"
+    )
+    sys.exit(0)
+
+print("skip reason=unknown-mode errors=0")
+PY
+}
+
 agents_sync_python() {
   local base="$1"
   local api_key="$2"
@@ -445,6 +706,54 @@ sync_slash_commands_pull() {
       remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
       removed=*) PROMPT_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
+sync_skills_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    SKILL_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    SKILL_SYNC_STATUS="no-python"
+    log_warn "python3 is required for skill sync; skipping."
+    return 1
+  fi
+  local summary status_code
+  set +e
+  summary="$(skill_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
+  status_code=$?
+  set -e
+  SKILL_SYNC_STATUS="error"
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      SKILL_SYNC_STATUS="offline"
+      SKILL_SYNC_REASON="$reason"
+      [[ -n "$summary" ]] && log_warn "Skill sync offline: $summary" || log_warn "Skill sync offline."
+      SKILL_PULL_ERRORS=0
+    else
+      [[ -n "$summary" ]] && log_warn "Skill sync failed: $summary" || log_warn "Skill sync failed."
+      SKILL_PULL_ERRORS=1
+    fi
+    return 1
+  fi
+  local part
+  SKILL_SYNC_REASON=""
+  SKILL_SYNC_STATUS="${summary%% *}"
+  for part in $summary; do
+    case "$part" in
+      updated=*) SKILL_PULL_UPDATED="${part#updated=}" ;;
+      errors=*) SKILL_PULL_ERRORS="${part#errors=}" ;;
+      remote=*) SKILL_REMOTE_COUNT="${part#remote=}" ;;
+      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
+      removed=*) SKILL_REMOVED="${part#removed=}" ;;
     esac
   done
   return 0
@@ -871,6 +1180,44 @@ push_slash_commands_if_changed() {
       errors=*) PROMPT_PUSH_ERRORS="${part#errors=}" ;;
       changes=*) PROMPT_LOCAL_CHANGED="${part#changes=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
+    esac
+  done
+  return 0
+}
+
+push_skills_if_changed() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    SKILL_PUSH_STATUS="missing-config"
+    return 0
+  fi
+  if [[ ! -f "$SKILL_BASELINE_FILE" ]]; then
+    SKILL_PUSH_STATUS="no-baseline"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    SKILL_PUSH_STATUS="no-python"
+    return 0
+  fi
+  local summary status_code
+  set +e
+  summary="$(skill_sync_python push "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
+  status_code=$?
+  set -e
+  SKILL_PUSH_STATUS="error"
+  if (( status_code != 0 )); then
+    [[ -n "$summary" ]] && log_warn "Skill push failed: $summary" || log_warn "Skill push failed."
+    SKILL_PUSH_ERRORS=1
+    return 1
+  fi
+  local part
+  SKILL_PUSH_STATUS="${summary%% *}"
+  for part in $summary; do
+    case "$part" in
+      pushed=*) SKILL_PUSHED="${part#pushed=}" ;;
+      errors=*) SKILL_PUSH_ERRORS="${part#errors=}" ;;
+      changes=*) SKILL_LOCAL_CHANGED="${part#changes=}" ;;
+      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
     esac
   done
   return 0

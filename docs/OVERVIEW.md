@@ -2,7 +2,7 @@
 
 ## What it is
 
-Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships slash commands, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
+Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships slash commands, Skills, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
 
 ## Primary use cases
 
@@ -18,11 +18,11 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot and legacy plaintext rows are migrated automatically.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth daily and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` when down.
-- Extras ride the same API: slash-command distribution, MCP memories (store/retrieve/search), token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and GPT‑5.1 pricing pulls for dashboard costs.
+- Extras ride the same API: slash-command + Skill distribution, MCP memories (store/retrieve/search), token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and GPT‑5.1 pricing pulls for dashboard costs.
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/slash/pricing/chatgpt).
+- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/slash/skills/pricing/chatgpt).
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
@@ -56,6 +56,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot (env fallbacks when remote pricing is absent), stores per-row entries, and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and total cost.
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/slash-commands` list/retrieve/store/delete prompt files; delete marks propagate to hosts on next sync.
+   - `/skills` list/retrieve/store/delete Skill manifests (mirrors slash commands, syncs `~/.codex/skills`).
 
 6) **Quotas and pricing**
    - ChatGPT quota snapshots are pulled from `/wham/usage` using canonical tokens (cooldown 5m, also usable via the `quota-cron` sidecar). Results are cached and surfaced on `/auth` responses and admin dashboards.
@@ -74,7 +75,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 - Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). `host_auth_states` tracks what each host last saw; `host_auth_digests` caches up to 3 recent digests per host.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
-- Logs, token usages, slash commands, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
+- Logs, token usages, slash commands, Skills, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
 
 ## Fleet workflow at a glance
 

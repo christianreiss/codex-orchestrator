@@ -139,6 +139,25 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS skills (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                slug VARCHAR(255) NOT NULL UNIQUE,
+                sha256 CHAR(64) NOT NULL,
+                display_name VARCHAR(255) NULL,
+                description TEXT NULL,
+                manifest LONGTEXT NOT NULL,
+                source_host_id BIGINT UNSIGNED NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                deleted_at VARCHAR(100) NULL,
+                INDEX idx_skills_updated_at (updated_at),
+                CONSTRAINT fk_skills_host FOREIGN KEY (source_host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS agents_documents (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 sha256 CHAR(64) NOT NULL,
@@ -442,6 +461,7 @@ class Database
         $this->ensureColumnExists('token_usages', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('token_usage_ingests', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
+        $this->ensureColumnExists('skills', 'deleted_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');

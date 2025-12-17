@@ -31,6 +31,7 @@ use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\SlashCommandRepository;
 use App\Repositories\AgentsRepository;
+use App\Repositories\SkillRepository;
 use App\Repositories\MemoryRepository;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\McpAccessLogRepository;
@@ -43,6 +44,7 @@ use App\Services\CostHistoryService;
 use App\Services\UsageCostService;
 use App\Services\SlashCommandService;
 use App\Services\AgentsService;
+use App\Services\SkillService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
 use App\Mcp\McpServer;
@@ -97,6 +99,7 @@ $authPayloadRepository = new AuthPayloadRepository($database, $authEntryReposito
 $logRepository = new LogRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
+$skillRepository = new SkillRepository($database);
 $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
 $clientConfigRepository = new ClientConfigRepository($database);
@@ -129,6 +132,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
 $service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
+$skillService = new SkillService($skillRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
 $mcpServer = new McpServer($memoryService, $root);
@@ -1864,6 +1868,90 @@ $router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', function ($matches) 
     ]);
 });
 
+$router->add('GET', '#^/admin/skills$#', function () use ($skillRepository) {
+    requireAdminAccess();
+
+    $skills = $skillRepository->all();
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['skills' => $skills],
+    ]);
+});
+
+$router->add('GET', '#^/admin/skills/([^/]+)$#', function ($matches) use ($skillService) {
+    requireAdminAccess();
+    $slug = urldecode($matches[1]);
+    try {
+        $skill = $skillService->find($slug);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    if ($skill === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Skill not found',
+        ], 404);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $skill,
+    ]);
+});
+
+$router->add('POST', '#^/admin/skills/store$#', function () use ($payload, $skillService) {
+    requireAdminAccess();
+
+    try {
+        $result = $skillService->store(is_array($payload) ? $payload : [], null);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('DELETE', '#^/admin/skills/([^/]+)$#', function ($matches) use ($skillService) {
+    requireAdminAccess();
+    $slug = urldecode($matches[1]);
+    try {
+        $deleted = $skillService->delete($slug);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    if (!$deleted) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Skill not found',
+        ], 404);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'deleted' => $slug,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
     requireAdminAccess();
 
@@ -2056,6 +2144,49 @@ $router->add('POST', '#^/slash-commands/store$#', function () use ($payload, $se
     $host = $service->authenticate($apiKey, $clientIp);
 
     $result = $slashCommandService->store(is_array($payload) ? $payload : [], $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('GET', '#^/skills$#', function () use ($service, $skillService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $skills = $skillService->listSkills($host, true);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'skills' => $skills,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/skills/retrieve$#', function () use ($payload, $service, $skillService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $slug = is_array($payload) ? (string) ($payload['slug'] ?? ($payload['filename'] ?? '')) : '';
+    $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
+    $result = $skillService->retrieve($slug, $sha, $host);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/skills/store$#', function () use ($payload, $service, $skillService) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $result = $skillService->store(is_array($payload) ? $payload : [], $host);
 
     Response::json([
         'status' => 'ok',

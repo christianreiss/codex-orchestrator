@@ -17,6 +17,7 @@
    - syncs canonical auth (`/auth`)
    - syncs fleet `config.toml` + profiles (`/config/retrieve` → `~/.codex/config.toml`)
    - syncs slash commands (`/slash-commands` → `~/.codex/prompts/`)
+   - syncs Skills (`/skills` → `~/.codex/skills/`)
    - syncs canonical AGENTS (`/agents/retrieve` → `~/.codex/AGENTS.md`)
    - self-updates Codex + the wrapper (and can enforce pinned versions)
    - posts token usage telemetry (`/usage`)
@@ -28,7 +29,7 @@
 - 🔁 Auto updates + version pinning: self-updating wrapper, automatic Codex updates, and fleet/per-host version pinning (upgrade *or* downgrade).
 - 📊 Auditing and usage: token usage rows plus per-request ingests (client IP + normalized payload), cost estimates from GPT‑5.1 pricing, versions, IPs, and runner validation logs.
 - 🔒 Canonical auth + tokens encrypted at rest (libsodium).
-- 🧠 Extras: slash command management, canonical AGENTS.md distribution, MCP-compatible memories (store/retrieve/search across sessions), ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
+- 🧠 Extras: slash command + Skill management, canonical AGENTS.md distribution, MCP-compatible memories (store/retrieve/search across sessions), ChatGPT quota snapshots, and daily pricing pulls for cost dashboards.
 - 🛠️ Fleet `config.toml` builder + distributor (profiles, approval policy, sandbox, MCP servers, OTEL), synced automatically to `~/.codex/config.toml` on every `cdx` run.
 
 ## MCP for Codex (native HTTP, no node shim)
@@ -72,7 +73,7 @@ cdx --update
 
 ## Slash command management (prompts as fleet-owned artifacts)
 
-- Server stores prompts in MySQL (sha256-addressed) and exposes them via `/slash-commands`.
+- Server stores prompts in MySQL (sha256-addressed) and exposes them via `/slash-commands`. Skills live alongside prompts (`skills` table + `/skills*` endpoints) so every host keeps a canonical `~/.codex/skills/<slug>.json`.
 - Admins can create/update/retire prompts from the dashboard; delete marks propagate to hosts on next sync.
 - `cdx` keeps `~/.codex/prompts/` in sync:
   - pulls on start (hash mismatch → retrieve)

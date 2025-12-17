@@ -51,6 +51,9 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /slash-commands` — list commands (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`, optional `deleted_at`). Auth required.
 - `POST /slash-commands/retrieve` — body: `filename` (required), optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `prompt` when updated).
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
+- `GET /skills` — list skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required.
+- `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `manifest` when updated).
+- `POST /skills/store` — body: `slug`, `manifest` (or `content`), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
 ### Config
 - `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), canonical `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When per-host model overrides are set, the baked config also overrides `model` and `model_reasoning_effort` so the host’s `~/.codex/config.toml` reflects its effective defaults. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
@@ -93,6 +96,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.
 - ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
+- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
 - Config builder: `GET /admin/config` (canonical `config.toml` + `settings`), `POST /admin/config/render` (render TOML from `settings` without persisting), `POST /admin/config/store` (persist canonical config from `settings`; returns status + sha + content).
 
 ## Runner & Versions

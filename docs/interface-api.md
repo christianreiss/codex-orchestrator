@@ -13,6 +13,9 @@
 - `GET /slash-commands` — list server-known slash command prompts (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`, optional `deleted_at` for retired commands). Auth required.
 - `POST /slash-commands/retrieve` — body: `filename` (required) and optional `sha256` (64-hex). Returns `status` (`missing` | `unchanged` | `updated`) plus metadata and `prompt` when the server copy differs from the provided digest.
 - `POST /slash-commands/store` — body: `filename`, `prompt` (full file content, e.g., markdown with `---` front matter), optional `description`/`argument_hint`, optional `sha256` (validated against `prompt`). Stores/updates canonical prompt row, logs `slash.store`, and echoes `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
+- `GET /skills` — list registered skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required.
+- `POST /skills/retrieve` — body: `slug` (required; accepts legacy `filename`) and optional `sha256`. Returns `status` (`missing` | `deleted` | `unchanged` | `updated`), metadata, and `manifest` when the stored content differs.
+- `POST /skills/store` — body: `slug`, `manifest` (required string; typically the Skill manifest JSON), optional `display_name`/`description`, optional `sha256` (validated against `manifest`). Stores/updates canonical skill specs, logs `skill.store`, and returns `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
 - `POST /agents/retrieve` — pull the canonical AGENTS.md. Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/AGENTS.md`.
 - `POST /config/retrieve` — pulls the canonical config template and bakes a per-host `config.toml` using the authenticated host API key. Managed MCP entry now uses the native HTTP MCP transport (no npm):  
   ```toml
@@ -79,6 +82,10 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 - `GET /admin/slash-commands/{filename}` — fetch a single slash command (includes full prompt body).
 - `POST /admin/slash-commands/store` — create/update a slash command (body: `filename`, `prompt`, optional `description`/`argument_hint`/`sha256`; sha is computed if omitted).
 - `DELETE /admin/slash-commands/{filename}` — retire a slash command (marks deleted; hosts remove it on next sync).
+- `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps).
+- `GET /admin/skills/{slug}` — fetch full skill content (manifest + metadata).
+- `POST /admin/skills/store` — create/update a skill (body: `slug`, `manifest`, optional `display_name`/`description`/`sha256`; sha computed from manifest when omitted).
+- `DELETE /admin/skills/{slug}` — retire a skill (marks `deleted_at`; hosts remove it on next sync).
 - Pricing: auto-fetches GPT-5.1 pricing (daily) from `PRICING_URL` or env fallback and surfaces `tokens_day` (UTC day), `tokens_week` (aligned to the ChatGPT weekly window when available, else trailing 7 days), `tokens_month` (month to date), `pricing`, `pricing_day_cost`, `pricing_week_cost`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations. `subscription_plans` is sourced from `CHATGPT_PLUS_PLAN_COST` / `CHATGPT_PRO_PLAN_COST` (currency follows `PRICING_CURRENCY`). Daily cost history for dashboard charts is available via `/admin/usage/cost-history`.
 
 ## Auth + IP rules

@@ -75,6 +75,17 @@
     const promptCancel = document.getElementById('promptCancel');
     const promptStatus = document.getElementById('promptStatus');
     const promptsPanel = document.getElementById('prompts-panel');
+    const skillsTbody = document.querySelector('#skills tbody');
+    const newSkillBtn = document.getElementById('newSkillBtn');
+    const skillModal = document.getElementById('skillModal');
+    const skillSlug = document.getElementById('skillSlug');
+    const skillDisplayName = document.getElementById('skillDisplayName');
+    const skillDescriptionInput = document.getElementById('skillDescription');
+    const skillManifest = document.getElementById('skillManifest');
+    const skillSave = document.getElementById('skillSave');
+    const skillCancel = document.getElementById('skillCancel');
+    const skillStatus = document.getElementById('skillStatus');
+    const skillsPanel = document.querySelector('[data-settings-panel="skills"]');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
     const memoriesPanel = document.querySelector('.panel-set[data-panel="settings"] [data-settings-panel="memories"]');
@@ -140,6 +151,7 @@
     const upgradeNotesCache = {};
     let currentHosts = [];
     let currentPrompts = [];
+    let currentSkills = [];
     let currentMemories = [];
     let currentAgents = null;
     let promptsExpanded = true;
@@ -1907,7 +1919,7 @@
       }
       if (!promptsTbody) return;
       if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
+        promptsTbody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
         return;
       }
       promptsTbody.innerHTML = currentPrompts.map((p) => {
@@ -1916,6 +1928,7 @@
         return `<tr>
           <td data-label="Filename"><code>${p.filename}</code> ${retired}</td>
           <td data-label="Description">${desc || '—'}</td>
+          <td data-label="Argument">${(p.argument_hint || '').replace(/</g, '&lt;') || '—'}</td>
           <td data-label="Actions">
             <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
             <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
@@ -1933,6 +1946,44 @@
         btn.addEventListener('click', () => {
           const name = btn.getAttribute('data-filename');
           retirePrompt(name);
+        });
+      });
+    }
+
+    function renderSkills(skills) {
+      currentSkills = Array.isArray(skills) ? skills : [];
+      if (skillsPanel) {
+        skillsPanel.style.display = 'block';
+      }
+      if (!skillsTbody) return;
+      if (currentSkills.length === 0) {
+        skillsTbody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:14px;">No skills stored</td></tr>`;
+        return;
+      }
+
+      skillsTbody.innerHTML = currentSkills.map((skill) => {
+        const retired = skill.deleted_at ? '<span class="muted">(retired)</span>' : '';
+        return `<tr>
+          <td data-label="Slug"><code>${skill.slug}</code> ${retired}</td>
+          <td data-label="Display name">${(skill.display_name || '—').replace(/</g, '&lt;')}</td>
+          <td data-label="Description">${(skill.description || '—').replace(/</g, '&lt;')}</td>
+          <td data-label="Actions">
+            <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}">Edit</button>
+            <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : ''}>Retire</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      skillsTbody.querySelectorAll('.skill-edit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const slug = btn.getAttribute('data-slug');
+          openSkillModal(slug);
+        });
+      });
+      skillsTbody.querySelectorAll('.skill-delete').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const slug = btn.getAttribute('data-slug');
+          retireSkill(slug);
         });
       });
     }
@@ -3405,7 +3456,7 @@
 
     async function loadAll() {
       try {
-        const [overview, hosts, runner, prompts, agents] = await Promise.all([
+        const [overview, hosts, runner, prompts, skills, agents] = await Promise.all([
           api('/admin/overview'),
           api('/admin/hosts'),
           api('/admin/runner').catch(err => {
@@ -3414,6 +3465,10 @@
           }),
           api('/admin/slash-commands').catch(err => {
             console.warn('Slash commands unavailable', err);
+            return null;
+          }),
+          api('/admin/skills').catch(err => {
+            console.warn('Skills unavailable', err);
             return null;
           }),
           api('/admin/agents').catch(err => {
@@ -3432,6 +3487,7 @@
         renderHosts(hostsList);
         renderInsecureHostsQuickButton(hostsList);
         renderPrompts(prompts?.data?.commands || []);
+        renderSkills(skills?.data?.skills || []);
         renderAgents(agents?.data || { status: 'missing' });
         await loadMemories();
 
@@ -3745,6 +3801,85 @@
       }
     }
 
+    function showSkillModal(show) {
+      if (!skillModal) return;
+      if (show) {
+        skillModal.classList.add('show');
+      } else {
+        skillModal.classList.remove('show');
+      }
+    }
+
+    async function openSkillModal(slug) {
+      if (!skillSlug || !skillManifest) return;
+      const target = typeof slug === 'string' ? slug.trim() : '';
+      skillSlug.value = target;
+      if (skillDisplayName) skillDisplayName.value = '';
+      if (skillDescriptionInput) skillDescriptionInput.value = '';
+      skillManifest.value = '';
+      if (!target) {
+        if (skillStatus) skillStatus.textContent = '';
+        showSkillModal(true);
+        return;
+      }
+      if (skillStatus) skillStatus.textContent = 'Loading…';
+      showSkillModal(true);
+      try {
+        const resp = await api(`/admin/skills/${encodeURIComponent(target)}`);
+        const data = resp?.data || {};
+        skillSlug.value = data.slug || target || '';
+        if (skillDisplayName) skillDisplayName.value = data.display_name || '';
+        if (skillDescriptionInput) skillDescriptionInput.value = data.description || '';
+        skillManifest.value = data.manifest || '';
+        if (skillStatus) skillStatus.textContent = '';
+      } catch (err) {
+        if (skillStatus) skillStatus.textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    async function saveSkill() {
+      if (!skillSlug || !skillManifest) return;
+      const payload = {
+        slug: skillSlug.value.trim(),
+        display_name: skillDisplayName?.value ?? '',
+        description: skillDescriptionInput?.value ?? '',
+        manifest: skillManifest.value,
+      };
+      if (!payload.slug) {
+        if (skillStatus) skillStatus.textContent = 'Slug is required';
+        return;
+      }
+      if (!payload.manifest.trim()) {
+        if (skillStatus) skillStatus.textContent = 'Manifest is required';
+        return;
+      }
+      if (skillStatus) skillStatus.textContent = 'Saving…';
+      try {
+        await api('/admin/skills/store', {
+          method: 'POST',
+          json: payload,
+        });
+        if (skillStatus) skillStatus.textContent = 'Saved';
+        await loadAll();
+        showSkillModal(false);
+      } catch (err) {
+        if (skillStatus) skillStatus.textContent = `Save failed: ${err.message}`;
+      }
+    }
+
+    async function retireSkill(slug) {
+      if (!slug) return;
+      if (!confirm(`Retire skill "${slug}"? Hosts remove it on next sync.`)) {
+        return;
+      }
+      try {
+        await api(`/admin/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+        await loadAll();
+      } catch (err) {
+        alert(`Retire failed: ${err.message}`);
+      }
+    }
+
     function resetRunnerLog() {
       if (runnerLogEl) runnerLogEl.innerHTML = '';
     }
@@ -4040,6 +4175,12 @@
         openPromptModal('');
       });
     }
+    if (newSkillBtn) {
+      newSkillBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        openSkillModal('');
+      });
+    }
     if (agentsPreview) {
       agentsPreview.addEventListener('click', () => setAgentsInlineEditing(true));
     }
@@ -4098,11 +4239,22 @@
         if (e.target === promptModal) showPromptModal(false);
       });
     }
+    if (skillModal) {
+      skillModal.addEventListener('click', (e) => {
+        if (e.target === skillModal) showSkillModal(false);
+      });
+    }
     if (promptCancel) {
       promptCancel.addEventListener('click', () => showPromptModal(false));
     }
     if (promptSave) {
       promptSave.addEventListener('click', () => savePrompt());
+    }
+    if (skillCancel) {
+      skillCancel.addEventListener('click', () => showSkillModal(false));
+    }
+    if (skillSave) {
+      skillSave.addEventListener('click', () => saveSkill());
     }
     if (agentsSaveInline) {
       agentsSaveInline.addEventListener('click', () => saveAgentsInline());

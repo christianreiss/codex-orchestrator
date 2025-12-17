@@ -199,6 +199,56 @@
             <button class="ghost" id="upgradeClose">Close</button>
           </div>
         </div>
+        <div class="modal-backdrop" id="promptModal">
+          <div class="modal">
+            <h3>Slash command</h3>
+            <div class="field">
+              <label for="promptFilename" style="font-weight:600;">Filename</label>
+              <input type="text" id="promptFilename" placeholder="example.sh">
+            </div>
+            <div class="field">
+              <label for="promptDescription" style="font-weight:600;">Description</label>
+              <input type="text" id="promptDescription" placeholder="Optional summary">
+            </div>
+            <div class="field">
+              <label for="promptArgument" style="font-weight:600;">Argument hint</label>
+              <input type="text" id="promptArgument" placeholder="Optional usage hint">
+            </div>
+            <div class="field">
+              <label for="promptBody" style="font-weight:600;">Prompt</label>
+              <textarea id="promptBody" rows="10" spellcheck="false" placeholder="---&#10;description: ...&#10;---&#10;Prompt body..."></textarea>
+            </div>
+            <div class="actions">
+              <button class="ghost" id="promptCancel">Cancel</button>
+              <button id="promptSave">Save</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="skillModal">
+          <div class="modal">
+            <h3>Skill manifest</h3>
+            <div class="field">
+              <label for="skillSlug" style="font-weight:600;">Slug</label>
+              <input type="text" id="skillSlug" placeholder="e.g. backup-db">
+            </div>
+            <div class="field">
+              <label for="skillDisplayName" style="font-weight:600;">Display name</label>
+              <input type="text" id="skillDisplayName" placeholder="Shown in dashboards">
+            </div>
+            <div class="field">
+              <label for="skillDescription" style="font-weight:600;">Description</label>
+              <input type="text" id="skillDescription" placeholder="Short summary">
+            </div>
+            <div class="field">
+              <label for="skillManifest" style="font-weight:600;">Manifest (JSON or markdown)</label>
+              <textarea id="skillManifest" rows="10" spellcheck="false" placeholder='{\"name\":\"...\"}'></textarea>
+            </div>
+            <div class="actions">
+              <button class="ghost" id="skillCancel">Cancel</button>
+              <button id="skillSave">Save</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-backdrop" id="accessBlockModal">
           <div class="modal">
             <h3 id="accessBlockTitle">Admin access blocked</h3>
@@ -422,6 +472,7 @@
 	            <a class="settings-tab active" data-settings-tab="general" href="#settings/general">General</a>
 	            <a class="settings-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
 	            <a class="settings-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
+	            <a class="settings-tab" data-settings-tab="skills" href="#settings/skills">Skills</a>
 	            <a class="settings-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
 	            <a class="settings-tab" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
 	            <a class="settings-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
@@ -605,6 +656,34 @@
               </div>
             </div>
             <div class="muted" id="promptStatus" style="margin-top:8px;"></div>
+          </section>
+          <section class="card panel" data-settings-panel="skills" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Skills</p>
+                <h2>Fleet Skill registry</h2>
+                <p class="muted">Distribute Skill manifests (`~/.codex/skills/*.json`) across hosts.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost tiny-btn" id="newSkillBtn">New</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrapper">
+                <table id="skills">
+                  <thead>
+                    <tr>
+                      <th>Slug</th>
+                      <th>Display name</th>
+                      <th>Description</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="muted" id="skillStatus" style="margin-top:8px;"></div>
           </section>
 	          <section class="card panel" data-settings-panel="memories" hidden>
 	            <div class="panel-head">
@@ -977,7 +1056,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2025-12-15-20"></script>
+  <script src="/admin/assets/dashboard.js?v=2025-12-17-01"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/config.js?v=2025-12-15-20"></script>
   <script src="/admin/assets/profiles.js?v=2025-12-14-09"></script>
