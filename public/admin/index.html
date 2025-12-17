@@ -22,6 +22,7 @@
       <a class="nav-item" href="#dashboard" data-nav="dashboard">Dashboard</a>
       <a class="nav-item" href="#hosts" data-nav="hosts">Hosts</a>
       <a class="nav-item" href="#logs" data-nav="logs">Logs</a>
+      <a class="nav-item" href="#skills" data-nav="skills">Skills</a>
       <a class="nav-item" href="#settings" data-nav="settings">Settings</a>
     </nav>
     <div class="nav-status">
@@ -39,6 +40,7 @@
         <a class="menu-link" href="#dashboard">Overview</a>
         <a class="menu-link" href="#hosts">Hosts</a>
         <a class="menu-link" href="#logs">Logs</a>
+        <a class="menu-link" href="#skills">Skills</a>
         <a class="menu-link" href="#settings">Settings</a>
       </nav>
 
@@ -466,13 +468,43 @@
 	          </section>
 	        </section>
 
+        <section class="panel-set" data-panel="skills" hidden>
+          <section class="card panel" id="skills-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Skills</p>
+                <h2>Fleet Skill registry</h2>
+                <p class="muted">Distribute Skill manifests (<code>~/.codex/skills/*.json</code>) across hosts.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost tiny-btn" id="newSkillBtn">New</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrapper">
+                <table id="skills">
+                  <thead>
+                    <tr>
+                      <th>Slug</th>
+                      <th>Display name</th>
+                      <th>Description</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="muted" id="skillStatus" style="margin-top:8px;"></div>
+          </section>
+        </section>
+
         <!-- Settings -->
         <section class="panel-set" data-panel="settings" hidden>
 	          <div class="subtabs settings-tabs" role="tablist" aria-label="Settings tabs">
 	            <a class="settings-tab active" data-settings-tab="general" href="#settings/general">General</a>
 	            <a class="settings-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
 	            <a class="settings-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
-	            <a class="settings-tab" data-settings-tab="skills" href="#settings/skills">Skills</a>
 	            <a class="settings-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
 	            <a class="settings-tab" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
 	            <a class="settings-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
@@ -656,34 +688,6 @@
               </div>
             </div>
             <div class="muted" id="promptStatus" style="margin-top:8px;"></div>
-          </section>
-          <section class="card panel" data-settings-panel="skills" hidden>
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Skills</p>
-                <h2>Fleet Skill registry</h2>
-                <p class="muted">Distribute Skill manifests (`~/.codex/skills/*.json`) across hosts.</p>
-              </div>
-              <div class="panel-actions">
-                <button class="ghost tiny-btn" id="newSkillBtn">New</button>
-              </div>
-            </div>
-            <div class="panel-body">
-              <div class="table-wrapper">
-                <table id="skills">
-                  <thead>
-                    <tr>
-                      <th>Slug</th>
-                      <th>Display name</th>
-                      <th>Description</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-            <div class="muted" id="skillStatus" style="margin-top:8px;"></div>
           </section>
 	          <section class="card panel" data-settings-panel="memories" hidden>
 	            <div class="panel-head">
@@ -1056,7 +1060,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2025-12-17-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2025-12-17-03"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/config.js?v=2025-12-15-20"></script>
   <script src="/admin/assets/profiles.js?v=2025-12-14-09"></script>

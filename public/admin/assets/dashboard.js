@@ -85,7 +85,6 @@
     const skillSave = document.getElementById('skillSave');
     const skillCancel = document.getElementById('skillCancel');
     const skillStatus = document.getElementById('skillStatus');
-    const skillsPanel = document.querySelector('[data-settings-panel="skills"]');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
     const memoriesPanel = document.querySelector('.panel-set[data-panel="settings"] [data-settings-panel="memories"]');
@@ -1952,9 +1951,6 @@
 
     function renderSkills(skills) {
       currentSkills = Array.isArray(skills) ? skills : [];
-      if (skillsPanel) {
-        skillsPanel.style.display = 'block';
-      }
       if (!skillsTbody) return;
       if (currentSkills.length === 0) {
         skillsTbody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:14px;">No skills stored</td></tr>`;
@@ -3982,8 +3978,15 @@
     function applyHashRouting() {
       const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
       const [panelRaw, subRaw] = hash.split('/');
-      const panel = (panelRaw || 'dashboard').toLowerCase();
-      const sub = (subRaw || '').toLowerCase();
+      let panel = (panelRaw || 'dashboard').toLowerCase();
+      let sub = (subRaw || '').toLowerCase();
+
+      if (panel === 'settings' && sub === 'skills') {
+        if (window.location.hash !== '#skills') {
+          window.location.hash = '#skills';
+        }
+        return;
+      }
 
       document.querySelectorAll('.panel-set').forEach((section) => {
         const p = (section.dataset.panel || '').toLowerCase();
@@ -4039,6 +4042,11 @@
           window.__initEventLogs();
           window.__initEventLogs = null;
         }
+      }
+
+      if (panel === 'skills') {
+        ensureDataLoaded();
+        renderSkills(currentSkills);
       }
 
       if (panel === 'settings') {
