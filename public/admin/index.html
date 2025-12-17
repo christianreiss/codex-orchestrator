@@ -243,6 +243,7 @@
               <label for="skillManifest" style="font-weight:600;">Manifest (JSON or markdown)</label>
               <textarea id="skillManifest" rows="10" spellcheck="false" placeholder='{\"name\":\"...\"}'></textarea>
             </div>
+            <div class="muted" id="skillStatus" role="status" aria-live="polite" aria-atomic="true" style="min-height:18px; font-size:13px; margin:6px 0 2px;"></div>
             <div class="actions">
               <button class="ghost" id="skillCancel">Cancel</button>
               <button id="skillSave">Save</button>
@@ -759,7 +760,6 @@
                 </table>
               </div>
             </div>
-            <div class="muted" id="skillStatus" style="margin-top:8px;"></div>
           </section>
           <section class="card panel" data-settings-panel="config" hidden>
             <div class="panel-head">
