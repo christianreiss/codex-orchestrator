@@ -433,6 +433,19 @@ class HostRepository
         ]);
     }
 
+    public function updateCurlInsecure(int $hostId, bool $curlInsecure): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET curl_insecure = :curl_insecure, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'curl_insecure' => $curlInsecure ? 1 : 0,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     /**
      * Clear canonical auth state for a host without deleting the host record.
      * Resets the stored digest/last_refresh and removes any host->payload pointer

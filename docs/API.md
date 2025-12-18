@@ -68,7 +68,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /wrapper/download` — downloads the baked wrapper; headers include `X-SHA256` and `ETag` with the per-host hash. Auth required.
 
 ## Provisioning & Installer
-- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; when `true` enables a sliding 2-hour idle expiry by setting `expires_at` and refreshing it on each successful authenticated host request; when `false` clears it). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
+- `POST /admin/hosts/register` — create or rotate a host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; when `true` enables a sliding 2-hour idle expiry by setting `expires_at` and refreshing it on each successful authenticated host request; when `false` clears it), optional `curl_insecure` (boolean; when true bakes `CODEX_SYNC_ALLOW_INSECURE=1` into the host wrapper so sync can bypass TLS verification). Returns host payload (with API key) and a single-use installer token/command. For insecure hosts, opens a 30‑minute initial window for `/auth`. Base URL resolution now prefers `PUBLIC_BASE_URL`, otherwise uses `X-Forwarded-Host`/`Host` + `X-Forwarded-Proto` (validated); call fails with 500 if it cannot be resolved. Tokens older than TTL are pruned.
 - `GET /install/{token}` — public, single-use installer (TTL `INSTALL_TOKEN_TTL_SECONDS`, default 1800). Marks token used before emitting. Script downloads `/wrapper/download` baked with API key/FQDN/base URL and installs Codex CLI from GitHub; falls back to version `0.63.0` when no cached client version. Errors return a short shell snippet and non-zero exit.
 
 ## Observability
@@ -78,12 +78,13 @@ Records the current `username` and optional `hostname` for the calling host, ret
 
 ## Admin Endpoints (mTLS + optional admin key)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.
-- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), latest token usage, and recorded users.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4`, `curl_insecure`, latest token usage, and recorded users.
 - `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + insecure window timestamp, RFC3339 / `DATE_ATOM`) for quick actions.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.
 - `POST /admin/hosts/{id}/vip` — toggle VIP status; VIP hosts never hard-fail on quota (warn-only regardless of global policy).
+- `POST /admin/hosts/{id}/curl-insecure` — toggle TLS verification bypass for host sync (`allow` boolean).
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a sliding allow window. Optional JSON body `duration_minutes` (integer 2–60) controls the window length (defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
 - `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and starts a 60‑minute grace period during which `/auth` `store` calls are still allowed (retrieves remain blocked).
 - `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).

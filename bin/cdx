@@ -115,10 +115,10 @@ CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
 CODEX_HOST_MODEL="${CODEX_HOST_MODEL:-__CODEX_HOST_MODEL__}"
 CODEX_HOST_REASONING_EFFORT="${CODEX_HOST_REASONING_EFFORT:-__CODEX_HOST_REASONING_EFFORT__}"
-if [[ "$CODEX_HOST_MODEL" == "__CODEX_HOST_MODEL__" ]]; then
+if [[ "$CODEX_HOST_MODEL" == __CODEX_*__ ]]; then
   CODEX_HOST_MODEL=""
 fi
-if [[ "$CODEX_HOST_REASONING_EFFORT" == "__CODEX_HOST_REASONING_EFFORT__" ]]; then
+if [[ "$CODEX_HOST_REASONING_EFFORT" == __CODEX_*__ ]]; then
   CODEX_HOST_REASONING_EFFORT=""
 fi
 
@@ -129,19 +129,23 @@ CODEX_SYNC_API_KEY="__CODEX_SYNC_API_KEY__"
 CODEX_SYNC_FQDN="__CODEX_SYNC_FQDN__"
 CODEX_SYNC_CA_FILE="__CODEX_SYNC_CA_FILE__"
 CODEX_HOST_SECURE="__CODEX_HOST_SECURE__"
-if [[ "$CODEX_HOST_SECURE" == "__CODEX_HOST_SECURE__" ]]; then
+if [[ "$CODEX_HOST_SECURE" == __CODEX_*__ ]]; then
   CODEX_HOST_SECURE="1"
 fi
 CODEX_FORCE_IPV4="__CODEX_FORCE_IPV4__"
-if [[ "$CODEX_FORCE_IPV4" == "__CODEX_FORCE_IPV4__" ]]; then
+if [[ "$CODEX_FORCE_IPV4" == __CODEX_*__ ]]; then
   CODEX_FORCE_IPV4="0"
 fi
 CODEX_INSTALLATION_ID="__CODEX_INSTALLATION_ID__"
-if [[ "$CODEX_INSTALLATION_ID" == "__CODEX_INSTALLATION_ID__" ]]; then
+if [[ "$CODEX_INSTALLATION_ID" == __CODEX_*__ ]]; then
   CODEX_INSTALLATION_ID=""
 fi
 CODEX_SYNC_BAKED=1
-CODEX_SYNC_ALLOW_INSECURE="${CODEX_SYNC_ALLOW_INSECURE:-0}"
+CODEX_SYNC_ALLOW_INSECURE_DEFAULT="__CODEX_SYNC_ALLOW_INSECURE__"
+if [[ "$CODEX_SYNC_ALLOW_INSECURE_DEFAULT" == __CODEX_*__ ]]; then
+  CODEX_SYNC_ALLOW_INSECURE_DEFAULT="0"
+fi
+CODEX_SYNC_ALLOW_INSECURE="${CODEX_SYNC_ALLOW_INSECURE:-$CODEX_SYNC_ALLOW_INSECURE_DEFAULT}"
 export CODEX_SYNC_ALLOW_INSECURE
 SYNC_CONFIG_LOADED=0
 SYNC_WARNED_NO_PYTHON=0
@@ -248,11 +252,11 @@ if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
   PURGE_AUTH_AFTER_RUN=1
   emit_insecure_notice
 fi
-if [[ "$CODEX_SILENT" == "__CODEX_SILENT__" ]]; then
+if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.17-01"
+WRAPPER_VERSION="2025.12.18-05"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -273,6 +277,8 @@ CURRENT_USER="$(id -un 2>/dev/null || echo unknown)"
 LOCAL_HOSTNAME="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)"
 HOST_USERS_CACHE=()
 HOST_USERS_FETCHED=0
+
+CODEX_ORIGINAL_ARGS=("$@")
 
 if [[ "${1-}" == "--execute" ]]; then
   shift
@@ -3603,6 +3609,11 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
       if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
         curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
       fi
+      case "${CODEX_SYNC_ALLOW_INSECURE,,}" in
+        1|true|yes)
+          curl_args+=("-k")
+          ;;
+      esac
       if curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
         dl_sha="$(sha256sum "$tmpwrapper" | awk '{print $1}')"
         if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
@@ -4800,7 +4811,10 @@ fi
   fi
   token_bits=()
   [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
-  token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
+  token_line=""
+  if (( ${#token_bits[@]} )); then
+    token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
+  fi
   if [[ -n "$token_line" ]]; then
     usage_bits+=("tokens ${token_line}")
   fi
@@ -5022,7 +5036,7 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
     exit 1
   fi
   log_warn "Wrapper updated; restarting cdx to load the new wrapper."
-  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "$@"
+  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
 fi
 
 AUTH_LAUNCH_ALLOWED=0

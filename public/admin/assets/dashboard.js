@@ -488,6 +488,12 @@
       return cmd.replace(/curl\b/g, (match) => `${match} ${flag}`);
     }
 
+    function addBashEnv(cmd, envAssignment) {
+      if (!cmd || !envAssignment) return cmd;
+      if (cmd.includes(envAssignment)) return cmd;
+      return cmd.replace(/\|\s*bash\b/, `| ${envAssignment} bash`);
+    }
+
     function clipText(text, max = 140) {
       if (!text) return '';
       const trimmed = String(text).trim();
@@ -4474,6 +4480,9 @@
       if (temporaryHostToggle && existingHost) {
         temporaryHostToggle.checked = !!existingHost.expires_at;
       }
+      if (insecureToggle && existingHost) {
+        insecureToggle.checked = !!existingHost.curl_insecure;
+      }
       if (ipv4Toggle && existingHost) {
         ipv4Toggle.checked = !!existingHost.force_ipv4;
       }
@@ -4490,13 +4499,14 @@
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure, vip, temporary: !!temporary },
+          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure, vip, temporary: !!temporary, curl_insecure: insecureToggle ? !!insecureToggle.checked : undefined },
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
         let cmd = installer.command;
         if (insecureToggle?.checked) {
           cmd = addCurlFlag(cmd, '-k');
+          cmd = addBashEnv(cmd, 'CODEX_INSTALL_CURL_INSECURE=1');
         }
         if (ipv4Toggle?.checked) {
           cmd = addCurlFlag(cmd, '-4');

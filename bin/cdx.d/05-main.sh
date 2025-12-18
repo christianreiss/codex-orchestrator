@@ -298,6 +298,11 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
       if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
         curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
       fi
+      case "${CODEX_SYNC_ALLOW_INSECURE,,}" in
+        1|true|yes)
+          curl_args+=("-k")
+          ;;
+      esac
       if curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
         dl_sha="$(sha256sum "$tmpwrapper" | awk '{print $1}')"
         if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
@@ -1495,7 +1500,10 @@ fi
   fi
   token_bits=()
   [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
-  token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
+  token_line=""
+  if (( ${#token_bits[@]} )); then
+    token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
+  fi
   if [[ -n "$token_line" ]]; then
     usage_bits+=("tokens ${token_line}")
   fi
@@ -1717,7 +1725,7 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
     exit 1
   fi
   log_warn "Wrapper updated; restarting cdx to load the new wrapper."
-  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "$@"
+  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
 fi
 
 AUTH_LAUNCH_ALLOWED=0

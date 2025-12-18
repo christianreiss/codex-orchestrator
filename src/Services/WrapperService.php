@@ -111,6 +111,7 @@ class WrapperService
         $fqdn = (string) ($host['fqdn'] ?? '');
         $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
+        $curlInsecure = isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false;
         $cdxSilent = $this->versions->getFlag('cdx_silent', false);
         $escapeBashDefault = static function (string $value): string {
             $value = str_replace(["\r", "\n"], '', $value);
@@ -130,6 +131,7 @@ class WrapperService
             '__CODEX_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
             '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
             '__CODEX_SILENT__' => $cdxSilent ? '1' : '0',
+            '__CODEX_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
         ];
         if ($modelOverride !== '') {
             $replacements['__CODEX_HOST_MODEL__'] = $escapeBashDefault($modelOverride);

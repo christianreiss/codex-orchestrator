@@ -54,6 +54,7 @@ use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
 use App\Security\RateLimiter;
 use App\Support\Installation;
+use App\Support\InstallerScriptBuilder;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -303,7 +304,11 @@ $router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($
         'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
     ]);
 
-    $body = buildInstallerScript($host, $tokenRow, $baseUrl, $service->versionSummary());
+    try {
+        $body = InstallerScriptBuilder::build($host, $tokenRow, $baseUrl, $service->versionSummary());
+    } catch (\InvalidArgumentException $exception) {
+        installerError($exception->getMessage(), 500, $tokenRow['expires_at'] ?? null);
+    }
     emitInstaller($body, 200, $tokenRow['expires_at'] ?? null);
 });
 
@@ -347,6 +352,18 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         }
     }
 
+    $curlInsecure = null;
+    if (array_key_exists('curl_insecure', $payload)) {
+        $curlInsecureRaw = $payload['curl_insecure'];
+        $curlInsecure = $curlInsecureRaw === null ? false : normalizeBoolean($curlInsecureRaw);
+        if ($curlInsecure === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'curl_insecure must be boolean',
+            ], 422);
+        }
+    }
+
     $hostPayload = $service->register($fqdn, $secure);
     $host = $hostRepository->findByFqdn($fqdn);
     if (!$host) {
@@ -370,6 +387,16 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         $hostRepository->updateExpiresAt((int) $host['id'], $expiresAt);
         $host = $hostRepository->findById((int) $host['id']) ?? $host;
         $hostPayload['expires_at'] = $expiresAt;
+    }
+
+    if ($curlInsecure !== null) {
+        $hostRepository->updateCurlInsecure((int) $host['id'], $curlInsecure);
+        $logRepository->log((int) $host['id'], 'admin.host.curl_insecure', [
+            'fqdn' => $host['fqdn'] ?? null,
+            'curl_insecure' => $curlInsecure,
+        ]);
+        $host = $hostRepository->findById((int) $host['id']) ?? $host;
+        $hostPayload['curl_insecure'] = $curlInsecure;
     }
 
     $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));
@@ -1162,6 +1189,43 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($h
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $allowRaw = $payload['allow'] ?? null;
+    $allow = normalizeBoolean($allowRaw);
+    if (!is_bool($allow)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'allow must be boolean',
+        ], 422);
+    }
+
+    $hostRepository->updateCurlInsecure($hostId, $allow);
+    $logRepository->log($hostId, 'admin.host.curl_insecure', [
+        'fqdn' => $host['fqdn'] ?? null,
+        'curl_insecure' => $allow,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'curl_insecure' => $allow,
+            ],
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
@@ -1448,6 +1512,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
                 ? (int) $host['insecure_window_minutes']
                 : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
+            'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
             'canonical_digest' => $host['auth_digest'] ?? null,
@@ -2841,11 +2906,6 @@ function resolveApiKey(): ?string
     return null;
 }
 
-function escapeForSingleQuotes(string $value): string
-{
-    return str_replace("'", "'\"'\"'", $value);
-}
-
 function generateUuid(): string
 {
     $data = random_bytes(16);
@@ -2891,93 +2951,6 @@ function installerTokenExpired(array $tokenRow): bool
     }
 
     return $expires < time();
-}
-
-function buildInstallerScript(array $host, array $tokenRow, string $baseUrl, array $versions): string
-{
-    $base = rtrim($baseUrl, '/');
-    $apiKeyRaw = (string) ($tokenRow['api_key'] ?? ($host['api_key'] ?? ''));
-    $fqdnRaw = (string) (($tokenRow['fqdn'] ?? '') !== '' ? $tokenRow['fqdn'] : ($host['fqdn'] ?? ''));
-
-    if ($apiKeyRaw === '' || $fqdnRaw === '' || $base === '' || $base === 'http://' || $base === 'https://') {
-        installerError('Installer metadata missing (fqdn/base/api key)', 500);
-    }
-
-    $apiKey = escapeForSingleQuotes($apiKeyRaw);
-    $fqdn = escapeForSingleQuotes($fqdnRaw);
-    $codexVersion = $versions['client_version'] ?? null;
-    if ($codexVersion === null || $codexVersion === '') {
-        $codexVersion = '0.63.0';
-    }
-    $codexVersion = escapeForSingleQuotes((string) $codexVersion);
-    $baseEscaped = escapeForSingleQuotes($base);
-    $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
-    $curl4 = $forceIpv4 ? '-4' : '';
-
-    $template = <<<'SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
-BASE_URL='__BASE__'
-API_KEY='__API__'
-FQDN='__FQDN__'
-CODEX_VERSION='__CODEX__'
-
-tmpdir="$(mktemp -d)"
-cleanup() { rm -rf "$tmpdir"; }
-trap cleanup EXIT
-
-CURL4="__CURL4__"
-curl_fetch() {
-  # Use IPv4 when requested; empty expansion otherwise.
-  curl ${CURL4:+-4} "$@"
-}
-
-echo "Installing Codex for __FQDN__ via __BASE__"
-
-curl_fetch -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
-chmod +x "$tmpdir/cdx"
-install_path="/usr/local/bin/cdx"
-if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then
-  install_path="$HOME/.local/bin/cdx"
-  mkdir -p "$(dirname "$install_path")"
-  install -m 755 "$tmpdir/cdx" "$install_path"
-fi
-
-arch="$(uname -m)"
-case "$arch" in
-  x86_64|amd64) asset="codex-x86_64-unknown-linux-gnu.tar.gz" ;;
-  aarch64|arm64) asset="codex-aarch64-unknown-linux-gnu.tar.gz" ;;
-  *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
-esac
-
-curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
-tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
-codex_bin="$(find "$tmpdir" -type f ! -name "*.tar.gz" \( -name "codex" -o -name "codex-*" \) | head -n1)"
-if [ -z "$codex_bin" ]; then
-  echo "Codex binary not found in archive" >&2
-  exit 1
-fi
-
-codex_path="/usr/local/bin/codex"
-if ! install -m 755 "$codex_bin" "$codex_path" 2>/dev/null; then
-  codex_path="$HOME/.local/bin/codex"
-  mkdir -p "$(dirname "$codex_path")"
-  install -m 755 "$codex_bin" "$codex_path"
-fi
-
-mkdir -p "$HOME/.codex"
-"$install_path" --version
-"$codex_path" -V || true
-echo "Install complete for __FQDN__"
-SCRIPT;
-
-    return strtr($template, [
-        '__BASE__' => $baseEscaped,
-        '__API__' => $apiKey,
-        '__FQDN__' => $fqdn,
-        '__CODEX__' => $codexVersion,
-        '__CURL4__' => $curl4,
-    ]);
 }
 
 function emitInstaller(string $body, int $status = 200, ?string $expiresAt = null): void

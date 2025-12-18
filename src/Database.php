@@ -446,6 +446,7 @@ class Database
         $this->ensureColumnExists('hosts', 'insecure_grace_until', 'DATETIME NULL');
         $this->ensureColumnExists('hosts', 'insecure_window_minutes', 'INT NULL');
         $this->ensureColumnExists('hosts', 'force_ipv4', 'TINYINT(1) NOT NULL DEFAULT 0');
+        $this->ensureColumnExists('hosts', 'curl_insecure', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'expires_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('hosts', 'vip', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'model_override', 'VARCHAR(128) NULL');
