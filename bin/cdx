@@ -100,7 +100,6 @@ mask_key() {
 emit_insecure_notice() {
   (( HOST_SECURITY_NOTICE_EMITTED )) && return
   log_warn "Host marked insecure; auth.json will be removed after this run."
-  log_warn "Bootstrap (insecure host): auth will not persist on disk."
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 
@@ -256,7 +255,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2025.12.18-05"
+WRAPPER_VERSION="2025.12.18-06"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -4690,7 +4689,11 @@ if (( QUOTA_BLOCKED )); then
   command_tone="red"
 fi
 
-if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
+if (( ! HOST_IS_SECURE )); then
+  if [[ "$result_tone" == "green" ]]; then
+    result_label="Codex to brrrr (insecure host)"
+  fi
+elif [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
   result_label="Codex go Brrrr!"
 fi
 

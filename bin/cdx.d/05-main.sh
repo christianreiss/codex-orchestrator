@@ -1379,7 +1379,11 @@ if (( QUOTA_BLOCKED )); then
   command_tone="red"
 fi
 
-if [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
+if (( ! HOST_IS_SECURE )); then
+  if [[ "$result_tone" == "green" ]]; then
+    result_label="Codex to brrrr (insecure host)"
+  fi
+elif [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
   result_label="Codex go Brrrr!"
 fi
 
