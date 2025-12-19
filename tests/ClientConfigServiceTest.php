@@ -131,6 +131,13 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);
+
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.2-codex',
+            'model_reasoning_summary' => 'auto',
+        ]);
+
+        $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);
     }
 
     public function testStorePersistsAndDetectsUnchanged(): void

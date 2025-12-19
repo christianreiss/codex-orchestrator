@@ -1397,6 +1397,7 @@
               <label for="hostModelOverrideSelect">Model</label>
               <select id="hostModelOverrideSelect">
                 <option value="">Standard (global)</option>
+                <option value="gpt-5.2-codex">gpt-5.2-codex</option>
                 <option value="gpt-5.2">gpt-5.2</option>
                 <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
                 <option value="gpt-5.1-codex">gpt-5.1-codex</option>

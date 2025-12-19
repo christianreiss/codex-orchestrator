@@ -1900,6 +1900,21 @@ PY
   return "$status"
 }
 
+codex_supports_reasoning_effort_flag() {
+  if [[ "${CODEX_CLI_SUPPORTS_REASONING_EFFORT:-}" == "1" ]]; then
+    return 0
+  fi
+  if [[ "${CODEX_CLI_SUPPORTS_REASONING_EFFORT:-}" == "0" ]]; then
+    return 1
+  fi
+  if "$CODEX_REAL_BIN" --help 2>/dev/null | grep -q -- '--reasoning-effort'; then
+    CODEX_CLI_SUPPORTS_REASONING_EFFORT=1
+    return 0
+  fi
+  CODEX_CLI_SUPPORTS_REASONING_EFFORT=0
+  return 1
+}
+
 	if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
 	  candidate="$CODEX_PROFILE_CANDIDATE"
 	  CODEX_PROFILE_CANDIDATE=""
@@ -1915,7 +1930,11 @@ PY
 	fi
 
 if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
-  set -- --reasoning-effort "$CODEX_HOST_REASONING_EFFORT" "$@"
+  if codex_supports_reasoning_effort_flag; then
+    set -- --reasoning-effort "$CODEX_HOST_REASONING_EFFORT" "$@"
+  else
+    log_warn "Codex ${LOCAL_VERSION_RAW:-unknown} does not support --reasoning-effort; skipping host override (${CODEX_HOST_REASONING_EFFORT})."
+  fi
 fi
 
 CODEX_COMMAND_STARTED=1

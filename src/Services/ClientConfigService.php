@@ -833,7 +833,7 @@ class ClientConfigService
         }
 
         if ($model !== null && $this->isGpt51CodexModel($model)) {
-            // gpt-5.1-codex* only supports detailed summaries.
+            // gpt-5.1/5.2-codex* only support detailed summaries.
             return 'detailed';
         }
 
@@ -843,7 +843,7 @@ class ClientConfigService
     private function isGpt51CodexModel(string $model): bool
     {
         $m = strtolower(trim($model));
-        return str_starts_with($m, 'gpt-5.1-codex');
+        return str_starts_with($m, 'gpt-5.1-codex') || str_starts_with($m, 'gpt-5.2-codex');
     }
 
     private function normalizeInt(mixed $value): ?int
