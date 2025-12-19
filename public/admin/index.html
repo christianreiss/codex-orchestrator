@@ -226,23 +226,57 @@
           </div>
         </div>
         <div class="modal-backdrop" id="skillModal">
-          <div class="modal">
-            <h3>Skill manifest</h3>
-            <div class="field">
-              <label for="skillSlug" style="font-weight:600;">Slug</label>
-              <input type="text" id="skillSlug" placeholder="e.g. backup-db">
+          <div class="modal skill-modal">
+            <div class="modal-head">
+              <div>
+                <p class="eyebrow">Fleet Skill</p>
+                <h3 id="skillModalTitle">New skill</h3>
+                <p class="muted" id="skillModalSubtitle">Codex will build the SKILL.md manifest for you.</p>
+              </div>
             </div>
-            <div class="field">
-              <label for="skillDisplayName" style="font-weight:600;">Display name</label>
-              <input type="text" id="skillDisplayName" placeholder="Shown in dashboards">
+            <div class="skill-meta-row">
+              <span class="pill-quiet" id="skillDigestBadge" hidden>SHA —</span>
+              <span class="pill-quiet" id="skillUpdatedBadge" hidden>Updated —</span>
             </div>
-            <div class="field">
-              <label for="skillDescription" style="font-weight:600;">Description</label>
-              <input type="text" id="skillDescription" placeholder="Short summary">
-            </div>
-            <div class="field">
-              <label for="skillManifest" style="font-weight:600;">Manifest (JSON or markdown)</label>
-              <textarea id="skillManifest" rows="10" spellcheck="false" placeholder='{\"name\":\"...\"}'></textarea>
+            <div class="skill-modal-body">
+              <div class="field">
+                <label for="skillName" style="font-weight:600;">Skill name</label>
+                <input type="text" id="skillName" placeholder="Incident warm handoff, Deploy db, …">
+                <div class="muted-note">Maps to the SKILL.md <code>name</code> and dashboard label.</div>
+              </div>
+              <div class="field">
+                <div class="field-label-row">
+                  <label for="skillSlug" style="font-weight:600;">Slug</label>
+                  <button type="button" class="ghost tiny-btn" id="skillSlugSuggest">Auto-fill</button>
+                </div>
+                <input type="text" id="skillSlug" placeholder="e.g. backup-db">
+                <div class="muted-note">Becomes <code>~/.codex/skills/&lt;slug&gt;.json</code>.</div>
+              </div>
+              <div class="field">
+                <label for="skillDescription" style="font-weight:600;">Short description</label>
+                <input type="text" id="skillDescription" placeholder="One-liner surfaced in search/results">
+                <div class="muted-note">Populates the SKILL.md <code>description</code>.</div>
+              </div>
+              <div class="field">
+                <label for="skillTagsInput" style="font-weight:600;">Tags</label>
+                <div class="skill-tags-input">
+                  <div class="skill-tags-list" id="skillTagsList"></div>
+                  <input type="text" id="skillTagsInput" placeholder="Type a tag and press Enter">
+                </div>
+                <div class="muted-note">Optional, but great for routing and search (<code>tags</code> array).</div>
+              </div>
+              <div class="field">
+                <label for="skillWhat" style="font-weight:600;">What this skill does</label>
+                <textarea id="skillWhat" rows="5" spellcheck="false" placeholder="Explain the intent, guardrails, expected outputs."></textarea>
+              </div>
+              <div class="field">
+                <label for="skillWhen" style="font-weight:600;">When to use this skill</label>
+                <textarea id="skillWhen" rows="4" spellcheck="false" placeholder="List triggers, heuristics, or context clues."></textarea>
+              </div>
+              <div class="field">
+                <label for="skillSteps" style="font-weight:600;">Step-by-step instructions</label>
+                <textarea id="skillSteps" rows="6" spellcheck="false" placeholder="Provide numbered instructions, failure modes, and success signals."></textarea>
+              </div>
             </div>
             <div class="muted" id="skillStatus" role="status" aria-live="polite" aria-atomic="true" style="min-height:18px; font-size:13px; margin:6px 0 2px;"></div>
             <div class="actions">

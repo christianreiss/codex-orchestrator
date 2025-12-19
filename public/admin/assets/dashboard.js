@@ -79,12 +79,21 @@
     const newSkillBtn = document.getElementById('newSkillBtn');
     const skillModal = document.getElementById('skillModal');
     const skillSlug = document.getElementById('skillSlug');
-    const skillDisplayName = document.getElementById('skillDisplayName');
+    const skillNameInput = document.getElementById('skillName');
     const skillDescriptionInput = document.getElementById('skillDescription');
-    const skillManifest = document.getElementById('skillManifest');
+    const skillTagsInput = document.getElementById('skillTagsInput');
+    const skillTagsList = document.getElementById('skillTagsList');
+    const skillWhatInput = document.getElementById('skillWhat');
+    const skillWhenInput = document.getElementById('skillWhen');
+    const skillStepsInput = document.getElementById('skillSteps');
     const skillSave = document.getElementById('skillSave');
     const skillCancel = document.getElementById('skillCancel');
     const skillStatus = document.getElementById('skillStatus');
+    const skillSlugSuggest = document.getElementById('skillSlugSuggest');
+    const skillDigestBadge = document.getElementById('skillDigestBadge');
+    const skillUpdatedBadge = document.getElementById('skillUpdatedBadge');
+    const skillModalTitle = document.getElementById('skillModalTitle');
+    const skillModalSubtitle = document.getElementById('skillModalSubtitle');
     const skillsPanel = document.querySelector('[data-settings-panel="skills"]');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
@@ -165,6 +174,8 @@
     let secureExpanded = false;
     let hostStatusFilter = ''; // maintained for clarity
     const hostTabLinks = Array.from(document.querySelectorAll('.host-tab'));
+    let skillSlugAutofill = true;
+    let skillTags = [];
 
     const urlParams = new URLSearchParams(window.location.search);
     const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
@@ -1989,6 +2000,241 @@
           retireSkill(slug);
         });
       });
+    }
+
+    function slugifySkillSource(value) {
+      return (value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 63);
+    }
+
+    function maybeAutofillSkillSlug({ force = false } = {}) {
+      if (!skillNameInput || !skillSlug) return;
+      const suggestion = slugifySkillSource(skillNameInput.value);
+      if (!suggestion) {
+        if (force && !skillSlug.value.trim()) {
+          skillSlug.value = 'skill';
+        }
+        return;
+      }
+      if (!force && !skillSlugAutofill && skillSlug.value.trim()) {
+        return;
+      }
+      skillSlug.value = suggestion;
+    }
+
+    function setSkillModalMode(mode, slugLabel = '') {
+      if (skillModalTitle) {
+        skillModalTitle.textContent = mode === 'edit' ? 'Edit skill' : 'New skill';
+      }
+      if (skillModalSubtitle) {
+        skillModalSubtitle.textContent = mode === 'edit'
+          ? `Updating ${slugLabel || 'this skill'} for every host in the fleet.`
+          : 'One manifest syncs across ~/.codex/skills on every host.';
+      }
+    }
+
+    function setSkillBadges(meta) {
+      const sha = meta?.sha256 || '';
+      const updatedAt = meta?.updated_at || '';
+      if (skillDigestBadge) {
+        if (sha) {
+          skillDigestBadge.hidden = false;
+          skillDigestBadge.textContent = `SHA ${sha}`;
+        } else {
+          skillDigestBadge.hidden = true;
+        }
+      }
+      if (skillUpdatedBadge) {
+        if (updatedAt) {
+          skillUpdatedBadge.hidden = false;
+          skillUpdatedBadge.textContent = `Updated ${formatTimestamp(updatedAt)}`;
+        } else {
+          skillUpdatedBadge.hidden = true;
+        }
+      }
+    }
+
+    function setSkillTags(tags) {
+      skillTags = Array.isArray(tags)
+        ? tags.map((tag) => (typeof tag === 'string' ? tag.trim() : '')).filter((tag) => tag.length > 0)
+        : [];
+      renderSkillTags();
+    }
+
+    function addSkillTag(tag) {
+      const normalized = (tag || '').trim();
+      if (!normalized) return;
+      if (!skillTags.includes(normalized)) {
+        skillTags.push(normalized);
+        renderSkillTags();
+      }
+    }
+
+    function removeSkillTag(index) {
+      if (!Array.isArray(skillTags) || index < 0 || index >= skillTags.length) return;
+      skillTags.splice(index, 1);
+      renderSkillTags();
+    }
+
+    function renderSkillTags() {
+      if (!skillTagsList) return;
+      if (!skillTags.length) {
+        skillTagsList.innerHTML = '<span class="muted">No tags yet</span>';
+        return;
+      }
+      skillTagsList.innerHTML = skillTags.map((tag, idx) => `
+        <span class="skill-tag">
+          ${escapeHtml(tag)}
+          <button type="button" data-tag-index="${idx}" aria-label="Remove tag ${escapeHtml(tag)}">×</button>
+        </span>
+      `).join('');
+      skillTagsList.querySelectorAll('button[data-tag-index]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const index = Number(btn.getAttribute('data-tag-index'));
+          removeSkillTag(Number.isFinite(index) ? index : -1);
+        });
+      });
+    }
+
+    function commitSkillTagInput() {
+      if (!skillTagsInput) return;
+      const value = skillTagsInput.value.trim();
+      if (!value) return;
+      addSkillTag(value);
+      skillTagsInput.value = '';
+    }
+
+    function parseSkillManifest(manifest) {
+      const result = {
+        name: '',
+        description: '',
+        tags: [],
+        sections: {
+          what: '',
+          when: '',
+          steps: '',
+        },
+      };
+      if (typeof manifest !== 'string' || manifest.trim() === '') {
+        return result;
+      }
+      const trimmed = manifest.replace(/\r\n/g, '\n').trim();
+      const fmMatch = trimmed.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+      let body = trimmed;
+      if (fmMatch) {
+        const frontMatter = parseSkillFrontMatter(fmMatch[1]);
+        result.name = frontMatter.name || '';
+        result.description = frontMatter.description || '';
+        if (Array.isArray(frontMatter.tags)) {
+          result.tags = frontMatter.tags;
+        }
+        body = trimmed.slice(fmMatch[0].length);
+      }
+      const sections = parseSkillSections(body);
+      result.sections = sections;
+      return result;
+    }
+
+    function parseSkillFrontMatter(text) {
+      const data = {};
+      let currentKey = null;
+      text.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        if ((trimmed.startsWith('- ') || trimmed.startsWith('* ')) && currentKey) {
+          const value = trimmed.replace(/^[-*]\s*/, '');
+          if (!Array.isArray(data[currentKey])) data[currentKey] = [];
+          data[currentKey].push(stripYamlQuotes(value));
+          return;
+        }
+        if (trimmed.startsWith('#')) return;
+        const separator = line.indexOf(':');
+        if (separator === -1) return;
+        const key = line.slice(0, separator).trim();
+        let value = line.slice(separator + 1).trim();
+        currentKey = key;
+        if (value === '') {
+          data[key] = [];
+        } else {
+          data[key] = stripYamlQuotes(value);
+        }
+      });
+      return data;
+    }
+
+    function stripYamlQuotes(value) {
+      if (typeof value !== 'string') return value;
+      const trimmed = value.trim();
+      if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        return trimmed.slice(1, -1).replace(/\\(["'])/g, '$1');
+      }
+      return trimmed;
+    }
+
+    function parseSkillSections(body) {
+      const sections = {
+        what: '',
+        when: '',
+        steps: '',
+      };
+      const headings = [
+        { key: 'what', label: '# What this skill does' },
+        { key: 'when', label: '## When to use this skill' },
+        { key: 'steps', label: '## Step-by-Step Instructions' },
+      ];
+      const normalized = body.replace(/\r\n/g, '\n');
+      headings.forEach((heading, index) => {
+        const startIdx = normalized.indexOf(heading.label);
+        if (startIdx === -1) return;
+        const contentStart = startIdx + heading.label.length;
+        let contentEnd = normalized.length;
+        for (let i = index + 1; i < headings.length; i += 1) {
+          const nextIdx = normalized.indexOf(headings[i].label, contentStart);
+          if (nextIdx !== -1 && nextIdx < contentEnd) {
+            contentEnd = nextIdx;
+            break;
+          }
+        }
+        const sectionBody = normalized.slice(contentStart, contentEnd).trim();
+        sections[heading.key] = sectionBody;
+      });
+      return sections;
+    }
+
+    function buildSkillManifestFromFields() {
+      const name = (skillNameInput?.value || '').trim();
+      const description = (skillDescriptionInput?.value || '').trim();
+      const tags = Array.isArray(skillTags) ? skillTags : [];
+      const what = normalizeSkillSection(skillWhatInput?.value);
+      const when = normalizeSkillSection(skillWhenInput?.value);
+      const steps = normalizeSkillSection(skillStepsInput?.value);
+
+      const lines = ['---'];
+      if (name) lines.push(`name: ${quoteYaml(name)}`);
+      if (description) lines.push(`description: ${quoteYaml(description)}`);
+      if (tags.length) {
+        lines.push('tags:');
+        tags.forEach((tag) => lines.push(`  - ${quoteYaml(tag)}`));
+      }
+      lines.push('---', '');
+      lines.push('# What this skill does', '', what || '');
+      lines.push('', '## When to use this skill', '', when || '');
+      lines.push('', '## Step-by-Step Instructions', '', steps || '');
+      return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+    }
+
+    function normalizeSkillSection(value) {
+      if (typeof value !== 'string') return '';
+      return value.replace(/\r\n/g, '\n').trim();
+    }
+
+    function quoteYaml(value, wrap = true) {
+      const sanitized = String(value).replace(/"/g, '\\"');
+      return wrap ? `"${sanitized}"` : sanitized;
     }
 
     function setMemoriesHostOptions() {
@@ -3816,24 +4062,41 @@
     async function openSkillModal(slug) {
       if (!skillModal) return;
       const target = typeof slug === 'string' ? slug.trim() : '';
+      setSkillModalMode(target ? 'edit' : 'new', target);
+      setSkillBadges(null);
       if (skillSlug) skillSlug.value = target;
-      if (skillDisplayName) skillDisplayName.value = '';
+      if (skillNameInput) skillNameInput.value = '';
       if (skillDescriptionInput) skillDescriptionInput.value = '';
-      if (skillManifest) skillManifest.value = '';
-      if (skillStatus) skillStatus.textContent = skillManifest ? '' : 'Skill form is missing the manifest field.';
+      if (skillWhatInput) skillWhatInput.value = '';
+      if (skillWhenInput) skillWhenInput.value = '';
+      if (skillStepsInput) skillStepsInput.value = '';
+      setSkillTags([]);
+      skillSlugAutofill = !target;
+      if (skillStatus) {
+        skillStatus.textContent = target ? 'Loading…' : 'Slug, name, and sections are required.';
+      }
       showSkillModal(true);
       if (!target) {
+        skillNameInput?.focus();
         return;
       }
-      if (!skillManifest) return;
-      if (skillStatus) skillStatus.textContent = 'Loading…';
       try {
         const resp = await api(`/admin/skills/${encodeURIComponent(target)}`);
         const data = resp?.data || {};
+        const parsed = parseSkillManifest(data.manifest || '');
         if (skillSlug) skillSlug.value = data.slug || target || '';
-        if (skillDisplayName) skillDisplayName.value = data.display_name || '';
-        if (skillDescriptionInput) skillDescriptionInput.value = data.description || '';
-        skillManifest.value = data.manifest || '';
+        if (skillNameInput) {
+          skillNameInput.value = parsed.name || data.display_name || data.slug || '';
+        }
+        if (skillDescriptionInput) {
+          skillDescriptionInput.value = parsed.description || data.description || '';
+        }
+        if (skillWhatInput) skillWhatInput.value = parsed.sections.what || '';
+        if (skillWhenInput) skillWhenInput.value = parsed.sections.when || '';
+        if (skillStepsInput) skillStepsInput.value = parsed.sections.steps || '';
+        setSkillTags(parsed.tags || []);
+        setSkillBadges({ sha256: data.sha256, updated_at: data.updated_at });
+        skillSlugAutofill = false;
         if (skillStatus) skillStatus.textContent = '';
       } catch (err) {
         if (skillStatus) skillStatus.textContent = `Load failed: ${err.message}`;
@@ -3841,24 +4104,35 @@
     }
 
     async function saveSkill() {
-      if (!skillSlug || !skillManifest) {
+      if (!skillSlug || !skillNameInput || !skillWhatInput || !skillWhenInput || !skillStepsInput) {
         if (skillStatus) skillStatus.textContent = 'Skill form missing required fields';
         return;
       }
-      const payload = {
-        slug: skillSlug.value.trim(),
-        display_name: skillDisplayName?.value ?? '',
-        description: skillDescriptionInput?.value ?? '',
-        manifest: skillManifest.value,
-      };
-      if (!payload.slug) {
+      const slug = skillSlug.value.trim();
+      const name = skillNameInput.value.trim();
+      const description = skillDescriptionInput?.value?.trim() || '';
+      const what = skillWhatInput.value.trim();
+      const when = skillWhenInput.value.trim();
+      const steps = skillStepsInput.value.trim();
+      if (!slug) {
         if (skillStatus) skillStatus.textContent = 'Slug is required';
         return;
       }
-      if (!payload.manifest.trim()) {
-        if (skillStatus) skillStatus.textContent = 'Manifest is required';
+      if (!name) {
+        if (skillStatus) skillStatus.textContent = 'Name is required';
         return;
       }
+      if (!what || !when || !steps) {
+        if (skillStatus) skillStatus.textContent = 'All sections must be filled in';
+        return;
+      }
+      const manifest = buildSkillManifestFromFields();
+      const payload = {
+        slug,
+        display_name: name,
+        description,
+        manifest,
+      };
       if (skillStatus) skillStatus.textContent = 'Saving…';
       try {
         await api('/admin/skills/store', {
@@ -4273,6 +4547,37 @@
     }
     if (skillSave) {
       skillSave.addEventListener('click', () => saveSkill());
+    }
+    if (skillSlugSuggest) {
+      skillSlugSuggest.addEventListener('click', (event) => {
+        event.preventDefault();
+        skillSlugAutofill = true;
+        maybeAutofillSkillSlug({ force: true });
+        skillSlug?.focus();
+      });
+    }
+    if (skillNameInput) {
+      skillNameInput.addEventListener('input', () => {
+        maybeAutofillSkillSlug({ force: false });
+      });
+    }
+    if (skillSlug) {
+      skillSlug.addEventListener('input', () => {
+        skillSlugAutofill = skillSlug.value.trim().length === 0;
+      });
+    }
+    if (skillTagsInput) {
+      skillTagsInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ',') {
+          event.preventDefault();
+          commitSkillTagInput();
+        } else if (event.key === 'Backspace' && !skillTagsInput.value) {
+          removeSkillTag(skillTags.length - 1);
+        }
+      });
+      skillTagsInput.addEventListener('blur', () => {
+        commitSkillTagInput();
+      });
     }
     if (agentsSaveInline) {
       agentsSaveInline.addEventListener('click', () => saveAgentsInline());

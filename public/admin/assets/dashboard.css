@@ -1019,13 +1019,17 @@ body {
     .modal p { margin: 0 0 16px; color: var(--muted); }
     .modal .field { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
     .modal input,
-    .modal textarea {
+    .modal textarea,
+    .modal select {
       padding: 12px 14px;
       border-radius: 12px;
       border: 1px solid rgba(15,23,42,0.12);
       background: #fff;
       color: var(--text);
       font-size: 14px;
+    }
+    .modal select {
+      appearance: none;
     }
     .modal textarea {
       resize: vertical;
@@ -1060,6 +1064,87 @@ body {
       cursor: pointer;
     }
     .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+    .skill-modal {
+      max-width: 960px;
+      width: min(960px, 96vw);
+      max-height: min(92vh, 900px);
+      overflow-y: auto;
+    }
+    .skill-modal .modal-head {
+      margin-bottom: 10px;
+    }
+    .skill-modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .field-label-row button {
+      flex-shrink: 0;
+    }
+    .skill-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 4px 0 12px;
+    }
+    .skill-modal .pill-quiet {
+      background: rgba(var(--accent-rgb), 0.1);
+      border: 1px solid rgba(var(--accent-rgb), 0.2);
+    }
+    .skill-tags-input {
+      border: 1px solid rgba(15,23,42,0.12);
+      border-radius: 12px;
+      padding: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: #fff;
+    }
+    .skill-tags-input input {
+      border: none;
+      flex: 1;
+      min-width: 120px;
+      padding: 4px;
+    }
+    .skill-tags-input input:focus {
+      outline: none;
+    }
+    .skill-tags-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .skill-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(var(--accent-rgb), 0.3);
+      background: rgba(var(--accent-rgb), 0.12);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent-2);
+    }
+    .skill-tag button {
+      border: none;
+      background: transparent;
+      color: var(--accent-2);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+    .skill-tag button:hover,
+    .skill-tag button:focus-visible {
+      color: var(--danger);
+    }
     .seed-modal { border: 1px solid var(--border); }
     .seed-status {
       margin: 12px 0;
