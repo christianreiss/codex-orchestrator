@@ -903,6 +903,27 @@
                       </div>
                     </label>
                     <label class="feature-toggle">
+                      <input type="checkbox" id="featureBackgroundTerminal" style="width:auto; accent-color: var(--accent);">
+                      <div>
+                        <div class="feature-title">Background terminal (experimental)</div>
+                        <div class="feature-desc">Run long-running terminal commands in the background.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
+                      <input type="checkbox" id="featureUnifiedExec" style="width:auto; accent-color: var(--accent);">
+                      <div>
+                        <div class="feature-title">Unified exec tool (experimental)</div>
+                        <div class="feature-desc">Use the unified PTY-backed exec tool.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
+                      <input type="checkbox" id="featureRmcpClient" style="width:auto; accent-color: var(--accent);">
+                      <div>
+                        <div class="feature-title">RMCP client OAuth (experimental)</div>
+                        <div class="feature-desc">Enable OAuth support for streamable HTTP MCP servers.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
                       <input type="checkbox" id="featureWebSearch" style="width:auto; accent-color: var(--accent);">
                       <div>
                         <div class="feature-title">Allow web search</div>
@@ -914,6 +935,27 @@
                       <div>
                         <div class="feature-title">Allow image viewer</div>
                         <div class="feature-desc">Preview images directly in the conversation instead of downloading them.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
+                      <input type="checkbox" id="featureSandboxAssessment" style="width:auto; accent-color: var(--accent);">
+                      <div>
+                        <div class="feature-title">Sandbox risk assessment (experimental)</div>
+                        <div class="feature-desc">Enable model-based sandbox risk assessment.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
+                      <input type="checkbox" id="featureGhostCommit" style="width:auto; accent-color: var(--accent);">
+                      <div>
+                        <div class="feature-title">Ghost commit each turn (experimental)</div>
+                        <div class="feature-desc">Create a ghost commit on each turn.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
+                      <input type="checkbox" id="featureExperimentalWindowsSandbox" style="width:auto; accent-color: var(--accent);">
+                      <div>
+                        <div class="feature-title">Windows restricted-token sandbox (experimental)</div>
+                        <div class="feature-desc">Use the experimental Windows sandbox when supported.</div>
                       </div>
                     </label>
                   </div>
@@ -1091,9 +1133,9 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2025-12-18-02"></script>
+  <script src="/admin/assets/dashboard.js?v=2025-12-25-02"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
-  <script src="/admin/assets/config.js?v=2025-12-15-20"></script>
+  <script src="/admin/assets/config.js?v=2025-12-25-03"></script>
   <script src="/admin/assets/profiles.js?v=2025-12-14-09"></script>
 </body>
 </html>

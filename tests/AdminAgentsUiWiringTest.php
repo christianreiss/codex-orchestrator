@@ -81,6 +81,19 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('/admin/assets/config.js?v=', $html);
     }
 
+    public function testAdminConfigBuilderIncludesExperimentalFeatureSwitches(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="featureBackgroundTerminal"', $html);
+        $this->assertStringContainsString('id="featureUnifiedExec"', $html);
+        $this->assertStringContainsString('id="featureRmcpClient"', $html);
+        $this->assertStringContainsString('id="featureSandboxAssessment"', $html);
+        $this->assertStringContainsString('id="featureGhostCommit"', $html);
+        $this->assertStringContainsString('id="featureExperimentalWindowsSandbox"', $html);
+    }
+
     public function testQuickInsecureHostsStylesIncludeOnlineSubline(): void
     {
         $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');

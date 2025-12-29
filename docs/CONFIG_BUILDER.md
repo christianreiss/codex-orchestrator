@@ -28,6 +28,18 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
   ```
 - Keys are injected at bake time only; the server never stores host API keys inside the template.
 
+## Experimental feature switches
+
+The config builder exposes the currently supported experimental feature flags under **Security & Features**. These map to `[features]` in the rendered `config.toml`:
+
+- `streamable_shell` — stream shell output live.
+- `background_terminal` — run long-running terminal commands in the background.
+- `unified_exec` — use the unified PTY-backed exec tool.
+- `rmcp_client` — enable OAuth for streamable HTTP MCP servers.
+- `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
+- `ghost_commit` — create a ghost commit on each turn.
+- `enable_experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.
+
 ## OTEL wiring
 
 The builder can also emit an `[otel]` block. The wrapper (`cdx`) reads this and exports `OTEL_*` environment variables when launching the Codex CLI, so your existing collector can ingest traces without per-host shell glue.

@@ -1091,10 +1091,13 @@
     }
 
     function hostPruneMeta(host) {
+      if (!Number.isFinite(inactivityWindowDays) || inactivityWindowDays <= 0) {
+        return { daysLeft: null };
+      }
       const last = host?.last_refresh || host?.updated_at || null;
       const lastTs = parseTimestamp(last);
       if (!lastTs) return { daysLeft: null };
-      const cutoff = lastTs.getTime() + (30 * 24 * 60 * 60 * 1000);
+      const cutoff = lastTs.getTime() + (inactivityWindowDays * 24 * 60 * 60 * 1000);
       const daysLeft = (cutoff - Date.now()) / 86400000;
       return { daysLeft };
     }

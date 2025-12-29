@@ -18,8 +18,14 @@
   let notifyInput;
 
   let featureStreamShell;
+  let featureBackgroundTerminal;
+  let featureUnifiedExec;
+  let featureRmcpClient;
   let featureWebSearch;
   let featureViewImage;
+  let featureSandboxAssessment;
+  let featureGhostCommit;
+  let featureExperimentalWindowsSandbox;
   let extraFeaturesInput;
 
   let sandboxNetwork;
@@ -106,8 +112,14 @@
       model_max_output_tokens: null,
       features: {
         streamable_shell: false,
+        background_terminal: false,
+        unified_exec: false,
+        rmcp_client: false,
         web_search_request: false,
         view_image_tool: false,
+        experimental_sandbox_command_assessment: false,
+        ghost_commit: false,
+        enable_experimental_windows_sandbox: false,
       },
       notice: {
         'hide_gpt5_1_migration_prompt': true,
@@ -315,8 +327,14 @@
     const base = defaultSettings();
     const features = {
       streamable_shell: featureStreamShell.checked,
+      background_terminal: featureBackgroundTerminal.checked,
+      unified_exec: featureUnifiedExec.checked,
+      rmcp_client: featureRmcpClient.checked,
       web_search_request: featureWebSearch.checked,
       view_image_tool: featureViewImage.checked,
+      experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
+      ghost_commit: featureGhostCommit.checked,
+      enable_experimental_windows_sandbox: featureExperimentalWindowsSandbox.checked,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
     Object.assign(features, extraFeatures);
@@ -399,12 +417,24 @@
     notifyInput.value = (cfg.notify || []).join('\n');
 
     featureStreamShell.checked = Boolean(cfg.features?.streamable_shell);
+    featureBackgroundTerminal.checked = Boolean(cfg.features?.background_terminal);
+    featureUnifiedExec.checked = Boolean(cfg.features?.unified_exec);
+    featureRmcpClient.checked = Boolean(cfg.features?.rmcp_client);
     featureWebSearch.checked = Boolean(cfg.features?.web_search_request);
     featureViewImage.checked = cfg.features?.view_image_tool !== false;
+    featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
+    featureGhostCommit.checked = Boolean(cfg.features?.ghost_commit);
+    featureExperimentalWindowsSandbox.checked = Boolean(cfg.features?.enable_experimental_windows_sandbox);
     const featureExtras = { ...cfg.features };
     delete featureExtras.streamable_shell;
+    delete featureExtras.background_terminal;
+    delete featureExtras.unified_exec;
+    delete featureExtras.rmcp_client;
     delete featureExtras.web_search_request;
     delete featureExtras.view_image_tool;
+    delete featureExtras.experimental_sandbox_command_assessment;
+    delete featureExtras.ghost_commit;
+    delete featureExtras.enable_experimental_windows_sandbox;
     extraFeaturesInput.value = mapToText(featureExtras);
 
     sandboxNetwork.checked = Boolean(cfg.sandbox_workspace_write?.network_access);
@@ -650,8 +680,14 @@
     notifyInput = document.getElementById('notifyInput');
 
     featureStreamShell = document.getElementById('featureStreamShell');
+    featureBackgroundTerminal = document.getElementById('featureBackgroundTerminal');
+    featureUnifiedExec = document.getElementById('featureUnifiedExec');
+    featureRmcpClient = document.getElementById('featureRmcpClient');
     featureWebSearch = document.getElementById('featureWebSearch');
     featureViewImage = document.getElementById('featureViewImage');
+    featureSandboxAssessment = document.getElementById('featureSandboxAssessment');
+    featureGhostCommit = document.getElementById('featureGhostCommit');
+    featureExperimentalWindowsSandbox = document.getElementById('featureExperimentalWindowsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');
 
     sandboxNetwork = document.getElementById('sandboxNetwork');
