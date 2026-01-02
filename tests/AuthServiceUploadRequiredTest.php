@@ -406,4 +406,71 @@ final class AuthServiceUploadRequiredTest extends TestCase
         $this->assertSame('store', $response['action'] ?? null);
         $this->assertSame($canonicalDigest, $response['canonical_digest'] ?? null);
     }
+
+    public function testRetrieveRespondsWithUploadRequiredWhenDigestDiffersAtSameTimestamp(): void
+    {
+        $canonicalAuth = [
+            'last_refresh' => '2026-01-02T00:00:00Z',
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => 'tok-1234567890abcdef-XYZ987654',
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $canonicalDigest = hash('sha256', json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $canonicalPayload = [
+            'id' => 100,
+            'last_refresh' => $canonicalAuth['last_refresh'],
+            'sha256' => $canonicalDigest,
+            'entries' => [
+                [
+                    'target' => 'api.openai.com',
+                    'token' => $canonicalAuth['auths']['api.openai.com']['token'],
+                    'token_type' => 'bearer',
+                    'organization' => null,
+                    'project' => null,
+                    'api_base' => null,
+                    'meta' => null,
+                ],
+            ],
+        ];
+
+        $host = [
+            'id' => 1,
+            'fqdn' => 'host.test',
+            'status' => 'active',
+            'api_calls' => 0,
+        ];
+
+        $service = new AuthService(
+            new InMemoryHostRepository($host),
+            new InMemoryAuthPayloadRepository($canonicalPayload),
+            new NullHostAuthStateRepository(),
+            new InMemoryHostAuthDigestRepository(),
+            new NullHostUserRepository(),
+            new NullLogRepository(),
+            new NullTokenUsageRepository(),
+            new NullTokenUsageIngestRepository(),
+            new NullPricingService(),
+            new InMemoryVersionRepository(['canonical_payload_id' => 100]),
+            new StubWrapperService()
+        );
+
+        $response = $service->handleAuth(
+            [
+                'command' => 'retrieve',
+                'last_refresh' => '2026-01-02T00:00:00Z',
+                'digest' => str_repeat('c', 64),
+            ],
+            $host,
+            '1.0.0',
+            '2026.01.02-01',
+            'http://api'
+        );
+
+        $this->assertSame('upload_required', $response['status'] ?? null);
+        $this->assertSame('store', $response['action'] ?? null);
+        $this->assertSame($canonicalDigest, $response['canonical_digest'] ?? null);
+    }
 }

@@ -22,7 +22,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 - `command`: `retrieve` (default) or `store`.
 - `client_version` / `wrapper_version`: optional strings (also accepted as `client_version`/`cdx_version`/`wrapper_version` query params).
 - `retrieve` requires `digest` (64‑hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, ≥2000-01-01, ≤now+300s).
-- `store` requires `auth` (or top-level fields) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`. Store uploads are runner-validated before persisting; non-OK or unreachable runner results reject the upload (admin `/admin/auth/upload` bypasses the runner).
+- `store` requires `auth` (or top-level fields) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`. Store uploads are runner-validated before persisting; non-OK or unreachable runner results reject the upload (admin `/admin/auth/upload` bypasses the runner). When a client digest differs but `last_refresh` matches canonical, `retrieve` returns `upload_required` and a runner‑validated store may update the canonical payload.
 - `installation_id` (optional): when present, must match the server’s `INSTALLATION_ID` (baked into new `cdx`); a mismatch returns `403 installation_mismatch`. Older clients without this field continue to work.
 - Tokens are rejected if too short (default `TOKEN_MIN_LENGTH=24`), contain whitespace, placeholders, or low entropy.
 

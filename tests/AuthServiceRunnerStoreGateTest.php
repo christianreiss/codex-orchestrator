@@ -203,4 +203,86 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
         $this->assertFalse($response['runner_applied'] ?? true);
         $this->assertSame('ok', $response['validation']['status'] ?? null);
     }
+
+    public function testStoreUpdatesWhenTimestampEqualButDigestDiffers(): void
+    {
+        $canonicalAuth = [
+            'last_refresh' => '2026-01-02T00:00:00Z',
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => 'sk-old-1234567890abcdefghijklmnop',
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $canonicalDigest = hash('sha256', json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $canonicalPayload = [
+            'id' => 77,
+            'last_refresh' => $canonicalAuth['last_refresh'],
+            'sha256' => $canonicalDigest,
+            'entries' => [
+                [
+                    'target' => 'api.openai.com',
+                    'token' => $canonicalAuth['auths']['api.openai.com']['token'],
+                    'token_type' => 'bearer',
+                    'organization' => null,
+                    'project' => null,
+                    'api_base' => null,
+                    'meta' => null,
+                ],
+            ],
+        ];
+
+        $payloads = $this->createMock(AuthPayloadRepository::class);
+        $payloads->method('latest')->willReturn($canonicalPayload);
+        $payloads->method('findByIdWithEntries')->willReturn($canonicalPayload);
+        $payloads->expects($this->once())->method('create')->willReturnCallback(
+            static function (string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson): array {
+                return [
+                    'id' => 78,
+                    'last_refresh' => $lastRefresh,
+                    'sha256' => $sha256,
+                    'source_host_id' => $sourceHostId,
+                    'body' => $extrasJson,
+                    'entries' => $entries,
+                    'created_at' => gmdate(DATE_ATOM),
+                ];
+            }
+        );
+
+        $runner = new StubRunnerVerifier([
+            'status' => 'ok',
+            'reachable' => true,
+            'latency_ms' => 8,
+        ]);
+
+        $service = $this->buildService($payloads, $runner);
+
+        $response = $service->handleAuth(
+            [
+                'command' => 'store',
+                'auth' => [
+                    'last_refresh' => '2026-01-02T00:00:00Z',
+                    'auths' => [
+                        'api.openai.com' => [
+                            'token' => 'sk-new-1234567890abcdefghijklmnop',
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'id' => 1,
+                'fqdn' => 'host.test',
+                'status' => 'active',
+                'api_calls' => 0,
+                'secure' => 1,
+            ],
+            '1.0.0',
+            null,
+            null
+        );
+
+        $this->assertSame('updated', $response['status'] ?? null);
+        $this->assertSame('2026-01-02T00:00:00Z', $response['canonical_last_refresh'] ?? null);
+    }
 }

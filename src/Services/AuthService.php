@@ -390,8 +390,8 @@ class AuthService
                         $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
                         $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
                     }
-                } elseif ($comparison === 1) {
-                    // Client claims a newer payload; ask it to upload.
+                } elseif ($comparison === 1 || $comparison === 0) {
+                    // Client is newer or diverged at the same timestamp; ask it to upload.
                     $status = 'upload_required';
                     $response = [
                         'status' => $status,
@@ -472,7 +472,7 @@ class AuthService
         }
 
         $comparison = $canonicalLastRefresh !== null ? Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh) : 1;
-        $shouldUpdate = !$canonicalPayload || $comparison === 1;
+        $shouldConsiderUpdate = !$canonicalPayload || $comparison === 1 || ($comparison === 0 && $incomingDigest !== $canonicalDigest);
 
         $candidateAuth = $canonicalizedAuth;
         $candidateEntries = $entries;
@@ -483,8 +483,9 @@ class AuthService
         $validation = null;
         $runnerApplied = false;
         $runnerOutcomeRecorded = false;
+        $runnerOk = false;
 
-        if ($shouldUpdate && !$skipRunner) {
+        if ($shouldConsiderUpdate && !$skipRunner) {
             if ($this->runnerVerifier === null) {
                 throw new HttpException('Auth runner required', 503);
             }
@@ -511,6 +512,7 @@ class AuthService
                 $message = $reason !== '' ? 'runner validation failed: ' . $reason : 'runner validation failed';
                 throw new ValidationException(['auth' => [$message]]);
             }
+            $runnerOk = true;
 
             if (isset($validation['updated_auth']) && is_array($validation['updated_auth'])) {
                 try {
@@ -537,6 +539,12 @@ class AuthService
                         $candidateDigest = $runnerDigest;
                         $candidateLastRefresh = $runnerLastRefresh;
                         $runnerApplied = true;
+                        $this->logs->log($logHostId, 'auth.runner_store', [
+                            'status' => 'applied',
+                            'trigger' => 'pre_store',
+                            'incoming_last_refresh' => $runnerLastRefresh,
+                            'incoming_digest' => $runnerDigest,
+                        ]);
                     } else {
                         $this->logs->log($logHostId, 'auth.runner_store', [
                             'status' => 'skipped',
@@ -557,7 +565,8 @@ class AuthService
         }
 
         $comparison = $canonicalLastRefresh !== null ? Timestamp::compare($candidateLastRefresh, $canonicalLastRefresh) : 1;
-        $shouldUpdate = !$canonicalPayload || $comparison === 1 || ($runnerApplied && $comparison === 0 && $candidateDigest !== $canonicalDigest);
+        $allowEqualDigestUpdate = $runnerOk && $comparison === 0 && $candidateDigest !== $canonicalDigest;
+        $shouldUpdate = !$canonicalPayload || $comparison === 1 || $allowEqualDigestUpdate;
         $status = $shouldUpdate ? 'updated' : ($comparison === -1 ? 'outdated' : 'unchanged');
 
         if ($runnerApplied && !$shouldUpdate) {
@@ -573,7 +582,7 @@ class AuthService
             $canonicalLastRefresh = $candidateLastRefresh;
 
             if ($trackHost) {
-                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $incomingDigest);
+                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $candidateDigest);
                 $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
                 $host = $this->hosts->findById($hostId) ?? $host;
             }
