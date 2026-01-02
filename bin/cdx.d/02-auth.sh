@@ -764,12 +764,25 @@ if not isinstance(data, dict):
 
 last_refresh = data.get("last_refresh")
 auths = data.get("auths")
+tokens = data.get("tokens")
+openai_key = data.get("OPENAI_API_KEY")
 
 if not isinstance(last_refresh, str) or not last_refresh.strip():
     sys.exit(1)
 
-if not isinstance(auths, dict) or not auths:
-    sys.exit(1)
+has_auths = isinstance(auths, dict) and bool(auths)
+fallback_token = None
+if isinstance(tokens, dict):
+    access_token = tokens.get("access_token")
+    if isinstance(access_token, str) and access_token.strip():
+        fallback_token = access_token.strip()
+if isinstance(openai_key, str) and openai_key.strip():
+    fallback_token = openai_key.strip()
+
+if not has_auths:
+    if fallback_token is None:
+        sys.exit(1)
+    sys.exit(0)
 
 for target, entry in auths.items():
     if not isinstance(target, str) or not target.strip():
