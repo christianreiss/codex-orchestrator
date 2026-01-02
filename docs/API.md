@@ -22,7 +22,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 - `command`: `retrieve` (default) or `store`.
 - `client_version` / `wrapper_version`: optional strings (also accepted as `client_version`/`cdx_version`/`wrapper_version` query params).
 - `retrieve` requires `digest` (64‑hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, ≥2000-01-01, ≤now+300s).
-- `store` requires `auth` (or top-level fields) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`.
+- `store` requires `auth` (or top-level fields) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, the server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`. Store uploads are runner-validated before persisting; non-OK or unreachable runner results reject the upload (admin `/admin/auth/upload` bypasses the runner).
 - `installation_id` (optional): when present, must match the server’s `INSTALLATION_ID` (baked into new `cdx`); a mismatch returns `403 installation_mismatch`. Older clients without this field continue to work.
 - Tokens are rejected if too short (default `TOKEN_MIN_LENGTH=24`), contain whitespace, placeholders, or low entropy.
 
@@ -101,7 +101,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - Config builder: `GET /admin/config` (canonical `config.toml` + `settings`), `POST /admin/config/render` (render TOML from `settings` without persisting), `POST /admin/config/store` (persist canonical config from `settings`; returns status + sha + content).
 
 ## Runner & Versions
-- First non-admin request after ~8 hours (or after a boot) triggers a **scheduled preflight** (interval configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800s): refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block serving auth. Manual `POST /admin/runner/run` bypasses the guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
+- First non-admin request after ~8 hours (or after a boot) triggers a **scheduled preflight** (interval configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800s): refreshes the cached GitHub client version and runs a single auth-runner validation against canonical auth (when configured). Runner outcomes update `runner_state` (`ok`|`fail`) and timestamps; failures never block `/auth` retrieve but do block `/auth` store uploads. Manual `POST /admin/runner/run` bypasses the guard. Runner can also revalidate when marked failing (backoff 60s/15m) and may update canonical auth when it returns `updated_auth`.
 
 ## Housekeeping & Storage
 - Canonical auth payloads are stored compacted in `auth_payloads` with per-target rows in `auth_entries`; the last 3 digests per host live in `host_auth_digests`; `host_auth_states` records the last payload served to a host.

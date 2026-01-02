@@ -21,7 +21,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 ## How the API uses it (AuthService + RunnerVerifier)
 
 - RunnerVerifier pings `AUTH_RUNNER_URL` with a short GET (and one retry) before POSTing. If the runner is unreachable it returns `reachable=false` without hitting the probe.
-- `/auth` store calls run the runner after persisting the canonical payload (unless `skipRunner=true`, for example admin uploads). The response includes `validation` (runner result) and `runner_applied` (true only when an `updated_auth` was saved).
+- `/auth` store calls run the runner **before** persisting the canonical payload; non-OK or unreachable results reject the upload (unless `skipRunner=true`, for example admin uploads). The response includes `validation` (runner result) and `runner_applied` (true only when an `updated_auth` was saved).
 - Scheduled preflight: on the first non-admin request after an 8-hour gap (or after a container boot), the API refreshes the cached GitHub client version and, when canonical auth exists, forces one runner probe tagged `scheduled_preflight`. Interval is configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS` (defaults to 28800s). Results update runner state but never block responses.
 - Failure recovery: when `runner_state=fail`, extra probes tagged `fail_recovery` may run during requests or preflight after either 15 minutes since the last failure, a boot-id change, or a stale success window (>6h). A 60 second backoff prevents immediate re-probing after a failure. Recovery failures are logged but do not block `/auth`.
 - Manual admin trigger `POST /admin/runner/run` forces a probe and reports whether the canonical digest changed.
