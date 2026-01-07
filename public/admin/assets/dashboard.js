@@ -270,9 +270,12 @@
     let costHistory = null;
     let costHistoryPromise = null;
     let activeHostId = null;
-    const INSECURE_WINDOW_MIN = 2;
-    const INSECURE_WINDOW_MAX = 60;
+    const INSECURE_WINDOW_MIN = 0;
+    const INSECURE_WINDOW_MAX = 480;
     const INSECURE_WINDOW_DEFAULT = 10;
+    const INSECURE_WINDOW_SLIDER_MIN = 0;
+    const INSECURE_WINDOW_SLIDER_MAX = 100;
+    const INSECURE_WINDOW_LOG_CURVE = 4;
     const INSECURE_WINDOW_STORAGE_KEY = 'codex.insecureWindowMinutes';
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
     const PRUNE_WINDOW_MIN = 0;
@@ -3323,6 +3326,42 @@
       return Math.round(num);
     }
 
+    function formatInsecureWindowLabel(value) {
+      const minutes = clampInsecureWindowMinutes(value);
+      if (minutes <= 0) return '0 min';
+      if (minutes < 60) return `${minutes} min`;
+      const hours = Math.floor(minutes / 60);
+      const remainder = minutes % 60;
+      if (remainder === 0) return `${hours}h`;
+      return `${hours}h ${remainder}m`;
+    }
+
+    function insecureSliderValueToMinutes(value) {
+      const raw = Number(value);
+      if (!Number.isFinite(raw)) return INSECURE_WINDOW_DEFAULT;
+      const min = INSECURE_WINDOW_SLIDER_MIN;
+      const max = INSECURE_WINDOW_SLIDER_MAX;
+      const clamped = Math.min(max, Math.max(min, raw));
+      const ratio = max === min ? 0 : (clamped - min) / (max - min);
+      const curve = INSECURE_WINDOW_LOG_CURVE;
+      const scaled = curve > 0
+        ? Math.expm1(curve * ratio) / Math.expm1(curve)
+        : ratio;
+      return clampInsecureWindowMinutes(Math.round(scaled * INSECURE_WINDOW_MAX));
+    }
+
+    function insecureMinutesToSliderValue(value) {
+      const minutes = clampInsecureWindowMinutes(value);
+      const ratio = INSECURE_WINDOW_MAX > 0 ? minutes / INSECURE_WINDOW_MAX : 0;
+      const curve = INSECURE_WINDOW_LOG_CURVE;
+      const scaled = curve > 0
+        ? Math.log1p(ratio * Math.expm1(curve)) / curve
+        : ratio;
+      const min = INSECURE_WINDOW_SLIDER_MIN;
+      const max = INSECURE_WINDOW_SLIDER_MAX;
+      return Math.round(min + scaled * (max - min));
+    }
+
     function clampInactivityWindowDays(value) {
       const num = Number(value);
       if (!Number.isFinite(num)) return PRUNE_WINDOW_DEFAULT;
@@ -3344,11 +3383,12 @@
 
     function setInsecureWindowMinutes(value, persist = false) {
       insecureWindowMinutes = clampInsecureWindowMinutes(value);
-      if (insecureWindowSlider && insecureWindowSlider.value !== String(insecureWindowMinutes)) {
-        insecureWindowSlider.value = String(insecureWindowMinutes);
+      const sliderValue = String(insecureMinutesToSliderValue(insecureWindowMinutes));
+      if (insecureWindowSlider && insecureWindowSlider.value !== sliderValue) {
+        insecureWindowSlider.value = sliderValue;
       }
       if (insecureWindowLabel) {
-        insecureWindowLabel.textContent = `${insecureWindowMinutes} min`;
+        insecureWindowLabel.textContent = formatInsecureWindowLabel(insecureWindowMinutes);
       }
       if (persist) {
         try {
@@ -4404,7 +4444,7 @@
     initInsecureWindowControl();
     if (insecureWindowSlider) {
       insecureWindowSlider.addEventListener('input', (event) => {
-        setInsecureWindowMinutes(event.target.value, true);
+        setInsecureWindowMinutes(insecureSliderValueToMinutes(event.target.value), true);
       });
     }
     if (pruneWindowSlider) {

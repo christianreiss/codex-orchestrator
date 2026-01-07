@@ -33,8 +33,8 @@ class AuthService
     private const MAX_INACTIVITY_WINDOW_DAYS = 60;
     private const PROVISIONING_WINDOW_MINUTES = 30;
     private const TEMPORARY_HOST_TTL_SECONDS = 7200; // 2 hours
-    public const MIN_INSECURE_WINDOW_MINUTES = 2;
-    public const MAX_INSECURE_WINDOW_MINUTES = 60;
+    public const MIN_INSECURE_WINDOW_MINUTES = 0;
+    public const MAX_INSECURE_WINDOW_MINUTES = 480;
     public const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
     public const MIN_QUOTA_LIMIT_PERCENT = 50;
     public const MAX_QUOTA_LIMIT_PERCENT = 100;

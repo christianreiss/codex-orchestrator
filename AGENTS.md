@@ -24,7 +24,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 ## Repo Snapshot
 
 - `public/index.php` is the entrypoint/router: boots env + migrations, wires encryption (`SecretBox`), repositories, services, rate limits, wrapper seeding, usage cost backfill, and routes (host, admin, installer, slash commands, AGENTS, versions).
-- `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (2–60 min sliders, stored per host), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight (default 8h with backoffs), token usage logging, ChatGPT snapshots, API kill switch enforcement, and pruning (inactive ≥30d or never-provisioned >30m).
+- `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (0–480 min log-ish slider, stored per host), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight (default 8h with backoffs), token usage logging, ChatGPT snapshots, API kill switch enforcement, and pruning (inactive ≥30d or never-provisioned >30m).
 - `WrapperService` seeds/stores the baked `bin/cdx`, tracks wrapper version/sha, bakes per-host scripts, and is the only source of truth for wrapper publishing.
 - `RunnerVerifier` posts canonical auth to `AUTH_RUNNER_URL`, tracks readiness, and applies runner-returned `updated_auth`. Runner failures flip `runner_state=fail` but don’t block `/auth`.
 - `SlashCommandService`, `SkillService`, and `AgentsService` back their respective MySQL tables (`slash_commands`, `skills`, `agents_documents`) so every host syncs prompts, skills, and AGENTS.md during wrapper runs.
@@ -68,7 +68,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 
 - Troubleshoot hosts with `CODEX_DEBUG=1 cdx --version`; shows baked base URL + masked API key.
 - Validate local `~/.codex/auth.json`: must include `last_refresh` + either `auths` tokens or `tokens.access_token`. Server synthesizes `auths = {"api.openai.com": ...}` when only tokens exist.
-- Insecure hosts auto-open 30m on register; afterwards “Enable” on the dashboard sets a 2–60 min sliding window (default 10). Each `/auth` call extends by the stored duration. “Disable” closes instantly (no write grace).
+- Insecure hosts auto-open 30m on register; afterwards “Enable” on the dashboard sets a 0–480 min sliding window (default 10, log-ish). Each `/auth` call extends by the stored duration. “Disable” closes instantly (no write grace).
 - Pruning: every register/auth call deletes inactive hosts (≥30d since last activity) or never-provisioned hosts older than 30m. Events log `host.pruned`.
 - ChatGPT snapshots refresh before `/auth` responses when the cooldown (5m) allows; errors log `chatgpt.snapshot_error` and surface in admin UI.
 - Pricing snapshot refresh: daily background pull from `PRICING_URL`, fallback to env constants. Admin overview uses the freshest values for month estimates; cost history falls back to zero cost when no pricing exists.

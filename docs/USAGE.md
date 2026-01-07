@@ -154,7 +154,7 @@ Passing flags through to Codex works the same way you’d pass them to `codex`; 
 - **Insecure host**:
   - `cdx` deletes `~/.codex/auth.json` after each run.
   - `/auth` calls are only allowed while an **insecure window** is open.
-  - New insecure hosts usually start with a short provisioning window; after that, operators must re-enable it (2–60 minute sliding window) before hosts can sync.
+- New insecure hosts usually start with a short provisioning window; after that, operators must re-enable it (0–480 minute sliding window, log-ish) before hosts can sync.
 
 If you see failures about an insecure window being closed, that’s not something you fix on the host — an operator needs to open the window in the dashboard.
 
