@@ -38,7 +38,7 @@ The config builder exposes the currently supported experimental feature flags un
 - `rmcp_client` — enable OAuth for streamable HTTP MCP servers.
 - `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
 - `ghost_commit` — create a ghost commit on each turn.
-- `enable_experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.
+- `experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.
 
 ## OTEL wiring
 

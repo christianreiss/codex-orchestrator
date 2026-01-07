@@ -119,7 +119,7 @@
         view_image_tool: false,
         experimental_sandbox_command_assessment: false,
         ghost_commit: false,
-        enable_experimental_windows_sandbox: false,
+        experimental_windows_sandbox: false,
       },
       notice: {
         'hide_gpt5_1_migration_prompt': true,
@@ -334,7 +334,7 @@
       view_image_tool: featureViewImage.checked,
       experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
       ghost_commit: featureGhostCommit.checked,
-      enable_experimental_windows_sandbox: featureExperimentalWindowsSandbox.checked,
+      experimental_windows_sandbox: featureExperimentalWindowsSandbox.checked,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
     Object.assign(features, extraFeatures);
@@ -424,7 +424,9 @@
     featureViewImage.checked = cfg.features?.view_image_tool !== false;
     featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
     featureGhostCommit.checked = Boolean(cfg.features?.ghost_commit);
-    featureExperimentalWindowsSandbox.checked = Boolean(cfg.features?.enable_experimental_windows_sandbox);
+    featureExperimentalWindowsSandbox.checked = Boolean(
+      cfg.features?.experimental_windows_sandbox ?? cfg.features?.enable_experimental_windows_sandbox,
+    );
     const featureExtras = { ...cfg.features };
     delete featureExtras.streamable_shell;
     delete featureExtras.background_terminal;
@@ -434,6 +436,7 @@
     delete featureExtras.view_image_tool;
     delete featureExtras.experimental_sandbox_command_assessment;
     delete featureExtras.ghost_commit;
+    delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.enable_experimental_windows_sandbox;
     extraFeaturesInput.value = mapToText(featureExtras);
 
