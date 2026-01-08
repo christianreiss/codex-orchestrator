@@ -3526,7 +3526,7 @@
               <span class="stat-label">Hosts</span>
             </div>
             <div class="stat-value">${data.totals.hosts}</div>
-            <small>Total registered · Avg refresh ${avgRefresh} · Last refresh ${lastRefresh}</small>
+            <small>Total registered</small>
           </div>
         `,
         `
@@ -3638,7 +3638,7 @@
               : ''
             }
           </div>
-          ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">${formatPercent(overpayPct, 0)} over plan this month</div>` : ''}
+          ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">We spent more on the plan than we would have if we just used the API. Wrong way around! (${formatPercent(overpayPct, 0)} over plan)</div>` : ''}
           <div class="stat-meta-line">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>
             <span>${formatCurrency(dayCost, planCurrency)} today</span>

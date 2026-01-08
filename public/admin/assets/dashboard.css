@@ -423,9 +423,9 @@ body {
       border: 1px solid rgba(var(--accent-rgb),0.22);
     }
     .cost-savings-warn {
-      color: var(--warning);
-      background: rgba(255,208,103,0.14);
-      border: 1px solid rgba(255,208,103,0.35);
+      color: var(--text);
+      background: rgba(15,23,42,0.06);
+      border: 1px solid rgba(15,23,42,0.18);
     }
     .info-grid {
       display: grid;
