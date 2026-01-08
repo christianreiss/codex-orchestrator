@@ -120,6 +120,15 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('typeof host?.active ===', $js);
     }
 
+    public function testAdminCostOverpayMessageCopyIsShort(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('Overpaying by', $js);
+        $this->assertStringNotContainsString('Wrong way around', $js);
+    }
+
     public function testAdminSeedAuthModalIncludesSeedCommandControls(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');

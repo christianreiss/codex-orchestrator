@@ -3608,12 +3608,11 @@
       const selectedPlan = selectedPlanKey ? (planOptions.find((p) => p.key === selectedPlanKey) || null) : null;
       const planCost = selectedPlan ? selectedPlan.cost : 0;
       const monthPercentOfPlan = planCost > 0 ? (monthCost / planCost) * 100 : null;
+      const isOverpaying = planCost > 0 && monthCost < planCost;
       const costLevelClass = (() => {
-        if (monthPercentOfPlan === null) return '';
-        if (monthPercentOfPlan < 50) return 'cost-red';
-        if (monthPercentOfPlan < 91) return 'cost-yellow';
-        if (monthPercentOfPlan <= 120) return 'cost-green';
-        return 'cost-blue';
+        if (planCost <= 0) return '';
+        if (isOverpaying) return '';
+        return 'cost-green';
       })();
       const savingsPct = planCost > 0 && monthCost > planCost
         ? ((monthCost - planCost) / monthCost) * 100
@@ -3638,7 +3637,7 @@
               : ''
             }
           </div>
-          ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">We spent more on the plan than we would have if we just used the API. Wrong way around! (${formatPercent(overpayPct, 0)} over plan)</div>` : ''}
+          ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">Overpaying by ${formatPercent(overpayPct, 0)}!</div>` : ''}
           <div class="stat-meta-line">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>
             <span>${formatCurrency(dayCost, planCurrency)} today</span>
