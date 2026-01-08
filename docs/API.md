@@ -90,6 +90,9 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (body JSON or `file`). `host_id` optional; omitted/`0`/`system` stores an unscoped payload. Skips runner.
+- `POST /admin/auth/seed-command` — returns a one-time `curl -fsSL ... | bash` command that reads local `~/.codex/auth.json` and posts it to `/seed/auth/{uuid}`. Tokens expire after `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900s) and are invalidated on first POST.
+- `GET /seed/auth/{uuid}` — serve the seed shell script for the one-time command.
+- `POST /seed/auth/{uuid}` — accept a raw auth payload (or `{ "auth": ... }`), validate/store canonical auth, and consume the seed token. Runner is skipped.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set `api_disabled` kill switch (only path left available when disabled).
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` and `limit_percent` (50–100). When false, clients warn once the configured percent is used but still launch Codex; when true, they stop once the limit is reached.
 - Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.

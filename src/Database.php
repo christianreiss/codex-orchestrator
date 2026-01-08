@@ -295,6 +295,21 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS auth_seed_tokens (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                token CHAR(64) NOT NULL UNIQUE,
+                token_enc LONGTEXT NULL,
+                base_url VARCHAR(255) NULL,
+                expires_at VARCHAR(100) NOT NULL,
+                used_at VARCHAR(100) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_auth_seed_tokens_expires_at (expires_at)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS token_usage_ingests (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NULL,
@@ -457,6 +472,8 @@ class Database
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
         $this->ensureColumnExists('install_tokens', 'token_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists('install_tokens', 'api_key_enc', 'LONGTEXT NULL');
+        $this->ensureColumnExists('auth_seed_tokens', 'token_enc', 'LONGTEXT NULL');
+        $this->ensureColumnExists('auth_seed_tokens', 'base_url', 'VARCHAR(255) NULL');
         $this->ensureColumnExists('token_usages', 'ingest_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'cost', 'DECIMAL(18,6) NULL');
@@ -467,6 +484,7 @@ class Database
         $this->ensureColumnExists('client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists('client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnLength('install_tokens', 'token', 64);
+        $this->ensureColumnLength('auth_seed_tokens', 'token', 64);
         $this->ensureIndexExists('hosts', 'idx_hosts_expires_at', 'INDEX idx_hosts_expires_at (expires_at)');
         $this->ensureIndexExists('token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');

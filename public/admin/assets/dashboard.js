@@ -25,6 +25,11 @@
     const uploadAuthCancel = document.getElementById('uploadAuthCancel');
     const uploadHostSelect = document.getElementById('uploadHostSelect');
     const uploadStatus = document.getElementById('uploadStatus');
+    const seedCommandBtn = document.getElementById('seedCommandBtn');
+    const seedCommandField = document.getElementById('seedCommandField');
+    const seedCommandText = document.getElementById('seedCommandText');
+    const seedCommandCopy = document.getElementById('seedCommandCopy');
+    const seedCommandMeta = document.getElementById('seedCommandMeta');
     const seedModal = document.getElementById('seedModal');
     const seedUploadBtn = document.getElementById('seedUploadBtn');
     const seedDismissBtn = document.getElementById('seedDismissBtn');
@@ -4554,6 +4559,9 @@
     if (uploadAuthCancel) {
       uploadAuthCancel.addEventListener('click', () => showUploadModal(false));
     }
+    if (seedCommandBtn) {
+      seedCommandBtn.addEventListener('click', generateSeedCommand);
+    }
     if (uploadAuthFile) {
       uploadAuthFile.addEventListener('change', handleAuthFile);
     }
@@ -4798,6 +4806,12 @@
         uploadAuthText.value = '';
         uploadAuthFile.value = '';
         uploadFileContent = '';
+        if (seedCommandField) seedCommandField.style.display = 'none';
+        if (seedCommandText) seedCommandText.textContent = '';
+        if (seedCommandMeta) {
+          seedCommandMeta.textContent = '';
+          seedCommandMeta.style.display = 'none';
+        }
         if (uploadHostSelect) {
           uploadHostSelect.value = 'system';
         }
@@ -4939,6 +4953,36 @@
       } finally {
         uploadAuthSubmit.disabled = false;
         uploadAuthSubmit.textContent = originalText;
+      }
+    }
+
+    async function generateSeedCommand() {
+      if (!seedCommandBtn) return;
+      const originalText = seedCommandBtn.textContent;
+      seedCommandBtn.disabled = true;
+      seedCommandBtn.textContent = 'Generating…';
+      try {
+        const res = await api('/admin/auth/seed-command', { method: 'POST' });
+        const data = res.data || {};
+        const cmd = data.command || '';
+        if (seedCommandText) seedCommandText.textContent = cmd || 'No command returned.';
+        if (seedCommandField) seedCommandField.style.display = cmd ? 'flex' : 'none';
+        if (seedCommandCopy) {
+          seedCommandCopy.onclick = () => copyToClipboard(cmd || '');
+        }
+        if (seedCommandMeta) {
+          const expiresAt = data.expires_at || '';
+          seedCommandMeta.textContent = expiresAt
+            ? `Expires ${formatRelativeWithTimestamp(expiresAt)}. One-time use.`
+            : 'One-time use.';
+          seedCommandMeta.style.display = 'block';
+        }
+        if (cmd) toast('Seed command ready.', 'ok');
+      } catch (err) {
+        alert(`Seed command failed: ${err.message}`);
+      } finally {
+        seedCommandBtn.disabled = false;
+        seedCommandBtn.textContent = originalText;
       }
     }
 

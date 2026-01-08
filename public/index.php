@@ -17,6 +17,7 @@ use App\Http\Response;
 use App\Http\Router;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
+use App\Repositories\AuthSeedTokenRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
@@ -55,6 +56,7 @@ use App\Services\AuthEncryptionMigrator;
 use App\Security\RateLimiter;
 use App\Support\Installation;
 use App\Support\InstallerScriptBuilder;
+use App\Support\SeedAuthScriptBuilder;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -95,6 +97,7 @@ $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $hostUserRepository = new HostUserRepository($database);
 $installTokenRepository = new InstallTokenRepository($database, $secretBox);
+$seedTokenRepository = new AuthSeedTokenRepository($database, $secretBox);
 $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $logRepository = new LogRepository($database);
@@ -310,6 +313,128 @@ $router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($
         installerError($exception->getMessage(), 500, $tokenRow['expires_at'] ?? null);
     }
     emitInstaller($body, 200, $tokenRow['expires_at'] ?? null);
+});
+
+$router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($matches) use ($seedTokenRepository) {
+    $tokenValue = $matches[1];
+    $tokenRow = $seedTokenRepository->findByToken($tokenValue);
+    if (!$tokenRow) {
+        seedAuthError('Seed token not found', 404);
+    }
+    if ($tokenRow['used_at'] ?? null) {
+        seedAuthError('Seed token already used', 410);
+    }
+    if (seedAuthTokenExpired($tokenRow)) {
+        seedAuthError('Seed token expired', 410);
+    }
+
+    $baseUrl = resolveSeedBaseUrl($tokenRow);
+    if ($baseUrl === '') {
+        seedAuthError('Seed base URL invalid', 500, $tokenRow['expires_at'] ?? null);
+    }
+
+    try {
+        $body = SeedAuthScriptBuilder::build($baseUrl, (string) $tokenRow['token']);
+    } catch (\InvalidArgumentException $exception) {
+        seedAuthError($exception->getMessage(), 500, $tokenRow['expires_at'] ?? null);
+    }
+
+    emitSeedScript($body, 200, $tokenRow['expires_at'] ?? null);
+});
+
+$router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($matches) use ($seedTokenRepository, $service, $logRepository) {
+    $tokenValue = $matches[1];
+    $tokenRow = $seedTokenRepository->findByToken($tokenValue);
+    if (!$tokenRow) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Seed token not found',
+        ], 404);
+    }
+    if ($tokenRow['used_at'] ?? null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Seed token already used',
+        ], 410);
+    }
+    if (seedAuthTokenExpired($tokenRow)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Seed token expired',
+        ], 410);
+    }
+
+    $raw = file_get_contents('php://input');
+    $decoded = null;
+    if (is_string($raw) && trim($raw) !== '') {
+        $decoded = json_decode($raw, true);
+    }
+
+    if (!is_array($decoded)) {
+        $seedTokenRepository->markUsed((int) $tokenRow['id']);
+        $logRepository->log(null, 'auth.seed.consume', [
+            'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+            'status' => 'invalid_json',
+        ]);
+        Response::json([
+            'status' => 'error',
+            'message' => 'auth.json payload must be valid JSON',
+        ], 422);
+    }
+
+    $authPayload = $decoded['auth'] ?? $decoded;
+    if (!is_array($authPayload)) {
+        $seedTokenRepository->markUsed((int) $tokenRow['id']);
+        $logRepository->log(null, 'auth.seed.consume', [
+            'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+            'status' => 'invalid_payload',
+        ]);
+        Response::json([
+            'status' => 'error',
+            'message' => 'auth.json payload must be an object',
+        ], 422);
+    }
+
+    $seedTokenRepository->markUsed((int) $tokenRow['id']);
+    $logRepository->log(null, 'auth.seed.consume', [
+        'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+    ]);
+
+    $host = [
+        'id' => 0,
+        'fqdn' => '[seed]',
+        'status' => 'active',
+        'api_calls' => 0,
+        'allow_roaming_ips' => true,
+        'secure' => true,
+    ];
+
+    try {
+        $result = $service->handleAuth(
+            ['command' => 'store', 'auth' => $authPayload],
+            $host,
+            'seed-upload',
+            null,
+            null,
+            true
+        );
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    } catch (HttpException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
 });
 
 $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $service, $installTokenRepository, $logRepository, $hostRepository) {
@@ -569,6 +694,42 @@ $router->add('POST', '#^/admin/runner/run$#', function () use ($service) {
     Response::json([
         'status' => 'ok',
         'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/seed-command$#', function () use ($seedTokenRepository, $logRepository) {
+    requireAdminAccess();
+
+    $seedTokenRepository->deleteExpired(gmdate(DATE_ATOM));
+
+    $ttlSeconds = (int) Config::get('AUTH_SEED_TOKEN_TTL_SECONDS', 900);
+    if ($ttlSeconds <= 0) {
+        $ttlSeconds = 900;
+    }
+
+    $expiresAt = gmdate(DATE_ATOM, time() + $ttlSeconds);
+    $baseUrl = resolveSeedBaseUrl();
+    if ($baseUrl === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Unable to determine public base URL for seed command. Set PUBLIC_BASE_URL or ensure Host/X-Forwarded-Proto headers are forwarded.',
+        ], 500);
+    }
+
+    $tokenRow = $seedTokenRepository->create(generateUuid(), $expiresAt, $baseUrl);
+    $command = seedAuthCommand($baseUrl, (string) $tokenRow['token']);
+
+    $logRepository->log(null, 'admin.seed_token.create', [
+        'expires_at' => $expiresAt,
+        'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'command' => $command,
+            'expires_at' => $expiresAt,
+        ],
     ]);
 });
 
@@ -2936,6 +3097,27 @@ function resolveInstallerBaseUrl(?array $tokenRow = null): string
     return normalizeBaseUrlCandidate($baseUrl);
 }
 
+function resolveSeedBaseUrl(?array $tokenRow = null): string
+{
+    $baseUrl = '';
+    if ($tokenRow && isset($tokenRow['base_url']) && is_string($tokenRow['base_url'])) {
+        $baseUrl = trim((string) $tokenRow['base_url']);
+    }
+
+    if ($baseUrl === '') {
+        $baseUrl = resolveBaseUrl();
+    }
+
+    if ($baseUrl === '' || $baseUrl === 'http://' || $baseUrl === 'https://') {
+        $fallbackBase = Config::get('PUBLIC_BASE_URL', '');
+        if (is_string($fallbackBase) && trim($fallbackBase) !== '') {
+            $baseUrl = trim($fallbackBase);
+        }
+    }
+
+    return normalizeBaseUrlCandidate($baseUrl);
+}
+
 function installerCommand(string $baseUrl, string $token): string
 {
     $base = rtrim($baseUrl, '/');
@@ -2943,7 +3125,24 @@ function installerCommand(string $baseUrl, string $token): string
     return sprintf('curl -fsSL "%s/install/%s" | bash', $base, $token);
 }
 
+function seedAuthCommand(string $baseUrl, string $token): string
+{
+    $base = rtrim($baseUrl, '/');
+
+    return sprintf('curl -fsSL "%s/seed/auth/%s" | bash', $base, $token);
+}
+
 function installerTokenExpired(array $tokenRow): bool
+{
+    $expires = strtotime($tokenRow['expires_at'] ?? '');
+    if ($expires === false) {
+        return true;
+    }
+
+    return $expires < time();
+}
+
+function seedAuthTokenExpired(array $tokenRow): bool
 {
     $expires = strtotime($tokenRow['expires_at'] ?? '');
     if ($expires === false) {
@@ -2966,9 +3165,27 @@ function emitInstaller(string $body, int $status = 200, ?string $expiresAt = nul
     exit;
 }
 
+function emitSeedScript(string $body, int $status = 200, ?string $expiresAt = null): void
+{
+    http_response_code($status);
+    header('Content-Type: text/x-shellscript; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: no-store, must-revalidate');
+    if ($expiresAt !== null) {
+        header('X-Seed-Expires-At: ' . $expiresAt);
+    }
+    echo $body;
+    exit;
+}
+
 function installerError(string $message, int $status = 400, ?string $expiresAt = null): void
 {
     emitInstaller('echo "' . addslashes($message) . "\" >&2\nexit 1\n", $status, $expiresAt);
+}
+
+function seedAuthError(string $message, int $status = 400, ?string $expiresAt = null): void
+{
+    emitSeedScript('echo "' . addslashes($message) . "\" >&2\nexit 1\n", $status, $expiresAt);
 }
 
 function adminAccessMode(): string

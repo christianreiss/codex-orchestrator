@@ -119,4 +119,16 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('target?.active === true', $js);
         $this->assertStringContainsString('typeof host?.active ===', $js);
     }
+
+    public function testAdminSeedAuthModalIncludesSeedCommandControls(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="seedCommandBtn"', $html);
+        $this->assertStringContainsString('id="seedCommandField"', $html);
+        $this->assertStringContainsString('id="seedCommandText"', $html);
+        $this->assertStringContainsString('id="seedCommandCopy"', $html);
+        $this->assertStringContainsString('id="seedCommandMeta"', $html);
+    }
 }

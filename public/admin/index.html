@@ -134,6 +134,17 @@
               <label style="font-weight:600;">or choose file</label>
               <input type="file" id="uploadAuthFile" accept=".json,application/json">
             </div>
+            <div class="field">
+              <label style="font-weight:600;">One-time seed command</label>
+              <div class="command-box" id="seedCommandField" style="display:none;">
+                <span class="cmd-text" id="seedCommandText"></span>
+                <button class="copy-btn" id="seedCommandCopy">Copy</button>
+              </div>
+              <p class="muted" id="seedCommandMeta" style="margin:6px 0 0; display:none;"></p>
+              <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:8px;">
+                <button class="ghost" id="seedCommandBtn">Generate</button>
+              </div>
+            </div>
             <div id="uploadStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
               <button class="ghost" id="uploadAuthCancel">Cancel</button>
@@ -1133,7 +1144,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-07-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-08-01"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-07-02"></script>
   <script src="/admin/assets/profiles.js?v=2025-12-14-09"></script>

@@ -120,7 +120,7 @@ docker compose up --build
 
 1. Log into Codex on a trusted machine to create `~/.codex/auth.json`.
 2. Open the admin dashboard (mTLS by default) and click **New Host** to mint an API key + one-time installer.
-3. Upload your `~/.codex/auth.json` via the dashboard (“Seed auth.json”).
+3. Upload your `~/.codex/auth.json` via the dashboard (“Seed auth.json”) or generate the one-time `curl | bash` seed command.
 4. Run the installer command on each target host (fresh token per host). The wrapper is baked with base URL + API key; no `sync.env` is written.
 
 ## Uninstalling a Host

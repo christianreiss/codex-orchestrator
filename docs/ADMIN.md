@@ -14,6 +14,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - Actions per host: enable/disable insecure window (0–480 min log-ish slider; each `/auth` extends it), toggle secure vs insecure (insecure hosts purge `~/.codex/auth.json` after each run), toggle roaming IPs, toggle IPv4-only (re-bakes curl -4 and clears pinned IP), mark VIP (quota never hard-fails), clear canonical auth (reset digest/last_refresh), delete host, view canonical auth (`include_body`); re-register (New Host) to mint a fresh installer token.
   - New Host flow: mint/rotate API key + single-use installer token; insecure hosts auto-open a 30-minute provisioning window.
 - **Auth Upload**: seed/replace canonical `auth.json` (system or host-scoped). Runner validation is skipped for this flow.
+- **One-time seed command**: generate a `curl -fsSL ... | bash` command that reads the current user’s `~/.codex/auth.json` and posts it to `/seed/auth/{uuid}`. Tokens expire after `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900s) and are invalidated on first use.
 - **API Kill Switch**: `/admin/api/state` flag. When enabled, every non-admin route (including `/auth`) returns 503 until you clear it.
 - **Quota Mode**: toggle hard-fail vs warn-only and set `limit_percent` (50–100). VIP hosts always operate in warn-only regardless of the global toggle.
 - **Usage**: recent token rows with host + reasoning tokens where present (`limit` param).
