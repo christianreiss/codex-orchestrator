@@ -7,7 +7,7 @@ prompt_sync_python() {
   local cafile="$5"
   local baseline_file="$6"
   CODEX_SYNC_API_KEY="$api_key" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+import hashlib, json, os, pathlib, shutil, ssl, sys, urllib.error, urllib.request
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")
@@ -348,17 +348,26 @@ def load_local(include_content: bool = False):
     skill_dir.mkdir(parents=True, exist_ok=True)
     skills = {}
     for path in skill_dir.iterdir():
-        if not path.is_file():
+        if path.is_dir():
+            skill_file = path / "SKILL.md"
+            if not skill_file.is_file():
+                continue
+            slug = path.name
+            read_path = skill_file
+        elif path.is_file():
+            slug = path.name
+            read_path = path
+        else:
             continue
         try:
-            content = path.read_text(encoding="utf-8")
+            content = read_path.read_text(encoding="utf-8")
         except Exception:  # noqa: BLE001
             continue
         sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        entry = {"slug": path.name, "sha": sha}
+        entry = {"slug": slug, "sha": sha}
         if include_content:
             entry["content"] = content
-        skills[path.name] = entry
+        skills[slug] = entry
     return skills
 
 
@@ -373,6 +382,26 @@ def save_baseline(skills: dict):
 def extract_metadata(content: str):
     display_name = None
     description = None
+    text = content.strip()
+    if text.startswith("---"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            try:
+                end_idx = lines[1:].index("---") + 1
+            except ValueError:
+                end_idx = -1
+            if end_idx > 0:
+                for line in lines[1:end_idx]:
+                    if ":" not in line:
+                        continue
+                    key, value = line.split(":", 1)
+                    key = key.strip().lower()
+                    value = value.strip().strip('"').strip("'")
+                    if key == "name":
+                        display_name = value
+                    elif key == "description":
+                        description = value
+                return display_name, description
     try:
         data = json.loads(content)
         if isinstance(data, dict):
@@ -419,7 +448,10 @@ if mode == "pull":
         target_path = skill_dir / slug
         if deleted:
             try:
-                target_path.unlink(missing_ok=True)
+                if target_path.is_dir():
+                    shutil.rmtree(target_path, ignore_errors=True)
+                else:
+                    target_path.unlink(missing_ok=True)
                 removed += 1
             except Exception:
                 pass
@@ -431,6 +463,17 @@ if mode == "pull":
         if local_sha:
             payload["sha256"] = local_sha
             if local_sha == rsha:
+                if target_path.is_file():
+                    try:
+                        content = target_path.read_text(encoding="utf-8")
+                        target_path.unlink(missing_ok=True)
+                        target_path.mkdir(parents=True, exist_ok=True)
+                        target_file = target_path / "SKILL.md"
+                        target_file.write_text(content, encoding="utf-8")
+                        downloaded += 1
+                    except Exception:  # noqa: BLE001
+                        errors += 1
+                    continue
                 continue
         try:
             resp = request_json("POST", f"{base}/skills/retrieve", payload)
@@ -446,7 +489,11 @@ if mode == "pull":
             errors += 1
             continue
         try:
-            target_path.write_text(manifest, encoding="utf-8")
+            if target_path.exists() and target_path.is_file():
+                target_path.unlink(missing_ok=True)
+            target_path.mkdir(parents=True, exist_ok=True)
+            target_file = target_path / "SKILL.md"
+            target_file.write_text(manifest, encoding="utf-8")
             downloaded += 1
         except Exception:  # noqa: BLE001
             errors += 1
