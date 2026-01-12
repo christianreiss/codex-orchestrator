@@ -38,12 +38,14 @@ If you only use Codex on one laptop, this is probably overkill.
 Prerequisites: Docker and Docker Compose.
 
 ```bash
-bin/setup.sh                 # generates .env and optional Caddy/TLS bits
-docker compose up --build    # brings up API + MySQL (+ runner/quota cron sidecars)
-# for TLS/mTLS proxy: docker compose --profile caddy up --build
+bin/setup.sh                 # writes .env, builds, and starts the stack by default
+# headless dev without Caddy/mTLS:
+# bin/setup.sh --non-interactive --no-caddy --mtls-optional --codex-url http://localhost:8488 --data-root ./storage/docker_data
+# if you skipped build/up with --no-build/--no-up/--prepare-only:
+# docker compose up --build    # add --profile caddy if you enabled the proxy
 ```
 
-Open `http://localhost:8488/admin/` (or your TLS host) to finish setup.
+Defaults: requires mTLS on `/admin/`, enables the bundled Caddy profile when left on, and binds data under `/var/docker_data/...` unless you override `--data-root`. First run pulls `mysql:8.0` and `php:8.2-apache`, so allow extra time. Open `http://localhost:8488/admin/` (or your TLS host) to finish setup.
 
 ## Onboard a host
 1) Ensure the canonical `~/.codex/auth.json` is uploaded (Admin → Auth Upload).

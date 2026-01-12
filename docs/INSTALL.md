@@ -71,6 +71,12 @@ Examples
   ```
 - **Prep only, no Docker yet:** `bin/setup.sh --prepare-only`
 
+Heads-up for non-interactive runs
+
+- Caddy and mTLS stay enabled unless you pass `--no-caddy` and/or `--mtls-optional` (or adjust `--mtls-mode`).
+- Default data root is `/var/docker_data/<domain>/...`; override with `--data-root` when running as non-root or keeping data inside the repo for throwaway VMs. Use a dedicated path for real deployments.
+- First build pulls `mysql:8.0` and `php:8.2-apache`; initial download can take a few minutes.
+
 You can rerun `bin/setup.sh` anytime; it keeps existing values unless you supply different answers/flags.
 
 ## Environment
@@ -92,10 +98,11 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
 ## Build and Run
 
 ```bash
+# already done if you ran bin/setup.sh without --no-build/--no-up/--prepare-only
 docker compose up --build
 ```
 
-- Starts `api`, `quota-cron`, `auth-runner`, `mysql`, and the `mysql-backup` sidecar. Add `--profile caddy` for the TLS proxy.
+- Starts `api`, `quota-cron`, `auth-runner`, `mysql`, and the `mysql-backup` sidecar. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (mTLS required unless `ADMIN_ACCESS_MODE=none`).
 - Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner. Runner probes can bypass host IP pinning when the IP is in `AUTH_RUNNER_BYPASS_SUBNETS` and `AUTH_RUNNER_IP_BYPASS=1`.
