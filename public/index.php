@@ -1808,6 +1808,44 @@ $router->add('POST', '#^/admin/hosts/insecure/extend$#', function () use ($hostR
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/insecure/disable-all$#', function () use ($hostRepository, $service, $logRepository) {
+    requireAdminAccess();
+    $service->pruneStaleHosts();
+
+    $hosts = $hostRepository->all();
+    $now = time();
+    $disabled = 0;
+
+    foreach ($hosts as $host) {
+        $isSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+        if ($isSecure) {
+            continue;
+        }
+
+        $enabledUntil = $host['insecure_enabled_until'] ?? null;
+        $enabledTs = is_string($enabledUntil) ? strtotime($enabledUntil) : false;
+        $isActive = $enabledTs !== false && $enabledTs > $now;
+        if (!$isActive) {
+            continue;
+        }
+
+        $hostRepository->updateInsecureWindows((int) $host['id'], null, null);
+        $logRepository->log((int) $host['id'], 'admin.host.insecure_disable', [
+            'fqdn' => $host['fqdn'] ?? null,
+            'enabled_until' => null,
+            'window_minutes' => $host['insecure_window_minutes'] ?? null,
+        ]);
+        $disabled += 1;
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'disabled' => $disabled,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/logs$#', function () use ($logRepository) {
     requireAdminAccess();
 

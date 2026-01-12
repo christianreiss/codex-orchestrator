@@ -5,6 +5,8 @@
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
     const navInsecureHosts = document.getElementById('navInsecureHosts');
+    const insecureHostsDisableAllBtn = document.getElementById('insecureHostsDisableAll');
+    const mtlsStatus = document.getElementById('mtlsStatus');
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
@@ -3842,9 +3844,9 @@
       if (insecureHostsList) insecureHostsList.innerHTML = '';
     }
 
-	    function openInsecureHostsModal(insecureHosts) {
-	      if (!insecureHostsModal || !insecureHostsList) return;
-	      const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
+    function openInsecureHostsModal(insecureHosts) {
+      if (!insecureHostsModal || !insecureHostsList) return;
+      const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
       const hostActive = (host) => {
         if (typeof host?.active === 'boolean') return host.active;
         return insecureState(host).enabledActive;
@@ -3857,24 +3859,33 @@
       };
       items.sort(activeFirst);
 
-	      insecureHostsList.innerHTML = items.map((host) => {
-	        const isActive = hostActive(host);
-	        const label = isActive ? 'Disable' : 'Enable';
-	        const btnClass = isActive ? 'ghost' : '';
-	        const onlineFor = isActive ? formatCountdown(host?.insecure_enabled_until) : '';
-	        const onlineLine = isActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Online: ${escapeHtml(onlineFor)}</div>` : '';
-	        return `
-	          <div class="quick-hosts-row" data-host-id="${host.id}">
-	            <div class="quick-hosts-info">
-	              <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
-	              ${onlineLine}
-	            </div>
-	            <div class="quick-hosts-actions">
-	              <button class="${btnClass}" data-action="toggle">${label}</button>
-	            </div>
-	          </div>
-	        `;
-	      }).join('');
+      const activeCount = items.filter((h) => hostActive(h)).length;
+      const bulkVisible = activeCount >= 2;
+      if (insecureHostsExtendAllBtn) {
+        insecureHostsExtendAllBtn.style.display = bulkVisible ? '' : 'none';
+      }
+      if (insecureHostsDisableAllBtn) {
+        insecureHostsDisableAllBtn.style.display = bulkVisible ? '' : 'none';
+      }
+
+      insecureHostsList.innerHTML = items.map((host) => {
+        const isActive = hostActive(host);
+        const label = isActive ? 'Disable' : 'Enable';
+        const btnClass = isActive ? 'ghost' : '';
+        const onlineFor = isActive ? formatCountdown(host?.insecure_enabled_until) : '';
+        const onlineLine = isActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Online: ${escapeHtml(onlineFor)}</div>` : '';
+        return `
+          <div class="quick-hosts-row" data-host-id="${host.id}">
+            <div class="quick-hosts-info">
+              <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
+              ${onlineLine}
+            </div>
+            <div class="quick-hosts-actions">
+              <button class="${btnClass}" data-action="toggle">${label}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
 
       insecureHostsModal.classList.add('show');
     }
@@ -3902,16 +3913,45 @@
           const original = insecureHostsExtendAllBtn.textContent;
           insecureHostsExtendAllBtn.textContent = 'Extending…';
           try {
-            await api('/admin/hosts/insecure/extend', { method: 'POST' });
+            const extendResp = await api('/admin/hosts/insecure/extend', { method: 'POST' });
+            await loadAll();
             const resp = await api('/admin/hosts/insecure');
             openInsecureHostsModal(resp?.data?.hosts || []);
-            toast('Extended all active insecure hosts', 'ok');
+            const extended = extendResp?.data?.extended;
+            const msg = Number.isFinite(extended)
+              ? `Extended ${extended} insecure host${extended === 1 ? '' : 's'}`
+              : 'Extended all active insecure hosts';
+            toast(msg, 'ok');
           } catch (err) {
             console.error('extend all insecure hosts failed', err);
             toast(`Extend failed: ${err.message}`, 'error');
           } finally {
             insecureHostsExtendAllBtn.disabled = false;
             insecureHostsExtendAllBtn.textContent = original;
+          }
+        });
+      }
+      if (insecureHostsDisableAllBtn) {
+        insecureHostsDisableAllBtn.addEventListener('click', async () => {
+          insecureHostsDisableAllBtn.disabled = true;
+          const original = insecureHostsDisableAllBtn.textContent;
+          insecureHostsDisableAllBtn.textContent = 'Disabling…';
+          try {
+            const disableResp = await api('/admin/hosts/insecure/disable-all', { method: 'POST' });
+            await loadAll();
+            const resp = await api('/admin/hosts/insecure');
+            openInsecureHostsModal(resp?.data?.hosts || []);
+            const disabled = disableResp?.data?.disabled;
+            const msg = Number.isFinite(disabled)
+              ? `Disabled ${disabled} insecure host${disabled === 1 ? '' : 's'}`
+              : 'Disabled active insecure hosts';
+            toast(msg, 'ok');
+          } catch (err) {
+            console.error('disable all insecure hosts failed', err);
+            toast(`Disable failed: ${err.message}`, 'error');
+          } finally {
+            insecureHostsDisableAllBtn.disabled = false;
+            insecureHostsDisableAllBtn.textContent = original;
           }
         });
       }
