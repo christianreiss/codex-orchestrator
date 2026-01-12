@@ -99,6 +99,22 @@
     }
   }
 
+  function clampVerbosityForModel(model) {
+    if (!verbosityInput) return;
+    const lowerModel = String(model || '').toLowerCase();
+    const codexMax = lowerModel === 'gpt-5.1-codex-max';
+    const allowed = codexMax ? ['', 'medium'] : ['', 'low', 'medium', 'high'];
+    const options = Array.from(verbosityInput.options || []);
+    options.forEach((opt) => {
+      const value = String(opt.value || '').toLowerCase();
+      opt.disabled = !allowed.includes(value);
+    });
+    const current = String(verbosityInput.value || '').toLowerCase();
+    if (!allowed.includes(current)) {
+      verbosityInput.value = 'medium';
+    }
+  }
+
   function defaultSettings() {
     return {
       model: 'gpt-5.1-codex',
@@ -411,6 +427,7 @@
     setSelectValue(reasoningSummaryInput, summaryValue);
     clampReasoningSummaryForModel(cfg.model || '');
     setSelectValue(verbosityInput, cfg.model_verbosity || '');
+    clampVerbosityForModel(cfg.model || '');
     contextWindowInput.value = cfg.model_context_window ?? '';
     maxTokensInput.value = cfg.model_max_output_tokens ?? '';
     supportsSummariesInput.checked = Boolean(cfg.model_supports_reasoning_summaries);
@@ -743,6 +760,7 @@
     modelInput?.addEventListener('change', (e) => {
       rebuildReasoningOptions(e.target.value, reasoningEffortInput?.value || '');
       clampReasoningSummaryForModel(e.target.value);
+      clampVerbosityForModel(e.target.value);
     });
     reasoningSummaryInput?.addEventListener('change', () => {
       clampReasoningSummaryForModel(modelInput?.value || '');

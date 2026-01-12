@@ -339,7 +339,7 @@ class ClientConfigService
             'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
             'model_reasoning_effort' => $normalizeString($settings['model_reasoning_effort'] ?? null),
             'model_reasoning_summary' => null, // set after model-aware normalization
-            'model_verbosity' => $normalizeString($settings['model_verbosity'] ?? null),
+            'model_verbosity' => $this->normalizeModelVerbosity($settings['model_verbosity'] ?? null, $settings['model'] ?? null),
             'model_supports_reasoning_summaries' => $normalizeBool($settings['model_supports_reasoning_summaries'] ?? null),
             'model_context_window' => $this->normalizeInt($settings['model_context_window'] ?? null),
             'model_max_output_tokens' => $this->normalizeInt($settings['model_max_output_tokens'] ?? null),
@@ -447,7 +447,7 @@ class ClientConfigService
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
                 'model_reasoning_effort' => $normalizeString($entry['model_reasoning_effort'] ?? null),
                 'model_reasoning_summary' => $this->normalizeReasoningSummary($entry['model_reasoning_summary'] ?? null, $profileModel),
-                'model_verbosity' => $normalizeString($entry['model_verbosity'] ?? null),
+                'model_verbosity' => $this->normalizeModelVerbosity($entry['model_verbosity'] ?? null, $profileModel),
                 'model_supports_reasoning_summaries' => $normalizeBool($entry['model_supports_reasoning_summaries'] ?? null),
                 'model_context_window' => $this->normalizeInt($entry['model_context_window'] ?? null),
                 'model_max_output_tokens' => $this->normalizeInt($entry['model_max_output_tokens'] ?? null),
@@ -507,6 +507,26 @@ class ClientConfigService
         $result['custom_toml'] = is_string($customToml) ? trim($customToml) : '';
 
         return $result;
+    }
+
+    private function normalizeModelVerbosity($value, $model): ?string
+    {
+        $normalized = $this->normalizeString($value);
+        if ($normalized === null || $normalized === '') {
+            return null;
+        }
+
+        $allowed = ['low', 'medium', 'high'];
+        if (!in_array($normalized, $allowed, true)) {
+            return null;
+        }
+
+        $modelKey = strtolower((string) $model);
+        if ($modelKey === 'gpt-5.1-codex-max') {
+            return 'medium';
+        }
+
+        return $normalized;
     }
 
     private function buildToml(array $settings): string

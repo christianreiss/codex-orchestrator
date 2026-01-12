@@ -140,6 +140,30 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);
     }
 
+    public function testVerbosityForcedMediumForGpt51CodexMax(): void
+    {
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.1-codex-max',
+            'model_verbosity' => 'low',
+        ]);
+
+        $this->assertStringContainsString('model_verbosity = "medium"', $rendered['content']);
+
+        $renderedHigh = $this->service->render([
+            'model' => 'gpt-5.1-codex-max',
+            'model_verbosity' => 'high',
+        ]);
+
+        $this->assertStringContainsString('model_verbosity = "medium"', $renderedHigh['content']);
+
+        $renderedAllowed = $this->service->render([
+            'model' => 'gpt-5.2-codex',
+            'model_verbosity' => 'high',
+        ]);
+
+        $this->assertStringContainsString('model_verbosity = "high"', $renderedAllowed['content']);
+    }
+
     public function testStorePersistsAndDetectsUnchanged(): void
     {
         $first = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
