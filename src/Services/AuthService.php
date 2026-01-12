@@ -149,6 +149,15 @@ class AuthService
 
         $hostId = (int) $host['id'];
         $allowsRoaming = isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false;
+        $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+
+        $insecureWindowActive = false;
+        $insecureGraceActive = false;
+        if (!$hostSecure) {
+            $now = new DateTimeImmutable('now');
+            $insecureWindowActive = $this->isTimestampActive($host['insecure_enabled_until'] ?? null, $now);
+            $insecureGraceActive = $this->isTimestampActive($host['insecure_grace_until'] ?? null, $now);
+        }
 
         $ipAuthorized = true;
         $ipLogReason = 'none';
@@ -169,6 +178,15 @@ class AuthService
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = 'roaming';
+                } elseif (!$hostSecure && ($insecureWindowActive || $insecureGraceActive)) {
+                    $this->hosts->updateIp($hostId, $ip);
+                    $this->logs->log($hostId, 'auth.insecure_ip_override', [
+                        'previous_ip' => $storedIp,
+                        'ip' => $ip,
+                        'window' => $insecureWindowActive ? 'enabled' : 'grace',
+                    ]);
+                    $host = $this->hosts->findById($hostId) ?? $host;
+                    $ipLogReason = $insecureWindowActive ? 'insecure_window' : 'insecure_grace';
                 } elseif ($allowIpBypass) {
                     $this->hosts->updateIp($hostId, $ip);
                     $this->logs->log($hostId, 'auth.force_ip_override', [
@@ -230,6 +248,21 @@ class AuthService
         $host['expires_at'] = $newExpiresAt;
 
         return $host;
+    }
+
+    private function isTimestampActive(mixed $timestamp, DateTimeImmutable $now): bool
+    {
+        if (!is_string($timestamp) || trim($timestamp) === '') {
+            return false;
+        }
+
+        try {
+            $parsed = new DateTimeImmutable($timestamp);
+        } catch (\Exception) {
+            return false;
+        }
+
+        return $parsed >= $now;
     }
 
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null, bool $skipRunner = false): array
