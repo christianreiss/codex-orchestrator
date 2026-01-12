@@ -101,5 +101,10 @@ SH;
             'CODEX_SYNC_ALLOW_INSECURE="1"',
             $meta['content']
         );
+
+        $this->assertStringContainsString(
+            'CODEX_SYNC_FQDN="host.test"',
+            $meta['content']
+        );
     }
 }

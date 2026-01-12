@@ -103,6 +103,52 @@ emit_insecure_notice() {
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 
+normalize_hostname() {
+  local host="${1-}"
+  # Drop newlines and trailing dots, and compare case-insensitively.
+  host="${host//$'\r'/}"
+  host="${host//$'\n'/}"
+  host="${host%\.}"
+  printf '%s' "${host,,}"
+}
+
+enforce_baked_fqdn_guard() {
+  local raw_fqdn="${CODEX_SYNC_FQDN:-}"
+  if [[ -z "$raw_fqdn" || "$raw_fqdn" == __CODEX_SYNC_FQDN__ ]]; then
+    return 0
+  fi
+
+  local baked
+  baked="$(normalize_hostname "$raw_fqdn")"
+  if [[ -z "$baked" ]]; then
+    return 0
+  fi
+
+  local current
+  current="$(normalize_hostname "$LOCAL_HOSTNAME")"
+  if [[ -z "$current" || "$current" == "unknown" ]]; then
+    current="$(normalize_hostname "$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)")"
+  fi
+
+  if [[ -z "$current" || "$current" == "unknown" ]]; then
+    if (( CODEX_ALLOW_FQDN_MISMATCH )); then
+      log_warn "Host FQDN unknown; baked for ${baked}. Proceeding because CODEX_ALLOW_FQDN_MISMATCH=1."
+      return 0
+    fi
+    log_error "Baked for host ${baked}, but the current host FQDN is unknown."
+    exit 1
+  fi
+
+  if [[ "$current" != "$baked" ]]; then
+    if (( CODEX_ALLOW_FQDN_MISMATCH )); then
+      log_warn "Host mismatch: baked for ${baked}, running on ${current}; proceeding because CODEX_ALLOW_FQDN_MISMATCH=1."
+      return 0
+    fi
+    log_error "Host mismatch: baked for ${baked}, running on ${current}. Set CODEX_ALLOW_FQDN_MISMATCH=1 to override."
+    exit 1
+  fi
+}
+
 CODEX_DEBUG=${CODEX_DEBUG:-0}
 CODEX_NO_PTY=${CODEX_NO_PTY:-0}
 CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
@@ -120,6 +166,7 @@ fi
 if [[ "$CODEX_HOST_REASONING_EFFORT" == __CODEX_*__ ]]; then
   CODEX_HOST_REASONING_EFFORT=""
 fi
+CODEX_ALLOW_FQDN_MISMATCH=${CODEX_ALLOW_FQDN_MISMATCH:-0}
 
 # Per-host baked configuration (populated by the server at download time).
 CODEX_SYNC_BASE_URL_DEFAULT="__CODEX_SYNC_BASE_URL__"
@@ -255,7 +302,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.01.09-01"
+WRAPPER_VERSION="2026.01.12-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -785,6 +832,7 @@ load_sync_config() {
   # Always prefer baked-in sync configuration; ignore local .env overrides.
   CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
   log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  enforce_baked_fqdn_guard
   SYNC_CONFIG_LOADED=1
 }
 

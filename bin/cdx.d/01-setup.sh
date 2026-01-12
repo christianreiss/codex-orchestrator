@@ -226,6 +226,7 @@ load_sync_config() {
   # Always prefer baked-in sync configuration; ignore local .env overrides.
   CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
   log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  enforce_baked_fqdn_guard
   SYNC_CONFIG_LOADED=1
 }
 
