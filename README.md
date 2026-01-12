@@ -2,6 +2,8 @@
 
 Codex Orchestrator is a small PHP/MySQL service that keeps one canonical Codex auth, config, prompts, and usage log for every host in your fleet. It bakes per-host installers, syncs everything every time someone runs `cdx`, and gives you dashboards for usage, quotas, and versions.
 
+![Host-specific installer baking and sync flow](docs/img/cdx.png)
+
 ## Why would I need this?
 - You run Codex on more than one machine and do not want to copy tokens by hand.
 - You want per-host API keys with IP binding and the option to treat some machines as insecure (no auth left on disk).
@@ -26,6 +28,11 @@ If you only use Codex on one laptop, this is probably overkill.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from server-controlled binaries.
 - Dashboards and API: mTLS-protected admin UI for hosts, usage, config, and AGENTS; HTTP API for automation.
 - MCP server: native HTTP MCP endpoint with memory store/retrieve/search and filesystem helpers; baked into managed `config.toml` entries.
+
+## See it in action
+![Admin dashboard overview](docs/img/dashboard_1.png)
+![Per-host digests and validation logs](docs/img/dashboard_2.png)
+![Token usage aggregates and recent activity](docs/img/dashboard_3.png)
 
 ## Quick start (Docker)
 Prerequisites: Docker and Docker Compose.
