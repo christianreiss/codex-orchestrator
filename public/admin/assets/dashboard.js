@@ -140,6 +140,7 @@
     const insecureHostsModal = document.getElementById('insecureHostsModal');
     const insecureHostsList = document.getElementById('insecureHostsList');
     const insecureHostsCloseBtn = document.getElementById('insecureHostsCloseBtn');
+    const insecureHostsExtendAllBtn = document.getElementById('insecureHostsExtendAll');
     const pageHero = document.querySelector('.page-hero');
     const heroEyebrow = pageHero?.querySelector('.eyebrow');
     const heroTitle = pageHero?.querySelector('h1');
@@ -3894,6 +3895,25 @@
       }
       if (insecureHostsCloseBtn) {
         insecureHostsCloseBtn.addEventListener('click', () => closeInsecureHostsModal());
+      }
+      if (insecureHostsExtendAllBtn) {
+        insecureHostsExtendAllBtn.addEventListener('click', async () => {
+          insecureHostsExtendAllBtn.disabled = true;
+          const original = insecureHostsExtendAllBtn.textContent;
+          insecureHostsExtendAllBtn.textContent = 'Extending…';
+          try {
+            await api('/admin/hosts/insecure/extend', { method: 'POST' });
+            const resp = await api('/admin/hosts/insecure');
+            openInsecureHostsModal(resp?.data?.hosts || []);
+            toast('Extended all active insecure hosts', 'ok');
+          } catch (err) {
+            console.error('extend all insecure hosts failed', err);
+            toast(`Extend failed: ${err.message}`, 'error');
+          } finally {
+            insecureHostsExtendAllBtn.disabled = false;
+            insecureHostsExtendAllBtn.textContent = original;
+          }
+        });
       }
       if (insecureHostsModal) {
         insecureHostsModal.addEventListener('click', (e) => {

@@ -1761,6 +1761,53 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/insecure/extend$#', function () use ($hostRepository, $service, $logRepository) {
+    requireAdminAccess();
+    $service->pruneStaleHosts();
+
+    $hosts = $hostRepository->all();
+    $now = time();
+    $extended = 0;
+
+    foreach ($hosts as $host) {
+        $isSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+        if ($isSecure) {
+            continue;
+        }
+
+        $enabledUntil = $host['insecure_enabled_until'] ?? null;
+        $enabledTs = is_string($enabledUntil) ? strtotime($enabledUntil) : false;
+        $isActive = $enabledTs !== false && $enabledTs > $now;
+        if (!$isActive) {
+            continue;
+        }
+
+        $minutesRaw = $host['insecure_window_minutes'] ?? AuthService::DEFAULT_INSECURE_WINDOW_MINUTES;
+        $minutes = (int) $minutesRaw;
+        if ($minutes < AuthService::MIN_INSECURE_WINDOW_MINUTES) {
+            $minutes = AuthService::MIN_INSECURE_WINDOW_MINUTES;
+        } elseif ($minutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
+            $minutes = AuthService::MAX_INSECURE_WINDOW_MINUTES;
+        }
+
+        $newUntil = gmdate(DATE_ATOM, $now + ($minutes * 60));
+        $hostRepository->updateInsecureWindows((int) $host['id'], $newUntil, null, null);
+        $logRepository->log((int) $host['id'], 'admin.host.insecure_extend', [
+            'fqdn' => $host['fqdn'] ?? null,
+            'enabled_until' => $newUntil,
+            'window_minutes' => $minutes,
+        ]);
+        $extended += 1;
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'extended' => $extended,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/logs$#', function () use ($logRepository) {
     requireAdminAccess();
 
