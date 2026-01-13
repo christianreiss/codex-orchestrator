@@ -6,6 +6,7 @@ declare(strict_types=1);
 use App\Config;
 use App\Database;
 use App\Repositories\AdminEventRepository;
+use App\Repositories\VersionRepository;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -233,6 +234,7 @@ try {
     $database->migrate();
 
     $events = new AdminEventRepository($database);
+    $versions = new VersionRepository($database);
 
     $bind = Config::get('ADMIN_WS_BIND', '0.0.0.0:8091');
     if (!is_string($bind) || trim($bind) === '') {
@@ -277,6 +279,23 @@ try {
     logLine("Admin WS server listening on {$bind}");
 
     $clients = [];
+    $presenceKey = 'admin_ws_connections';
+    $presenceCount = 0;
+    $presenceHeartbeat = 20;
+    $lastPresenceUpdate = 0;
+    $updatePresence = function (bool $force = false) use (&$presenceCount, &$lastPresenceUpdate, $presenceHeartbeat, $versions, $presenceKey): void {
+        $now = time();
+        if (!$force && ($now - $lastPresenceUpdate) < $presenceHeartbeat) {
+            return;
+        }
+        $lastPresenceUpdate = $now;
+        try {
+            $versions->set($presenceKey, (string) $presenceCount);
+        } catch (Throwable) {
+            // Presence updates should never crash the websocket server.
+        }
+    };
+    $updatePresence(true);
     $lastPollAt = microtime(true);
     $lastPingAt = time();
     $lastEventId = $events->latestId();
@@ -369,6 +388,8 @@ try {
                     'last_pong' => time(),
                     'last_sent' => $since,
                 ];
+                $presenceCount = count($clients);
+                $updatePresence(true);
 
                 $helloPayload = [
                     'kind' => 'hello',
@@ -410,6 +431,8 @@ try {
                 if (feof($socket)) {
                     fclose($socket);
                     unset($clients[$clientId]);
+                    $presenceCount = count($clients);
+                    $updatePresence(true);
                 }
                 continue;
             }
@@ -426,6 +449,8 @@ try {
                     fwrite($socket, encodeFrame('', 0x8));
                     fclose($socket);
                     unset($clients[$clientId]);
+                    $presenceCount = count($clients);
+                    $updatePresence(true);
                     break;
                 }
                 if ($opcode === 0x9) {
@@ -452,13 +477,15 @@ try {
                     $frame = encodeFrame($payload);
                     foreach ($clients as $id => $client) {
                         $writeResult = @fwrite($client['socket'], $frame);
-                        if ($writeResult === false) {
-                            fclose($client['socket']);
-                            unset($clients[$id]);
-                            continue;
-                        }
-                        $clients[$id]['last_sent'] = max($clients[$id]['last_sent'], (int) $event['id']);
+                    if ($writeResult === false) {
+                        fclose($client['socket']);
+                        unset($clients[$id]);
+                        $presenceCount = count($clients);
+                        $updatePresence(true);
+                        continue;
                     }
+                    $clients[$id]['last_sent'] = max($clients[$id]['last_sent'], (int) $event['id']);
+                }
                     $lastEventId = max($lastEventId, (int) $event['id']);
                 }
             }
@@ -473,12 +500,19 @@ try {
                 if ($writeResult === false) {
                     fclose($client['socket']);
                     unset($clients[$id]);
+                    $presenceCount = count($clients);
+                    $updatePresence(true);
                     continue;
                 }
                 if (($nowSec - $client['last_pong']) > ($pingInterval * 2)) {
                     fclose($client['socket']);
                     unset($clients[$id]);
+                    $presenceCount = count($clients);
+                    $updatePresence(true);
                 }
+            }
+            if ($presenceCount > 0) {
+                $updatePresence();
             }
         }
     }

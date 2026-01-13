@@ -254,6 +254,24 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS insecure_auth_requests (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                host_id BIGINT UNSIGNED NOT NULL,
+                status VARCHAR(24) NOT NULL,
+                request_ip VARCHAR(64) NULL,
+                requested_at VARCHAR(100) NOT NULL,
+                resolved_at VARCHAR(100) NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                INDEX idx_insecure_auth_requests_host (host_id),
+                INDEX idx_insecure_auth_requests_status (status),
+                INDEX idx_insecure_auth_requests_requested_at (requested_at),
+                CONSTRAINT fk_insecure_auth_requests_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS mcp_access_logs (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NULL,

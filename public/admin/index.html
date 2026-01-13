@@ -307,6 +307,28 @@
             </div>
           </div>
         </div>
+        <div class="modal-backdrop" id="insecureApprovalModal">
+          <div class="modal">
+            <h3>Insecure host access request</h3>
+            <p class="muted" id="insecureApprovalSubtitle">An insecure host is waiting for approval.</p>
+            <div class="field">
+              <label style="font-weight:600;">Hostname</label>
+              <div class="muted" id="insecureApprovalHost">—</div>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">FQDN</label>
+              <div class="muted" id="insecureApprovalFqdn">—</div>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Requested at</label>
+              <div class="muted" id="insecureApprovalTime">—</div>
+            </div>
+            <div class="actions">
+              <button class="ghost" id="insecureApprovalDeny">Cancel</button>
+              <button id="insecureApprovalApprove">Enable window</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-backdrop" id="usageHistoryModal">
           <div class="modal usage-history-modal">
             <div class="modal-head">
@@ -626,6 +648,20 @@
                   <input type="range" min="0" max="100" step="1" value="0" id="insecureWindowSlider" class="insecure-window-slider">
                   <p class="muted insecure-window-foot">Each `/auth` extends by this duration (0–8 hours, log scale).</p>
                 </div>
+              </div>
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
+                    <h3>Insecure Host Approval</h3>
+                    <p class="muted" style="margin:2px 0 0;">Require admin confirmation when windows are closed.</p>
+                  </div>
+                  <label class="toggle" for="insecureApprovalToggle">
+                    <input type="checkbox" id="insecureApprovalToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="toggle-text" id="insecureApprovalLabel">Disabled</span>
+                  </label>
+                </div>
+                <p class="muted" style="margin:8px 0 0;">When enabled, cdx waits for approval if a websocket admin is connected.</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
@@ -1147,7 +1183,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-13-04"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-13-05"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-12-01"></script>

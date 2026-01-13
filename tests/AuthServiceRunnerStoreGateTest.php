@@ -102,6 +102,7 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
             $pricing,
             $versions,
             $wrapper,
+            null,
             $runner
         );
     }

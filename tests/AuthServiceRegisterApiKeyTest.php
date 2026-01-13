@@ -86,6 +86,7 @@ final class AuthServiceRegisterApiKeyTest extends TestCase
             $this->createMock(PricingService::class),
             $this->createMock(VersionRepository::class),
             $this->createMock(WrapperService::class),
+            null,
         );
     }
 

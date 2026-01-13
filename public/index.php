@@ -24,6 +24,7 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\InstallTokenRepository;
+use App\Repositories\InsecureAuthRequestRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\IpRateLimitRepository;
@@ -103,6 +104,7 @@ $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $adminEventRepository = new AdminEventRepository($database);
 $logRepository = new LogRepository($database, $adminEventRepository);
+$insecureAuthRequestRepository = new InsecureAuthRequestRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
 $skillRepository = new SkillRepository($database);
@@ -136,7 +138,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $runnerVerifier, $rateLimiter, $installationId);
+$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $insecureAuthRequestRepository, $runnerVerifier, $rateLimiter, $installationId);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $skillService = new SkillService($skillRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
@@ -874,6 +876,37 @@ $router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versio
     ]);
 });
 
+$router->add('GET', '#^/admin/insecure-approval$#', function () use ($versionRepository) {
+    requireAdminAccess();
+
+    $enabled = $versionRepository->getFlag('insecure_approval_enabled', false);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['enabled' => $enabled],
+    ]);
+});
+
+$router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, $versionRepository) {
+    requireAdminAccess();
+
+    $enabledRaw = $payload['enabled'] ?? null;
+    $enabled = normalizeBoolean($enabledRaw);
+    if ($enabled === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'enabled must be boolean',
+        ], 422);
+    }
+
+    $versionRepository->set('insecure_approval_enabled', $enabled ? '1' : '0');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['enabled' => $enabled],
+    ]);
+});
+
 $router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $versionRepository, $service) {
     requireAdminAccess();
 
@@ -1314,6 +1347,137 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
     ]);
 });
 
+$router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
+    requireAdminAccess();
+
+    $requestId = (int) $matches[1];
+    $request = $insecureAuthRequestRepository->findById($requestId);
+    if (!$request) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request not found',
+        ], 404);
+    }
+
+    if (($request['status'] ?? '') !== 'pending') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request already resolved',
+        ], 409);
+    }
+
+    $hostId = (int) ($request['host_id'] ?? 0);
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    if (isset($host['secure']) && (bool) (int) $host['secure']) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host is secure; insecure window not applicable',
+        ], 422);
+    }
+
+    $now = time();
+    $currentEnabled = $host['insecure_enabled_until'] ?? null;
+    $baseTs = $now;
+    if (is_string($currentEnabled) && trim($currentEnabled) !== '') {
+        $ts = strtotime($currentEnabled);
+        if ($ts !== false && $ts > $now) {
+            $baseTs = $ts;
+        }
+    }
+
+    $minutesRaw = $host['insecure_window_minutes'] ?? null;
+    $minutes = (int) ($minutesRaw ?? AuthService::DEFAULT_INSECURE_WINDOW_MINUTES);
+    if ($minutes < AuthService::MIN_INSECURE_WINDOW_MINUTES) {
+        $minutes = AuthService::MIN_INSECURE_WINDOW_MINUTES;
+    } elseif ($minutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
+        $minutes = AuthService::MAX_INSECURE_WINDOW_MINUTES;
+    }
+
+    $enabledUntil = gmdate(DATE_ATOM, $baseTs + ($minutes * 60));
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null, $minutes);
+    $logRepository->log($hostId, 'admin.host.insecure_enable', [
+        'fqdn' => $host['fqdn'],
+        'enabled_until' => $enabledUntil,
+        'window_minutes' => $minutes,
+        'source' => 'approval',
+        'request_id' => $requestId,
+    ]);
+
+    $insecureAuthRequestRepository->markApproved($requestId);
+    $logRepository->log($hostId, 'admin.insecure.approval', [
+        'fqdn' => $host['fqdn'],
+        'request_id' => $requestId,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'request' => [
+                'id' => $requestId,
+                'status' => 'approved',
+            ],
+            'host' => [
+                'id' => $hostId,
+                'insecure_enabled_until' => $enabledUntil,
+                'insecure_grace_until' => null,
+                'insecure_window_minutes' => $minutes,
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
+    requireAdminAccess();
+
+    $requestId = (int) $matches[1];
+    $request = $insecureAuthRequestRepository->findById($requestId);
+    if (!$request) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request not found',
+        ], 404);
+    }
+
+    if (($request['status'] ?? '') !== 'pending') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request already resolved',
+        ], 409);
+    }
+
+    $hostId = (int) ($request['host_id'] ?? 0);
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $insecureAuthRequestRepository->markDenied($requestId);
+    $logRepository->log($hostId, 'admin.insecure.denied', [
+        'fqdn' => $host['fqdn'],
+        'request_id' => $requestId,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'request' => [
+                'id' => $requestId,
+                'status' => 'denied',
+            ],
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
@@ -1584,6 +1748,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $quotaLimitPercent = quotaLimitPercent($versionRepository);
     $quotaWeekPartition = quotaWeekPartition($versionRepository);
     $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
+    $insecureApprovalEnabled = $versionRepository->getFlag('insecure_approval_enabled', false);
     $inactivityWindowDays = inactivityWindowDays($versionRepository);
     $clientVersionLock = $versionRepository->getWithMetadata('client_version_lock');
 
@@ -1617,6 +1782,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'quota_limit_percent' => $quotaLimitPercent,
             'quota_week_partition' => $quotaWeekPartition,
             'cdx_silent' => $cdxSilent,
+            'insecure_approval_enabled' => $insecureApprovalEnabled,
             'inactivity_window_days' => $inactivityWindowDays,
             'client_version_lock' => $clientVersionLock['version'] ?? null,
             'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,

@@ -17,6 +17,7 @@ use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
+use App\Repositories\InsecureAuthRequestRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
@@ -49,6 +50,8 @@ class AuthService
     private const AUTH_FAIL_LIMIT = 20;
     private const AUTH_FAIL_WINDOW_SECONDS = 600;
     private const AUTH_FAIL_BLOCK_SECONDS = 1800;
+    private const INSECURE_APPROVAL_DENY_COOLDOWN_SECONDS = 60;
+    private const ADMIN_WS_PRESENCE_TTL_SECONDS = 60;
     private const RUNNER_PREFLIGHT_INTERVAL_SECONDS = 28800; // 8 hours
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
@@ -68,6 +71,7 @@ class AuthService
         private readonly PricingService $pricingService,
         private readonly VersionRepository $versions,
         private readonly WrapperService $wrapperService,
+        private readonly ?InsecureAuthRequestRepository $insecureAuthRequests = null,
         private readonly ?RunnerVerifier $runnerVerifier = null,
         private readonly ?RateLimiter $rateLimiter = null,
         private readonly ?string $installationId = null,
@@ -1863,6 +1867,46 @@ class AuthService
             return $host;
         }
 
+        if ($this->shouldOfferInsecureApproval($hostId)) {
+            try {
+                $pending = $this->insecureAuthRequests?->findPendingByHost($hostId);
+                if ($pending !== null) {
+                    throw new HttpException('Insecure host approval pending', 423);
+                }
+
+                $latest = $this->insecureAuthRequests?->findLatestByHost($hostId);
+                if ($latest !== null && ($latest['status'] ?? '') === 'denied') {
+                    $resolvedAt = $latest['resolved_at'] ?? null;
+                    if ($this->isRecentResolution($resolvedAt)) {
+                        $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.denied', [
+                            'command' => $command,
+                            'enabled_until' => $enabledUntilRaw,
+                            'grace_until' => $graceUntilRaw,
+                            'reason' => 'approval_denied',
+                        ]);
+                        throw new HttpException('Insecure host approval denied', 403);
+                    }
+                }
+
+                $request = $this->insecureAuthRequests?->create($hostId);
+                if ($request !== null) {
+                    $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.pending', [
+                        'command' => $command,
+                        'fqdn' => $host['fqdn'] ?? null,
+                        'request_id' => $request['id'] ?? null,
+                        'requested_at' => $request['requested_at'] ?? null,
+                    ]);
+                }
+
+                throw new HttpException('Insecure host approval pending', 423);
+            } catch (\Throwable $exception) {
+                if ($exception instanceof HttpException) {
+                    throw $exception;
+                }
+                // Fall back to standard denial if approval flow fails.
+            }
+        }
+
         $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.denied', [
             'command' => $command,
             'enabled_until' => $enabledUntilRaw,
@@ -1874,6 +1918,66 @@ class AuthService
             'enabled_until' => $enabledUntilRaw,
             'grace_until' => $graceUntilRaw,
         ]);
+    }
+
+    private function shouldOfferInsecureApproval(int $hostId): bool
+    {
+        if ($hostId <= 0) {
+            return false;
+        }
+
+        if ($this->insecureAuthRequests === null) {
+            return false;
+        }
+
+        if (!$this->versions->getFlag('insecure_approval_enabled', false)) {
+            return false;
+        }
+
+        return $this->adminWsConnected();
+    }
+
+    private function adminWsConnected(): bool
+    {
+        $meta = $this->versions->getWithMetadata('admin_ws_connections');
+        if ($meta === null) {
+            return false;
+        }
+
+        $countRaw = $meta['version'] ?? null;
+        if (!is_numeric($countRaw)) {
+            return false;
+        }
+
+        if ((int) $countRaw <= 0) {
+            return false;
+        }
+
+        $updatedAt = $meta['updated_at'] ?? null;
+        if (!is_string($updatedAt) || trim($updatedAt) === '') {
+            return false;
+        }
+
+        $updatedTs = strtotime($updatedAt);
+        if ($updatedTs === false) {
+            return false;
+        }
+
+        return (time() - $updatedTs) <= self::ADMIN_WS_PRESENCE_TTL_SECONDS;
+    }
+
+    private function isRecentResolution(?string $resolvedAt): bool
+    {
+        if (!is_string($resolvedAt) || trim($resolvedAt) === '') {
+            return false;
+        }
+
+        $ts = strtotime($resolvedAt);
+        if ($ts === false) {
+            return false;
+        }
+
+        return (time() - $ts) <= self::INSECURE_APPROVAL_DENY_COOLDOWN_SECONDS;
     }
 
     private function resolveInsecureWindowMinutes(array $host): int

@@ -64,7 +64,8 @@ final class AuthServiceClientVersionLockTest extends TestCase
             $tokenUsageIngests,
             $pricingService,
             $versions,
-            $wrapperService
+            $wrapperService,
+            null
         );
 
         $summary = $service->versionSummary();
@@ -74,4 +75,3 @@ final class AuthServiceClientVersionLockTest extends TestCase
         $this->assertSame('2025-12-13T00:00:00Z', $summary['client_version_checked_at']);
     }
 }
-

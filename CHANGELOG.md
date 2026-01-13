@@ -1,3 +1,5 @@
+- Insecure hosts: optional admin approval gate (Settings → General) that prompts via websocket, exposes approve/deny endpoints, and lets cdx wait/poll for approval when the window is closed. (2026-01-13)
+- cdx wrapper: wait/poll for insecure host approvals when enabled; wrapper bumped to 2026.01.13-02. (2026-01-13)
 - Admin dashboard: filter “CDX refused” toasts to known hosts/fqdns to avoid noise from unknown keys. (2026-01-13)
 - Admin dashboard: emit “CDX refused” toasts for denied `/auth` requests tied to known hosts (disabled host, IP mismatch, installation mismatch, insecure window closed). (2026-01-13)
 - Admin dashboard: “CDX authorized” toasts now include relative time in the message. (2026-01-13)

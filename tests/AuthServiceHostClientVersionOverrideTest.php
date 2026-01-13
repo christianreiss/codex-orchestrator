@@ -332,7 +332,8 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             $tokenUsageIngests,
             $pricing,
             $versions,
-            $wrapper
+            $wrapper,
+            null
         );
 
         $response = $service->handleAuth(
@@ -354,4 +355,3 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
         $this->assertNull($snapshot['client_version_checked_at'] ?? null);
     }
 }
-

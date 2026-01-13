@@ -387,7 +387,8 @@ final class AuthServiceUploadRequiredTest extends TestCase
             new NullTokenUsageIngestRepository(),
             new NullPricingService(),
             new InMemoryVersionRepository(['canonical_payload_id' => 99]),
-            new StubWrapperService()
+            new StubWrapperService(),
+            null
         );
 
         $response = $service->handleAuth(
@@ -454,7 +455,8 @@ final class AuthServiceUploadRequiredTest extends TestCase
             new NullTokenUsageIngestRepository(),
             new NullPricingService(),
             new InMemoryVersionRepository(['canonical_payload_id' => 100]),
-            new StubWrapperService()
+            new StubWrapperService(),
+            null
         );
 
         $response = $service->handleAuth(

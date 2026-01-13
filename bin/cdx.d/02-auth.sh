@@ -26,7 +26,10 @@ sync_auth_with_api() {
   local api_output=""
   local api_status=0
   local offline_reason=""
-  if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+  local wait_logged=0
+  while true; do
+    offline_reason=""
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
@@ -136,7 +139,18 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
         if isinstance(msg, str) and "API key missing" in msg:
             sys.exit(21)
         sys.exit(22)
+    if exc.code == 423:
+        if "approval pending" in msg_lower:
+            print("insecure host approval pending", file=sys.stderr)
+            sys.exit(25)
+        if "approval denied" in msg_lower:
+            print("insecure host approval denied", file=sys.stderr)
+            sys.exit(26)
+        sys.exit(23)
     if exc.code == 403:
+        if "approval denied" in msg_lower:
+            print("insecure host approval denied", file=sys.stderr)
+            sys.exit(26)
         if "host is disabled" in msg_lower:
             sys.exit(11)
         if detail_code == "insecure_api_disabled" or "insecure host api access disabled" in msg_lower:
@@ -363,12 +377,12 @@ print(
 )
 PY
   )"; then
-    log_debug "auth api output: ${api_output}"
-    local versions_json
-    versions_json="$api_output"
-    if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
-      local parsed
-      parsed="$(VJSON="$versions_json" python3 - <<'PY'
+      log_debug "auth api output: ${api_output}"
+      local versions_json
+      versions_json="$api_output"
+      if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
+        local parsed
+        parsed="$(VJSON="$versions_json" python3 - <<'PY'
 import json, os, sys
 data = os.environ.get("VJSON", "")
 try:
@@ -485,146 +499,158 @@ if isinstance(month_usage, dict):
     _emit_month("events", "hmevents")
 PY
 )" || true
-      if [[ -n "$parsed" ]]; then
-        local line
-        while IFS= read -r line; do
-          case "$line" in
-            cv=*)
-              SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
-              ;;
-            cvs=*)
-              SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
-              ;;
-            wv=*)
-              SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
-              ;;
-            ws=*)
-              SYNC_REMOTE_WRAPPER_SHA256="${line#ws=}"
-              ;;
-            wu=*)
-              SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
-              ;;
-            rs=*)
-              RUNNER_STATE="${line#rs=}"
-              ;;
-            rlo=*)
-              RUNNER_LAST_OK="${line#rlo=}"
-              ;;
-            rlf=*)
-              RUNNER_LAST_FAIL="${line#rlf=}"
-              ;;
-            rlc=*)
-              RUNNER_LAST_CHECK="${line#rlc=}"
-              ;;
-            re=*)
-              RUNNER_ENABLED="${line#re=}"
-              ;;
-            as=*)
-              AUTH_STATUS="${line#as=}"
-              ;;
-            aa=*)
-              AUTH_ACTION="${line#aa=}"
-              ;;
-            am=*)
-              AUTH_MESSAGE="${line#am=}"
-              ;;
-            qh=*)
-              QUOTA_HARD_FAIL="${line#qh=}"
-              ;;
-            hv=*)
-              HOST_VIP="${line#hv=}"
-              ;;
-            ql=*)
-              QUOTA_LIMIT_PERCENT="${line#ql=}"
-              ;;
-            qwp=*)
-              QUOTA_WEEK_PARTITION="${line#qwp=}"
-              ;;
-            cs=*)
-              CODEX_SILENT="${line#cs=}"
-              ;;
-            hs=*)
-              HOST_SECURE="${line#hs=}"
-              ;;
-            cgs=*)
-              CHATGPT_STATUS="${line#cgs=}"
-              ;;
-            cgp=*)
-              CHATGPT_PLAN="${line#cgp=}"
-              ;;
-            cgn=*)
-              CHATGPT_NEXT="${line#cgn=}"
-              ;;
-            cgu=*)
-              CHATGPT_PRIMARY_USED="${line#cgu=}"
-              ;;
-            cgl=*)
-              CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
-              ;;
-            cgr=*)
-              CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
-              ;;
-            cga=*)
-              CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
-              ;;
-            cgsu=*)
-              CHATGPT_SECONDARY_USED="${line#cgsu=}"
-              ;;
-            cgsl=*)
-              CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
-              ;;
-            cgsr=*)
-              CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
-              ;;
-            cgsa=*)
-              CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
-              ;;
-            cgdu=*)
-              CHATGPT_DAILY_USED="${line#cgdu=}"
-              ;;
-            hac=*)
-              HOST_API_CALLS="${line#hac=}"
-              ;;
-            hmtotal=*)
-              HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
-              ;;
-            hminput=*)
-              HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
-              ;;
-            hmoutput=*)
-              HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
-              ;;
-            hmcached=*)
-              HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
-              ;;
-            hmreason=*)
-              HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
-              ;;
-            hmevents=*)
-              HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
-              ;;
-          esac
-        done <<<"$parsed"
+        if [[ -n "$parsed" ]]; then
+          local line
+          while IFS= read -r line; do
+            case "$line" in
+              cv=*)
+                SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
+                ;;
+              cvs=*)
+                SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
+                ;;
+              wv=*)
+                SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
+                ;;
+              ws=*)
+                SYNC_REMOTE_WRAPPER_SHA256="${line#ws=}"
+                ;;
+              wu=*)
+                SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
+                ;;
+              rs=*)
+                RUNNER_STATE="${line#rs=}"
+                ;;
+              rlo=*)
+                RUNNER_LAST_OK="${line#rlo=}"
+                ;;
+              rlf=*)
+                RUNNER_LAST_FAIL="${line#rlf=}"
+                ;;
+              rlc=*)
+                RUNNER_LAST_CHECK="${line#rlc=}"
+                ;;
+              re=*)
+                RUNNER_ENABLED="${line#re=}"
+                ;;
+              as=*)
+                AUTH_STATUS="${line#as=}"
+                ;;
+              aa=*)
+                AUTH_ACTION="${line#aa=}"
+                ;;
+              am=*)
+                AUTH_MESSAGE="${line#am=}"
+                ;;
+              qh=*)
+                QUOTA_HARD_FAIL="${line#qh=}"
+                ;;
+              hv=*)
+                HOST_VIP="${line#hv=}"
+                ;;
+              ql=*)
+                QUOTA_LIMIT_PERCENT="${line#ql=}"
+                ;;
+              qwp=*)
+                QUOTA_WEEK_PARTITION="${line#qwp=}"
+                ;;
+              cs=*)
+                CODEX_SILENT="${line#cs=}"
+                ;;
+              hs=*)
+                HOST_SECURE="${line#hs=}"
+                ;;
+              cgs=*)
+                CHATGPT_STATUS="${line#cgs=}"
+                ;;
+              cgp=*)
+                CHATGPT_PLAN="${line#cgp=}"
+                ;;
+              cgn=*)
+                CHATGPT_NEXT="${line#cgn=}"
+                ;;
+              cgu=*)
+                CHATGPT_PRIMARY_USED="${line#cgu=}"
+                ;;
+              cgl=*)
+                CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
+                ;;
+              cgr=*)
+                CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
+                ;;
+              cga=*)
+                CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
+                ;;
+              cgsu=*)
+                CHATGPT_SECONDARY_USED="${line#cgsu=}"
+                ;;
+              cgsl=*)
+                CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
+                ;;
+              cgsr=*)
+                CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
+                ;;
+              cgsa=*)
+                CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
+                ;;
+              cgdu=*)
+                CHATGPT_DAILY_USED="${line#cgdu=}"
+                ;;
+              hac=*)
+                HOST_API_CALLS="${line#hac=}"
+                ;;
+              hmtotal=*)
+                HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
+                ;;
+              hminput=*)
+                HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
+                ;;
+              hmoutput=*)
+                HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
+                ;;
+              hmcached=*)
+                HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
+                ;;
+              hmreason=*)
+                HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
+                ;;
+              hmevents=*)
+                HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
+                ;;
+            esac
+          done <<<"$parsed"
 
-        if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
-          HOST_IS_SECURE=0
-          PURGE_AUTH_AFTER_RUN=1
-          emit_insecure_notice
-        else
-          HOST_IS_SECURE=1
-          PURGE_AUTH_AFTER_RUN=0
+          if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
+            HOST_IS_SECURE=0
+            PURGE_AUTH_AFTER_RUN=1
+            emit_insecure_notice
+          else
+            HOST_IS_SECURE=1
+            PURGE_AUTH_AFTER_RUN=0
+          fi
         fi
       fi
+      AUTH_PULL_STATUS="ok"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      return 0
+    else
+      api_status=$?
+      if [[ "$api_output" == offline:* ]]; then
+        offline_reason="${api_output#offline:}"
+      fi
+      if [[ "$api_status" == "25" ]]; then
+        AUTH_PULL_STATUS="pending"
+        AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+        if (( wait_logged == 0 )); then
+          log_warn "Insecure host window closed; waiting for admin approval (polling every 5s)."
+          wait_logged=1
+        fi
+        sleep 5
+        continue
+      fi
     fi
-    AUTH_PULL_STATUS="ok"
-    AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
-    return 0
-  else
-    api_status=$?
-    if [[ "$api_output" == offline:* ]]; then
-      offline_reason="${api_output#offline:}"
-    fi
-  fi
+    break
+  done
   case "$api_status" in
     10)
       log_warn "Auth sync denied: invalid API key; removing local auth.json"
@@ -670,6 +696,12 @@ PY
     24)
       log_warn "Auth sync blocked: insecure host window is closed; enable it in the admin dashboard and retry."
       AUTH_PULL_STATUS="insecure"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      return 1
+      ;;
+    26)
+      log_warn "Auth sync blocked: insecure host approval denied."
+      AUTH_PULL_STATUS="insecure-denied"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
       ;;

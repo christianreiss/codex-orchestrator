@@ -129,12 +129,21 @@
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
+    const insecureApprovalToggle = document.getElementById('insecureApprovalToggle');
+    const insecureApprovalLabel = document.getElementById('insecureApprovalLabel');
     const codexVersionSelect = document.getElementById('codexVersionSelect');
     const codexVersionMeta = document.getElementById('codexVersionMeta');
     const accessBlockModal = document.getElementById('accessBlockModal');
     const accessBlockTitle = document.getElementById('accessBlockTitle');
     const accessBlockBody = document.getElementById('accessBlockBody');
     const accessBlockDismiss = document.getElementById('accessBlockDismiss');
+    const insecureApprovalModal = document.getElementById('insecureApprovalModal');
+    const insecureApprovalSubtitle = document.getElementById('insecureApprovalSubtitle');
+    const insecureApprovalHost = document.getElementById('insecureApprovalHost');
+    const insecureApprovalFqdn = document.getElementById('insecureApprovalFqdn');
+    const insecureApprovalTime = document.getElementById('insecureApprovalTime');
+    const insecureApprovalApprove = document.getElementById('insecureApprovalApprove');
+    const insecureApprovalDeny = document.getElementById('insecureApprovalDeny');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
@@ -277,11 +286,15 @@
     let quotaLimitPercent = QUOTA_LIMIT_DEFAULT;
     let quotaWeekPartition = QUOTA_WEEK_PARTITION_OFF;
     let cdxSilent = false;
+    let insecureApprovalEnabled = false;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
     let costHistory = null;
     let costHistoryPromise = null;
     let activeHostId = null;
+    let activeInsecureApproval = null;
+    const insecureApprovalQueue = [];
+    let insecureApprovalBusy = false;
     const INSECURE_WINDOW_MIN = 0;
     const INSECURE_WINDOW_MAX = 480;
     const INSECURE_WINDOW_DEFAULT = 10;
@@ -732,6 +745,12 @@
       cdxSilentToggle.checked = !!cdxSilent;
       cdxSilentLabel.textContent = cdxSilent ? 'Silent' : 'Verbose';
     }
+
+    function renderInsecureApproval() {
+      if (!insecureApprovalToggle || !insecureApprovalLabel) return;
+      insecureApprovalToggle.checked = !!insecureApprovalEnabled;
+      insecureApprovalLabel.textContent = insecureApprovalEnabled ? 'Enabled' : 'Disabled';
+    }
     function showAccessBlock(title, body) {
       if (!accessBlockModal) return;
       if (accessBlockTitle && title) accessBlockTitle.textContent = title;
@@ -755,6 +774,129 @@
       hideAccessBlock();
     }
 
+    function showInsecureApprovalModal(show) {
+      if (!insecureApprovalModal) return;
+      if (show) {
+        insecureApprovalModal.classList.add('show');
+      } else {
+        insecureApprovalModal.classList.remove('show');
+      }
+    }
+
+    function formatApprovalHostname(fqdn, hostId) {
+      if (typeof fqdn === 'string' && fqdn.trim() !== '') {
+        const trimmed = fqdn.trim();
+        const parts = trimmed.split('.');
+        return parts[0] || trimmed;
+      }
+      if (Number.isFinite(hostId) && hostId > 0) {
+        return `host-${hostId}`;
+      }
+      return 'unknown';
+    }
+
+    function setInsecureApprovalFields(request) {
+      if (!request) return;
+      const fqdn = request.fqdn || '';
+      const hostId = Number(request.hostId || 0);
+      const hostname = formatApprovalHostname(fqdn, hostId);
+      if (insecureApprovalHost) {
+        insecureApprovalHost.textContent = hostname;
+      }
+      if (insecureApprovalFqdn) {
+        insecureApprovalFqdn.textContent = fqdn || '—';
+      }
+      const timestamp = request.requestedAt || request.createdAt || '';
+      if (insecureApprovalTime) {
+        if (timestamp) {
+          const absolute = formatTimestamp(timestamp);
+          const relative = formatRelative(timestamp);
+          insecureApprovalTime.textContent = relative && relative !== '—'
+            ? `${absolute} · ${relative}`
+            : absolute;
+        } else {
+          insecureApprovalTime.textContent = '—';
+        }
+      }
+      if (insecureApprovalSubtitle) {
+        const command = request.command ? ` (${request.command})` : '';
+        insecureApprovalSubtitle.textContent = `Insecure host access request${command}.`;
+      }
+    }
+
+    function presentInsecureApproval(request) {
+      activeInsecureApproval = request;
+      setInsecureApprovalFields(request);
+      showInsecureApprovalModal(true);
+    }
+
+    function enqueueInsecureApproval(request) {
+      if (!request || !request.id) return;
+      if (activeInsecureApproval && activeInsecureApproval.id === request.id) return;
+      if (insecureApprovalQueue.some((item) => item.id === request.id)) return;
+      insecureApprovalQueue.push(request);
+      if (!activeInsecureApproval) {
+        const next = insecureApprovalQueue.shift();
+        if (next) presentInsecureApproval(next);
+      }
+    }
+
+    function resolveInsecureApproval(requestId) {
+      if (!requestId) return;
+      const remaining = [];
+      insecureApprovalQueue.forEach((item) => {
+        if (item.id !== requestId) remaining.push(item);
+      });
+      insecureApprovalQueue.length = 0;
+      insecureApprovalQueue.push(...remaining);
+
+      if (activeInsecureApproval && activeInsecureApproval.id === requestId) {
+        activeInsecureApproval = null;
+        showInsecureApprovalModal(false);
+        const next = insecureApprovalQueue.shift();
+        if (next) presentInsecureApproval(next);
+      }
+    }
+
+    function setInsecureApprovalButtonsDisabled(disabled) {
+      if (insecureApprovalApprove) insecureApprovalApprove.disabled = disabled;
+      if (insecureApprovalDeny) insecureApprovalDeny.disabled = disabled;
+    }
+
+    async function approveInsecureApproval() {
+      if (!activeInsecureApproval || insecureApprovalBusy) return;
+      const requestId = activeInsecureApproval.id;
+      insecureApprovalBusy = true;
+      setInsecureApprovalButtonsDisabled(true);
+      try {
+        await api(`/admin/insecure-approvals/${requestId}/approve`, { method: 'POST' });
+        toast('Insecure host window enabled', 'ok');
+        resolveInsecureApproval(requestId);
+      } catch (err) {
+        toast(`Enable failed: ${err.message}`, 'error');
+      } finally {
+        insecureApprovalBusy = false;
+        setInsecureApprovalButtonsDisabled(false);
+      }
+    }
+
+    async function denyInsecureApproval() {
+      if (!activeInsecureApproval || insecureApprovalBusy) return;
+      const requestId = activeInsecureApproval.id;
+      insecureApprovalBusy = true;
+      setInsecureApprovalButtonsDisabled(true);
+      try {
+        await api(`/admin/insecure-approvals/${requestId}/deny`, { method: 'POST' });
+        toast('Insecure host request cancelled', 'ok');
+        resolveInsecureApproval(requestId);
+      } catch (err) {
+        toast(`Cancel failed: ${err.message}`, 'error');
+      } finally {
+        insecureApprovalBusy = false;
+        setInsecureApprovalButtonsDisabled(false);
+      }
+    }
+
 
     async function loadCdxSilent() {
       if (!cdxSilentToggle) return;
@@ -764,6 +906,17 @@
         renderCdxSilent();
       } catch (err) {
         console.warn('cdx silent state unavailable', err);
+      }
+    }
+
+    async function loadInsecureApproval() {
+      if (!insecureApprovalToggle) return;
+      try {
+        const res = await api('/admin/insecure-approval');
+        insecureApprovalEnabled = !!res?.data?.enabled;
+        renderInsecureApproval();
+      } catch (err) {
+        console.warn('insecure approval state unavailable', err);
       }
     }
 
@@ -784,6 +937,26 @@
         renderCdxSilent();
       } finally {
         cdxSilentToggle.disabled = false;
+      }
+    }
+
+    async function setInsecureApproval(nextValue) {
+      if (!insecureApprovalToggle) return;
+      const previous = insecureApprovalEnabled;
+      insecureApprovalEnabled = !!nextValue;
+      renderInsecureApproval();
+      insecureApprovalToggle.disabled = true;
+      try {
+        await api('/admin/insecure-approval', {
+          method: 'POST',
+          json: { enabled: !!nextValue },
+        });
+      } catch (err) {
+        toast(`Insecure approval update failed: ${err.message}`, 'error');
+        insecureApprovalEnabled = previous;
+        renderInsecureApproval();
+      } finally {
+        insecureApprovalToggle.disabled = false;
       }
     }
 
@@ -2629,6 +2802,10 @@
 
         currentOverview = overview?.data || {};
         setMtls(currentOverview.mtls);
+        if (typeof currentOverview.insecure_approval_enabled !== 'undefined') {
+          insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
+          renderInsecureApproval();
+        }
         const runnerInfo = runner?.data || runnerSummary || null;
         if (runnerInfo) {
           runnerSummary = runnerInfo;
@@ -3950,6 +4127,10 @@
           cdxSilent = !!currentOverview.cdx_silent;
           renderCdxSilent();
         }
+        if (typeof currentOverview.insecure_approval_enabled !== 'undefined') {
+          insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
+          renderInsecureApproval();
+        }
         if (typeof currentOverview.inactivity_window_days !== 'undefined') {
           inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
           renderInactivityWindowDays();
@@ -4888,6 +5069,12 @@
     if (costHistoryCloseBtn) {
       costHistoryCloseBtn.addEventListener('click', () => showCostHistoryModal(false));
     }
+    if (insecureApprovalApprove) {
+      insecureApprovalApprove.addEventListener('click', () => approveInsecureApproval());
+    }
+    if (insecureApprovalDeny) {
+      insecureApprovalDeny.addEventListener('click', () => denyInsecureApproval());
+    }
     if (cancelDeleteHostBtn) {
       cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);
     }
@@ -4909,6 +5096,11 @@
         setCdxSilent(cdxSilentToggle.checked);
       });
     }
+    if (insecureApprovalToggle) {
+      insecureApprovalToggle.addEventListener('change', () => {
+        setInsecureApproval(insecureApprovalToggle.checked);
+      });
+    }
     if (codexVersionSelect) {
       codexVersionSelect.addEventListener('change', () => {
         setCodexVersionSelection(codexVersionSelect.value);
@@ -4922,11 +5114,32 @@
       }
       if (detail.type !== 'log.created') return;
       const action = String(detail.payload?.action || '');
+      if (action === 'auth.insecure.pending') {
+        const details = detail.payload?.details || {};
+        const requestId = Number(details.request_id || 0);
+        if (Number.isFinite(requestId) && requestId > 0) {
+          enqueueInsecureApproval({
+            id: requestId,
+            hostId: Number(detail.payload?.host_id || details.host_id || 0),
+            fqdn: details.fqdn || '',
+            requestedAt: details.requested_at || detail.payload?.created_at || null,
+            createdAt: detail.payload?.created_at || null,
+            command: details.command || '',
+          });
+        }
+      } else if (action === 'admin.insecure.approval' || action === 'admin.insecure.denied') {
+        const details = detail.payload?.details || {};
+        const requestId = Number(details.request_id || 0);
+        if (Number.isFinite(requestId) && requestId > 0) {
+          resolveInsecureApproval(requestId);
+        }
+      }
       if (!shouldRefreshOverviewForAction(action)) return;
       scheduleOverviewLiveRefresh();
     });
     loadApiState();
     loadCdxSilent();
+    loadInsecureApproval();
 
     function wireNavShortcuts() {
       const navNewHost = document.getElementById('navNewHost');

@@ -799,6 +799,10 @@ case "$AUTH_PULL_STATUS" in
     api_label="Insecure host blocked"
     api_tone="red"
     ;;
+  insecure-denied)
+    api_label="Insecure approval denied"
+    api_tone="red"
+    ;;
 esac
 
 auth_label="n/a"
@@ -819,6 +823,8 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   fi
 elif [[ "$AUTH_PULL_STATUS" == "insecure" ]]; then
   auth_label="insecure host window closed"
+elif [[ "$AUTH_PULL_STATUS" == "insecure-denied" ]]; then
+  auth_label="insecure host approval denied"
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_label="auth sync failed"
 fi
@@ -1764,6 +1770,9 @@ case "$AUTH_PULL_STATUS" in
     ;;
   insecure)
     AUTH_LAUNCH_REASON="Insecure host API disabled; enable the host window in the admin dashboard."
+    ;;
+  insecure-denied)
+    AUTH_LAUNCH_REASON="Insecure host approval denied; re-run or open the host window."
     ;;
   fail)
     AUTH_LAUNCH_REASON="Auth sync failed; check API connectivity."
