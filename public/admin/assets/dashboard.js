@@ -266,7 +266,9 @@
     syncHostTabs();
     let lastOverview = null;
     let chatgptUsage = null;
-    let chatgptLiveUpdateTimer = null;
+    let overviewLiveUpdateTimer = null;
+    let overviewLiveUpdateInFlight = false;
+    let overviewLiveUpdateQueued = false;
     let apiDisabled = null;
     let mtlsMeta = null;
     let uploadFileContent = '';
@@ -2514,27 +2516,67 @@
       }
     }
 
-    async function refreshChatGptUsageLive() {
-      if (!chatgptUsageCard) return;
+    function isDashboardView() {
+      const viewMode = (document.body?.dataset?.viewMode || '').toLowerCase();
+      return viewMode === 'dashboard';
+    }
+
+    function shouldRefreshOverviewForAction(action) {
+      if (!action) return false;
+      if (action === 'register') return true;
+      if (action === 'token.usage') return true;
+      if (action === 'chatgpt.usage') return true;
+      if (action.startsWith('auth.')) return true;
+      if (action.startsWith('host.')) return true;
+      if (action.startsWith('admin.host.')) return true;
+      if (action.startsWith('pricing.')) return true;
+      return false;
+    }
+
+    async function refreshOverviewLive() {
+      if (!statsEl) return;
+      if (overviewLiveUpdateInFlight) {
+        overviewLiveUpdateQueued = true;
+        return;
+      }
+      overviewLiveUpdateInFlight = true;
       try {
-        const res = await api('/admin/chatgpt/usage');
-        chatgptUsage = res?.data || null;
-        chatgptUsageHistory = null;
-        chatgptUsageHistoryPromise = null;
-        renderChatGptUsage(chatgptUsage);
+        const [overview, runner] = await Promise.all([
+          api('/admin/overview'),
+          api('/admin/runner').catch((err) => {
+            console.warn('Runner status unavailable', err);
+            return null;
+          }),
+        ]);
+
+        currentOverview = overview?.data || {};
+        setMtls(currentOverview.mtls);
+        const runnerInfo = runner?.data || runnerSummary || null;
+        if (runnerInfo) {
+          runnerSummary = runnerInfo;
+        }
+
+        renderStats(currentOverview, runnerInfo);
+        renderDashboardGrid(currentOverview, runnerInfo, currentHosts);
+        evaluateSeedRequirement(currentOverview, currentHosts);
       } catch (err) {
-        console.warn('ChatGPT usage live update failed', err);
+        console.warn('Live overview update failed', err);
+      } finally {
+        overviewLiveUpdateInFlight = false;
+        if (overviewLiveUpdateQueued) {
+          overviewLiveUpdateQueued = false;
+          scheduleOverviewLiveRefresh(750);
+        }
       }
     }
 
-    function scheduleChatGptUsageLiveRefresh() {
-      if (chatgptLiveUpdateTimer) {
-        clearTimeout(chatgptLiveUpdateTimer);
-      }
-      chatgptLiveUpdateTimer = window.setTimeout(() => {
-        chatgptLiveUpdateTimer = null;
-        refreshChatGptUsageLive();
-      }, 500);
+    function scheduleOverviewLiveRefresh(delay = 1000) {
+      if (!isDashboardView()) return;
+      if (overviewLiveUpdateTimer || overviewLiveUpdateInFlight) return;
+      overviewLiveUpdateTimer = window.setTimeout(() => {
+        overviewLiveUpdateTimer = null;
+        refreshOverviewLive();
+      }, delay);
     }
 
     function wireChatGptControls() {
@@ -4797,9 +4839,9 @@
     window.addEventListener('admin-ws-event', (event) => {
       const detail = event?.detail || {};
       if (detail.type !== 'log.created') return;
-      const action = detail.payload?.action || '';
-      if (action !== 'chatgpt.usage') return;
-      scheduleChatGptUsageLiveRefresh();
+      const action = String(detail.payload?.action || '');
+      if (!shouldRefreshOverviewForAction(action)) return;
+      scheduleOverviewLiveRefresh();
     });
     loadApiState();
     loadCdxSilent();
