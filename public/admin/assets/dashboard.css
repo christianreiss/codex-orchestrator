@@ -193,7 +193,7 @@ body {
       padding: 9px 12px;
       font-weight: 700;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(12, 19, 28, 0.06);
+      box-shadow: none;
     }
     .nav-btn.primary {
       background: var(--accent-gradient);
@@ -318,14 +318,13 @@ body {
       font-weight: 800;
       letter-spacing: -0.2px;
       text-decoration: none;
-      box-shadow: 0 15px 35px rgba(var(--accent-rgb),0.35);
       transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
     }
     .nav-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 20px 45px rgba(var(--accent-rgb),0.45);
       background: linear-gradient(130deg, #0c8b66, #0a5f47);
       border-color: rgba(var(--accent-rgb),0.8);
+      box-shadow: none;
+      transform: none;
     }
     .muted { color: var(--muted); font-size: 13px; }
     main.main { padding-bottom: 32px; }
@@ -712,16 +711,15 @@ body {
       cursor: pointer;
       background: var(--accent-gradient);
       color: #f2f6ff;
-      box-shadow: 0 15px 40px rgba(var(--accent-rgb),0.3);
       transition: transform 0.08s ease, box-shadow 0.12s ease, opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
       min-height: 40px;
     }
     button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
     button:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 24px 55px rgba(var(--accent-rgb),0.4);
       background: linear-gradient(130deg, #0fb17f, #0a7b5a);
       border-color: rgba(var(--accent-rgb),0.75);
+      box-shadow: none;
+      transform: none;
     }
     button.ghost {
       background: #ffffff;
@@ -733,26 +731,27 @@ body {
       background: rgba(var(--accent-rgb),0.08);
       border-color: rgba(var(--accent-rgb),0.35);
       color: var(--text);
+      box-shadow: none;
+      transform: none;
     }
     button.primary, .primary {
       background: var(--accent-gradient);
       color: #f4fbff;
       border: 1px solid rgba(var(--accent-rgb),0.65);
       border-radius: var(--radius);
-      box-shadow: 0 10px 26px rgba(var(--accent-rgb),0.25);
       cursor: pointer;
       padding: 10px 14px;
       font-weight: 700;
     }
     button.primary:hover:not(:disabled), .primary:hover:not(:disabled) {
-      box-shadow: 0 16px 36px rgba(var(--accent-rgb),0.3);
-      transform: translateY(-1px);
+      box-shadow: none;
+      transform: none;
     }
     .api-enabled {
       background: rgba(82, 242, 196, 0.12);
       color: var(--success);
       border-color: rgba(82,242,196,0.4);
-      box-shadow: 0 0 30px rgba(82,242,196,0.25);
+      box-shadow: none;
     }
     .api-enabled:hover:not(:disabled) {
       background: rgba(82,242,196,0.2);
@@ -762,7 +761,7 @@ body {
       background: rgba(255, 208, 103, 0.12);
       color: var(--warning);
       border-color: rgba(255,208,103,0.45);
-      box-shadow: 0 0 30px rgba(255,208,103,0.2);
+      box-shadow: none;
     }
     .api-disabled:hover:not(:disabled) {
       background: rgba(255,208,103,0.2);
@@ -772,12 +771,12 @@ body {
       background: linear-gradient(125deg, rgba(var(--accent-rgb),0.95), rgba(16,38,70,0.95));
       color: #ecf6ff;
       border-color: rgba(var(--accent-rgb),0.6);
-      box-shadow: 0 15px 30px rgba(var(--accent-rgb),0.35);
+      box-shadow: none;
     }
     .runner-accent:hover:not(:disabled) {
       background: linear-gradient(125deg, rgba(var(--accent-rgb),0.95), rgba(11,26,46,0.95));
       border-color: rgba(var(--accent-rgb),0.75);
-      box-shadow: 0 22px 40px rgba(var(--accent-rgb),0.4);
+      box-shadow: none;
     }
     .runner-ghost {
       border-color: rgba(var(--accent-rgb),0.35);
@@ -813,13 +812,13 @@ body {
       background: linear-gradient(135deg, #ffffff, #f5f7fb);
       color: var(--text);
       border: 1px solid rgba(15,23,42,0.1);
-      box-shadow: 0 6px 20px rgba(15,23,42,0.08);
+      box-shadow: none;
     }
     button.danger {
       background: linear-gradient(135deg, #f86574, #dc2f45);
       color: #fff;
       border-color: rgba(220,47,69,0.8);
-      box-shadow: 0 18px 40px rgba(220,47,69,0.25);
+      box-shadow: none;
     }
     .tiny-btn {
       padding: 7px 10px;

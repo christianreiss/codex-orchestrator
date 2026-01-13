@@ -44,3 +44,4 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - Global rate limits apply to non-admin routes only. Admin pages bypass them but still depend on correct client IP forwarding for host IP binding behavior elsewhere.
 - Pricing snapshot drives dashboard costs; if `PRICING_URL` is unset or failing, env defaults (`GPT51_*`, `PRICING_CURRENCY`) are used and cost charts may be zeroed until pricing is available.
 - Kill switch and quota settings are persisted; they survive restarts. ChatGPT usage snapshots respect a 5-minute cooldown unless you force refresh.
+- Button hover styles are intentionally flat (no glow or lift); if a halo appears, refresh cached `/admin/assets/dashboard.css`.

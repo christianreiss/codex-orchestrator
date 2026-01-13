@@ -1,3 +1,5 @@
+- Admin dashboard: remove hover lift on header nav buttons (menu bar, Toggler, New host); cache-bumped dashboard.css v=2026-01-13-03. (2026-01-13)
+- Admin dashboard: remove button glow across all hover states; cache-bumped dashboard.css v=2026-01-13-02. (2026-01-13)
 - cdx wrapper: enforce baked FQDN at runtime (override with `CODEX_ALLOW_FQDN_MISMATCH=1`), bumped wrapper to 2026.01.12-01. (2026-01-12)
 - Admin hosts: add “Disable all” in Insecure hosts modal and hide bulk actions unless ≥2 active insecure hosts; cache-bumped dashboard.js v=2026-01-12-02. (2026-01-12)
 - Admin hosts: fix the Insecure hosts “Extend all” button (binds reliably, shows how many hosts were extended) and cache-bump dashboard.js v=2026-01-12-01. (2026-01-12)
