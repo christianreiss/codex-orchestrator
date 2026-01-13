@@ -1679,6 +1679,78 @@ $router->add('GET', '#^/admin/ws/info$#', function () use ($adminEventRepository
     ]);
 });
 
+$router->add('POST', '#^/admin/toasts$#', function () use ($payload, $adminEventRepository, $logRepository) {
+    requireAdminAccess();
+
+    $message = $payload['message'] ?? ($payload['body'] ?? ($payload['text'] ?? null));
+    if (!is_string($message)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'message is required',
+        ], 422);
+    }
+    $message = trim($message);
+    if ($message === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'message is required',
+        ], 422);
+    }
+    if (strlen($message) > 500) {
+        $message = substr($message, 0, 500);
+    }
+
+    $title = $payload['title'] ?? null;
+    if (!is_string($title) || trim($title) === '') {
+        $title = null;
+    } else {
+        $title = trim($title);
+        if (strlen($title) > 120) {
+            $title = substr($title, 0, 120);
+        }
+    }
+
+    $levelRaw = $payload['level'] ?? ($payload['tone'] ?? 'info');
+    $levelRaw = is_string($levelRaw) ? strtolower(trim($levelRaw)) : 'info';
+    $level = match ($levelRaw) {
+        'ok', 'success' => 'success',
+        'warning', 'warn' => 'warn',
+        'error', 'fail', 'danger' => 'error',
+        default => 'info',
+    };
+
+    $timeoutRaw = $payload['timeout_ms'] ?? ($payload['timeoutMs'] ?? null);
+    $timeoutMs = null;
+    if (is_numeric($timeoutRaw)) {
+        $timeoutMs = (int) $timeoutRaw;
+        if ($timeoutMs < 1000) {
+            $timeoutMs = 1000;
+        } elseif ($timeoutMs > 20000) {
+            $timeoutMs = 20000;
+        }
+    }
+
+    $toastPayload = [
+        'message' => $message,
+        'title' => $title,
+        'level' => $level,
+        'timeout_ms' => $timeoutMs,
+    ];
+
+    $event = $adminEventRepository->append('toast', $toastPayload, null);
+    $logRepository->log(null, 'admin.toast', [
+        'level' => $level,
+        'title' => $title,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'event' => $event,
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service, $hostUserRepository, $authPayloadRepository, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();

@@ -7,6 +7,7 @@
     const navInsecureHosts = document.getElementById('navInsecureHosts');
     const insecureHostsDisableAllBtn = document.getElementById('insecureHostsDisableAll');
     const mtlsStatus = document.getElementById('mtlsStatus');
+    const toastDeck = document.getElementById('toastDeck');
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
@@ -462,39 +463,108 @@
       });
     }
 
-    function toast(message, tone = 'warn', { timeoutMs = 3500 } = {}) {
+    let toastCounter = 0;
+    const TOAST_LEVELS = new Set(['info', 'success', 'warn', 'error']);
+
+    function normalizeToastLevel(value) {
+      const raw = String(value || '').toLowerCase();
+      if (raw === 'ok' || raw === 'success') return 'success';
+      if (raw === 'warning' || raw === 'warn') return 'warn';
+      if (raw === 'error' || raw === 'fail' || raw === 'danger') return 'error';
+      if (TOAST_LEVELS.has(raw)) return raw;
+      return 'info';
+    }
+
+    function normalizeToastTimeout(value, fallback = 5000) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return fallback;
+      const clamped = Math.max(1000, Math.min(parsed, 20000));
+      return clamped;
+    }
+
+    function dismissToast(el, immediate = false) {
+      if (!el) return;
+      const timeoutId = Number(el.dataset.toastTimeout || 0);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (immediate) {
+        el.remove();
+        return;
+      }
+      el.classList.remove('show');
+      window.setTimeout(() => el.remove(), 200);
+    }
+
+    function pushToast({ title, message, level = 'info', timeoutMs = 5000 } = {}) {
+      if (!toastDeck) return;
       const msg = String(message || '').trim();
       if (!msg) return;
-      const el = document.createElement('div');
-      el.className = `toast toast-${tone}`;
-      el.textContent = msg;
-      el.style.cssText = [
-        'position: fixed',
-        'right: 16px',
-        'bottom: 16px',
-        'z-index: 99999',
-        'max-width: 420px',
-        'padding: 10px 12px',
-        'border: 1px solid rgba(255,255,255,0.10)',
-        'border-radius: 10px',
-        'background: rgba(20,20,20,0.92)',
-        'color: #eee',
-        'box-shadow: 0 10px 30px rgba(0,0,0,0.40)',
-        'font-size: 13px',
-        'line-height: 1.35',
-      ].join(';');
-      if (tone === 'ok') {
-        el.style.borderColor = 'rgba(55, 188, 137, 0.55)';
-      } else if (tone === 'error') {
-        el.style.borderColor = 'rgba(255, 107, 107, 0.55)';
-      } else {
-        el.style.borderColor = 'rgba(246, 190, 0, 0.55)';
+      const toastId = ++toastCounter;
+      const normalizedLevel = normalizeToastLevel(level);
+
+      const toastEl = document.createElement('div');
+      toastEl.className = `toast level-${normalizedLevel}`;
+      toastEl.dataset.toastId = String(toastId);
+
+      const content = document.createElement('div');
+      if (title && String(title).trim() !== '') {
+        const titleEl = document.createElement('div');
+        titleEl.className = 'toast-title';
+        titleEl.textContent = String(title).trim();
+        content.appendChild(titleEl);
       }
-      document.body.appendChild(el);
-      const kill = () => {
-        try { el.remove(); } catch {}
-      };
-      window.setTimeout(kill, timeoutMs);
+
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'toast-body';
+      bodyEl.textContent = msg;
+      content.appendChild(bodyEl);
+
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'toast-close';
+      closeBtn.setAttribute('aria-label', 'Dismiss');
+      closeBtn.textContent = '×';
+      closeBtn.addEventListener('click', () => dismissToast(toastEl, true));
+
+      toastEl.appendChild(content);
+      toastEl.appendChild(closeBtn);
+      toastDeck.appendChild(toastEl);
+
+      while (toastDeck.children.length > 5) {
+        dismissToast(toastDeck.firstElementChild, true);
+      }
+
+      requestAnimationFrame(() => toastEl.classList.add('show'));
+
+      const ttl = normalizeToastTimeout(timeoutMs);
+      const timeoutId = window.setTimeout(() => dismissToast(toastEl), ttl);
+      toastEl.dataset.toastTimeout = String(timeoutId);
+    }
+
+    function toast(message, tone = 'warn', { timeoutMs = 3500, title = null } = {}) {
+      pushToast({
+        title,
+        message,
+        level: normalizeToastLevel(tone),
+        timeoutMs,
+      });
+    }
+
+    function toastFromEvent(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      const message = payload.message ?? payload.body ?? payload.text ?? null;
+      if (typeof message !== 'string' || message.trim() === '') return;
+      const title = typeof payload.title === 'string' ? payload.title : null;
+      const level = payload.level ?? payload.tone ?? payload.status ?? 'info';
+      const timeoutMs = normalizeToastTimeout(payload.timeout_ms ?? payload.timeoutMs ?? payload.ttl_ms ?? 5000);
+
+      pushToast({
+        title,
+        message,
+        level,
+        timeoutMs,
+      });
     }
 
     function copyToClipboard(text) {
@@ -4838,6 +4908,10 @@
     }
     window.addEventListener('admin-ws-event', (event) => {
       const detail = event?.detail || {};
+      if (detail.type === 'toast') {
+        toastFromEvent(detail.payload);
+        return;
+      }
       if (detail.type !== 'log.created') return;
       const action = String(detail.payload?.action || '');
       if (!shouldRefreshOverviewForAction(action)) return;
