@@ -2044,14 +2044,6 @@
         full: true,
       });
 
-      const versionOverride = normalizeCodexVersion(host.client_version_override || '');
-      rows.push({
-        key: 'Codex version',
-        value: versionOverride ? `<code>${escapeHtml(versionOverride)}</code>` : '<span class="muted">Global (fleet)</span>',
-        desc: 'Optional per-host Codex CLI version pin. “Global” means use fleet-wide policy.',
-        full: true,
-      });
-
       return rows;
     }
 
