@@ -17,12 +17,12 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Per-host API keys are hashed/encrypted at rest, IP-bound on first use, and rotated when a host is re-registered.
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot and legacy plaintext rows are migrated automatically.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
-- Runner sidecar validates canonical auth daily and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` when down.
+- Runner sidecar validates canonical auth daily and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (store uploads require a reachable runner; admin uploads bypass).
 - Extras ride the same API: slash-command + Skill distribution, MCP memories (store/retrieve/search), token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and GPT‑5.1 pricing pulls for dashboard costs.
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/slash/skills/pricing/chatgpt).
+- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/slash/skills/agents/config/MCP/usage/pricing/chatgpt).
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
@@ -47,7 +47,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, synthesizes from tokens when needed, and **runs the auth runner before persisting** (non-OK runner results reject the upload; admin uploads bypass). On success, it hashes canonical JSON, stores encrypted body + per-target entries, updates the canonical pointer/host sync state/digest cache. Runner-provided `updated_auth` is stored when it is newer than the upload, and same-timestamp digest differences are accepted when runner validation passes.
 
 3) **Runner validation**
-   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). Scheduled run every ~8h + on stores; recovery/backoff when the runner is failing; optional IP bypass CIDRs. Runner failures are logged (`auth.validate`/`auth.runner_store`) but do not block serving/accepting auth.
+   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). Scheduled run every ~8h + on stores; recovery/backoff when the runner is failing; optional IP bypass CIDRs. Runner failures are logged (`auth.validate`/`auth.runner_store`), do not block `/auth` retrieve, but **do** block `/auth` store uploads (admin uploads/seed bypass the runner).
 
 4) **Wrapper distribution**
    - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).

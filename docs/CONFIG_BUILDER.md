@@ -36,6 +36,8 @@ The config builder exposes the currently supported experimental feature flags un
 - `background_terminal` — run long-running terminal commands in the background.
 - `unified_exec` — use the unified PTY-backed exec tool.
 - `rmcp_client` — enable OAuth for streamable HTTP MCP servers.
+- `web_search_request` — allow web search tool calls.
+- `view_image_tool` — enable image input tooling for supported clients.
 - `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
 - `ghost_commit` — create a ghost commit on each turn.
 - `experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.

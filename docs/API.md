@@ -6,7 +6,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
 - **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_ACCESS_MODE=mtls` (default). With `ADMIN_ACCESS_MODE=none`, secure the path via VPN/firewall.
 - **IP binding**: first successful `/auth` (or wrapper fetch) pins the caller IP; later calls from another IP return `403` unless `allow_roaming_ips` is enabled or `DELETE /auth?force=1` is used. Runner calls may bypass IP binding when `AUTH_RUNNER_IP_BYPASS=1` and the runner IP is inside `AUTH_RUNNER_BYPASS_SUBNETS`.
-- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 0–480 minute sliding window (default 10, set via log-ish dashboard slider or `duration_minutes`) with `POST /admin/hosts/{id}/insecure/enable`. Disabling the window blocks `retrieve` immediately with `403 insecure_api_disabled` but starts a 60‑minute grace period during which `store` calls remain allowed so hosts can finish uploading changes.
+- **Host security modes**: hosts default to `secure=true`. Setting `secure=false` (via admin register/secure toggle) marks the host as “insecure”; `/auth` is allowed only while its **insecure window** is open. A new insecure host gets a 30‑minute provisioning window; admins can reopen a 0–480 minute sliding window (default 10, set via log-ish dashboard slider or `duration_minutes`) with `POST /admin/hosts/{id}/insecure/enable`. Disabling the window blocks both `retrieve` and `store` immediately with `403 insecure_api_disabled` (no grace period).
 - **Kill switch**: `POST /admin/api/state` sets a persistent `api_disabled` flag. When enabled, every non-`/admin/api/state` route (including `/auth`) returns HTTP 503.
 - **Rate limits** (non-admin paths only):
   - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
@@ -31,10 +31,10 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 - Store: `updated` (newer or different), `unchanged`, `outdated` (server newer; canonical returned).
 
 **Response fields (varies by status)**
-- `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`.
-- `host`: fqdn/status/versions/api_calls/allow_roaming_ips/secure/`vip`/optional `expires_at`/insecure window timestamps/`insecure_window_minutes`.
-- `api_calls`, `token_usage_month` (per-host month-to-date sums), `quota_hard_fail` flag, `quota_limit_percent`.
-- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`sha256`/`url`, `reported_client_version`, `quota_hard_fail`, `quota_limit_percent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
+- `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on `retrieve` when an upload is required.
+- `host`: fqdn/status/last_refresh/updated_at/expires_at, client_version/client_version_override/wrapper_version, api_calls, allow_roaming_ips, secure, vip, insecure window timestamps + `insecure_window_minutes`, `force_ipv4`, optional model overrides (`model_override`, `reasoning_effort_override`).
+- `api_calls`, `token_usage_month` (month-to-date totals incl. cached/reasoning/cost/events), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
+- `versions`: `client_version` (+source/checked_at), `wrapper_version`/`wrapper_sha256`/`wrapper_url`, `reported_client_version`, `quota_*` flags, `cdx_silent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
 - `chatgpt_usage`: latest window summary if a snapshot exists (primary/secondary window percentages, limits, reset timing, status, plan_type, next_eligible_at).
 
@@ -56,12 +56,14 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /skills/store` — body: `slug`, `manifest` (or `content`), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
 ### Config
-- `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), canonical `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When per-host model overrides are set, the baked config also overrides `model` and `model_reasoning_effort` so the host’s `~/.codex/config.toml` reflects its effective defaults. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
+- `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256` (template hash), `updated_at`, `size_bytes`, and `content` when updated. When per-host model overrides are set, the baked config also overrides `model` and `model_reasoning_effort` so the host’s `~/.codex/config.toml` reflects its effective defaults. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
 
 ### MCP memories
 - `POST /mcp/memories/store` — body: `content` (required, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when missing), optional `metadata` (object), optional `tags` (array of up to 32 strings, each ≤64 chars). Returns `status` `created` | `updated` | `unchanged` and `memory` (`id`, `content`, `metadata`, `tags`, timestamps).
 - `POST /mcp/memories/retrieve` — body: `id`|`memory_id`|`key` (required). Returns `status:found|missing` and `memory` when found.
 - `POST /mcp/memories/search` — body: `query`/`q` (string; empty lists recent), optional `limit` (1–100, default 20), optional `tags` (must all match). Results include `matches` ordered by MySQL full-text score (when query provided) with `score` + `memory` payloads.
+- `POST /mcp/memories/delete` — body: `id`|`memory_id`|`key` (required). Returns `status:deleted|missing`.
+- `DELETE /mcp/memories/{id}` — deletes by memory key (URL decoded); response matches `POST /mcp/memories/delete`.
 
 ### Wrapper
 - `GET /wrapper` — metadata for the baked `cdx` wrapper for this host (`version`, `sha256` per-host, `size_bytes`, `updated_at`, `url`). Auth required.
@@ -76,17 +78,22 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/versions/check` — forces a fresh GitHub release lookup (bypassing 3h cache) and returns `{available_client, versions}`.
 - `POST /admin/codex-version` — set the fleet Codex CLI version policy. Body: `{ selection: "latest" | "<x.y.z>" }`. `latest` keeps the GitHub-latest flow; selecting a specific version pins the server-reported `versions.client_version` to that release.
 
-## Admin Endpoints (mTLS + optional admin key)
-- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m), `quota_hard_fail`, `quota_limit_percent`, and mTLS metadata.
-- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4`, `curl_insecure`, latest token usage, and recorded users.
-- `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + insecure window timestamp, RFC3339 / `DATE_ATOM`) for quick actions.
+## Admin Endpoints (mTLS)
+- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m) plus `chatgpt_cached`/`chatgpt_next_eligible_at`, quota flags (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`), `cdx_silent`, `inactivity_window_days`, optional Codex pin metadata (`client_version_lock`, `client_version_lock_updated_at`), and mTLS metadata.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IP, roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4`, `curl_insecure`, per-host overrides (`client_version_override`, `model_override`, `reasoning_effort_override`), latest token usage, and recorded users.
+- `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + `insecure_enabled_until` and `secure` flag) for quick actions.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure vs insecure mode.
 - `POST /admin/hosts/{id}/vip` — toggle VIP status; VIP hosts never hard-fail on quota (warn-only regardless of global policy).
+- `POST /admin/hosts/{id}/ipv4` — toggle IPv4-only wrapper behavior (`force` boolean; clears stored IP and bakes `curl -4`).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle TLS verification bypass for host sync (`allow` boolean).
+- `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears).
+- `POST /admin/hosts/{id}/codex-version` — set per-host Codex CLI pin. Body `{selection:"global"|"<x.y.z>"}` (or `client_version_override` string/null).
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a sliding allow window. Optional JSON body `duration_minutes` (integer 0–480) controls the window length (defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
-- `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and starts a 60‑minute grace period during which `/auth` `store` calls are still allowed (retrieves remain blocked).
+- `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately (no grace).
+- `POST /admin/hosts/insecure/extend` — bulk-extend all currently active insecure windows by each host’s configured duration.
+- `POST /admin/hosts/insecure/disable-all` — bulk-close all active insecure windows.
 - `POST /admin/hosts/{id}/clear` — clear canonical auth state (resets digest/last_refresh, deletes host→payload pointer, prunes digests).
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (body JSON or `file`). `host_id` optional; omitted/`0`/`system` stores an unscoped payload. Skips runner.
@@ -94,13 +101,17 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `GET /seed/auth/{uuid}` — serve the seed shell script for the one-time command.
 - `POST /seed/auth/{uuid}` — accept a raw auth payload (or `{ "auth": ... }`), validate/store canonical auth, and consume the seed token. Runner is skipped.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set `api_disabled` kill switch (only path left available when disabled).
-- `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail` and `limit_percent` (50–100). When false, clients warn once the configured percent is used but still launch Codex; when true, they stop once the limit is reached.
+- `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (50–100), and optional `week_partition` (`off`, `7`, `5`).
+- `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set fleet-wide wrapper quiet mode (`silent` boolean).
+- `POST /admin/prune-policy` — set host inactivity pruning window. Body `{inactivity_days: 0..60}`.
 - Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.
-- Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50` (includes aggregate `cost` + `currency`), `GET /admin/tokens?limit=50`.
+- Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/mcp/logs?limit=200`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50` (includes aggregate `cost` + `currency`), `GET /admin/tokens?limit=50`.
 - Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.
 - ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
+- Agents: `GET /admin/agents`, `POST /admin/agents/store`.
+- MCP memories: `GET /admin/mcp/memories` (search/browse), `DELETE /admin/mcp/memories/{id}` (by numeric record id).
 - Config builder: `GET /admin/config` (canonical `config.toml` + `settings`), `POST /admin/config/render` (render TOML from `settings` without persisting), `POST /admin/config/store` (persist canonical config from `settings`; returns status + sha + content).
 
 ## Runner & Versions

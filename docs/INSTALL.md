@@ -33,8 +33,9 @@ What it does
   - Random `DB_USERNAME`, `DB_PASSWORD`, `DB_ROOT_PASSWORD` if defaults are still present.
 - Prompts for `DATA_ROOT` (default `/var/docker_data/codex-auth.example.com`) and creates `store`, `store/sql`, `store/logs`, `mysql_data`, `caddy/tls`, `caddy/mtls`, and `backups` under it.
 - Prompts for external URLs used by hosts/runner:
-  - `CODEX_SYNC_BASE_URL` (API URL baked into installers/wrapper)
+  - `CODEX_SYNC_BASE_URL` (runner container base URL for Codex probes; defaults to the API URL in compose)
   - `AUTH_RUNNER_CODEX_BASE_URL` (runner’s Codex base URL; defaults to the same value)
+  - If you do not rely on forwarded Host/Proto headers, set `PUBLIC_BASE_URL` manually so installers/wrappers bake the correct base URL.
 - Seeds sensible runner defaults so the runner can bypass host IP pinning inside the compose network (`AUTH_RUNNER_IP_BYPASS=1`, `AUTH_RUNNER_BYPASS_SUBNETS=172.28.0.0/16,172.30.0.0/16`).
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
   - Lets you keep or disable the mTLS requirement for `/admin` (`ADMIN_ACCESS_MODE`).
@@ -54,7 +55,7 @@ Useful flags
 - `--no-build` / `--no-up` — control compose phases separately.
 - `--non-interactive` — never prompt; combine with the flags below to supply values.
 - `--data-root PATH` — set `DATA_ROOT` without prompting.
-- `--codex-url URL` / `--runner-url URL` — set `CODEX_SYNC_BASE_URL` / `AUTH_RUNNER_CODEX_BASE_URL`.
+- `--codex-url URL` / `--runner-url URL` — set `CODEX_SYNC_BASE_URL` / `AUTH_RUNNER_CODEX_BASE_URL` (runner probes). Set `PUBLIC_BASE_URL` separately if you need an explicit host-facing base URL.
 - `--caddy` or `--no-caddy` — force enable/disable the bundled proxy.
 - `--caddy-domain DOMAIN` — seed `CADDY_DOMAIN`.
 - TLS options: `--tls-mode 1|2|3`, `--acme-email`, `--tls-cert-path`, `--tls-key-path`, `--tls-cert`, `--tls-key`, `--tls-sans`.
@@ -92,7 +93,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - Runner knobs: `AUTH_RUNNER_URL` (blank to disable), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
    - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.1 price hints (`GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`).
-   - Debug/ops: `CODEX_SYNC_BASE_URL` (baked into installers/wrapper), `CODEX_DEBUG` (echo runner base URL/API key), `ENV_FILE` if you keep `.env` elsewhere.
+  - Debug/ops: `PUBLIC_BASE_URL` (explicit host-facing base URL for installers/wrapper), `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG` (echo runner base URL/API key), `ENV_FILE` if you keep `.env` elsewhere.
 3. Ensure `.env` is kept out of git and treated as a secret.
 
 ## Build and Run

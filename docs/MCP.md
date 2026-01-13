@@ -5,22 +5,23 @@ Native streamable HTTP MCP endpoint plus REST helpers for Codex hosts. Uses host
 ## Endpoints
 
 - `POST /mcp` — JSON-RPC 2.0, streamable_http spec `2025-03-26`. Accepts batch or single requests.
-- `POST /mcp/memories/store|retrieve|search` — REST helpers that back the memory tools.
+- `POST /mcp/memories/store|retrieve|search|delete` — REST helpers that back the memory tools.
+- `DELETE /mcp/memories/{id}` — delete by memory key (URL decoded).
 
 ## Auth & safety
 
 - `Authorization: Bearer {host_api_key}` required.
 - IP binding enforced (same rules as `/auth`); enable `allow_roaming_ips` on the host if the IDE moves networks.
 - Insecure hosts: window enforced the same as `/auth` (call extends window when enabled).
-- Origin allowlist: `MCP_ALLOWED_ORIGINS` controls CORS; disallowed origins get 403 `Origin not allowed`.
+- Origin allowlist: `MCP_ALLOWED_ORIGINS` plus `PUBLIC_BASE_URL` and the current Host/proto are accepted; disallowed origins get 403 `Origin not allowed` (missing Origin is allowed).
 - Rate limits: global per-IP bucket applies (same as other non-admin routes).
-- Access is logged; browse via `/admin/mcp-logs.html`.
+- Access is logged; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
 
 ## Tools (names satisfy `^[a-zA-Z0-9_-]+$`)
 
 - Memory: `memory_store`, `memory_retrieve`, `memory_search`.
 - Scoped notes: `memory_append`, `memory_query`, `memory_list` (tags memories with `resource:{id}`).
-- Resources: `resources/templates/list`, `resources/list`, `resources/read`, plus tool aliases `resource_read|create|update|delete|list`. URIs are `memory://{id}`.
+- Resources: `resources/templates/list`, `resources/list`, `resources/read`, plus tool aliases `resource_read|create|update|delete|list`. Templates include `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`).
 - Filesystem (app root sandbox): `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_stat`, `fs_file_exists`, `fs_search_in_files`.
 - Aliases: `list_tools|tools.list`, `call_tool|tools.call`, dot variants for tools/resources are accepted; names are normalized with underscores.
 
