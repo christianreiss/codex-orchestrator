@@ -134,20 +134,35 @@ class AuthService
 
         if ($apiKey === null || $apiKey === '') {
             $this->throttleAuthFailures($ip, 'missing_api_key');
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'missing_api_key',
+                'ip' => $ip,
+            ]);
             throw new HttpException('API key missing', 401);
         }
 
         $host = $this->hosts->findByApiKey($apiKey);
         if (!$host) {
             $this->throttleAuthFailures($ip, 'invalid_api_key');
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'invalid_api_key',
+                'ip' => $ip,
+            ]);
             throw new HttpException('Invalid API key', 401);
         }
 
+        $hostId = (int) $host['id'];
+
         if (($host['status'] ?? '') !== 'active') {
+            $this->logs->log($hostId, 'auth.denied', [
+                'reason' => 'host_disabled',
+                'fqdn' => $host['fqdn'] ?? null,
+                'status' => $host['status'] ?? null,
+                'ip' => $ip,
+            ]);
             throw new HttpException('Host is disabled', 403);
         }
 
-        $hostId = (int) $host['id'];
         $allowsRoaming = isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false;
         $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
 
@@ -212,6 +227,12 @@ class AuthService
                         $ip,
                         $ipLogReason
                     ));
+                    $this->logs->log($hostId, 'auth.denied', [
+                        'reason' => 'ip_mismatch',
+                        'fqdn' => $host['fqdn'] ?? null,
+                        'expected_ip' => $storedIp,
+                        'received_ip' => $ip,
+                    ]);
                     throw new HttpException('API key not allowed from this IP', 403, [
                         'expected_ip' => $storedIp,
                         'received_ip' => $ip,
@@ -267,10 +288,17 @@ class AuthService
 
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null, bool $skipRunner = false): array
     {
+        $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
+        $logHostId = $hostId > 0 ? $hostId : null;
         $incomingInstallation = isset($payload['installation_id']) && is_string($payload['installation_id'])
             ? trim($payload['installation_id'])
             : '';
         if ($incomingInstallation !== '' && $this->installationId !== null && $this->installationId !== '' && !hash_equals($this->installationId, $incomingInstallation)) {
+            $this->logs->log($logHostId, 'auth.denied', [
+                'reason' => 'installation_mismatch',
+                'fqdn' => $host['fqdn'] ?? null,
+                'incoming_installation_id' => $incomingInstallation,
+            ]);
             throw new HttpException('Installation ID mismatch', 403, ['code' => 'installation_mismatch']);
         }
 
@@ -281,9 +309,7 @@ class AuthService
 
         $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $hostVip = isset($host['vip']) ? (bool) (int) $host['vip'] : false;
-        $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
         $trackHost = $hostId > 0;
-        $logHostId = $trackHost ? $hostId : null;
 
         if (!$hostSecure) {
             $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost);

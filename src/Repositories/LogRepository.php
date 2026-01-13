@@ -52,7 +52,7 @@ class LogRepository
             // Best-effort only; log writes should never fail because of websocket events.
         }
 
-        if ($action !== 'auth.retrieve') {
+        if (!in_array($action, ['auth.retrieve', 'auth.denied', 'auth.insecure.denied'], true)) {
             return;
         }
 
@@ -60,15 +60,69 @@ class LogRepository
             $fqdn = $details['fqdn'] ?? null;
             $label = is_string($fqdn) && trim($fqdn) !== ''
                 ? trim($fqdn)
-                : ($hostId !== null ? 'host #' . $hostId : 'host');
-            $status = $details['status'] ?? null;
-            $statusLabel = is_string($status) && trim($status) !== '' ? ' (' . trim($status) . ')' : '';
+                : ($hostId !== null ? 'host #' . $hostId : 'unknown client');
+
+            if ($action === 'auth.retrieve') {
+                $status = $details['status'] ?? null;
+                $statusLabel = is_string($status) && trim($status) !== '' ? ' (' . trim($status) . ')' : '';
+
+                $this->events->append('toast', [
+                    'title' => 'CDX authorized',
+                    'message' => $label . $statusLabel,
+                    'level' => 'success',
+                    'timeout_ms' => 4500,
+                    'created_at' => $createdAt,
+                ], $hostId);
+
+                return;
+            }
+
+            if ($action === 'auth.insecure.denied') {
+                $command = $details['command'] ?? null;
+                $commandLabel = is_string($command) && trim($command) !== '' ? ' (' . trim($command) . ')' : '';
+
+                $this->events->append('toast', [
+                    'title' => 'CDX refused',
+                    'message' => $label . ' insecure window closed' . $commandLabel,
+                    'level' => 'warn',
+                    'timeout_ms' => 6000,
+                    'created_at' => $createdAt,
+                ], $hostId);
+
+                return;
+            }
+
+            $reason = is_string($details['reason'] ?? null) ? strtolower(trim((string) $details['reason'])) : '';
+            $reasonLabel = match ($reason) {
+                'missing_api_key' => 'missing API key',
+                'invalid_api_key' => 'invalid API key',
+                'host_disabled' => 'host disabled',
+                'ip_mismatch' => 'IP mismatch',
+                'installation_mismatch' => 'installation mismatch',
+                default => 'access denied',
+            };
+
+            $message = $label . ' ' . $reasonLabel;
+            if ($reason === 'ip_mismatch') {
+                $expectedIp = $details['expected_ip'] ?? null;
+                $receivedIp = $details['received_ip'] ?? null;
+                if (is_string($expectedIp) || is_string($receivedIp)) {
+                    $message .= sprintf(' (expected %s, got %s)', $expectedIp ?? 'unknown', $receivedIp ?? 'unknown');
+                }
+            } elseif (in_array($reason, ['missing_api_key', 'invalid_api_key'], true)) {
+                $ip = $details['ip'] ?? null;
+                if (is_string($ip) && trim($ip) !== '') {
+                    $message .= ' (from ' . trim($ip) . ')';
+                }
+            }
+
+            $level = in_array($reason, ['missing_api_key', 'invalid_api_key'], true) ? 'warn' : 'error';
 
             $this->events->append('toast', [
-                'title' => 'CDX authorized',
-                'message' => $label . $statusLabel,
-                'level' => 'success',
-                'timeout_ms' => 4500,
+                'title' => 'CDX refused',
+                'message' => $message,
+                'level' => $level,
+                'timeout_ms' => 6000,
                 'created_at' => $createdAt,
             ], $hostId);
         } catch (\Throwable) {

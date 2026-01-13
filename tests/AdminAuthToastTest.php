@@ -13,5 +13,8 @@ final class AdminAuthToastTest extends TestCase
 
         $this->assertStringContainsString("'auth.retrieve'", $source);
         $this->assertStringContainsString('CDX authorized', $source);
+        $this->assertStringContainsString("'auth.denied'", $source);
+        $this->assertStringContainsString("'auth.insecure.denied'", $source);
+        $this->assertStringContainsString('CDX refused', $source);
     }
 }
