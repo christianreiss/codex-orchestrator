@@ -33,6 +33,28 @@ services:
       - codex_auth
     restart: unless-stopped
 
+  admin-ws:
+    build: .
+    depends_on:
+      - mysql
+    ports:
+      - "127.0.0.1:8091:8091"
+    environment:
+      DB_DRIVER: mysql
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE:-codex_auth}
+      DB_USERNAME: ${DB_USERNAME:-codex}
+      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
+    volumes:
+      - ${ENV_FILE:-./.env}:/var/www/html/.env
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
+    networks:
+      - codex_auth
+    command: ["php", "/var/www/html/scripts/admin-ws.php"]
+    restart: unless-stopped
+
   quota-cron:
     build: .
     depends_on:

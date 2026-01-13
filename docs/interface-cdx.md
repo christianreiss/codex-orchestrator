@@ -29,6 +29,7 @@
 - When `/auth` returns a `chatgpt_usage` block, surfaces 5-hour and weekly ChatGPT quota bars during boot (with reset ETA) plus a daily allowance bar when `quota_week_partition` is enabled.
   - Honors fleet-wide silent mode (`cdx_silent` from `/auth` or `CODEX_SILENT=1` env): suppresses info/warn/debug logs and the MOTD; only errors print. Restart-on-update still runs, but the re-exec stays quiet.
   - After Codex runs, pushes updated auth if changed and sends token-usage metrics. When the host is marked **insecure** (API `host.secure=false` or baked flag), `cdx` purges `~/.codex/auth.json` after the push so credentials are not left on disk and emits an extra bootstrap warning to flag the ephemeral state.
+  - Insecure hosts with a clean sync (no updates or errors) compress the Result line to `sync ok (insecure host; auth refreshed)` to avoid repetitive noise.
 - `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
 - `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
 - `cdx <profile> [args...]` is shorthand for `cdx --profile <profile> [args...]` when the named profile exists in the synced `config.toml` (`[profiles.<profile>]`); if the profile does not exist, the argument is passed through unchanged.

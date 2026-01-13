@@ -1374,6 +1374,30 @@ elif (( QUOTA_BLOCKED )); then
   result_tone="red"
 fi
 
+insecure_compact_ok=0
+if (( ! HOST_IS_SECURE )); then
+  if (( ! codex_updated )) && (( ! codex_update_failed )) \
+    && (( ! wrapper_updated )) && (( ! wrapper_update_failed )) \
+    && [[ "$AUTH_PULL_STATUS" == "ok" ]] \
+    && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]] \
+    && [[ "$PROMPT_SYNC_STATUS" == "ok" ]] \
+    && [[ "${PROMPT_PULL_UPDATED:-0}" == "0" ]] \
+    && [[ "${PROMPT_PUSHED:-0}" == "0" ]] \
+    && [[ "${PROMPT_REMOVED:-0}" == "0" ]] \
+    && [[ "${PROMPT_PUSH_ERRORS:-0}" == "0" ]] \
+    && [[ "$SKILL_SYNC_STATUS" == "ok" ]] \
+    && [[ "${SKILL_PULL_UPDATED:-0}" == "0" ]] \
+    && [[ "${SKILL_PUSHED:-0}" == "0" ]] \
+    && [[ "${SKILL_REMOVED:-0}" == "0" ]] \
+    && [[ "${SKILL_PUSH_ERRORS:-0}" == "0" ]] \
+    && [[ "$AGENTS_SYNC_STATUS" == "ok" ]] \
+    && [[ "$AGENTS_STATE" == "unchanged" ]] \
+    && [[ "$CONFIG_SYNC_STATUS" == "ok" ]] \
+    && [[ "$CONFIG_STATE" == "unchanged" ]]; then
+    insecure_compact_ok=1
+  fi
+fi
+
 command_tone=""
 if (( ${#command_actions[@]} )); then
   command_tone="yellow"
@@ -1386,7 +1410,9 @@ if (( QUOTA_BLOCKED )); then
 fi
 
 if (( ! HOST_IS_SECURE )); then
-  if [[ "$result_tone" == "green" ]]; then
+  if (( insecure_compact_ok )); then
+    result_label="sync ok (insecure host; auth refreshed)"
+  elif [[ "$result_tone" == "green" ]]; then
     result_label="Codex to brrrr (insecure host)"
   fi
 elif [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
