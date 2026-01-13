@@ -1,3 +1,4 @@
+- Admin: add optional websocket event stream for live dashboard updates (`admin_events` table, `/admin/ws/info` bootstrap, `scripts/admin-ws.php`, admin-ws.js hook). (2026-01-13)
 - Admin dashboard: remove hover lift on header nav buttons (menu bar, Toggler, New host); cache-bumped dashboard.css v=2026-01-13-03. (2026-01-13)
 - Admin dashboard: remove button glow across all hover states; cache-bumped dashboard.css v=2026-01-13-02. (2026-01-13)
 - cdx wrapper: enforce baked FQDN at runtime (override with `CODEX_ALLOW_FQDN_MISMATCH=1`), bumped wrapper to 2026.01.12-01. (2026-01-12)

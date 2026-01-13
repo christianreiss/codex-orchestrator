@@ -238,6 +238,22 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS admin_events (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                type VARCHAR(64) NOT NULL,
+                host_id BIGINT UNSIGNED NULL,
+                payload JSON NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_admin_events_host (host_id),
+                INDEX idx_admin_events_type (type),
+                INDEX idx_admin_events_created_at (created_at),
+                CONSTRAINT fk_admin_events_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS mcp_access_logs (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NULL,

@@ -32,6 +32,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly) and fetch GPT‑5.1 pricing (HTTP or env fallback) for cost calculations.
 - **`UsageCostService` & `CostHistoryService`** — backfill missing costs in token usage rows/ingests on boot using the latest pricing snapshot, and expose up to 180 days of daily token + cost time series for dashboards.
 - **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; `AuthEncryptionMigrator` upgrades legacy rows in batches at boot.
+- **Admin websocket server (optional)** — `scripts/admin-ws.php` streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id.
 
 ## How the flow works
 

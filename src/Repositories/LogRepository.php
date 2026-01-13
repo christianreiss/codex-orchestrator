@@ -14,12 +14,16 @@ use PDO;
 
 class LogRepository
 {
-    public function __construct(private readonly Database $database)
+    public function __construct(
+        private readonly Database $database,
+        private readonly ?AdminEventRepository $events = null
+    )
     {
     }
 
     public function log(?int $hostId, string $action, array $details = []): void
     {
+        $createdAt = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
             'INSERT INTO logs (host_id, action, details, created_at) VALUES (:host_id, :action, :details, :created_at)'
         );
@@ -28,8 +32,25 @@ class LogRepository
             'host_id' => $hostId,
             'action' => $action,
             'details' => $details ? json_encode($details, JSON_UNESCAPED_SLASHES) : null,
-            'created_at' => gmdate(DATE_ATOM),
+            'created_at' => $createdAt,
         ]);
+
+        if ($this->events === null) {
+            return;
+        }
+
+        try {
+            $logId = (int) $this->database->connection()->lastInsertId();
+            $this->events->append('log.created', [
+                'id' => $logId,
+                'host_id' => $hostId,
+                'action' => $action,
+                'details' => $details,
+                'created_at' => $createdAt,
+            ], $hostId);
+        } catch (\Throwable) {
+            // Best-effort only; log writes should never fail because of websocket events.
+        }
     }
 
     public function recent(int $limit = 50, ?int $hostId = null): array

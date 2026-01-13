@@ -18,6 +18,7 @@ use App\Http\Router;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\AuthSeedTokenRepository;
+use App\Repositories\AdminEventRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
@@ -100,7 +101,8 @@ $installTokenRepository = new InstallTokenRepository($database, $secretBox);
 $seedTokenRepository = new AuthSeedTokenRepository($database, $secretBox);
 $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
-$logRepository = new LogRepository($database);
+$adminEventRepository = new AdminEventRepository($database);
+$logRepository = new LogRepository($database, $adminEventRepository);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
 $skillRepository = new SkillRepository($database);
@@ -1618,6 +1620,61 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'inactivity_window_days' => $inactivityWindowDays,
             'client_version_lock' => $clientVersionLock['version'] ?? null,
             'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/ws/info$#', function () use ($adminEventRepository) {
+    requireAdminAccess();
+
+    $enabled = normalizeBoolean(Config::get('ADMIN_WS_ENABLED', '0'));
+    $enabled = $enabled ?? false;
+
+    $url = null;
+    if ($enabled) {
+        $publicUrl = Config::get('ADMIN_WS_PUBLIC_URL', '');
+        if (is_string($publicUrl)) {
+            $publicUrl = trim($publicUrl);
+            if ($publicUrl !== '' && preg_match('#^wss?://#', $publicUrl) === 1) {
+                $url = $publicUrl;
+            }
+        }
+
+        if ($url === null) {
+            $baseUrl = resolveBaseUrl();
+            if ($baseUrl !== '') {
+                $wsUrl = rtrim($baseUrl, '/') . '/admin/ws';
+                if (str_starts_with($wsUrl, 'https://')) {
+                    $wsUrl = 'wss://' . substr($wsUrl, 8);
+                } elseif (str_starts_with($wsUrl, 'http://')) {
+                    $wsUrl = 'ws://' . substr($wsUrl, 7);
+                }
+                $url = $wsUrl;
+            }
+        }
+    }
+
+    $heartbeatRaw = Config::get('ADMIN_WS_PING_INTERVAL', 25);
+    $heartbeat = is_numeric($heartbeatRaw) ? (int) $heartbeatRaw : 25;
+    if ($heartbeat < 5) {
+        $heartbeat = 5;
+    }
+    $backlogRaw = Config::get('ADMIN_WS_BACKLOG_LIMIT', 200);
+    $backlog = is_numeric($backlogRaw) ? (int) $backlogRaw : 200;
+    if ($backlog < 1) {
+        $backlog = 1;
+    } elseif ($backlog > 500) {
+        $backlog = 500;
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'enabled' => (bool) $enabled,
+            'url' => $url,
+            'last_event_id' => $enabled ? $adminEventRepository->latestId() : 0,
+            'heartbeat_seconds' => $heartbeat,
+            'backlog_limit' => $backlog,
         ],
     ]);
 });

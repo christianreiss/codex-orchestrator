@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Config;
 use App\Database;
+use App\Repositories\AdminEventRepository;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\ChatGptUsageRepository;
@@ -69,7 +70,8 @@ try {
     $hostUserRepository = new HostUserRepository($database);
     $authEntryRepository = new AuthEntryRepository($database, $secretBox);
     $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
-    $logRepository = new LogRepository($database);
+    $adminEventRepository = new AdminEventRepository($database);
+    $logRepository = new LogRepository($database, $adminEventRepository);
     $tokenUsageRepository = new TokenUsageRepository($database);
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);

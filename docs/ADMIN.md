@@ -6,6 +6,8 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - Base path: `/admin/`.
 - mTLS is enforced when `ADMIN_ACCESS_MODE=mtls` (default). If you disable it (`ADMIN_ACCESS_MODE=none`), gate the path another way (VPN/firewall).
 - Behind a proxy, make sure it forwards `X-MTLS-*` headers and real client IPs.
+- Live updates (optional): enable the admin websocket server (`ADMIN_WS_ENABLED=1`) and run `scripts/admin-ws.php`. `/admin/ws/info` advertises the public `wss://` URL (or set `ADMIN_WS_PUBLIC_URL`). mTLS is enforced by the proxy the same way as `/admin/`.
+  - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
 
 ## Page-by-page
 - **Overview**: fleet counts, avg refresh age, last log time, GitHub client cache, wrapper version/sha, runner state, quota mode/limit, pricing snapshot (GPT-5.1 by default) and estimated monthly cost, ChatGPT usage snapshot (cached ≤5m), mTLS presence flag, and whether canonical auth is seeded.

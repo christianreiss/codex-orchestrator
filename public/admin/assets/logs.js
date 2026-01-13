@@ -179,6 +179,13 @@
       loadLogs();
     }, 300);
 
+    const handleLiveRefresh = debounce(() => {
+      const viewMode = (document.body?.dataset?.viewMode || '').toLowerCase();
+      if (viewMode === 'logs') {
+        loadLogs();
+      }
+    }, 500);
+
     sortableHeaders.forEach((th) => {
       th.addEventListener('click', () => {
         const key = th.dataset.sort;
@@ -217,6 +224,14 @@
     });
 
     refreshBtn?.addEventListener('click', () => loadLogs());
+
+    window.addEventListener('admin-ws-event', (event) => {
+      const detail = event?.detail || {};
+      if (detail.type !== 'log.created') return;
+      const action = detail.payload?.action || '';
+      if (action !== 'token.usage') return;
+      handleLiveRefresh();
+    });
 
     loadLogs();
   }
@@ -548,6 +563,19 @@
     refreshBtn?.addEventListener('click', (ev) => {
       ev.preventDefault();
       loadLogs();
+    });
+
+    const handleLiveRefresh = debounce(() => {
+      const viewMode = (document.body?.dataset?.viewMode || '').toLowerCase();
+      if (viewMode === 'logs') {
+        loadLogs();
+      }
+    }, 500);
+
+    window.addEventListener('admin-ws-event', (event) => {
+      const detail = event?.detail || {};
+      if (detail.type !== 'log.created') return;
+      handleLiveRefresh();
     });
 
     // load order: hosts first (for fqdn mapping), then logs
