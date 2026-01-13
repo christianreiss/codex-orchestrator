@@ -58,9 +58,14 @@ class LogRepository
 
         try {
             $fqdn = $details['fqdn'] ?? null;
-            $label = is_string($fqdn) && trim($fqdn) !== ''
+            $hasFqdn = is_string($fqdn) && trim($fqdn) !== '';
+            $label = $hasFqdn
                 ? trim($fqdn)
                 : ($hostId !== null ? 'host #' . $hostId : 'unknown client');
+
+            if ($action === 'auth.denied' && $hostId === null && !$hasFqdn) {
+                return;
+            }
 
             if ($action === 'auth.retrieve') {
                 $status = $details['status'] ?? null;

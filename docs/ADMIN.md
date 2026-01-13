@@ -37,7 +37,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Logs**: recent audit events.
 - **Toasts**: `/admin/toasts` emits a transient on-screen notification to connected admin clients (requires admin websocket server).
   - Test mode: successful `/auth` retrieves emit a “CDX authorized” toast so you can verify live websocket delivery.
-  - Refused `/auth` attempts emit “CDX refused” toasts (missing/invalid key, host disabled, IP mismatch, or insecure window closed).
+  - Refused `/auth` attempts emit “CDX refused” toasts for known hosts (host disabled, IP mismatch, installation mismatch, or insecure window closed). Unknown keys are ignored to avoid noise.
 
 ## Common workflows
 - **Onboard a host**: Overview → ensure canonical auth exists → Hosts → New Host (set secure/insecure, VIP, IPv4-only if needed) → copy installer command → run on target. For insecure hosts, keep the window open or re-enable before `/auth` runs.

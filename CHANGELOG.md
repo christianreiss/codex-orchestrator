@@ -1,4 +1,5 @@
-- Admin dashboard: emit “CDX refused” toasts for denied `/auth` requests (invalid/missing key, disabled host, IP mismatch, insecure window closed). (2026-01-13)
+- Admin dashboard: filter “CDX refused” toasts to known hosts/fqdns to avoid noise from unknown keys. (2026-01-13)
+- Admin dashboard: emit “CDX refused” toasts for denied `/auth` requests tied to known hosts (disabled host, IP mismatch, installation mismatch, insecure window closed). (2026-01-13)
 - Admin dashboard: “CDX authorized” toasts now include relative time in the message. (2026-01-13)
 - Admin dashboard: emit “CDX authorized” toasts on successful `/auth` retrieve (websocket test hook). (2026-01-13)
 - Admin dashboard: add websocket-driven toast framework (auto-dismiss + manual close), new `/admin/toasts` endpoint, cache-bumped dashboard.js v=2026-01-13-03 and dashboard.css updated. (2026-01-13)
