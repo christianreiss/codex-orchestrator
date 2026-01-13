@@ -1350,6 +1350,63 @@
       return `Resets in ${secondsLeft} second${secondsLeft === 1 ? '' : 's'}`;
     }
 
+    function resolveResetTarget(seconds, resetAt) {
+      const parsed = resetAt ? parseTimestamp(resetAt) : null;
+      if (parsed) return parsed.toISOString();
+      if (Number.isFinite(seconds)) {
+        return new Date(Date.now() + (seconds * 1000)).toISOString();
+      }
+      return null;
+    }
+
+    let usageResetTicker = null;
+
+    function updateUsageResetLabels() {
+      if (!chatgptUsageCard) return;
+      const bars = chatgptUsageCard.querySelectorAll('.usage-bar');
+      if (!bars.length) return;
+      const now = Date.now();
+      bars.forEach((bar) => {
+        const resetAt = bar.dataset.resetAt || null;
+        const resetAfterRaw = bar.dataset.resetAfter;
+        const resetAfter = resetAfterRaw ? Number(resetAfterRaw) : null;
+        const label = formatResetLabel(
+          Number.isFinite(resetAfter) ? resetAfter : null,
+          resetAt || null
+        );
+        const resetEl = bar.querySelector('.usage-reset');
+        if (resetEl && resetEl.textContent !== label) {
+          resetEl.textContent = label;
+        }
+        const limitSecondsRaw = bar.dataset.limitSeconds;
+        const limitSeconds = limitSecondsRaw ? Number(limitSecondsRaw) : null;
+        if (Number.isFinite(limitSeconds) && limitSeconds > 0) {
+          let targetMs = null;
+          if (resetAt) {
+            const parsed = parseTimestamp(resetAt);
+            if (parsed) targetMs = parsed.getTime();
+          }
+          if (targetMs === null && Number.isFinite(resetAfter)) {
+            targetMs = now + (resetAfter * 1000);
+          }
+          if (targetMs !== null) {
+            const remaining = Math.max(0, (targetMs - now) / 1000);
+            const pct = Math.min(100, Math.max(0, Math.round(((limitSeconds - remaining) / limitSeconds) * 100)));
+            const meterSpan = bar.querySelector('.meter.time span');
+            if (meterSpan) {
+              meterSpan.style.width = `${pct}%`;
+            }
+          }
+        }
+      });
+    }
+
+    function startUsageResetTicker() {
+      if (usageResetTicker) return;
+      usageResetTicker = window.setInterval(updateUsageResetLabels, 30000);
+      updateUsageResetLabels();
+    }
+
     function formatMoney(amount, currency = 'USD') {
       if (!Number.isFinite(amount)) return `${currency} —`;
       return `${currency} ${amount.toFixed(2)}`;
@@ -2657,7 +2714,8 @@
     function renderUsageWindow(label, data, windowKey = null) {
       const used = Number.isFinite(data?.used_percent) ? Math.min(100, Math.max(0, data.used_percent)) : null;
       const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
-      const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
+      const resetAt = resolveResetTarget(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
+      const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, resetAt ?? data?.reset_at ?? null);
       const timePercent = Number.isFinite(data?.limit_seconds) && Number.isFinite(data?.reset_after_seconds)
         ? Math.min(100, Math.max(0, Math.round(((data.limit_seconds - data.reset_after_seconds) / data.limit_seconds) * 100)))
         : null;
@@ -2676,7 +2734,10 @@
         ? `<div class="meter time"><span style="width:${timePercent}%"></span></div>`
         : '';
       return `
-        <div class="usage-bar">
+        <div class="usage-bar"
+          data-reset-at="${resetAt ?? ''}"
+          data-reset-after="${Number.isFinite(data?.reset_after_seconds) ? data.reset_after_seconds : ''}"
+          data-limit-seconds="${Number.isFinite(data?.limit_seconds) ? data.limit_seconds : ''}">
           <div class="label">
             <span>${label}</span>
             ${chartBtn}
@@ -2687,7 +2748,7 @@
           </div>
           ${meter}
           ${timeMeter}
-          <small>${resetLabel}</small>
+          <small class="usage-reset">${resetLabel}</small>
         </div>
       `;
     }
@@ -2742,6 +2803,7 @@
       `;
 
       wireChatGptControls();
+      startUsageResetTicker();
     }
 
     async function refreshChatGptUsage() {

@@ -1,3 +1,4 @@
+- Admin dashboard: ChatGPT 5‑hour/weekly reset timers now tick locally between refreshes, keeping “Resets in …” and time meters live. (2026-01-13)
 - Insecure hosts: optional admin approval gate (Settings → General) that prompts via websocket, exposes approve/deny endpoints, and lets cdx wait/poll for approval when the window is closed. (2026-01-13)
 - cdx wrapper: wait/poll for insecure host approvals when enabled; wrapper bumped to 2026.01.13-02. (2026-01-13)
 - Admin dashboard: filter “CDX refused” toasts to known hosts/fqdns to avoid noise from unknown keys. (2026-01-13)

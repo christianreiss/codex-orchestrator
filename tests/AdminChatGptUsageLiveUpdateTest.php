@@ -13,5 +13,7 @@ final class AdminChatGptUsageLiveUpdateTest extends TestCase
 
         $this->assertStringContainsString('admin-ws-event', $js);
         $this->assertStringContainsString('chatgpt.usage', $js);
+        $this->assertStringContainsString('usage-reset', $js);
+        $this->assertStringContainsString('startUsageResetTicker', $js);
     }
 }
