@@ -551,17 +551,25 @@
       });
     }
 
-    function toastFromEvent(payload) {
-      if (!payload || typeof payload !== 'object') return;
+    function toastFromEvent(eventOrPayload) {
+      if (!eventOrPayload || typeof eventOrPayload !== 'object') return;
+      const payload = (eventOrPayload.payload && typeof eventOrPayload.payload === 'object')
+        ? eventOrPayload.payload
+        : eventOrPayload;
       const message = payload.message ?? payload.body ?? payload.text ?? null;
       if (typeof message !== 'string' || message.trim() === '') return;
       const title = typeof payload.title === 'string' ? payload.title : null;
       const level = payload.level ?? payload.tone ?? payload.status ?? 'info';
       const timeoutMs = normalizeToastTimeout(payload.timeout_ms ?? payload.timeoutMs ?? payload.ttl_ms ?? 5000);
+      const createdAt = payload.created_at ?? eventOrPayload.created_at ?? null;
+      const relative = createdAt ? formatRelative(createdAt) : null;
+      const messageWithTime = relative && relative !== '—'
+        ? `${message} · ${relative}`
+        : message;
 
       pushToast({
         title,
-        message,
+        message: messageWithTime,
         level,
         timeoutMs,
       });
@@ -4909,7 +4917,7 @@
     window.addEventListener('admin-ws-event', (event) => {
       const detail = event?.detail || {};
       if (detail.type === 'toast') {
-        toastFromEvent(detail.payload);
+        toastFromEvent(detail);
         return;
       }
       if (detail.type !== 'log.created') return;

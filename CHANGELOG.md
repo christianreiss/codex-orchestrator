@@ -1,3 +1,4 @@
+- Admin dashboard: “CDX authorized” toasts now include relative time in the message. (2026-01-13)
 - Admin dashboard: emit “CDX authorized” toasts on successful `/auth` retrieve (websocket test hook). (2026-01-13)
 - Admin dashboard: add websocket-driven toast framework (auto-dismiss + manual close), new `/admin/toasts` endpoint, cache-bumped dashboard.js v=2026-01-13-03 and dashboard.css updated. (2026-01-13)
 - Admin dashboard: Overview info cards live-update via websocket events (hosts, versions, tokens, cost, runner, ChatGPT); cache-bumped dashboard.js v=2026-01-13-02. (2026-01-13)

@@ -69,6 +69,7 @@ class LogRepository
                 'message' => $label . $statusLabel,
                 'level' => 'success',
                 'timeout_ms' => 4500,
+                'created_at' => $createdAt,
             ], $hostId);
         } catch (\Throwable) {
             // Best-effort only; toast failures should not block logging.
