@@ -266,6 +266,7 @@
     syncHostTabs();
     let lastOverview = null;
     let chatgptUsage = null;
+    let chatgptLiveUpdateTimer = null;
     let apiDisabled = null;
     let mtlsMeta = null;
     let uploadFileContent = '';
@@ -2511,6 +2512,29 @@
           btn.textContent = original || 'Refresh';
         }
       }
+    }
+
+    async function refreshChatGptUsageLive() {
+      if (!chatgptUsageCard) return;
+      try {
+        const res = await api('/admin/chatgpt/usage');
+        chatgptUsage = res?.data || null;
+        chatgptUsageHistory = null;
+        chatgptUsageHistoryPromise = null;
+        renderChatGptUsage(chatgptUsage);
+      } catch (err) {
+        console.warn('ChatGPT usage live update failed', err);
+      }
+    }
+
+    function scheduleChatGptUsageLiveRefresh() {
+      if (chatgptLiveUpdateTimer) {
+        clearTimeout(chatgptLiveUpdateTimer);
+      }
+      chatgptLiveUpdateTimer = window.setTimeout(() => {
+        chatgptLiveUpdateTimer = null;
+        refreshChatGptUsageLive();
+      }, 500);
     }
 
     function wireChatGptControls() {
@@ -4770,6 +4794,13 @@
         setCodexVersionSelection(codexVersionSelect.value);
       });
     }
+    window.addEventListener('admin-ws-event', (event) => {
+      const detail = event?.detail || {};
+      if (detail.type !== 'log.created') return;
+      const action = detail.payload?.action || '';
+      if (action !== 'chatgpt.usage') return;
+      scheduleChatGptUsageLiveRefresh();
+    });
     loadApiState();
     loadCdxSilent();
 
