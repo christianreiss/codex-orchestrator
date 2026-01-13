@@ -36,6 +36,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Codex Version**: in Settings → Operations & Settings, choose `Latest` (tracks GitHub latest stable/full release) or pin the fleet to a specific Codex release (dropdown hides alpha/beta prereleases; the currently pinned/in-use version still shows for visibility).
 - **Logs**: recent audit events.
 - **Toasts**: `/admin/toasts` emits a transient on-screen notification to connected admin clients (requires admin websocket server).
+  - Test mode: successful `/auth` retrieves emit a “CDX authorized” toast so you can verify live websocket delivery.
 
 ## Common workflows
 - **Onboard a host**: Overview → ensure canonical auth exists → Hosts → New Host (set secure/insecure, VIP, IPv4-only if needed) → copy installer command → run on target. For insecure hosts, keep the window open or re-enable before `/auth` runs.

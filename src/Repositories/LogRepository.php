@@ -51,6 +51,28 @@ class LogRepository
         } catch (\Throwable) {
             // Best-effort only; log writes should never fail because of websocket events.
         }
+
+        if ($action !== 'auth.retrieve') {
+            return;
+        }
+
+        try {
+            $fqdn = $details['fqdn'] ?? null;
+            $label = is_string($fqdn) && trim($fqdn) !== ''
+                ? trim($fqdn)
+                : ($hostId !== null ? 'host #' . $hostId : 'host');
+            $status = $details['status'] ?? null;
+            $statusLabel = is_string($status) && trim($status) !== '' ? ' (' . trim($status) . ')' : '';
+
+            $this->events->append('toast', [
+                'title' => 'CDX authorized',
+                'message' => $label . $statusLabel,
+                'level' => 'success',
+                'timeout_ms' => 4500,
+            ], $hostId);
+        } catch (\Throwable) {
+            // Best-effort only; toast failures should not block logging.
+        }
     }
 
     public function recent(int $limit = 50, ?int $hostId = null): array

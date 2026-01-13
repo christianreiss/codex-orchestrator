@@ -473,6 +473,7 @@ class AuthService
 
             $this->logs->log($logHostId, 'auth.retrieve', [
                 'status' => $status,
+                'fqdn' => $host['fqdn'] ?? null,
                 'incoming_last_refresh' => $incomingLastRefresh,
                 'incoming_digest' => $providedDigest,
                 'stored_last_refresh' => $canonicalLastRefresh,
