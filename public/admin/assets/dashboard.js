@@ -5177,6 +5177,10 @@
         e.preventDefault();
         closeHostDetail();
       }
+      if (e.key === 'Escape' && insecureApprovalModal?.classList.contains('show')) {
+        e.preventDefault();
+        denyInsecureApproval();
+      }
     });
     if (closeHostDetailBtn) {
       closeHostDetailBtn.addEventListener('click', () => closeHostDetail());
@@ -5188,6 +5192,13 @@
     }
     if (runnerCloseBtn) {
       runnerCloseBtn.addEventListener('click', () => showRunnerModal(false));
+    }
+    if (insecureApprovalModal) {
+      insecureApprovalModal.addEventListener('click', (e) => {
+        if (e.target === insecureApprovalModal) {
+          denyInsecureApproval();
+        }
+      });
     }
     if (upgradeModal) {
       upgradeModal.addEventListener('click', (e) => {

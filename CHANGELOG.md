@@ -227,3 +227,4 @@
 - Ops: add docker-compose `admin-ws` service and document enabling `ADMIN_WS_ENABLED` for live admin toasts/websocket updates. (2026-01-13)
 - Admin insecure approvals: allow domain auto-allow rules (modal action + toggler revoke) so matching subdomains can auto-open insecure windows. (2026-01-14)
 - Admin dashboard: remove the ChatGPT Account refresh button (websocket/live refresh remains). (2026-01-14)
+- Admin insecure approvals: clicking outside the approval modal or pressing Esc now cancels the request to avoid stuck pending approvals. (2026-01-14)
