@@ -40,6 +40,7 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
                 ip TEXT NULL,
+                ip_alt TEXT NULL,
                 client_version TEXT NULL,
                 wrapper_version TEXT NULL,
                 api_calls INTEGER DEFAULT 0,

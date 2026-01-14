@@ -58,6 +58,7 @@ final class AuthServiceRegisterApiKeyTest extends TestCase
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
                 ip TEXT NULL,
+                ip_alt TEXT NULL,
                 client_version TEXT NULL,
                 client_version_override TEXT NULL,
                 wrapper_version TEXT NULL,

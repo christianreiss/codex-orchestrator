@@ -1,3 +1,4 @@
+- Auth: allow secure dual-stack hosts to bind one IPv4 + one IPv6 without enabling roaming; admin UI now shows the secondary IP when present. (2026-01-14)
 - Admin dashboard: remove per-host Codex version row from the host detail modal (fleet always uses the latest wrapper). (2026-01-13)
 - Admin dashboard: ChatGPT 5‑hour/weekly reset timers now tick locally between refreshes, keeping “Resets in …” and time meters live. (2026-01-13)
 - Insecure hosts: optional admin approval gate (Settings → General) that prompts via websocket, exposes approve/deny endpoints, and lets cdx wait/poll for approval when the window is closed. (2026-01-13)
@@ -224,3 +225,5 @@
 - cdx wrapper: disable prompt-toolkit cursor position reports under PTY capture unless the env is already set, avoiding interactive cursor errors on some terminals; wrapper bumped to 2026.01.13-01. (2026-01-13)
 - cdx wrapper: compress the Result line on clean insecure-host runs to reduce repeated noise; wrapper bumped to 2026.01.13-03. (2026-01-13)
 - Ops: add docker-compose `admin-ws` service and document enabling `ADMIN_WS_ENABLED` for live admin toasts/websocket updates. (2026-01-13)
+- Admin insecure approvals: allow domain auto-allow rules (modal action + toggler revoke) so matching subdomains can auto-open insecure windows. (2026-01-14)
+- Admin dashboard: remove the ChatGPT Account refresh button (websocket/live refresh remains). (2026-01-14)

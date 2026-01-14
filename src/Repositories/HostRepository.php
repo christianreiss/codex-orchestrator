@@ -205,6 +205,18 @@ class HostRepository
         ]);
     }
 
+    public function updateIpAlt(int $hostId, ?string $ipAlt): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET ip_alt = :ip_alt, updated_at = :updated_at WHERE id = :id'
+        );
+        $statement->execute([
+            'ip_alt' => $ipAlt,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
     {
         $statement = $this->database->connection()->prepare(
@@ -423,7 +435,7 @@ class HostRepository
     public function updateForceIpv4(int $hostId, bool $forceIpv4): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET force_ipv4 = :force_ipv4, ip = NULL, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET force_ipv4 = :force_ipv4, ip = NULL, ip_alt = NULL, updated_at = :updated_at WHERE id = :id'
         );
 
         $statement->execute([

@@ -157,6 +157,11 @@
             <h3>Insecure hosts</h3>
             <p class="muted">Enable or disable the insecure API window. Active windows are listed first.</p>
             <div id="insecureHostsList" class="quick-hosts-list"></div>
+            <div style="margin-top:16px;">
+              <h4 style="margin:0 0 6px;">Allowed domains</h4>
+              <p class="muted" style="margin:0 0 10px;">Subdomains that auto-open insecure windows.</p>
+              <div id="insecureDomainsList" class="quick-hosts-list"></div>
+            </div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
               <button class="ghost" id="insecureHostsDisableAll" style="display:none;">Disable all</button>
               <button class="ghost" id="insecureHostsExtendAll" style="display:none;">Extend all</button>
@@ -325,6 +330,7 @@
             </div>
             <div class="actions">
               <button class="ghost" id="insecureApprovalDeny">Cancel</button>
+              <button class="ghost" id="insecureApprovalAllowDomain" style="display:none;">Allow domain</button>
               <button id="insecureApprovalApprove">Enable window</button>
             </div>
           </div>
@@ -1183,7 +1189,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-13-07"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-14-02"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-12-01"></script>

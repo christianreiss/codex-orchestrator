@@ -73,6 +73,7 @@ class Database
                 last_refresh VARCHAR(100) NULL,
                 auth_digest VARCHAR(128) NULL,
                 ip VARCHAR(64) NULL,
+                ip_alt VARCHAR(64) NULL,
                 client_version VARCHAR(64) NULL,
                 wrapper_version VARCHAR(64) NULL,
                 api_calls BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -266,6 +267,23 @@ class Database
                 INDEX idx_insecure_auth_requests_status (status),
                 INDEX idx_insecure_auth_requests_requested_at (requested_at),
                 CONSTRAINT fk_insecure_auth_requests_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS insecure_domain_allows (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                domain VARCHAR(255) NOT NULL,
+                window_minutes INT NOT NULL,
+                enabled_until VARCHAR(100) NULL,
+                revoked_at VARCHAR(100) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                UNIQUE KEY idx_insecure_domain_allows_domain (domain),
+                INDEX idx_insecure_domain_allows_enabled_until (enabled_until),
+                INDEX idx_insecure_domain_allows_revoked_at (revoked_at)
             ) ENGINE=InnoDB {$collation};
             SQL
         );
@@ -484,6 +502,7 @@ class Database
 
         // Backfill new columns for existing databases.
         $this->ensureColumnExists('hosts', 'ip', 'VARCHAR(64) NULL');
+        $this->ensureColumnExists('hosts', 'ip_alt', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version_override', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'wrapper_version', 'VARCHAR(64) NULL');

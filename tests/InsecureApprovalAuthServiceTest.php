@@ -14,5 +14,6 @@ final class InsecureApprovalAuthServiceTest extends TestCase
         $this->assertStringContainsString('insecure_approval_enabled', $source);
         $this->assertStringContainsString('auth.insecure.pending', $source);
         $this->assertStringContainsString('Insecure host approval pending', $source);
+        $this->assertStringContainsString('auth.insecure.domain_auto_allow', $source);
     }
 }

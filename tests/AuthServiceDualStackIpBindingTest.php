@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Database;
+use App\Exceptions\HttpException;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
@@ -20,11 +21,11 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-final class AuthServiceInsecureIpRebindTest extends TestCase
+final class AuthServiceDualStackIpBindingTest extends TestCase
 {
     private PDO $pdo;
     private HostRepository $hosts;
-    private RecordingLogRepository $logs;
+    private DualStackLogRepository $logs;
     private AuthService $service;
 
     protected function setUp(): void
@@ -73,7 +74,7 @@ final class AuthServiceInsecureIpRebindTest extends TestCase
         $database = $this->fakeDatabase($this->pdo);
         $secretBox = new SecretBox(str_repeat('x', SODIUM_CRYPTO_SECRETBOX_KEYBYTES));
         $this->hosts = new HostRepository($database, $secretBox);
-        $this->logs = new RecordingLogRepository();
+        $this->logs = new DualStackLogRepository();
 
         $this->service = new AuthService(
             $this->hosts,
@@ -91,23 +92,43 @@ final class AuthServiceInsecureIpRebindTest extends TestCase
         );
     }
 
-    public function testInsecureHostRebindsIpWithinWindow(): void
+    public function testSecureHostBindsSecondaryIpForDualStack(): void
     {
         $apiKey = bin2hex(random_bytes(32));
-        $host = $this->hosts->create('insecure.rebind', $apiKey, false);
-        $this->hosts->updateIp((int) $host['id'], '2a00:1::1');
+        $host = $this->hosts->create('dualstack.test', $apiKey, true);
 
-        $enabledUntil = gmdate(DATE_ATOM, time() + 1800);
-        $this->hosts->updateInsecureWindows((int) $host['id'], $enabledUntil, null, 10);
+        $this->service->authenticate($apiKey, '203.0.113.10');
+        $this->service->authenticate($apiKey, '2001:db8::1');
 
         $reloaded = $this->hosts->findById((int) $host['id']);
-        self::assertSame('2a00:1::1', $reloaded['ip']);
+        self::assertSame('203.0.113.10', $reloaded['ip']);
+        self::assertSame('2001:db8::1', $reloaded['ip_alt']);
+        self::assertLogContains('auth.bind_ip_secondary');
+    }
 
-        $result = $this->service->authenticate($apiKey, '45.15.102.35');
+    public function testIpv4MappedIpv6MatchesStoredIpv4(): void
+    {
+        $apiKey = bin2hex(random_bytes(32));
+        $host = $this->hosts->create('mapped.test', $apiKey, true);
 
-        self::assertSame('45.15.102.35', $result['ip']);
-        self::assertSame('45.15.102.35', $this->hosts->findById((int) $host['id'])['ip']);
-        self::assertLogContains('auth.insecure_ip_override');
+        $this->service->authenticate($apiKey, '203.0.113.42');
+        $this->service->authenticate($apiKey, '::ffff:203.0.113.42');
+
+        $reloaded = $this->hosts->findById((int) $host['id']);
+        self::assertSame('203.0.113.42', $reloaded['ip']);
+        self::assertNull($reloaded['ip_alt']);
+    }
+
+    public function testRejectsThirdIpWithoutRoaming(): void
+    {
+        $apiKey = bin2hex(random_bytes(32));
+        $this->hosts->create('triple.test', $apiKey, true);
+
+        $this->service->authenticate($apiKey, '203.0.113.11');
+        $this->service->authenticate($apiKey, '2001:db8::2');
+
+        $this->expectException(HttpException::class);
+        $this->service->authenticate($apiKey, '203.0.113.99');
     }
 
     private function assertLogContains(string $action): void
@@ -138,7 +159,7 @@ final class AuthServiceInsecureIpRebindTest extends TestCase
     }
 }
 
-final class RecordingLogRepository extends LogRepository
+final class DualStackLogRepository extends LogRepository
 {
     /** @var array<int, array{0:?int,1:string,2:array}> */
     public array $events = [];

@@ -144,6 +144,7 @@
     const insecureApprovalTime = document.getElementById('insecureApprovalTime');
     const insecureApprovalApprove = document.getElementById('insecureApprovalApprove');
     const insecureApprovalDeny = document.getElementById('insecureApprovalDeny');
+    const insecureApprovalAllowDomain = document.getElementById('insecureApprovalAllowDomain');
     const settingsToggle = document.getElementById('settingsToggle');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
@@ -151,6 +152,7 @@
     const pruneWindowLabel = document.getElementById('pruneWindowLabel');
     const insecureHostsModal = document.getElementById('insecureHostsModal');
     const insecureHostsList = document.getElementById('insecureHostsList');
+    const insecureDomainsList = document.getElementById('insecureDomainsList');
     const insecureHostsCloseBtn = document.getElementById('insecureHostsCloseBtn');
     const insecureHostsExtendAllBtn = document.getElementById('insecureHostsExtendAll');
     const pageHero = document.querySelector('.page-hero');
@@ -795,6 +797,15 @@
       return 'unknown';
     }
 
+    function deriveApprovalDomain(fqdn) {
+      if (typeof fqdn !== 'string') return '';
+      const trimmed = fqdn.trim().toLowerCase();
+      if (!trimmed) return '';
+      const parts = trimmed.split('.').filter(Boolean);
+      if (parts.length < 3) return '';
+      return parts.slice(1).join('.');
+    }
+
     function setInsecureApprovalFields(request) {
       if (!request) return;
       const fqdn = request.fqdn || '';
@@ -821,6 +832,18 @@
       if (insecureApprovalSubtitle) {
         const command = request.command ? ` (${request.command})` : '';
         insecureApprovalSubtitle.textContent = `Insecure host access request${command}.`;
+      }
+      if (insecureApprovalAllowDomain) {
+        const domain = deriveApprovalDomain(fqdn);
+        if (domain) {
+          insecureApprovalAllowDomain.style.display = '';
+          insecureApprovalAllowDomain.textContent = `Allow domain ${domain}`;
+          insecureApprovalAllowDomain.dataset.domain = domain;
+        } else {
+          insecureApprovalAllowDomain.style.display = 'none';
+          insecureApprovalAllowDomain.textContent = 'Allow domain';
+          insecureApprovalAllowDomain.dataset.domain = '';
+        }
       }
     }
 
@@ -861,6 +884,7 @@
     function setInsecureApprovalButtonsDisabled(disabled) {
       if (insecureApprovalApprove) insecureApprovalApprove.disabled = disabled;
       if (insecureApprovalDeny) insecureApprovalDeny.disabled = disabled;
+      if (insecureApprovalAllowDomain) insecureApprovalAllowDomain.disabled = disabled;
     }
 
     async function approveInsecureApproval() {
@@ -874,6 +898,31 @@
         resolveInsecureApproval(requestId);
       } catch (err) {
         toast(`Enable failed: ${err.message}`, 'error');
+      } finally {
+        insecureApprovalBusy = false;
+        setInsecureApprovalButtonsDisabled(false);
+      }
+    }
+
+    async function approveInsecureApprovalDomain() {
+      if (!activeInsecureApproval || insecureApprovalBusy) return;
+      const requestId = activeInsecureApproval.id;
+      const domain = insecureApprovalAllowDomain?.dataset?.domain || '';
+      if (!domain) {
+        toast('Domain unavailable for this host', 'error');
+        return;
+      }
+      insecureApprovalBusy = true;
+      setInsecureApprovalButtonsDisabled(true);
+      try {
+        await api(`/admin/insecure-approvals/${requestId}/allow-domain`, {
+          method: 'POST',
+          json: { domain },
+        });
+        toast(`Domain auto-allowed: ${domain}`, 'ok');
+        resolveInsecureApproval(requestId);
+      } catch (err) {
+        toast(`Allow domain failed: ${err.message}`, 'error');
       } finally {
         insecureApprovalBusy = false;
         setInsecureApprovalButtonsDisabled(false);
@@ -1498,7 +1547,7 @@
       return list.filter(host => {
         if (!hostMatchesStatus(host)) return false;
         if (!hostFilterText) return true;
-        const haystacks = [host.fqdn, host.ip, host.client_version, host.wrapper_version]
+        const haystacks = [host.fqdn, host.ip, host.ip_alt, host.client_version, host.wrapper_version]
           .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
         return haystacks.some(text => text.includes(hostFilterText));
       });
@@ -1666,7 +1715,7 @@
         checked: !!host.allow_roaming_ips,
         disabled: false,
         title: 'Allow roaming IPs',
-        state: host.allow_roaming_ips ? 'Roaming allowed (any IP)' : 'IP locked to first caller',
+        state: host.allow_roaming_ips ? 'Roaming allowed (any IP)' : 'Locked to first IPv4/IPv6 pair',
       }));
 
       toggles.push(renderHostToggleRow({
@@ -1985,6 +2034,7 @@
         ? '<span class="chip ok">Secure</span>'
         : '<span class="chip warn">Insecure</span>';
       const ipv4Chip = host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : '';
+      const secondaryIp = host.ip_alt ?? null;
       const rows = [
         {
           key: 'Status',
@@ -1997,15 +2047,23 @@
         {
           key: 'IP binding',
           value: `
-            <div class="kv-ip">
-              ${host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound'}
-              <span class="chip ${host.allow_roaming_ips ? 'warn' : 'ok'}">${host.allow_roaming_ips ? 'Roaming enabled' : 'IP locked'}</span>
-              ${ipv4Chip}
+            <div class="kv-stack">
+              <div class="kv-rowline">
+                ${host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound'}
+                <span class="chip ${host.allow_roaming_ips ? 'warn' : 'ok'}">${host.allow_roaming_ips ? 'Roaming enabled' : 'IP locked'}</span>
+                ${ipv4Chip}
+              </div>
+              ${secondaryIp ? `
+                <div class="kv-rowline" style="margin-top:4px;">
+                  <span class="muted">Secondary</span>
+                  <code>${escapeHtml(secondaryIp)}</code>
+                </div>
+              ` : ''}
             </div>
           `,
           desc: host.allow_roaming_ips
             ? 'Roaming enabled; host may authenticate from any IP.'
-            : 'First caller IP is locked; toggle roaming to permit moves.',
+            : 'First IPv4 and IPv6 callers are locked; toggle roaming to permit moves.',
         },
       ];
 
@@ -2122,6 +2180,8 @@
       const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
       const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
       const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
+      const primaryIp = host.ip ?? host.ip_alt ?? null;
+      const secondaryIp = host.ip && host.ip_alt ? host.ip_alt : null;
       const isSecure = isHostSecure(host);
       const securityChip = isSecure
         ? ''
@@ -2174,8 +2234,9 @@
         <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
         <td data-label="IP / Mode">
           <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
-            <span>${escapeHtml(host.ip ?? '—')}</span>
-            ${host.ip ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IP'}">${ipIcon}</span>` : ''}
+            <span>${escapeHtml(primaryIp ?? '—')}</span>
+            ${secondaryIp ? `<span class="muted">+ ${escapeHtml(secondaryIp)}</span>` : ''}
+            ${primaryIp ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IPv4/IPv6 pair'}">${ipIcon}</span>` : ''}
             ${host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : ''}
           </div>
         </td>
@@ -2783,9 +2844,6 @@
               ${snapshot.rate_limit_reached ? '<span class="chip warn">Limit reached</span>' : ''}
             </div>
           </div>
-          <div class="usage-actions">
-            <button class="ghost tiny-btn" id="chatgpt-refresh">Refresh</button>
-          </div>
         </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
         <div class="usage-bars">
@@ -2796,29 +2854,6 @@
 
       wireChatGptControls();
       startUsageResetTicker();
-    }
-
-    async function refreshChatGptUsage() {
-      const btn = document.getElementById('chatgpt-refresh');
-      const original = btn ? btn.textContent : '';
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Refreshing…';
-      }
-      try {
-        const res = await api('/admin/chatgpt/usage/refresh', { method: 'POST' });
-        chatgptUsage = res?.data || null;
-        chatgptUsageHistory = null;
-        chatgptUsageHistoryPromise = null;
-        renderChatGptUsage(chatgptUsage);
-      } catch (err) {
-        alert(`Refresh failed: ${err.message}`);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = original || 'Refresh';
-        }
-      }
     }
 
     function isDashboardView() {
@@ -2889,13 +2924,6 @@
     }
 
     function wireChatGptControls() {
-      const btn = document.getElementById('chatgpt-refresh');
-      if (btn) {
-        btn.onclick = (ev) => {
-          ev.preventDefault();
-          refreshChatGptUsage();
-        };
-      }
       document.querySelectorAll('.usage-history-btn').forEach((el) => {
         el.onclick = (ev) => {
           ev.preventDefault();
@@ -4221,9 +4249,10 @@
       if (!insecureHostsModal) return;
       insecureHostsModal.classList.remove('show');
       if (insecureHostsList) insecureHostsList.innerHTML = '';
+      if (insecureDomainsList) insecureDomainsList.innerHTML = '';
     }
 
-    function openInsecureHostsModal(insecureHosts) {
+    function openInsecureHostsModal(insecureHosts, insecureDomains) {
       if (!insecureHostsModal || !insecureHostsList) return;
       const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
       const hostActive = (host) => {
@@ -4266,6 +4295,41 @@
         `;
       }).join('');
 
+      if (insecureDomainsList) {
+        const domains = Array.isArray(insecureDomains) ? insecureDomains.slice() : [];
+        const domainActive = (domain) => !!domain?.active;
+        const activeDomainFirst = (a, b) => {
+          const aActive = domainActive(a);
+          const bActive = domainActive(b);
+          if (aActive !== bActive) return aActive ? -1 : 1;
+          return String(a?.domain || '').localeCompare(String(b?.domain || ''), undefined, { sensitivity: 'base' });
+        };
+        domains.sort(activeDomainFirst);
+
+        if (!domains.length) {
+          insecureDomainsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No domains auto-allowed yet.</div></div></div>';
+        } else {
+          insecureDomainsList.innerHTML = domains.map((domain) => {
+            const isActive = domainActive(domain);
+            const label = 'Revoke';
+            const btnClass = 'ghost';
+            const onlineFor = isActive ? formatCountdown(domain?.enabled_until) : '';
+            const onlineLine = isActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Auto-allow: ${escapeHtml(onlineFor)}</div>` : '';
+            return `
+              <div class="quick-hosts-row" data-domain-id="${domain.id}">
+                <div class="quick-hosts-info">
+                  <div class="quick-hosts-fqdn">${escapeHtml(domain.domain || '')}</div>
+                  ${onlineLine}
+                </div>
+                <div class="quick-hosts-actions">
+                  <button class="${btnClass}" data-action="revoke-domain">${label}</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
       insecureHostsModal.classList.add('show');
     }
 
@@ -4273,7 +4337,8 @@
       try {
         const resp = await api('/admin/hosts/insecure');
         const insecureHosts = resp?.data?.hosts || [];
-        openInsecureHostsModal(insecureHosts);
+        const insecureDomains = resp?.data?.domains || [];
+        openInsecureHostsModal(insecureHosts, insecureDomains);
       } catch (err) {
         alert(`Error: ${err.message}`);
       }
@@ -4295,7 +4360,7 @@
             const extendResp = await api('/admin/hosts/insecure/extend', { method: 'POST' });
             await loadAll();
             const resp = await api('/admin/hosts/insecure');
-            openInsecureHostsModal(resp?.data?.hosts || []);
+            openInsecureHostsModal(resp?.data?.hosts || [], resp?.data?.domains || []);
             const extended = extendResp?.data?.extended;
             const msg = Number.isFinite(extended)
               ? `Extended ${extended} insecure host${extended === 1 ? '' : 's'}`
@@ -4319,7 +4384,7 @@
             const disableResp = await api('/admin/hosts/insecure/disable-all', { method: 'POST' });
             await loadAll();
             const resp = await api('/admin/hosts/insecure');
-            openInsecureHostsModal(resp?.data?.hosts || []);
+            openInsecureHostsModal(resp?.data?.hosts || [], resp?.data?.domains || []);
             const disabled = disableResp?.data?.disabled;
             const msg = Number.isFinite(disabled)
               ? `Disabled ${disabled} insecure host${disabled === 1 ? '' : 's'}`
@@ -4361,9 +4426,34 @@
             const enableTarget = !(target?.active === true);
             await toggleInsecureApi(target, null, enableTarget);
             const refreshed = await api('/admin/hosts/insecure');
-            openInsecureHostsModal(refreshed?.data?.hosts || []);
+            openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
           } catch (err) {
             console.error('insecure hosts toggle failed', err);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+          }
+        });
+      }
+      if (insecureDomainsList) {
+        insecureDomainsList.addEventListener('click', async (e) => {
+          const btn = e.target?.closest?.('button[data-action="revoke-domain"]');
+          if (!btn) return;
+          const row = btn.closest('.quick-hosts-row');
+          const domainIdRaw = row?.getAttribute?.('data-domain-id');
+          const domainId = domainIdRaw ? parseInt(domainIdRaw, 10) : NaN;
+          if (!Number.isFinite(domainId)) return;
+
+          btn.disabled = true;
+          const originalLabel = btn.textContent;
+          btn.textContent = 'Revoking…';
+          try {
+            await api(`/admin/insecure-domain-allows/${domainId}/revoke`, { method: 'POST' });
+            const refreshed = await api('/admin/hosts/insecure');
+            openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
+          } catch (err) {
+            console.error('insecure domains revoke failed', err);
+            toast(`Revoke failed: ${err.message}`, 'error');
           } finally {
             btn.disabled = false;
             btn.textContent = originalLabel;
@@ -5128,6 +5218,9 @@
     }
     if (insecureApprovalDeny) {
       insecureApprovalDeny.addEventListener('click', () => denyInsecureApproval());
+    }
+    if (insecureApprovalAllowDomain) {
+      insecureApprovalAllowDomain.addEventListener('click', () => approveInsecureApprovalDomain());
     }
     if (cancelDeleteHostBtn) {
       cancelDeleteHostBtn.addEventListener('click', closeDeleteModal);

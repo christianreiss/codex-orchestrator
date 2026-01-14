@@ -25,6 +25,7 @@ use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\InstallTokenRepository;
 use App\Repositories\InsecureAuthRequestRepository;
+use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\IpRateLimitRepository;
@@ -105,6 +106,7 @@ $authPayloadRepository = new AuthPayloadRepository($database, $authEntryReposito
 $adminEventRepository = new AdminEventRepository($database);
 $logRepository = new LogRepository($database, $adminEventRepository);
 $insecureAuthRequestRepository = new InsecureAuthRequestRepository($database);
+$insecureDomainAllowRepository = new InsecureDomainAllowRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
 $slashCommandRepository = new SlashCommandRepository($database);
 $skillRepository = new SkillRepository($database);
@@ -138,7 +140,25 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
-$service = new AuthService($hostRepository, $authPayloadRepository, $hostStateRepository, $digestRepository, $hostUserRepository, $logRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $wrapperService, $insecureAuthRequestRepository, $runnerVerifier, $rateLimiter, $installationId);
+$service = new AuthService(
+    $hostRepository,
+    $authPayloadRepository,
+    $hostStateRepository,
+    $digestRepository,
+    $hostUserRepository,
+    $logRepository,
+    $tokenUsageRepository,
+    $tokenUsageIngestRepository,
+    $pricingService,
+    $versionRepository,
+    $wrapperService,
+    $insecureAuthRequestRepository,
+    $runnerVerifier,
+    $rateLimiter,
+    $installationId,
+    null,
+    $insecureDomainAllowRepository
+);
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $skillService = new SkillService($skillRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
@@ -1347,6 +1367,165 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
     ]);
 });
 
+$router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $hostRepository, $logRepository) {
+    requireAdminAccess();
+
+    $requestId = (int) $matches[1];
+    $request = $insecureAuthRequestRepository->findById($requestId);
+    if (!$request) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request not found',
+        ], 404);
+    }
+
+    if (($request['status'] ?? '') !== 'pending') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request already resolved',
+        ], 409);
+    }
+
+    $hostId = (int) ($request['host_id'] ?? 0);
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    if (isset($host['secure']) && (bool) (int) $host['secure']) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host is secure; insecure window not applicable',
+        ], 422);
+    }
+
+    $normalizeDomain = static function (?string $domain): ?string {
+        if (!is_string($domain)) {
+            return null;
+        }
+        $normalized = strtolower(trim($domain));
+        if ($normalized === '') {
+            return null;
+        }
+        if (str_starts_with($normalized, '*.')) {
+            $normalized = substr($normalized, 2);
+        }
+        $normalized = trim($normalized, '.');
+        if ($normalized === '' || strpos($normalized, '.') === false) {
+            return null;
+        }
+        if (preg_match('/\\s/', $normalized) === 1) {
+            return null;
+        }
+        if (str_contains($normalized, '..')) {
+            return null;
+        }
+        return $normalized;
+    };
+
+    $resolveParentDomain = static function (?string $fqdn) use ($normalizeDomain): ?string {
+        if (!is_string($fqdn)) {
+            return null;
+        }
+        $trimmed = strtolower(trim($fqdn));
+        if ($trimmed === '') {
+            return null;
+        }
+        $parts = array_values(array_filter(explode('.', $trimmed), static fn(string $part): bool => $part !== ''));
+        if (count($parts) < 3) {
+            return null;
+        }
+        return $normalizeDomain(implode('.', array_slice($parts, 1)));
+    };
+
+    $domain = $normalizeDomain($payload['domain'] ?? null) ?? $resolveParentDomain($host['fqdn'] ?? null);
+    if ($domain === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Domain must be a subdomain like cluster.example.com',
+        ], 422);
+    }
+
+    $hostFqdn = strtolower(trim((string) ($host['fqdn'] ?? '')));
+    $suffix = '.' . $domain;
+    if ($hostFqdn === '' || strlen($hostFqdn) <= strlen($suffix) || substr($hostFqdn, -strlen($suffix)) !== $suffix) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Domain must be a parent of the host FQDN',
+        ], 422);
+    }
+
+    $minutesRaw = $host['insecure_window_minutes'] ?? null;
+    $minutes = (int) ($minutesRaw ?? AuthService::DEFAULT_INSECURE_WINDOW_MINUTES);
+    if ($minutes < AuthService::MIN_INSECURE_WINDOW_MINUTES) {
+        $minutes = AuthService::MIN_INSECURE_WINDOW_MINUTES;
+    } elseif ($minutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
+        $minutes = AuthService::MAX_INSECURE_WINDOW_MINUTES;
+    }
+
+    $domainEnabledUntil = gmdate(DATE_ATOM, time() + ($minutes * 60));
+    $domainAllow = $insecureDomainAllowRepository->upsert($domain, $minutes, $domainEnabledUntil);
+    $logRepository->log($hostId, 'admin.insecure.domain_allow', [
+        'fqdn' => $host['fqdn'],
+        'domain' => $domain,
+        'domain_id' => $domainAllow['id'] ?? null,
+        'enabled_until' => $domainEnabledUntil,
+        'window_minutes' => $minutes,
+        'request_id' => $requestId,
+    ]);
+
+    $now = time();
+    $currentEnabled = $host['insecure_enabled_until'] ?? null;
+    $baseTs = $now;
+    if (is_string($currentEnabled) && trim($currentEnabled) !== '') {
+        $ts = strtotime($currentEnabled);
+        if ($ts !== false && $ts > $now) {
+            $baseTs = $ts;
+        }
+    }
+
+    $enabledUntil = gmdate(DATE_ATOM, $baseTs + ($minutes * 60));
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null, $minutes);
+    $logRepository->log($hostId, 'admin.host.insecure_enable', [
+        'fqdn' => $host['fqdn'],
+        'enabled_until' => $enabledUntil,
+        'window_minutes' => $minutes,
+        'source' => 'approval_domain',
+        'request_id' => $requestId,
+    ]);
+
+    $insecureAuthRequestRepository->markApproved($requestId);
+    $logRepository->log($hostId, 'admin.insecure.approval', [
+        'fqdn' => $host['fqdn'],
+        'request_id' => $requestId,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'request' => [
+                'id' => $requestId,
+                'status' => 'approved',
+            ],
+            'host' => [
+                'id' => $hostId,
+                'insecure_enabled_until' => $enabledUntil,
+                'insecure_grace_until' => null,
+                'insecure_window_minutes' => $minutes,
+            ],
+            'domain' => [
+                'id' => $domainAllow['id'] ?? null,
+                'domain' => $domain,
+                'enabled_until' => $domainEnabledUntil,
+                'window_minutes' => $minutes,
+            ],
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
     requireAdminAccess();
 
@@ -1473,6 +1652,36 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', function ($matc
             'request' => [
                 'id' => $requestId,
                 'status' => 'denied',
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', function ($matches) use ($insecureDomainAllowRepository, $logRepository) {
+    requireAdminAccess();
+
+    $allowId = (int) $matches[1];
+    $allow = $insecureDomainAllowRepository->findById($allowId);
+    if (!$allow) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Domain allow not found',
+        ], 404);
+    }
+
+    $insecureDomainAllowRepository->markRevoked($allowId);
+    $logRepository->log(null, 'admin.insecure.domain_revoke', [
+        'domain' => $allow['domain'] ?? null,
+        'domain_id' => $allowId,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'domain' => [
+                'id' => $allowId,
+                'domain' => $allow['domain'] ?? null,
+                'revoked_at' => gmdate(DATE_ATOM),
             ],
         ],
     ]);
@@ -1959,6 +2168,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'ip' => $host['ip'] ?? null,
+            'ip_alt' => $host['ip_alt'] ?? null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,
@@ -1990,7 +2200,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
     ]);
 });
 
-$router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepository, $service) {
+$router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepository, $insecureDomainAllowRepository, $service) {
     requireAdminAccess();
     $service->pruneStaleHosts();
 
@@ -2046,12 +2256,49 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
         return strcasecmp((string) ($a['fqdn'] ?? ''), (string) ($b['fqdn'] ?? ''));
     });
 
+    $domainItems = [];
+    $domainsActive = 0;
+    $domainRows = $insecureDomainAllowRepository->listAll();
+    foreach ($domainRows as $row) {
+        if (!empty($row['revoked_at'])) {
+            continue;
+        }
+        $enabledUntil = $normalizeTs($row['enabled_until'] ?? null);
+        $enabledTs = null;
+        if (is_string($enabledUntil) && trim($enabledUntil) !== '') {
+            $ts = strtotime($enabledUntil);
+            if ($ts !== false) {
+                $enabledTs = $ts;
+            }
+        }
+        $isActive = ($enabledTs !== null) && ($enabledTs > time());
+        if ($isActive) {
+            $domainsActive += 1;
+        }
+        $domainItems[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'domain' => $row['domain'] ?? null,
+            'active' => $isActive,
+            'enabled_until' => $enabledUntil,
+            'window_minutes' => isset($row['window_minutes']) ? (int) $row['window_minutes'] : null,
+        ];
+    }
+
+    usort($domainItems, static function (array $a, array $b): int {
+        if ($a['active'] !== $b['active']) {
+            return $a['active'] ? -1 : 1;
+        }
+        return strcasecmp((string) ($a['domain'] ?? ''), (string) ($b['domain'] ?? ''));
+    });
+
     Response::json([
         'status' => 'ok',
         'data' => [
             'count' => count($items),
             'active' => $active,
             'hosts' => $items,
+            'domains' => $domainItems,
+            'domains_active' => $domainsActive,
         ],
     ]);
 });

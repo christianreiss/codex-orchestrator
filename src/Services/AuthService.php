@@ -18,6 +18,7 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\InsecureAuthRequestRepository;
+use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
@@ -75,7 +76,8 @@ class AuthService
         private readonly ?RunnerVerifier $runnerVerifier = null,
         private readonly ?RateLimiter $rateLimiter = null,
         private readonly ?string $installationId = null,
-        ?int $runnerPreflightIntervalSeconds = null
+        ?int $runnerPreflightIntervalSeconds = null,
+        private readonly ?InsecureDomainAllowRepository $insecureDomainAllows = null
     ) {
         $configuredInterval = $runnerPreflightIntervalSeconds ?? (int) Config::get('AUTH_RUNNER_PREFLIGHT_SECONDS', self::RUNNER_PREFLIGHT_INTERVAL_SECONDS);
         $this->runnerPreflightIntervalSeconds = $configuredInterval > 0 ? $configuredInterval : self::RUNNER_PREFLIGHT_INTERVAL_SECONDS;
@@ -181,46 +183,63 @@ class AuthService
         $ipAuthorized = true;
         $ipLogReason = 'none';
 
-        if ($ip !== null && $ip !== '') {
-            $storedIp = $host['ip'] ?? null;
-            if ($storedIp === null || $storedIp === '') {
-                $this->hosts->updateIp($hostId, $ip);
-                $this->logs->log($hostId, 'auth.bind_ip', ['ip' => $ip]);
+        $normalizedIp = $this->normalizeIp($ip);
+        if ($normalizedIp !== null && $normalizedIp !== '') {
+            $storedIp = $this->normalizeIp($host['ip'] ?? null);
+            $storedIpAlt = $this->normalizeIp($host['ip_alt'] ?? null);
+
+            if ($storedIp === null && $storedIpAlt === null) {
+                $this->hosts->updateIp($hostId, $normalizedIp);
+                $this->logs->log($hostId, 'auth.bind_ip', ['ip' => $normalizedIp]);
                 $host = $this->hosts->findById($hostId) ?? $host;
                 $ipLogReason = 'bound';
-            } elseif (!hash_equals($storedIp, $ip)) {
-                if ($allowsRoaming) {
-                    $this->hosts->updateIp($hostId, $ip);
+            } else {
+                $matchesPrimary = $storedIp !== null && hash_equals($storedIp, $normalizedIp);
+                $matchesAlt = $storedIpAlt !== null && hash_equals($storedIpAlt, $normalizedIp);
+
+                if ($matchesPrimary || $matchesAlt) {
+                    $ipLogReason = $matchesPrimary ? 'match' : 'match_secondary';
+                } elseif ($allowsRoaming) {
+                    $this->hosts->updateIp($hostId, $normalizedIp);
                     $this->logs->log($hostId, 'auth.roaming_ip', [
                         'previous_ip' => $storedIp,
-                        'ip' => $ip,
+                        'ip' => $normalizedIp,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = 'roaming';
                 } elseif (!$hostSecure && ($insecureWindowActive || $insecureGraceActive)) {
-                    $this->hosts->updateIp($hostId, $ip);
+                    $this->hosts->updateIp($hostId, $normalizedIp);
                     $this->logs->log($hostId, 'auth.insecure_ip_override', [
                         'previous_ip' => $storedIp,
-                        'ip' => $ip,
+                        'ip' => $normalizedIp,
                         'window' => $insecureWindowActive ? 'enabled' : 'grace',
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = $insecureWindowActive ? 'insecure_window' : 'insecure_grace';
                 } elseif ($allowIpBypass) {
-                    $this->hosts->updateIp($hostId, $ip);
+                    $this->hosts->updateIp($hostId, $normalizedIp);
                     $this->logs->log($hostId, 'auth.force_ip_override', [
                         'previous_ip' => $storedIp,
-                        'ip' => $ip,
+                        'ip' => $normalizedIp,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = 'force';
-                } elseif ($this->shouldAllowRunnerIpBypass($ip)) {
+                } elseif ($this->shouldAllowRunnerIpBypass($normalizedIp)) {
                     // Runner needs to validate auth without rebinding host IP; do not update stored IP.
                     $this->logs->log($hostId, 'auth.runner_ip_bypass', [
                         'expected_ip' => $storedIp,
-                        'ip' => $ip,
+                        'expected_ip_alt' => $storedIpAlt,
+                        'ip' => $normalizedIp,
                     ]);
                     $ipLogReason = 'runner_bypass';
+                } elseif ($this->shouldBindSecondaryIp($storedIp, $storedIpAlt, $normalizedIp)) {
+                    $this->hosts->updateIpAlt($hostId, $normalizedIp);
+                    $this->logs->log($hostId, 'auth.bind_ip_secondary', [
+                        'primary_ip' => $storedIp,
+                        'ip' => $normalizedIp,
+                    ]);
+                    $host = $this->hosts->findById($hostId) ?? $host;
+                    $ipLogReason = 'dual_stack';
                 } else {
                     $ipAuthorized = false;
                     $ipLogReason = 'mismatch';
@@ -228,28 +247,30 @@ class AuthService
                         '[auth] ip authorization=denied host=%s stored_ip=%s incoming_ip=%s reason=%s',
                         $host['fqdn'] ?? 'unknown',
                         $storedIp ?? 'none',
-                        $ip,
+                        $normalizedIp,
                         $ipLogReason
                     ));
                     $this->logs->log($hostId, 'auth.denied', [
                         'reason' => 'ip_mismatch',
                         'fqdn' => $host['fqdn'] ?? null,
                         'expected_ip' => $storedIp,
-                        'received_ip' => $ip,
+                        'expected_ip_alt' => $storedIpAlt,
+                        'received_ip' => $normalizedIp,
                     ]);
                     throw new HttpException('API key not allowed from this IP', 403, [
                         'expected_ip' => $storedIp,
-                        'received_ip' => $ip,
+                        'expected_ip_alt' => $storedIpAlt,
+                        'received_ip' => $normalizedIp,
                     ]);
                 }
             }
         }
 
-        if ($ip !== null && $ip !== '' && $ipAuthorized) {
+        if ($normalizedIp !== null && $normalizedIp !== '' && $ipAuthorized) {
             error_log(sprintf(
                 '[auth] ip authorization=ok host=%s ip=%s reason=%s',
                 $host['fqdn'] ?? 'unknown',
-                $ip,
+                $normalizedIp,
                 $ipLogReason
             ));
         }
@@ -1867,6 +1888,28 @@ class AuthService
             return $host;
         }
 
+        $domainAllow = $this->resolveInsecureDomainAllow($host, $now);
+        if ($domainAllow !== null && $trackHost) {
+            $windowMinutes = $this->resolveInsecureWindowMinutes($host);
+            $newUntil = $now->modify(sprintf('+%d minutes', $windowMinutes));
+            $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $graceUntilRaw, null);
+            $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
+
+            $domainMinutes = $this->normalizeInsecureWindowMinutes($domainAllow['window_minutes'] ?? null);
+            $domainUntil = $now->modify(sprintf('+%d minutes', $domainMinutes));
+            $this->insecureDomainAllows?->touchWindow((int) ($domainAllow['id'] ?? 0), $domainUntil->format(DATE_ATOM));
+
+            $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.domain_auto_allow', [
+                'command' => $command,
+                'fqdn' => $host['fqdn'] ?? null,
+                'domain' => $domainAllow['domain'] ?? null,
+                'domain_id' => $domainAllow['id'] ?? null,
+                'enabled_until' => $newUntil->format(DATE_ATOM),
+            ]);
+
+            return $host;
+        }
+
         if ($this->shouldOfferInsecureApproval($hostId)) {
             try {
                 $pending = $this->insecureAuthRequests?->findPendingByHost($hostId);
@@ -1983,19 +2026,75 @@ class AuthService
     private function resolveInsecureWindowMinutes(array $host): int
     {
         $raw = $host['insecure_window_minutes'] ?? null;
-        if ($raw === null || $raw === '') {
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
             return self::DEFAULT_INSECURE_WINDOW_MINUTES;
         }
 
-        $minutes = (int) $raw;
-        if ($minutes < self::MIN_INSECURE_WINDOW_MINUTES) {
+        return $this->normalizeInsecureWindowMinutes((int) $raw);
+    }
+
+    private function normalizeInsecureWindowMinutes(?int $minutes): int
+    {
+        $value = $minutes ?? self::DEFAULT_INSECURE_WINDOW_MINUTES;
+        if ($value < self::MIN_INSECURE_WINDOW_MINUTES) {
             return self::MIN_INSECURE_WINDOW_MINUTES;
         }
-        if ($minutes > self::MAX_INSECURE_WINDOW_MINUTES) {
+        if ($value > self::MAX_INSECURE_WINDOW_MINUTES) {
             return self::MAX_INSECURE_WINDOW_MINUTES;
         }
+        return $value;
+    }
 
-        return $minutes;
+    private function resolveInsecureDomainAllow(array $host, DateTimeImmutable $now): ?array
+    {
+        if ($this->insecureDomainAllows === null) {
+            return null;
+        }
+
+        $fqdnRaw = $host['fqdn'] ?? null;
+        if (!is_string($fqdnRaw)) {
+            return null;
+        }
+        $fqdn = strtolower(trim($fqdnRaw));
+        if ($fqdn === '') {
+            return null;
+        }
+
+        $candidates = $this->insecureDomainAllows->listActiveCandidates();
+        foreach ($candidates as $candidate) {
+            $domainRaw = $candidate['domain'] ?? null;
+            if (!is_string($domainRaw)) {
+                continue;
+            }
+            $domain = strtolower(trim($domainRaw));
+            if ($domain === '') {
+                continue;
+            }
+            if (!$this->fqdnMatchesDomain($fqdn, $domain)) {
+                continue;
+            }
+            if (!$this->isTimestampActive($candidate['enabled_until'] ?? null, $now)) {
+                continue;
+            }
+            return $candidate;
+        }
+
+        return null;
+    }
+
+    private function fqdnMatchesDomain(string $fqdn, string $domain): bool
+    {
+        if ($fqdn === '' || $domain === '') {
+            return false;
+        }
+        $suffix = '.' . $domain;
+        $fqdnLength = strlen($fqdn);
+        $suffixLength = strlen($suffix);
+        if ($fqdnLength <= $suffixLength) {
+            return false;
+        }
+
+        return substr($fqdn, -$suffixLength) === $suffix;
     }
 
     private function openInitialInsecureWindow(int $hostId): void
@@ -2634,6 +2733,60 @@ class AuthService
             'reset_at' => $result['reset_at'],
             'bucket' => 'auth-fail',
         ]);
+    }
+
+    private function normalizeIp(?string $ip): ?string
+    {
+        if ($ip === null) {
+            return null;
+        }
+        $normalized = trim($ip);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $binary = @inet_pton($normalized);
+        if ($binary === false) {
+            return null;
+        }
+
+        if (strlen($binary) === 16) {
+            $v4prefix = str_repeat("\x00", 10) . "\xff\xff";
+            if (substr($binary, 0, 12) === $v4prefix) {
+                $v4 = substr($binary, 12, 4);
+                return inet_ntop($v4);
+            }
+        }
+
+        return inet_ntop($binary);
+    }
+
+    private function ipFamily(?string $ip): ?int
+    {
+        $normalized = $this->normalizeIp($ip);
+        if ($normalized === null) {
+            return null;
+        }
+
+        return str_contains($normalized, ':') ? 6 : 4;
+    }
+
+    private function shouldBindSecondaryIp(?string $primary, ?string $secondary, string $incoming): bool
+    {
+        if ($primary === null || $primary === '') {
+            return false;
+        }
+        if ($secondary !== null && $secondary !== '') {
+            return false;
+        }
+
+        $primaryFamily = $this->ipFamily($primary);
+        $incomingFamily = $this->ipFamily($incoming);
+        if ($primaryFamily === null || $incomingFamily === null) {
+            return false;
+        }
+
+        return $primaryFamily !== $incomingFamily;
     }
 
     private function shouldAllowRunnerIpBypass(string $ip): bool
