@@ -9,5 +9,8 @@ final class AuthServiceInsecureWindowRangeTest extends TestCase
         self::assertSame(0, App\Services\AuthService::MIN_INSECURE_WINDOW_MINUTES);
         self::assertSame(480, App\Services\AuthService::MAX_INSECURE_WINDOW_MINUTES);
         self::assertSame(10, App\Services\AuthService::DEFAULT_INSECURE_WINDOW_MINUTES);
+        self::assertSame(0, App\Services\AuthService::MIN_INSECURE_GRACE_MINUTES);
+        self::assertSame(480, App\Services\AuthService::MAX_INSECURE_GRACE_MINUTES);
+        self::assertSame(60, App\Services\AuthService::DEFAULT_INSECURE_GRACE_MINUTES);
     }
 }

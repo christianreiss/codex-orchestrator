@@ -252,7 +252,8 @@ body[data-view="mobile"] .usage-history-modal {
   max-width: none;
 }
 
-body[data-view="mobile"] .usage-history-chart svg {
+body[data-view="mobile"] .usage-history-chart svg,
+body[data-view="mobile"] .usage-history-chart .uplot {
   height: 220px;
 }
 

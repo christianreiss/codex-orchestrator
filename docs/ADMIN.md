@@ -25,7 +25,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Insecure Host Approval**: when enabled, insecure hosts outside their window will wait for admin approval if a websocket client is connected. A modal pops with hostname/FQDN/time and **Enable**/**Cancel** actions; **Allow domain** adds an auto-allow rule for subdomains (revokable in the Insecure hosts toggler list).
 - **Usage**: recent token rows with host + reasoning tokens where present (`limit` param).
 - **Usage Ingests**: per-ingest aggregates with search/sort (host, client IP, totals, cached/reasoning, cost, payload snapshot). `per_page` max 200; sortable keys include totals and cost.
-- **Cost History**: daily input/output/cached/total cost series, up to 180 days, anchored to first recorded usage and driven by the latest pricing snapshot.
+- **Cost History**: daily input/output/cached/total cost series, up to 180 days, anchored to first recorded usage and driven by the latest pricing snapshot (charts rendered with local uPlot assets under `/admin/assets`).
 - **Tokens**: aggregates by token line (total/input/output/cached/reasoning).
 - **Runner**: config + telemetry (enabled, URLs, timeouts, boot id, last ok/fail/check, 24h validation counts). Manual **Run now** forces a validation and reports whether canonical auth changed.
 - **ChatGPT Usage**: latest `/wham/usage` snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly). With admin websockets enabled, the 5‑hour + weekly limit boxes update live when new snapshots land, and the “Resets in …” timers tick locally between refreshes.

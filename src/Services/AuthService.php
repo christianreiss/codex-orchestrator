@@ -38,6 +38,9 @@ class AuthService
     public const MIN_INSECURE_WINDOW_MINUTES = 0;
     public const MAX_INSECURE_WINDOW_MINUTES = 480;
     public const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
+    public const MIN_INSECURE_GRACE_MINUTES = 0;
+    public const MAX_INSECURE_GRACE_MINUTES = 480;
+    public const DEFAULT_INSECURE_GRACE_MINUTES = 60;
     public const MIN_QUOTA_LIMIT_PERCENT = 50;
     public const MAX_QUOTA_LIMIT_PERCENT = 100;
     public const DEFAULT_QUOTA_LIMIT_PERCENT = 100;
@@ -1891,8 +1894,10 @@ class AuthService
             if ($trackHost) {
                 $windowMinutes = $this->resolveInsecureWindowMinutes($host);
                 $newUntil = $now->modify(sprintf('+%d minutes', $windowMinutes));
-                $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $graceUntilRaw, null);
+                $newGrace = $this->computeInsecureGraceUntil($newUntil, $windowMinutes);
+                $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $newGrace, null);
                 $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
+                $host['insecure_grace_until'] = $newGrace;
             }
 
             return $host;
@@ -1906,8 +1911,10 @@ class AuthService
         if ($domainAllow !== null && $trackHost) {
             $windowMinutes = $this->resolveInsecureWindowMinutes($host);
             $newUntil = $now->modify(sprintf('+%d minutes', $windowMinutes));
-            $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $graceUntilRaw, null);
+            $newGrace = $this->computeInsecureGraceUntil($newUntil, $windowMinutes);
+            $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $newGrace, null);
             $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
+            $host['insecure_grace_until'] = $newGrace;
 
             $domainMinutes = $this->normalizeInsecureWindowMinutes($domainAllow['window_minutes'] ?? null);
             $domainUntil = $now->modify(sprintf('+%d minutes', $domainMinutes));
@@ -2047,6 +2054,21 @@ class AuthService
         return $this->normalizeInsecureWindowMinutes((int) $raw);
     }
 
+    public function resolveInsecureGraceUntil(?string $enabledUntil, ?int $windowMinutes = null): ?string
+    {
+        if (!is_string($enabledUntil) || trim($enabledUntil) === '') {
+            return null;
+        }
+
+        try {
+            $enabledAt = new DateTimeImmutable($enabledUntil);
+        } catch (\Exception) {
+            return null;
+        }
+
+        return $this->computeInsecureGraceUntil($enabledAt, $windowMinutes);
+    }
+
     private function normalizeInsecureWindowMinutes(?int $minutes): int
     {
         $value = $minutes ?? self::DEFAULT_INSECURE_WINDOW_MINUTES;
@@ -2057,6 +2079,42 @@ class AuthService
             return self::MAX_INSECURE_WINDOW_MINUTES;
         }
         return $value;
+    }
+
+    private function resolveInsecureGraceMinutes(): int
+    {
+        $raw = Config::get('INSECURE_GRACE_MINUTES', self::DEFAULT_INSECURE_GRACE_MINUTES);
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
+            return self::DEFAULT_INSECURE_GRACE_MINUTES;
+        }
+
+        return $this->normalizeInsecureGraceMinutes((int) $raw);
+    }
+
+    private function normalizeInsecureGraceMinutes(?int $minutes): int
+    {
+        $value = $minutes ?? self::DEFAULT_INSECURE_GRACE_MINUTES;
+        if ($value < self::MIN_INSECURE_GRACE_MINUTES) {
+            return self::MIN_INSECURE_GRACE_MINUTES;
+        }
+        if ($value > self::MAX_INSECURE_GRACE_MINUTES) {
+            return self::MAX_INSECURE_GRACE_MINUTES;
+        }
+        return $value;
+    }
+
+    private function computeInsecureGraceUntil(DateTimeImmutable $enabledUntil, ?int $windowMinutes = null): ?string
+    {
+        if ($windowMinutes !== null && $windowMinutes <= 0) {
+            return null;
+        }
+
+        $graceMinutes = $this->resolveInsecureGraceMinutes();
+        if ($graceMinutes <= 0) {
+            return null;
+        }
+
+        return $enabledUntil->modify(sprintf('+%d minutes', $graceMinutes))->format(DATE_ATOM);
     }
 
     private function resolveInsecureDomainAllow(array $host, DateTimeImmutable $now): ?array
@@ -2114,7 +2172,8 @@ class AuthService
     private function openInitialInsecureWindow(int $hostId): void
     {
         $initialUntil = gmdate(DATE_ATOM, time() + (self::PROVISIONING_WINDOW_MINUTES * 60));
-        $this->hosts->updateInsecureWindows($hostId, $initialUntil, null, self::DEFAULT_INSECURE_WINDOW_MINUTES);
+        $graceUntil = $this->resolveInsecureGraceUntil($initialUntil, self::DEFAULT_INSECURE_WINDOW_MINUTES);
+        $this->hosts->updateInsecureWindows($hostId, $initialUntil, $graceUntil, self::DEFAULT_INSECURE_WINDOW_MINUTES);
         $this->logs->log($hostId, 'auth.insecure.initial_window', [
             'enabled_until' => $initialUntil,
         ]);

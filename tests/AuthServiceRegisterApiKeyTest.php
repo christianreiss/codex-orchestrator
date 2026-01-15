@@ -26,9 +26,19 @@ final class AuthServiceRegisterApiKeyTest extends TestCase
     private HostRepository $hosts;
     private AuthServiceRegisterApiKeyLogRepository $logs;
     private AuthService $service;
+    private ?string $originalGraceEnv = null;
 
     protected function setUp(): void
     {
+        if (array_key_exists('INSECURE_GRACE_MINUTES', $_ENV)) {
+            $this->originalGraceEnv = (string) $_ENV['INSECURE_GRACE_MINUTES'];
+        } else {
+            $envValue = getenv('INSECURE_GRACE_MINUTES');
+            $this->originalGraceEnv = $envValue === false ? null : (string) $envValue;
+        }
+        $_ENV['INSECURE_GRACE_MINUTES'] = '15';
+        putenv('INSECURE_GRACE_MINUTES=15');
+
         if (!defined('SODIUM_CRYPTO_SECRETBOX_KEYBYTES')) {
             define('SODIUM_CRYPTO_SECRETBOX_KEYBYTES', 32);
         }
@@ -91,6 +101,17 @@ final class AuthServiceRegisterApiKeyTest extends TestCase
         );
     }
 
+    protected function tearDown(): void
+    {
+        if ($this->originalGraceEnv === null) {
+            unset($_ENV['INSECURE_GRACE_MINUTES']);
+            putenv('INSECURE_GRACE_MINUTES');
+        } else {
+            $_ENV['INSECURE_GRACE_MINUTES'] = $this->originalGraceEnv;
+            putenv('INSECURE_GRACE_MINUTES=' . $this->originalGraceEnv);
+        }
+    }
+
     public function testRegisterSecureIncludesApiKey(): void
     {
         $payload = $this->service->register('secure.test', true);
@@ -110,10 +131,17 @@ final class AuthServiceRegisterApiKeyTest extends TestCase
         self::assertIsString($payload['api_key']);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $payload['api_key']);
         self::assertNotEmpty($payload['insecure_enabled_until']);
+        self::assertNotEmpty($payload['insecure_grace_until']);
 
         $hostRow = $this->hosts->findByFqdn('insecure.test');
         self::assertNotNull($hostRow);
         self::assertArrayHasKey('api_key_enc', $hostRow);
+
+        $enabledTs = strtotime((string) $payload['insecure_enabled_until']);
+        $graceTs = strtotime((string) $payload['insecure_grace_until']);
+        self::assertNotFalse($enabledTs);
+        self::assertNotFalse($graceTs);
+        self::assertSame(900, $graceTs - $enabledTs);
 
         $decrypted = $this->hosts->decryptApiKey($hostRow['api_key_enc']);
         self::assertSame($payload['api_key'], $decrypted);

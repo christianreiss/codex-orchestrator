@@ -1332,7 +1332,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($matches) use ($hos
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository, $payload, $service) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
@@ -1372,7 +1372,8 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
     }
 
     $enabledUntil = gmdate(DATE_ATOM, $baseTs + ($minutes * 60));
-    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null, $minutes);
+    $graceUntil = $service->resolveInsecureGraceUntil($enabledUntil, $minutes);
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, $graceUntil, $minutes);
     $logRepository->log($hostId, 'admin.host.insecure_enable', [
         'fqdn' => $host['fqdn'],
         'enabled_until' => $enabledUntil,
@@ -1385,7 +1386,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
             'host' => [
                 'id' => $hostId,
                 'insecure_enabled_until' => $enabledUntil,
-                'insecure_grace_until' => null,
+                'insecure_grace_until' => $graceUntil,
                 'insecure_window_minutes' => $minutes,
             ],
         ],
@@ -1420,7 +1421,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $hostRepository, $logRepository) {
+$router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
 
     $requestId = (int) $matches[1];
@@ -1541,7 +1542,8 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
     }
 
     $enabledUntil = gmdate(DATE_ATOM, $baseTs + ($minutes * 60));
-    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null, $minutes);
+    $graceUntil = $service->resolveInsecureGraceUntil($enabledUntil, $minutes);
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, $graceUntil, $minutes);
     $logRepository->log($hostId, 'admin.host.insecure_enable', [
         'fqdn' => $host['fqdn'],
         'enabled_until' => $enabledUntil,
@@ -1566,7 +1568,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
             'host' => [
                 'id' => $hostId,
                 'insecure_enabled_until' => $enabledUntil,
-                'insecure_grace_until' => null,
+                'insecure_grace_until' => $graceUntil,
                 'insecure_window_minutes' => $minutes,
             ],
             'domain' => [
@@ -1579,7 +1581,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
+$router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
 
     $requestId = (int) $matches[1];
@@ -1633,7 +1635,8 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($m
     }
 
     $enabledUntil = gmdate(DATE_ATOM, $baseTs + ($minutes * 60));
-    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, null, $minutes);
+    $graceUntil = $service->resolveInsecureGraceUntil($enabledUntil, $minutes);
+    $hostRepository->updateInsecureWindows($hostId, $enabledUntil, $graceUntil, $minutes);
     $logRepository->log($hostId, 'admin.host.insecure_enable', [
         'fqdn' => $host['fqdn'],
         'enabled_until' => $enabledUntil,
@@ -1658,7 +1661,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($m
             'host' => [
                 'id' => $hostId,
                 'insecure_enabled_until' => $enabledUntil,
-                'insecure_grace_until' => null,
+                'insecure_grace_until' => $graceUntil,
                 'insecure_window_minutes' => $minutes,
             ],
         ],
@@ -2433,7 +2436,8 @@ $router->add('POST', '#^/admin/hosts/insecure/extend$#', function () use ($hostR
         }
 
         $newUntil = gmdate(DATE_ATOM, $now + ($minutes * 60));
-        $hostRepository->updateInsecureWindows((int) $host['id'], $newUntil, null, null);
+        $graceUntil = $service->resolveInsecureGraceUntil($newUntil, $minutes);
+        $hostRepository->updateInsecureWindows((int) $host['id'], $newUntil, $graceUntil, null);
         $logRepository->log((int) $host['id'], 'admin.host.insecure_extend', [
             'fqdn' => $host['fqdn'] ?? null,
             'enabled_until' => $newUntil,

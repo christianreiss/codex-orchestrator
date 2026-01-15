@@ -296,6 +296,10 @@
     let chatgptUsageHistoryPromise = null;
     let costHistory = null;
     let costHistoryPromise = null;
+    let usageHistoryPlot = null;
+    let usageHistoryResizeObserver = null;
+    let costHistoryPlot = null;
+    let costHistoryResizeObserver = null;
     let activeHostId = null;
     let activeInsecureApproval = null;
     const insecureApprovalQueue = [];
@@ -3094,10 +3098,171 @@
       return series;
     }
 
+    function getChartHeight(defaultHeight = 260) {
+      return document.body?.dataset?.view === 'mobile' ? 220 : defaultHeight;
+    }
+
+    function getPlotSize(container, height) {
+      if (!container) return { width: 0, height };
+      const rect = container.getBoundingClientRect();
+      const width = Math.max(240, Math.floor(rect.width || 0));
+      return { width, height };
+    }
+
+    function destroyPlot(plot, observer) {
+      if (observer) observer.disconnect();
+      if (plot && typeof plot.destroy === 'function') plot.destroy();
+    }
+
+    function attachPlotResizeObserver(plot, container, height) {
+      if (!plot || !container || typeof ResizeObserver === 'undefined') return null;
+      let frame = null;
+      const observer = new ResizeObserver(() => {
+        if (frame) return;
+        frame = window.requestAnimationFrame(() => {
+          frame = null;
+          const { width } = getPlotSize(container, height);
+          if (width > 0 && typeof plot.setSize === 'function') {
+            plot.setSize({ width, height });
+          }
+        });
+      });
+      observer.observe(container);
+      return observer;
+    }
+
+    function getCssVar(name, fallback) {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+      return value && value.trim() ? value.trim() : fallback;
+    }
+
     function renderUsageHistoryChart(series, windowKey) {
       if (!usageHistoryChart) return;
+      destroyPlot(usageHistoryPlot, usageHistoryResizeObserver);
+      usageHistoryPlot = null;
+      usageHistoryResizeObserver = null;
       if (!Array.isArray(series) || series.length === 0) {
         usageHistoryChart.innerHTML = '<div class="muted">No quota history yet.</div>';
+        return;
+      }
+
+      if (window.uPlot) {
+        const plotHeight = getChartHeight(260);
+        const accent = getCssVar('--accent-2', '#0b7c73');
+        const accentRgb = getCssVar('--accent-rgb', '15, 156, 146');
+        const gridStroke = 'rgba(15,23,42,0.08)';
+        const Plot = window.uPlot;
+        const xVals = series.map((pt) => pt.x);
+        const yVals = series.map((pt) => pt.y);
+
+        usageHistoryChart.innerHTML = `
+          <div data-usage-plot></div>
+          <div class="usage-history-tooltip" data-usage-tooltip hidden></div>
+        `;
+        const plotRoot = usageHistoryChart.querySelector('[data-usage-plot]');
+        const tooltip = usageHistoryChart.querySelector('[data-usage-tooltip]');
+        if (!plotRoot) return;
+        plotRoot.setAttribute('role', 'img');
+        plotRoot.setAttribute('aria-label', windowKey === 'secondary' ? 'Weekly quota history' : '5-hour quota history');
+
+        const { width } = getPlotSize(plotRoot, plotHeight);
+        const data = [xVals, yVals];
+        const opts = {
+          width,
+          height: plotHeight,
+          series: [
+            {},
+            {
+              label: windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota',
+              stroke: accent,
+              width: 2,
+              fill: `rgba(${accentRgb},0.18)`,
+              points: { show: false },
+            },
+          ],
+          scales: {
+            x: { time: true },
+            y: {
+              range: (u, min, max) => [0, Math.max(100, max || 0)],
+            },
+          },
+          axes: [
+            {
+              stroke: '#64748b',
+              grid: { stroke: gridStroke },
+              ticks: { stroke: gridStroke },
+              values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
+            },
+            {
+              stroke: '#64748b',
+              grid: { stroke: gridStroke },
+              ticks: { stroke: gridStroke },
+              values: (u, ticks) => ticks.map((v) => `${Math.round(v)}%`),
+            },
+          ],
+          cursor: {
+            y: false,
+            points: { show: true },
+          },
+        };
+
+        usageHistoryPlot = new Plot(opts, data, plotRoot);
+        usageHistoryResizeObserver = attachPlotResizeObserver(usageHistoryPlot, plotRoot, plotHeight);
+
+        if (tooltip) {
+          let lockedIdx = null;
+          let lastClientX = null;
+
+          const showTooltip = (idx, clientX) => {
+            if (idx === null || idx === undefined) return;
+            const point = series[idx];
+            if (!point) return;
+            const dateLabel = formatShortDate(new Date(point.x), true);
+            const valueLabel = `${Math.round(point.raw ?? point.y)}%`;
+            tooltip.innerHTML = `
+              <span class="label">${dateLabel}</span>
+              <span class="value">${valueLabel}</span>
+            `;
+            tooltip.hidden = false;
+            const rect = plotRoot.getBoundingClientRect();
+            const safeClientX = Number.isFinite(clientX) ? clientX : rect.left + (usageHistoryPlot?.cursor?.left ?? 0);
+            lastClientX = safeClientX;
+            const relative = rect.width > 0 ? clamp((safeClientX - rect.left) / rect.width, 0, 1) : 0.5;
+            const tipWidth = tooltip.offsetWidth || 0;
+            const xPos = clamp((relative * rect.width) - (tipWidth / 2), 0, Math.max(rect.width - tipWidth, 0));
+            tooltip.style.left = `${xPos}px`;
+            tooltip.style.top = '10px';
+          };
+
+          const hideTooltip = () => {
+            tooltip.hidden = true;
+            tooltip.innerHTML = '';
+          };
+
+          plotRoot.addEventListener('pointermove', (event) => {
+            if (lockedIdx !== null) return;
+            const idx = usageHistoryPlot?.cursor?.idx;
+            if (idx === null || idx === undefined) return;
+            showTooltip(idx, event.clientX);
+          });
+          plotRoot.addEventListener('mouseleave', () => {
+            if (lockedIdx !== null) {
+              showTooltip(lockedIdx, lastClientX);
+              return;
+            }
+            hideTooltip();
+          });
+          plotRoot.addEventListener('click', (event) => {
+            const idx = usageHistoryPlot?.cursor?.idx;
+            if (idx === null || idx === undefined) return;
+            lockedIdx = lockedIdx === idx ? null : idx;
+            if (lockedIdx === null) {
+              hideTooltip();
+              return;
+            }
+            showTooltip(lockedIdx, event.clientX);
+          });
+        }
         return;
       }
 
@@ -3252,10 +3417,142 @@
 
     function renderCostHistoryChart(history) {
       if (!costHistoryChart) return;
+      destroyPlot(costHistoryPlot, costHistoryResizeObserver);
+      costHistoryPlot = null;
+      costHistoryResizeObserver = null;
       const series = buildCostSeries(history);
       const allPoints = series.flatMap((s) => s.values);
       if (allPoints.length === 0) {
         costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
+        return;
+      }
+      const pointIndex = buildCostPointIndex(history);
+      if (!pointIndex.length) {
+        costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
+        return;
+      }
+      const currency = history?.currency || 'USD';
+
+      if (window.uPlot) {
+        const Plot = window.uPlot;
+        const plotHeight = getChartHeight(260);
+        const gridStroke = 'rgba(15,23,42,0.08)';
+
+        const seriesData = series.map((s) => {
+          const byDate = new Map(s.values.map((value) => [value.date, value.y]));
+          return pointIndex.map((pt) => byDate.get(pt.date) ?? null);
+        });
+        const xVals = pointIndex.map((pt) => pt.x);
+        const data = [xVals, ...seriesData];
+        const maxY = Math.max(0, ...seriesData.flat().map((val) => (Number.isFinite(val) ? val : 0)));
+        const yMax = Math.max(1, maxY);
+
+        const legend = series.map((s) => {
+          const latest = s.values[s.values.length - 1];
+          const value = latest ? latest.y : 0;
+          const color = s.color || '#0f172a';
+          const classes = ['legend-item'];
+          if (s.key === 'total' || s.emphasis) classes.push('legend-total');
+          return `<span class="${classes.join(' ')}"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, currency)}</strong></span>`;
+        }).join('');
+
+        const latestPoint = pointIndex[pointIndex.length - 1];
+        const detailHtml = renderCostDetail(latestPoint, currency);
+        const tableRows = renderCostTableRows(pointIndex, currency);
+
+        costHistoryChart.innerHTML = `
+          <div class="legend">${legend}</div>
+          <div class="cost-chart-shell" data-chart-shell>
+            <div data-cost-plot></div>
+            <div class="cost-chart-tooltip" data-cost-tooltip hidden></div>
+          </div>
+          <div class="cost-detail" data-cost-detail>${detailHtml}</div>
+          <div class="cost-table-wrap">
+            <table class="cost-table">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Total</th>
+                  <th scope="col">Input</th>
+                  <th scope="col">Output</th>
+                  <th scope="col">Cached</th>
+                  <th scope="col">Tokens</th>
+                </tr>
+              </thead>
+              <tbody data-cost-table>${tableRows}</tbody>
+            </table>
+          </div>
+        `;
+
+        const plotRoot = costHistoryChart.querySelector('[data-cost-plot]');
+        if (!plotRoot) return;
+        plotRoot.setAttribute('role', 'img');
+        plotRoot.setAttribute('aria-label', 'Cost history over time');
+        const { width } = getPlotSize(plotRoot, plotHeight);
+        const opts = {
+          width,
+          height: plotHeight,
+          series: [
+            {},
+            {
+              label: 'Total',
+              stroke: '#312e81',
+              width: 3,
+              points: { show: false },
+            },
+            {
+              label: 'Input',
+              stroke: '#0ea5e9',
+              width: 2,
+              points: { show: false },
+            },
+            {
+              label: 'Output',
+              stroke: '#16a34a',
+              width: 2,
+              points: { show: false },
+            },
+            {
+              label: 'Cached',
+              stroke: '#f97316',
+              width: 2,
+              points: { show: false },
+            },
+          ],
+          scales: {
+            x: { time: true },
+            y: {
+              range: (u, min, max) => [0, Math.max(yMax, max || 0)],
+            },
+          },
+          axes: [
+            {
+              stroke: '#64748b',
+              grid: { stroke: gridStroke },
+              ticks: { stroke: gridStroke },
+              values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
+            },
+            {
+              stroke: '#64748b',
+              grid: { stroke: gridStroke },
+              ticks: { stroke: gridStroke },
+              values: (u, ticks) => ticks.map((v) => formatMoney(v, currency)),
+            },
+          ],
+          cursor: {
+            y: false,
+            points: { show: true },
+          },
+        };
+
+        costHistoryPlot = new Plot(opts, data, plotRoot);
+        costHistoryResizeObserver = attachPlotResizeObserver(costHistoryPlot, plotRoot, plotHeight);
+
+        attachCostHistoryInteractions(costHistoryChart, {
+          plot: costHistoryPlot,
+          points: pointIndex,
+          currency,
+        });
         return;
       }
 
@@ -3267,12 +3564,6 @@
       const maxY = Math.max(...allPoints.map((p) => p.y), 0);
       const ticks = buildCostTicks(maxY);
       const yMax = Math.max(maxY, ticks[ticks.length - 1] ?? 0.01);
-      const currency = history?.currency || 'USD';
-      const pointIndex = buildCostPointIndex(history);
-      if (!pointIndex.length) {
-        costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
-        return;
-      }
 
       const gridLines = ticks.map((tick) => {
         const y = height - ((tick / yMax) * height);
@@ -3344,18 +3635,16 @@
     }
 
     function attachCostHistoryInteractions(root, config) {
-      const { points, currency, minX, spanX } = config || {};
+      const { points, currency, minX, spanX, plot } = config || {};
       if (!root || !Array.isArray(points) || points.length === 0) return;
-      const overlay = root.querySelector('[data-chart-overlay]');
       const tooltip = root.querySelector('[data-cost-tooltip]');
-      const crosshair = root.querySelector('[data-cost-crosshair]');
       const detailEl = root.querySelector('[data-cost-detail]');
       const tableBody = root.querySelector('[data-cost-table]');
       if (!detailEl || !tableBody) return;
 
-      const dateLookup = new Map(points.map((pt) => [pt.date, pt]));
-      let selectedDate = points[points.length - 1]?.date || null;
-      let lockedDate = selectedDate;
+      const dateLookup = new Map(points.map((pt, idx) => [pt.date, { point: pt, idx }]));
+      let selectedIdx = points.length - 1;
+      let lockedIdx = selectedIdx;
       let activeRow = null;
 
       function updateRowSelection(date) {
@@ -3374,6 +3663,115 @@
         }
       }
 
+      function setSelection(idx, opts = {}) {
+        if (!Number.isFinite(idx) || idx < 0 || idx >= points.length) return null;
+        const point = points[idx];
+        const force = opts.force ?? false;
+        if (!force && selectedIdx === idx) {
+          if (opts.lock) lockedIdx = idx;
+          return point;
+        }
+        selectedIdx = idx;
+        if (opts.lock) lockedIdx = idx;
+        if (detailEl) {
+          detailEl.innerHTML = renderCostDetail(point, currency);
+        }
+        updateRowSelection(point.date);
+        return point;
+      }
+
+      function showTooltip(point, clientX, chartRect) {
+        if (!tooltip || !point) return;
+        tooltip.innerHTML = renderCostTooltip(point, currency);
+        tooltip.hidden = false;
+        if (!chartRect) return;
+        const tipWidth = tooltip.offsetWidth || 0;
+        const leftPx = clamp(clientX - chartRect.left - (tipWidth / 2), 0, Math.max(chartRect.width - tipWidth, 0));
+        tooltip.style.left = `${leftPx}px`;
+        tooltip.style.top = '12px';
+      }
+
+      function hideTooltip() {
+        if (!tooltip) return;
+        tooltip.hidden = true;
+        tooltip.innerHTML = '';
+      }
+
+      setSelection(selectedIdx, { lock: true, force: true });
+
+      if (plot) {
+        const plotRoot = plot.root;
+
+        const syncCursorToIdx = (idx) => {
+          if (!plot || typeof plot.valToPos !== 'function' || typeof plot.setCursor !== 'function') return;
+          const point = points[idx];
+          if (!point) return;
+          const left = plot.valToPos(point.x, 'x');
+          if (!Number.isFinite(left)) return;
+          plot.setCursor({ left, top: 0 }, false, false);
+        };
+
+        if (plotRoot) {
+          plotRoot.addEventListener('pointermove', (event) => {
+            const idx = plot?.cursor?.idx;
+            if (idx === null || idx === undefined) return;
+            const point = setSelection(idx, { lock: false });
+            if (!point) return;
+            const rect = plotRoot.getBoundingClientRect();
+            showTooltip(point, event.clientX, rect);
+          });
+          plotRoot.addEventListener('mouseleave', () => {
+            hideTooltip();
+            if (lockedIdx !== null) {
+              setSelection(lockedIdx, { lock: false, force: true });
+            }
+          });
+          plotRoot.addEventListener('click', (event) => {
+            const idx = plot?.cursor?.idx;
+            if (idx === null || idx === undefined) return;
+            lockedIdx = idx;
+            const point = setSelection(idx, { lock: true, force: true });
+            if (!point) return;
+            const rect = plotRoot.getBoundingClientRect();
+            showTooltip(point, event.clientX, rect);
+          });
+        }
+
+        const handleRowFocus = (event, lock = false) => {
+          const row = event.target.closest('tr[data-cost-row]');
+          if (!row) return;
+          const date = row.dataset.costRow;
+          const lookup = dateLookup.get(date);
+          if (!lookup) return;
+          setSelection(lookup.idx, { lock, force: lock });
+          if (!lock) hideTooltip();
+          if (lock) lockedIdx = lookup.idx;
+          syncCursorToIdx(lookup.idx);
+        };
+
+        tableBody.addEventListener('mouseover', (event) => handleRowFocus(event, false));
+        tableBody.addEventListener('focusin', (event) => handleRowFocus(event, false));
+        tableBody.addEventListener('mouseleave', () => {
+          hideTooltip();
+          if (lockedIdx !== null) {
+            setSelection(lockedIdx, { lock: false, force: true });
+          }
+        });
+        tableBody.addEventListener('click', (event) => {
+          event.preventDefault();
+          handleRowFocus(event, true);
+        });
+        tableBody.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          handleRowFocus(event, true);
+        });
+        return;
+      }
+
+      const overlay = root.querySelector('[data-chart-overlay]');
+      const crosshair = root.querySelector('[data-cost-crosshair]');
+
       function positionCrosshair(point) {
         if (!crosshair) return;
         if (!point) {
@@ -3387,25 +3785,25 @@
         crosshair.hidden = false;
       }
 
-      function setSelection(date, opts = {}) {
-        if (!dateLookup.has(date)) return null;
-        const point = dateLookup.get(date);
+      function setSelectionByDate(date, opts = {}) {
+        const lookup = dateLookup.get(date);
+        if (!lookup) return null;
         const force = opts.force ?? false;
-        if (!force && selectedDate === date) {
-          if (opts.lock) lockedDate = date;
-          return point;
+        if (!force && selectedIdx === lookup.idx) {
+          if (opts.lock) lockedIdx = lookup.idx;
+          return lookup.point;
         }
-        selectedDate = date;
-        if (opts.lock) lockedDate = date;
+        selectedIdx = lookup.idx;
+        if (opts.lock) lockedIdx = lookup.idx;
         if (detailEl) {
-          detailEl.innerHTML = renderCostDetail(point, currency);
+          detailEl.innerHTML = renderCostDetail(lookup.point, currency);
         }
-        updateRowSelection(date);
-        positionCrosshair(point);
-        return point;
+        updateRowSelection(lookup.point.date);
+        positionCrosshair(lookup.point);
+        return lookup.point;
       }
 
-      function showTooltip(point, clientX) {
+      function showOverlayTooltip(point, clientX) {
         if (!tooltip || !overlay || !point) return;
         tooltip.innerHTML = renderCostTooltip(point, currency);
         tooltip.hidden = false;
@@ -3418,13 +3816,7 @@
         tooltip.style.top = '12px';
       }
 
-      function hideTooltip() {
-        if (!tooltip) return;
-        tooltip.hidden = true;
-        tooltip.innerHTML = '';
-      }
-
-      setSelection(selectedDate, { lock: true, force: true });
+      setSelectionByDate(points[selectedIdx]?.date, { lock: true, force: true });
 
       if (overlay) {
         overlay.addEventListener('pointermove', (ev) => {
@@ -3434,13 +3826,15 @@
           const targetX = minX + ((spanX || 1) * relative);
           const point = findNearestCostPoint(points, targetX);
           if (!point) return;
-          setSelection(point.date, { lock: false });
-          showTooltip(point, ev.clientX);
+          const lookup = dateLookup.get(point.date);
+          if (!lookup) return;
+          setSelection(lookup.idx, { lock: false });
+          showOverlayTooltip(point, ev.clientX);
         });
         overlay.addEventListener('pointerleave', () => {
           hideTooltip();
-          if (lockedDate) {
-            setSelection(lockedDate, { lock: false, force: true });
+          if (lockedIdx !== null) {
+            setSelection(lockedIdx, { lock: false, force: true });
           }
         });
         overlay.addEventListener('click', (ev) => {
@@ -3450,8 +3844,10 @@
           const targetX = minX + ((spanX || 1) * relative);
           const point = findNearestCostPoint(points, targetX);
           if (point) {
-            setSelection(point.date, { lock: true, force: true });
-            showTooltip(point, ev.clientX);
+            const lookup = dateLookup.get(point.date);
+            if (!lookup) return;
+            setSelection(lookup.idx, { lock: true, force: true });
+            showOverlayTooltip(point, ev.clientX);
           }
         });
       }
@@ -3461,7 +3857,9 @@
         if (!row) return;
         const date = row.dataset.costRow;
         if (!date) return;
-        setSelection(date, { lock, force: lock });
+        const lookup = dateLookup.get(date);
+        if (!lookup) return;
+        setSelection(lookup.idx, { lock, force: lock });
         if (!lock) hideTooltip();
       };
 
@@ -3469,8 +3867,8 @@
       tableBody.addEventListener('focusin', (event) => handleRowFocus(event, false));
       tableBody.addEventListener('mouseleave', () => {
         hideTooltip();
-        if (lockedDate) {
-          setSelection(lockedDate, { lock: false, force: true });
+        if (lockedIdx !== null) {
+          setSelection(lockedIdx, { lock: false, force: true });
         }
       });
       tableBody.addEventListener('click', (event) => {
