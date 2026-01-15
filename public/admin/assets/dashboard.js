@@ -129,6 +129,8 @@
     const quotaPartitionLabel = document.getElementById('quotaPartitionLabel');
     const cdxSilentToggle = document.getElementById('cdxSilentToggle');
     const cdxSilentLabel = document.getElementById('cdxSilentLabel');
+    const reverseDnsToggle = document.getElementById('reverseDnsToggle');
+    const reverseDnsLabel = document.getElementById('reverseDnsLabel');
     const insecureApprovalToggle = document.getElementById('insecureApprovalToggle');
     const insecureApprovalLabel = document.getElementById('insecureApprovalLabel');
     const codexVersionSelect = document.getElementById('codexVersionSelect');
@@ -288,6 +290,7 @@
     let quotaLimitPercent = QUOTA_LIMIT_DEFAULT;
     let quotaWeekPartition = QUOTA_WEEK_PARTITION_OFF;
     let cdxSilent = false;
+    let reverseDnsEnabled = false;
     let insecureApprovalEnabled = false;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
@@ -748,6 +751,12 @@
       cdxSilentLabel.textContent = cdxSilent ? 'Silent' : 'Verbose';
     }
 
+    function renderReverseDns() {
+      if (!reverseDnsToggle || !reverseDnsLabel) return;
+      reverseDnsToggle.checked = !!reverseDnsEnabled;
+      reverseDnsLabel.textContent = reverseDnsEnabled ? 'Enabled' : 'Disabled';
+    }
+
     function renderInsecureApproval() {
       if (!insecureApprovalToggle || !insecureApprovalLabel) return;
       insecureApprovalToggle.checked = !!insecureApprovalEnabled;
@@ -958,6 +967,17 @@
       }
     }
 
+    async function loadReverseDns() {
+      if (!reverseDnsToggle) return;
+      try {
+        const res = await api('/admin/reverse-dns');
+        reverseDnsEnabled = !!res?.data?.enabled;
+        renderReverseDns();
+      } catch (err) {
+        console.warn('reverse dns state unavailable', err);
+      }
+    }
+
     async function loadInsecureApproval() {
       if (!insecureApprovalToggle) return;
       try {
@@ -986,6 +1006,26 @@
         renderCdxSilent();
       } finally {
         cdxSilentToggle.disabled = false;
+      }
+    }
+
+    async function setReverseDns(nextValue) {
+      if (!reverseDnsToggle) return;
+      const previous = reverseDnsEnabled;
+      reverseDnsEnabled = !!nextValue;
+      renderReverseDns();
+      reverseDnsToggle.disabled = true;
+      try {
+        await api('/admin/reverse-dns', {
+          method: 'POST',
+          json: { enabled: !!nextValue },
+        });
+      } catch (err) {
+        toast(`Reverse DNS update failed: ${err.message}`, 'error');
+        reverseDnsEnabled = previous;
+        renderReverseDns();
+      } finally {
+        reverseDnsToggle.disabled = false;
       }
     }
 
@@ -1688,6 +1728,28 @@
       `;
     }
 
+    function normalizeReverseDnsMode(mode) {
+      if (!mode) return 'global';
+      const normalized = String(mode).trim().toLowerCase();
+      if (normalized === 'enabled' || normalized === 'disabled' || normalized === 'global') {
+        return normalized;
+      }
+      if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+        return 'enabled';
+      }
+      if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') {
+        return 'disabled';
+      }
+      return 'global';
+    }
+
+    function isReverseDnsEffective(host) {
+      const mode = normalizeReverseDnsMode(host?.reverse_dns_mode);
+      if (mode === 'enabled') return true;
+      if (mode === 'disabled') return false;
+      return !!reverseDnsEnabled;
+    }
+
     function renderHostActionButtons(host) {
       const secure = isHostSecure(host);
       const toggles = [];
@@ -1745,9 +1807,30 @@
         state: insecureStateLabel,
       }));
 
+      const reverseDnsMode = normalizeReverseDnsMode(host?.reverse_dns_mode);
+      const reverseDnsEffective = isReverseDnsEffective(host);
+      const reverseDnsGlobalLabel = reverseDnsEnabled ? 'Global (enabled)' : 'Global (disabled)';
+
       return `
         <div class="host-toggle-list">
           ${toggles.join('')}
+        </div>
+        <div class="host-reverse-dns" style="margin-top:12px;">
+          <div class="muted" style="font-weight:600; margin-bottom:6px;">Reverse DNS enforcement</div>
+          <div class="inline-group" style="gap:10px; align-items:flex-end;">
+            <div class="field" style="min-width:240px;">
+              <label for="hostReverseDnsSelect">Mode</label>
+              <select id="hostReverseDnsSelect">
+                <option value="global">${reverseDnsGlobalLabel}</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
+          </div>
+          <div class="muted-note" style="margin-top:6px;">
+            Effective: ${reverseDnsEffective ? 'Enabled' : 'Disabled'} (${reverseDnsMode === 'global' ? 'using global default' : 'host override'}).
+            <span id="hostReverseDnsSaveState" class="muted" style="margin-left:10px;"></span>
+          </div>
         </div>
         <div class="host-codex-version" style="margin-top:12px;">
           <div class="muted" style="font-weight:600; margin-bottom:6px;">Codex CLI version</div>
@@ -1848,6 +1931,40 @@
           }
         });
       });
+
+      const reverseDnsSelect = hostDetailActions.querySelector('#hostReverseDnsSelect');
+      const reverseDnsSaveState = hostDetailActions.querySelector('#hostReverseDnsSaveState');
+      if (reverseDnsSelect) {
+        reverseDnsSelect.value = normalizeReverseDnsMode(host.reverse_dns_mode);
+        const saveReverseDnsMode = async () => {
+          const mode = normalizeReverseDnsMode(reverseDnsSelect.value);
+          if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Saving…';
+          reverseDnsSelect.disabled = true;
+          try {
+            await api(`/admin/hosts/${host.id}/reverse-dns`, {
+              method: 'POST',
+              json: { mode },
+            });
+            if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Saved';
+            await loadAll();
+          } catch (err) {
+            if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Save failed';
+            console.error('save host reverse dns mode failed', err);
+          } finally {
+            reverseDnsSelect.disabled = false;
+            if (reverseDnsSaveState) {
+              window.setTimeout(() => {
+                if (reverseDnsSaveState.textContent === 'Saved') reverseDnsSaveState.textContent = '';
+              }, 1500);
+            }
+          }
+        };
+
+        reverseDnsSelect.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          await saveReverseDnsMode();
+        });
+      }
 
       const codexSelect = hostDetailActions.querySelector('#hostCodexVersionSelect');
       const codexSaveState = hostDetailActions.querySelector('#hostCodexVersionSaveState');
@@ -4209,6 +4326,10 @@
           cdxSilent = !!currentOverview.cdx_silent;
           renderCdxSilent();
         }
+        if (typeof currentOverview.reverse_dns_enabled !== 'undefined') {
+          reverseDnsEnabled = !!currentOverview.reverse_dns_enabled;
+          renderReverseDns();
+        }
         if (typeof currentOverview.insecure_approval_enabled !== 'undefined') {
           insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
           renderInsecureApproval();
@@ -5254,6 +5375,11 @@
         setCdxSilent(cdxSilentToggle.checked);
       });
     }
+    if (reverseDnsToggle) {
+      reverseDnsToggle.addEventListener('change', () => {
+        setReverseDns(reverseDnsToggle.checked);
+      });
+    }
     if (insecureApprovalToggle) {
       insecureApprovalToggle.addEventListener('change', () => {
         setInsecureApproval(insecureApprovalToggle.checked);
@@ -5297,6 +5423,7 @@
     });
     loadApiState();
     loadCdxSilent();
+    loadReverseDns();
     loadInsecureApproval();
 
     function wireNavShortcuts() {

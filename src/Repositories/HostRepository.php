@@ -458,6 +458,19 @@ class HostRepository
         ]);
     }
 
+    public function updateReverseDnsMode(int $hostId, ?bool $enabled): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET reverse_dns_mode = :mode, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'mode' => $enabled === null ? null : ($enabled ? 1 : 0),
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     /**
      * Clear canonical auth state for a host without deleting the host record.
      * Resets the stored digest/last_refresh and removes any host->payload pointer

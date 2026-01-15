@@ -104,6 +104,7 @@ class LogRepository
                 'host_disabled' => 'host disabled',
                 'ip_mismatch' => 'IP mismatch',
                 'installation_mismatch' => 'installation mismatch',
+                'reverse_dns_mismatch' => 'reverse DNS mismatch',
                 default => 'access denied',
             };
 
@@ -113,6 +114,11 @@ class LogRepository
                 $receivedIp = $details['received_ip'] ?? null;
                 if (is_string($expectedIp) || is_string($receivedIp)) {
                     $message .= sprintf(' (expected %s, got %s)', $expectedIp ?? 'unknown', $receivedIp ?? 'unknown');
+                }
+            } elseif ($reason === 'reverse_dns_mismatch') {
+                $ip = $details['ip'] ?? null;
+                if (is_string($ip) && trim($ip) !== '') {
+                    $message .= ' (from ' . trim($ip) . ')';
                 }
             } elseif (in_array($reason, ['missing_api_key', 'invalid_api_key'], true)) {
                 $ip = $details['ip'] ?? null;

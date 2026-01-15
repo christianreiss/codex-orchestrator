@@ -70,6 +70,7 @@ class Database
                 status VARCHAR(32) NOT NULL DEFAULT 'active',
                 secure TINYINT(1) NOT NULL DEFAULT 1,
                 allow_roaming_ips TINYINT(1) NOT NULL DEFAULT 0,
+                reverse_dns_mode TINYINT(1) NULL DEFAULT NULL,
                 last_refresh VARCHAR(100) NULL,
                 auth_digest VARCHAR(128) NULL,
                 ip VARCHAR(64) NULL,
@@ -510,6 +511,7 @@ class Database
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'allow_roaming_ips', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'secure', 'TINYINT(1) NOT NULL DEFAULT 1');
+        $this->ensureColumnExists('hosts', 'reverse_dns_mode', 'TINYINT(1) NULL DEFAULT NULL');
         $this->ensureColumnExists('hosts', 'insecure_enabled_until', 'DATETIME NULL');
         $this->ensureColumnExists('hosts', 'insecure_grace_until', 'DATETIME NULL');
         $this->ensureColumnExists('hosts', 'insecure_window_minutes', 'INT NULL');

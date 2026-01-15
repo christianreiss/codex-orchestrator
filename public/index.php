@@ -513,6 +513,17 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         }
     }
 
+    $reverseDnsMode = null;
+    if (array_key_exists('reverse_dns_mode', $payload)) {
+        $reverseDnsMode = normalizeReverseDnsModeInput($payload['reverse_dns_mode']);
+        if ($reverseDnsMode === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'reverse_dns_mode must be one of: global, enabled, disabled',
+            ], 422);
+        }
+    }
+
     $hostPayload = $service->register($fqdn, $secure);
     $host = $hostRepository->findByFqdn($fqdn);
     if (!$host) {
@@ -546,6 +557,17 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         ]);
         $host = $hostRepository->findById((int) $host['id']) ?? $host;
         $hostPayload['curl_insecure'] = $curlInsecure;
+    }
+
+    if ($reverseDnsMode !== null) {
+        $reverseDnsValue = $reverseDnsMode === 'global' ? null : ($reverseDnsMode === 'enabled');
+        $hostRepository->updateReverseDnsMode((int) $host['id'], $reverseDnsValue);
+        $logRepository->log((int) $host['id'], 'admin.host.reverse_dns', [
+            'fqdn' => $host['fqdn'] ?? null,
+            'reverse_dns_mode' => $reverseDnsMode,
+        ]);
+        $host = $hostRepository->findById((int) $host['id']) ?? $host;
+        $hostPayload['reverse_dns_mode'] = $reverseDnsMode;
     }
 
     $installTokenRepository->deleteExpired(gmdate(DATE_ATOM));
@@ -893,6 +915,37 @@ $router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versio
     Response::json([
         'status' => 'ok',
         'data' => ['silent' => $silent],
+    ]);
+});
+
+$router->add('GET', '#^/admin/reverse-dns$#', function () use ($versionRepository) {
+    requireAdminAccess();
+
+    $enabled = $versionRepository->getFlag('reverse_dns_enabled', false);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['enabled' => $enabled],
+    ]);
+});
+
+$router->add('POST', '#^/admin/reverse-dns$#', function () use ($payload, $versionRepository) {
+    requireAdminAccess();
+
+    $enabledRaw = $payload['enabled'] ?? null;
+    $enabled = normalizeBoolean($enabledRaw);
+    if ($enabled === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'enabled must be boolean',
+        ], 422);
+    }
+
+    $versionRepository->set('reverse_dns_enabled', $enabled ? '1' : '0');
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['enabled' => $enabled],
     ]);
 });
 
@@ -1762,6 +1815,50 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($matches
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\\d+)/reverse-dns$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    if (!array_key_exists('mode', $payload)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'mode is required',
+        ], 422);
+    }
+
+    $mode = normalizeReverseDnsModeInput($payload['mode']);
+    if ($mode === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'mode must be one of: global, enabled, disabled',
+        ], 422);
+    }
+
+    $enabled = $mode === 'global' ? null : ($mode === 'enabled');
+    $hostRepository->updateReverseDnsMode($hostId, $enabled);
+    $logRepository->log($hostId, 'admin.host.reverse_dns', [
+        'fqdn' => $host['fqdn'] ?? null,
+        'reverse_dns_mode' => $mode,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'reverse_dns_mode' => $mode,
+            ],
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     $hostId = (int) $matches[1];
@@ -1957,6 +2054,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $quotaLimitPercent = quotaLimitPercent($versionRepository);
     $quotaWeekPartition = quotaWeekPartition($versionRepository);
     $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
+    $reverseDnsEnabled = $versionRepository->getFlag('reverse_dns_enabled', false);
     $insecureApprovalEnabled = $versionRepository->getFlag('insecure_approval_enabled', false);
     $inactivityWindowDays = inactivityWindowDays($versionRepository);
     $clientVersionLock = $versionRepository->getWithMetadata('client_version_lock');
@@ -1991,6 +2089,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'quota_limit_percent' => $quotaLimitPercent,
             'quota_week_partition' => $quotaWeekPartition,
             'cdx_silent' => $cdxSilent,
+            'reverse_dns_enabled' => $reverseDnsEnabled,
             'insecure_approval_enabled' => $insecureApprovalEnabled,
             'inactivity_window_days' => $inactivityWindowDays,
             'client_version_lock' => $clientVersionLock['version'] ?? null,
@@ -2179,6 +2278,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
                 : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
             'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
+            'reverse_dns_mode' => formatReverseDnsModeOutput($host['reverse_dns_mode'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
             'canonical_digest' => $host['auth_digest'] ?? null,
@@ -2833,7 +2933,7 @@ $router->add('POST', '#^/auth$#', function () use ($payload, $service, $chatGptU
 
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
-    $host = $service->authenticate($apiKey, $clientIp);
+    $host = $service->authenticate($apiKey, $clientIp, false, true);
     $clientVersion = extractClientVersion($payload);
     $wrapperVersion = extractWrapperVersion($payload);
     $baseUrl = resolveBaseUrl();
@@ -2855,7 +2955,7 @@ $router->add('DELETE', '#^/auth$#', function () use ($service) {
     $clientIp = resolveClientIp();
     $force = isset($_GET['force']) && $_GET['force'] !== '0';
 
-    $host = $service->authenticate($apiKey, $clientIp, $force);
+    $host = $service->authenticate($apiKey, $clientIp, $force, true);
     $service->deleteHost($host);
 
     Response::json([
@@ -3586,6 +3686,60 @@ function normalizeBoolean(mixed $value): ?bool
     }
 
     return null;
+}
+
+function normalizeReverseDnsModeInput(mixed $value): ?string
+{
+    if ($value === null) {
+        return 'global';
+    }
+    if (is_bool($value)) {
+        return $value ? 'enabled' : 'disabled';
+    }
+    if (is_int($value)) {
+        return $value !== 0 ? 'enabled' : 'disabled';
+    }
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        if ($normalized === '' || $normalized === 'global' || $normalized === 'default') {
+            return 'global';
+        }
+        if (in_array($normalized, ['1', 'true', 'yes', 'on', 'enabled', 'enable'], true)) {
+            return 'enabled';
+        }
+        if (in_array($normalized, ['0', 'false', 'no', 'off', 'disabled', 'disable'], true)) {
+            return 'disabled';
+        }
+    }
+
+    return null;
+}
+
+function formatReverseDnsModeOutput(mixed $value): string
+{
+    if ($value === null) {
+        return 'global';
+    }
+    if (is_bool($value)) {
+        return $value ? 'enabled' : 'disabled';
+    }
+    if (is_int($value)) {
+        return $value !== 0 ? 'enabled' : 'disabled';
+    }
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        if ($normalized === 'enabled' || $normalized === 'disabled' || $normalized === 'global') {
+            return $normalized;
+        }
+        if ($normalized === '1' || $normalized === 'true' || $normalized === 'yes' || $normalized === 'on') {
+            return 'enabled';
+        }
+        if ($normalized === '0' || $normalized === 'false' || $normalized === 'no' || $normalized === 'off') {
+            return 'disabled';
+        }
+    }
+
+    return 'global';
 }
 
 function quotaLimitPercent(VersionRepository $versionRepository): int
