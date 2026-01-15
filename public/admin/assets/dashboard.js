@@ -3148,133 +3148,142 @@
       }
 
       if (window.uPlot) {
-        const plotHeight = getChartHeight(260);
-        const accent = getCssVar('--accent-2', '#0b7c73');
-        const accentRgb = getCssVar('--accent-rgb', '15, 156, 146');
-        const gridStroke = 'rgba(15,23,42,0.08)';
-        const Plot = window.uPlot;
-        const xVals = series.map((pt) => pt.x);
-        const yVals = series.map((pt) => pt.y);
-        const maxY = Math.max(100, ...yVals);
-        const tickMax = Math.ceil(maxY / 25) * 25;
-        const yTicks = [];
-        for (let value = 0; value <= tickMax; value += 25) {
-          yTicks.push(value);
-        }
+        try {
+          const plotHeight = getChartHeight(260);
+          const accent = getCssVar('--accent-2', '#0b7c73');
+          const accentRgb = getCssVar('--accent-rgb', '15, 156, 146');
+          const gridStroke = 'rgba(15,23,42,0.08)';
+          const Plot = window.uPlot;
+          const xVals = series.map((pt) => pt.x);
+          const yVals = series.map((pt) => pt.y);
+          const maxY = Math.max(100, ...yVals);
+          const tickMax = Math.ceil(maxY / 25) * 25;
+          const yTicks = [];
+          for (let value = 0; value <= tickMax; value += 25) {
+            yTicks.push(value);
+          }
 
-        usageHistoryChart.innerHTML = `
-          <div data-usage-plot></div>
-          <div class="usage-history-tooltip" data-usage-tooltip hidden></div>
-        `;
-        const plotRoot = usageHistoryChart.querySelector('[data-usage-plot]');
-        const tooltip = usageHistoryChart.querySelector('[data-usage-tooltip]');
-        if (!plotRoot) return;
-        plotRoot.setAttribute('role', 'img');
-        plotRoot.setAttribute('aria-label', windowKey === 'secondary' ? 'Weekly quota history' : '5-hour quota history');
+          usageHistoryChart.innerHTML = `
+            <div data-usage-plot></div>
+            <div class="usage-history-tooltip" data-usage-tooltip hidden></div>
+          `;
+          const plotRoot = usageHistoryChart.querySelector('[data-usage-plot]');
+          const tooltip = usageHistoryChart.querySelector('[data-usage-tooltip]');
+          if (!plotRoot) return;
+          plotRoot.setAttribute('role', 'img');
+          plotRoot.setAttribute('aria-label', windowKey === 'secondary' ? 'Weekly quota history' : '5-hour quota history');
 
-        const { width } = getPlotSize(plotRoot, plotHeight);
-        const data = [xVals, yVals];
-        const opts = {
-          width,
-          height: plotHeight,
-          series: [
-            {},
-            {
-              label: windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota',
-              stroke: accent,
-              width: 2,
-              fill: `rgba(${accentRgb},0.18)`,
-              points: { show: false },
+          const { width } = getPlotSize(plotRoot, plotHeight);
+          const data = [xVals, yVals];
+          const opts = {
+            width,
+            height: plotHeight,
+            series: [
+              {},
+              {
+                label: windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota',
+                stroke: accent,
+                width: 2,
+                fill: `rgba(${accentRgb},0.18)`,
+                points: { show: false },
+              },
+            ],
+            scales: {
+              x: { time: true },
+              y: {
+                range: () => [0, tickMax],
+              },
             },
-          ],
-          scales: {
-            x: { time: true },
-            y: {
-              range: () => [0, tickMax],
+            axes: [
+              {
+                stroke: '#64748b',
+                grid: { stroke: gridStroke },
+                ticks: { stroke: gridStroke },
+                values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
+              },
+              {
+                stroke: '#64748b',
+                grid: { stroke: gridStroke },
+                ticks: { stroke: gridStroke },
+                splits: () => yTicks,
+                values: (u, ticks) => ticks.map((v) => `${Math.round(v)}%`),
+              },
+            ],
+            cursor: {
+              y: false,
+              points: { show: true },
             },
-          },
-          axes: [
-            {
-              stroke: '#64748b',
-              grid: { stroke: gridStroke },
-              ticks: { stroke: gridStroke },
-              values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
+            legend: {
+              show: false,
             },
-            {
-              stroke: '#64748b',
-              grid: { stroke: gridStroke },
-              ticks: { stroke: gridStroke },
-              splits: () => yTicks,
-              values: (u, ticks) => ticks.map((v) => `${Math.round(v)}%`),
-            },
-          ],
-          cursor: {
-            y: false,
-            points: { show: true },
-          },
-          legend: {
-            show: false,
-          },
-        };
-
-        usageHistoryPlot = new Plot(opts, data, plotRoot);
-        usageHistoryResizeObserver = attachPlotResizeObserver(usageHistoryPlot, plotRoot, plotHeight);
-
-        if (tooltip) {
-          let lockedIdx = null;
-          let lastClientX = null;
-
-          const showTooltip = (idx, clientX) => {
-            if (idx === null || idx === undefined) return;
-            const point = series[idx];
-            if (!point) return;
-            const dateLabel = formatShortDate(new Date(point.x), true);
-            const valueLabel = `${Math.round(point.raw ?? point.y)}%`;
-            tooltip.innerHTML = `
-              <span class="label">${dateLabel}</span>
-              <span class="value">${valueLabel}</span>
-            `;
-            tooltip.hidden = false;
-            const rect = plotRoot.getBoundingClientRect();
-            const safeClientX = Number.isFinite(clientX) ? clientX : rect.left + (usageHistoryPlot?.cursor?.left ?? 0);
-            lastClientX = safeClientX;
-            const relative = rect.width > 0 ? clamp((safeClientX - rect.left) / rect.width, 0, 1) : 0.5;
-            const tipWidth = tooltip.offsetWidth || 0;
-            const xPos = clamp((relative * rect.width) - (tipWidth / 2), 0, Math.max(rect.width - tipWidth, 0));
-            tooltip.style.left = `${xPos}px`;
-            tooltip.style.top = '10px';
           };
 
-          const hideTooltip = () => {
-            tooltip.hidden = true;
-            tooltip.innerHTML = '';
-          };
+          const plot = new Plot(opts, data, plotRoot);
+          const observer = attachPlotResizeObserver(plot, plotRoot, plotHeight);
+          usageHistoryPlot = plot;
+          usageHistoryResizeObserver = observer;
 
-          plotRoot.addEventListener('pointermove', (event) => {
-            if (lockedIdx !== null) return;
-            const idx = usageHistoryPlot?.cursor?.idx;
-            if (idx === null || idx === undefined) return;
-            showTooltip(idx, event.clientX);
-          });
-          plotRoot.addEventListener('mouseleave', () => {
-            if (lockedIdx !== null) {
-              showTooltip(lockedIdx, lastClientX);
-              return;
-            }
-            hideTooltip();
-          });
-          plotRoot.addEventListener('click', (event) => {
-            const idx = usageHistoryPlot?.cursor?.idx;
-            if (idx === null || idx === undefined) return;
-            lockedIdx = lockedIdx === idx ? null : idx;
-            if (lockedIdx === null) {
+          if (tooltip) {
+            let lockedIdx = null;
+            let lastClientX = null;
+
+            const showTooltip = (idx, clientX) => {
+              if (idx === null || idx === undefined) return;
+              const point = series[idx];
+              if (!point) return;
+              const dateLabel = formatShortDate(new Date(point.x), true);
+              const valueLabel = `${Math.round(point.raw ?? point.y)}%`;
+              tooltip.innerHTML = `
+                <span class="label">${dateLabel}</span>
+                <span class="value">${valueLabel}</span>
+              `;
+              tooltip.hidden = false;
+              const rect = plotRoot.getBoundingClientRect();
+              const safeClientX = Number.isFinite(clientX) ? clientX : rect.left + (usageHistoryPlot?.cursor?.left ?? 0);
+              lastClientX = safeClientX;
+              const relative = rect.width > 0 ? clamp((safeClientX - rect.left) / rect.width, 0, 1) : 0.5;
+              const tipWidth = tooltip.offsetWidth || 0;
+              const xPos = clamp((relative * rect.width) - (tipWidth / 2), 0, Math.max(rect.width - tipWidth, 0));
+              tooltip.style.left = `${xPos}px`;
+              tooltip.style.top = '10px';
+            };
+
+            const hideTooltip = () => {
+              tooltip.hidden = true;
+              tooltip.innerHTML = '';
+            };
+
+            plotRoot.addEventListener('pointermove', (event) => {
+              if (lockedIdx !== null) return;
+              const idx = usageHistoryPlot?.cursor?.idx;
+              if (idx === null || idx === undefined) return;
+              showTooltip(idx, event.clientX);
+            });
+            plotRoot.addEventListener('mouseleave', () => {
+              if (lockedIdx !== null) {
+                showTooltip(lockedIdx, lastClientX);
+                return;
+              }
               hideTooltip();
-              return;
-            }
-            showTooltip(lockedIdx, event.clientX);
-          });
+            });
+            plotRoot.addEventListener('click', (event) => {
+              const idx = usageHistoryPlot?.cursor?.idx;
+              if (idx === null || idx === undefined) return;
+              lockedIdx = lockedIdx === idx ? null : idx;
+              if (lockedIdx === null) {
+                hideTooltip();
+                return;
+              }
+              showTooltip(lockedIdx, event.clientX);
+            });
+          }
+          return;
+        } catch (err) {
+          console.warn('uPlot render failed, falling back to SVG usage history.', err);
+          destroyPlot(usageHistoryPlot, usageHistoryResizeObserver);
+          usageHistoryPlot = null;
+          usageHistoryResizeObserver = null;
         }
-        return;
       }
 
       const width = 800;
@@ -3445,137 +3454,146 @@
       const currency = history?.currency || 'USD';
 
       if (window.uPlot) {
-        const Plot = window.uPlot;
-        const plotHeight = getChartHeight(260);
-        const gridStroke = 'rgba(15,23,42,0.08)';
+        try {
+          const Plot = window.uPlot;
+          const plotHeight = getChartHeight(260);
+          const gridStroke = 'rgba(15,23,42,0.08)';
 
-        const seriesData = series.map((s) => {
-          const byDate = new Map(s.values.map((value) => [value.date, value.y]));
-          return pointIndex.map((pt) => byDate.get(pt.date) ?? null);
-        });
-        const xVals = pointIndex.map((pt) => pt.x);
-        const data = [xVals, ...seriesData];
-        let maxY = 0;
-        seriesData.forEach((values) => {
-          values.forEach((val) => {
-            if (Number.isFinite(val) && val > maxY) maxY = val;
+          const seriesData = series.map((s) => {
+            const byDate = new Map(s.values.map((value) => [value.date, value.y]));
+            return pointIndex.map((pt) => byDate.get(pt.date) ?? null);
           });
-        });
-        const yMax = Math.max(1, maxY);
-        const ticks = buildCostTicks(yMax);
-        const tickMax = ticks[ticks.length - 1] ?? yMax;
+          const xVals = pointIndex.map((pt) => pt.x);
+          const data = [xVals, ...seriesData];
+          let maxY = 0;
+          seriesData.forEach((values) => {
+            values.forEach((val) => {
+              if (Number.isFinite(val) && val > maxY) maxY = val;
+            });
+          });
+          const yMax = Math.max(1, maxY);
+          const ticks = buildCostTicks(yMax);
+          const tickMax = ticks[ticks.length - 1] ?? yMax;
 
-        const legend = series.map((s) => {
-          const latest = s.values[s.values.length - 1];
-          const value = latest ? latest.y : 0;
-          const color = s.color || '#0f172a';
-          const classes = ['legend-item'];
-          if (s.key === 'total' || s.emphasis) classes.push('legend-total');
-          return `<span class="${classes.join(' ')}"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, currency)}</strong></span>`;
-        }).join('');
+          const legend = series.map((s) => {
+            const latest = s.values[s.values.length - 1];
+            const value = latest ? latest.y : 0;
+            const color = s.color || '#0f172a';
+            const classes = ['legend-item'];
+            if (s.key === 'total' || s.emphasis) classes.push('legend-total');
+            return `<span class="${classes.join(' ')}"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, currency)}</strong></span>`;
+          }).join('');
 
-        const latestPoint = pointIndex[pointIndex.length - 1];
-        const detailHtml = renderCostDetail(latestPoint, currency);
-        const tableRows = renderCostTableRows(pointIndex, currency);
+          const latestPoint = pointIndex[pointIndex.length - 1];
+          const detailHtml = renderCostDetail(latestPoint, currency);
+          const tableRows = renderCostTableRows(pointIndex, currency);
 
-        costHistoryChart.innerHTML = `
-          <div class="legend">${legend}</div>
-          <div class="cost-chart-shell" data-chart-shell>
-            <div data-cost-plot></div>
-            <div class="cost-chart-tooltip" data-cost-tooltip hidden></div>
-          </div>
-          <div class="cost-detail" data-cost-detail>${detailHtml}</div>
-          <div class="cost-table-wrap">
-            <table class="cost-table">
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Total</th>
-                  <th scope="col">Input</th>
-                  <th scope="col">Output</th>
-                  <th scope="col">Cached</th>
-                  <th scope="col">Tokens</th>
-                </tr>
-              </thead>
-              <tbody data-cost-table>${tableRows}</tbody>
-            </table>
-          </div>
-        `;
+          costHistoryChart.innerHTML = `
+            <div class="legend">${legend}</div>
+            <div class="cost-chart-shell" data-chart-shell>
+              <div data-cost-plot></div>
+              <div class="cost-chart-tooltip" data-cost-tooltip hidden></div>
+            </div>
+            <div class="cost-detail" data-cost-detail>${detailHtml}</div>
+            <div class="cost-table-wrap">
+              <table class="cost-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">Input</th>
+                    <th scope="col">Output</th>
+                    <th scope="col">Cached</th>
+                    <th scope="col">Tokens</th>
+                  </tr>
+                </thead>
+                <tbody data-cost-table>${tableRows}</tbody>
+              </table>
+            </div>
+          `;
 
-        const plotRoot = costHistoryChart.querySelector('[data-cost-plot]');
-        if (!plotRoot) return;
-        plotRoot.setAttribute('role', 'img');
-        plotRoot.setAttribute('aria-label', 'Cost history over time');
-        const { width } = getPlotSize(plotRoot, plotHeight);
-        const opts = {
-          width,
-          height: plotHeight,
-          series: [
-            {},
-            {
-              label: 'Total',
-              stroke: '#312e81',
-              width: 3,
-              points: { show: false },
+          const plotRoot = costHistoryChart.querySelector('[data-cost-plot]');
+          if (!plotRoot) return;
+          plotRoot.setAttribute('role', 'img');
+          plotRoot.setAttribute('aria-label', 'Cost history over time');
+          const { width } = getPlotSize(plotRoot, plotHeight);
+          const opts = {
+            width,
+            height: plotHeight,
+            series: [
+              {},
+              {
+                label: 'Total',
+                stroke: '#312e81',
+                width: 3,
+                points: { show: false },
+              },
+              {
+                label: 'Input',
+                stroke: '#0ea5e9',
+                width: 2,
+                points: { show: false },
+              },
+              {
+                label: 'Output',
+                stroke: '#16a34a',
+                width: 2,
+                points: { show: false },
+              },
+              {
+                label: 'Cached',
+                stroke: '#f97316',
+                width: 2,
+                points: { show: false },
+              },
+            ],
+            scales: {
+              x: { time: true },
+              y: {
+                range: () => [0, tickMax],
+              },
             },
-            {
-              label: 'Input',
-              stroke: '#0ea5e9',
-              width: 2,
-              points: { show: false },
+            axes: [
+              {
+                stroke: '#64748b',
+                grid: { stroke: gridStroke },
+                ticks: { stroke: gridStroke },
+                values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
+              },
+              {
+                stroke: '#64748b',
+                grid: { stroke: gridStroke },
+                ticks: { stroke: gridStroke },
+                splits: () => ticks,
+                values: (u, ticks) => ticks.map((v) => formatMoney(v, currency)),
+              },
+            ],
+            cursor: {
+              y: false,
+              points: { show: true },
             },
-            {
-              label: 'Output',
-              stroke: '#16a34a',
-              width: 2,
-              points: { show: false },
+            legend: {
+              show: false,
             },
-            {
-              label: 'Cached',
-              stroke: '#f97316',
-              width: 2,
-              points: { show: false },
-            },
-          ],
-          scales: {
-            x: { time: true },
-            y: {
-              range: () => [0, tickMax],
-            },
-          },
-          axes: [
-            {
-              stroke: '#64748b',
-              grid: { stroke: gridStroke },
-              ticks: { stroke: gridStroke },
-              values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
-            },
-            {
-              stroke: '#64748b',
-              grid: { stroke: gridStroke },
-              ticks: { stroke: gridStroke },
-              splits: () => ticks,
-              values: (u, ticks) => ticks.map((v) => formatMoney(v, currency)),
-            },
-          ],
-          cursor: {
-            y: false,
-            points: { show: true },
-          },
-          legend: {
-            show: false,
-          },
-        };
+          };
 
-        costHistoryPlot = new Plot(opts, data, plotRoot);
-        costHistoryResizeObserver = attachPlotResizeObserver(costHistoryPlot, plotRoot, plotHeight);
+          const plot = new Plot(opts, data, plotRoot);
+          const observer = attachPlotResizeObserver(plot, plotRoot, plotHeight);
+          costHistoryPlot = plot;
+          costHistoryResizeObserver = observer;
 
-        attachCostHistoryInteractions(costHistoryChart, {
-          plot: costHistoryPlot,
-          points: pointIndex,
-          currency,
-        });
-        return;
+          attachCostHistoryInteractions(costHistoryChart, {
+            plot: costHistoryPlot,
+            points: pointIndex,
+            currency,
+          });
+          return;
+        } catch (err) {
+          console.warn('uPlot render failed, falling back to SVG cost history.', err);
+          destroyPlot(costHistoryPlot, costHistoryResizeObserver);
+          costHistoryPlot = null;
+          costHistoryResizeObserver = null;
+        }
       }
 
       const width = 800;

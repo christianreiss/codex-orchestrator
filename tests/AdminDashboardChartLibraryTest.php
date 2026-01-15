@@ -21,5 +21,6 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString('window.uPlot', $js);
         $this->assertStringContainsString('data-cost-plot', $js);
         $this->assertStringContainsString('data-usage-plot', $js);
+        $this->assertStringContainsString('uPlot render failed', $js);
     }
 }
