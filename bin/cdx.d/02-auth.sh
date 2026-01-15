@@ -26,9 +26,11 @@ sync_auth_with_api() {
   local api_output=""
   local api_status=0
   local offline_reason=""
+  local deny_reason=""
   local wait_logged=0
   while true; do
     offline_reason=""
+    deny_reason=""
     if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
@@ -156,6 +158,9 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
         if detail_code == "insecure_api_disabled" or "insecure host api access disabled" in msg_lower:
             print("insecure host API access disabled", file=sys.stderr)
             sys.exit(24)
+        if detail_code == "reverse_dns_mismatch" or "reverse dns" in msg_lower:
+            print("denied:reverse_dns_mismatch")
+            sys.exit(27)
         if "not allowed from this IP" in msg or expected_ip or received_ip:
             print(f"{action} denied (IP bound){extra}", file=sys.stderr)
             sys.exit(12)
@@ -638,6 +643,9 @@ PY
       if [[ "$api_output" == offline:* ]]; then
         offline_reason="${api_output#offline:}"
       fi
+      if [[ "$api_output" == denied:* ]]; then
+        deny_reason="${api_output#denied:}"
+      fi
       if [[ "$api_status" == "25" ]]; then
         AUTH_PULL_STATUS="pending"
         AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
@@ -696,6 +704,16 @@ PY
     24)
       log_warn "Auth sync blocked: insecure host window is closed; enable it in the admin dashboard and retry."
       AUTH_PULL_STATUS="insecure"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      return 1
+      ;;
+    27)
+      local reason_label="reverse DNS mismatch"
+      if [[ -n "$deny_reason" && "$deny_reason" != "reverse_dns_mismatch" ]]; then
+        reason_label="$deny_reason"
+      fi
+      log_warn "Auth sync denied: ${reason_label}; PTR must resolve to host FQDN."
+      AUTH_PULL_STATUS="fail"
       AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
       return 1
       ;;

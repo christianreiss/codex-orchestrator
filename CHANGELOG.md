@@ -1,3 +1,4 @@
+- cdx wrapper: surface reverse DNS denial reason in auth sync output; wrapper bumped to 2026.01.15-01. (2026-01-15)
 - Auth: add reverse DNS enforcement for `/auth` (global setting with per-host overrides); requests now require forward A/AAAA + PTR match when enabled. (2026-01-15)
 - Admin dashboard: add Reverse DNS Enforcement toggle + per-host override selector; cache-bumped dashboard.js v=2026-01-15-01. (2026-01-15)
 - Installer: run `cdx` automatically after a successful install to sync/auth immediately. (2026-01-15)
