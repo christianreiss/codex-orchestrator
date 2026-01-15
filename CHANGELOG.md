@@ -1,3 +1,4 @@
+- Installer: run `cdx` automatically after a successful install to sync/auth immediately. (2026-01-15)
 - Auth: allow secure dual-stack hosts to bind one IPv4 + one IPv6 without enabling roaming; admin UI now shows the secondary IP when present. (2026-01-14)
 - Admin dashboard: remove per-host Codex version row from the host detail modal (fleet always uses the latest wrapper). (2026-01-13)
 - Admin dashboard: ChatGPT 5‑hour/weekly reset timers now tick locally between refreshes, keeping “Resets in …” and time meters live. (2026-01-13)

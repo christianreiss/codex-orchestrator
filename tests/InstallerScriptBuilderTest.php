@@ -41,6 +41,14 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('glibc_version', $script);
     }
 
+    public function testTemplateRunsCdxAfterInstall(): void
+    {
+        $script = $this->buildScript();
+
+        $this->assertStringContainsString('Launching cdx...', $script);
+        $this->assertStringContainsString('if ! "$install_path"; then', $script);
+    }
+
     /**
      * @param array<string, mixed> $hostOverrides
      */
