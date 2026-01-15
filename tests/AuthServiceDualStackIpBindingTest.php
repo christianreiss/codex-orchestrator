@@ -58,8 +58,8 @@ final class AuthServiceDualStackIpBindingTest extends TestCase
                 insecure_window_minutes INTEGER NULL,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
-                ip TEXT NULL,
-                ip_alt TEXT NULL,
+                ip4 TEXT NULL,
+                ip6 TEXT NULL,
                 client_version TEXT NULL,
                 client_version_override TEXT NULL,
                 wrapper_version TEXT NULL,
@@ -101,8 +101,8 @@ final class AuthServiceDualStackIpBindingTest extends TestCase
         $this->service->authenticate($apiKey, '2001:db8::1');
 
         $reloaded = $this->hosts->findById((int) $host['id']);
-        self::assertSame('203.0.113.10', $reloaded['ip']);
-        self::assertSame('2001:db8::1', $reloaded['ip_alt']);
+        self::assertSame('203.0.113.10', $reloaded['ip4']);
+        self::assertSame('2001:db8::1', $reloaded['ip6']);
         self::assertLogContains('auth.bind_ip_secondary');
     }
 
@@ -115,8 +115,8 @@ final class AuthServiceDualStackIpBindingTest extends TestCase
         $this->service->authenticate($apiKey, '::ffff:203.0.113.42');
 
         $reloaded = $this->hosts->findById((int) $host['id']);
-        self::assertSame('203.0.113.42', $reloaded['ip']);
-        self::assertNull($reloaded['ip_alt']);
+        self::assertSame('203.0.113.42', $reloaded['ip4']);
+        self::assertNull($reloaded['ip6']);
     }
 
     public function testRejectsThirdIpWithoutRoaming(): void

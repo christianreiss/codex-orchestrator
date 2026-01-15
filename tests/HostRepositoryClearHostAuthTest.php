@@ -39,8 +39,8 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 insecure_window_minutes INTEGER NULL,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
-                ip TEXT NULL,
-                ip_alt TEXT NULL,
+                ip4 TEXT NULL,
+                ip6 TEXT NULL,
                 client_version TEXT NULL,
                 wrapper_version TEXT NULL,
                 api_calls INTEGER DEFAULT 0,
@@ -65,8 +65,8 @@ final class HostRepositoryClearHostAuthTest extends TestCase
 
         $now = gmdate(DATE_ATOM);
         $seedHost = $this->pdo->prepare(
-            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, last_refresh, auth_digest, ip, client_version, wrapper_version, api_calls, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :last_refresh, :auth_digest, :ip, :client_version, :wrapper_version, :api_calls, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, last_refresh, auth_digest, ip4, client_version, wrapper_version, api_calls, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :last_refresh, :auth_digest, :ip4, :client_version, :wrapper_version, :api_calls, :created_at, :updated_at)'
         );
         $seedHost->execute([
             'fqdn' => 'host.test',
@@ -76,7 +76,7 @@ final class HostRepositoryClearHostAuthTest extends TestCase
             'allow_roaming_ips' => 0,
             'last_refresh' => '2024-01-01T00:00:00Z',
             'auth_digest' => str_repeat('b', 64),
-            'ip' => '127.0.0.1',
+            'ip4' => '127.0.0.1',
             'client_version' => '0.0.0',
             'wrapper_version' => null,
             'api_calls' => 5,

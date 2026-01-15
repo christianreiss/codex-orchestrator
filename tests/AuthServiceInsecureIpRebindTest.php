@@ -57,8 +57,8 @@ final class AuthServiceInsecureIpRebindTest extends TestCase
                 insecure_window_minutes INTEGER NULL,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
-                ip TEXT NULL,
-                ip_alt TEXT NULL,
+                ip4 TEXT NULL,
+                ip6 TEXT NULL,
                 client_version TEXT NULL,
                 client_version_override TEXT NULL,
                 wrapper_version TEXT NULL,
@@ -95,18 +95,18 @@ final class AuthServiceInsecureIpRebindTest extends TestCase
     {
         $apiKey = bin2hex(random_bytes(32));
         $host = $this->hosts->create('insecure.rebind', $apiKey, false);
-        $this->hosts->updateIp((int) $host['id'], '2a00:1::1');
+        $this->hosts->updateIp6((int) $host['id'], '2a00:1::1');
 
         $enabledUntil = gmdate(DATE_ATOM, time() + 1800);
         $this->hosts->updateInsecureWindows((int) $host['id'], $enabledUntil, null, 10);
 
         $reloaded = $this->hosts->findById((int) $host['id']);
-        self::assertSame('2a00:1::1', $reloaded['ip']);
+        self::assertSame('2a00:1::1', $reloaded['ip6']);
 
         $result = $this->service->authenticate($apiKey, '45.15.102.35');
 
-        self::assertSame('45.15.102.35', $result['ip']);
-        self::assertSame('45.15.102.35', $this->hosts->findById((int) $host['id'])['ip']);
+        self::assertSame('45.15.102.35', $result['ip4']);
+        self::assertSame('45.15.102.35', $this->hosts->findById((int) $host['id'])['ip4']);
         self::assertLogContains('auth.insecure_ip_override');
     }
 

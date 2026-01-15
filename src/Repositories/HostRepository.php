@@ -193,25 +193,25 @@ class HostRepository
         return $host;
     }
 
-    public function updateIp(int $hostId, string $ip): void
+    public function updateIp4(int $hostId, string $ip4): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET ip = :ip, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET ip4 = :ip4, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
-            'ip' => $ip,
+            'ip4' => $ip4,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
     }
 
-    public function updateIpAlt(int $hostId, ?string $ipAlt): void
+    public function updateIp6(int $hostId, ?string $ip6): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET ip_alt = :ip_alt, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET ip6 = :ip6, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
-            'ip_alt' => $ipAlt,
+            'ip6' => $ip6,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);
@@ -435,7 +435,7 @@ class HostRepository
     public function updateForceIpv4(int $hostId, bool $forceIpv4): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET force_ipv4 = :force_ipv4, ip = NULL, ip_alt = NULL, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts SET force_ipv4 = :force_ipv4, ip4 = NULL, ip6 = NULL, updated_at = :updated_at WHERE id = :id'
         );
 
         $statement->execute([

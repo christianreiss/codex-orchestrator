@@ -233,4 +233,5 @@
 - Admin dashboard: remove the ChatGPT Account refresh button (websocket/live refresh remains). (2026-01-14)
 - Admin insecure approvals: clicking outside the approval modal or pressing Esc now cancels the request to avoid stuck pending approvals. (2026-01-14)
 - Auth: add trailing insecure-host grace window for final auth/usage pushes after the window expires (configurable via `INSECURE_GRACE_MINUTES`, default 60); explicit disable clears grace. (2026-01-15)
-- Admin dashboard: switch usage + cost history charts to uPlot for richer axes/hover, add vendored uPlot assets; cache-bumped dashboard.js v=2026-01-15-02 and dashboard.css v=2026-01-15-01. (2026-01-15)
+- Admin dashboard: refine uPlot usage + cost charts with consistent tick splits and hide the default legend; cache-bumped dashboard.js v=2026-01-15-03 and dashboard-mobile.css v=2026-01-15-01. (2026-01-15)
+- Hosts: rename stored IP columns to `ip4`/`ip6` (auto-migrated from legacy `ip`/`ip_alt`), and surface the new fields in admin API/UI. (2026-01-15)

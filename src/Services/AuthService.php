@@ -202,41 +202,49 @@ class AuthService
             if ($reverseDnsRequired) {
                 $this->assertReverseDnsMatch($host, $normalizedIp);
             }
-            $storedIp = $this->normalizeIp($host['ip'] ?? null);
-            $storedIpAlt = $this->normalizeIp($host['ip_alt'] ?? null);
+            $storedIp4 = $this->normalizeIp($host['ip4'] ?? null);
+            $storedIp6 = $this->normalizeIp($host['ip6'] ?? null);
+            $updateHostIp = function (string $ip) use ($hostId): void {
+                $family = $this->ipFamily($ip);
+                if ($family === 6) {
+                    $this->hosts->updateIp6($hostId, $ip);
+                } else {
+                    $this->hosts->updateIp4($hostId, $ip);
+                }
+            };
 
-            if ($storedIp === null && $storedIpAlt === null) {
-                $this->hosts->updateIp($hostId, $normalizedIp);
+            if ($storedIp4 === null && $storedIp6 === null) {
+                $updateHostIp($normalizedIp);
                 $this->logs->log($hostId, 'auth.bind_ip', ['ip' => $normalizedIp]);
                 $host = $this->hosts->findById($hostId) ?? $host;
                 $ipLogReason = 'bound';
             } else {
-                $matchesPrimary = $storedIp !== null && hash_equals($storedIp, $normalizedIp);
-                $matchesAlt = $storedIpAlt !== null && hash_equals($storedIpAlt, $normalizedIp);
+                $matchesPrimary = $storedIp4 !== null && hash_equals($storedIp4, $normalizedIp);
+                $matchesAlt = $storedIp6 !== null && hash_equals($storedIp6, $normalizedIp);
 
                 if ($matchesPrimary || $matchesAlt) {
                     $ipLogReason = $matchesPrimary ? 'match' : 'match_secondary';
                 } elseif ($allowsRoaming) {
-                    $this->hosts->updateIp($hostId, $normalizedIp);
+                    $updateHostIp($normalizedIp);
                     $this->logs->log($hostId, 'auth.roaming_ip', [
-                        'previous_ip' => $storedIp,
+                        'previous_ip' => $storedIp4 ?? $storedIp6,
                         'ip' => $normalizedIp,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = 'roaming';
                 } elseif (!$hostSecure && ($insecureWindowActive || $insecureGraceActive)) {
-                    $this->hosts->updateIp($hostId, $normalizedIp);
+                    $updateHostIp($normalizedIp);
                     $this->logs->log($hostId, 'auth.insecure_ip_override', [
-                        'previous_ip' => $storedIp,
+                        'previous_ip' => $storedIp4 ?? $storedIp6,
                         'ip' => $normalizedIp,
                         'window' => $insecureWindowActive ? 'enabled' : 'grace',
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = $insecureWindowActive ? 'insecure_window' : 'insecure_grace';
                 } elseif ($allowIpBypass) {
-                    $this->hosts->updateIp($hostId, $normalizedIp);
+                    $updateHostIp($normalizedIp);
                     $this->logs->log($hostId, 'auth.force_ip_override', [
-                        'previous_ip' => $storedIp,
+                        'previous_ip' => $storedIp4 ?? $storedIp6,
                         'ip' => $normalizedIp,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
@@ -244,15 +252,15 @@ class AuthService
                 } elseif ($this->shouldAllowRunnerIpBypass($normalizedIp)) {
                     // Runner needs to validate auth without rebinding host IP; do not update stored IP.
                     $this->logs->log($hostId, 'auth.runner_ip_bypass', [
-                        'expected_ip' => $storedIp,
-                        'expected_ip_alt' => $storedIpAlt,
+                        'expected_ip' => $storedIp4,
+                        'expected_ip_alt' => $storedIp6,
                         'ip' => $normalizedIp,
                     ]);
                     $ipLogReason = 'runner_bypass';
-                } elseif ($this->shouldBindSecondaryIp($storedIp, $storedIpAlt, $normalizedIp)) {
-                    $this->hosts->updateIpAlt($hostId, $normalizedIp);
+                } elseif ($this->shouldBindSecondaryIp($storedIp4, $storedIp6, $normalizedIp)) {
+                    $updateHostIp($normalizedIp);
                     $this->logs->log($hostId, 'auth.bind_ip_secondary', [
-                        'primary_ip' => $storedIp,
+                        'primary_ip' => $storedIp4 ?? $storedIp6,
                         'ip' => $normalizedIp,
                     ]);
                     $host = $this->hosts->findById($hostId) ?? $host;
@@ -261,22 +269,23 @@ class AuthService
                     $ipAuthorized = false;
                     $ipLogReason = 'mismatch';
                     error_log(sprintf(
-                        '[auth] ip authorization=denied host=%s stored_ip=%s incoming_ip=%s reason=%s',
+                        '[auth] ip authorization=denied host=%s ip4=%s ip6=%s incoming_ip=%s reason=%s',
                         $host['fqdn'] ?? 'unknown',
-                        $storedIp ?? 'none',
+                        $storedIp4 ?? 'none',
+                        $storedIp6 ?? 'none',
                         $normalizedIp,
                         $ipLogReason
                     ));
                     $this->logs->log($hostId, 'auth.denied', [
                         'reason' => 'ip_mismatch',
                         'fqdn' => $host['fqdn'] ?? null,
-                        'expected_ip' => $storedIp,
-                        'expected_ip_alt' => $storedIpAlt,
+                        'expected_ip' => $storedIp4,
+                        'expected_ip_alt' => $storedIp6,
                         'received_ip' => $normalizedIp,
                     ]);
                     throw new HttpException('API key not allowed from this IP', 403, [
-                        'expected_ip' => $storedIp,
-                        'expected_ip_alt' => $storedIpAlt,
+                        'expected_ip' => $storedIp4,
+                        'expected_ip_alt' => $storedIp6,
                         'received_ip' => $normalizedIp,
                     ]);
                 }
@@ -3061,22 +3070,24 @@ class AuthService
         return str_contains($normalized, ':') ? 6 : 4;
     }
 
-    private function shouldBindSecondaryIp(?string $primary, ?string $secondary, string $incoming): bool
+    private function shouldBindSecondaryIp(?string $ip4, ?string $ip6, string $incoming): bool
     {
-        if ($primary === null || $primary === '') {
+        $hasIp4 = $ip4 !== null && $ip4 !== '';
+        $hasIp6 = $ip6 !== null && $ip6 !== '';
+        if (!$hasIp4 && !$hasIp6) {
             return false;
         }
-        if ($secondary !== null && $secondary !== '') {
+        if ($hasIp4 && $hasIp6) {
             return false;
         }
 
-        $primaryFamily = $this->ipFamily($primary);
         $incomingFamily = $this->ipFamily($incoming);
-        if ($primaryFamily === null || $incomingFamily === null) {
+        if ($incomingFamily === null) {
             return false;
         }
 
-        return $primaryFamily !== $incomingFamily;
+        return ($hasIp4 && !$hasIp6 && $incomingFamily === 6)
+            || ($hasIp6 && !$hasIp4 && $incomingFamily === 4);
     }
 
     private function shouldAllowRunnerIpBypass(string $ip): bool

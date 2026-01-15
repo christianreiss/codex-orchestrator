@@ -633,7 +633,8 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
         return [
             'id' => isset($host['id']) ? (int) $host['id'] : null,
             'fqdn' => $host['fqdn'] ?? null,
-            'ip' => $host['ip'] ?? null,
+            'ip4' => $host['ip4'] ?? null,
+            'ip6' => $host['ip6'] ?? null,
         ];
     };
 
@@ -1159,7 +1160,8 @@ $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hos
                 'updated_at' => $host['updated_at'] ?? null,
                 'client_version' => $host['client_version'] ?? null,
                 'wrapper_version' => $host['wrapper_version'] ?? null,
-                'ip' => $host['ip'] ?? null,
+                'ip4' => $host['ip4'] ?? null,
+                'ip6' => $host['ip6'] ?? null,
                 'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
                 'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             ],
@@ -1775,7 +1777,8 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($h
             'host' => [
                 'id' => $hostId,
                 'force_ipv4' => $force,
-                'ip' => null,
+                'ip4' => null,
+                'ip6' => null,
             ],
         ],
     ]);
@@ -2269,8 +2272,8 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'client_version_override' => $host['client_version_override'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
-            'ip' => $host['ip'] ?? null,
-            'ip_alt' => $host['ip_alt'] ?? null,
+            'ip4' => $host['ip4'] ?? null,
+            'ip6' => $host['ip6'] ?? null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
             'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,

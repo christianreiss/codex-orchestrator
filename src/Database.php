@@ -73,8 +73,8 @@ class Database
                 reverse_dns_mode TINYINT(1) NULL DEFAULT NULL,
                 last_refresh VARCHAR(100) NULL,
                 auth_digest VARCHAR(128) NULL,
-                ip VARCHAR(64) NULL,
-                ip_alt VARCHAR(64) NULL,
+                ip4 VARCHAR(64) NULL,
+                ip6 VARCHAR(64) NULL,
                 client_version VARCHAR(64) NULL,
                 wrapper_version VARCHAR(64) NULL,
                 api_calls BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -502,8 +502,8 @@ class Database
         );
 
         // Backfill new columns for existing databases.
-        $this->ensureColumnExists('hosts', 'ip', 'VARCHAR(64) NULL');
-        $this->ensureColumnExists('hosts', 'ip_alt', 'VARCHAR(64) NULL');
+        $this->ensureColumnExists('hosts', 'ip4', 'VARCHAR(64) NULL');
+        $this->ensureColumnExists('hosts', 'ip6', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version_override', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'wrapper_version', 'VARCHAR(64) NULL');
@@ -517,6 +517,7 @@ class Database
         $this->ensureColumnExists('hosts', 'insecure_window_minutes', 'INT NULL');
         $this->ensureColumnExists('hosts', 'force_ipv4', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'curl_insecure', 'TINYINT(1) NOT NULL DEFAULT 0');
+        $this->migrateHostIpColumns();
         $this->ensureColumnExists('hosts', 'expires_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('hosts', 'vip', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureColumnExists('hosts', 'model_override', 'VARCHAR(128) NULL');
@@ -550,6 +551,149 @@ class Database
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid
         // extra information_schema lookups on every boot.
+    }
+
+    private function migrateHostIpColumns(): void
+    {
+        $hasIp = $this->columnExists('hosts', 'ip');
+        $hasIpAlt = $this->columnExists('hosts', 'ip_alt');
+        $hasIp4 = $this->columnExists('hosts', 'ip4');
+        $hasIp6 = $this->columnExists('hosts', 'ip6');
+        $needsNormalization = false;
+
+        if ($hasIp && !$hasIp4) {
+            $this->pdo->exec('ALTER TABLE hosts CHANGE ip ip4 VARCHAR(64) NULL');
+            $needsNormalization = true;
+        }
+
+        if ($hasIpAlt && !$hasIp6) {
+            $this->pdo->exec('ALTER TABLE hosts CHANGE ip_alt ip6 VARCHAR(64) NULL');
+            $needsNormalization = true;
+        }
+
+        $hasIp = $this->columnExists('hosts', 'ip');
+        $hasIpAlt = $this->columnExists('hosts', 'ip_alt');
+        $hasIp4 = $this->columnExists('hosts', 'ip4');
+        $hasIp6 = $this->columnExists('hosts', 'ip6');
+
+        if (!$hasIp4) {
+            $this->ensureColumnExists('hosts', 'ip4', 'VARCHAR(64) NULL');
+            $hasIp4 = true;
+        }
+        if (!$hasIp6) {
+            $this->ensureColumnExists('hosts', 'ip6', 'VARCHAR(64) NULL');
+            $hasIp6 = true;
+        }
+
+        if ($needsNormalization || $hasIp || $hasIpAlt) {
+            $this->normalizeHostIpFamilies($hasIp, $hasIpAlt);
+        }
+
+        if ($hasIp) {
+            $this->pdo->exec('ALTER TABLE hosts DROP COLUMN ip');
+        }
+        if ($hasIpAlt) {
+            $this->pdo->exec('ALTER TABLE hosts DROP COLUMN ip_alt');
+        }
+    }
+
+    private function normalizeHostIpFamilies(bool $hasLegacyIp, bool $hasLegacyIpAlt): void
+    {
+        if (!$this->columnExists('hosts', 'ip4') || !$this->columnExists('hosts', 'ip6')) {
+            return;
+        }
+
+        $columns = ['id', 'ip4', 'ip6'];
+        if ($hasLegacyIp && $this->columnExists('hosts', 'ip')) {
+            $columns[] = 'ip';
+        }
+        if ($hasLegacyIpAlt && $this->columnExists('hosts', 'ip_alt')) {
+            $columns[] = 'ip_alt';
+        }
+
+        $statement = $this->pdo->query('SELECT ' . implode(', ', $columns) . ' FROM hosts');
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) {
+            return;
+        }
+
+        $update = $this->pdo->prepare('UPDATE hosts SET ip4 = :ip4, ip6 = :ip6 WHERE id = :id');
+        foreach ($rows as $row) {
+            $ip4 = $this->firstMatchingIp([
+                $row['ip4'] ?? null,
+                $row['ip6'] ?? null,
+                $row['ip'] ?? null,
+                $row['ip_alt'] ?? null,
+            ], 4);
+            $ip6 = $this->firstMatchingIp([
+                $row['ip4'] ?? null,
+                $row['ip6'] ?? null,
+                $row['ip'] ?? null,
+                $row['ip_alt'] ?? null,
+            ], 6);
+
+            $currentIp4 = $this->normalizeIpRaw($row['ip4'] ?? null);
+            $currentIp6 = $this->normalizeIpRaw($row['ip6'] ?? null);
+
+            if ($ip4 !== $currentIp4 || $ip6 !== $currentIp6) {
+                $update->execute([
+                    'ip4' => $ip4,
+                    'ip6' => $ip6,
+                    'id' => (int) $row['id'],
+                ]);
+            }
+        }
+    }
+
+    private function firstMatchingIp(array $candidates, int $family): ?string
+    {
+        foreach ($candidates as $candidate) {
+            $normalized = $this->normalizeIpValue($candidate, $family);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+        return null;
+    }
+
+    private function normalizeIpValue(mixed $candidate, int $family): ?string
+    {
+        if (!is_string($candidate)) {
+            return null;
+        }
+        $normalized = trim($candidate);
+        if ($normalized === '') {
+            return null;
+        }
+        $flag = $family === 4 ? FILTER_FLAG_IPV4 : FILTER_FLAG_IPV6;
+        if (filter_var($normalized, FILTER_VALIDATE_IP, $flag) === false) {
+            return null;
+        }
+        return $normalized;
+    }
+
+    private function normalizeIpRaw(mixed $candidate): ?string
+    {
+        if (!is_string($candidate)) {
+            return null;
+        }
+        $normalized = trim($candidate);
+        return $normalized === '' ? null : $normalized;
+    }
+
+    private function columnExists(string $table, string $column): bool
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+        );
+
+        $statement->execute([
+            'schema' => $this->databaseName,
+            'table' => $table,
+            'column' => $column,
+        ]);
+
+        return (int) $statement->fetchColumn() > 0;
     }
 
     private function dropTableIfExists(string $table): void

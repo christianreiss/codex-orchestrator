@@ -1591,7 +1591,7 @@
       return list.filter(host => {
         if (!hostMatchesStatus(host)) return false;
         if (!hostFilterText) return true;
-        const haystacks = [host.fqdn, host.ip, host.ip_alt, host.client_version, host.wrapper_version]
+        const haystacks = [host.fqdn, host.ip4, host.ip6, host.client_version, host.wrapper_version]
           .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
         return haystacks.some(text => text.includes(hostFilterText));
       });
@@ -1610,7 +1610,7 @@
         case 'wrapper':
           return (host.wrapper_version || '').toLowerCase();
         case 'ip':
-          return (host.ip || '').toLowerCase();
+          return (host.ip4 || host.ip6 || '').toLowerCase();
         default:
           return '';
       }
@@ -2155,7 +2155,8 @@
         ? '<span class="chip ok">Secure</span>'
         : '<span class="chip warn">Insecure</span>';
       const ipv4Chip = host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : '';
-      const secondaryIp = host.ip_alt ?? null;
+      const primaryIp = host.ip4 ?? host.ip6 ?? null;
+      const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
       const rows = [
         {
           key: 'Status',
@@ -2170,7 +2171,7 @@
           value: `
             <div class="kv-stack">
               <div class="kv-rowline">
-                ${host.ip ? `<code>${escapeHtml(host.ip)}</code>` : 'Not yet bound'}
+                ${primaryIp ? `<code>${escapeHtml(primaryIp)}</code>` : 'Not yet bound'}
                 <span class="chip ${host.allow_roaming_ips ? 'warn' : 'ok'}">${host.allow_roaming_ips ? 'Roaming enabled' : 'IP locked'}</span>
                 ${ipv4Chip}
               </div>
@@ -2301,8 +2302,8 @@
       const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
       const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
       const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
-      const primaryIp = host.ip ?? host.ip_alt ?? null;
-      const secondaryIp = host.ip && host.ip_alt ? host.ip_alt : null;
+      const primaryIp = host.ip4 ?? host.ip6 ?? null;
+      const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
       const isSecure = isHostSecure(host);
       const securityChip = isSecure
         ? ''
@@ -3154,6 +3155,12 @@
         const Plot = window.uPlot;
         const xVals = series.map((pt) => pt.x);
         const yVals = series.map((pt) => pt.y);
+        const maxY = Math.max(100, ...yVals);
+        const tickMax = Math.ceil(maxY / 25) * 25;
+        const yTicks = [];
+        for (let value = 0; value <= tickMax; value += 25) {
+          yTicks.push(value);
+        }
 
         usageHistoryChart.innerHTML = `
           <div data-usage-plot></div>
@@ -3183,7 +3190,7 @@
           scales: {
             x: { time: true },
             y: {
-              range: (u, min, max) => [0, Math.max(100, max || 0)],
+              range: () => [0, tickMax],
             },
           },
           axes: [
@@ -3197,12 +3204,16 @@
               stroke: '#64748b',
               grid: { stroke: gridStroke },
               ticks: { stroke: gridStroke },
+              splits: () => yTicks,
               values: (u, ticks) => ticks.map((v) => `${Math.round(v)}%`),
             },
           ],
           cursor: {
             y: false,
             points: { show: true },
+          },
+          legend: {
+            show: false,
           },
         };
 
@@ -3444,8 +3455,15 @@
         });
         const xVals = pointIndex.map((pt) => pt.x);
         const data = [xVals, ...seriesData];
-        const maxY = Math.max(0, ...seriesData.flat().map((val) => (Number.isFinite(val) ? val : 0)));
+        let maxY = 0;
+        seriesData.forEach((values) => {
+          values.forEach((val) => {
+            if (Number.isFinite(val) && val > maxY) maxY = val;
+          });
+        });
         const yMax = Math.max(1, maxY);
+        const ticks = buildCostTicks(yMax);
+        const tickMax = ticks[ticks.length - 1] ?? yMax;
 
         const legend = series.map((s) => {
           const latest = s.values[s.values.length - 1];
@@ -3522,7 +3540,7 @@
           scales: {
             x: { time: true },
             y: {
-              range: (u, min, max) => [0, Math.max(yMax, max || 0)],
+              range: () => [0, tickMax],
             },
           },
           axes: [
@@ -3536,12 +3554,16 @@
               stroke: '#64748b',
               grid: { stroke: gridStroke },
               ticks: { stroke: gridStroke },
+              splits: () => ticks,
               values: (u, ticks) => ticks.map((v) => formatMoney(v, currency)),
             },
           ],
           cursor: {
             y: false,
             points: { show: true },
+          },
+          legend: {
+            show: false,
           },
         };
 
