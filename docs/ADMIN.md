@@ -28,7 +28,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Cost History**: daily input/output/cached/total cost series, up to 180 days, anchored to first recorded usage and driven by the latest pricing snapshot (charts rendered with local uPlot assets under `/admin/assets`).
 - **Tokens**: aggregates by token line (total/input/output/cached/reasoning).
 - **Runner**: config + telemetry (enabled, URLs, timeouts, boot id, last ok/fail/check, 24h validation counts). Manual **Run now** forces a validation and reports whether canonical auth changed.
-- **ChatGPT Usage**: latest `/wham/usage` snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly). With admin websockets enabled, the 5‑hour + weekly limit boxes update live when new snapshots land, and the “Resets in …” timers tick locally between refreshes.
+- **ChatGPT Usage**: latest `/wham/usage` snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly, rendered with uPlot). With admin websockets enabled, the 5‑hour + weekly limit boxes update live when new snapshots land, and the “Resets in …” timers tick locally between refreshes.
 - **Slash Commands**: list/create/update/delete prompt files; delete marks propagate to hosts.
 - **Config Builder**: edit the canonical `config.toml` (settings + rendered TOML), synced to hosts on every `cdx` run.
 - **AGENTS**: edit the canonical `AGENTS.md` (sha + size shown). Hosts sync it on wrapper runs.
