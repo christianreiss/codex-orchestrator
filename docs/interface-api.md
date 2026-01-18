@@ -134,7 +134,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 ## Admin access control
 
 - Admin routes are protected by mTLS (client certificates) when `ADMIN_ACCESS_MODE=mtls` (default). Passkey/WebAuthn endpoints are not implemented.
-- Userless bootstrap: when no admin users exist, the admin UI behaves as it does today (no login enforcement). Creating the first admin enables login + role checks.
+- Userless bootstrap: when no active admin users exist, the admin UI behaves as it does today (no login enforcement). Creating the first active admin enables login + role checks.
 - Roles and privileges:
   - `admin`: full access, including user management and wipe.
   - `fleet_operator`: can add/remove hosts and change admin settings.

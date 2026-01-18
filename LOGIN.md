@@ -7,7 +7,7 @@ Status: Implemented
 ## Bootstrap Policy (confirmed)
 - If no users are configured: system behaves exactly as it does today (no login, no role enforcement).
 - "Add user" button opens modal; first user must be Admin.
-- Once Admin count > 0: enforce login + role checks for admin UI/API.
+- Once active Admin count > 0: enforce login + role checks for admin UI/API.
 - "Wipe all users" (with confirmation modal) resets to userless mode (system as-is now).
 
 ## Decisions (locked)
