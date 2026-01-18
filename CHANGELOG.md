@@ -1,4 +1,5 @@
 # 2026-01-18
+- Admin dashboard: toast notifications now honor light/dark/auto theme colors; cache-bumped dashboard.css.
 - Admin dashboard: 2026 polish pass (bullet meters + theme toggle w/ auto light/dark tokens + softer usage window sections + restored overpay note); cache-bumped dashboard.css/dashboard-mobile.css/dashboard.js.
 - Admin dashboard: 2026 visual pass (calmer background, no outer mega-card, split Hosts/Version, consistent focus ring + typography); cache-bumped dashboard.css/dashboard-mobile.css/dashboard.js.
 - Admin UI: switched admin pages to a ChatGPT-style dark theme.

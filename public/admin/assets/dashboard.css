@@ -1208,7 +1208,7 @@ body.auth-locked .nav-actions {
     }
     .toast {
       pointer-events: auto;
-      background: #ffffff;
+      background: var(--card);
       border-radius: var(--radius);
       border: 1px solid var(--border);
       border-left: 4px solid var(--accent);
