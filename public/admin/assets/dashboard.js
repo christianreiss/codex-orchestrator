@@ -335,6 +335,12 @@
         copy: 'Search, filter, and manage host state.',
         show: ['hosts-panel'],
       },
+      users: {
+        eyebrow: 'Users',
+        title: 'User management',
+        copy: 'Create users and assign access levels.',
+        show: ['users-panel'],
+      },
       agents: {
         eyebrow: 'Agents',
         title: 'Canonical AGENTS.md',
@@ -371,7 +377,7 @@
       // Use the live body dataset view to reflect navigation without reloads.
       const activeView = (document.body?.dataset?.viewMode || viewMode || 'dashboard').toLowerCase();
       const config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'users-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
