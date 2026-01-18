@@ -151,6 +151,7 @@ final class AdminAuthServiceLoginTest extends TestCase
         $logs = new AdminAuthServiceLogRepository();
 
         $service = new AdminAuthService($users, $sessions, $resets, $logs, new Mailer());
+        self::assertFalse($service->isEnforced());
         $service->enforceCapability(null, AdminAuthService::CAP_SETTINGS);
         $this->assertTrue(true);
     }

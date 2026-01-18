@@ -4309,6 +4309,9 @@ function requireAdminCapability(string $capability): void
     if (!$adminAuthService instanceof AdminAuthService) {
         return;
     }
+    if (!$adminAuthService->isEnforced()) {
+        return;
+    }
 
     $session = resolveAdminSession($adminAuthService);
     try {
