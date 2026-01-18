@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-18-04">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-18-17">
   <link rel="stylesheet" href="/admin/assets/uPlot.min.css?v=2026-01-15-01">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-01-15-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-01-18-11">
 </head>
 <body data-view="desktop" data-view-mode="dashboard">
   <div class="auth-overlay" id="adminAuthOverlay" aria-hidden="true">
@@ -68,27 +68,27 @@
   </div>
 
   <header class="main-nav">
-    <div class="nav-brand">
+    <a class="nav-brand" href="#dashboard" aria-label="Codex Coordinator dashboard">
       <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
       <div>
         <div class="brand-title">Codex Coordinator</div>
       </div>
-    </div>
+    </a>
     <nav class="nav-groups">
-      <a class="nav-item" href="#dashboard" data-nav="dashboard">Dashboard</a>
       <a class="nav-item" href="#hosts" data-nav="hosts">Hosts</a>
       <a class="nav-item" href="#logs" data-nav="logs">Logs</a>
       <a class="nav-item" href="#settings" data-nav="settings">Settings</a>
       <a class="nav-item" href="#users" data-nav="users">Users</a>
     </nav>
-    <div class="nav-status">
-      <span class="status-chip" id="mtlsStatus">mTLS: checking…</span>
-      <span class="nav-user" id="navUser" style="display:none;"></span>
-    </div>
     <div class="nav-actions">
       <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
       <button class="nav-btn primary" id="navNewHost">New host</button>
-      <button class="nav-btn ghost" id="navLogout" style="display:none;">Logout</button>
+    </div>
+    <div class="nav-status">
+      <span class="nav-user" id="navUser" style="display:none;">
+        <span class="nav-user-name" id="navUserName">Christian Reiss</span>
+        <button class="nav-lock" id="navLogout" type="button" aria-label="Logout">🔐</button>
+      </span>
     </div>
   </header>
 
@@ -657,6 +657,15 @@
               </div>
             </div>
             <div class="settings-grid">
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
+                    <h3>Admin mTLS Policy</h3>
+                    <p class="muted" style="margin:2px 0 0;">Certificate enforcement for <code>/admin</code> routes.</p>
+                  </div>
+                </div>
+                <p class="muted" id="mtlsSettingStatus" style="margin:8px 0 0;">Loading…</p>
+              </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
@@ -1364,10 +1373,10 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
-  <script src="/admin/assets/admin-auth.js?v=2026-01-18-04"></script>
+  <script src="/admin/assets/admin-auth.js?v=2026-01-18-05"></script>
   <script src="/admin/assets/users.js?v=2026-01-18-03"></script>
   <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-18-02"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-18-08"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-12-01"></script>

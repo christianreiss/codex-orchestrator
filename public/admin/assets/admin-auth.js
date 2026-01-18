@@ -8,6 +8,7 @@
   const forgotBtn = document.getElementById('adminAuthForgot');
   const logoutBtn = document.getElementById('navLogout');
   const navUser = document.getElementById('navUser');
+  const navUserName = document.getElementById('navUserName');
 
   const resetModal = document.getElementById('adminResetModal');
   const resetClose = document.getElementById('adminResetClose');
@@ -89,16 +90,11 @@
       const enforced = !!authStatus?.enforced;
       const authenticated = !!authStatus?.authenticated;
       const user = authStatus?.user || null;
-      if (logoutBtn) {
-        logoutBtn.style.display = authenticated ? '' : 'none';
-      }
       if (navUser) {
-        if (authenticated && user) {
-          const name = user?.name || user?.username || '';
-          navUser.textContent = name;
-          navUser.style.display = name ? '' : 'none';
+        if (authenticated) {
+          if (navUserName) navUserName.textContent = 'Christian Reiss';
+          navUser.style.display = '';
         } else {
-          navUser.textContent = '';
           navUser.style.display = 'none';
         }
       }

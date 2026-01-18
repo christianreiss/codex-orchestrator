@@ -7,6 +7,7 @@
     const navInsecureHosts = document.getElementById('navInsecureHosts');
     const insecureHostsDisableAllBtn = document.getElementById('insecureHostsDisableAll');
     const mtlsStatus = document.getElementById('mtlsStatus');
+    const mtlsSettingStatus = document.getElementById('mtlsSettingStatus');
     const toastDeck = document.getElementById('toastDeck');
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
@@ -1069,6 +1070,19 @@
       mtlsMeta = meta;
       if (window.__navStatus?.setMtls) {
         window.__navStatus.setMtls(meta);
+      }
+      if (mtlsSettingStatus) {
+        let sentence = 'mTLS status unavailable.';
+        if (meta) {
+          if (meta.enforced) {
+            sentence = 'mTLS is enforced; client certificates are required for admin access.';
+          } else if (meta.present) {
+            sentence = 'mTLS is optional; a client certificate is present for this session.';
+          } else {
+            sentence = 'mTLS is disabled for admin access.';
+          }
+        }
+        mtlsSettingStatus.textContent = sentence;
       }
     }
 
@@ -4487,63 +4501,80 @@
         : null;
       const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion : 'n/a';
       const versionInfoBtn = '';
-      const topHost = tokensSummary?.top_host;
-      const topHostLabel = topHost ? `${topHost.fqdn} (${formatNumber(topHost.total)} tokens)` : '—';
-      const totalTokens = tokensSummary ? formatNumber(tokensSummary.total) : '—';
 
       runnerSummary = runnerInfo;
+      const validationLine = (() => {
+        if (!runnerInfo) return null;
+        const validation = runnerInfo.latest_validation || null;
+        const hasValidation = !!validation;
+        const validationStatus = hasValidation
+          ? (validation.status ?? 'unknown')
+          : (runnerInfo.enabled ? 'no runs' : 'disabled');
+        const validationWhen = (() => {
+          if (!validation?.created_at) return null;
+          const date = parseTimestamp(validation.created_at);
+          if (!date) return null;
+          const delta = Date.now() - date.getTime();
+          const minutes = Math.round(Math.abs(delta) / 60000);
+          return delta < 0 ? `in ${minutes}m` : `${minutes}m`;
+        })();
+        const validationLatency = validation?.latency_ms ? `${validation.latency_ms}ms` : null;
+        const parts = [
+          `Validation: ${validationStatus}`,
+          validationWhen ? validationWhen : null,
+          validationLatency ? validationLatency : null,
+        ].filter(Boolean);
+        return parts.join(' · ');
+      })();
+
       const cards = [
         `
-          <div class="card">
-            <div class="stat-head">
-              <span class="stat-label">Hosts</span>
+          <div class="card summary-card">
+            <div class="summary-metrics">
+              <div class="summary-item">
+                <div class="stat-label">Hosts</div>
+                <div class="stat-value">${data.totals.hosts}</div>
+                <small>Total registered</small>
+              </div>
+              <div class="summary-item">
+                <div class="stat-label">Version</div>
+                <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>CLI ${codexVersionDisplay}</div>
+                <small>Wrapper ${data.versions.wrapper_version ?? 'n/a'} · Checked ${checkedAt}</small>
+              </div>
             </div>
-            <div class="stat-value">${data.totals.hosts}</div>
-            <small>Total registered</small>
-          </div>
-        `,
-        `
-          <div class="card version-card">
-            <div class="stat-head">
-              <span class="stat-label">Versions</span>
-            </div>
-            <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>CLI ${codexVersionDisplay}</div>
-            <small>Checked ${checkedAt} · Wrapper ${data.versions.wrapper_version ?? 'n/a'}</small>
-          </div>
-        `,
-        `
-          <div class="card">
-            <div class="stat-head">
-              <span class="stat-label">Tokens</span>
-            </div>
-            <div class="stat-value">${totalTokens}</div>
-            <small>Usage · Total tokens reported</small>
+            ${validationLine ? `<div class="summary-meta muted">${validationLine}</div>` : ''}
           </div>
         `,
       ];
 
-      if (runnerInfo) {
-        cards.push(renderRunnerCard(runnerInfo));
-      }
-
-      const tokensDay = data.tokens_day || {};
-      const tokensWeek = data.tokens_week || {};
       const tokensMonth = data.tokens_month || {};
       const getToken = (bucket, key) => {
         const v = Number(bucket?.[key]);
         return Number.isFinite(v) ? v : 0;
       };
-      const tokenCard = (label, key) => {
-        const month = getToken(tokensMonth, key);
-        const week = getToken(tokensWeek, key);
-        const day = getToken(tokensDay, key);
+      const tokenBreakdownCard = () => {
+        const monthInput = getToken(tokensMonth, 'input');
+        const monthOutput = getToken(tokensMonth, 'output');
+        const monthCached = getToken(tokensMonth, 'cached');
         return `
-          <div class="card">
+          <div class="card token-summary-card">
             <div class="stat-head">
-              <span class="stat-label">${label}</span>
+              <span class="stat-label">Token breakdown (month)</span>
             </div>
-            <div class="stat-value">${formatNumber(month)}</div>
-            <small>${formatNumber(week)} this week · ${formatNumber(day)} today</small>
+            <div class="stat-breakdown">
+              <div class="stat-row">
+                <span>Input</span>
+                <strong>${formatNumber(monthInput)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Output</span>
+                <strong>${formatNumber(monthOutput)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Cached</span>
+                <strong>${formatNumber(monthCached)}</strong>
+              </div>
+            </div>
           </div>
         `;
       };
@@ -4587,31 +4618,20 @@
         if (isOverpaying) return '';
         return 'cost-green';
       })();
-      const savingsPct = planCost > 0 && monthCost > planCost
-        ? ((monthCost - planCost) / monthCost) * 100
-        : null;
-      const overpayPct = planCost > 0 && monthCost > 0 && monthCost < planCost
-        ? ((planCost - monthCost) / planCost) * 100
-        : null;
       const costCard = () => `
         <div class="card cost-card ${costLevelClass}">
           <div class="stat-head">
-            <span class="stat-label">Estimated Total</span>
+            <span class="stat-label">Estimated total</span>
             <span class="stat-sub">${planCurrency}</span>
           </div>
           <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
-          <div class="cost-plan-row">
-            ${selectedPlan && monthPercentOfPlan !== null
-              ? `<span class="cost-plan-note">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)} · ${formatPercent(monthPercentOfPlan, 0)}</span>`
-              : ''
-            }
-            ${savingsPct !== null
-              ? `<span class="cost-savings-inline cost-savings-ok">${formatPercent(savingsPct, 0)} Saved!</span>`
-              : ''
-            }
-          </div>
-          ${savingsPct === null && overpayPct !== null ? `<div class="cost-savings cost-savings-warn">Overpaying by ${formatPercent(overpayPct, 0)}!</div>` : ''}
-          <div class="stat-meta-line">
+          ${selectedPlan && monthPercentOfPlan !== null ? `
+            <div class="cost-meta">
+              <span class="cost-chip">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)}</span>
+              <span class="cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
+            </div>
+          ` : ''}
+          <div class="cost-foot">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>
             <span>${formatCurrency(dayCost, planCurrency)} today</span>
             <button class="ghost tiny-btn cost-history-btn" type="button" aria-label="Open cost trend">Trend</button>
@@ -4619,12 +4639,7 @@
         </div>
       `;
 
-      cards.push(
-        tokenCard('Input tokens', 'input'),
-        tokenCard('Output tokens', 'output'),
-        tokenCard('Cached tokens', 'cached'),
-        costCard(),
-      );
+      cards.push(tokenBreakdownCard(), costCard());
 
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();

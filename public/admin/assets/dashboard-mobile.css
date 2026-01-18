@@ -7,6 +7,33 @@ body[data-view="mobile"] {
   color: var(--text);
 }
 
+body[data-view="mobile"] .main-nav {
+  height: auto;
+  padding: 12px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+body[data-view="mobile"] .nav-groups {
+  gap: 16px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+body[data-view="mobile"] .nav-item::after {
+  bottom: 4px;
+}
+
+body[data-view="mobile"] .nav-status,
+body[data-view="mobile"] .nav-actions {
+  border-left: 0;
+  padding-left: 0;
+  width: 100%;
+  justify-content: flex-start;
+}
+
 body[data-view="mobile"] .app {
   padding: 0;
 }
@@ -56,7 +83,25 @@ body[data-view="mobile"] .metrics .card {
 
 body[data-view="mobile"] .card {
   border-radius: 16px;
-  box-shadow: 0 12px 28px rgba(15,23,42,0.08);
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--border);
+}
+
+body[data-view="mobile"] .panel-set[data-panel="dashboard"] {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+body[data-view="mobile"] #stats {
+  grid-template-columns: 1fr;
+}
+
+body[data-view="mobile"] .summary-card .summary-metrics {
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 
 @media (max-width: 900px) {
@@ -80,8 +125,8 @@ body[data-view="mobile"] .card {
 body[data-view="mobile"] .panel {
   margin-top: 14px;
   border-radius: 16px;
-  box-shadow: 0 12px 28px rgba(15,23,42,0.08);
-  border: 1px solid rgba(15,23,42,0.08);
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--border);
 }
 
 body[data-view="mobile"] .panel-head {
@@ -186,8 +231,8 @@ body[data-view="mobile"] tbody tr {
   padding: 14px;
   border-radius: 16px;
   background: #ffffff;
-  box-shadow: 0 12px 30px rgba(15,23,42,0.08);
-  border: 1px solid rgba(15,23,42,0.08);
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--border);
 }
 
 body[data-view="mobile"] #hosts-table tbody tr {
@@ -246,6 +291,20 @@ body[data-view="mobile"] .cost-card .total-main {
 }
 body[data-view="mobile"] .cost-card .cost-chip {
   width: 100%;
+}
+body[data-view="mobile"] .cost-card .cost-meta {
+  width: 100%;
+}
+
+body[data-view="mobile"] tbody tr {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+body[data-view="mobile"] .card,
+body[data-view="mobile"] .panel {
+  background: var(--card);
+  border-color: var(--border);
 }
 
 body[data-view="mobile"] .usage-history-modal {
