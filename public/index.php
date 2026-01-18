@@ -4311,14 +4311,14 @@ function requireAdminCapability(string $capability): void
     }
 
     $session = resolveAdminSession($adminAuthService);
-    if ($session === null || !isset($session['user'])) {
+    try {
+        $adminAuthService->enforceCapability($session['user'] ?? null, $capability);
+    } catch (HttpException $exception) {
         Response::json([
             'status' => 'error',
-            'message' => 'Authentication required',
-        ], 401);
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
     }
-
-    $adminAuthService->assertCapability($session['user'], $capability);
 }
 
 function resolveIntQuery(string $key): ?int

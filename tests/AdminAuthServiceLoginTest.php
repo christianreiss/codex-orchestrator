@@ -97,6 +97,64 @@ final class AdminAuthServiceLoginTest extends TestCase
         $this->service->login('admin', 'wrong', null, null);
     }
 
+    public function testCapabilityRequiresSessionWhenEnforced(): void
+    {
+        $this->expectException(HttpException::class);
+        $this->service->enforceCapability(null, AdminAuthService::CAP_SETTINGS);
+    }
+
+    public function testCapabilityBypassesWhenNoAdmins(): void
+    {
+        $emptyPdo = new PDO('sqlite::memory:');
+        $emptyPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $emptyPdo->exec(
+            'CREATE TABLE admin_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                username TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                access_level TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                last_login_at TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )'
+        );
+        $emptyPdo->exec(
+            'CREATE TABLE admin_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                ip TEXT NULL,
+                user_agent TEXT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )'
+        );
+        $emptyPdo->exec(
+            'CREATE TABLE admin_password_resets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                used_at TEXT NULL,
+                created_at TEXT NOT NULL
+            )'
+        );
+
+        $database = $this->fakeDatabase($emptyPdo);
+        $users = new AdminUserRepository($database);
+        $sessions = new AdminSessionRepository($database);
+        $resets = new AdminPasswordResetRepository($database);
+        $logs = new AdminAuthServiceLogRepository();
+
+        $service = new AdminAuthService($users, $sessions, $resets, $logs, new Mailer());
+        $service->enforceCapability(null, AdminAuthService::CAP_SETTINGS);
+        $this->assertTrue(true);
+    }
+
     private function fakeDatabase(PDO $pdo): Database
     {
         $reflection = new ReflectionClass(Database::class);

@@ -181,6 +181,17 @@ class AdminAuthService
         throw new HttpException('Forbidden', 403);
     }
 
+    public function enforceCapability(?array $user, string $capability): void
+    {
+        if (!$this->isEnforced()) {
+            return;
+        }
+        if ($user === null) {
+            throw new HttpException('Authentication required', 401);
+        }
+        $this->assertCapability($user, $capability);
+    }
+
     public function roleAllows(string $role, string $capability): bool
     {
         if ($role === self::ROLE_ADMIN) {
