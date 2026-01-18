@@ -19,6 +19,9 @@ use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\AuthSeedTokenRepository;
 use App\Repositories\AdminEventRepository;
+use App\Repositories\AdminPasswordResetRepository;
+use App\Repositories\AdminSessionRepository;
+use App\Repositories\AdminUserRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
@@ -40,6 +43,8 @@ use App\Repositories\MemoryRepository;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\McpAccessLogRepository;
 use App\Services\AuthService;
+use App\Services\AdminAuthService;
+use App\Services\AdminUserService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
@@ -59,6 +64,7 @@ use App\Services\AuthEncryptionMigrator;
 use App\Security\RateLimiter;
 use App\Support\Installation;
 use App\Support\InstallerScriptBuilder;
+use App\Support\Mailer;
 use App\Support\SeedAuthScriptBuilder;
 use Dotenv\Dotenv;
 
@@ -105,6 +111,10 @@ $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $adminEventRepository = new AdminEventRepository($database);
 $logRepository = new LogRepository($database, $adminEventRepository);
+$adminUserRepository = new AdminUserRepository($database);
+$adminSessionRepository = new AdminSessionRepository($database);
+$adminPasswordResetRepository = new AdminPasswordResetRepository($database);
+$mailer = new Mailer();
 $insecureAuthRequestRepository = new InsecureAuthRequestRepository($database);
 $insecureDomainAllowRepository = new InsecureDomainAllowRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
@@ -159,6 +169,21 @@ $service = new AuthService(
     null,
     $insecureDomainAllowRepository
 );
+$adminAuthService = new AdminAuthService(
+    $adminUserRepository,
+    $adminSessionRepository,
+    $adminPasswordResetRepository,
+    $logRepository,
+    $mailer
+);
+$adminUserService = new AdminUserService(
+    $adminUserRepository,
+    $adminSessionRepository,
+    $adminPasswordResetRepository,
+    $logRepository,
+    $adminAuthService
+);
+$GLOBALS['adminAuthService'] = $adminAuthService;
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $skillService = new SkillService($skillRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
@@ -232,6 +257,7 @@ $router->add('GET', '#^/versions$#', function () use ($service) {
 
 $router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $available = $service->availableClientVersion(true);
     $versions = $service->versionSummary();
@@ -242,6 +268,159 @@ $router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
             'available_client' => $available,
             'versions' => $versions,
         ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/auth/status$#', function () use ($adminAuthService, $adminUserRepository) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'has_users' => $adminUserRepository->countUsers() > 0,
+            'admin_count' => $adminUserRepository->countAdmins(true),
+            'enforced' => $adminAuthService->isEnforced(),
+            'authenticated' => $session !== null,
+            'user' => $session['user'] ?? null,
+            'roles' => $adminAuthService->roleLabels(),
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/login$#', function () use ($payload, $adminAuthService) {
+    requireAdminAccess();
+    $username = is_array($payload) ? (string) ($payload['username'] ?? '') : '';
+    $password = is_array($payload) ? (string) ($payload['password'] ?? '') : '';
+    $ip = resolveClientIp();
+    $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+
+    $result = $adminAuthService->login($username, $password, $ip, is_string($userAgent) ? $userAgent : null);
+    $cookieName = $adminAuthService->sessionCookieName();
+    $expires = strtotime((string) ($result['expires_at'] ?? '')) ?: (time() + $adminAuthService->sessionTtlSeconds());
+    setcookie($cookieName, $result['token'], [
+        'expires' => $expires,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Strict',
+        'secure' => isHttpsRequest(),
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'user' => $result['user'],
+            'expires_at' => $result['expires_at'],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/logout$#', function () use ($adminAuthService) {
+    requireAdminAccess();
+    $token = resolveAdminSessionToken($adminAuthService);
+    $adminAuthService->logout($token);
+    $cookieName = $adminAuthService->sessionCookieName();
+    setcookie($cookieName, '', [
+        'expires' => time() - 3600,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Strict',
+        'secure' => isHttpsRequest(),
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/password/request$#', function () use ($payload, $adminAuthService) {
+    requireAdminAccess();
+    $identity = is_array($payload) ? (string) ($payload['identity'] ?? '') : '';
+    $adminAuthService->requestPasswordReset($identity);
+
+    Response::json([
+        'status' => 'ok',
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/password/reset$#', function () use ($payload, $adminAuthService) {
+    requireAdminAccess();
+    $token = is_array($payload) ? (string) ($payload['token'] ?? '') : '';
+    $password = is_array($payload) ? (string) ($payload['password'] ?? '') : '';
+    $user = $adminAuthService->resetPassword($token, $password);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'user' => $user,
+        ],
+    ]);
+});
+
+$router->add('GET', '#^/admin/users$#', function () use ($adminUserService, $adminUserRepository) {
+    requireAdminAccess();
+    $hasUsers = $adminUserRepository->countUsers() > 0;
+    if ($hasUsers) {
+        requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
+    }
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'users' => $adminUserService->listUsers(),
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/users$#', function () use ($payload, $adminUserService, $adminUserRepository) {
+    requireAdminAccess();
+    $hasUsers = $adminUserRepository->countUsers() > 0;
+    if ($hasUsers) {
+        requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
+    }
+    $user = $adminUserService->createUser(is_array($payload) ? $payload : []);
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'user' => $user,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/users/(\\d+)$#', function ($matches) use ($payload, $adminUserService) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
+    $id = (int) ($matches[1] ?? 0);
+    $user = $adminUserService->updateUser($id, is_array($payload) ? $payload : []);
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'user' => $user,
+        ],
+    ]);
+});
+
+$router->add('DELETE', '#^/admin/users/(\\d+)$#', function ($matches) use ($adminUserService) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
+    $id = (int) ($matches[1] ?? 0);
+    $adminUserService->deleteUser($id);
+    Response::json([
+        'status' => 'ok',
+    ]);
+});
+
+$router->add('POST', '#^/admin/users/wipe$#', function () use ($payload, $adminUserService) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
+    $confirm = is_array($payload) ? ($payload['confirm'] ?? null) : null;
+    if ($confirm !== 'WIPE') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Confirmation required',
+        ], 422);
+    }
+    $adminUserService->wipeAllUsers();
+    Response::json([
+        'status' => 'ok',
     ]);
 });
 
@@ -463,6 +642,7 @@ $router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($matches) use
 
 $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $service, $installTokenRepository, $logRepository, $hostRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
 
     $fqdn = trim((string) ($payload['fqdn'] ?? ''));
     if ($fqdn === '') {
@@ -727,6 +907,7 @@ $router->add('GET', '#^/admin/runner$#', function () use ($logRepository, $hostR
 
 $router->add('POST', '#^/admin/runner/run$#', function () use ($service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     try {
         $result = $service->triggerRunnerRefresh();
@@ -746,6 +927,7 @@ $router->add('POST', '#^/admin/runner/run$#', function () use ($service) {
 
 $router->add('POST', '#^/admin/auth/seed-command$#', function () use ($seedTokenRepository, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $seedTokenRepository->deleteExpired(gmdate(DATE_ATOM));
 
@@ -782,6 +964,7 @@ $router->add('POST', '#^/admin/auth/seed-command$#', function () use ($seedToken
 
 $router->add('POST', '#^/admin/auth/upload$#', function () use ($payload, $hostRepository, $service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $hostIdRaw = $payload['host_id'] ?? null;
     $systemUpload = $hostIdRaw === null || $hostIdRaw === '' || $hostIdRaw === 'system' || (is_numeric($hostIdRaw) && (int) $hostIdRaw === 0);
@@ -870,6 +1053,7 @@ $router->add('GET', '#^/admin/api/state$#', function () use ($versionRepository)
 
 $router->add('POST', '#^/admin/api/state$#', function () use ($payload, $versionRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $disabledRaw = $payload['disabled'] ?? null;
     $disabled = normalizeBoolean($disabledRaw);
@@ -901,6 +1085,7 @@ $router->add('GET', '#^/admin/cdx-silent$#', function () use ($versionRepository
 
 $router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versionRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $silentRaw = $payload['silent'] ?? null;
     $silent = normalizeBoolean($silentRaw);
@@ -932,6 +1117,7 @@ $router->add('GET', '#^/admin/reverse-dns$#', function () use ($versionRepositor
 
 $router->add('POST', '#^/admin/reverse-dns$#', function () use ($payload, $versionRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $enabledRaw = $payload['enabled'] ?? null;
     $enabled = normalizeBoolean($enabledRaw);
@@ -963,6 +1149,7 @@ $router->add('GET', '#^/admin/insecure-approval$#', function () use ($versionRep
 
 $router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, $versionRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $enabledRaw = $payload['enabled'] ?? null;
     $enabled = normalizeBoolean($enabledRaw);
@@ -983,6 +1170,7 @@ $router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, 
 
 $router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $versionRepository, $service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $selectionRaw = $payload['selection'] ?? null;
     if (!is_string($selectionRaw) || trim($selectionRaw) === '') {
@@ -1041,6 +1229,7 @@ $router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository
 
 $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versionRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $modeRaw = $payload['hard_fail'] ?? null;
     $hardFail = normalizeBoolean($modeRaw);
@@ -1089,6 +1278,7 @@ $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versio
 
 $router->add('POST', '#^/admin/prune-policy$#', function () use ($payload, $versionRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $daysRaw = $payload['inactivity_days'] ?? null;
     if (!is_numeric($daysRaw)) {
@@ -1176,6 +1366,7 @@ $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hos
 
 $router->add('DELETE', '#^/admin/hosts/(\d+)$#', function ($matches) use ($hostRepository, $digestRepository, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1197,6 +1388,7 @@ $router->add('DELETE', '#^/admin/hosts/(\d+)$#', function ($matches) use ($hostR
 
 $router->add('POST', '#^/admin/hosts/(\d+)/clear$#', function ($matches) use ($hostRepository, $digestRepository, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1224,6 +1416,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/clear$#', function ($matches) use ($h
 
 $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1261,6 +1454,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
 
 $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1298,6 +1492,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($
 
 $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1336,6 +1531,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($matches) use ($hos
 
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository, $payload, $service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1397,6 +1593,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
 
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($matches) use ($hostRepository, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1425,6 +1622,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
 
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $requestId = (int) $matches[1];
     $request = $insecureAuthRequestRepository->findById($requestId);
@@ -1588,6 +1786,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
 
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
 
     $requestId = (int) $matches[1];
     $request = $insecureAuthRequestRepository->findById($requestId);
@@ -1678,6 +1877,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($m
 
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
 
     $requestId = (int) $matches[1];
     $request = $insecureAuthRequestRepository->findById($requestId);
@@ -1723,6 +1923,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', function ($matc
 
 $router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', function ($matches) use ($insecureDomainAllowRepository, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $allowId = (int) $matches[1];
     $allow = $insecureDomainAllowRepository->findById($allowId);
@@ -1753,6 +1954,7 @@ $router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', function 
 
 $router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1792,6 +1994,7 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($h
 
 $router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1829,6 +2032,7 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($matches
 
 $router->add('POST', '#^/admin/hosts/(\\d+)/reverse-dns$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1873,6 +2077,7 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/reverse-dns$#', function ($matches) 
 
 $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -1924,6 +2129,7 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($
 
 $router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
     $hostId = (int) $matches[1];
     $host = $hostRepository->findById($hostId);
     if (!$host) {
@@ -2417,6 +2623,7 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
 
 $router->add('POST', '#^/admin/hosts/insecure/extend$#', function () use ($hostRepository, $service, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
     $service->pruneStaleHosts();
 
     $hosts = $hostRepository->all();
@@ -2465,6 +2672,7 @@ $router->add('POST', '#^/admin/hosts/insecure/extend$#', function () use ($hostR
 
 $router->add('POST', '#^/admin/hosts/insecure/disable-all$#', function () use ($hostRepository, $service, $logRepository) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
     $service->pruneStaleHosts();
 
     $hosts = $hostRepository->all();
@@ -2602,6 +2810,7 @@ $router->add('GET', '#^/admin/chatgpt/usage/history$#', function () use ($chatGp
 
 $router->add('POST', '#^/admin/chatgpt/usage/refresh$#', function () use ($chatGptUsageService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
     $result = $chatGptUsageService->fetchLatest(true);
 
     Response::json([
@@ -2636,6 +2845,7 @@ $router->add('GET', '#^/admin/mcp/logs$#', function () use ($mcpAccessLogReposit
 
 $router->add('POST', '#^/admin/config/render$#', function () use ($payload, $clientConfigService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
     $settings = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
     $baseUrl = resolveBaseUrl();
     // For preview, inject managed MCP with a placeholder API key so the rendered output matches what hosts receive.
@@ -2649,6 +2859,7 @@ $router->add('POST', '#^/admin/config/render$#', function () use ($payload, $cli
 
 $router->add('POST', '#^/admin/config/store$#', function () use ($payload, $clientConfigService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     try {
         $result = $clientConfigService->store(is_array($payload) ? $payload : [], null);
@@ -2678,6 +2889,7 @@ $router->add('GET', '#^/admin/agents$#', function () use ($agentsService) {
 
 $router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agentsService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     $content = '';
     if (is_array($payload)) {
@@ -2736,6 +2948,7 @@ $router->add('GET', '#^/admin/mcp/memories$#', function () use ($memoryService) 
 
 $router->add('DELETE', '#^/admin/mcp/memories/(\\d+)$#', function ($matches) use ($memoryService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
     $id = (int) $matches[1];
     $result = $memoryService->adminDelete($id);
 
@@ -2784,6 +2997,7 @@ $router->add('GET', '#^/admin/slash-commands/([^/]+)$#', function ($matches) use
 
 $router->add('POST', '#^/admin/slash-commands/store$#', function () use ($payload, $slashCommandService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     try {
         $result = $slashCommandService->store(is_array($payload) ? $payload : [], null);
@@ -2808,6 +3022,7 @@ $router->add('POST', '#^/admin/slash-commands/store$#', function () use ($payloa
 
 $router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', function ($matches) use ($slashCommandService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
     $filename = urldecode($matches[1]);
     try {
         $deleted = $slashCommandService->delete($filename);
@@ -2873,6 +3088,7 @@ $router->add('GET', '#^/admin/skills/([^/]+)$#', function ($matches) use ($skill
 
 $router->add('POST', '#^/admin/skills/store$#', function () use ($payload, $skillService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
     try {
         $result = $skillService->store(is_array($payload) ? $payload : [], null);
@@ -2892,6 +3108,7 @@ $router->add('POST', '#^/admin/skills/store$#', function () use ($payload, $skil
 
 $router->add('DELETE', '#^/admin/skills/([^/]+)$#', function ($matches) use ($skillService) {
     requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
     $slug = urldecode($matches[1]);
     try {
         $deleted = $skillService->delete($slug);
@@ -4003,6 +4220,38 @@ function isMtlsSatisfied(): bool
     return is_string($fp) && preg_match('/^[A-Fa-f0-9]{64}$/', $fp) === 1;
 }
 
+function isHttpsRequest(): bool
+{
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        return true;
+    }
+    $proto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
+    return is_string($proto) && strtolower(trim(explode(',', $proto)[0] ?? '')) === 'https';
+}
+
+function resolveAdminSessionToken(AdminAuthService $adminAuthService): ?string
+{
+    $cookieName = $adminAuthService->sessionCookieName();
+    $token = $_COOKIE[$cookieName] ?? null;
+    if (!is_string($token)) {
+        return null;
+    }
+    $token = trim($token);
+    return $token === '' ? null : $token;
+}
+
+function resolveAdminSession(AdminAuthService $adminAuthService): ?array
+{
+    if (array_key_exists('admin_auth_session', $GLOBALS)) {
+        $cached = $GLOBALS['admin_auth_session'];
+        return is_array($cached) ? $cached : null;
+    }
+
+    $session = $adminAuthService->resolveSession(resolveAdminSessionToken($adminAuthService));
+    $GLOBALS['admin_auth_session'] = $session;
+    return $session;
+}
+
 function requireAdminAccess(): void
 {
     $mode = adminAccessMode();
@@ -4018,6 +4267,58 @@ function requireAdminAccess(): void
             'message' => 'Client certificate required for admin access',
         ], 403);
     }
+
+    $adminAuthService = $GLOBALS['adminAuthService'] ?? null;
+    if (!$adminAuthService instanceof AdminAuthService) {
+        return;
+    }
+
+    if (!$adminAuthService->isEnforced()) {
+        return;
+    }
+
+    $path = rtrim($path, '/');
+    if ($path === '') {
+        $path = '/';
+    }
+    $bypass = [
+        '/admin/auth/status',
+        '/admin/auth/login',
+        '/admin/auth/logout',
+        '/admin/auth/password/request',
+        '/admin/auth/password/reset',
+    ];
+    if (in_array($path, $bypass, true)) {
+        return;
+    }
+
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Authentication required',
+        ], 401);
+    }
+
+    $GLOBALS['adminAuthUser'] = $session['user'];
+}
+
+function requireAdminCapability(string $capability): void
+{
+    $adminAuthService = $GLOBALS['adminAuthService'] ?? null;
+    if (!$adminAuthService instanceof AdminAuthService) {
+        return;
+    }
+
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Authentication required',
+        ], 401);
+    }
+
+    $adminAuthService->assertCapability($session['user'], $capability);
 }
 
 function resolveIntQuery(string $key): ?int

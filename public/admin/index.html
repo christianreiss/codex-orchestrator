@@ -7,11 +7,33 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-15-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-18-01">
   <link rel="stylesheet" href="/admin/assets/uPlot.min.css?v=2026-01-15-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-01-15-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard">
+  <div class="auth-overlay" id="adminAuthOverlay" aria-hidden="true">
+    <div class="auth-card" role="dialog" aria-labelledby="adminAuthTitle" aria-modal="true">
+      <h2 id="adminAuthTitle">Admin login</h2>
+      <p class="muted" id="adminAuthNotice">Sign in to access admin controls.</p>
+      <form id="adminAuthForm" class="auth-form">
+        <label class="field">
+          <span>Username</span>
+          <input type="text" id="adminAuthUsername" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="adminAuthPassword" autocomplete="current-password" required>
+        </label>
+        <div class="auth-error" id="adminAuthError" role="alert"></div>
+        <button type="submit" class="nav-btn primary" id="adminAuthSubmit">Login</button>
+      </form>
+      <div class="auth-links">
+        <button class="ghost tiny-btn" id="adminAuthForgot" type="button">Forgot password?</button>
+      </div>
+    </div>
+  </div>
+
   <header class="main-nav">
     <div class="nav-brand">
       <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
@@ -32,6 +54,7 @@
     <div class="nav-actions">
       <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
       <button class="nav-btn primary" id="navNewHost">New host</button>
+      <button class="nav-btn ghost" id="navLogout" style="display:none;">Logout</button>
     </div>
   </header>
 
@@ -414,10 +437,30 @@
             <div class="panel-head">
               <div>
                 <h2>User Management</h2>
-                <p class="muted" style="margin:4px 0 0;">Create users and assign roles once login is enabled.</p>
+                <p class="muted" style="margin:4px 0 0;">Create users and assign access levels.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost tiny-btn" id="usersAddBtn">+ Add user</button>
+                <button class="ghost tiny-btn warn" id="usersWipeBtn">Wipe users</button>
               </div>
             </div>
-            <div class="muted" style="padding:18px;">No user controls are wired yet.</div>
+            <div class="table-wrap">
+              <table id="users-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Access</th>
+                    <th>Status</th>
+                    <th>Last login</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="muted" id="usersEmptyState" style="padding:16px; display:none;">No users yet. Create the first admin to enable login.</div>
           </section>
         </section>
 
@@ -1193,8 +1236,99 @@
             </div>
           </section>
         </section>
-      </main>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="adminResetModal">
+    <div class="modal auth-modal">
+      <div class="modal-head">
+        <div>
+          <h3>Password recovery</h3>
+          <p class="muted">Request a reset email or apply a reset token.</p>
+        </div>
+        <button class="ghost tiny-btn" id="adminResetClose">Close</button>
+      </div>
+      <div class="field">
+        <label for="adminResetIdentity">Username or email</label>
+        <input id="adminResetIdentity" type="text" autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="adminResetToken">Reset token</label>
+        <input id="adminResetToken" type="text" autocomplete="one-time-code">
+      </div>
+      <div class="field">
+        <label for="adminResetPassword">New password</label>
+        <input id="adminResetPassword" type="password" autocomplete="new-password">
+      </div>
+      <div class="auth-error" id="adminResetError" role="alert"></div>
+      <div class="actions">
+        <button class="ghost" id="adminResetRequest" type="button">Send reset email</button>
+        <button id="adminResetSubmit" type="button">Reset password</button>
+      </div>
     </div>
+  </div>
+
+  <div class="modal-backdrop" id="usersModal">
+    <div class="modal users-modal">
+      <div class="modal-head">
+        <div>
+          <h3 id="usersModalTitle">Add user</h3>
+          <p class="muted">Access levels control what admin actions are allowed.</p>
+        </div>
+        <button class="ghost tiny-btn" id="usersModalClose">Close</button>
+      </div>
+      <div class="field">
+        <label for="usersName">Name</label>
+        <input id="usersName" type="text" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="usersUsername">Username</label>
+        <input id="usersUsername" type="text" autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="usersEmail">Email</label>
+        <input id="usersEmail" type="email" autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="usersAccess">Access level</label>
+        <select id="usersAccess"></select>
+      </div>
+      <div class="field inline-field">
+        <label for="usersActive">Active</label>
+        <input id="usersActive" type="checkbox" checked>
+      </div>
+      <div class="field">
+        <label for="usersPassword">Password</label>
+        <input id="usersPassword" type="password" autocomplete="new-password" placeholder="Leave blank to keep current password">
+      </div>
+      <div class="auth-error" id="usersModalError" role="alert"></div>
+      <div class="actions">
+        <button class="ghost" id="usersModalCancel" type="button">Cancel</button>
+        <button id="usersModalSave" type="button">Save user</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="usersWipeModal">
+    <div class="modal users-modal">
+      <div class="modal-head">
+        <div>
+          <h3>Wipe all users</h3>
+          <p class="muted">Type WIPE to confirm. This disables login enforcement.</p>
+        </div>
+        <button class="ghost tiny-btn" id="usersWipeClose">Close</button>
+      </div>
+      <div class="field">
+        <label for="usersWipeConfirm">Confirmation</label>
+        <input id="usersWipeConfirm" type="text" placeholder="WIPE">
+      </div>
+      <div class="auth-error" id="usersWipeError" role="alert"></div>
+      <div class="actions">
+        <button class="ghost" id="usersWipeCancel" type="button">Cancel</button>
+        <button class="warn" id="usersWipeSubmit" type="button">Wipe users</button>
+      </div>
+    </div>
+  </div>
   </div>
   <div id="toastDeck" class="toast-deck" aria-live="polite" aria-atomic="false"></div>
   <script>
@@ -1219,8 +1353,10 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
+  <script src="/admin/assets/admin-auth.js?v=2026-01-18-01"></script>
+  <script src="/admin/assets/users.js?v=2026-01-18-01"></script>
   <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-18-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-18-02"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-12-01"></script>

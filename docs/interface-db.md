@@ -8,6 +8,9 @@ All tables are migrated on boot (MySQL only).
 - **host_auth_states** — last canonical payload served per host (`host_id` FK, `payload_id`, `seen_digest`, `seen_at`).
 - **host_auth_digests** — up to three recent digests per host (`host_id` FK, `digest`, `last_seen`, `created_at`; unique per host/digest).
 - **host_users** — usernames per host for uninstall cleanup (`host_id` FK, `username`, optional `hostname`, `first_seen`, `last_seen`; unique per host/username).
+- **admin_users** — admin dashboard users (`id`, `name`, `username` unique, `email` unique, `password_hash`, `access_level`, `active`, `last_login_at`, `created_at`, `updated_at`).
+- **admin_sessions** — admin login sessions (`id`, `user_id` FK, `token_hash` sha256, optional `ip`/`user_agent`, `created_at`, `last_seen_at`, `expires_at`).
+- **admin_password_resets** — password recovery tokens (`id`, `user_id` FK, `token_hash` sha256, `expires_at`, `used_at`, `created_at`).
 - **token_usage_ingests** — one row per `/usage` POST for audit (`host_id` FK nullable, `entries` count, aggregated `total`/`input_tokens`/`output_tokens`/`cached_tokens`/`reasoning_tokens`, computed `cost` (DECIMAL 18,6), optional `client_ip`, normalized `payload`, `created_at`).
 - **token_usages** — per-host token usage rows from `/usage` (`host_id` FK nullable, optional `ingest_id` FK into `token_usage_ingests`, `total`, `input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens`, computed `cost` (DECIMAL 18,6), `model`, `line`, `created_at`). `/usage` can submit multiple rows at once; admin aggregations surface these as `total`/`input`/`output`/`cached`/`reasoning` plus `cost`.
 - **slash_commands** — server-side slash command prompts (`id`, `filename` unique, `sha256`, `description`, `argument_hint`, `prompt` body, `source_host_id` FK nullable, `created_at`, `updated_at`, `deleted_at` for retired prompts).

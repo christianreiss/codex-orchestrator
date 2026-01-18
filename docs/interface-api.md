@@ -45,6 +45,17 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 
 - `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions (runner/quota flags included), token totals (including reasoning tokens) plus `tokens_day`, `tokens_week`, `tokens_month`, ChatGPT usage snapshot (cached ≤5m) plus `chatgpt_cached`/`chatgpt_next_eligible_at`, pricing snapshot + `pricing_day_cost`/`pricing_week_cost`/`pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), mTLS metadata (includes `required`/`present` + fingerprint details when provided), seed signals (`has_canonical_auth`, `seed_required`, `seed_reasons`), quota controls (`quota_limit_percent`, `quota_week_partition`), `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, and optional Codex version pin metadata (`client_version_lock`, `client_version_lock_updated_at`).
 - `GET /admin/ws/info` — websocket bootstrap for admin live updates. Returns `enabled`, `url`, `last_event_id`, `heartbeat_seconds`, and `backlog_limit`. When enabled, clients connect to the provided `ws/wss` URL and receive event messages of the form `{ kind: "event", event: { id, type, host_id, payload, created_at } }` (currently `type=log.created` and `type=toast`).
+- `GET /admin/auth/status` — admin auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, and role labels).
+- `POST /admin/auth/login` — login with `{username, password}`; issues an HTTP-only session cookie.
+- `POST /admin/auth/logout` — clears the session cookie.
+- `POST /admin/auth/password/request` — request password recovery with `{identity}` (username or email). Sends a reset email when configured.
+- `POST /admin/auth/password/reset` — reset password with `{token, password}`.
+- `GET /admin/users` — list admin users (id, name, username, email, access_level, active, last_login_at, timestamps).
+- `POST /admin/users` — create user `{name, username, email, access_level, password, active?}`. First user must be `admin`.
+- `POST /admin/users/{id}` — update user fields (name/username/email/access_level/active/password).
+- `DELETE /admin/users/{id}` — delete user (blocked if it would remove the last active admin).
+- `POST /admin/users/wipe` — delete all users (confirmation required; returns to userless mode).
+- Password recovery requires `ADMIN_PASSWORD_RESET_FROM` (and optionally `ADMIN_PASSWORD_RESET_FROM_NAME`/`ADMIN_PASSWORD_RESET_BASE_URL`) to be configured for outbound mail.
 - `POST /admin/toasts` — emit an admin toast via websockets. Body: `{ message: string, title?: string, level?: "info"|"success"|"warn"|"error", timeout_ms?: number }` (aliases `body`/`text`, `tone`). Returns the created admin event.
 - `GET /admin/hosts` — list hosts with canonical digest, digests history, versions, API calls, IPs (`ip4` and `ip6` when a dual-stack host binds both families), roaming flag, security flag (`secure`), VIP flag (`vip`), optional `expires_at` (RFC3339), insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4` (true = bake IPv4-only installer/wrapper and clear IP binding), `curl_insecure` (true = bake wrapper with TLS verification bypass for host sync), per-host overrides (`client_version_override`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`), latest token usage (including reasoning tokens), `auth_outdated` (true when host digest differs from the current canonical auth), and recorded users (username/hostname/first/last seen).
 - `GET /admin/hosts/insecure` — list insecure hosts only (no secure hosts). Returns `count`, `active` (how many have `insecure_enabled_until` in the future), `hosts` with `id`, `fqdn`, `active`, `secure`, and `insecure_enabled_until` (RFC3339 / `DATE_ATOM`, timezone-aware), plus `domains` (`id`, `domain`, `active`, `enabled_until`, `window_minutes`) and `domains_active` for domain auto-allow rules. Intended for quick UI actions (e.g. enable/disable buttons).
@@ -122,4 +133,10 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 - Admin routes are exempt; when no client IP can be resolved the request proceeds without throttling. Tune the env vars above to tighten or disable the windows (zero/negative disables the guard).
 ## Admin access control
 
-Admin routes are protected by mTLS (client certificates). Passkey/WebAuthn endpoints are not implemented.
+- Admin routes are protected by mTLS (client certificates) when `ADMIN_ACCESS_MODE=mtls` (default). Passkey/WebAuthn endpoints are not implemented.
+- Userless bootstrap: when no admin users exist, the admin UI behaves as it does today (no login enforcement). Creating the first admin enables login + role checks.
+- Roles and privileges:
+  - `admin`: full access, including user management and wipe.
+  - `fleet_operator`: can add/remove hosts and change admin settings.
+  - `trusted_user`: can activate insecure hosts (open/close windows).
+  - `user`: read-only access to admin views.

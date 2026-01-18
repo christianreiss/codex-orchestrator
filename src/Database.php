@@ -256,6 +256,59 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS admin_users (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                username VARCHAR(64) NOT NULL UNIQUE,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                access_level VARCHAR(32) NOT NULL,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                last_login_at VARCHAR(100) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                INDEX idx_admin_users_access (access_level),
+                INDEX idx_admin_users_active (active)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS admin_sessions (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NOT NULL,
+                token_hash CHAR(64) NOT NULL UNIQUE,
+                ip VARCHAR(64) NULL,
+                user_agent VARCHAR(255) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                last_seen_at VARCHAR(100) NOT NULL,
+                expires_at VARCHAR(100) NOT NULL,
+                INDEX idx_admin_sessions_user (user_id),
+                INDEX idx_admin_sessions_expires (expires_at),
+                CONSTRAINT fk_admin_sessions_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS admin_password_resets (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NOT NULL,
+                token_hash CHAR(64) NOT NULL UNIQUE,
+                expires_at VARCHAR(100) NOT NULL,
+                used_at VARCHAR(100) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_admin_password_resets_user (user_id),
+                INDEX idx_admin_password_resets_expires (expires_at),
+                CONSTRAINT fk_admin_password_resets_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS insecure_auth_requests (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NOT NULL,

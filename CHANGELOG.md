@@ -1,4 +1,4 @@
-- Admin dashboard: add Users tab placeholder in header nav. (2026-01-18)
+- Admin: add admin login, user management, roles, and password recovery (userless bootstrap when no admins exist). (2026-01-18)
 - Admin: insecure approval modal now uses the current insecure window duration when enabling hosts. (2026-01-18)
 - Admin dashboard: insecure hosts modal live-updates via websocket events and refreshes countdowns while open. (2026-01-18)
 - Installer: stop auto-running `cdx` after curl | bash; users run it manually when ready. (2026-01-18)
