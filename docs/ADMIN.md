@@ -6,6 +6,9 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - Base path: `/admin/`.
 - mTLS is enforced when `ADMIN_ACCESS_MODE=mtls` (default). If you disable it (`ADMIN_ACCESS_MODE=none`), gate the path another way (VPN/firewall).
 - Behind a proxy, make sure it forwards `X-MTLS-*` headers and real client IPs.
+- Admin login is enforced once at least one active admin user exists; userless installs behave like the legacy dashboard until the first admin is created.
+- Sessions are stored in an HTTP-only cookie (`ADMIN_SESSION_COOKIE`, default `codex_admin_session`) and expire after `ADMIN_SESSION_TTL_SECONDS` (default 8h).
+- Password recovery requires outbound email configuration (`ADMIN_PASSWORD_RESET_FROM`, optionally `ADMIN_PASSWORD_RESET_FROM_NAME` + `ADMIN_PASSWORD_RESET_BASE_URL`).
 - Live updates (optional): enable the admin websocket server (`ADMIN_WS_ENABLED=1`) and run `scripts/admin-ws.php` (or the `admin-ws` compose service). `/admin/ws/info` advertises the public `wss://` URL (or set `ADMIN_WS_PUBLIC_URL`). mTLS is enforced by the proxy the same way as `/admin/`.
   - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
 
@@ -13,6 +16,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Overview**: fleet counts, avg refresh age, last log time, GitHub client cache, wrapper version/sha, runner state, quota mode/limit, pricing snapshot (GPT-5.1 by default) and estimated monthly cost, ChatGPT usage snapshot (cached ≤5m), mTLS presence flag, and whether canonical auth is seeded. With admin websockets enabled, these cards live-update from event streams.
 - **Hosts**:
   - Table: FQDN, digest freshness, versions, IP, roaming flag, secure/insecure, VIP, IPv4-only, temporary expiry (`expires_at`), curl-insecure, API calls, monthly tokens, recent digests, and recorded users.
+- **Users**: create/edit/delete admin users, set roles, toggle active state, and wipe all users (returns the system to userless mode).
 - Actions per host: enable/disable insecure window (0–480 min log-ish slider; each `/auth` extends it), toggle secure vs insecure (insecure hosts purge `~/.codex/auth.json` after each run), toggle roaming IPs, toggle IPv4-only (re-bakes curl -4 and clears pinned IP), toggle curl-insecure (bakes `CODEX_SYNC_ALLOW_INSECURE=1`), set per-host reverse DNS mode (global/enabled/disabled), set per-host model/reasoning overrides, pin Codex version per host, mark VIP (quota never hard-fails), clear canonical auth (reset digest/last_refresh), delete host, view canonical auth (`include_body`); re-register (New Host) to mint a fresh installer token.
   - New Host flow: mint/rotate API key + single-use installer token; optional temporary host (2‑hour sliding expiry) and curl-insecure; insecure hosts auto-open a 30-minute provisioning window.
 - **Auth Upload**: seed/replace canonical `auth.json` (system or host-scoped). Runner validation is skipped for this flow.

@@ -23,6 +23,7 @@
   const inputAccess = document.getElementById('usersAccess');
   const inputActive = document.getElementById('usersActive');
   const inputPassword = document.getElementById('usersPassword');
+  const inputPasswordConfirm = document.getElementById('usersPasswordConfirm');
 
   const wipeModal = document.getElementById('usersWipeModal');
   const wipeClose = document.getElementById('usersWipeClose');
@@ -84,6 +85,32 @@
     return date.toISOString().replace('T', ' ').replace('Z', '');
   }
 
+  function parseTimestamp(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+  }
+
+  function formatRelative(value) {
+    const date = parseTimestamp(value);
+    if (!date) return '—';
+    const now = Date.now();
+    const diff = now - date.getTime();
+    const future = diff < 0;
+    const delta = Math.abs(diff);
+    const minutes = Math.round(delta / 60000);
+    const hours = Math.round(delta / 3600000);
+    const days = Math.round(delta / 86400000);
+    const suffix = future ? 'from now' : 'ago';
+    if (delta < 45 * 1000) return future ? 'in a few seconds' : 'just now';
+    if (delta < 90 * 1000) return future ? 'in 1 minute' : '1 minute ago';
+    if (delta < 45 * 60 * 1000) return `${minutes} min ${suffix}`;
+    if (delta < 36 * 60 * 60 * 1000) return `${hours} h ${suffix}`;
+    if (delta < 14 * 24 * 60 * 60 * 1000) return `${days} d ${suffix}`;
+    return formatTimestamp(value);
+  }
+
   function hydrateRoles(status) {
     roles = status?.roles || roles;
     if (!inputAccess) return;
@@ -97,13 +124,21 @@
     tableBody.innerHTML = '';
     if (!Array.isArray(users) || users.length === 0) {
       show(emptyState, true);
+      show(wipeBtn, false);
       return;
     }
     show(emptyState, false);
+    show(wipeBtn, true);
 
     tableBody.innerHTML = users.map((user) => {
       const access = roles[user.access_level] || user.access_level;
       const status = user.active ? 'Active' : 'Disabled';
+      const lastLoginAt = user.last_login_at || '';
+      const lastLoginLabel = formatTimestamp(lastLoginAt);
+      const lastLoginRelative = lastLoginAt ? formatRelative(lastLoginAt) : '—';
+      const lastLoginSub = lastLoginRelative !== '—'
+        ? `<div class="table-subtext">${lastLoginRelative}</div>`
+        : '';
       return `
         <tr data-user-id="${user.id}">
           <td>${escapeHtml(user.name)}</td>
@@ -111,7 +146,7 @@
           <td>${escapeHtml(user.email)}</td>
           <td>${escapeHtml(access)}</td>
           <td>${status}</td>
-          <td>${formatTimestamp(user.last_login_at)}</td>
+          <td><div>${lastLoginLabel}</div>${lastLoginSub}</td>
           <td class="row-actions">
             <button class="ghost tiny-btn" data-action="edit">Edit</button>
             <button class="ghost tiny-btn" data-action="delete">Delete</button>
@@ -139,6 +174,7 @@
     inputAccess.value = user?.access_level || Object.keys(roles)[0] || 'admin';
     inputActive.checked = user?.active ?? true;
     inputPassword.value = '';
+    if (inputPasswordConfirm) inputPasswordConfirm.value = '';
     showError(modalError, '');
     modal?.classList.add('show');
   }
@@ -220,6 +256,16 @@
 
   modalSave?.addEventListener('click', async () => {
     showError(modalError, '');
+    const passwordValue = inputPassword.value;
+    const confirmValue = inputPasswordConfirm?.value || '';
+    if (passwordValue && passwordValue !== confirmValue) {
+      showError(modalError, 'Password confirmation does not match.');
+      return;
+    }
+    if (!passwordValue && confirmValue) {
+      showError(modalError, 'Enter a password before confirming.');
+      return;
+    }
     const payload = {
       name: inputName.value,
       username: inputUsername.value,
@@ -227,8 +273,8 @@
       access_level: inputAccess.value,
       active: inputActive.checked,
     };
-    if (inputPassword.value) {
-      payload.password = inputPassword.value;
+    if (passwordValue) {
+      payload.password = passwordValue;
     }
 
     try {

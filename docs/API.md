@@ -81,6 +81,17 @@ Records the current `username` and optional `hostname` for the calling host, ret
 ## Admin Endpoints (mTLS)
 - `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m) plus `chatgpt_cached`/`chatgpt_next_eligible_at`, quota flags (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`), `cdx_silent`, `reverse_dns_enabled`, `inactivity_window_days`, optional Codex pin metadata (`client_version_lock`, `client_version_lock_updated_at`), and mTLS metadata.
 - `GET /admin/ws/info` — websocket bootstrap for admin live updates (`enabled`, `url`, `last_event_id`, `heartbeat_seconds`, `backlog_limit`).
+- Admin auth + users:
+  - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
+  - `POST /admin/auth/login` — `{username, password}`; sets HTTP-only session cookie.
+  - `POST /admin/auth/logout` — clears session.
+  - `POST /admin/auth/password/request` — `{identity}` (username or email); sends reset email when configured.
+  - `POST /admin/auth/password/reset` — `{token, password}`.
+  - `GET /admin/users` — list admin users.
+  - `POST /admin/users` — create admin user (first user must be admin).
+  - `POST /admin/users/{id}` — update admin user.
+  - `DELETE /admin/users/{id}` — delete admin user (blocked if it removes the last active admin).
+  - `POST /admin/users/wipe` — delete all admin users (returns to userless mode).
 - `POST /admin/toasts` — emit an admin toast via websockets (body: `message`, optional `title`, `level`, `timeout_ms`; aliases `body`/`text`, `tone`).
 - `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IPs (`ip4` and `ip6` when a dual-stack host binds both families), roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4`, `curl_insecure`, per-host overrides (`client_version_override`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`), latest token usage, and recorded users.
 - `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + `insecure_enabled_until` and `secure` flag) for quick actions.

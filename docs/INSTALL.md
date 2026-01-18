@@ -90,6 +90,14 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - `AUTH_ENCRYPTION_KEY` (leave empty to auto-generate on first boot).
    - `DATA_ROOT` if you want a different bind-mount root.
   - Admin surface: `ADMIN_ACCESS_MODE` (default `mtls`).
+  - Admin login:
+    - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
+    - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
+    - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
+    - `ADMIN_PASSWORD_RESET_TTL_SECONDS` (default 3600)
+    - `ADMIN_PASSWORD_RESET_FROM` (required to send reset emails)
+    - `ADMIN_PASSWORD_RESET_FROM_NAME` (optional)
+    - `ADMIN_PASSWORD_RESET_BASE_URL` (optional; overrides the base URL in reset links)
    - Runner knobs: `AUTH_RUNNER_URL` (blank to disable), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
    - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.1 price hints (`GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`).

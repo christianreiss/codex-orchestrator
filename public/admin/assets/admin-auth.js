@@ -7,12 +7,14 @@
   const noticeEl = document.getElementById('adminAuthNotice');
   const forgotBtn = document.getElementById('adminAuthForgot');
   const logoutBtn = document.getElementById('navLogout');
+  const navUser = document.getElementById('navUser');
 
   const resetModal = document.getElementById('adminResetModal');
   const resetClose = document.getElementById('adminResetClose');
   const resetIdentity = document.getElementById('adminResetIdentity');
   const resetToken = document.getElementById('adminResetToken');
   const resetPassword = document.getElementById('adminResetPassword');
+  const resetPasswordConfirm = document.getElementById('adminResetPasswordConfirm');
   const resetError = document.getElementById('adminResetError');
   const resetRequest = document.getElementById('adminResetRequest');
   const resetSubmit = document.getElementById('adminResetSubmit');
@@ -61,7 +63,9 @@
 
   function openResetModal(token = '') {
     if (!resetModal) return;
+    showOverlay(true);
     resetModal.classList.add('show');
+    resetModal.setAttribute('aria-hidden', 'false');
     showError(resetError, '');
     if (token) resetToken.value = token;
   }
@@ -69,10 +73,12 @@
   function closeResetModal() {
     if (!resetModal) return;
     resetModal.classList.remove('show');
+    resetModal.setAttribute('aria-hidden', 'true');
     showError(resetError, '');
     resetIdentity.value = '';
     resetToken.value = '';
     resetPassword.value = '';
+    if (resetPasswordConfirm) resetPasswordConfirm.value = '';
   }
 
   async function fetchStatus() {
@@ -82,8 +88,19 @@
       window.__adminAuthStatus = authStatus;
       const enforced = !!authStatus?.enforced;
       const authenticated = !!authStatus?.authenticated;
+      const user = authStatus?.user || null;
       if (logoutBtn) {
         logoutBtn.style.display = authenticated ? '' : 'none';
+      }
+      if (navUser) {
+        if (authenticated && user) {
+          const name = user?.name || user?.username || '';
+          navUser.textContent = name;
+          navUser.style.display = name ? '' : 'none';
+        } else {
+          navUser.textContent = '';
+          navUser.style.display = 'none';
+        }
       }
       if (enforced && !authenticated) {
         showOverlay(true);
@@ -116,9 +133,6 @@
 
   forgotBtn?.addEventListener('click', () => openResetModal());
   resetClose?.addEventListener('click', () => closeResetModal());
-  resetModal?.addEventListener('click', (ev) => {
-    if (ev.target === resetModal) closeResetModal();
-  });
 
   resetRequest?.addEventListener('click', async () => {
     showError(resetError, '');
@@ -135,13 +149,24 @@
 
   resetSubmit?.addEventListener('click', async () => {
     showError(resetError, '');
+    const passwordValue = resetPassword?.value || '';
+    const confirmValue = resetPasswordConfirm?.value || '';
+    if (!passwordValue) {
+      showError(resetError, 'Enter a new password.');
+      return;
+    }
+    if (passwordValue !== confirmValue) {
+      showError(resetError, 'Password confirmation does not match.');
+      return;
+    }
     try {
       await api('/admin/auth/password/reset', {
         method: 'POST',
-        json: { token: resetToken?.value || '', password: resetPassword?.value || '' },
+        json: { token: resetToken?.value || '', password: passwordValue },
       });
       showError(resetError, 'Password updated. You can log in now.');
       resetPassword.value = '';
+      if (resetPasswordConfirm) resetPasswordConfirm.value = '';
     } catch (err) {
       showError(resetError, err.message);
     }

@@ -8,7 +8,7 @@ Status: Implemented
 - If no users are configured: system behaves exactly as it does today (no login, no role enforcement).
 - "Add user" button opens modal; first user must be Admin.
 - Once active Admin count > 0: enforce login + role checks for admin UI/API.
-- "Wipe all users" (with confirmation modal) resets to userless mode (system as-is now).
+- "Wipe all users" (with confirmation modal) resets to userless mode (system as-is now). Hidden until at least one user exists.
 
 ## Decisions (locked)
 1) Access model: mTLS runs alongside login (both enforced when enabled).
@@ -22,5 +22,5 @@ Status: Implemented
 - Tables: `admin_users`, `admin_sessions`, `admin_password_resets` added to DB migrations.
 - Services: `AdminAuthService` + `AdminUserService`.
 - Admin endpoints: auth/status/login/logout/password reset + users CRUD/wipe.
-- UI: login overlay, password recovery modal, Users tab CRUD + wipe.
+- UI: login overlay, password recovery panel stacked under the login modal (with confirmation), Users tab CRUD + wipe.
 - Docs + changelog updated.
