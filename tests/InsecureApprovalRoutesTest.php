@@ -13,5 +13,6 @@ final class InsecureApprovalRoutesTest extends TestCase
 
         $this->assertStringContainsString('/admin/insecure-approval', $source);
         $this->assertStringContainsString('/admin/insecure-approvals', $source);
+        $this->assertStringContainsString('duration_minutes', $source);
     }
 }

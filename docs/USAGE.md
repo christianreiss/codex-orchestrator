@@ -91,7 +91,7 @@ What the installer does:
 - Downloads the **host-baked** `cdx` wrapper from the service (`/wrapper/download`).
 - Installs `cdx` to `/usr/local/bin/cdx` when writable, otherwise to `$HOME/.local/bin/cdx`.
 - Downloads the matching Codex CLI release from GitHub and installs `codex` similarly.
-- Runs `cdx` once after a successful install to sync/auth immediately.
+- Prints the installed versions and leaves `cdx` ready to run.
 
 If it installed into `~/.local/bin`, make sure that’s on `PATH`:
 
@@ -108,7 +108,7 @@ cdx --version
 cdx
 ```
 
-The installer already ran `cdx` once; rerun it here if you want to validate or to retry after opening an insecure window.
+The installer does not run `cdx` automatically; run it here to sync/auth or to retry after opening an insecure window.
 
 ## Running Codex (host user workflow)
 

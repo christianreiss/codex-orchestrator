@@ -1514,7 +1514,10 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
         ], 422);
     }
 
-    $minutesRaw = $host['insecure_window_minutes'] ?? null;
+    $minutesRaw = $payload['duration_minutes'] ?? null;
+    if ($minutesRaw === null && isset($host['insecure_window_minutes'])) {
+        $minutesRaw = $host['insecure_window_minutes'];
+    }
     $minutes = (int) ($minutesRaw ?? AuthService::DEFAULT_INSECURE_WINDOW_MINUTES);
     if ($minutes < AuthService::MIN_INSECURE_WINDOW_MINUTES) {
         $minutes = AuthService::MIN_INSECURE_WINDOW_MINUTES;
@@ -1583,7 +1586,7 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository, $service) {
+$router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
 
     $requestId = (int) $matches[1];
@@ -1628,7 +1631,10 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($m
         }
     }
 
-    $minutesRaw = $host['insecure_window_minutes'] ?? null;
+    $minutesRaw = $payload['duration_minutes'] ?? null;
+    if ($minutesRaw === null && isset($host['insecure_window_minutes'])) {
+        $minutesRaw = $host['insecure_window_minutes'];
+    }
     $minutes = (int) ($minutesRaw ?? AuthService::DEFAULT_INSECURE_WINDOW_MINUTES);
     if ($minutes < AuthService::MIN_INSECURE_WINDOW_MINUTES) {
         $minutes = AuthService::MIN_INSECURE_WINDOW_MINUTES;

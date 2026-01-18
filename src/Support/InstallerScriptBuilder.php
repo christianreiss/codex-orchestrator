@@ -167,11 +167,7 @@ if ! "$codex_path" -V; then
   exit 1
 fi
 echo "Install complete for __FQDN__"
-echo "Launching cdx..."
-if ! "$install_path"; then
-  echo "cdx failed to run cleanly." >&2
-  exit 1
-fi
+echo "Run 'cdx' to sync/auth when you're ready."
 SCRIPT;
 
         return strtr($template, [

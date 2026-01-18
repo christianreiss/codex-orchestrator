@@ -39,7 +39,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 
 ## Installer
 
-- `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register` (one pending token per host; issuing a new one rotates the API key and deletes prior tokens), expire after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s), and embed the resolved public base URL (from token metadata, `PUBLIC_BASE_URL`, or forwarded Host/proto) plus the API key/FQDN into `cdx`. The installer runs `cdx` once after a successful install to sync/auth immediately. Used/expired/missing tokens return shell-script errors.
+- `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register` (one pending token per host; issuing a new one rotates the API key and deletes prior tokens), expire after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s), and embed the resolved public base URL (from token metadata, `PUBLIC_BASE_URL`, or forwarded Host/proto) plus the API key/FQDN into `cdx`. The installer prints versions and leaves `cdx` ready to run (no auto-launch). Used/expired/missing tokens return shell-script errors.
 
 ## Admin (mTLS on by default)
 
@@ -58,8 +58,8 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 - `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and clears any grace; both retrieve/store are denied until re-enabled.
 - `GET /admin/insecure-approval` — returns `{ enabled: bool }` for the insecure-host approval gate (Settings → General).
 - `POST /admin/insecure-approval` — enable/disable insecure-host approval gate (`enabled` boolean).
-- `POST /admin/insecure-approvals/{id}/allow-domain` — approve a pending insecure-host request and add a domain auto-allow rule for the parent domain (auto-opens matching subdomains while its window is active).
-- `POST /admin/insecure-approvals/{id}/approve` — approve a pending insecure-host request (opens the host window using its configured duration).
+- `POST /admin/insecure-approvals/{id}/allow-domain` — approve a pending insecure-host request and add a domain auto-allow rule for the parent domain (auto-opens matching subdomains while its window is active). Optional body `duration_minutes` overrides the host’s stored insecure window duration for this approval.
+- `POST /admin/insecure-approvals/{id}/approve` — approve a pending insecure-host request (opens the host window using its configured duration). Optional body `duration_minutes` overrides the host’s stored insecure window duration for this approval.
 - `POST /admin/insecure-approvals/{id}/deny` — deny a pending insecure-host request (client remains blocked).
 - `POST /admin/insecure-domain-allows/{id}/revoke` — revoke a domain auto-allow rule (future subdomain connections will require approval again).
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips`.

@@ -41,12 +41,13 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('glibc_version', $script);
     }
 
-    public function testTemplateRunsCdxAfterInstall(): void
+    public function testTemplateDoesNotAutoRunCdxAfterInstall(): void
     {
         $script = $this->buildScript();
 
-        $this->assertStringContainsString('Launching cdx...', $script);
-        $this->assertStringContainsString('if ! "$install_path"; then', $script);
+        $this->assertStringNotContainsString('Launching cdx...', $script);
+        $this->assertStringNotContainsString('if ! "$install_path"; then', $script);
+        $this->assertStringContainsString("Run 'cdx' to sync/auth when you're ready.", $script);
     }
 
     /**

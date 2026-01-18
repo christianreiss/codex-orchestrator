@@ -39,7 +39,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 1) **Provision a host (admin)**
    - `POST /admin/hosts/register` creates or rotates a host, hashes + encrypts the API key, and mints a single-use installer token. Optional `vip=true` marks the host as VIP immediately (quota hard-fail disabled). Insecure hosts get a 30‑minute provisioning window; secure hosts expect long-lived local auth.
-   - `GET /install/{token}` emits a bash script that downloads the baked wrapper, installs Codex from GitHub (latest tag the API knows about), prints versions, and runs `cdx` once to sync/auth. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
+   - `GET /install/{token}` emits a bash script that downloads the baked wrapper, installs Codex from GitHub (latest tag the API knows about), prints versions, and leaves `cdx` ready to run. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
 
 2) **Every `/auth` call**
    - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot, configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`): refresh the GitHub client-version cache and, when configured, run one runner validation.

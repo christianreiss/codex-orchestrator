@@ -22,7 +22,8 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Prune Policy**: slider for `inactivity_window_days` (0–60, “Never” disables pruning of inactive hosts).
 - **cdx Silent Mode**: fleet-wide wrapper quiet mode toggle (syncs to all hosts).
 - **Reverse DNS Enforcement**: require forward A/AAAA and PTR match for `/auth` callers; per-host overrides can disable or force it.
-- **Insecure Host Approval**: when enabled, insecure hosts outside their window will wait for admin approval if a websocket client is connected. A modal pops with hostname/FQDN/time and **Enable**/**Cancel** actions; **Allow domain** adds an auto-allow rule for subdomains (revokable in the Insecure hosts toggler list).
+- **Insecure Host Approval**: when enabled, insecure hosts outside their window will wait for admin approval if a websocket client is connected. A modal pops with hostname/FQDN/time and **Enable**/**Cancel** actions; **Allow domain** adds an auto-allow rule for subdomains (revokable in the Insecure hosts toggler list). Approvals use the current Insecure Host Window duration.
+- **Insecure hosts toggler**: the modal list live-refreshes from websocket events (enable/disable/auto-allow changes) and keeps remaining-time countdowns ticking while open.
 - **Usage**: recent token rows with host + reasoning tokens where present (`limit` param).
 - **Usage Ingests**: per-ingest aggregates with search/sort (host, client IP, totals, cached/reasoning, cost, payload snapshot). `per_page` max 200; sortable keys include totals and cost.
 - **Cost History**: daily input/output/cached/total cost series, up to 180 days, anchored to first recorded usage and driven by the latest pricing snapshot (charts rendered with local uPlot assets under `/admin/assets`).

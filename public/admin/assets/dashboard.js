@@ -312,6 +312,9 @@
     const INSECURE_WINDOW_LOG_CURVE = 4;
     const INSECURE_WINDOW_STORAGE_KEY = 'codex.insecureWindowMinutes';
     let insecureWindowMinutes = INSECURE_WINDOW_DEFAULT;
+    let insecureModalOpen = false;
+    let insecureModalRefreshTimer = null;
+    let insecureModalCountdownTimer = null;
     const PRUNE_WINDOW_MIN = 0;
     const PRUNE_WINDOW_MAX = 60;
     const PRUNE_WINDOW_DEFAULT = 30;
@@ -906,7 +909,10 @@
       insecureApprovalBusy = true;
       setInsecureApprovalButtonsDisabled(true);
       try {
-        await api(`/admin/insecure-approvals/${requestId}/approve`, { method: 'POST' });
+        await api(`/admin/insecure-approvals/${requestId}/approve`, {
+          method: 'POST',
+          json: { duration_minutes: insecureWindowMinutes },
+        });
         toast('Insecure host window enabled', 'ok');
         resolveInsecureApproval(requestId);
       } catch (err) {
@@ -930,7 +936,7 @@
       try {
         await api(`/admin/insecure-approvals/${requestId}/allow-domain`, {
           method: 'POST',
-          json: { domain },
+          json: { domain, duration_minutes: insecureWindowMinutes },
         });
         toast(`Domain auto-allowed: ${domain}`, 'ok');
         resolveInsecureApproval(requestId);
@@ -4804,11 +4810,61 @@
       }
     }
 
+    function shouldRefreshInsecureModalForAction(action) {
+      if (!action) return false;
+      return action.startsWith('admin.host.insecure_')
+        || action.startsWith('admin.insecure.')
+        || action.startsWith('auth.insecure.');
+    }
+
+    function refreshInsecureHostsCountdowns() {
+      if (!insecureModalOpen || !insecureHostsModal) return;
+      const nodes = insecureHostsModal.querySelectorAll('[data-countdown][data-until]');
+      nodes.forEach((node) => {
+        const until = node.getAttribute('data-until') || '';
+        if (!until) return;
+        const kind = node.getAttribute('data-countdown');
+        const prefix = kind === 'domain' ? 'Auto-allow: ' : 'Online: ';
+        const remaining = formatCountdown(until);
+        if (remaining === '—') {
+          scheduleInsecureHostsModalRefresh(500);
+          return;
+        }
+        node.textContent = `${prefix}${remaining}`;
+      });
+    }
+
+    function scheduleInsecureHostsModalRefresh(delayMs = 200) {
+      if (!insecureModalOpen) return;
+      if (insecureModalRefreshTimer) return;
+      insecureModalRefreshTimer = window.setTimeout(async () => {
+        insecureModalRefreshTimer = null;
+        if (!insecureModalOpen) return;
+        try {
+          const resp = await api('/admin/hosts/insecure');
+          const insecureHosts = resp?.data?.hosts || [];
+          const insecureDomains = resp?.data?.domains || [];
+          openInsecureHostsModal(insecureHosts, insecureDomains);
+        } catch (err) {
+          console.warn('failed to refresh insecure hosts modal', err);
+        }
+      }, delayMs);
+    }
+
     function closeInsecureHostsModal() {
       if (!insecureHostsModal) return;
       insecureHostsModal.classList.remove('show');
       if (insecureHostsList) insecureHostsList.innerHTML = '';
       if (insecureDomainsList) insecureDomainsList.innerHTML = '';
+      insecureModalOpen = false;
+      if (insecureModalRefreshTimer) {
+        window.clearTimeout(insecureModalRefreshTimer);
+        insecureModalRefreshTimer = null;
+      }
+      if (insecureModalCountdownTimer) {
+        window.clearInterval(insecureModalCountdownTimer);
+        insecureModalCountdownTimer = null;
+      }
     }
 
     function openInsecureHostsModal(insecureHosts, insecureDomains) {
@@ -4840,7 +4896,10 @@
         const label = isActive ? 'Disable' : 'Enable';
         const btnClass = isActive ? 'ghost' : '';
         const onlineFor = isActive ? formatCountdown(host?.insecure_enabled_until) : '';
-        const onlineLine = isActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Online: ${escapeHtml(onlineFor)}</div>` : '';
+        const onlineUntil = isActive ? (host?.insecure_enabled_until || '') : '';
+        const onlineLine = isActive && onlineFor !== '—'
+          ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
+          : '';
         return `
           <div class="quick-hosts-row" data-host-id="${host.id}">
             <div class="quick-hosts-info">
@@ -4873,7 +4932,10 @@
             const label = 'Revoke';
             const btnClass = 'ghost';
             const onlineFor = isActive ? formatCountdown(domain?.enabled_until) : '';
-            const onlineLine = isActive && onlineFor !== '—' ? `<div class="quick-hosts-sub">Auto-allow: ${escapeHtml(onlineFor)}</div>` : '';
+            const onlineUntil = isActive ? (domain?.enabled_until || '') : '';
+            const onlineLine = isActive && onlineFor !== '—'
+              ? `<div class="quick-hosts-sub" data-countdown="domain" data-until="${escapeHtml(onlineUntil)}">Auto-allow: ${escapeHtml(onlineFor)}</div>`
+              : '';
             return `
               <div class="quick-hosts-row" data-domain-id="${domain.id}">
                 <div class="quick-hosts-info">
@@ -4890,6 +4952,12 @@
       }
 
       insecureHostsModal.classList.add('show');
+      insecureModalOpen = true;
+      refreshInsecureHostsCountdowns();
+      if (insecureModalCountdownTimer) {
+        window.clearInterval(insecureModalCountdownTimer);
+      }
+      insecureModalCountdownTimer = window.setInterval(refreshInsecureHostsCountdowns, 15000);
     }
 
     async function loadAndOpenInsecureHostsModal() {
@@ -5836,6 +5904,9 @@
       }
       if (detail.type !== 'log.created') return;
       const action = String(detail.payload?.action || '');
+      if (insecureModalOpen && shouldRefreshInsecureModalForAction(action)) {
+        scheduleInsecureHostsModalRefresh(250);
+      }
       if (action === 'auth.insecure.pending') {
         const details = detail.payload?.details || {};
         const requestId = Number(details.request_id || 0);

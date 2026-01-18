@@ -1,3 +1,6 @@
+- Admin: insecure approval modal now uses the current insecure window duration when enabling hosts. (2026-01-18)
+- Admin dashboard: insecure hosts modal live-updates via websocket events and refreshes countdowns while open. (2026-01-18)
+- Installer: stop auto-running `cdx` after curl | bash; users run it manually when ready. (2026-01-18)
 - Admin dashboard: fallback to SVG rendering when uPlot fails so history charts still load. (2026-01-15)
 - cdx wrapper: surface reverse DNS denial reason in auth sync output; wrapper bumped to 2026.01.15-01. (2026-01-15)
 - Auth: add reverse DNS enforcement for `/auth` (global setting with per-host overrides); requests now require forward A/AAAA + PTR match when enabled. (2026-01-15)
