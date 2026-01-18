@@ -1,5 +1,5 @@
 body[data-view="mobile"] {
-  font-family: 'Space Grotesk', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans, 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif);
   background:
     radial-gradient(circle at 10% 10%, rgba(58,141,243,0.2), transparent 40%),
     radial-gradient(circle at 85% 5%, rgba(20,38,63,0.6), transparent 46%),

@@ -3327,3 +3327,87 @@ body[data-view-mode="hosts"] .content {
 body[data-view-mode="hosts"] main.main {
   padding-bottom: 8px;
 }
+
+/* === 2026 Visual Pass: calmer surfaces, fewer nested boxes === */
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  --focus-ring: rgba(var(--accent-rgb), 0.75);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  accent-color: var(--accent);
+  background:
+    radial-gradient(900px 600px at 12% -10%, rgba(var(--accent-rgb), 0.14), transparent 58%),
+    radial-gradient(700px 520px at 92% 0%, rgba(13,18,28,0.06), transparent 62%),
+    linear-gradient(160deg, var(--bg), var(--bg-2));
+  background-size: auto;
+  background-attachment: fixed;
+}
+
+.brand-title,
+.usage-plan,
+.stat-value,
+h1, h2, h3 {
+  font-family: var(--font-display);
+}
+
+:where(a, button, input, select, textarea, summary, [role="button"]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.panel-set[data-panel="dashboard"] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 16px;
+}
+
+.panel-set[data-panel="dashboard"] .usage-card {
+  border-radius: 20px;
+  background: var(--card);
+  border: 1px solid rgba(13,18,28,0.10);
+  box-shadow: var(--shadow-soft);
+}
+
+.panel-set[data-panel="dashboard"] .usage-card::before {
+  width: 3px;
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 1), rgba(var(--accent-rgb), 0.35));
+}
+
+.panel-set[data-panel="dashboard"] .usage-bar {
+  background: rgba(13,18,28,0.02);
+  border: 1px solid rgba(13,18,28,0.08);
+  box-shadow: none;
+}
+
+.panel-set[data-panel="dashboard"] .usage-bar .meter {
+  height: 8px;
+  border-radius: 999px;
+}
+
+#stats {
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+#stats .card {
+  background: var(--card);
+  border: 1px solid rgba(13,18,28,0.10);
+  box-shadow: var(--shadow-soft);
+  border-radius: 18px;
+}
+
+#stats .cost-card .stat-value {
+  text-align: left;
+}
+
+body[data-view-mode="dashboard"] .content {
+  padding-top: 18px;
+}

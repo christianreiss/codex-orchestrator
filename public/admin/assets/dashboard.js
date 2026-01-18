@@ -4529,20 +4529,24 @@
 
       const cards = [
         `
-          <div class="card summary-card">
-            <div class="summary-metrics">
-              <div class="summary-item">
-                <div class="stat-label">Hosts</div>
-                <div class="stat-value">${data.totals.hosts}</div>
-                <small>Total registered</small>
-              </div>
-              <div class="summary-item">
-                <div class="stat-label">Version</div>
-                <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>CLI ${codexVersionDisplay}</div>
-                <small>Wrapper ${data.versions.wrapper_version ?? 'n/a'} · Checked ${checkedAt}</small>
-              </div>
+          <div class="card stat-card">
+            <div class="stat-head">
+              <span class="stat-label">Hosts</span>
             </div>
-            ${validationLine ? `<div class="summary-meta muted">${validationLine}</div>` : ''}
+            <div class="stat-value">${data.totals.hosts}</div>
+            <small>Total registered</small>
+          </div>
+        `,
+        `
+          <div class="card stat-card version-card">
+            <div class="stat-head">
+              <span class="stat-label">Version</span>
+            </div>
+            <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>
+              CLI ${codexVersionDisplay}
+            </div>
+            <small class="muted">Wrapper ${data.versions.wrapper_version ?? 'n/a'} · Checked ${checkedAt}</small>
+            ${validationLine ? `<small class="muted">${validationLine}</small>` : ''}
           </div>
         `,
       ];
