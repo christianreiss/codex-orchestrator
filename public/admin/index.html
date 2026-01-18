@@ -7,11 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-18-18">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-18-19">
   <link rel="stylesheet" href="/admin/assets/uPlot.min.css?v=2026-01-15-01">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-01-18-12">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-01-18-13">
 </head>
-<body data-view="desktop" data-view-mode="dashboard">
+<body data-view="desktop" data-view-mode="dashboard" data-theme="auto">
   <div class="auth-overlay" id="adminAuthOverlay" aria-hidden="true">
     <div class="auth-stack">
       <div class="auth-card" role="dialog" aria-labelledby="adminAuthTitle" aria-modal="true">
@@ -83,6 +83,9 @@
     <div class="nav-actions">
       <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
       <button class="nav-btn primary" id="navNewHost">New host</button>
+      <button class="nav-btn ghost theme-toggle" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
+        Theme: <span class="theme-toggle-label">Auto</span>
+      </button>
     </div>
     <div class="nav-status">
       <span class="nav-user" id="navUser" style="display:none;">
@@ -1376,7 +1379,7 @@
   <script src="/admin/assets/admin-auth.js?v=2026-01-18-05"></script>
   <script src="/admin/assets/users.js?v=2026-01-18-03"></script>
   <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-18-09"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-18-10"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-12-01"></script>

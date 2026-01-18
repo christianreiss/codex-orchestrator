@@ -14,6 +14,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 
 ## Page-by-page
 - **Overview**: fleet counts, avg refresh age, last log time, GitHub client cache, wrapper version/sha, runner state, quota mode/limit, pricing snapshot (GPT-5.1 by default) and estimated monthly cost, ChatGPT usage snapshot (cached ≤5m), mTLS presence flag, and whether canonical auth is seeded. With admin websockets enabled, these cards live-update from event streams.
+- **Theme**: header toggle cycles Auto/Light/Dark and stores the preference in `localStorage` (`adminTheme`). Auto follows `prefers-color-scheme`.
 - **Hosts**:
   - Table: FQDN, digest freshness, versions, IP, roaming flag, secure/insecure, VIP, IPv4-only, temporary expiry (`expires_at`), curl-insecure, API calls, monthly tokens, recent digests, and recorded users.
 - **Users**: create/edit/delete admin users, set roles, toggle active state, and wipe all users (returns the system to userless mode).

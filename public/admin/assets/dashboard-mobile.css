@@ -200,6 +200,12 @@ body[data-view="mobile"] .usage-bar .meter {
   height: 10px;
 }
 
+body[data-view="mobile"] .usage-bar .meter .marker::after {
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 2px var(--meter-marker-glow, rgba(13,18,28,0.18));
+}
+
 body[data-view="mobile"] .usage-bar small {
   font-size: 12px;
 }

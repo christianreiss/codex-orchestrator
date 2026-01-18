@@ -9,6 +9,8 @@
     const mtlsStatus = document.getElementById('mtlsStatus');
     const mtlsSettingStatus = document.getElementById('mtlsSettingStatus');
     const toastDeck = document.getElementById('toastDeck');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeToggleLabel = themeToggle ? themeToggle.querySelector('.theme-toggle-label') : null;
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
@@ -199,6 +201,60 @@
     const hostTabLinks = Array.from(document.querySelectorAll('.host-tab'));
     let skillSlugAutofill = true;
     let skillTags = [];
+
+    const THEME_OPTIONS = ['auto', 'light', 'dark'];
+    const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+
+    function normalizeTheme(value) {
+      return THEME_OPTIONS.includes(value) ? value : 'auto';
+    }
+
+    function readStoredTheme() {
+      try {
+        return localStorage.getItem('adminTheme');
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function writeStoredTheme(value) {
+      try {
+        localStorage.setItem('adminTheme', value);
+      } catch (err) {
+        // ignore storage failures (private mode, blocked storage)
+      }
+    }
+
+    function applyTheme(theme) {
+      const normalized = normalizeTheme(theme);
+      if (document.body) {
+        document.body.dataset.theme = normalized;
+      }
+      if (themeToggleLabel) {
+        themeToggleLabel.textContent = THEME_LABELS[normalized] || 'Auto';
+      }
+      if (themeToggle) {
+        const label = `Theme: ${THEME_LABELS[normalized] || 'Auto'}`;
+        themeToggle.setAttribute('aria-label', label);
+        themeToggle.setAttribute('title', label);
+        themeToggle.dataset.theme = normalized;
+      }
+    }
+
+    function initThemeToggle() {
+      const initial = normalizeTheme(readStoredTheme());
+      applyTheme(initial);
+      if (!themeToggle) return;
+      themeToggle.addEventListener('click', () => {
+        const current = normalizeTheme(readStoredTheme());
+        const nextIndex = (THEME_OPTIONS.indexOf(current) + 1) % THEME_OPTIONS.length;
+        const nextTheme = THEME_OPTIONS[nextIndex];
+        writeStoredTheme(nextTheme);
+        applyTheme(nextTheme);
+      });
+    }
+
+    initThemeToggle();
 
     const urlParams = new URLSearchParams(window.location.search);
     const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
@@ -2917,8 +2973,11 @@
       const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
       const resetAt = resolveResetTarget(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
       const resetLabel = formatResetLabel(data?.reset_after_seconds ?? null, resetAt ?? data?.reset_at ?? null);
-      const timePercent = Number.isFinite(data?.limit_seconds) && Number.isFinite(data?.reset_after_seconds)
-        ? Math.min(100, Math.max(0, Math.round(((data.limit_seconds - data.reset_after_seconds) / data.limit_seconds) * 100)))
+      const timePercentRaw = Number.isFinite(data?.limit_seconds) && Number.isFinite(data?.reset_after_seconds)
+        ? Math.round(((data.limit_seconds - data.reset_after_seconds) / data.limit_seconds) * 100)
+        : null;
+      const timePercent = Number.isFinite(timePercentRaw)
+        ? Math.min(100, Math.max(0, timePercentRaw))
         : null;
       const tone = (() => {
         if (used === null || timePercent === null) return 'neutral';
@@ -2930,10 +2989,14 @@
       const chartBtn = windowKey
         ? `<button class="ghost tiny-btn usage-history-btn" data-window="${windowKey}" title="Show last 60 days">📊</button>`
         : '';
-      const meter = `<div class="meter ${tone}"><span style="width:${used !== null ? used : 0}%"></span></div>`;
-      const timeMeter = timePercent !== null
-        ? `<div class="meter time"><span style="width:${timePercent}%"></span></div>`
-        : '';
+      const usedLabel = used !== null ? `${used}% used` : 'n/a';
+      const meterLabel = `${label}: ${usedLabel}, ${resetLabel}`;
+      const meter = `
+        <div class="meter ${tone}" role="img" aria-label="${meterLabel}">
+          <div class="fill" style="width:${used !== null ? used : 0}%"></div>
+          ${timePercent !== null ? `<div class="marker" style="left:${timePercent}%"></div>` : ''}
+        </div>
+      `;
       return `
         <div class="usage-bar"
           data-reset-at="${resetAt ?? ''}"
@@ -2948,7 +3011,6 @@
             <small>${limitLabel}</small>
           </div>
           ${meter}
-          ${timeMeter}
           <small class="usage-reset">${resetLabel}</small>
         </div>
       `;
@@ -4617,6 +4679,7 @@
       const planCost = selectedPlan ? selectedPlan.cost : 0;
       const monthPercentOfPlan = planCost > 0 ? (monthCost / planCost) * 100 : null;
       const isOverpaying = planCost > 0 && monthCost < planCost;
+      const overpayAmount = isOverpaying ? (planCost - monthCost) : 0;
       const costLevelClass = (() => {
         if (planCost <= 0) return '';
         if (isOverpaying) return '';
@@ -4634,6 +4697,7 @@
               <span class="cost-chip">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)}</span>
               <span class="cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
             </div>
+            ${isOverpaying ? `<small class="muted">Overpaying by ${formatCurrency(overpayAmount, planCurrency)}</small>` : ''}
           ` : ''}
           <div class="cost-foot">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>

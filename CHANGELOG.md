@@ -1,3 +1,4 @@
+- Admin dashboard: 2026 polish pass (bullet meters + theme toggle w/ auto light/dark tokens + softer usage window sections + restored overpay note); cache-bumped dashboard.css/dashboard-mobile.css/dashboard.js. (2026-01-18)
 - Admin dashboard: 2026 visual pass (calmer background, no outer mega-card, split Hosts/Version, consistent focus ring + typography); cache-bumped dashboard.css/dashboard-mobile.css/dashboard.js. (2026-01-18)
 - Admin UI: switched admin pages to a ChatGPT-style dark theme. (2026-01-18)
 - Admin dashboard: restyled the Estimated Total cost card for a cleaner plan/utilization layout. (2026-01-18)

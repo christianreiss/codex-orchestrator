@@ -129,6 +129,16 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringNotContainsString('Wrong way around', $js);
     }
 
+    public function testUsageWindowBulletMeterMarkupExists(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('class="fill"', $js);
+        $this->assertStringContainsString('class="marker"', $js);
+        $this->assertStringContainsString('aria-label="${meterLabel}"', $js);
+    }
+
     public function testAdminSeedAuthModalIncludesSeedCommandControls(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
