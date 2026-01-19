@@ -48,8 +48,8 @@ body[data-view="mobile"] .topbar {
   gap: 10px;
   padding: 16px 12px;
   margin-bottom: 12px;
-  border: 1px solid rgba(15,23,42,0.08);
-  background: #ffffff;
+  border: 1px solid var(--border);
+  background: var(--panel);
   box-shadow: 0 12px 24px rgba(15,23,42,0.08);
   border-radius: 18px;
 }
@@ -236,7 +236,7 @@ body[data-view="mobile"] tbody tr {
   gap: 8px;
   padding: 14px;
   border-radius: 16px;
-  background: #ffffff;
+  background: var(--card);
   box-shadow: var(--shadow-soft);
   border: 1px solid var(--border);
 }

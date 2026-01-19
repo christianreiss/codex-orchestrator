@@ -1,6 +1,7 @@
 # 2026-01-19
 - AGENTS.md: added versioned storage with pinned vs latest serving, plus delete controls in the admin editor and new admin endpoints.
 - Admin new host modal: "Run on the target host" command box now follows theme toggle (light/dark/auto); cache-bumped dashboard.css.
+- Admin UI: normalized settings, usage charts, and mobile cards to theme tokens so light/dark/auto stays consistent; cache-bumped dashboard.css/dashboard-mobile.css.
 
 # 2026-01-18
 - Admin dashboard: toast notifications now honor light/dark/auto theme colors; cache-bumped dashboard.css.
