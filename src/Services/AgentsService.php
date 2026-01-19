@@ -24,7 +24,7 @@ class AgentsService
     public function retrieve(?string $sha256, ?array $host = null): array
     {
         $this->assertSha($sha256, true);
-        $row = $this->agents->latest();
+        $row = $this->resolveServedDocument($host);
         $hostId = $this->hostId($host);
 
         if ($row === null) {
@@ -40,6 +40,7 @@ class AgentsService
 
         $result = [
             'status' => $status,
+            'version_id' => isset($row['id']) ? (int) $row['id'] : null,
             'sha256' => $canonicalSha,
             'updated_at' => $row['updated_at'] ?? null,
             'size_bytes' => strlen((string) ($row['body'] ?? '')),
@@ -56,19 +57,52 @@ class AgentsService
 
     public function adminFetch(): array
     {
-        $row = $this->agents->latest();
-        if ($row === null) {
+        $state = $this->agents->state();
+        $latest = $this->agents->latest();
+        $served = $this->resolveServedDocument();
+        $versions = $this->agents->listVersions(50);
+
+        $latestId = $latest['id'] ?? null;
+        $activeId = $state['active_document_id'] ?? null;
+        $servedId = $served['id'] ?? null;
+
+        $versionPayloads = [];
+        foreach ($versions as $version) {
+            $id = isset($version['id']) ? (int) $version['id'] : null;
+            $versionPayloads[] = [
+                'id' => $id,
+                'sha256' => $version['sha256'] ?? hash('sha256', (string) ($version['body'] ?? '')),
+                'updated_at' => $version['updated_at'] ?? null,
+                'created_at' => $version['created_at'] ?? null,
+                'size_bytes' => strlen((string) ($version['body'] ?? '')),
+                'is_latest' => $latestId !== null && $id === (int) $latestId,
+                'is_active' => $activeId !== null && $id === (int) $activeId,
+                'is_served' => $servedId !== null && $id === (int) $servedId,
+            ];
+        }
+
+        if ($served === null) {
             return [
                 'status' => 'missing',
+                'mode' => $state['mode'] ?? AgentsRepository::MODE_LATEST,
+                'active_id' => $activeId !== null ? (int) $activeId : null,
+                'served_id' => $servedId !== null ? (int) $servedId : null,
+                'latest_id' => $latestId !== null ? (int) $latestId : null,
+                'versions' => $versionPayloads,
             ];
         }
 
         return [
             'status' => 'ok',
-            'sha256' => $row['sha256'] ?? hash('sha256', (string) ($row['body'] ?? '')),
-            'updated_at' => $row['updated_at'] ?? null,
-            'size_bytes' => strlen((string) ($row['body'] ?? '')),
-            'content' => (string) ($row['body'] ?? ''),
+            'mode' => $state['mode'] ?? AgentsRepository::MODE_LATEST,
+            'active_id' => $activeId !== null ? (int) $activeId : null,
+            'served_id' => $servedId !== null ? (int) $servedId : null,
+            'latest_id' => $latestId !== null ? (int) $latestId : null,
+            'sha256' => $served['sha256'] ?? hash('sha256', (string) ($served['body'] ?? '')),
+            'updated_at' => $served['updated_at'] ?? null,
+            'size_bytes' => strlen((string) ($served['body'] ?? '')),
+            'content' => (string) ($served['body'] ?? ''),
+            'versions' => $versionPayloads,
         ];
     }
 
@@ -91,16 +125,66 @@ class AgentsService
         $existingSha = $existing['sha256'] ?? null;
         $status = $existing === null ? 'created' : (hash_equals((string) $existingSha, $computedSha) ? 'unchanged' : 'updated');
 
-        $saved = $status === 'unchanged' ? $existing : $this->agents->upsert($body, $this->hostId($host), $computedSha);
+        $saved = $status === 'unchanged' ? $existing : $this->agents->createVersion($body, $this->hostId($host), $computedSha);
 
         $this->logs->log($this->hostId($host), 'agents.store', ['status' => $status]);
 
         return [
             'status' => $status,
+            'version_id' => $saved['id'] ?? ($existing['id'] ?? null),
             'sha256' => $saved['sha256'] ?? $computedSha,
             'updated_at' => $saved['updated_at'] ?? gmdate(DATE_ATOM),
             'size_bytes' => strlen((string) ($saved['body'] ?? $body)),
         ];
+    }
+
+    public function setServeMode(string $mode, ?int $versionId = null): array
+    {
+        $normalized = strtolower(trim($mode));
+        if (!in_array($normalized, [AgentsRepository::MODE_LATEST, AgentsRepository::MODE_LOCKED], true)) {
+            throw new ValidationException(['mode' => ['mode must be latest or locked']]);
+        }
+
+        $this->agents->state();
+
+        if ($normalized === AgentsRepository::MODE_LATEST) {
+            $this->agents->updateState(AgentsRepository::MODE_LATEST, null);
+            return $this->adminFetch();
+        }
+
+        if ($versionId === null || $versionId <= 0) {
+            throw new ValidationException(['version_id' => ['version_id is required to lock']]);
+        }
+
+        $target = $this->agents->findById($versionId);
+        if ($target === null) {
+            throw new ValidationException(['version_id' => ['version_id not found']]);
+        }
+
+        $this->agents->updateState(AgentsRepository::MODE_LOCKED, $versionId);
+
+        return $this->adminFetch();
+    }
+
+    public function deleteVersion(int $versionId): array
+    {
+        if ($versionId <= 0) {
+            throw new ValidationException(['version_id' => ['version_id is required']]);
+        }
+
+        $served = $this->resolveServedDocument();
+        if ($served !== null && isset($served['id']) && (int) $served['id'] === $versionId) {
+            throw new ValidationException(['version_id' => ['cannot delete the served version']]);
+        }
+
+        $deleted = $this->agents->deleteVersion($versionId);
+        if (!$deleted) {
+            throw new ValidationException(['version_id' => ['version_id not found']]);
+        }
+
+        $this->logs->log(null, 'agents.delete', ['status' => 'deleted', 'version_id' => $versionId]);
+
+        return $this->adminFetch();
     }
 
     private function hostId(?array $host): ?int
@@ -130,5 +214,27 @@ class AgentsService
         if ($errors) {
             throw new ValidationException($errors);
         }
+    }
+
+    private function resolveServedDocument(?array $host = null): ?array
+    {
+        $state = $this->agents->state();
+        $mode = $state['mode'] ?? AgentsRepository::MODE_LATEST;
+        $activeId = $state['active_document_id'] ?? null;
+
+        if ($mode === AgentsRepository::MODE_LOCKED && $activeId !== null) {
+            $active = $this->agents->findById((int) $activeId);
+            if ($active !== null) {
+                return $active;
+            }
+
+            $this->agents->updateState(AgentsRepository::MODE_LATEST, null);
+            $this->logs->log($this->hostId($host), 'agents.active_missing', [
+                'status' => 'fallback_latest',
+                'active_id' => $activeId,
+            ]);
+        }
+
+        return $this->agents->latest();
     }
 }

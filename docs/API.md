@@ -125,7 +125,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
-- Agents: `GET /admin/agents`, `POST /admin/agents/store`.
+- Agents: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
 - MCP memories: `GET /admin/mcp/memories` (search/browse), `DELETE /admin/mcp/memories/{id}` (by numeric record id).
 - Config builder: `GET /admin/config` (canonical `config.toml` + `settings`), `POST /admin/config/render` (render TOML from `settings` without persisting), `POST /admin/config/store` (persist canonical config from `settings`; returns status + sha + content).
 

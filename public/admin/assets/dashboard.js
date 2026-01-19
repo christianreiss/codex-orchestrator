@@ -117,11 +117,14 @@
     const memoriesLimitInput = document.getElementById('memoriesLimit');
     const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
     const agentsMeta = document.getElementById('agentsMeta');
+    const agentsServeLabel = document.getElementById('agentsServeLabel');
+    const agentsServeLatest = document.getElementById('agentsServeLatest');
     const agentsPreview = document.getElementById('agentsPreview');
     const agentsEditorInline = document.getElementById('agentsEditorInline');
     const agentsStatus = document.getElementById('agentsStatus');
     const agentsEditToggle = document.getElementById('agentsEditToggle');
     const agentsSaveInline = document.getElementById('agentsSaveInline');
+    const agentsVersionsBody = document.querySelector('#agentsVersions tbody');
     const apiToggle = document.getElementById('apiToggle');
     const apiToggleLabel = document.getElementById('apiToggleLabel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
@@ -1393,6 +1396,10 @@
       const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
       const size = Number(doc?.size_bytes);
       const sizeLabel = Number.isFinite(size) ? `${formatNumber(size)} bytes` : '—';
+      const mode = typeof doc?.mode === 'string' ? doc.mode : 'latest';
+      const servedId = Number.isFinite(Number(doc?.served_id)) ? Number(doc.served_id) : null;
+      const latestId = Number.isFinite(Number(doc?.latest_id)) ? Number(doc.latest_id) : null;
+      const activeId = Number.isFinite(Number(doc?.active_id)) ? Number(doc.active_id) : null;
       if (agentsStatus) {
         agentsStatus.textContent = status === 'ok'
           ? ''
@@ -1403,6 +1410,20 @@
         parts.push(`updated ${updatedAt}`);
         if (sizeLabel !== '—') parts.push(sizeLabel);
         agentsMeta.textContent = parts.join(' · ');
+      }
+      if (agentsServeLabel) {
+        if (status === 'missing') {
+          agentsServeLabel.textContent = 'Serving: none';
+        } else if (mode === 'latest') {
+          const suffix = latestId ? `v${latestId}` : 'latest';
+          agentsServeLabel.textContent = `Serving: latest (${suffix})`;
+        } else {
+          const suffix = activeId ? `v${activeId}` : 'pinned';
+          agentsServeLabel.textContent = `Serving: pinned (${suffix})`;
+        }
+      }
+      if (agentsServeLatest) {
+        agentsServeLatest.disabled = status === 'missing' || mode === 'latest';
       }
 
       if (agentsPreview) {
@@ -1415,6 +1436,42 @@
         const editing = !agentsEditorInline.hidden;
         if (!editing && typeof doc?.content === 'string') {
           agentsEditorInline.value = doc.content;
+        }
+      }
+
+      if (agentsVersionsBody) {
+        const versions = Array.isArray(doc?.versions) ? doc.versions : [];
+        if (!versions.length) {
+          agentsVersionsBody.innerHTML = '<tr><td class="muted" colspan="5">No versions yet.</td></tr>';
+        } else {
+          agentsVersionsBody.innerHTML = versions.map((version) => {
+            const id = Number(version?.id);
+            const sha = typeof version?.sha256 === 'string' ? version.sha256 : '';
+            const updated = version?.updated_at ? formatRelative(version.updated_at) : '—';
+            const bytes = Number(version?.size_bytes);
+            const sizeText = Number.isFinite(bytes) ? `${formatNumber(bytes)} bytes` : '—';
+            const isServed = !!version?.is_served;
+            const isLatest = !!version?.is_latest;
+            const isActive = !!version?.is_active;
+            const statusChips = [];
+            if (isServed) statusChips.push('<span class="pill ok">Serving</span>');
+            if (!isServed && isActive) statusChips.push('<span class="pill warn">Pinned</span>');
+            if (isLatest) statusChips.push('<span class="pill">Latest</span>');
+            const serveLabel = mode === 'latest' ? 'Pin' : 'Serve';
+            return `
+              <tr data-version-id="${Number.isFinite(id) ? id : ''}">
+                <td>#${Number.isFinite(id) ? id : '—'}</td>
+                <td>${escapeHtml(updated)}</td>
+                <td>${escapeHtml(sizeText)}</td>
+                <td class="agents-sha">${escapeHtml(sha ? sha.slice(0, 12) : '—')}</td>
+                <td class="agents-version-actions">
+                  ${statusChips.join(' ')}
+                  ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-serve" data-version-id="${id}">${serveLabel}</button>`}
+                  ${isServed ? '<button class="ghost tiny-btn" disabled>Delete</button>' : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}">Delete</button>`}
+                </td>
+              </tr>
+            `;
+          }).join('');
         }
       }
     }
@@ -5273,6 +5330,66 @@
       }
     }
 
+    async function serveAgentsLatest() {
+      if (agentsServeLatest) {
+        agentsServeLatest.disabled = true;
+      }
+      if (agentsStatus) agentsStatus.textContent = 'Switching to latest…';
+      try {
+        await api('/admin/agents/serve', {
+          method: 'POST',
+          json: { mode: 'latest' },
+        });
+        await loadAll();
+        if (agentsStatus) agentsStatus.textContent = 'Serving latest';
+        setTimeout(() => {
+          if (agentsStatus && agentsStatus.textContent === 'Serving latest') agentsStatus.textContent = '';
+        }, 1500);
+      } catch (err) {
+        if (agentsStatus) agentsStatus.textContent = `Serve latest failed: ${err.message}`;
+      } finally {
+        if (agentsServeLatest) agentsServeLatest.disabled = false;
+      }
+    }
+
+    async function serveAgentsVersion(versionId) {
+      const id = Number(versionId);
+      if (!Number.isFinite(id)) return;
+      if (agentsStatus) agentsStatus.textContent = `Serving v${id}…`;
+      try {
+        await api('/admin/agents/serve', {
+          method: 'POST',
+          json: { mode: 'locked', version_id: id },
+        });
+        await loadAll();
+        if (agentsStatus) agentsStatus.textContent = `Serving v${id}`;
+        setTimeout(() => {
+          if (agentsStatus && agentsStatus.textContent === `Serving v${id}`) agentsStatus.textContent = '';
+        }, 1500);
+      } catch (err) {
+        if (agentsStatus) agentsStatus.textContent = `Serve failed: ${err.message}`;
+      }
+    }
+
+    async function deleteAgentsVersion(versionId) {
+      const id = Number(versionId);
+      if (!Number.isFinite(id)) return;
+      if (!confirm(`Delete AGENTS.md version #${id}? This cannot be undone.`)) {
+        return;
+      }
+      if (agentsStatus) agentsStatus.textContent = `Deleting v${id}…`;
+      try {
+        await api(`/admin/agents/versions/${id}`, { method: 'DELETE' });
+        await loadAll();
+        if (agentsStatus) agentsStatus.textContent = `Deleted v${id}`;
+        setTimeout(() => {
+          if (agentsStatus && agentsStatus.textContent === `Deleted v${id}`) agentsStatus.textContent = '';
+        }, 1500);
+      } catch (err) {
+        if (agentsStatus) agentsStatus.textContent = `Delete failed: ${err.message}`;
+      }
+    }
+
     async function openPromptModal(filename) {
       if (!promptFilename || !promptDescription || !promptBody) return;
       const target = typeof filename === 'string' ? filename.trim() : '';
@@ -5774,6 +5891,26 @@
         event.preventDefault();
         const editing = !!agentsEditorInline && !agentsEditorInline.hidden;
         setAgentsInlineEditing(!editing);
+      });
+    }
+    if (agentsServeLatest) {
+      agentsServeLatest.addEventListener('click', (event) => {
+        event.preventDefault();
+        serveAgentsLatest();
+      });
+    }
+    if (agentsVersionsBody) {
+      agentsVersionsBody.addEventListener('click', (event) => {
+        const btn = event.target?.closest?.('button[data-action]');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        const versionId = btn.getAttribute('data-version-id');
+        if (!versionId) return;
+        if (action === 'agents-serve') {
+          serveAgentsVersion(versionId);
+        } else if (action === 'agents-delete') {
+          deleteAgentsVersion(versionId);
+        }
       });
     }
     if (promptsToggle) {

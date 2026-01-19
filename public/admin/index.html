@@ -835,8 +835,30 @@
             </div>
             <div id="agentsStatus" class="muted" style="margin-bottom:8px;"></div>
             <div id="agentsMeta" class="muted" style="margin-bottom:8px;"></div>
+            <div class="agents-serve-row">
+              <div class="agents-serve-meta muted" id="agentsServeLabel"></div>
+              <div class="agents-serve-actions">
+                <button class="ghost tiny-btn" id="agentsServeLatest" title="Serve the most recent version">Serve latest</button>
+              </div>
+            </div>
             <pre id="agentsPreview" class="code-block" style="max-height:65vh; overflow:auto; cursor:text;"></pre>
             <textarea id="agentsEditorInline" rows="18" spellcheck="false" hidden style="width:100%; max-height:65vh; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;"></textarea>
+            <div class="agents-versions">
+              <div class="table-wrapper">
+                <table id="agentsVersions">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Updated</th>
+                      <th>Size</th>
+                      <th>SHA</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
           </section>
           <section class="card panel" data-settings-panel="prompts" hidden>
             <div class="panel-head">

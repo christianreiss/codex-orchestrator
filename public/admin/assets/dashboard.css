@@ -2179,6 +2179,35 @@ body.auth-locked .nav-actions {
   display: none;
 }
 .agents-preview .muted { color: rgba(229,231,235,0.7); }
+.agents-serve-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.agents-serve-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.agents-versions {
+  margin-top: 16px;
+}
+.agents-versions table {
+  min-width: 640px;
+}
+.agents-version-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.agents-sha {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
     .payload-preview {
       background: #f1f4f9;
       border: 1px solid rgba(15,23,42,0.12);

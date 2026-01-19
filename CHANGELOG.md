@@ -1,3 +1,6 @@
+# 2026-01-19
+- AGENTS.md: added versioned storage with pinned vs latest serving, plus delete controls in the admin editor and new admin endpoints.
+
 # 2026-01-18
 - Admin dashboard: toast notifications now honor light/dark/auto theme colors; cache-bumped dashboard.css.
 - Admin dashboard: 2026 polish pass (bullet meters + theme toggle w/ auto light/dark tokens + softer usage window sections + restored overpay note); cache-bumped dashboard.css/dashboard-mobile.css/dashboard.js.

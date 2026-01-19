@@ -175,6 +175,20 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS agents_document_state (
+                id TINYINT UNSIGNED PRIMARY KEY,
+                mode VARCHAR(16) NOT NULL,
+                active_document_id BIGINT UNSIGNED NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                INDEX idx_agents_document_state_updated_at (updated_at),
+                CONSTRAINT fk_agents_document_state_active FOREIGN KEY (active_document_id) REFERENCES agents_documents(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS client_config_documents (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 sha256 CHAR(64) NOT NULL,

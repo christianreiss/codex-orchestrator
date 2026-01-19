@@ -71,6 +71,8 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="agentsEditorInline"', $html);
         $this->assertStringContainsString('id="agentsEditToggle"', $html);
         $this->assertStringContainsString('id="agentsSaveInline"', $html);
+        $this->assertStringContainsString('id="agentsServeLatest"', $html);
+        $this->assertStringContainsString('id="agentsVersions"', $html);
     }
 
     public function testAdminConfigBuilderAssetsAreCacheBusted(): void

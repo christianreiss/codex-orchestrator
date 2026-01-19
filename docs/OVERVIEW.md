@@ -27,6 +27,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
 - **`SlashCommandService`** — CRUD for prompts stored in MySQL, hashed by sha256, with delete markers for retirements.
+- **`AgentsService`** — stores versioned AGENTS.md editions, serves either the latest or a pinned version, and feeds the admin editor + host sync.
 - **`MemoryService`** — MCP memory storage per host (content, tags, optional metadata) with MySQL full-text search and an admin browser panel.
 - **`ClientConfigService`** — renders/stores canonical `config.toml` from structured settings (sha + TOML body + saved builder payload) for the admin config page and wrapper sync; `/config/retrieve` bakes a per-host copy using that host’s API key for the managed HTTP MCP entry (Authorization header, no npm).
 - **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly) and fetch GPT‑5.1 pricing (HTTP or env fallback) for cost calculations.

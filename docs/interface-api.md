@@ -16,7 +16,7 @@
 - `GET /skills` — list registered skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required.
 - `POST /skills/retrieve` — body: `slug` (required; accepts legacy `filename`) and optional `sha256`. Returns `status` (`missing` | `deleted` | `unchanged` | `updated`), metadata, and `manifest` when the stored content differs.
 - `POST /skills/store` — body: `slug`, `manifest` (required string; typically the Skill manifest JSON), optional `display_name`/`description`, optional `sha256` (validated against `manifest`). Stores/updates canonical skill specs, logs `skill.store`, and returns `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
-- `POST /agents/retrieve` — pull the canonical AGENTS.md. Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/AGENTS.md`.
+- `POST /agents/retrieve` — pull the served AGENTS.md edition. Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), `version_id`, `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/AGENTS.md`.
 - `POST /config/retrieve` — pulls the canonical config template and bakes a per-host `config.toml` using the authenticated host API key. Managed MCP entry now uses the native HTTP MCP transport (no npm):  
   ```toml
   [mcp_servers.cdx]
@@ -102,8 +102,10 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 - `GET /admin/chatgpt/usage[?force=1]` — account-level ChatGPT `/wham/usage` snapshot using canonical `auth.json` token (5-minute cooldown unless `force`).
 - `GET /admin/chatgpt/usage/history?days=60` — quota history for dashboard graphs (5-hour + weekly `used_percent` with `fetched_at`), capped to the past 180 days; default window is 60 days or since the first data point.
 - `POST /admin/chatgpt/usage/refresh` — force-refresh ChatGPT usage snapshot (bypasses cooldown).
-- `GET /admin/agents` — fetch canonical AGENTS.md (sha, updated timestamp, size, and full `content`) for editing in the dashboard.
-- `POST /admin/agents/store` — replace canonical AGENTS.md. Body: `content` (string markdown), optional `sha256` check (64-hex). Returns `status` (`created` | `updated` | `unchanged`), `sha256`, `updated_at`, `size_bytes`.
+- `GET /admin/agents` — fetch AGENTS.md serving state for the dashboard. Returns `status`, `mode` (`latest` | `locked`), `active_id`, `served_id`, `latest_id`, served `sha256` + `updated_at` + `size_bytes` + `content`, and `versions` (id/sha/created/updated/size + flags).
+- `POST /admin/agents/store` — create a new AGENTS.md edition. Body: `content` (string markdown), optional `sha256` check (64-hex). Returns `status` (`created` | `updated` | `unchanged`), `version_id`, `sha256`, `updated_at`, `size_bytes`.
+- `POST /admin/agents/serve` — set the serving mode. Body: `{ mode: "latest" | "locked", version_id?: number }`. `mode=latest` follows newest editions; `mode=locked` pins the served version to `version_id`.
+- `DELETE /admin/agents/versions/{id}` — delete a non-served AGENTS.md edition by id.
 - `GET /admin/config` — fetch canonical `config.toml` metadata + `content` + `settings` (the structured builder payload). Returns `status` (`missing` when unset), `sha256`, `updated_at`, `size_bytes`.
 - `POST /admin/config/render` — render a `settings` payload into TOML without persisting it. Returns `content`, `sha256`, `size_bytes`, and the normalized `settings`.
 - `POST /admin/config/store` — persist canonical `config.toml` built from the provided `settings` payload. Optional `sha256` acts like an optimistic concurrency check: when a config already exists, the provided sha must match the currently saved config sha (reload before saving when it doesn’t). Returns `status` (`created` | `updated` | `unchanged`), `sha256`, `updated_at`, `size_bytes`, `content`, and normalized `settings`.

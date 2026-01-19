@@ -2913,6 +2913,54 @@ $router->add('POST', '#^/admin/agents/store$#', function () use ($payload, $agen
     ]);
 });
 
+$router->add('POST', '#^/admin/agents/serve$#', function () use ($payload, $agentsService) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+    $mode = is_array($payload) ? (string) ($payload['mode'] ?? '') : '';
+    $versionId = null;
+    if (is_array($payload) && isset($payload['version_id'])) {
+        $versionId = is_numeric($payload['version_id']) ? (int) $payload['version_id'] : null;
+    }
+
+    try {
+        $result = $agentsService->setServeMode($mode, $versionId);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('DELETE', '#^/admin/agents/versions/(\d+)$#', function (array $matches) use ($agentsService) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+    $versionId = isset($matches[1]) ? (int) $matches[1] : 0;
+
+    try {
+        $result = $agentsService->deleteVersion($versionId);
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('GET', '#^/admin/mcp/memories$#', function () use ($memoryService) {
     requireAdminAccess();
 
