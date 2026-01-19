@@ -19,14 +19,14 @@ If you only use Codex on one laptop, this is probably overkill.
 3) Run the installer on the host: `curl .../install/<token> | bash`. It installs Codex plus a host-baked `cdx` wrapper.
 4) Every `cdx` run syncs auth, config, prompts, Skills, and AGENTS, enforces quota policy, self-updates, and posts usage back.
 
-## What you get
+## Features
 - Central auth vault: encrypted canonical auth.json plus per-target tokens; runner sidecar validates uploads and can auto-accept newer auth from Codex.
-- Host installer and wrapper: per-host API keys baked into the `cdx` script; offline-tolerant with secure vs insecure host modes.
+- Host installer and wrapper: per-host API keys baked into the `cdx` script; offline-tolerant with secure vs insecure host modes; tracks per-host usernames for clean uninstalls.
 - Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
 - Prompt and Skill distribution: slash commands and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.codex/skills/`; AGENTS.md is canonical too.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.1 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from server-controlled binaries.
-- Dashboards and API: mTLS-protected admin UI for hosts, usage, config, and AGENTS; HTTP API for automation.
+- Dashboards and API: mTLS-protected admin UI/API with optional login + role-based access (userless bootstrap until the first active admin); HTTP API for automation.
 - MCP server: native HTTP MCP endpoint with memory store/retrieve/search and filesystem helpers; baked into managed `config.toml` entries.
 
 ## See it in action
