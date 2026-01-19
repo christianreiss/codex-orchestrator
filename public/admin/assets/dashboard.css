@@ -1360,7 +1360,7 @@ body.auth-locked .nav-actions {
       box-shadow: 0 0 0 6px rgba(255, 93, 122, 0.18);
     }
     .command-box {
-      background: #f7f9fc;
+      background: var(--card-strong);
       color: var(--text);
       padding: 14px;
       border-radius: 12px;
@@ -1371,12 +1371,12 @@ body.auth-locked .nav-actions {
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      border: 1px solid rgba(15,23,42,0.08);
+      border: 1px solid var(--border);
     }
     .copy-btn {
-      border: 1px solid rgba(15,23,42,0.12);
+      border: 1px solid var(--border);
       color: var(--text);
-      background: #ffffff;
+      background: var(--panel);
       padding: 8px 10px;
       border-radius: 8px;
       cursor: pointer;
