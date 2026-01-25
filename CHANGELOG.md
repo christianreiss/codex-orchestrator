@@ -6,6 +6,7 @@
 - Admin agents: replace “pin” wording with “default” in AGENTS.md editor copy.
 - Admin host modal: swap Reverse DNS to an iPhone-style toggle and place it beside the Codex CLI version picker.
 - Docs: emphasize admin login in install/usage guides and treat mTLS as an advanced topic.
+- Admin hosts: hide the “Locked” health pill in the host table.
 
 # 2026-01-19
 - Skills: added "Checkmk Local Checks" skill manifest to the fleet registry.

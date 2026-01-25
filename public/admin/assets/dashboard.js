@@ -2593,7 +2593,7 @@
       const authOutdatedChip = isSecure && host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
       const healthChip = isSecure && host.auth_outdated && health.label === 'Can login'
         ? ''
-        : `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`;
+        : (health.label === 'Locked' ? '' : `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`);
       tr.classList.add(`status-${health.tone}`);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
