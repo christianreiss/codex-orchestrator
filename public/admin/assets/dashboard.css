@@ -1839,6 +1839,21 @@ body.auth-locked .nav-actions {
       gap: 16px;
       margin-top: 16px;
     }
+    .host-inline-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .host-inline-block {
+      flex: 1 1 280px;
+      min-width: 240px;
+    }
+    .host-inline-toggle {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
     .agents-delete-hosts {
       display: flex;
       flex-wrap: wrap;

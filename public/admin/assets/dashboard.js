@@ -2007,27 +2007,13 @@
       const reverseDnsMode = normalizeReverseDnsMode(host?.reverse_dns_mode);
       const reverseDnsEffective = isReverseDnsEffective(host);
       const reverseDnsGlobalLabel = reverseDnsEnabled ? 'Global (enabled)' : 'Global (disabled)';
+      const reverseDnsState = reverseDnsMode === 'global'
+        ? reverseDnsGlobalLabel
+        : (reverseDnsEffective ? 'Enabled (host override)' : 'Disabled (host override)');
 
       return `
         <div class="host-toggle-list">
           ${toggles.join('')}
-        </div>
-        <div class="host-reverse-dns" style="margin-top:12px;">
-          <div class="muted" style="font-weight:600; margin-bottom:6px;">Reverse DNS enforcement</div>
-          <div class="inline-group" style="gap:10px; align-items:flex-end;">
-            <div class="field" style="min-width:240px;">
-              <label for="hostReverseDnsSelect">Mode</label>
-              <select id="hostReverseDnsSelect">
-                <option value="global">${reverseDnsGlobalLabel}</option>
-                <option value="enabled">Enabled</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </div>
-          </div>
-          <div class="muted-note" style="margin-top:6px;">
-            Effective: ${reverseDnsEffective ? 'Enabled' : 'Disabled'} (${reverseDnsMode === 'global' ? 'using global default' : 'host override'}).
-            <span id="hostReverseDnsSaveState" class="muted" style="margin-left:10px;"></span>
-          </div>
         </div>
         <div class="host-agents-version" style="margin-top:12px;">
           <div class="muted" style="font-weight:600; margin-bottom:6px;">Agents.md version</div>
@@ -2044,19 +2030,35 @@
             <span id="hostAgentsVersionSaveState" class="muted" style="margin-left:10px;"></span>
           </div>
         </div>
-        <div class="host-codex-version" style="margin-top:12px;">
-          <div class="muted" style="font-weight:600; margin-bottom:6px;">Codex CLI version</div>
-          <div class="inline-group" style="gap:10px; align-items:flex-end;">
-            <div class="field" style="min-width:240px;">
-              <label for="hostCodexVersionSelect">Version</label>
-              <select id="hostCodexVersionSelect">
-                <option value="global">Global (fleet)</option>
-              </select>
+        <div class="host-inline-row">
+          <div class="host-inline-block">
+            <div class="muted" style="font-weight:600; margin-bottom:6px;">Reverse DNS enforcement</div>
+            <div class="host-inline-toggle">
+              <label class="toggle">
+                <input type="checkbox" id="hostReverseDnsToggle" ${reverseDnsEffective ? 'checked' : ''}>
+                <span class="track"><span class="thumb"></span></span>
+              </label>
+              <span class="host-toggle-state">${escapeHtml(reverseDnsState)}</span>
+            </div>
+            <div class="muted-note" style="margin-top:6px;">
+              Effective: ${reverseDnsEffective ? 'Enabled' : 'Disabled'}.
+              <span id="hostReverseDnsSaveState" class="muted" style="margin-left:10px;"></span>
             </div>
           </div>
-          <div class="muted-note" style="margin-top:6px;">
-            “Global” follows the fleet setting; picking a version pins this host and forces upgrade/downgrade on the next run.
-            <span id="hostCodexVersionSaveState" class="muted" style="margin-left:10px;"></span>
+          <div class="host-inline-block">
+            <div class="muted" style="font-weight:600; margin-bottom:6px;">Codex CLI version</div>
+            <div class="inline-group" style="gap:10px; align-items:flex-end;">
+              <div class="field" style="min-width:240px;">
+                <label for="hostCodexVersionSelect">Version</label>
+                <select id="hostCodexVersionSelect">
+                  <option value="global">Global (fleet)</option>
+                </select>
+              </div>
+            </div>
+            <div class="muted-note" style="margin-top:6px;">
+              “Global” follows the fleet setting; picking a version pins this host and forces upgrade/downgrade on the next run.
+              <span id="hostCodexVersionSaveState" class="muted" style="margin-left:10px;"></span>
+            </div>
           </div>
         </div>
         <div class="host-model-overrides" style="margin-top:12px;">
@@ -2144,14 +2146,15 @@
         });
       });
 
-      const reverseDnsSelect = hostDetailActions.querySelector('#hostReverseDnsSelect');
+      const reverseDnsToggle = hostDetailActions.querySelector('#hostReverseDnsToggle');
       const reverseDnsSaveState = hostDetailActions.querySelector('#hostReverseDnsSaveState');
-      if (reverseDnsSelect) {
-        reverseDnsSelect.value = normalizeReverseDnsMode(host.reverse_dns_mode);
+      if (reverseDnsToggle) {
+        reverseDnsToggle.checked = isReverseDnsEffective(host);
         const saveReverseDnsMode = async () => {
-          const mode = normalizeReverseDnsMode(reverseDnsSelect.value);
+          const desired = !!reverseDnsToggle.checked;
+          const mode = desired === !!reverseDnsEnabled ? 'global' : (desired ? 'enabled' : 'disabled');
           if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Saving…';
-          reverseDnsSelect.disabled = true;
+          reverseDnsToggle.disabled = true;
           try {
             await api(`/admin/hosts/${host.id}/reverse-dns`, {
               method: 'POST',
@@ -2163,7 +2166,7 @@
             if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Save failed';
             console.error('save host reverse dns mode failed', err);
           } finally {
-            reverseDnsSelect.disabled = false;
+            reverseDnsToggle.disabled = false;
             if (reverseDnsSaveState) {
               window.setTimeout(() => {
                 if (reverseDnsSaveState.textContent === 'Saved') reverseDnsSaveState.textContent = '';
@@ -2172,7 +2175,7 @@
           }
         };
 
-        reverseDnsSelect.addEventListener('change', async (ev) => {
+        reverseDnsToggle.addEventListener('change', async (ev) => {
           ev.stopPropagation();
           await saveReverseDnsMode();
         });
