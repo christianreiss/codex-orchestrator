@@ -4828,7 +4828,7 @@
             <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>
               CLI ${codexVersionDisplay}
             </div>
-            <small class="muted">Wrapper ${data.versions.wrapper_version ?? 'n/a'} · Checked ${checkedAt}</small>
+            <small class="muted">Wrapper ${data.versions.wrapper_version ?? 'n/a'} · ${checkedAt}</small>
             ${validationLine ? `<small class="muted">${validationLine}</small>` : ''}
           </div>
         `,

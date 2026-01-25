@@ -2855,9 +2855,11 @@ body[data-view-mode="hosts"] main.main {
 
 #stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 320px));
+  justify-content: center;
   gap: 12px;
   margin: 0;
+  width: 100%;
 }
 
 #stats .card {
