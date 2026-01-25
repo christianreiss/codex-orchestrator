@@ -77,6 +77,7 @@ class Database
                 ip6 VARCHAR(64) NULL,
                 client_version VARCHAR(64) NULL,
                 wrapper_version VARCHAR(64) NULL,
+                agents_document_id_override BIGINT UNSIGNED NULL,
                 api_calls BIGINT UNSIGNED NOT NULL DEFAULT 0,
                 created_at VARCHAR(100) NOT NULL,
                 updated_at VARCHAR(100) NOT NULL,
@@ -573,6 +574,7 @@ class Database
         $this->ensureColumnExists('hosts', 'ip6', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'client_version_override', 'VARCHAR(64) NULL');
+        $this->ensureColumnExists('hosts', 'agents_document_id_override', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('hosts', 'wrapper_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'auth_digest', 'VARCHAR(128) NULL');
         $this->ensureColumnExists('hosts', 'api_calls', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');

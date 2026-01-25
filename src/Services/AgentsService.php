@@ -218,6 +218,22 @@ class AgentsService
 
     private function resolveServedDocument(?array $host = null): ?array
     {
+        $hostOverrideRaw = $host['agents_document_id_override'] ?? null;
+        if (is_numeric($hostOverrideRaw)) {
+            $hostOverride = (int) $hostOverrideRaw;
+            if ($hostOverride > 0) {
+                $override = $this->agents->findById($hostOverride);
+                if ($override !== null) {
+                    return $override;
+                }
+
+                $this->logs->log($this->hostId($host), 'agents.host_override_missing', [
+                    'status' => 'fallback_latest',
+                    'override_id' => $hostOverride,
+                ]);
+            }
+        }
+
         $state = $this->agents->state();
         $mode = $state['mode'] ?? AgentsRepository::MODE_LATEST;
         $activeId = $state['active_document_id'] ?? null;

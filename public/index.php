@@ -2183,6 +2183,67 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($matches
     ]);
 });
 
+$router->add('POST', '#^/admin/hosts/(\\d+)/agents-version$#', function ($matches) use ($hostRepository, $agentsRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
+    $hostId = (int) $matches[1];
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    $selectionRaw = $payload['selection'] ?? ($payload['agents_document_id_override'] ?? null);
+    if ($selectionRaw !== null && !is_string($selectionRaw) && !is_numeric($selectionRaw)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'selection must be global or a numeric agents document id',
+        ], 422);
+    }
+
+    $selection = is_string($selectionRaw) ? trim($selectionRaw) : $selectionRaw;
+    $selectionLower = is_string($selection) ? strtolower($selection) : null;
+    if ($selection === null || $selection === '' || $selectionLower === 'global' || $selectionLower === 'fleet' || $selectionLower === 'default') {
+        $hostRepository->updateAgentsDocumentOverride($hostId, null);
+    } else {
+        $selectionId = is_numeric($selection) ? (int) $selection : 0;
+        if ($selectionId <= 0) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'selection must be a valid agents document id',
+            ], 422);
+        }
+        $version = $agentsRepository->findById($selectionId);
+        if ($version === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'agents document id not found',
+            ], 422);
+        }
+        $hostRepository->updateAgentsDocumentOverride($hostId, $selectionId);
+    }
+
+    $updated = $hostRepository->findById($hostId);
+    $overrideId = $updated['agents_document_id_override'] ?? null;
+
+    $logRepository->log($hostId, 'admin.host.agents_version_override', [
+        'fqdn' => $host['fqdn'] ?? null,
+        'agents_document_id_override' => $overrideId,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => $hostId,
+                'agents_document_id_override' => $overrideId !== null ? (int) $overrideId : null,
+            ],
+        ],
+    ]);
+});
+
 $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository) {
     requireAdminAccess();
     $service->pruneStaleHosts();
@@ -2482,6 +2543,9 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'created_at' => $normalizeTs($host['created_at'] ?? null),
             'client_version' => $host['client_version'] ?? null,
             'client_version_override' => $host['client_version_override'] ?? null,
+            'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
+                ? (int) $host['agents_document_id_override']
+                : null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'ip4' => $host['ip4'] ?? null,

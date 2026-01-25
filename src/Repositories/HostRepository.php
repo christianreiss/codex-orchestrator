@@ -407,6 +407,22 @@ class HostRepository
         ]);
     }
 
+    public function updateAgentsDocumentOverride(int $hostId, ?int $agentsDocumentId): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts
+             SET agents_document_id_override = :agents_document_id_override,
+                 updated_at = :updated_at
+             WHERE id = :id'
+        );
+
+        $statement->execute([
+            'agents_document_id_override' => $agentsDocumentId,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     public function updateInsecureWindows(int $hostId, ?string $enabledUntil, ?string $graceUntil, ?int $windowMinutes = null): void
     {
         $fields = 'insecure_enabled_until = :enabled_until, insecure_grace_until = :grace_until, updated_at = :updated_at';

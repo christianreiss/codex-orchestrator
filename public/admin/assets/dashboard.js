@@ -1886,6 +1886,42 @@
       return 'global';
     }
 
+    function normalizeAgentsVersionId(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return Math.trunc(parsed);
+    }
+
+    function agentsGlobalLabel(doc) {
+      if (!doc || doc.status === 'missing') {
+        return 'Default (global - missing)';
+      }
+      const mode = typeof doc.mode === 'string' ? doc.mode : 'latest';
+      const latestId = normalizeAgentsVersionId(doc.latest_id);
+      const activeId = normalizeAgentsVersionId(doc.active_id);
+      if (mode === 'latest') {
+        return `Default (global - latest${latestId ? ` v${latestId}` : ''})`;
+      }
+      return `Default (global - pinned${activeId ? ` v${activeId}` : ''})`;
+    }
+
+    function buildAgentsVersionOptions(doc) {
+      const versions = Array.isArray(doc?.versions) ? doc.versions : [];
+      const options = [];
+      options.push(`<option value="global">${agentsGlobalLabel(doc)}</option>`);
+      versions.forEach((version) => {
+        const id = normalizeAgentsVersionId(version?.id);
+        if (!id) return;
+        const tags = [];
+        if (version?.is_served) tags.push('serving');
+        if (!version?.is_served && version?.is_active) tags.push('pinned');
+        if (version?.is_latest) tags.push('latest');
+        const label = tags.length ? `v${id} (${tags.join(', ')})` : `v${id}`;
+        options.push(`<option value="${id}">${label}</option>`);
+      });
+      return options.join('');
+    }
+
     function isReverseDnsEffective(host) {
       const mode = normalizeReverseDnsMode(host?.reverse_dns_mode);
       if (mode === 'enabled') return true;
@@ -1973,6 +2009,21 @@
           <div class="muted-note" style="margin-top:6px;">
             Effective: ${reverseDnsEffective ? 'Enabled' : 'Disabled'} (${reverseDnsMode === 'global' ? 'using global default' : 'host override'}).
             <span id="hostReverseDnsSaveState" class="muted" style="margin-left:10px;"></span>
+          </div>
+        </div>
+        <div class="host-agents-version" style="margin-top:12px;">
+          <div class="muted" style="font-weight:600; margin-bottom:6px;">Agents.md version</div>
+          <div class="inline-group" style="gap:10px; align-items:flex-end;">
+            <div class="field" style="min-width:240px;">
+              <label for="hostAgentsVersionSelect">Version</label>
+              <select id="hostAgentsVersionSelect">
+                ${buildAgentsVersionOptions(currentAgents)}
+              </select>
+            </div>
+          </div>
+          <div class="muted-note" style="margin-top:6px;">
+            Default follows the fleet AGENTS.md setting; choose a version to pin this host.
+            <span id="hostAgentsVersionSaveState" class="muted" style="margin-left:10px;"></span>
           </div>
         </div>
         <div class="host-codex-version" style="margin-top:12px;">
@@ -2106,6 +2157,48 @@
         reverseDnsSelect.addEventListener('change', async (ev) => {
           ev.stopPropagation();
           await saveReverseDnsMode();
+        });
+      }
+
+      const agentsSelect = hostDetailActions.querySelector('#hostAgentsVersionSelect');
+      const agentsSaveState = hostDetailActions.querySelector('#hostAgentsVersionSaveState');
+      if (agentsSelect) {
+        const overrideId = normalizeAgentsVersionId(host.agents_document_id_override);
+        if (overrideId && !Array.from(agentsSelect.options).some(opt => opt.value === String(overrideId))) {
+          const missingOption = document.createElement('option');
+          missingOption.value = String(overrideId);
+          missingOption.textContent = `v${overrideId} (missing)`;
+          agentsSelect.appendChild(missingOption);
+        }
+        agentsSelect.value = overrideId ? String(overrideId) : 'global';
+
+        const saveAgentsOverride = async () => {
+          const selection = agentsSelect ? String(agentsSelect.value || 'global') : 'global';
+          if (agentsSaveState) agentsSaveState.textContent = 'Saving…';
+          if (agentsSelect) agentsSelect.disabled = true;
+          try {
+            await api(`/admin/hosts/${host.id}/agents-version`, {
+              method: 'POST',
+              json: { selection },
+            });
+            if (agentsSaveState) agentsSaveState.textContent = 'Saved';
+            await loadAll();
+          } catch (err) {
+            if (agentsSaveState) agentsSaveState.textContent = 'Save failed';
+            console.error('save host agents version override failed', err);
+          } finally {
+            if (agentsSelect) agentsSelect.disabled = false;
+            if (agentsSaveState) {
+              window.setTimeout(() => {
+                if (agentsSaveState.textContent === 'Saved') agentsSaveState.textContent = '';
+              }, 1500);
+            }
+          }
+        };
+
+        agentsSelect.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          await saveAgentsOverride();
         });
       }
 
@@ -2340,6 +2433,18 @@
         key: 'Token usage',
         value: renderTokenUsageValue(host.token_usage),
         desc: '',
+        full: true,
+      });
+
+      const agentsOverrideId = normalizeAgentsVersionId(host.agents_document_id_override);
+      let agentsLabel = agentsGlobalLabel(currentAgents);
+      if (agentsOverrideId) {
+        agentsLabel = `Pinned to v${agentsOverrideId}`;
+      }
+      rows.push({
+        key: 'Agents.md',
+        value: `<span class="muted">${escapeHtml(agentsLabel)}</span>`,
+        desc: 'Default follows the fleet AGENTS.md mode; pin to serve a specific version to this host.',
         full: true,
       });
 

@@ -2199,6 +2199,9 @@ class AuthService
             'client_version' => $host['client_version'] ?? null,
             'client_version_override' => $host['client_version_override'] ?? null,
             'wrapper_version' => $host['wrapper_version'] ?? null,
+            'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
+                ? (int) $host['agents_document_id_override']
+                : null,
             'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
             'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,

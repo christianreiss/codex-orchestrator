@@ -1,3 +1,7 @@
+# 2026-01-25
+- Admin hosts: allow per-host AGENTS.md version pinning in the host modal (default follows fleet setting).
+- API: add per-host AGENTS.md override field and endpoint for host-specific pins.
+
 # 2026-01-19
 - Skills: added "Checkmk Local Checks" skill manifest to the fleet registry.
 - AGENTS.md: added versioned storage with pinned vs latest serving, plus delete controls in the admin editor and new admin endpoints.
