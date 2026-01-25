@@ -66,6 +66,13 @@
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
+    const agentsDeleteModal = document.getElementById('agentsDeleteModal');
+    const agentsDeleteIntro = document.getElementById('agentsDeleteIntro');
+    const agentsDeleteSelect = document.getElementById('agentsDeleteSelect');
+    const agentsDeleteHosts = document.getElementById('agentsDeleteHosts');
+    const agentsDeleteStatus = document.getElementById('agentsDeleteStatus');
+    const agentsDeleteCancel = document.getElementById('agentsDeleteCancel');
+    const agentsDeleteConfirm = document.getElementById('agentsDeleteConfirm');
     const hostDetailModal = document.getElementById('hostDetailModal');
     const hostDetailTitle = document.getElementById('hostDetailTitle');
     const hostDetailPills = document.getElementById('hostDetailPills');
@@ -184,6 +191,8 @@
     const CODEX_RELEASES_CACHE_MS = 10 * 60 * 1000;
     let cachedCodexReleases = { fetchedAt: 0, versions: null, error: null };
     let pendingDeleteId = null;
+    let pendingAgentsDeleteId = null;
+    let pendingAgentsDeleteHosts = [];
 
     const upgradeNotesCache = {};
     let currentHosts = [];
@@ -1905,13 +1914,14 @@
       return `Default (global - pinned${activeId ? ` v${activeId}` : ''})`;
     }
 
-    function buildAgentsVersionOptions(doc) {
+    function buildAgentsVersionOptions(doc, { excludeId = null } = {}) {
       const versions = Array.isArray(doc?.versions) ? doc.versions : [];
       const options = [];
       options.push(`<option value="global">${agentsGlobalLabel(doc)}</option>`);
       versions.forEach((version) => {
         const id = normalizeAgentsVersionId(version?.id);
         if (!id) return;
+        if (excludeId && id === excludeId) return;
         const tags = [];
         if (version?.is_served) tags.push('serving');
         if (!version?.is_served && version?.is_active) tags.push('pinned');
@@ -5476,9 +5486,100 @@
       }
     }
 
+    function agentsHostsUsingVersion(versionId) {
+      const target = normalizeAgentsVersionId(versionId);
+      if (!target) return [];
+      return (Array.isArray(currentHosts) ? currentHosts : []).filter(host => (
+        normalizeAgentsVersionId(host?.agents_document_id_override) === target
+      ));
+    }
+
+    function renderAgentsDeleteHostsList(hosts) {
+      if (!agentsDeleteHosts) return;
+      if (!hosts.length) {
+        agentsDeleteHosts.innerHTML = '<span class="muted">None</span>';
+        return;
+      }
+      agentsDeleteHosts.innerHTML = hosts.map((host) => (
+        `<div class="host-chip"><span class="host-name">${escapeHtml(host.fqdn || `Host #${host.id}`)}</span></div>`
+      )).join('');
+    }
+
+    function openAgentsDeleteModal(versionId, hosts) {
+      if (!agentsDeleteModal) return;
+      const id = normalizeAgentsVersionId(versionId);
+      if (!id) return;
+      pendingAgentsDeleteId = id;
+      pendingAgentsDeleteHosts = Array.isArray(hosts) ? hosts.slice() : [];
+      if (agentsDeleteIntro) {
+        const count = pendingAgentsDeleteHosts.length;
+        const hostLabel = count === 1 ? 'host is' : 'hosts are';
+        agentsDeleteIntro.textContent = `Version v${id} is pinned on ${count} ${hostLabel} using it. Choose where to move them before deleting.`;
+      }
+      if (agentsDeleteSelect) {
+        agentsDeleteSelect.innerHTML = buildAgentsVersionOptions(currentAgents, { excludeId: id });
+        agentsDeleteSelect.value = 'global';
+      }
+      if (agentsDeleteStatus) agentsDeleteStatus.textContent = '';
+      renderAgentsDeleteHostsList(pendingAgentsDeleteHosts);
+      agentsDeleteModal.classList.add('show');
+    }
+
+    function closeAgentsDeleteModal() {
+      if (!agentsDeleteModal) return;
+      agentsDeleteModal.classList.remove('show');
+      pendingAgentsDeleteId = null;
+      pendingAgentsDeleteHosts = [];
+      if (agentsDeleteStatus) agentsDeleteStatus.textContent = '';
+      if (agentsDeleteIntro) agentsDeleteIntro.textContent = '';
+      if (agentsDeleteHosts) agentsDeleteHosts.innerHTML = '';
+    }
+
+    async function confirmAgentsDelete() {
+      if (!pendingAgentsDeleteId) return;
+      const id = pendingAgentsDeleteId;
+      const selection = agentsDeleteSelect ? String(agentsDeleteSelect.value || 'global') : 'global';
+      if (selection === String(id)) {
+        if (agentsDeleteStatus) agentsDeleteStatus.textContent = 'Choose a different version (cannot re-pin to the one being deleted).';
+        return;
+      }
+      if (agentsDeleteConfirm) agentsDeleteConfirm.disabled = true;
+      if (agentsDeleteCancel) agentsDeleteCancel.disabled = true;
+      try {
+        const affected = pendingAgentsDeleteHosts.slice();
+        if (affected.length) {
+          if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Reassigning ${affected.length} host${affected.length === 1 ? '' : 's'}…`;
+          for (const host of affected) {
+            await api(`/admin/hosts/${host.id}/agents-version`, {
+              method: 'POST',
+              json: { selection },
+            });
+          }
+        }
+        if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Deleting v${id}…`;
+        await api(`/admin/agents/versions/${id}`, { method: 'DELETE' });
+        await loadAll();
+        if (agentsStatus) agentsStatus.textContent = `Deleted v${id}`;
+        setTimeout(() => {
+          if (agentsStatus && agentsStatus.textContent === `Deleted v${id}`) agentsStatus.textContent = '';
+        }, 1500);
+        closeAgentsDeleteModal();
+      } catch (err) {
+        if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Delete failed: ${err.message}`;
+      } finally {
+        if (agentsDeleteConfirm) agentsDeleteConfirm.disabled = false;
+        if (agentsDeleteCancel) agentsDeleteCancel.disabled = false;
+      }
+    }
+
     async function deleteAgentsVersion(versionId) {
       const id = Number(versionId);
       if (!Number.isFinite(id)) return;
+      const affectedHosts = agentsHostsUsingVersion(id);
+      if (affectedHosts.length) {
+        openAgentsDeleteModal(id, affectedHosts);
+        return;
+      }
       if (!confirm(`Delete AGENTS.md version #${id}? This cannot be undone.`)) {
         return;
       }
@@ -6125,6 +6226,11 @@
         if (e.target === deleteHostModal) closeDeleteModal();
       });
     }
+    if (agentsDeleteModal) {
+      agentsDeleteModal.addEventListener('click', (e) => {
+        if (e.target === agentsDeleteModal) closeAgentsDeleteModal();
+      });
+    }
     if (hostDetailModal) {
       hostDetailModal.addEventListener('click', (e) => {
         if (e.target === hostDetailModal) closeHostDetail();
@@ -6134,6 +6240,10 @@
       if (e.key === 'Escape' && hostDetailModal?.classList.contains('show')) {
         e.preventDefault();
         closeHostDetail();
+      }
+      if (e.key === 'Escape' && agentsDeleteModal?.classList.contains('show')) {
+        e.preventDefault();
+        closeAgentsDeleteModal();
       }
       if (e.key === 'Escape' && insecureApprovalModal?.classList.contains('show')) {
         e.preventDefault();
@@ -6196,6 +6306,12 @@
     }
     if (confirmDeleteHostBtn) {
       confirmDeleteHostBtn.addEventListener('click', confirmRemove);
+    }
+    if (agentsDeleteCancel) {
+      agentsDeleteCancel.addEventListener('click', () => closeAgentsDeleteModal());
+    }
+    if (agentsDeleteConfirm) {
+      agentsDeleteConfirm.addEventListener('click', () => confirmAgentsDelete());
     }
     if (apiToggle) {
       apiToggle.addEventListener('change', () => {

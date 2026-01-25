@@ -1839,6 +1839,12 @@ body.auth-locked .nav-actions {
       gap: 16px;
       margin-top: 16px;
     }
+    .agents-delete-hosts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
     .host-toggle-list {
       display: flex;
       flex-direction: column;

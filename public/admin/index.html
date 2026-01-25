@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-19-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-01-25-01">
   <link rel="stylesheet" href="/admin/assets/uPlot.min.css?v=2026-01-15-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-01-19-01">
 </head>
@@ -239,6 +239,26 @@
             <div class="actions">
               <button class="ghost" id="cancelDeleteHost">Cancel</button>
               <button class="danger" id="confirmDeleteHost">Remove</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="agentsDeleteModal">
+          <div class="modal">
+            <h3>Delete AGENTS.md version</h3>
+            <p id="agentsDeleteIntro" class="muted"></p>
+            <div class="field">
+              <label for="agentsDeleteSelect" style="font-weight:600;">Move affected hosts to</label>
+              <select id="agentsDeleteSelect"></select>
+              <div class="muted-note">Default follows the fleet AGENTS.md setting.</div>
+            </div>
+            <div class="field">
+              <label style="font-weight:600;">Affected hosts</label>
+              <div id="agentsDeleteHosts" class="agents-delete-hosts"></div>
+            </div>
+            <div id="agentsDeleteStatus" class="muted" style="min-height:18px;"></div>
+            <div class="actions">
+              <button class="ghost" id="agentsDeleteCancel">Cancel</button>
+              <button class="danger" id="agentsDeleteConfirm">Move &amp; Delete</button>
             </div>
           </div>
         </div>
@@ -1401,7 +1421,7 @@
   <script src="/admin/assets/admin-auth.js?v=2026-01-18-05"></script>
   <script src="/admin/assets/users.js?v=2026-01-18-03"></script>
   <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-01-18-10"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-01-25-01"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-01-12-01"></script>

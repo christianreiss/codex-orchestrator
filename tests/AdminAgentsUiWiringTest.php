@@ -75,6 +75,17 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="agentsVersions"', $html);
     }
 
+    public function testAdminAgentsDeleteModalIncludesReassignmentControls(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="agentsDeleteModal"', $html);
+        $this->assertStringContainsString('id="agentsDeleteSelect"', $html);
+        $this->assertStringContainsString('id="agentsDeleteHosts"', $html);
+        $this->assertStringContainsString('id="agentsDeleteConfirm"', $html);
+    }
+
     public function testAdminConfigBuilderAssetsAreCacheBusted(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
