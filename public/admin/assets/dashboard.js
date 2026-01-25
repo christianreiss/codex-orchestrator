@@ -1673,6 +1673,19 @@
       return { daysLeft };
     }
 
+    function normalizeVersionValue(version) {
+      if (typeof version !== 'string') return null;
+      const normalized = version.trim().replace(/^v/i, '');
+      return normalized ? normalized : null;
+    }
+
+    function isVersionBehind(version, current) {
+      const normalized = normalizeVersionValue(version);
+      const target = normalizeVersionValue(current);
+      if (!normalized || !target) return false;
+      return compareVersions(normalized, target) === -1;
+    }
+
     function hostHealth(host) {
       if (!isHostSecure(host)) {
         const { enabledActive, graceActive } = insecureState(host);
@@ -1695,6 +1708,38 @@
       }
       if (!canLogin) {
         return { tone: 'ok', label: 'Not provisioned yet' };
+      }
+      return { tone: 'ok', label: 'Can login' };
+    }
+
+    function hostTablePill(host) {
+      const secure = isHostSecure(host);
+      const { enabledActive, graceActive } = insecureState(host);
+      if (!secure && (!enabledActive || graceActive)) {
+        return { tone: 'warn', label: 'Locked' };
+      }
+      const status = (host?.status || '').toLowerCase();
+      if (status && status !== 'active') {
+        return { tone: 'warn', label: 'Suspended' };
+      }
+      const { daysLeft } = hostPruneMeta(host);
+      if (daysLeft !== null && daysLeft <= 3) {
+        return { tone: 'warn', label: 'Pruning soon' };
+      }
+      if (daysLeft !== null && daysLeft <= 10) {
+        return { tone: 'warn', label: 'Pruning soon' };
+      }
+      const authed = host?.authed === true;
+      if (!authed) {
+        return { tone: 'warn', label: 'No auth' };
+      }
+      if (secure && host.auth_outdated) {
+        return { tone: 'warn', label: 'Outdated auth' };
+      }
+      const clientBehind = isVersionBehind(host.client_version, latestVersions.client);
+      const wrapperBehind = isVersionBehind(host.wrapper_version, latestVersions.wrapper);
+      if (clientBehind || wrapperBehind) {
+        return { tone: 'warn', label: 'Outdated' };
       }
       return { tone: 'ok', label: 'Can login' };
     }
@@ -2570,9 +2615,6 @@
       const primaryIp = host.ip4 ?? host.ip6 ?? null;
       const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
       const isSecure = isHostSecure(host);
-      const securityChip = isSecure
-        ? ''
-        : `<span class="chip warn" title="Insecure host: cdx will remove auth.json after runs">Insecure</span>`;
       const vipChip = host.vip
         ? renderVipCrown()
         : '';
@@ -2590,10 +2632,8 @@
         insecureClasses = 'ghost tiny-btn neutral';
       }
       const health = hostHealth(host);
-      const authOutdatedChip = isSecure && host.auth_outdated ? '<span class="chip warn">Outdated auth</span>' : '';
-      const healthChip = isSecure && host.auth_outdated && health.label === 'Can login'
-        ? ''
-        : (health.label === 'Locked' ? '' : `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`);
+      const pill = hostTablePill(host);
+      const pillChip = pill ? `<span class="chip ${pill.tone === 'ok' ? 'ok' : 'warn'}">${pill.label}</span>` : '';
       tr.classList.add(`status-${health.tone}`);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
@@ -2604,9 +2644,7 @@
             <strong>${escapeHtml(host.fqdn)}</strong>
             <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
               <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
-              ${healthChip}
-              ${authOutdatedChip}
-              ${securityChip}
+              ${pillChip}
               ${vipChip}
             </div>
           </div>
