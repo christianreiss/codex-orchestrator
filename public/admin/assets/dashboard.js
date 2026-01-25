@@ -1427,8 +1427,8 @@
           const suffix = latestId ? `v${latestId}` : 'latest';
           agentsServeLabel.textContent = `Serving: latest (${suffix})`;
         } else {
-          const suffix = activeId ? `v${activeId}` : 'pinned';
-          agentsServeLabel.textContent = `Serving: pinned (${suffix})`;
+          const suffix = activeId ? `v${activeId}` : 'default';
+          agentsServeLabel.textContent = `Serving: default (${suffix})`;
         }
       }
       if (agentsServeLatest) {
@@ -1471,9 +1471,9 @@
             const isActive = !!version?.is_active;
             const statusChips = [];
             if (isServed) statusChips.push('<span class="pill ok">Serving</span>');
-            if (!isServed && isActive) statusChips.push('<span class="pill warn">Pinned</span>');
+            if (!isServed && isActive) statusChips.push('<span class="pill warn">Default</span>');
             if (isLatest) statusChips.push('<span class="pill">Latest</span>');
-            const serveLabel = mode === 'latest' ? 'Pin' : 'Serve';
+            const serveLabel = mode === 'latest' ? 'Default' : 'Serve';
             return `
               <tr data-version-id="${Number.isFinite(id) ? id : ''}">
                 <td>#${Number.isFinite(id) ? id : '—'}</td>
@@ -1919,7 +1919,7 @@
       if (mode === 'latest') {
         return `Default (global - latest${latestId ? ` v${latestId}` : ''})`;
       }
-      return `Default (global - pinned${activeId ? ` v${activeId}` : ''})`;
+      return `Default (global - default${activeId ? ` v${activeId}` : ''})`;
     }
 
     function buildAgentsVersionOptions(doc, { excludeId = null } = {}) {
@@ -1932,7 +1932,7 @@
         if (excludeId && id === excludeId) return;
         const tags = [];
         if (version?.is_served) tags.push('serving');
-        if (!version?.is_served && version?.is_active) tags.push('pinned');
+        if (!version?.is_served && version?.is_active) tags.push('default');
         if (version?.is_latest) tags.push('latest');
         const label = tags.length ? `v${id} (${tags.join(', ')})` : `v${id}`;
         options.push(`<option value="${id}">${label}</option>`);
@@ -2457,7 +2457,7 @@
       const agentsOverrideId = normalizeAgentsVersionId(host.agents_document_id_override);
       let agentsLabel = agentsGlobalLabel(currentAgents);
       if (agentsOverrideId) {
-        agentsLabel = `Pinned to v${agentsOverrideId}`;
+        agentsLabel = `Default v${agentsOverrideId}`;
       }
       rows.push({
         key: 'Agents.md',
@@ -5521,8 +5521,8 @@
       pendingAgentsDeleteHosts = Array.isArray(hosts) ? hosts.slice() : [];
       if (agentsDeleteIntro) {
         const count = pendingAgentsDeleteHosts.length;
-        const hostLabel = count === 1 ? 'host is' : 'hosts are';
-        agentsDeleteIntro.textContent = `Version v${id} is pinned on ${count} ${hostLabel} using it. Choose where to move them before deleting.`;
+        const hostLabel = count === 1 ? 'host' : 'hosts';
+        agentsDeleteIntro.textContent = `Version v${id} is the default for ${count} ${hostLabel} using it. Choose where to move them before deleting.`;
       }
       if (agentsDeleteSelect) {
         agentsDeleteSelect.innerHTML = buildAgentsVersionOptions(currentAgents, { excludeId: id });
