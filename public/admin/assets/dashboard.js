@@ -1450,8 +1450,14 @@
 
       if (agentsVersionsBody) {
         const versions = Array.isArray(doc?.versions) ? doc.versions : [];
+        const hostCounts = {};
+        (Array.isArray(currentHosts) ? currentHosts : []).forEach((host) => {
+          const versionId = normalizeAgentsVersionId(host?.agents_document_id_override);
+          if (!versionId) return;
+          hostCounts[versionId] = (hostCounts[versionId] || 0) + 1;
+        });
         if (!versions.length) {
-          agentsVersionsBody.innerHTML = '<tr><td class="muted" colspan="5">No versions yet.</td></tr>';
+          agentsVersionsBody.innerHTML = '<tr><td class="muted" colspan="6">No versions yet.</td></tr>';
         } else {
           agentsVersionsBody.innerHTML = versions.map((version) => {
             const id = Number(version?.id);
@@ -1459,6 +1465,7 @@
             const updated = version?.updated_at ? formatRelative(version.updated_at) : '—';
             const bytes = Number(version?.size_bytes);
             const sizeText = Number.isFinite(bytes) ? `${formatNumber(bytes)} bytes` : '—';
+            const hostCount = Number.isFinite(id) ? (hostCounts[id] || 0) : 0;
             const isServed = !!version?.is_served;
             const isLatest = !!version?.is_latest;
             const isActive = !!version?.is_active;
@@ -1472,6 +1479,7 @@
                 <td>#${Number.isFinite(id) ? id : '—'}</td>
                 <td>${escapeHtml(updated)}</td>
                 <td>${escapeHtml(sizeText)}</td>
+                <td>${formatNumber(hostCount)}</td>
                 <td class="agents-sha">${escapeHtml(sha ? sha.slice(0, 12) : '—')}</td>
                 <td class="agents-version-actions">
                   ${statusChips.join(' ')}
