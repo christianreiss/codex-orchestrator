@@ -1,13 +1,13 @@
 # Installation Guide
 
-This doc walks through setting up the Codex Auth stack with Docker, mTLS, and a baked-in `cdx` wrapper.
+This doc walks through setting up the Codex Auth stack with Docker, admin login, and a baked-in `cdx` wrapper. mTLS is an advanced hardening option if you want a second gate on `/admin`.
 
 ## Prerequisites
 
 - Docker + docker compose.
-- TLS/mTLS termination:
-  - Preferred: your own reverse proxy/ingress that terminates TLS **and** forwards mTLS headers (`X-mTLS-Present`, `X-MTLS-FINGERPRINT`, `X-MTLS-SUBJECT`, `X-MTLS-ISSUER`) plus accurate `X-Forwarded-For`/`X-Real-IP`.
-  - Alternate: enable the bundled Caddy profile in `docker-compose.yml` (disabled by default) to serve 443 with ACME **or** supplied certs and enforce admin mTLS there by default (`ADMIN_ACCESS_MODE=mtls`, toggle to `none` if you gate `/admin` another way).
+- TLS termination (required):
+  - Preferred: your own reverse proxy/ingress that terminates TLS and forwards accurate `X-Forwarded-For`/`X-Real-IP`.
+  - Alternate: enable the bundled Caddy profile in `docker-compose.yml` (disabled by default) to serve 443 with ACME **or** supplied certs.
 - MySQL 8 (the compose file runs a MySQL sidecar).
 - Host paths for persistent data (default in `docker-compose.yml`):
   - `/var/docker_data/codex-auth.example.com/mysql_data`
@@ -19,7 +19,7 @@ This doc walks through setting up the Codex Auth stack with Docker, mTLS, and a 
 
 ## Recommended: one-command setup
 
-Run the guided installer to generate `.env`, create data dirs, wire TLS/mTLS, and optionally build/start the stack:
+Run the guided installer to generate `.env`, create data dirs, wire TLS, and optionally build/start the stack:
 
 ```bash
 bin/setup.sh
@@ -38,14 +38,14 @@ What it does
   - If you do not rely on forwarded Host/Proto headers, set `PUBLIC_BASE_URL` manually so installers/wrappers bake the correct base URL.
 - Seeds sensible runner defaults so the runner can bypass host IP pinning inside the compose network (`AUTH_RUNNER_IP_BYPASS=1`, `AUTH_RUNNER_BYPASS_SUBNETS=172.28.0.0/16,172.30.0.0/16`).
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
-  - Lets you keep or disable the mTLS requirement for `/admin` (`ADMIN_ACCESS_MODE`).
+  - Lets you keep or disable the mTLS requirement for `/admin` (`ADMIN_ACCESS_MODE`). Most deployments stick with admin login; mTLS is an advanced add-on if you need stronger perimeter controls.
   - If enabled, asks for `CADDY_DOMAIN` and TLS mode:
     1. **ACME (Let’s Encrypt/ZeroSSL)** — sets `CADDY_ACME_EMAIL`, uses `tls-acme` fragment; requires public 80/443.
     2. **Custom cert** — sets `tls-custom` fragment and file names; can copy cert/key from `--tls-cert-path/--tls-key-path` into the data root.
     3. **Self-signed** — generates CA + server cert into `caddy/tls`, sets paths accordingly; you must trust the CA on clients.
-  - mTLS for `/admin`:
-    1. **Bring your own CA** — copies your CA into `caddy/mtls/ca.crt`.
-    2. **Generate new** — creates a CA + `client-admin` cert/key in `caddy/mtls` for browser/API access.
+- Advanced: mTLS for `/admin`:
+  1. **Bring your own CA** — copies your CA into `caddy/mtls/ca.crt`.
+  2. **Generate new** — creates a CA + `client-admin` cert/key in `caddy/mtls` for browser/API access.
   - Enables the `caddy` compose profile automatically when you leave Caddy on.
 - Builds and/or starts the Docker stack (calls `docker compose [--profile caddy] build --pull` then `up -d`) unless you skip with flags.
 
@@ -74,7 +74,7 @@ Examples
 
 Heads-up for non-interactive runs
 
-- Caddy and mTLS stay enabled unless you pass `--no-caddy` and/or `--mtls-optional` (or adjust `--mtls-mode`).
+- Caddy stays enabled unless you pass `--no-caddy` (or adjust `--mtls-mode`).
 - Default data root is `/var/docker_data/<domain>/...`; override with `--data-root` when running as non-root or keeping data inside the repo for throwaway VMs. Use a dedicated path for real deployments.
 - First build pulls `mysql:8.0` and `php:8.2-apache`; initial download can take a few minutes.
 
@@ -89,8 +89,8 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD/DB_ROOT_PASSWORD`
    - `AUTH_ENCRYPTION_KEY` (leave empty to auto-generate on first boot).
    - `DATA_ROOT` if you want a different bind-mount root.
-  - Admin surface: `ADMIN_ACCESS_MODE` (default `mtls`).
-  - Admin login:
+   - Admin surface: `ADMIN_ACCESS_MODE` (default `mtls`). For login-first deployments, set `ADMIN_ACCESS_MODE=none` and protect `/admin` via VPN/firewall while relying on admin users.
+   - Admin login (recommended):
     - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
     - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
     - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
@@ -101,7 +101,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - Runner knobs: `AUTH_RUNNER_URL` (blank to disable), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
    - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.1 price hints (`GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`).
-  - Debug/ops: `PUBLIC_BASE_URL` (explicit host-facing base URL for installers/wrapper), `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG` (echo runner base URL/API key), `ENV_FILE` if you keep `.env` elsewhere.
+   - Debug/ops: `PUBLIC_BASE_URL` (explicit host-facing base URL for installers/wrapper), `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG` (echo runner base URL/API key), `ENV_FILE` if you keep `.env` elsewhere.
 3. Ensure `.env` is kept out of git and treated as a secret.
 
 ## Build and Run
@@ -113,7 +113,7 @@ docker compose up --build
 
 - Starts `api`, `quota-cron`, `auth-runner`, `mysql`, and the `mysql-backup` sidecar. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
 - API defaults to `http://localhost:8488`.
-- Admin dashboard: `/admin/` (mTLS required unless `ADMIN_ACCESS_MODE=none`).
+- Admin dashboard: `/admin/` (login-first; mTLS required only when `ADMIN_ACCESS_MODE=mtls`).
 - Runner sidecar is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable. It writes the canonical auth to `~/.codex/auth.json` and runs `codex` for validation; admin seed uploads skip the runner. Runner probes can bypass host IP pinning when the IP is in `AUTH_RUNNER_BYPASS_SUBNETS` and `AUTH_RUNNER_IP_BYPASS=1`.
 - A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds).
 - Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
@@ -121,7 +121,7 @@ docker compose up --build
 ## Optional: bundled Caddy frontend (no existing proxy)
 
 1. Populate the `CADDY_*` env vars in `.env` (domain, ACME email, TLS fragment, cert/key paths). Defaults point at `/var/docker_data/codex-auth.example.com/caddy/*`.
-2. Place your admin mTLS CA at `${CADDY_MTLS_DIR}/ca.crt` (or adjust `CADDY_MTLS_CA_FILE`). Caddy requests client certs for all requests and, when `ADMIN_ACCESS_MODE=mtls` (default), blocks `/admin/*` unless a validated certificate is present; it forwards `X-MTLS-*` headers for the app.
+2. Advanced: if you keep `ADMIN_ACCESS_MODE=mtls`, place your admin mTLS CA at `${CADDY_MTLS_DIR}/ca.crt` (or adjust `CADDY_MTLS_CA_FILE`). Caddy requests client certs for all requests and blocks `/admin/*` unless a validated certificate is present; it forwards `X-MTLS-*` headers for the app.
 3. Pick a cert source:
    - **Let's Encrypt/ZeroSSL**: keep `CADDY_TLS_FRAGMENT=/etc/caddy/tls-acme.caddy`, set `CADDY_DOMAIN` + `CADDY_ACME_EMAIL`, and ensure ports 80/443 reach this host.
    - **Custom cert**: set `CADDY_TLS_FRAGMENT=/etc/caddy/tls-custom.caddy` and drop `tls.crt` / `tls.key` (or update `CADDY_TLS_CERT_FILE`/`CADDY_TLS_KEY_FILE`) into `${CADDY_TLS_DIR}`.
@@ -135,7 +135,7 @@ docker compose up --build
 ## First-Time Flow
 
 1. Log into Codex on a trusted machine to create `~/.codex/auth.json`.
-2. Open the admin dashboard (mTLS by default) and click **New Host** to mint an API key + one-time installer.
+2. Open the admin dashboard, log in (once admin users exist), and click **New Host** to mint an API key + one-time installer. mTLS is an advanced add-on if you enable it.
 3. Upload your `~/.codex/auth.json` via the dashboard (“Seed auth.json”) or generate the one-time `curl | bash` seed command.
 4. Run the installer command on each target host (fresh token per host). The wrapper is baked with base URL + API key; no `sync.env` is written.
 
@@ -146,7 +146,7 @@ docker compose up --build
 ## Security Notes
 
 - Treat `.env`, `storage/`, and MySQL volumes as secrets (contain API/encryption keys and auth payloads).
-- By default `/admin/` enforces mTLS. If you set `ADMIN_ACCESS_MODE=none`, lock it down via another control (VPN, firewall).
+- Admin login is the default operator workflow once users exist. If you keep `ADMIN_ACCESS_MODE=mtls`, treat it as an advanced hardening layer and ensure your cert workflow is in place.
 - IP binding relies on `X-Forwarded-For`/`X-Real-IP`; ensure your proxy sets and sanitizes them.
 - If you keep `AUTH_RUNNER_IP_BYPASS=1`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to internal CIDRs only.
 - Global rate limiting is off for admin routes but on for everything else; tune or disable with `RATE_LIMIT_GLOBAL_PER_MINUTE`/`RATE_LIMIT_GLOBAL_WINDOW` if your proxy already rate-limits.

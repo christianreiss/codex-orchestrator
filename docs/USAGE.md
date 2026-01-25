@@ -50,9 +50,9 @@ If you prefer provisioning via API (CI, inventory tooling), the admin endpoint i
 
 - `POST /admin/hosts/register` with JSON body: `{"fqdn":"host1.example.com","secure":true,"vip":false}`
 
-When `ADMIN_ACCESS_MODE=mtls` (the default), you must present a valid client certificate for `/admin/*` routes.
+Preferred: use admin login + session cookie for `/admin/*` calls. mTLS is an advanced hardening layer; only required when `ADMIN_ACCESS_MODE=mtls`.
 
-Example with mTLS (paths are placeholders; adapt to your CA/certs):
+Example with mTLS (paths are placeholders; adapt to your CA/certs) when `ADMIN_ACCESS_MODE=mtls`:
 
 ```bash
 BASE_URL="https://codex-auth.example.com"
@@ -67,6 +67,7 @@ curl --fail-with-body -sS \
 ```
 
 The response includes `data.installer.url` and a copy/paste-friendly `data.installer.command` (the `curl …/install/<token> | bash` line).
+If `ADMIN_ACCESS_MODE=none`, log in via `/admin` and reuse the session cookie for API automation (see `LOGIN.md`).
 
 ### 2) Run the installer on the target host
 

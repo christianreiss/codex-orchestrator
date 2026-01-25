@@ -26,7 +26,7 @@ If you only use Codex on one laptop, this is probably overkill.
 - Prompt and Skill distribution: slash commands and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.codex/skills/`; AGENTS.md is canonical too.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.1 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from server-controlled binaries.
-- Dashboards and API: mTLS-protected admin UI/API with optional login + role-based access (userless bootstrap until the first active admin); HTTP API for automation.
+- Dashboards and API: login-first admin UI/API with optional mTLS hardening (userless bootstrap until the first active admin); HTTP API for automation.
 - MCP server: native HTTP MCP endpoint with memory store/retrieve/search and filesystem helpers; baked into managed `config.toml` entries.
 
 ## See it in action
