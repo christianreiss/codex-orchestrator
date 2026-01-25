@@ -2766,7 +2766,7 @@ body.auth-locked .nav-actions {
 .log-tab {
   padding: 6px 0;
   text-decoration: none;
-  color: #64748b;
+  color: var(--muted);
   font-weight: 600;
   border-bottom: 2px solid transparent;
 }
@@ -2775,13 +2775,13 @@ body.auth-locked .nav-actions {
 .host-tab:focus-visible,
 .log-tab:hover,
 .log-tab:focus-visible {
-  color: #0f172a;
+  color: var(--text);
 }
 
 .host-tab.active,
 .log-tab.active {
-  color: #0f172a;
-  border-color: #0f172a;
+  color: var(--text);
+  border-color: var(--text);
 }
 body[data-view-mode="hosts"] .content {
   padding-bottom: 16px;

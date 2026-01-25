@@ -10,6 +10,7 @@
 - Admin hosts: collapse host-table status chips to a single pill.
 - Admin dashboard: center the summary cards and shorten the wrapper check timestamp text.
 - Admin hosts: color the Outdated pill green when auth is current and orange when auth is stale.
+- Admin hosts: fix host-tab active state contrast in dark mode.
 
 # 2026-01-19
 - Skills: added "Checkmk Local Checks" skill manifest to the fleet registry.
