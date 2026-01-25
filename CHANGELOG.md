@@ -9,6 +9,7 @@
 - Admin hosts: hide the “Locked” health pill in the host table.
 - Admin hosts: collapse host-table status chips to a single pill.
 - Admin dashboard: center the summary cards and shorten the wrapper check timestamp text.
+- Admin hosts: color the Outdated pill green when auth is current and orange when auth is stale.
 
 # 2026-01-19
 - Skills: added "Checkmk Local Checks" skill manifest to the fleet registry.

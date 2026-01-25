@@ -1733,13 +1733,14 @@
       if (!authed) {
         return { tone: 'warn', label: 'No auth' };
       }
-      if (secure && host.auth_outdated) {
-        return { tone: 'warn', label: 'Outdated auth' };
-      }
       const clientBehind = isVersionBehind(host.client_version, latestVersions.client);
       const wrapperBehind = isVersionBehind(host.wrapper_version, latestVersions.wrapper);
       if (clientBehind || wrapperBehind) {
-        return { tone: 'warn', label: 'Outdated' };
+        const authOutdated = secure && host.auth_outdated;
+        return { tone: authOutdated ? 'warn' : 'ok', label: 'Outdated' };
+      }
+      if (secure && host.auth_outdated) {
+        return { tone: 'warn', label: 'Outdated auth' };
       }
       return { tone: 'ok', label: 'Can login' };
     }
