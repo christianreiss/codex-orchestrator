@@ -5054,6 +5054,11 @@
 
         setMtls(currentOverview.mtls);
 
+        if (typeof currentOverview.inactivity_window_days !== 'undefined') {
+          inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
+          renderInactivityWindowDays();
+        }
+
         renderStats(currentOverview, runner?.data || null);
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
@@ -5085,10 +5090,6 @@
         if (typeof currentOverview.insecure_approval_enabled !== 'undefined') {
           insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
           renderInsecureApproval();
-        }
-        if (typeof currentOverview.inactivity_window_days !== 'undefined') {
-          inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
-          renderInactivityWindowDays();
         }
         await loadCodexVersionControl();
         evaluateSeedRequirement(currentOverview, hostsList);
