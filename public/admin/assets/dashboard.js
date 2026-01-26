@@ -1715,8 +1715,11 @@
     function hostTablePill(host) {
       const secure = isHostSecure(host);
       const { enabledActive, graceActive } = insecureState(host);
-      if (!secure && (!enabledActive || graceActive)) {
+      if (!secure && !enabledActive && !graceActive) {
         return { tone: 'warn', label: 'Locked' };
+      }
+      if (!secure && !enabledActive && graceActive) {
+        return { tone: 'warn', label: 'Insecure grace window' };
       }
       const status = (host?.status || '').toLowerCase();
       if (status && status !== 'active') {

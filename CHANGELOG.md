@@ -7,6 +7,7 @@
 - Admin dashboard: move the Estimated total trend control into a 📊 icon beside the currency label.
 - Admin hosts: move the status pill into a Status column and swap the insecure toggle to an iPhone switch.
 - Admin hosts: stop showing "Pruning soon" when host pruning is set to never.
+- Admin hosts: show insecure enabled hosts as Can login/Outdated instead of Locked.
 - Insecure domain auto-allow rules now auto-revoke once their window expires.
 - Admin memories: add delete button alongside each memory row.
 - Admin memories: reveal delete buttons on row hover or focus.
