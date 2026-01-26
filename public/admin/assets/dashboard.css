@@ -751,6 +751,15 @@ body {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+      align-items: center;
+    }
+    #memories .memories-meta-left {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #memories .memories-delete {
+      margin-left: auto;
     }
     #memories .memories-key {
       font-size: 12px;

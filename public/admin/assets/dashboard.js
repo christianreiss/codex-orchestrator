@@ -3073,20 +3073,21 @@
         const hostLabel = row.host ? `<span class="memories-host">${escapeHtml(row.host)}</span>` : '';
         const keyLabel = memoryKey && memoryKey !== '—' ? `<code class="memories-key">${escapeHtml(memoryKey)}</code>` : '';
         const metaParts = [hostLabel, keyLabel].filter(Boolean).join(' · ');
-        const meta = metaParts ? `<div class="muted memories-meta">${metaParts}</div>` : '';
         const deleteTitle = recordId === null ? 'Delete unavailable (missing record id)' : `Delete memory ${memoryKey}`;
+        const deleteButton = `<button class="ghost tiny-btn danger memories-delete"
+          title="${deleteTitle}"
+          data-memory-key="${escapeHtml(memoryKey)}"
+          ${recordId === null ? 'disabled' : `data-delete-record-id="${recordId}"`}
+        >Delete</button>`;
+        const meta = `<div class="muted memories-meta">
+          <span class="memories-meta-left">${metaParts}</span>
+          ${deleteButton}
+        </div>`;
 
         return `<tr>
           <td data-label="Content">${content || '—'}${meta}</td>
           <td data-label="Tags">${tags}</td>
           <td data-label="Updated">${updated}</td>
-          <td data-label="Actions">
-            <button class="ghost tiny-btn danger"
-              title="${deleteTitle}"
-              data-memory-key="${escapeHtml(memoryKey)}"
-              ${recordId === null ? 'disabled' : `data-delete-record-id="${recordId}"`}
-            >Delete</button>
-          </td>
         </tr>`;
       }).join('');
 
@@ -3133,7 +3134,7 @@
       } catch (err) {
         console.error('memories', err);
         if (memoriesTableBody) {
-          memoriesTableBody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:12px;">Error: ${escapeHtml(err.message)}</td></tr>`;
+          memoriesTableBody.innerHTML = `<tr><td colspan="3" class="muted" style="padding:12px;">Error: ${escapeHtml(err.message)}</td></tr>`;
         }
         if (memoriesEmptyState) memoriesEmptyState.hidden = true;
       } finally {

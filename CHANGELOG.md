@@ -5,6 +5,7 @@
 - Admin hosts: move the status pill into a Status column and swap the insecure toggle to an iPhone switch.
 - Admin hosts: stop showing "Pruning soon" when host pruning is set to never.
 - Insecure domain auto-allow rules now auto-revoke once their window expires.
+- Admin memories: add delete button alongside each memory row.
 
 # 2026-01-25
 - Admin hosts: allow per-host AGENTS.md version pinning in the host modal (default follows fleet setting).
