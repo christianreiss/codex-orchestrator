@@ -1097,13 +1097,6 @@
                     <textarea id="notifyInput" placeholder="One argument per line, e.g.&#10;python3&#10;/path/to/notify.py"></textarea>
                     <div class="muted-note">Maps to <code>notify = ["arg1","arg2",...]</code>.</div>
                   </div>
-                  <label class="feature-toggle">
-                    <input type="checkbox" id="steerInput" style="width:auto; accent-color: var(--accent);" checked>
-                    <div>
-                      <div class="feature-title">Steer conversation</div>
-                      <div class="feature-desc">Enter submits immediately; Tab queues messages when a task is running.</div>
-                    </div>
-                  </label>
                 </div>
 
                 <div class="config-card">
@@ -1159,6 +1152,13 @@
                       <div>
                         <div class="feature-title">Allow image viewer</div>
                         <div class="feature-desc">Preview images directly in the conversation instead of downloading them.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
+                      <input type="checkbox" id="steerInput" style="width:auto; accent-color: var(--accent);" checked>
+                      <div>
+                        <div class="feature-title">Steer conversation</div>
+                        <div class="feature-desc">Enter submits immediately; Tab queues messages when a task is running.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">

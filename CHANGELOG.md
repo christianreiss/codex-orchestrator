@@ -1,5 +1,6 @@
 # 2026-01-26
 - Admin config: add steer conversation toggle (default on) to render `steer = true` in fleet config.toml.
+- Admin config: move the Steer conversation toggle into the Security & Features card.
 
 # 2026-01-25
 - Admin hosts: allow per-host AGENTS.md version pinning in the host modal (default follows fleet setting).
