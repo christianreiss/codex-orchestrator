@@ -1,4 +1,5 @@
 # 2026-01-26
+- Admin hosts: add a 🍪 badge for the host that last submitted the current auth.json.
 - Admin config: add steer conversation toggle (default on) to render `steer = true` in fleet config.toml.
 - Admin config: move the Steer conversation toggle into the Security & Features card.
 - Admin dashboard: move the Estimated total trend control into a 📊 icon beside the currency label.

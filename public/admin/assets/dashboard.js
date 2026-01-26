@@ -2616,6 +2616,9 @@
       const vipChip = host.vip
         ? renderVipCrown()
         : '';
+      const authSourceChip = host.auth_source
+        ? '<span class="chip ok" title="Latest auth.json source" aria-label="Latest auth.json source">🍪</span>'
+        : '';
       const insecureStateNow = insecureState(host);
       const minutesActive = countdownMinutes(host.insecure_enabled_until);
       const minutesGrace = countdownMinutes(host.insecure_grace_until);
@@ -2641,6 +2644,7 @@
             <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
               <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
               ${vipChip}
+              ${authSourceChip}
             </div>
           </div>
         </td>

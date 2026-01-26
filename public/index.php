@@ -2509,11 +2509,19 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
     $service->pruneStaleHosts();
 
     $canonicalDigest = null;
+    $canonicalSourceHostId = null;
     $canonicalPayloadId = $versionRepository->get('canonical_payload_id');
     if ($canonicalPayloadId !== null && ctype_digit((string) $canonicalPayloadId)) {
         $canonicalPayload = $authPayloadRepository->findByIdWithEntries((int) $canonicalPayloadId);
         if ($canonicalPayload !== null && isset($canonicalPayload['sha256'])) {
             $canonicalDigest = $canonicalPayload['sha256'];
+            $rawSourceHostId = $canonicalPayload['source_host_id'] ?? null;
+            if ($rawSourceHostId !== null && is_numeric($rawSourceHostId)) {
+                $canonicalSourceHostId = (int) $rawSourceHostId;
+                if ($canonicalSourceHostId <= 0) {
+                    $canonicalSourceHostId = null;
+                }
+            }
         }
     }
 
@@ -2569,6 +2577,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'auth_outdated' => $canonicalDigest !== null
                 && isset($host['auth_digest'])
                 && (string) $host['auth_digest'] !== (string) $canonicalDigest,
+            'auth_source' => $canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId,
             'token_usage' => $tokenUsageRepository->latestForHost((int) $host['id']),
             'users' => $hostUserRepository->listByHost((int) $host['id']),
         ];
