@@ -31,8 +31,14 @@ sync_auth_with_api() {
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
-import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 base = (sys.argv[1] or "").rstrip("/")
 path = pathlib.Path(sys.argv[2]).expanduser()

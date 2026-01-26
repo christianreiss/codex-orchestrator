@@ -1,4 +1,5 @@
 # 2026-01-26
+- cdx: honor `force_ipv4` for Python-based sync/usage HTTPS calls so IPv4-only hosts don't stall on IPv6.
 - Insecure hosts: allow long-running sessions to upload refreshed auth after the window closes (bounded by `INSECURE_SESSION_MAX_MINUTES`).
 - Admin hosts: add a 🍪 badge for the host that last submitted the current auth.json.
 - Admin config: add steer conversation toggle (default on) to render `steer = true` in fleet config.toml.

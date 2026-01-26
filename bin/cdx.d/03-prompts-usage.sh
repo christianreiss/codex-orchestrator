@@ -6,8 +6,14 @@ prompt_sync_python() {
   local prompt_dir="$4"
   local cafile="$5"
   local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, shutil, ssl, sys, urllib.error, urllib.request
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
+import hashlib, json, os, pathlib, shutil, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")
@@ -280,8 +286,14 @@ skill_sync_python() {
   local skill_dir="$4"
   local cafile="$5"
   local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
+import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")
@@ -587,8 +599,14 @@ agents_sync_python() {
   local target_file="$3"
   local cafile="$4"
   local current_sha="$5"
-  CODEX_SYNC_API_KEY="$api_key" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
-import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 base = (sys.argv[1] or "").rstrip("/")
 target = pathlib.Path(sys.argv[2]).expanduser()
@@ -878,8 +896,14 @@ config_sync_python() {
   local target_file="$3"
   local cafile="$4"
   local current_sha="$5"
-  CODEX_SYNC_API_KEY="$api_key" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
-import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 base = (sys.argv[1] or "").rstrip("/")
 target = pathlib.Path(sys.argv[2]).expanduser()
@@ -1378,8 +1402,14 @@ post_token_usage_payload() {
 
   local summary=""
   local status=0
-  summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, os, ssl, sys, urllib.error, urllib.request
+  summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json, os, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 base = (sys.argv[1] or "").rstrip("/")
 payload_raw = sys.argv[2]
@@ -1516,8 +1546,14 @@ PY
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       summary=""
       status=0
-      summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, os, ssl, sys, urllib.error, urllib.request
+      summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json, os, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 
 base = (sys.argv[1] or "").rstrip("/")
 payload_raw = sys.argv[2]

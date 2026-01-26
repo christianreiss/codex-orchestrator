@@ -10,6 +10,7 @@
   - Surfaces runner telemetry from `/auth` versions (`runner_enabled`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`) with stale/failure warnings.
   - Shows host usage returned by `/auth` (`api_calls` and current-month token totals including cached/reasoning) in the boot summary.
 - TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).
+- IPv4-only: when `force_ipv4` is baked for a host, the wrapper forces IPv4 for sync/usage HTTPS (auth, prompts, skills, AGENTS, config, usage), not just `curl`.
 - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`. Server-retired prompts are removed locally.
 - Synchronizes Skills in `~/.codex/skills` against `/skills` with the same pull/push workflow (`/skills/retrieve` for diffs, `/skills/store` on exit). Each Skill is stored as `~/.codex/skills/<slug>/SKILL.md`; retired Skills remove their local directories. Metadata is read from SKILL.md frontmatter (`name`, `description`).
   - Slash command sync treats API outages/HTTP 5xx as offline (warn) instead of a hard failure; prompt push still runs when possible.
