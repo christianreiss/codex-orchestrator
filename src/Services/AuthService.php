@@ -41,6 +41,8 @@ class AuthService
     public const MIN_INSECURE_GRACE_MINUTES = 0;
     public const MAX_INSECURE_GRACE_MINUTES = 480;
     public const DEFAULT_INSECURE_GRACE_MINUTES = 60;
+    public const DEFAULT_INSECURE_SESSION_MAX_MINUTES = 480;
+    public const MAX_INSECURE_SESSION_MAX_MINUTES = 1440;
     public const MIN_QUOTA_LIMIT_PERCENT = 50;
     public const MAX_QUOTA_LIMIT_PERCENT = 100;
     public const DEFAULT_QUOTA_LIMIT_PERCENT = 100;
@@ -357,13 +359,17 @@ class AuthService
         $normalizedWrapperVersion = $this->normalizeClientVersion($wrapperVersion);
 
         $command = $this->normalizeCommand($payload['command'] ?? null);
+        $sessionStartedAt = null;
+        if ($command === 'store') {
+            $sessionStartedAt = $this->parseSessionStartedAt($payload['session_started_at'] ?? null);
+        }
 
         $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $hostVip = isset($host['vip']) ? (bool) (int) $host['vip'] : false;
         $trackHost = $hostId > 0;
 
         if (!$hostSecure) {
-            $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost);
+            $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost, $sessionStartedAt);
         }
 
         if ($trackHost) {
@@ -1873,7 +1879,13 @@ class AuthService
         return null;
     }
 
-    private function assertInsecureHostWindow(array $host, int $hostId, string $command, bool $trackHost): array
+    private function assertInsecureHostWindow(
+        array $host,
+        int $hostId,
+        string $command,
+        bool $trackHost,
+        ?DateTimeImmutable $sessionStartedAt = null
+    ): array
     {
         $enabledUntilRaw = $host['insecure_enabled_until'] ?? null;
         $graceUntilRaw = $host['insecure_grace_until'] ?? null;
@@ -1913,6 +1925,15 @@ class AuthService
         }
 
         if ($command === 'store' && $graceActive) {
+            return $host;
+        }
+
+        if ($command === 'store' && $this->allowInsecurePostRunStore($sessionStartedAt, $enabledUntil, $now)) {
+            $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.post_run_store', [
+                'fqdn' => $host['fqdn'] ?? null,
+                'session_started_at' => $sessionStartedAt?->format(DATE_ATOM),
+                'enabled_until' => $enabledUntilRaw,
+            ]);
             return $host;
         }
 
@@ -2008,6 +2029,69 @@ class AuthService
         }
 
         return $this->adminWsConnected();
+    }
+
+    private function parseSessionStartedAt(mixed $value): ?DateTimeImmutable
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return new DateTimeImmutable($value);
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    private function allowInsecurePostRunStore(
+        ?DateTimeImmutable $sessionStartedAt,
+        ?DateTimeImmutable $enabledUntil,
+        DateTimeImmutable $now
+    ): bool {
+        if ($sessionStartedAt === null || $enabledUntil === null) {
+            return false;
+        }
+
+        $maxMinutes = $this->resolveInsecureSessionMaxMinutes();
+        if ($maxMinutes <= 0) {
+            return false;
+        }
+
+        $skewSeconds = 300;
+        $sessionTs = $sessionStartedAt->getTimestamp();
+        $nowTs = $now->getTimestamp();
+
+        if ($sessionTs > ($nowTs + $skewSeconds)) {
+            return false;
+        }
+
+        if (($nowTs - $sessionTs) > ($maxMinutes * 60)) {
+            return false;
+        }
+
+        if ($sessionStartedAt > $enabledUntil->modify(sprintf('+%d seconds', $skewSeconds))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function resolveInsecureSessionMaxMinutes(): int
+    {
+        $raw = Config::get('INSECURE_SESSION_MAX_MINUTES', self::DEFAULT_INSECURE_SESSION_MAX_MINUTES);
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
+            return self::DEFAULT_INSECURE_SESSION_MAX_MINUTES;
+        }
+
+        $value = (int) $raw;
+        if ($value < 0) {
+            return 0;
+        }
+        if ($value > self::MAX_INSECURE_SESSION_MAX_MINUTES) {
+            return self::MAX_INSECURE_SESSION_MAX_MINUTES;
+        }
+        return $value;
     }
 
     private function adminWsConnected(): bool

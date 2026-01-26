@@ -31,7 +31,7 @@ sync_auth_with_api() {
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
 base = (sys.argv[1] or "").rstrip("/")
@@ -41,6 +41,7 @@ client_version = sys.argv[4] if len(sys.argv) > 4 else "unknown"
 wrapper_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 installation_id = (os.environ.get("CODEX_INSTALLATION_ID", "") or "").strip()
+session_started_at = (os.environ.get("CODEX_INSECURE_SESSION_STARTED_AT", "") or "").strip()
 
 if not base:
     print("Sync API base URL missing", file=sys.stderr)
@@ -311,6 +312,8 @@ if status in ("missing", "upload_required"):
         "auth": current,
         "client_version": client_version or "unknown",
     }
+    if session_started_at:
+        store_payload["session_started_at"] = session_started_at
     if canonical_digest:
         store_payload["digest"] = canonical_digest
     if wrapper_version and wrapper_version != "unknown":
@@ -629,9 +632,13 @@ PY
             HOST_IS_SECURE=0
             PURGE_AUTH_AFTER_RUN=1
             emit_insecure_notice
+            if [[ -z "$INSECURE_SESSION_STARTED_AT" ]]; then
+              INSECURE_SESSION_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            fi
           else
             HOST_IS_SECURE=1
             PURGE_AUTH_AFTER_RUN=0
+            INSECURE_SESSION_STARTED_AT=""
           fi
         fi
       fi

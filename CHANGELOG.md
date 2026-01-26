@@ -1,4 +1,5 @@
 # 2026-01-26
+- Insecure hosts: allow long-running sessions to upload refreshed auth after the window closes (bounded by `INSECURE_SESSION_MAX_MINUTES`).
 - Admin hosts: add a 🍪 badge for the host that last submitted the current auth.json.
 - Admin config: add steer conversation toggle (default on) to render `steer = true` in fleet config.toml.
 - Admin config: move the Steer conversation toggle into the Security & Features card.
