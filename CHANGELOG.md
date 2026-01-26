@@ -2,6 +2,7 @@
 - Admin config: add steer conversation toggle (default on) to render `steer = true` in fleet config.toml.
 - Admin config: move the Steer conversation toggle into the Security & Features card.
 - Admin dashboard: move the Estimated total trend control into a 📊 icon beside the currency label.
+- Admin hosts: move the status pill into a Status column and swap the insecure toggle to an iPhone switch.
 
 # 2026-01-25
 - Admin hosts: allow per-host AGENTS.md version pinning in the host modal (default follows fleet setting).

@@ -1691,6 +1691,8 @@ body.auth-locked .nav-actions {
     /* Host details */
     tbody tr.host-row { cursor: pointer; }
     tbody tr.host-row:hover { background: var(--table-hover); }
+    .status-cell { white-space: nowrap; }
+    .insecure-inline-toggle { margin: 0; }
     .details-cell { text-align: right; }
     .details-chip {
       display: inline-flex;

@@ -2612,9 +2612,6 @@
       const addedDate = parseTimestamp(addedAt);
       const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
       const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
-      const ipIcon = host.allow_roaming_ips ? '🌍' : '🔒';
-      const primaryIp = host.ip4 ?? host.ip6 ?? null;
-      const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
       const isSecure = isHostSecure(host);
       const vipChip = host.vip
         ? renderVipCrown()
@@ -2623,18 +2620,16 @@
       const minutesActive = countdownMinutes(host.insecure_enabled_until);
       const minutesGrace = countdownMinutes(host.insecure_grace_until);
       let insecureLabel = 'Turn On';
-      let insecureClasses = 'ghost tiny-btn primary';
       if (!isSecure && insecureStateNow.enabledActive) {
         insecureLabel = `Turn Off (${minutesActive ?? 0} min left)`;
-        insecureClasses = 'ghost tiny-btn ok';
       } else if (!isSecure && insecureStateNow.graceActive) {
         const graceText = minutesGrace !== null ? `${minutesGrace} min` : 'grace';
         insecureLabel = `Turn On (${graceText} left)`;
-        insecureClasses = 'ghost tiny-btn neutral';
       }
       const health = hostHealth(host);
       const pill = hostTablePill(host);
       const pillChip = pill ? `<span class="chip ${pill.tone === 'ok' ? 'ok' : 'warn'}">${pill.label}</span>` : '';
+      const statusChip = pillChip || '<span class="muted">—</span>';
       tr.classList.add(`status-${health.tone}`);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
@@ -2645,10 +2640,12 @@
             <strong>${escapeHtml(host.fqdn)}</strong>
             <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
               <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
-              ${pillChip}
               ${vipChip}
             </div>
           </div>
+        </td>
+        <td data-label="Status" class="status-cell">
+          ${statusChip}
         </td>
         <td data-label="Last Seen">
           <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
@@ -2658,16 +2655,13 @@
         </td>
         <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
         <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-        <td data-label="IP / Mode">
-          <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
-            <span>${escapeHtml(primaryIp ?? '—')}</span>
-            ${secondaryIp ? `<span class="muted">+ ${escapeHtml(secondaryIp)}</span>` : ''}
-            ${primaryIp ? `<span class="ip-indicator" title="${host.allow_roaming_ips ? 'Roaming enabled' : 'Locked to first IPv4/IPv6 pair'}">${ipIcon}</span>` : ''}
-            ${host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : ''}
-          </div>
-        </td>
         ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
-          ${isSecure ? '' : `<button class="${insecureClasses} insecure-inline-btn" style="white-space:nowrap;" data-id="${host.id}">${insecureLabel}</button>`}
+          ${isSecure ? '' : `
+            <label class="toggle insecure-inline-toggle" data-id="${host.id}" title="${insecureLabel}">
+              <input type="checkbox" ${insecureStateNow.enabledActive ? 'checked' : ''} aria-label="${insecureLabel}">
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          `}
         </td>` : ''}
       `;
       tr.addEventListener('click', () => openHostDetail(host.id));
@@ -2677,14 +2671,15 @@
           openHostDetail(host.id);
         }
       });
-      const insecureBtn = tr.querySelector('.insecure-inline-btn');
-      if (insecureBtn) {
-        insecureBtn.addEventListener('click', (ev) => {
+      const insecureToggle = tr.querySelector('.insecure-inline-toggle input');
+      if (insecureToggle) {
+        insecureToggle.addEventListener('click', (ev) => ev.stopPropagation());
+        insecureToggle.addEventListener('change', (ev) => {
           ev.stopPropagation();
-          const targetId = Number(insecureBtn.getAttribute('data-id'));
+          const targetId = Number(insecureToggle.closest('.insecure-inline-toggle')?.getAttribute('data-id'));
           const targetHost = currentHosts.find(h => h.id === targetId);
           if (targetHost) {
-            toggleInsecureApi(targetHost, insecureBtn);
+            toggleInsecureApi(targetHost, insecureToggle);
           }
         });
       }
@@ -6825,10 +6820,13 @@
       const path = enableTarget
         ? `/admin/hosts/${host.id}/insecure/enable`
         : `/admin/hosts/${host.id}/insecure/disable`;
-      const originalLabel = button ? button.textContent : null;
+      const isToggleInput = button && button.tagName === 'INPUT';
+      const originalLabel = button ? (isToggleInput ? button.getAttribute('aria-label') : button.textContent) : null;
       if (button) {
         button.disabled = true;
-        button.textContent = enableTarget ? 'Turning on…' : 'Turning off…';
+        if (!isToggleInput) {
+          button.textContent = enableTarget ? 'Turning on…' : 'Turning off…';
+        }
       }
       const request = { method: 'POST' };
       if (enableTarget) {
@@ -6839,10 +6837,19 @@
         await loadAll();
       } catch (err) {
         console.error('toggleInsecureApi failed', err);
+        if (isToggleInput && button) {
+          button.checked = !enableTarget;
+        }
       } finally {
         if (button) {
           button.disabled = false;
-          if (originalLabel !== null) button.textContent = originalLabel;
+          if (originalLabel !== null) {
+            if (isToggleInput) {
+              button.setAttribute('aria-label', originalLabel);
+            } else {
+              button.textContent = originalLabel;
+            }
+          }
         }
       }
     }
