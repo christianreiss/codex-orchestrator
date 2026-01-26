@@ -760,6 +760,16 @@ body {
     }
     #memories .memories-delete {
       margin-left: auto;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(2px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    #memories tr:hover .memories-delete,
+    #memories tr:focus-within .memories-delete {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
     }
     #memories .memories-key {
       font-size: 12px;
