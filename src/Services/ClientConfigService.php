@@ -343,6 +343,7 @@ class ClientConfigService
             'model_supports_reasoning_summaries' => $normalizeBool($settings['model_supports_reasoning_summaries'] ?? null),
             'model_context_window' => $this->normalizeInt($settings['model_context_window'] ?? null),
             'model_max_output_tokens' => $this->normalizeInt($settings['model_max_output_tokens'] ?? null),
+            'steer' => $normalizeBool($settings['steer'] ?? null, true),
             'notify' => $this->normalizeStringList($settings['notify'] ?? []),
             'orchestrator_mcp_enabled' => $normalizeBool($settings['orchestrator_mcp_enabled'] ?? null, true),
         ];
@@ -545,6 +546,7 @@ class ClientConfigService
             'model_supports_reasoning_summaries',
             'model_context_window',
             'model_max_output_tokens',
+            'steer',
         ];
 
         $notify = $settings['notify'] ?? [];

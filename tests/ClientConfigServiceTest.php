@@ -106,6 +106,15 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('model_reasoning_summary', $rendered['content']);
     }
 
+    public function testSteerDefaultsToTrueAndCanDisable(): void
+    {
+        $renderedDefault = $this->service->render([]);
+        $this->assertStringContainsString('steer = true', $renderedDefault['content']);
+
+        $renderedDisabled = $this->service->render(['steer' => false]);
+        $this->assertStringContainsString('steer = false', $renderedDisabled['content']);
+    }
+
     public function testReasoningSummaryAutoPassesThrough(): void
     {
         $rendered = $this->service->render([

@@ -20,6 +20,7 @@
 	    url = "{base_url}/mcp"
 	    http_headers = { Authorization = "Bearer {host_api_key}" }
 	    ```  
+	    Config defaults now include `steer = true` to enable steering mode (Enter submits immediately; Tab queues messages when a task is running).
 	    When per-host model overrides are set (via the admin Hosts modal), the server also applies them to the baked `config.toml` (`model` and `model_reasoning_effort`) so the host’s file reflects its effective defaults.
 	    Responses include `status:updated|unchanged|missing`, baked `sha256`, `base_sha256`, and `content` only when changed. When the server reports `status:missing`, the local file is deleted; offline/missing-config states are surfaced as warnings but do not block auth.
 	  - Autodetects/installs `curl`/`unzip`, updates Codex CLI/binary to the server-reported target `versions.client_version`, and self-updates the wrapper (self-update triggers a re-exec; only the final run prints the boot summary to avoid double headers). When the server pins a target version (`client_version_source=locked`, either fleet-wide or per-host), `cdx` enforces the exact target (upgrade or downgrade) so hosts converge on the pinned release.

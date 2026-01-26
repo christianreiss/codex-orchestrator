@@ -16,6 +16,7 @@
   let maxTokensInput;
   let supportsSummariesInput;
   let notifyInput;
+  let steerInput;
 
   let featureStreamShell;
   let featureBackgroundTerminal;
@@ -126,6 +127,7 @@
       model_supports_reasoning_summaries: false,
       model_context_window: null,
       model_max_output_tokens: null,
+      steer: true,
       features: {
         streamable_shell: false,
         background_terminal: false,
@@ -381,6 +383,7 @@
       model_supports_reasoning_summaries: supportsSummariesInput.checked,
       model_context_window: numberOrNull(contextWindowInput.value),
       model_max_output_tokens: numberOrNull(maxTokensInput.value),
+      steer: steerInput.checked,
       notify: parseArgs(notifyInput.value),
       features,
       notice: base.notice,
@@ -431,6 +434,7 @@
     contextWindowInput.value = cfg.model_context_window ?? '';
     maxTokensInput.value = cfg.model_max_output_tokens ?? '';
     supportsSummariesInput.checked = Boolean(cfg.model_supports_reasoning_summaries);
+    steerInput.checked = Boolean(cfg.steer);
     notifyInput.value = (cfg.notify || []).join('\n');
 
     featureStreamShell.checked = Boolean(cfg.features?.streamable_shell);
@@ -698,6 +702,7 @@
     maxTokensInput = document.getElementById('maxTokensInput');
     supportsSummariesInput = document.getElementById('supportsSummariesInput');
     notifyInput = document.getElementById('notifyInput');
+    steerInput = document.getElementById('steerInput');
 
     featureStreamShell = document.getElementById('featureStreamShell');
     featureBackgroundTerminal = document.getElementById('featureBackgroundTerminal');
