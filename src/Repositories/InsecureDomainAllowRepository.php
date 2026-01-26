@@ -166,6 +166,25 @@ class InsecureDomainAllowRepository
         ]);
     }
 
+    public function revokeExpired(string $now): int
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE insecure_domain_allows
+             SET revoked_at = :revoked_at,
+                 updated_at = :updated_at
+             WHERE revoked_at IS NULL
+               AND enabled_until IS NOT NULL
+               AND enabled_until <= :cutoff'
+        );
+        $statement->execute([
+            'revoked_at' => $now,
+            'updated_at' => $now,
+            'cutoff' => $now,
+        ]);
+
+        return $statement->rowCount();
+    }
+
     private function normalizeRow(array $row): array
     {
         return [

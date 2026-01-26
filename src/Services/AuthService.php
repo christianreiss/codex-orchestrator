@@ -2678,7 +2678,18 @@ class AuthService
 
     public function pruneStaleHosts(): void
     {
+        $this->pruneExpiredInsecureDomainAllows();
         $this->pruneInactiveHosts();
+    }
+
+    private function pruneExpiredInsecureDomainAllows(): void
+    {
+        if ($this->insecureDomainAllows === null) {
+            return;
+        }
+
+        $now = gmdate(DATE_ATOM);
+        $this->insecureDomainAllows->revokeExpired($now);
     }
 
     /**

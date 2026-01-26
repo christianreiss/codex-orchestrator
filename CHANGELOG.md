@@ -4,6 +4,7 @@
 - Admin dashboard: move the Estimated total trend control into a 📊 icon beside the currency label.
 - Admin hosts: move the status pill into a Status column and swap the insecure toggle to an iPhone switch.
 - Admin hosts: stop showing "Pruning soon" when host pruning is set to never.
+- Insecure domain auto-allow rules now auto-revoke once their window expires.
 
 # 2026-01-25
 - Admin hosts: allow per-host AGENTS.md version pinning in the host modal (default follows fleet setting).
