@@ -4911,7 +4911,10 @@
         <div class="card cost-card ${costLevelClass}">
           <div class="stat-head">
             <span class="stat-label">Estimated total</span>
-            <span class="stat-sub">${planCurrency}</span>
+            <span class="stat-sub cost-head-actions">
+              <span class="cost-currency">${planCurrency}</span>
+              <button class="ghost tiny-btn cost-history-btn cost-history-emoji" type="button" aria-label="Open cost trend">📊</button>
+            </span>
           </div>
           <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
           ${selectedPlan && monthPercentOfPlan !== null ? `
@@ -4924,7 +4927,6 @@
           <div class="cost-foot">
             <span>${formatCurrency(weekCost, planCurrency)} this week</span>
             <span>${formatCurrency(dayCost, planCurrency)} today</span>
-            <button class="ghost tiny-btn cost-history-btn" type="button" aria-label="Open cost trend">Trend</button>
           </div>
         </div>
       `;
