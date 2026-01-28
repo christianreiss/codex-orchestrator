@@ -1,5 +1,6 @@
 # 2026-01-28
 - Admin config: render `steer = true|false` under `[features]` in fleet config.toml.
+- Config: bake a trusted-project stanza into per-host config.toml using the caller's username/home to suppress Codex trust warnings.
 
 # 2026-01-26
 - cdx: honor `force_ipv4` for Python-based sync/usage HTTPS calls so IPv4-only hosts don't stall on IPv6.

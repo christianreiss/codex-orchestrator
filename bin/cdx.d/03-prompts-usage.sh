@@ -896,7 +896,12 @@ config_sync_python() {
   local target_file="$3"
   local cafile="$4"
   local current_sha="$5"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+  local username="${CURRENT_USER:-}"
+  local home_path="${HOME:-}"
+  if [[ -z "$home_path" && -n "$username" ]] && command -v getent >/dev/null 2>&1; then
+    home_path="$(getent passwd "$username" | cut -d: -f6 2>/dev/null || true)"
+  fi
+  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
 import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
 
 if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
@@ -975,6 +980,12 @@ if not api_key:
 payload = {}
 if current_sha and len(current_sha) == 64:
     payload["sha256"] = current_sha
+username = os.environ.get("CODEX_CONFIG_USERNAME", "").strip()
+home = os.environ.get("CODEX_CONFIG_HOME", "").strip()
+if username:
+    payload["username"] = username
+if home:
+    payload["home"] = home
 
 try:
     resp = request_json("POST", f"{base}/config/retrieve", payload)

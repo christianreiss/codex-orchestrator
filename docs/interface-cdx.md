@@ -15,7 +15,7 @@
 - Synchronizes Skills in `~/.codex/skills` against `/skills` with the same pull/push workflow (`/skills/retrieve` for diffs, `/skills/store` on exit). Each Skill is stored as `~/.codex/skills/<slug>/SKILL.md`; retired Skills remove their local directories. Metadata is read from SKILL.md frontmatter (`name`, `description`).
   - Slash command sync treats API outages/HTTP 5xx as offline (warn) instead of a hard failure; prompt push still runs when possible.
   - AGENTS.md is pulled from `/agents/retrieve` on every run and written to `~/.codex/AGENTS.md` (directory created if missing). The file is **never** pushed upstream; if the server reports `status:missing`, the local AGENTS.md is deleted to avoid stale instructions. Python is required for sync; missing config or offline servers are reported but do not block auth.
-	  - `config.toml` is pulled from `/config/retrieve` and written to `~/.codex/config.toml`. The server bakes it per host using the caller’s API key and native HTTP MCP:  
+	  - `config.toml` is pulled from `/config/retrieve` and written to `~/.codex/config.toml`. The wrapper includes the calling username + home path so the server can append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) for that user, avoiding Codex trust warnings. The server bakes it per host using the caller’s API key and native HTTP MCP:  
 	    ```toml
 	    [mcp_servers.cdx]
 	    url = "{base_url}/mcp"

@@ -207,12 +207,20 @@ class ClientConfigService
         }
     }
 
-    public function retrieve(?string $sha256, ?array $host = null, ?string $baseUrl = null, ?string $apiKey = null): array
+    public function retrieve(
+        ?string $sha256,
+        ?array $host = null,
+        ?string $baseUrl = null,
+        ?string $apiKey = null,
+        ?string $username = null,
+        ?string $home = null
+    ): array
     {
         $this->assertSha($sha256, true);
 
         $row = $this->configs->latest();
         $hostId = $this->hostId($host);
+        $homePath = $this->normalizeHomePath($home, $username);
 
         if ($row === null) {
             $this->logs->log($hostId, 'config.retrieve', ['status' => 'missing']);
@@ -226,7 +234,7 @@ class ClientConfigService
         $baseSha = $row['sha256'] ?? hash('sha256', $body);
         $updatedAt = $row['updated_at'] ?? null;
 
-        $cacheKey = $this->cacheKey($baseSha, $updatedAt, $hostId, $apiKey, $baseUrl);
+        $cacheKey = $this->cacheKey($baseSha, $updatedAt, $hostId, $apiKey, $baseUrl, $homePath);
         $baked = self::$bakeCache[$cacheKey] ?? null;
         if ($baked === null) {
             $settings = $row['settings'] ?? [];
@@ -234,10 +242,17 @@ class ClientConfigService
                 $settings = [];
             }
             $rendered = $this->renderForHost($settings, $host, $baseUrl, $apiKey);
+            $content = $this->injectTrustedProjectToml($rendered['content'], $homePath);
+            $bakedSha = $rendered['sha256'];
+            $bakedSize = $rendered['size_bytes'];
+            if ($content !== $rendered['content']) {
+                $bakedSha = hash('sha256', $content);
+                $bakedSize = strlen($content);
+            }
             $baked = [
-                'sha256' => $rendered['sha256'],
-                'size_bytes' => $rendered['size_bytes'],
-                'content' => $rendered['content'],
+                'sha256' => $bakedSha,
+                'size_bytes' => $bakedSize,
+                'content' => $content,
                 'updated_at' => $updatedAt,
                 'base_sha' => $baseSha,
             ];
@@ -272,7 +287,14 @@ class ClientConfigService
         self::$bakeCache = [];
     }
 
-    private function cacheKey(string $baseSha, ?string $updatedAt, ?int $hostId, ?string $apiKey, ?string $baseUrl): string
+    private function cacheKey(
+        string $baseSha,
+        ?string $updatedAt,
+        ?int $hostId,
+        ?string $apiKey,
+        ?string $baseUrl,
+        ?string $homePath
+    ): string
     {
         $keyHash = hash('sha256', (string) $apiKey);
         return implode('|', [
@@ -281,7 +303,54 @@ class ClientConfigService
             $hostId ?? 0,
             $keyHash,
             $this->normalizeString($baseUrl) ?? '',
+            $homePath ?? '',
         ]);
+    }
+
+    private function injectTrustedProjectToml(string $content, ?string $homePath): string
+    {
+        $path = $this->normalizeHomePath($homePath, null);
+        if ($path === null || $path === '') {
+            return $content;
+        }
+
+        $table = '[projects.' . $this->tomlString($path) . ']';
+        if (strpos($content, $table) !== false) {
+            return $content;
+        }
+
+        $trimmed = rtrim($content);
+        $separator = $trimmed === '' ? '' : "\n\n";
+        return $trimmed . $separator . $table . "\ntrust_level = \"trusted\"\n";
+    }
+
+    private function normalizeHomePath(?string $home, ?string $username): ?string
+    {
+        $normalized = $this->normalizeString($home);
+        if ($normalized === null || $normalized === '') {
+            $candidateUser = $this->normalizeString($username);
+            if ($candidateUser !== null && $candidateUser !== '' && preg_match('/^[A-Za-z0-9._-]+$/', $candidateUser)) {
+                $normalized = '/home/' . $candidateUser;
+            } else {
+                return null;
+            }
+        }
+
+        if (!str_starts_with($normalized, '/')) {
+            return null;
+        }
+
+        if (preg_match('/[\x00-\x1F\x7F]/', $normalized)) {
+            return null;
+        }
+
+        return $normalized;
+    }
+
+    private function tomlString(string $value): string
+    {
+        $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $value);
+        return '"' . $escaped . '"';
     }
 
     private function injectManagedMcp(array $settings, ?string $baseUrl, ?string $apiKey): array

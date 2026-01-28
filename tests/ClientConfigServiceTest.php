@@ -243,6 +243,37 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertNotSame($first['sha256'], $second['sha256'], 'baked sha must change when API key changes');
     }
 
+    public function testRetrieveInjectsTrustedProjectHome(): void
+    {
+        $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+
+        $result = $this->service->retrieve(null, ['id' => 2], null, null, 'alice', '/home/alice');
+
+        $this->assertArrayHasKey('content', $result);
+        $this->assertStringContainsString('[projects."/home/alice"]', $result['content']);
+        $this->assertStringContainsString('trust_level = "trusted"', $result['content']);
+    }
+
+    public function testRetrieveSkipsInvalidHomePath(): void
+    {
+        $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+
+        $result = $this->service->retrieve(null, ['id' => 3], null, null, 'alice', 'home/alice');
+
+        $this->assertArrayHasKey('content', $result);
+        $this->assertStringNotContainsString('[projects."home/alice"]', $result['content']);
+    }
+
+    public function testBakedShaChangesWhenHomeChanges(): void
+    {
+        $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+
+        $first = $this->service->retrieve(null, ['id' => 4], 'https://example.test', 'api-key', null, '/home/a');
+        $second = $this->service->retrieve(null, ['id' => 4], 'https://example.test', 'api-key', null, '/home/b');
+
+        $this->assertNotSame($first['sha256'], $second['sha256'], 'baked sha must change when home path changes');
+    }
+
     public function testRenderForHostAppliesPerHostModelOverrides(): void
     {
         $rendered = $this->service->renderForHost([

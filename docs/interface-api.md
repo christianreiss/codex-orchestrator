@@ -17,7 +17,7 @@
 - `POST /skills/retrieve` — body: `slug` (required; accepts legacy `filename`) and optional `sha256`. Returns `status` (`missing` | `deleted` | `unchanged` | `updated`), metadata, and `manifest` when the stored content differs.
 - `POST /skills/store` — body: `slug`, `manifest` (required string; typically the Skill manifest JSON), optional `display_name`/`description`, optional `sha256` (validated against `manifest`). Stores/updates canonical skill specs, logs `skill.store`, and returns `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
 - `POST /agents/retrieve` — pull the served AGENTS.md edition. Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), `version_id`, `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/AGENTS.md`. Per-host overrides (`agents_document_id_override`) take precedence over the fleet setting when present.
-- `POST /config/retrieve` — pulls the canonical config template and bakes a per-host `config.toml` using the authenticated host API key. Managed MCP entry now uses the native HTTP MCP transport (no npm):  
+- `POST /config/retrieve` — pulls the canonical config template and bakes a per-host `config.toml` using the authenticated host API key. Optional body fields `username` and `home` allow the server to append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) to silence Codex trust warnings for the calling user. Managed MCP entry now uses the native HTTP MCP transport (no npm):  
   ```toml
   [mcp_servers.cdx]
   url = "{base_url}/mcp"

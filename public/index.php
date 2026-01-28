@@ -3338,7 +3338,9 @@ $router->add('POST', '#^/config/retrieve$#', function () use ($payload, $service
     $baseUrl = resolveBaseUrl();
 
     $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
-    $result = $clientConfigService->retrieve($sha, $host, $baseUrl, $apiKey);
+    $username = is_array($payload) && array_key_exists('username', $payload) ? (string) $payload['username'] : null;
+    $home = is_array($payload) && array_key_exists('home', $payload) ? (string) $payload['home'] : null;
+    $result = $clientConfigService->retrieve($sha, $host, $baseUrl, $apiKey, $username, $home);
 
     Response::json([
         'status' => 'ok',

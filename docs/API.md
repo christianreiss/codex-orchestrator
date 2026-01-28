@@ -56,7 +56,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /skills/store` — body: `slug`, `manifest` (or `content`), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
 ### Config
-- `POST /config/retrieve` — optional `sha256` (64-hex). Returns `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256` (template hash), `updated_at`, `size_bytes`, and `content` when updated. When per-host model overrides are set, the baked config also overrides `model` and `model_reasoning_effort` so the host’s `~/.codex/config.toml` reflects its effective defaults. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
+- `POST /config/retrieve` — optional `sha256` (64-hex) plus optional `username`/`home` to let the server append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) in the baked config. Returns `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256` (template hash), `updated_at`, `size_bytes`, and `content` when updated. When per-host model overrides are set, the baked config also overrides `model` and `model_reasoning_effort` so the host’s `~/.codex/config.toml` reflects its effective defaults. `status:missing` instructs clients to delete local `~/.codex/config.toml`.
 
 ### MCP memories
 - `POST /mcp/memories/store` — body: `content` (required, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when missing), optional `metadata` (object), optional `tags` (array of up to 32 strings, each ≤64 chars). Returns `status` `created` | `updated` | `unchanged` and `memory` (`id`, `content`, `metadata`, `tags`, timestamps).
