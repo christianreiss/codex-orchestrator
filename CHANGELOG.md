@@ -30,6 +30,7 @@
 - Admin hosts: fix host-tab active state contrast in dark mode.
 
 # 2026-01-19
+- Skills: added "Git Commit" skill manifest to the fleet registry.
 - Skills: added "Checkmk Local Checks" skill manifest to the fleet registry.
 - AGENTS.md: added versioned storage with pinned vs latest serving, plus delete controls in the admin editor and new admin endpoints.
 - Admin new host modal: "Run on the target host" command box now follows theme toggle (light/dark/auto); cache-bumped dashboard.css.
