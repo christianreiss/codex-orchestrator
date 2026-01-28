@@ -395,6 +395,10 @@ class ClientConfigService
             }
             $features[$name] = $boolValue;
         }
+        if (array_key_exists('steer', $features)) {
+            $result['steer'] = $features['steer'];
+        }
+        $features['steer'] = $result['steer'];
         $result['features'] = $features;
 
         $sandboxRaw = is_array($settings['sandbox_workspace_write'] ?? null) ? $settings['sandbox_workspace_write'] : [];
@@ -546,7 +550,6 @@ class ClientConfigService
             'model_supports_reasoning_summaries',
             'model_context_window',
             'model_max_output_tokens',
-            'steer',
         ];
 
         $notify = $settings['notify'] ?? [];
@@ -561,10 +564,18 @@ class ClientConfigService
 
         $this->addKeyValue($lines, 'notify', $settings['notify'] ?? null);
 
-        if ($this->hasAny($settings['features'] ?? [])) {
+        $features = $settings['features'] ?? [];
+        if (!is_array($features)) {
+            $features = [];
+        }
+        if (array_key_exists('steer', $settings)) {
+            $features['steer'] = $settings['steer'];
+        }
+        $hasSteer = array_key_exists('steer', $features);
+        if ($this->hasAny($features) || $hasSteer) {
             $this->addBlankLine($lines);
             $lines[] = '[features]';
-            foreach ($this->sortedAssoc($settings['features']) as $key => $value) {
+            foreach ($this->sortedAssoc($features) as $key => $value) {
                 $this->addKeyValue($lines, (string) $key, $value);
             }
         }

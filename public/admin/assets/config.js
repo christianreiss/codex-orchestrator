@@ -459,6 +459,7 @@
     delete featureExtras.ghost_commit;
     delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.enable_experimental_windows_sandbox;
+    delete featureExtras.steer;
     extraFeaturesInput.value = mapToText(featureExtras);
 
     sandboxNetwork.checked = Boolean(cfg.sandbox_workspace_write?.network_access);

@@ -109,9 +109,11 @@ final class ClientConfigServiceTest extends TestCase
     public function testSteerDefaultsToTrueAndCanDisable(): void
     {
         $renderedDefault = $this->service->render([]);
+        $this->assertStringContainsString('[features]', $renderedDefault['content']);
         $this->assertStringContainsString('steer = true', $renderedDefault['content']);
 
         $renderedDisabled = $this->service->render(['steer' => false]);
+        $this->assertStringContainsString('[features]', $renderedDisabled['content']);
         $this->assertStringContainsString('steer = false', $renderedDisabled['content']);
     }
 

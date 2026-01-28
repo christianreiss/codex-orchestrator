@@ -1,3 +1,6 @@
+# 2026-01-28
+- Admin config: render `steer = true|false` under `[features]` in fleet config.toml.
+
 # 2026-01-26
 - cdx: honor `force_ipv4` for Python-based sync/usage HTTPS calls so IPv4-only hosts don't stall on IPv6.
 - Insecure hosts: allow long-running sessions to upload refreshed auth after the window closes (bounded by `INSECURE_SESSION_MAX_MINUTES`).
