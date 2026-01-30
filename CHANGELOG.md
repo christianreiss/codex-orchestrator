@@ -1,3 +1,6 @@
+# 2026-01-30
+- cdx: add `-4` flag to force IPv4 for all wrapper network calls (sync, usage, update/download).
+
 # 2026-01-28
 - Admin config: render `steer = true|false` under `[features]` in fleet config.toml.
 - Config: bake a trusted-project stanza into per-host config.toml using the caller's username/home to suppress Codex trust warnings.

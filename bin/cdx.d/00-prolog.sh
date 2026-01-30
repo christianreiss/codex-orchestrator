@@ -303,7 +303,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.01.28-01"
+WRAPPER_VERSION="2026.01.30-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -326,6 +326,29 @@ HOST_USERS_CACHE=()
 HOST_USERS_FETCHED=0
 
 CODEX_ORIGINAL_ARGS=("$@")
+
+# Wrapper flags (strip before handing args to Codex)
+if (( $# > 0 )); then
+  parsed_args=()
+  saw_double_dash=0
+  for arg in "$@"; do
+    if (( saw_double_dash )); then
+      parsed_args+=("$arg")
+      continue
+    fi
+    if [[ "$arg" == "--" ]]; then
+      saw_double_dash=1
+      parsed_args+=("$arg")
+      continue
+    fi
+    if [[ "$arg" == "-4" ]]; then
+      CODEX_FORCE_IPV4=1
+      continue
+    fi
+    parsed_args+=("$arg")
+  done
+  set -- "${parsed_args[@]}"
+fi
 
 if [[ "${1-}" == "--execute" ]]; then
   shift
@@ -473,6 +496,9 @@ uninstall_api_deregister() {
   fi
   local url="${base}/auth?force=1"
   local args=(-fsS -X DELETE -H "X-API-Key: ${key}")
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    args+=("-4")
+  fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
   if curl "${args[@]}" "$url" >/dev/null 2>&1; then
     log_info "API deregistration succeeded"
@@ -505,6 +531,9 @@ PY
 
   local url="${base}/host/users"
   local args=(-fsS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" --data "$payload")
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    args+=("-4")
+  fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
   local response=""
   if ! response="$(curl "${args[@]}" "$url" 2>/dev/null)"; then

@@ -303,7 +303,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.01.28-01"
+WRAPPER_VERSION="2026.01.30-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -326,6 +326,29 @@ HOST_USERS_CACHE=()
 HOST_USERS_FETCHED=0
 
 CODEX_ORIGINAL_ARGS=("$@")
+
+# Wrapper flags (strip before handing args to Codex)
+if (( $# > 0 )); then
+  parsed_args=()
+  saw_double_dash=0
+  for arg in "$@"; do
+    if (( saw_double_dash )); then
+      parsed_args+=("$arg")
+      continue
+    fi
+    if [[ "$arg" == "--" ]]; then
+      saw_double_dash=1
+      parsed_args+=("$arg")
+      continue
+    fi
+    if [[ "$arg" == "-4" ]]; then
+      CODEX_FORCE_IPV4=1
+      continue
+    fi
+    parsed_args+=("$arg")
+  done
+  set -- "${parsed_args[@]}"
+fi
 
 if [[ "${1-}" == "--execute" ]]; then
   shift
@@ -473,6 +496,9 @@ uninstall_api_deregister() {
   fi
   local url="${base}/auth?force=1"
   local args=(-fsS -X DELETE -H "X-API-Key: ${key}")
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    args+=("-4")
+  fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
   if curl "${args[@]}" "$url" >/dev/null 2>&1; then
     log_info "API deregistration succeeded"
@@ -505,6 +531,9 @@ PY
 
   local url="${base}/host/users"
   local args=(-fsS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" --data "$payload")
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    args+=("-4")
+  fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
   local response=""
   if ! response="$(curl "${args[@]}" "$url" 2>/dev/null)"; then
@@ -808,7 +837,11 @@ probe_latest_version_tag() {
     return 1
   fi
   local effective
-  if ! effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' -L "$url" 2>/dev/null)"; then
+  local curl_args=(-fsSLI -o /dev/null -w '%{url_effective}' -L)
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if ! effective="$(curl "${curl_args[@]}" "$url" 2>/dev/null)"; then
     return 1
   fi
   if [[ "$effective" =~ /tag/([^/]+)$ ]]; then
@@ -3414,8 +3447,13 @@ send_token_usage_if_present() {
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
-  python3 - "$api_url" "$wanted_asset" <<'PY'
-import json, sys, time, urllib.request
+  CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
+import json, os, socket, sys, time, urllib.request
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 url = sys.argv[1]
 wanted = sys.argv[2]
 headers = {
@@ -3481,7 +3519,11 @@ perform_update() (
   trap 'rm -rf "$tmpdir"' EXIT
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
-  if ! curl -fsSL "$url" -o "$asset_file"; then
+  local curl_args=(-fsSL)
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
     log_error "Download failed from $url"
     exit 1
   fi

@@ -2,8 +2,13 @@
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
-  python3 - "$api_url" "$wanted_asset" <<'PY'
-import json, sys, time, urllib.request
+  CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
+import json, os, socket, sys, time, urllib.request
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_getaddrinfo
 url = sys.argv[1]
 wanted = sys.argv[2]
 headers = {
@@ -69,7 +74,11 @@ perform_update() (
   trap 'rm -rf "$tmpdir"' EXIT
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
-  if ! curl -fsSL "$url" -o "$asset_file"; then
+  local curl_args=(-fsSL)
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
     log_error "Download failed from $url"
     exit 1
   fi

@@ -201,7 +201,11 @@ probe_latest_version_tag() {
     return 1
   fi
   local effective
-  if ! effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' -L "$url" 2>/dev/null)"; then
+  local curl_args=(-fsSLI -o /dev/null -w '%{url_effective}' -L)
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if ! effective="$(curl "${curl_args[@]}" "$url" 2>/dev/null)"; then
     return 1
   fi
   if [[ "$effective" =~ /tag/([^/]+)$ ]]; then

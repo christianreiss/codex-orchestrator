@@ -10,7 +10,7 @@
   - Surfaces runner telemetry from `/auth` versions (`runner_enabled`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`) with stale/failure warnings.
   - Shows host usage returned by `/auth` (`api_calls` and current-month token totals including cached/reasoning) in the boot summary.
 - TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).
-- IPv4-only: when `force_ipv4` is baked for a host, the wrapper forces IPv4 for sync/usage HTTPS (auth, prompts, skills, AGENTS, config, usage), not just `curl`.
+- IPv4-only: when `force_ipv4` is baked for a host (or `cdx -4` is used), the wrapper forces IPv4 for all wrapper HTTPS calls (auth, prompts, skills, AGENTS, config, usage) plus update/download requests, not just `curl`.
 - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`. Server-retired prompts are removed locally.
 - Synchronizes Skills in `~/.codex/skills` against `/skills` with the same pull/push workflow (`/skills/retrieve` for diffs, `/skills/store` on exit). Each Skill is stored as `~/.codex/skills/<slug>/SKILL.md`; retired Skills remove their local directories. Metadata is read from SKILL.md frontmatter (`name`, `description`).
   - Slash command sync treats API outages/HTTP 5xx as offline (warn) instead of a hard failure; prompt push still runs when possible.
@@ -34,6 +34,7 @@
   - Insecure hosts with a clean sync (no updates or errors) compress the Result line to `sync ok (insecure host; auth refreshed)` to avoid repetitive noise.
 - `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
 - `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
+- `cdx -4` forces IPv4 for all wrapper network calls for that run (sync, usage, update/download), overriding the baked dual-stack default.
 - `cdx <profile> [args...]` is shorthand for `cdx --profile <profile> [args...]` when the named profile exists in the synced `config.toml` (`[profiles.<profile>]`); if the profile does not exist, the argument is passed through unchanged.
 - `cdx --execute "<prompt>" [args...]` skips all wrapper logging, runs `codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check "<prompt>" ...`, captures the final assistant reply via `--output-last-message`, and prints only that reply (no CLI banners/logs); no other wrapper flags may accompany this mode.
 - The API can return HTTP 429 when IP rate limits trip (global bucket or repeated invalid API keys). Responses include `bucket`, `limit`, and `reset_at`; callers should back off until `reset_at` before retrying.

@@ -134,6 +134,9 @@ cdx ultra
 
 # One-shot, script-friendly execution (prints only the final assistant reply)
 cdx --execute "explain what this repo does in 5 bullets"
+
+# Force IPv4 for wrapper network calls (sync/usage/update/download)
+cdx -4
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
