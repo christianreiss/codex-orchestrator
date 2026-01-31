@@ -116,6 +116,11 @@ class AdminAuthService
         if ($hash === '' || !password_verify($password, $hash)) {
             throw new HttpException('Invalid credentials', 401);
         }
+        if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
+            $rehash = password_hash($password, PASSWORD_DEFAULT);
+            $this->users->update((int) $user['id'], ['password_hash' => $rehash]);
+            $user['password_hash'] = $rehash;
+        }
 
         $token = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $token);

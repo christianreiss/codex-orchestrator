@@ -13,13 +13,24 @@ class Mailer
 {
     public function send(string $to, string $subject, string $body, string $fromEmail, ?string $fromName = null): bool
     {
+        $to = trim($to);
         $fromEmail = trim($fromEmail);
-        if ($fromEmail === '') {
+        $fromName = $fromName !== null ? trim($fromName) : null;
+
+        if ($to === '' || $fromEmail === '') {
             return false;
         }
 
-        $from = $fromName !== null && trim($fromName) !== ''
-            ? sprintf('%s <%s>', trim($fromName), $fromEmail)
+        if ($this->hasHeaderInjection($to)
+            || $this->hasHeaderInjection($subject)
+            || $this->hasHeaderInjection($fromEmail)
+            || ($fromName !== null && $this->hasHeaderInjection($fromName))
+        ) {
+            return false;
+        }
+
+        $from = $fromName !== null && $fromName !== ''
+            ? sprintf('%s <%s>', $fromName, $fromEmail)
             : $fromEmail;
 
         $headers = [
@@ -29,5 +40,10 @@ class Mailer
         ];
 
         return mail($to, $subject, $body, implode("\r\n", $headers));
+    }
+
+    private function hasHeaderInjection(string $value): bool
+    {
+        return str_contains($value, "\r") || str_contains($value, "\n");
     }
 }

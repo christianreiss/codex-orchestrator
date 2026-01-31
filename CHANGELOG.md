@@ -1,4 +1,7 @@
 # 2026-01-31
+- Admin auth: rehash admin passwords on successful login when hashing params change.
+- Admin auth: reject password-reset emails with suspicious header injection input.
+- Admin dashboard: remove unused WebAuthn helper code paths.
 - Admin config: replace `web_search_request` with `web_search` (live/cached/disabled), while keeping legacy mapping for existing configs.
 - Admin config: render `web_search` at the top level (string enum) instead of under `[features]` to match current Codex config schema.
 
