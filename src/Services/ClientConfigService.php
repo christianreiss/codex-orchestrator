@@ -454,12 +454,19 @@ class ClientConfigService
         $featuresRaw = is_array($settings['features'] ?? null) ? $settings['features'] : [];
         $features = [];
         foreach ($featuresRaw as $key => $value) {
-            $boolValue = $normalizeBool($value);
-            if ($boolValue === null) {
-                continue;
-            }
             $name = $normalizeString((string) $key);
             if ($name === null || $name === '') {
+                continue;
+            }
+            if ($name === 'web_search' || $name === 'web_search_request') {
+                $normalized = $this->normalizeWebSearchFeature($value);
+                if ($normalized !== null && ($name === 'web_search' || !array_key_exists('web_search', $features))) {
+                    $features['web_search'] = $normalized;
+                }
+                continue;
+            }
+            $boolValue = $normalizeBool($value);
+            if ($boolValue === null) {
                 continue;
             }
             $features[$name] = $boolValue;
@@ -502,12 +509,19 @@ class ClientConfigService
             $profileFeaturesRaw = is_array($entry['features'] ?? null) ? $entry['features'] : [];
             $profileFeatures = [];
             foreach ($profileFeaturesRaw as $key => $value) {
-                $boolValue = $normalizeBool($value);
-                if ($boolValue === null) {
-                    continue;
-                }
                 $featureName = $normalizeString((string) $key);
                 if ($featureName === null || $featureName === '') {
+                    continue;
+                }
+                if ($featureName === 'web_search' || $featureName === 'web_search_request') {
+                    $normalized = $this->normalizeWebSearchFeature($value);
+                    if ($normalized !== null && ($featureName === 'web_search' || !array_key_exists('web_search', $profileFeatures))) {
+                        $profileFeatures['web_search'] = $normalized;
+                    }
+                    continue;
+                }
+                $boolValue = $normalizeBool($value);
+                if ($boolValue === null) {
                     continue;
                 }
                 $profileFeatures[$featureName] = $boolValue;
@@ -915,6 +929,30 @@ class ClientConfigService
         }
 
         return $default;
+    }
+
+    private function normalizeWebSearchFeature(mixed $value): ?string
+    {
+        if (is_bool($value)) {
+            return $value ? 'live' : 'disabled';
+        }
+        if (is_int($value)) {
+            return $value !== 0 ? 'live' : 'disabled';
+        }
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if (in_array($normalized, ['live', 'cached', 'disabled'], true)) {
+                return $normalized;
+            }
+            if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+                return 'live';
+            }
+            if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+                return 'disabled';
+            }
+        }
+
+        return null;
     }
 
     private function normalizeReasoningSummary(mixed $value, ?string $model = null): ?string

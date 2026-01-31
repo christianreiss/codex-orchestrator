@@ -1140,10 +1140,14 @@
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureWebSearch" style="width:auto; accent-color: var(--accent);">
+                      <select id="featureWebSearch" style="width:auto;">
+                        <option value="disabled">Disabled</option>
+                        <option value="cached">Cached</option>
+                        <option value="live">Live</option>
+                      </select>
                       <div>
                         <div class="feature-title">Allow web search</div>
-                        <div class="feature-desc">Let Codex reach out for fresh context when it needs it.</div>
+                        <div class="feature-desc">Set whether web search runs live, uses cached results, or stays off.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">

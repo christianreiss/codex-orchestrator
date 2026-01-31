@@ -84,7 +84,7 @@ final class ClientConfigServiceTest extends TestCase
                 'hide_gpt5_1_migration_prompt' => true,
             ],
             'features' => [
-                'web_search_request' => true,
+                'web_search' => 'live',
             ],
         ]);
 
@@ -104,6 +104,20 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('model_reasoning_summary', $rendered['content']);
+    }
+
+    public function testLegacyWebSearchRequestMapsToWebSearch(): void
+    {
+        $rendered = $this->service->render([
+            'features' => [
+                'web_search_request' => true,
+            ],
+        ]);
+
+        $this->assertStringContainsString('web_search = "live"', $rendered['content']);
+        $this->assertArrayHasKey('web_search', $rendered['settings']['features']);
+        $this->assertSame('live', $rendered['settings']['features']['web_search']);
+        $this->assertArrayNotHasKey('web_search_request', $rendered['settings']['features']);
     }
 
     public function testSteerDefaultsToTrueAndCanDisable(): void
@@ -348,7 +362,7 @@ final class ClientConfigServiceTest extends TestCase
                     'model_reasoning_effort' => 'xhigh',
                     'features' => [
                         'streamable_shell' => true,
-                        'web_search_request' => false,
+                        'web_search' => 'cached',
                         'view_image_tool' => true,
                     ],
                     'sandbox_workspace_write' => [
@@ -363,7 +377,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model = "gpt-5.1-codex-max"', $content);
         $this->assertStringContainsString('[profiles.ultra.features]', $content);
         $this->assertStringContainsString('streamable_shell = true', $content);
-        $this->assertStringContainsString('web_search_request = false', $content);
+        $this->assertStringContainsString('web_search = "cached"', $content);
         $this->assertStringContainsString('view_image_tool = true', $content);
         $this->assertStringContainsString('[profiles.ultra.sandbox_workspace_write]', $content);
         $this->assertStringContainsString('network_access = true', $content);
@@ -375,7 +389,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame('ultra', $settings['profiles'][0]['name']);
         $this->assertArrayNotHasKey('model_provider', $settings['profiles'][0]);
         $this->assertSame(true, $settings['profiles'][0]['features']['streamable_shell']);
-        $this->assertSame(false, $settings['profiles'][0]['features']['web_search_request']);
+        $this->assertSame('cached', $settings['profiles'][0]['features']['web_search']);
         $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);
     }
 }

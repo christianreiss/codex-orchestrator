@@ -142,10 +142,14 @@
             </div>
           </label>
           <label class="feature-toggle">
-            <input type="checkbox" class="profile-search" style="width:auto; accent-color: var(--accent);">
+            <select class="profile-search" style="width:auto;">
+              <option value="disabled">Disabled</option>
+              <option value="cached">Cached</option>
+              <option value="live">Live</option>
+            </select>
             <div>
               <div class="feature-title">Allow web search</div>
-              <div class="feature-desc">Let Codex reach out for fresh context when it needs it.</div>
+              <div class="feature-desc">Choose live, cached, or disabled for web search calls.</div>
             </div>
           </label>
           <label class="feature-toggle">
@@ -205,7 +209,10 @@
 
     const features = data.features || {};
     streamToggle.checked = Boolean(typeof features.streamable_shell === 'boolean' ? features.streamable_shell : defaults.features?.streamable_shell);
-    searchToggle.checked = Boolean(typeof features.web_search_request === 'boolean' ? features.web_search_request : defaults.features?.web_search_request);
+    const webSearchValue = typeof features.web_search === 'string'
+      ? features.web_search
+      : (features.web_search_request ? 'live' : (defaults.features?.web_search || 'disabled'));
+    searchToggle.value = ['live', 'cached', 'disabled'].includes(webSearchValue) ? webSearchValue : 'disabled';
     imageToggle.checked = typeof features.view_image_tool === 'boolean'
       ? features.view_image_tool
       : (defaults.features?.view_image_tool !== false);
@@ -237,7 +244,8 @@
 
       const flags = [];
       if (streamToggle?.checked) flags.push('stream');
-      if (searchToggle?.checked) flags.push('web');
+      const searchValue = (searchToggle?.value || 'disabled').trim().toLowerCase();
+      if (searchValue !== 'disabled') flags.push(`web:${searchValue}`);
       if (imageToggle?.checked) flags.push('image');
       if (networkToggle?.checked) flags.push('net');
       if (flags.length) bits.push(flags.join(','));
@@ -286,13 +294,15 @@
         ? deepClone(row.__profileOriginal)
         : {};
       delete original.model_provider;
+      const originalFeatures = (original.features && typeof original.features === 'object') ? { ...original.features } : {};
+      delete originalFeatures.web_search_request;
 
       const model = (row.querySelector('.profile-model')?.value || '').trim();
       const effort = (row.querySelector('.profile-effort')?.value || '').trim();
       const approval = (row.querySelector('.profile-approval')?.value || '').trim();
       const sandbox = (row.querySelector('.profile-sandbox')?.value || '').trim();
       const streamableShell = Boolean(row.querySelector('.profile-stream')?.checked);
-      const webSearch = Boolean(row.querySelector('.profile-search')?.checked);
+      const webSearch = (row.querySelector('.profile-search')?.value || 'disabled').trim().toLowerCase();
       const viewImage = Boolean(row.querySelector('.profile-image')?.checked);
       const networkAccess = Boolean(row.querySelector('.profile-network')?.checked);
 
@@ -304,9 +314,9 @@
         sandbox_mode: sandbox || '',
         model_reasoning_effort: effort || '',
         features: {
-          ...(original.features && typeof original.features === 'object' ? original.features : {}),
+          ...originalFeatures,
           streamable_shell: streamableShell,
-          web_search_request: webSearch,
+          web_search: ['live', 'cached', 'disabled'].includes(webSearch) ? webSearch : 'disabled',
           view_image_tool: viewImage,
         },
         sandbox_workspace_write: {
@@ -327,7 +337,7 @@
       model_reasoning_effort: 'medium',
       features: {
         streamable_shell: false,
-        web_search_request: false,
+        web_search: 'disabled',
         view_image_tool: true,
       },
       sandbox_workspace_write: {

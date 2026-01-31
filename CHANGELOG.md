@@ -1,3 +1,6 @@
+# 2026-01-31
+- Admin config: replace `web_search_request` with `web_search` (live/cached/disabled), while keeping legacy mapping for existing configs.
+
 # 2026-01-30
 - cdx: add `-4` flag to force IPv4 for all wrapper network calls (sync, usage, update/download).
 

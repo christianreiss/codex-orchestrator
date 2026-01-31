@@ -133,7 +133,7 @@
         background_terminal: false,
         unified_exec: false,
         rmcp_client: false,
-        web_search_request: false,
+        web_search: 'disabled',
         view_image_tool: false,
         experimental_sandbox_command_assessment: false,
         ghost_commit: false,
@@ -348,7 +348,10 @@
       background_terminal: featureBackgroundTerminal.checked,
       unified_exec: featureUnifiedExec.checked,
       rmcp_client: featureRmcpClient.checked,
-      web_search_request: featureWebSearch.checked,
+      web_search: (() => {
+        const raw = (featureWebSearch?.value || 'disabled').trim().toLowerCase();
+        return ['live', 'cached', 'disabled'].includes(raw) ? raw : 'disabled';
+      })(),
       view_image_tool: featureViewImage.checked,
       experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
       ghost_commit: featureGhostCommit.checked,
@@ -441,7 +444,11 @@
     featureBackgroundTerminal.checked = Boolean(cfg.features?.background_terminal);
     featureUnifiedExec.checked = Boolean(cfg.features?.unified_exec);
     featureRmcpClient.checked = Boolean(cfg.features?.rmcp_client);
-    featureWebSearch.checked = Boolean(cfg.features?.web_search_request);
+    const legacyWebSearch = cfg.features?.web_search_request;
+    const webSearchValue = typeof cfg.features?.web_search === 'string'
+      ? cfg.features.web_search
+      : (legacyWebSearch ? 'live' : 'disabled');
+    setSelectValue(featureWebSearch, webSearchValue || 'disabled');
     featureViewImage.checked = cfg.features?.view_image_tool !== false;
     featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
     featureGhostCommit.checked = Boolean(cfg.features?.ghost_commit);
@@ -454,6 +461,7 @@
     delete featureExtras.unified_exec;
     delete featureExtras.rmcp_client;
     delete featureExtras.web_search_request;
+    delete featureExtras.web_search;
     delete featureExtras.view_image_tool;
     delete featureExtras.experimental_sandbox_command_assessment;
     delete featureExtras.ghost_commit;
