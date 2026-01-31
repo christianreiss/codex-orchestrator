@@ -406,6 +406,7 @@ class ClientConfigService
             'profile' => $normalizeString($settings['profile'] ?? null),
             'approval_policy' => $normalizeString($settings['approval_policy'] ?? null),
             'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
+            'web_search' => $this->normalizeWebSearchFeature($settings['web_search'] ?? null),
             'model_reasoning_effort' => $normalizeString($settings['model_reasoning_effort'] ?? null),
             'model_reasoning_summary' => null, // set after model-aware normalization
             'model_verbosity' => $this->normalizeModelVerbosity($settings['model_verbosity'] ?? null, $settings['model'] ?? null),
@@ -460,8 +461,8 @@ class ClientConfigService
             }
             if ($name === 'web_search' || $name === 'web_search_request') {
                 $normalized = $this->normalizeWebSearchFeature($value);
-                if ($normalized !== null && ($name === 'web_search' || !array_key_exists('web_search', $features))) {
-                    $features['web_search'] = $normalized;
+                if ($normalized !== null && $result['web_search'] === null) {
+                    $result['web_search'] = $normalized;
                 }
                 continue;
             }
@@ -506,6 +507,7 @@ class ClientConfigService
             }
 
             $profileModel = $normalizeString($entry['model'] ?? null);
+            $profileWebSearch = $this->normalizeWebSearchFeature($entry['web_search'] ?? null);
             $profileFeaturesRaw = is_array($entry['features'] ?? null) ? $entry['features'] : [];
             $profileFeatures = [];
             foreach ($profileFeaturesRaw as $key => $value) {
@@ -515,8 +517,8 @@ class ClientConfigService
                 }
                 if ($featureName === 'web_search' || $featureName === 'web_search_request') {
                     $normalized = $this->normalizeWebSearchFeature($value);
-                    if ($normalized !== null && ($featureName === 'web_search' || !array_key_exists('web_search', $profileFeatures))) {
-                        $profileFeatures['web_search'] = $normalized;
+                    if ($normalized !== null && $profileWebSearch === null) {
+                        $profileWebSearch = $normalized;
                     }
                     continue;
                 }
@@ -533,6 +535,7 @@ class ClientConfigService
                 'model' => $profileModel,
                 'approval_policy' => $normalizeString($entry['approval_policy'] ?? null),
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
+                'web_search' => $profileWebSearch,
                 'model_reasoning_effort' => $normalizeString($entry['model_reasoning_effort'] ?? null),
                 'model_reasoning_summary' => $this->normalizeReasoningSummary($entry['model_reasoning_summary'] ?? null, $profileModel),
                 'model_verbosity' => $this->normalizeModelVerbosity($entry['model_verbosity'] ?? null, $profileModel),
@@ -627,6 +630,7 @@ class ClientConfigService
             'profile',
             'approval_policy',
             'sandbox_mode',
+            'web_search',
             'model_reasoning_effort',
             'model_reasoning_summary',
             'model_verbosity',
@@ -651,6 +655,7 @@ class ClientConfigService
         if (!is_array($features)) {
             $features = [];
         }
+        unset($features['web_search'], $features['web_search_request']);
         if (array_key_exists('steer', $settings)) {
             $features['steer'] = $settings['steer'];
         }
@@ -705,6 +710,7 @@ class ClientConfigService
                 $this->addKeyValue($lines, 'model', $profile['model'] ?? null);
                 $this->addKeyValue($lines, 'approval_policy', $profile['approval_policy'] ?? null);
                 $this->addKeyValue($lines, 'sandbox_mode', $profile['sandbox_mode'] ?? null);
+                $this->addKeyValue($lines, 'web_search', $profile['web_search'] ?? null);
                 $this->addKeyValue($lines, 'model_reasoning_effort', $profile['model_reasoning_effort'] ?? null);
                 $this->addKeyValue($lines, 'model_reasoning_summary', $profile['model_reasoning_summary'] ?? null);
                 $this->addKeyValue($lines, 'model_verbosity', $profile['model_verbosity'] ?? null);

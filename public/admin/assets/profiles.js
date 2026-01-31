@@ -209,9 +209,11 @@
 
     const features = data.features || {};
     streamToggle.checked = Boolean(typeof features.streamable_shell === 'boolean' ? features.streamable_shell : defaults.features?.streamable_shell);
-    const webSearchValue = typeof features.web_search === 'string'
-      ? features.web_search
-      : (features.web_search_request ? 'live' : (defaults.features?.web_search || 'disabled'));
+    const webSearchValue = typeof data.web_search === 'string'
+      ? data.web_search
+      : (typeof features.web_search === 'string'
+        ? features.web_search
+        : (features.web_search_request ? 'live' : (defaults.web_search || defaults.features?.web_search || 'disabled')));
     searchToggle.value = ['live', 'cached', 'disabled'].includes(webSearchValue) ? webSearchValue : 'disabled';
     imageToggle.checked = typeof features.view_image_tool === 'boolean'
       ? features.view_image_tool
@@ -296,6 +298,7 @@
       delete original.model_provider;
       const originalFeatures = (original.features && typeof original.features === 'object') ? { ...original.features } : {};
       delete originalFeatures.web_search_request;
+      delete originalFeatures.web_search;
 
       const model = (row.querySelector('.profile-model')?.value || '').trim();
       const effort = (row.querySelector('.profile-effort')?.value || '').trim();
@@ -312,11 +315,11 @@
         model: model || '',
         approval_policy: approval || '',
         sandbox_mode: sandbox || '',
+        web_search: ['live', 'cached', 'disabled'].includes(webSearch) ? webSearch : 'disabled',
         model_reasoning_effort: effort || '',
         features: {
           ...originalFeatures,
           streamable_shell: streamableShell,
-          web_search: ['live', 'cached', 'disabled'].includes(webSearch) ? webSearch : 'disabled',
           view_image_tool: viewImage,
         },
         sandbox_workspace_write: {
@@ -335,9 +338,9 @@
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       model_reasoning_effort: 'medium',
+      web_search: 'disabled',
       features: {
         streamable_shell: false,
-        web_search: 'disabled',
         view_image_tool: true,
       },
       sandbox_workspace_write: {

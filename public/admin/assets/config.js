@@ -121,6 +121,7 @@
       model: 'gpt-5.1-codex',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
+      web_search: 'disabled',
       model_reasoning_effort: 'medium',
       model_reasoning_summary: 'detailed',
       model_verbosity: 'low',
@@ -133,7 +134,6 @@
         background_terminal: false,
         unified_exec: false,
         rmcp_client: false,
-        web_search: 'disabled',
         view_image_tool: false,
         experimental_sandbox_command_assessment: false,
         ghost_commit: false,
@@ -348,10 +348,6 @@
       background_terminal: featureBackgroundTerminal.checked,
       unified_exec: featureUnifiedExec.checked,
       rmcp_client: featureRmcpClient.checked,
-      web_search: (() => {
-        const raw = (featureWebSearch?.value || 'disabled').trim().toLowerCase();
-        return ['live', 'cached', 'disabled'].includes(raw) ? raw : 'disabled';
-      })(),
       view_image_tool: featureViewImage.checked,
       experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
       ghost_commit: featureGhostCommit.checked,
@@ -381,6 +377,10 @@
       approval_policy: approvalPolicyInput.value.trim() || base.approval_policy,
       sandbox_mode: sandboxModeInput.value.trim() || base.sandbox_mode,
       model_reasoning_effort: reasoningEffortInput.value.trim() || base.model_reasoning_effort,
+      web_search: (() => {
+        const raw = (featureWebSearch?.value || base.web_search || 'disabled').trim().toLowerCase();
+        return ['live', 'cached', 'disabled'].includes(raw) ? raw : 'disabled';
+      })(),
       model_reasoning_summary: reasoningSummaryValue,
       model_verbosity: verbosityInput.value.trim() || base.model_verbosity,
       model_supports_reasoning_summaries: supportsSummariesInput.checked,
@@ -445,9 +445,9 @@
     featureUnifiedExec.checked = Boolean(cfg.features?.unified_exec);
     featureRmcpClient.checked = Boolean(cfg.features?.rmcp_client);
     const legacyWebSearch = cfg.features?.web_search_request;
-    const webSearchValue = typeof cfg.features?.web_search === 'string'
-      ? cfg.features.web_search
-      : (legacyWebSearch ? 'live' : 'disabled');
+    const webSearchValue = typeof cfg.web_search === 'string'
+      ? cfg.web_search
+      : (typeof cfg.features?.web_search === 'string' ? cfg.features.web_search : (legacyWebSearch ? 'live' : 'disabled'));
     setSelectValue(featureWebSearch, webSearchValue || 'disabled');
     featureViewImage.checked = cfg.features?.view_image_tool !== false;
     featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
