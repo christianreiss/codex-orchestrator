@@ -18,8 +18,12 @@ elif (( CAN_SUDO )); then
   can_manage_codex=1
 fi
 
-if (( can_manage_codex )) && [[ "$(uname -s)" == "Linux" ]]; then
-  ensure_commands curl unzip
+if [[ "$platform_os" == "Linux" ]]; then
+  if (( can_manage_codex )); then
+    ensure_commands curl unzip
+  fi
+elif [[ "$platform_os" == "Darwin" ]]; then
+  ensure_commands python3 curl unzip
 fi
 
 LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
@@ -82,6 +86,20 @@ case "$os_name" in
         ;;
       *)
         log_warn "Unsupported Linux architecture (${arch_name}); skipping update check."
+        skip_update_check=1
+        ;;
+    esac
+    ;;
+  Darwin)
+    case "$arch_name" in
+      x86_64|amd64)
+        asset_name="codex-x86_64-apple-darwin.tar.gz"
+        ;;
+      aarch64|arm64)
+        asset_name="codex-aarch64-apple-darwin.tar.gz"
+        ;;
+      *)
+        log_warn "Unsupported macOS architecture (${arch_name}); skipping update check."
         skip_update_check=1
         ;;
     esac
@@ -156,7 +174,13 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
   for tag_variant in "${candidate_tags[@]}"; do
     if payload_json="$(fetch_release_payload "${API_RELEASES_URL}/tags/${tag_variant}" "$asset_name" 2>/dev/null)"; then
       printf '%s\n' "$payload_json" > "$tmp_payload"
-      if mapfile -t fresh_fields < <(read_cached_payload "$tmp_payload"); then
+      fresh_fields=()
+      if payload_raw="$(read_cached_payload "$tmp_payload")"; then
+        while IFS= read -r line; do
+          fresh_fields+=("$line")
+        done <<< "$payload_raw"
+      fi
+      if (( ${#fresh_fields[@]} >= 5 )); then
         remote_version="${fresh_fields[0]}"
         remote_url="${fresh_fields[1]}"
         remote_asset="${fresh_fields[2]}"
@@ -298,7 +322,7 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
       if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
         curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
       fi
-      case "${CODEX_SYNC_ALLOW_INSECURE,,}" in
+      case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
         1|true|yes)
           curl_args+=("-k")
           ;;
@@ -860,7 +884,7 @@ runner_tone="yellow"
 runner_enabled_flag=0
 [[ "$RUNNER_ENABLED" == "1" ]] && runner_enabled_flag=1
 if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_FAIL" ]]; then
-  state="${RUNNER_STATE,,}"
+  state="$(lowercase "$RUNNER_STATE")"
   last_ok_rel="$(format_relative_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
   last_fail_rel="$(format_relative_iso "$RUNNER_LAST_FAIL" 2>/dev/null || true)"
   if (( runner_enabled_flag )); then
@@ -1140,14 +1164,14 @@ if (( codex_updated )); then
 elif (( codex_update_failed )); then
   result_parts+=("codex update failed")
 else
-  result_parts+=("codex ${codex_status_label,,}")
+  result_parts+=("codex $(lowercase "$codex_status_label")")
 fi
 if (( wrapper_updated )); then
   result_parts+=("wrapper updated")
 elif (( wrapper_update_failed )); then
   result_parts+=("wrapper update failed")
 else
-  result_parts+=("wrapper ${wrapper_status_label,,}")
+  result_parts+=("wrapper $(lowercase "$wrapper_status_label")")
 fi
 if [[ -n "$AUTH_STATUS" ]]; then
   if (( ! HOST_IS_SECURE )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
@@ -1320,7 +1344,7 @@ result_label="$(human_join "${result_parts[@]}")"
   fi
 
   codex_tone="green"
-  case "${codex_status_label,,}" in
+  case "$(lowercase "$codex_status_label")" in
     update\ available|check\ skipped|update\ skipped)
       codex_tone="yellow"
       ;;
@@ -1331,7 +1355,7 @@ esac
 (( codex_update_failed )) && codex_tone="red"
 
 wrapper_tone="green"
-case "${wrapper_status_label,,}" in
+case "$(lowercase "$wrapper_status_label")" in
   update\ available|update\ skipped|check\ skipped)
     wrapper_tone="yellow"
     ;;
@@ -1352,7 +1376,7 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   fi
 elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
-elif [[ "${codex_status_label,,}" == "update available" ]] || [[ "${wrapper_status_label,,}" == "update available" ]]; then
+elif [[ "$(lowercase "$codex_status_label")" == "update available" ]] || [[ "$(lowercase "$wrapper_status_label")" == "update available" ]]; then
   result_tone="yellow"
 elif [[ "$PROMPT_SYNC_STATUS" == "error" || "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_tone="red"
@@ -1665,7 +1689,7 @@ fi
   fi
   quota_reasons=()
   quota_warnings=()
-  if [[ "${CHATGPT_STATUS,,}" == "limit_reached" ]]; then
+  if [[ "$(lowercase "$CHATGPT_STATUS")" == "limit_reached" ]]; then
     quota_reasons+=("ChatGPT status limit_reached")
   fi
   if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]]; then

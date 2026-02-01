@@ -71,17 +71,34 @@ curl_fetch() {
   curl "${CURL_FLAGS[@]+"${CURL_FLAGS[@]}"}" "$@"
 }
 
+install_binary() {
+  local src="$1"
+  local dest="$2"
+  if install -m 755 "$src" "$dest" 2>/dev/null; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    if sudo -n install -m 755 "$src" "$dest" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 echo "Installing Codex for __FQDN__ via __BASE__"
 
 curl_fetch -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
+user_bin=0
 install_path="/usr/local/bin/cdx"
-if ! install -m 755 "$tmpdir/cdx" "$install_path" 2>/dev/null; then
+if ! install_binary "$tmpdir/cdx" "$install_path"; then
   install_path="$HOME/.local/bin/cdx"
   mkdir -p "$(dirname "$install_path")"
   install -m 755 "$tmpdir/cdx" "$install_path"
+  user_bin=1
 fi
 
+os="$(uname -s)"
 arch="$(uname -m)"
 version_lt() {
   local a="$1" b="$2"
@@ -127,22 +144,37 @@ detect_glibc_version() {
   printf ''
 }
 
-glibc_version="$(detect_glibc_version)"
-
-case "$arch" in
-  x86_64|amd64)
-    asset="codex-x86_64-unknown-linux-gnu.tar.gz"
-    if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-      asset="codex-x86_64-unknown-linux-musl.tar.gz"
-    fi
+case "$os" in
+  Linux)
+    glibc_version="$(detect_glibc_version)"
+    case "$arch" in
+      x86_64|amd64)
+        asset="codex-x86_64-unknown-linux-gnu.tar.gz"
+        if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
+          asset="codex-x86_64-unknown-linux-musl.tar.gz"
+        fi
+        ;;
+      aarch64|arm64)
+        asset="codex-aarch64-unknown-linux-gnu.tar.gz"
+        if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
+          asset="codex-aarch64-unknown-linux-musl.tar.gz"
+        fi
+        ;;
+      *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
+    esac
     ;;
-  aarch64|arm64)
-    asset="codex-aarch64-unknown-linux-gnu.tar.gz"
-    if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-      asset="codex-aarch64-unknown-linux-musl.tar.gz"
-    fi
+  Darwin)
+    case "$arch" in
+      x86_64|amd64)
+        asset="codex-x86_64-apple-darwin.tar.gz"
+        ;;
+      aarch64|arm64)
+        asset="codex-aarch64-apple-darwin.tar.gz"
+        ;;
+      *) echo "Unsupported macOS arch: $arch" >&2; exit 1 ;;
+    esac
     ;;
-  *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
+  *) echo "Unsupported OS: $os" >&2; exit 1 ;;
 esac
 
 curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
@@ -154,10 +186,11 @@ if [ -z "$codex_bin" ]; then
 fi
 
 codex_path="/usr/local/bin/codex"
-if ! install -m 755 "$codex_bin" "$codex_path" 2>/dev/null; then
+if ! install_binary "$codex_bin" "$codex_path"; then
   codex_path="$HOME/.local/bin/codex"
   mkdir -p "$(dirname "$codex_path")"
   install -m 755 "$codex_bin" "$codex_path"
+  user_bin=1
 fi
 
 mkdir -p "$HOME/.codex"
@@ -165,6 +198,9 @@ mkdir -p "$HOME/.codex"
 if ! "$codex_path" -V; then
   echo "Codex install failed: ${codex_path} did not run cleanly." >&2
   exit 1
+fi
+if (( user_bin )); then
+  echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' is not found."
 fi
 echo "Install complete for __FQDN__"
 echo "Run 'cdx' to sync/auth when you're ready."

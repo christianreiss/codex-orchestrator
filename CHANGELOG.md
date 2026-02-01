@@ -1,3 +1,6 @@
+# 2026-02-01
+- cdx: macOS compatibility for installer + wrapper (apple-darwin assets, Homebrew auto-install for missing python3/curl/unzip, bash 3.2-safe wrapper).
+
 # 2026-01-31
 - Admin auth: rehash admin passwords on successful login when hashing params change.
 - Admin auth: reject password-reset emails with suspicious header injection input.

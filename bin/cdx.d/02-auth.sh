@@ -634,7 +634,7 @@ PY
             esac
           done <<<"$parsed"
 
-          if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
+          if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
             HOST_IS_SECURE=0
             PURGE_AUTH_AFTER_RUN=1
             emit_insecure_notice

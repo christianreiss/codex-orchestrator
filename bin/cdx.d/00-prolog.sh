@@ -60,6 +60,11 @@ log_debug() {
   return 0
 }
 
+lowercase() {
+  local input="${1-}"
+  printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
+}
+
 MOTD_TEXT="$(cat <<'EOF'
   ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗
  ██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝
@@ -109,7 +114,7 @@ normalize_hostname() {
   host="${host//$'\r'/}"
   host="${host//$'\n'/}"
   host="${host%\.}"
-  printf '%s' "${host,,}"
+  printf '%s' "$(lowercase "$host")"
 }
 
 enforce_baked_fqdn_guard() {
@@ -294,7 +299,7 @@ CONFIG_REMOTE_UPDATED_AT=""
 CONFIG_REMOTE_BYTES=""
 CONFIG_REMOVED=0
 
-if [[ "$HOST_SECURE" == "0" || "${HOST_SECURE,,}" == "false" ]]; then
+if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
   HOST_IS_SECURE=0
   PURGE_AUTH_AFTER_RUN=1
   emit_insecure_notice
@@ -303,7 +308,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.01.30-01"
+WRAPPER_VERSION="2026.02.01-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -541,7 +546,8 @@ PY
   fi
 
   local parsed_users=()
-  if mapfile -t parsed_users < <(API_RESPONSE="$response" python3 - <<'PY' 2>/dev/null
+  local parsed_output=""
+  if parsed_output="$(API_RESPONSE="$response" python3 - <<'PY' 2>/dev/null
 import json, os
 data = os.environ.get("API_RESPONSE", "")
 parsed = json.loads(data)
@@ -563,7 +569,12 @@ for entry in users:
     seen.add(username)
     print(username)
 PY
-); then
+  )"; then
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      parsed_users+=("$line")
+    done <<< "$parsed_output"
+  else
     parsed_users=()
   fi
   HOST_USERS_CACHE=("${parsed_users[@]-}")

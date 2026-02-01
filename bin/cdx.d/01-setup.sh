@@ -12,48 +12,70 @@ ensure_commands() {
     return 0
   fi
 
-  if [[ "$(uname -s)" != "Linux" ]]; then
-    log_error "Missing required commands: ${missing[*]}. Automatic installation is only supported on Linux."
-    exit 1
-  fi
-
-  local pm=""
-  if ! pm="$(detect_linux_package_manager)"; then
-    log_error "Missing required commands: ${missing[*]}. Unable to determine package manager for automatic installation."
-    exit 1
-  fi
-
-  local use_sudo=()
-  if (( EUID != 0 )); then
-    if command -v sudo >/dev/null 2>&1; then
-      use_sudo=(sudo)
-    else
-      log_error "Missing required commands: ${missing[*]}. Install them manually or rerun Codex as root to allow automatic installation."
-      exit 1
-    fi
-  fi
-
-  case "$pm" in
-    apt-get)
-      log_info "Installing prerequisites (${missing[*]}) with apt-get"
-      if (( ${#use_sudo[@]} > 0 )); then
-        "${use_sudo[@]}" apt-get update -qq
-        "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
-      else
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+  local os=""
+  os="$(uname -s)"
+  case "$os" in
+    Darwin)
+      if ! command -v brew >/dev/null 2>&1; then
+        log_error "Missing required commands: ${missing[*]}. Install Homebrew (brew) or add them manually."
+        exit 1
       fi
+      local brew_missing=()
+      local cmd pkg
+      for cmd in "${missing[@]}"; do
+        pkg="$cmd"
+        case "$cmd" in
+          python3) pkg="python" ;;
+        esac
+        brew_missing+=("$pkg")
+      done
+      log_info "Installing prerequisites (${missing[*]}) with Homebrew"
+      brew install "${brew_missing[@]}"
       ;;
-    dnf)
-      log_info "Installing prerequisites (${missing[*]}) with dnf"
-      if (( ${#use_sudo[@]} > 0 )); then
-        "${use_sudo[@]}" dnf install -y "${missing[@]}"
-      else
-        dnf install -y "${missing[@]}"
+    Linux)
+      local pm=""
+      if ! pm="$(detect_linux_package_manager)"; then
+        log_error "Missing required commands: ${missing[*]}. Unable to determine package manager for automatic installation."
+        exit 1
       fi
+
+      local use_sudo=()
+      if (( EUID != 0 )); then
+        if command -v sudo >/dev/null 2>&1; then
+          use_sudo=(sudo)
+        else
+          log_error "Missing required commands: ${missing[*]}. Install them manually or rerun Codex as root to allow automatic installation."
+          exit 1
+        fi
+      fi
+
+      case "$pm" in
+        apt-get)
+          log_info "Installing prerequisites (${missing[*]}) with apt-get"
+          if (( ${#use_sudo[@]} > 0 )); then
+            "${use_sudo[@]}" apt-get update -qq
+            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+          else
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          ;;
+        dnf)
+          log_info "Installing prerequisites (${missing[*]}) with dnf"
+          if (( ${#use_sudo[@]} > 0 )); then
+            "${use_sudo[@]}" dnf install -y "${missing[@]}"
+          else
+            dnf install -y "${missing[@]}"
+          fi
+          ;;
+        *)
+          log_error "Unsupported package manager: ${pm}"
+          exit 1
+          ;;
+      esac
       ;;
     *)
-      log_error "Unsupported package manager: ${pm}"
+      log_error "Missing required commands: ${missing[*]}. Automatic installation is only supported on Linux or macOS with Homebrew."
       exit 1
       ;;
   esac
