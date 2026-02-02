@@ -1908,11 +1908,11 @@ detect_script_flags() {
     SCRIPT_SUPPORTS_C=1
   fi
   if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-F([[:space:],]|$)'; then
-    echo "-qFe"
+    SCRIPT_FLAGS="-qFe"
   elif printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-f([[:space:],]|$)'; then
-    echo "-qef"
+    SCRIPT_FLAGS="-qef"
   else
-    echo "-qe"
+    SCRIPT_FLAGS="-qe"
   fi
 }
 
@@ -1931,12 +1931,11 @@ run_codex_command() {
       # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
       local cmd_str
       cmd_str="$(printf '%q ' "${cmd_line[@]}")"
-      local script_flags
-      script_flags="$(detect_script_flags)"
+      detect_script_flags
       if (( SCRIPT_SUPPORTS_C )); then
-        script $script_flags "$tmp_output" -c "$cmd_str"
+        script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"
       else
-        script $script_flags "$tmp_output" "${cmd_line[@]}"
+        script $SCRIPT_FLAGS "$tmp_output" "${cmd_line[@]}"
       fi
       status=$?
     elif command -v python3 >/dev/null 2>&1; then
