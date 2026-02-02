@@ -1897,12 +1897,24 @@ apply_otel_env_from_config() {
 
 apply_otel_env_from_config
 
+detect_script_flags() {
+  local help_output
+  help_output="$(script --help 2>&1 || script -h 2>&1 || true)"
+  if printf '%s' "$help_output" | grep -q " -F "; then
+    echo "-qFe"
+  elif printf '%s' "$help_output" | grep -q " -f "; then
+    echo "-qef"
+  else
+    echo "-qe"
+  fi
+}
+
 run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
   set +e
   local prompt_toolkit_no_cpr_added=0
-  if [[ -t 1 && "$CODEX_NO_PTY" != "1" ]]; then
+  if [[ -t 0 && -t 1 && "$CODEX_NO_PTY" != "1" ]]; then
     if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
       export PROMPT_TOOLKIT_NO_CPR=1
       prompt_toolkit_no_cpr_added=1
@@ -1912,7 +1924,9 @@ run_codex_command() {
       # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
       local cmd_str
       cmd_str="$(printf '%q ' "${cmd_line[@]}")"
-      script -qef "$tmp_output" -c "$cmd_str"
+      local script_flags
+      script_flags="$(detect_script_flags)"
+      script $script_flags "$tmp_output" -c "$cmd_str"
       status=$?
     elif command -v python3 >/dev/null 2>&1; then
       # Fallback PTY using Python's pty module when script is unavailable.
