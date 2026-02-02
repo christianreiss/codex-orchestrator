@@ -1,5 +1,6 @@
 # 2026-02-02
 - cdx: pick `script` flags per platform and only run PTY capture when stdin/stdout are TTYs (fixes macOS `script` errors).
+- cdx: avoid `script -c` on macOS and guard wrapper restart args to prevent unbound variable crashes.
 
 # 2026-02-01
 - cdx: macOS compatibility for installer + wrapper (apple-darwin assets, Homebrew auto-install for missing python3/curl/unzip, bash 3.2-safe wrapper).

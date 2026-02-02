@@ -1785,6 +1785,9 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
     exit 1
   fi
   log_warn "Wrapper updated; restarting cdx to load the new wrapper."
+  if ! declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
+    CODEX_ORIGINAL_ARGS=()
+  fi
   CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
 fi
 
@@ -1899,10 +1902,14 @@ apply_otel_env_from_config
 
 detect_script_flags() {
   local help_output
+  SCRIPT_SUPPORTS_C=0
   help_output="$(script --help 2>&1 || script -h 2>&1 || true)"
-  if printf '%s' "$help_output" | grep -q " -F "; then
+  if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-c([[:space:],]|$)'; then
+    SCRIPT_SUPPORTS_C=1
+  fi
+  if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-F([[:space:],]|$)'; then
     echo "-qFe"
-  elif printf '%s' "$help_output" | grep -q " -f "; then
+  elif printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-f([[:space:],]|$)'; then
     echo "-qef"
   else
     echo "-qe"
@@ -1926,7 +1933,11 @@ run_codex_command() {
       cmd_str="$(printf '%q ' "${cmd_line[@]}")"
       local script_flags
       script_flags="$(detect_script_flags)"
-      script $script_flags "$tmp_output" -c "$cmd_str"
+      if (( SCRIPT_SUPPORTS_C )); then
+        script $script_flags "$tmp_output" -c "$cmd_str"
+      else
+        script $script_flags "$tmp_output" "${cmd_line[@]}"
+      fi
       status=$?
     elif command -v python3 >/dev/null 2>&1; then
       # Fallback PTY using Python's pty module when script is unavailable.
