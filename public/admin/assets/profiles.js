@@ -11,6 +11,8 @@
   let loadedSettings = null;
 
   const MODEL_REASONING = {
+    'gpt-5.3': ['', 'low', 'medium', 'high', 'xhigh'],
+    'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.1-codex': ['', 'low', 'medium', 'high'],
@@ -334,7 +336,7 @@
 
   function defaultSettings() {
     return {
-      model: 'gpt-5.1-codex',
+      model: 'gpt-5.3-codex',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       model_reasoning_effort: 'medium',
@@ -362,7 +364,7 @@
 
       const cfg = loadedSettings || defaultSettings();
       const defaults = {
-        model: cfg.model || 'gpt-5.1-codex',
+        model: cfg.model || 'gpt-5.3-codex',
         model_reasoning_effort: cfg.model_reasoning_effort || '',
         approval_policy: cfg.approval_policy || '',
         sandbox_mode: cfg.sandbox_mode || '',

@@ -65,6 +65,8 @@
   let lastSavedSha = '';
 
   const MODEL_REASONING = {
+    'gpt-5.3': ['', 'low', 'medium', 'high', 'xhigh'],
+    'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.1-codex': ['', 'low', 'medium', 'high'],
@@ -75,7 +77,9 @@
 
   function isGpt51CodexModel(model) {
     const lower = String(model || '').toLowerCase();
-    return lower.startsWith('gpt-5.1-codex') || lower.startsWith('gpt-5.2-codex');
+    return lower.startsWith('gpt-5.1-codex')
+      || lower.startsWith('gpt-5.2-codex')
+      || lower.startsWith('gpt-5.3-codex');
   }
 
   function clampReasoningSummaryForModel(model) {
@@ -118,7 +122,7 @@
 
   function defaultSettings() {
     return {
-      model: 'gpt-5.1-codex',
+      model: 'gpt-5.3-codex',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       web_search: 'disabled',

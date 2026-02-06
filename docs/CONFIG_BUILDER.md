@@ -73,7 +73,7 @@ log_user_prompt = false
   ```bash
   curl -s "$BASE/admin/config/render" \
     -H "Content-Type: application/json" \
-    -d '{"settings":{"model":"gpt-5.1-codex","approval_policy":"trusted"}}' | jq .
+    -d '{"settings":{"model":"gpt-5.3-codex","approval_policy":"trusted"}}' | jq .
   ```
 - Fetch baked config for a host:
   ```bash
