@@ -14,7 +14,6 @@ use App\Database;
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Http\Response;
-use App\Http\Router;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\AuthSeedTokenRepository;
@@ -243,8 +242,6 @@ if ($apiDisabled && !$apiDisableBypass) {
 
 $clientIp = resolveClientIp();
 enforceGlobalRateLimit($rateLimiter, $clientIp, $method, $normalizedPath);
-
-$router = new Router();
 
 $router->add('GET', '#^/versions$#', function () use ($service) {
     $versions = $service->versionSummary();

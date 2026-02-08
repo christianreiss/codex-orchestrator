@@ -4,6 +4,7 @@
 # 2026-02-08
 - Security: remove un-gated `public/admin/mtls-debug.php` endpoint that echoed request headers.
 - Security: constrain outbound cURL redirects to HTTPS in pricing + ChatGPT usage fetchers.
+- Maintenance: remove unused `src/Http/Router.php` (router isn’t used outside `public/index.php`).
 - Admin UI: start visual refresh (new theme tokens for light/dark/auto, header polish, and a sectioned Config layout with search).
 - Admin dashboard: add a Fleet Health header with quick actions (refresh, new host).
 - Admin hosts: improve table scanability with clearer badges and grouped KPI rows.
