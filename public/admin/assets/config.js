@@ -60,6 +60,9 @@
   let copyBtn;
   let addMcpBtn;
 
+  let sectionSearchInput;
+  let sectionsWrap;
+
   let lastRenderedSha = '';
   let lastRenderedSize = 0;
   let lastSavedSha = '';
@@ -210,6 +213,47 @@
     const options = Array.from(reasoningEffortInput.options || []);
     const allowed = options.some((opt) => opt.value === val);
     reasoningEffortInput.value = allowed ? val : '';
+  }
+
+  function normalizeString(value) {
+    return String(value || '').toLowerCase().trim();
+  }
+
+  function ensureConfigSections() {
+    sectionSearchInput = document.getElementById('configSectionSearch');
+    sectionsWrap = document.getElementById('configSections');
+    if (!sectionsWrap) return;
+
+    const buttons = Array.from(sectionsWrap.querySelectorAll('[data-config-section]'));
+    const cards = Array.from(document.querySelectorAll('[data-settings-panel="config"] [data-config-card]'));
+
+    const activate = (section) => {
+      const key = normalizeString(section);
+      buttons.forEach((btn) => btn.classList.toggle('is-active', normalizeString(btn.dataset.configSection) === key));
+      cards.forEach((card) => {
+        const cardKey = normalizeString(card.dataset.configCard);
+        card.hidden = cardKey !== key;
+      });
+    };
+
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => activate(btn.dataset.configSection));
+    });
+
+    activate('model');
+
+    if (sectionSearchInput) {
+      sectionSearchInput.addEventListener('input', () => {
+        const q = normalizeString(sectionSearchInput.value);
+        if (!q) return;
+
+        const match = cards.find((card) => {
+          const title = normalizeString(card.dataset.configTitle);
+          return title.includes(q) || normalizeString(card.textContent).includes(q);
+        });
+        if (match) activate(match.dataset.configCard);
+      });
+    }
   }
 
   function deepMerge(base, patch) {
@@ -766,6 +810,8 @@
     // If the panel is not present (different tab), bail silently.
     if (!modelInput || !previewEl || !statusEl) return;
     inited = true;
+
+    ensureConfigSections();
 
     addMcpBtn?.addEventListener('click', () => {
       renderMcpRow();

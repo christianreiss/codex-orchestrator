@@ -145,6 +145,14 @@ body[data-view="mobile"] .panel-actions button {
   width: 100%;
   min-width: 0;
 }
+
+body[data-view="mobile"] .config-shell {
+  grid-template-columns: 1fr;
+}
+body[data-view="mobile"] .config-aside {
+  position: relative;
+  top: auto;
+}
 body[data-view="mobile"] .settings-panel .settings-grid {
   padding: 14px;
 }

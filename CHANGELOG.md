@@ -4,6 +4,7 @@
 # 2026-02-08
 - Security: remove un-gated `public/admin/mtls-debug.php` endpoint that echoed request headers.
 - Security: constrain outbound cURL redirects to HTTPS in pricing + ChatGPT usage fetchers.
+- Admin UI: start visual refresh (new theme tokens for light/dark/auto, header polish, and a sectioned Config layout with search).
 
 # 2026-02-02
 - cdx: pick `script` flags per platform and only run PTY capture when stdin/stdout are TTYs (fixes macOS `script` errors).

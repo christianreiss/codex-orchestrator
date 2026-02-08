@@ -97,7 +97,7 @@
 
   <div class="app">
     <div class="content">
-      <nav class="menu-line" aria-label="Top navigation">
+      <nav class="menu-line" aria-label="Top navigation" hidden>
         <a class="menu-link" href="#dashboard">Overview</a>
         <a class="menu-link" href="#hosts">Hosts</a>
         <a class="menu-link" href="#logs">Logs</a>
@@ -1020,18 +1020,36 @@
 	              </div>
               <div class="panel-actions">
                 <button id="renderConfig" class="ghost tiny-btn">Preview</button>
-                <button id="copyPreview" class="ghost tiny-btn">Copy</button>
+                <button id="copyPreviewTop" class="ghost tiny-btn">Copy</button>
                 <button id="saveConfig" class="primary">Save &amp; Deploy</button>
               </div>
             </div>
             <div class="panel-body">
+              <div class="config-shell">
+                <aside class="config-aside" aria-label="Config sections">
+                  <div class="config-aside-head">
+                    <div class="config-aside-title">Sections</div>
+                    <input id="configSectionSearch" class="config-search" type="search" placeholder="Search settings">
+                  </div>
+                  <nav class="config-sections" id="configSections" role="tablist" aria-label="Config sections">
+                    <button class="config-section is-active" type="button" data-config-section="model">Model</button>
+                    <button class="config-section" type="button" data-config-section="security">Security</button>
+                    <button class="config-section" type="button" data-config-section="sandbox">Sandbox</button>
+                    <button class="config-section" type="button" data-config-section="mcp">MCP</button>
+                    <button class="config-section" type="button" data-config-section="otel">OTEL</button>
+                    <button class="config-section" type="button" data-config-section="custom">Custom</button>
+                    <button class="config-section" type="button" data-config-section="preview">Preview</button>
+                  </nav>
+                </aside>
+
+                <section class="config-main" aria-label="Config editor">
               <div class="inline-group" style="margin-bottom:12px;">
                 <div class="pill-quiet">Status: <span id="configStatus">Loading…</span></div>
                 <div class="pill-quiet">SHA: <span id="configSha">—</span></div>
                 <div class="pill-quiet">Updated: <span id="configUpdated">—</span></div>
               </div>
               <div class="config-grid">
-                <div class="config-card">
+                <div class="config-card" data-config-card="model" data-config-title="Model &amp; Behavior">
                   <h3>Model &amp; Behavior</h3>
                   <p>Pick the model and how it reasons, responds, and sizes outputs.</p>
                   <div class="field">
@@ -1100,7 +1118,7 @@
                   </div>
                 </div>
 
-                <div class="config-card">
+                <div class="config-card" data-config-card="security" data-config-title="Security &amp; Features">
                   <h3>Security &amp; Features</h3>
                   <p>Guardrails plus the extras you want surfaced to users.</p>
                   <div class="field">
@@ -1195,7 +1213,7 @@
                   </div>
                 </div>
 
-                <div class="config-card">
+                <div class="config-card" data-config-card="sandbox" data-config-title="Sandbox &amp; Environment">
                   <h3>Sandbox &amp; Environment</h3>
                   <p>Control workspace access, env visibility, and permissions.</p>
                   <div class="field">
@@ -1258,7 +1276,7 @@
                   </label>
                 </div>
 
-                <div class="config-card">
+                <div class="config-card" data-config-card="mcp" data-config-title="MCP &amp; Telemetry">
                   <h3>MCP &amp; Telemetry</h3>
                   <p>Wire Codex-Coordinator memory MCP or other servers, plus OTEL.</p>
                   <div class="row-actions" style="align-items:center;">
@@ -1312,7 +1330,7 @@
                   </label>
                 </div>
 
-                <div class="config-card">
+                <div class="config-card" data-config-card="custom" data-config-title="Custom TOML">
                   <h3>Custom TOML</h3>
                   <p>Any additional blocks or overrides appended verbatim.</p>
                   <div class="field">
@@ -1321,7 +1339,7 @@
                 </div>
               </div>
 
-              <div class="config-card" style="margin-top:14px;">
+              <div class="config-card" style="margin-top:14px;" data-config-card="preview" data-config-title="Rendered config.toml">
                 <div class="preview-actions">
                   <div>
                     <h3 style="margin:0;">Rendered config.toml</h3>
@@ -1333,6 +1351,8 @@
                   </div>
                 </div>
                 <div id="configPreview" class="mono-block" aria-label="Rendered config.toml">Loading…</div>
+              </div>
+                </section>
               </div>
             </div>
           </section>
