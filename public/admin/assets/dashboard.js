@@ -79,6 +79,7 @@
     const hostDetailGrid = document.getElementById('hostDetailGrid');
     const hostDetailActions = document.getElementById('hostDetailActions');
     const hostDetailSummary = document.getElementById('hostDetailSummary');
+    const hostDetailProblems = document.getElementById('hostDetailProblems');
     const closeHostDetailBtn = document.getElementById('closeHostDetail');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const promptsTbody = document.querySelector('#prompts tbody');
@@ -2556,7 +2557,68 @@
         if (hostDetailGrid) hostDetailGrid.innerHTML = '';
         if (hostDetailSummary) hostDetailSummary.innerHTML = '';
         if (hostDetailPills) hostDetailPills.innerHTML = '';
+        if (hostDetailProblems) {
+          hostDetailProblems.innerHTML = '';
+          hostDetailProblems.hidden = true;
+        }
       }
+    }
+
+    function hostProblems(host) {
+      const issues = [];
+      const secure = isHostSecure(host);
+      const status = String(host?.status || '').toLowerCase();
+      const authed = host?.authed === true;
+      const { enabledActive, graceActive } = insecureState(host);
+
+      if (status && status !== 'active') {
+        issues.push({ tone: 'err', title: 'Suspended', body: 'Host cannot authenticate while suspended.' });
+      }
+      if (!authed) {
+        issues.push({ tone: 'warn', title: 'Not provisioned', body: 'Host has not stored canonical auth yet.' });
+      }
+      if (!secure && !enabledActive && !graceActive) {
+        issues.push({ tone: 'warn', title: 'Insecure window closed', body: 'Open the insecure API window to allow /auth.' });
+      }
+      if (secure && host?.auth_outdated) {
+        issues.push({ tone: 'warn', title: 'Outdated auth', body: 'Host has an older digest than canonical.' });
+      }
+      if (isVersionBehind(host?.client_version, latestVersions.client) || isVersionBehind(host?.wrapper_version, latestVersions.wrapper)) {
+        issues.push({ tone: 'warn', title: 'Outdated versions', body: 'Client and/or wrapper is behind the fleet latest.' });
+      }
+      if (runnerSummary?.enabled && runnerSummary?.latest_validation) {
+        const st = String(runnerSummary.latest_validation.status || '').toLowerCase();
+        if (st && st !== 'ok') {
+          issues.push({ tone: 'warn', title: 'Runner not OK', body: `Latest runner validation: ${runnerSummary.latest_validation.status}` });
+        }
+      }
+
+      return issues;
+    }
+
+    function renderHostProblems(host) {
+      if (!hostDetailProblems) return;
+      const issues = hostProblems(host);
+      if (!issues.length) {
+        hostDetailProblems.innerHTML = '';
+        hostDetailProblems.hidden = true;
+        return;
+      }
+      hostDetailProblems.hidden = false;
+      hostDetailProblems.innerHTML = `
+        <div class="problems-head">
+          <div class="problems-title">Problems</div>
+          <div class="muted problems-sub">Only shown when something needs attention.</div>
+        </div>
+        <div class="problems-grid">
+          ${issues.map((it) => `
+            <div class="problem ${it.tone}">
+              <div class="problem-title">${escapeHtml(it.title)}</div>
+              <div class="problem-body">${escapeHtml(it.body)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
     }
 
     function closeHostDetail() {
@@ -2582,6 +2644,7 @@
         }
         hostDetailPills.innerHTML = pills.join('');
       }
+      renderHostProblems(host);
       renderHostSummary(host);
       if (hostDetailGrid) {
         const rows = hostDetailRows(host);
