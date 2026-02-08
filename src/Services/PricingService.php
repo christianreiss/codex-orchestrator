@@ -155,6 +155,8 @@ class PricingService
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_HTTPHEADER => [
                 'Accept: application/json',

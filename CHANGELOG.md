@@ -1,6 +1,10 @@
 # 2026-02-06
 - Admin config: default model switched to `gpt-5.3-codex` and model pickers now include `gpt-5.3`/`gpt-5.3-codex`.
 
+# 2026-02-08
+- Security: remove un-gated `public/admin/mtls-debug.php` endpoint that echoed request headers.
+- Security: constrain outbound cURL redirects to HTTPS in pricing + ChatGPT usage fetchers.
+
 # 2026-02-02
 - cdx: pick `script` flags per platform and only run PTY capture when stdin/stdout are TTYs (fixes macOS `script` errors).
 - cdx: avoid `script -c` on macOS and guard wrapper restart args to prevent unbound variable crashes.

@@ -197,6 +197,8 @@ class ChatGptUsageService
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_TIMEOUT => $timeout,
         ]);
         $body = curl_exec($ch);
