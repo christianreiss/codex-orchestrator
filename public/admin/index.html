@@ -447,10 +447,25 @@
 
         <!-- Dashboard -->
         <section class="panel-set" data-panel="dashboard">
-          <section class="card usage-card" id="chatgpt-usage-card">
-            <div class="muted">Loading ChatGPT usage…</div>
+          <section class="dashboard-hero">
+            <div class="dashboard-hero-head">
+              <div>
+                <p class="eyebrow">Overview</p>
+                <h2 style="margin:0;">Fleet Health</h2>
+                <p class="muted" style="margin:6px 0 0;">Fast signal: usage, auth, versions, runner, and quota policy.</p>
+              </div>
+              <div class="dashboard-hero-actions">
+                <button class="ghost tiny-btn" id="dashboardRefreshBtn" type="button">↻ Refresh</button>
+                <button class="primary" id="dashboardNewHostBtn" type="button">New host</button>
+              </div>
+            </div>
+            <div class="dashboard-hero-grid">
+              <section class="card usage-card" id="chatgpt-usage-card">
+                <div class="muted">Loading ChatGPT usage…</div>
+              </section>
+              <section class="grid metrics" id="stats"></section>
+            </div>
           </section>
-          <section class="grid metrics" id="stats"></section>
         </section>
 
         <!-- Hosts -->

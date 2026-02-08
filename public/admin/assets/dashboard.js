@@ -118,6 +118,9 @@
     const memoriesPanel = document.querySelector('.panel-set[data-panel="settings"] [data-settings-panel="memories"]');
     const memoriesTableBody = document.querySelector('#memories tbody');
     const memoriesTableWrap = document.getElementById('memoriesTableWrap');
+
+    const dashboardRefreshBtn = document.getElementById('dashboardRefreshBtn');
+    const dashboardNewHostBtn = document.getElementById('dashboardNewHostBtn');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
@@ -2638,28 +2641,39 @@
       const pill = hostTablePill(host);
       const pillChip = pill ? `<span class="chip ${pill.tone === 'ok' ? 'ok' : 'warn'}">${pill.label}</span>` : '';
       const statusChip = pillChip || '<span class="muted">—</span>';
+      const securityChip = isSecure ? '<span class="chip ok">Secure</span>' : '<span class="chip warn">Insecure</span>';
+      const roamingChip = host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip neutral">IP locked</span>';
+      const reverseDnsChip = isReverseDnsEffective(host) ? '<span class="chip neutral">rDNS</span>' : '';
+      const tokensChip = host?.token_usage?.total !== null && host?.token_usage?.total !== undefined
+        ? `<span class="chip neutral">${formatNumber(host.token_usage.total)} tok</span>`
+        : '';
+      const lastSeenText = host.updated_at ? formatRelative(host.updated_at) : 'Never';
+      const authText = host.last_refresh ? formatRelative(host.last_refresh) : '—';
+      const ipText = (host.ip4 || host.ip6) ? `<code>${escapeHtml(host.ip4 || host.ip6)}</code>` : '<span class="muted">Not bound</span>';
       tr.classList.add(`status-${health.tone}`);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
       tr.tabIndex = 0;
       tr.innerHTML = `
         <td data-label="Host">
-          <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:4px;">
+          <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
             <strong>${escapeHtml(host.fqdn)}</strong>
-            <div class="inline-cell" style="gap:6px; align-items:center; flex-wrap:wrap;">
-              <span class="muted" style="font-size:12px;">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · will be removed in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
-              ${vipChip}
-              ${authSourceChip}
+            <div class="host-meta">
+              <span class="muted">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · removes in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
+              <span class="host-badges">${vipChip}${authSourceChip}${securityChip}${tokensChip}${reverseDnsChip}</span>
             </div>
           </div>
         </td>
         <td data-label="Status" class="status-cell">
-          ${statusChip}
+          <div class="host-kpis">
+            <div class="kpi"><span class="label">Status</span> ${statusChip}</div>
+            <div class="kpi"><span class="label">IP</span> ${ipText} ${roamingChip}</div>
+          </div>
         </td>
         <td data-label="Last Seen">
-          <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:2px;">
-            <span>${formatRelative(host.updated_at)}</span>
-            <span class="muted" style="font-size:12px;">auth ${formatRelative(host.last_refresh)}</span>
+          <div class="host-kpis">
+            <div class="kpi"><span class="label">Seen</span> <span>${escapeHtml(lastSeenText)}</span></div>
+            <div class="kpi"><span class="label">Auth</span> <span class="muted">${escapeHtml(authText)}</span></div>
           </div>
         </td>
         <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
@@ -5856,8 +5870,9 @@
       });
     }
 
-    async function ensureDataLoaded() {
-      if (loadAllPromise) return loadAllPromise;
+    async function ensureDataLoaded(force = false) {
+      if (!force && loadAllPromise) return loadAllPromise;
+      if (force) loadAllPromise = null;
       loadAllPromise = loadAll().finally(() => { dataLoaded = true; });
       return loadAllPromise;
     }
@@ -6043,6 +6058,15 @@
     });
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
+    }
+    if (dashboardNewHostBtn) {
+      dashboardNewHostBtn.addEventListener('click', () => showNewHostModal(true));
+    }
+    if (dashboardRefreshBtn) {
+      dashboardRefreshBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        ensureDataLoaded(true);
+      });
     }
     // Memories view is live-updating via filters; no explicit refresh button.
     if (memoriesHostFilter) {
