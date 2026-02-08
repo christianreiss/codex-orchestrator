@@ -7,6 +7,7 @@
 - Admin UI: start visual refresh (new theme tokens for light/dark/auto, header polish, and a sectioned Config layout with search).
 - Admin dashboard: add a Fleet Health header with quick actions (refresh, new host).
 - Admin hosts: improve table scanability with clearer badges and grouped KPI rows.
+- Admin hosts: host detail modal now highlights “Problems” at the top when something needs attention.
 
 # 2026-02-02
 - cdx: pick `script` flags per platform and only run PTY capture when stdin/stdout are TTYs (fixes macOS `script` errors).
