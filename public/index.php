@@ -1561,10 +1561,10 @@ $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($matches) use ($hos
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matches) use ($hostRepository, $logRepository, $payload, $service) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/insecure/enable$#', function ($hostId) use ($hostRepository, $logRepository, $payload, $service) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1623,10 +1623,10 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', function ($matche
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($matches) use ($hostRepository, $logRepository) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/insecure/disable$#', function ($hostId) use ($hostRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1652,11 +1652,11 @@ $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', function ($match
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $hostRepository, $logRepository, $service) {
+$router->add('POST', '#^/admin/insecure-approvals/(\\d+)/allow-domain$#', function ($requestId) use ($payload, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
-    $requestId = (int) $matches[1];
+    $requestId = (int) $requestId;
     $request = $insecureAuthRequestRepository->findById($requestId);
     if (!$request) {
         Response::json([
@@ -1816,11 +1816,11 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', functio
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($matches) use ($payload, $insecureAuthRequestRepository, $hostRepository, $logRepository, $service) {
+$router->add('POST', '#^/admin/insecure-approvals/(\\d+)/approve$#', function ($requestId) use ($payload, $insecureAuthRequestRepository, $hostRepository, $logRepository, $service) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
 
-    $requestId = (int) $matches[1];
+    $requestId = (int) $requestId;
     $request = $insecureAuthRequestRepository->findById($requestId);
     if (!$request) {
         Response::json([
@@ -1907,11 +1907,11 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', function ($m
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', function ($matches) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
+$router->add('POST', '#^/admin/insecure-approvals/(\\d+)/deny$#', function ($requestId) use ($insecureAuthRequestRepository, $hostRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
 
-    $requestId = (int) $matches[1];
+    $requestId = (int) $requestId;
     $request = $insecureAuthRequestRepository->findById($requestId);
     if (!$request) {
         Response::json([
