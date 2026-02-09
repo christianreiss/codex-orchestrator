@@ -86,6 +86,16 @@ install_binary() {
 }
 
 echo "Installing Codex for __FQDN__ via __BASE__"
+if command -v codex >/dev/null 2>&1; then
+  current_codex_path="$(command -v codex)"
+  current_codex_version="$("$current_codex_path" -V 2>/dev/null | head -n1 || true)"
+  if [ -n "$current_codex_version" ]; then
+    echo "Current Codex: ${current_codex_version} (${current_codex_path})"
+  else
+    echo "Current Codex: installed (${current_codex_path})"
+  fi
+fi
+echo "Target Codex: ${CODEX_VERSION}"
 
 curl_fetch -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
