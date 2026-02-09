@@ -502,7 +502,9 @@ $router->add('GET', '#^/wrapper/download$#', function () use ($service, $wrapper
 });
 
 $router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($installTokenRepository, $hostRepository, $logRepository, $service) {
-    $tokenValue = $matches[1];
+    // Router passes capture groups as individual args, not the full $matches array.
+    // This route has a single capture group (the token), so the first arg is the token.
+    $tokenValue = is_array($matches) ? ($matches[1] ?? '') : (string) $matches;
     $tokenRow = $installTokenRepository->findByToken($tokenValue);
     if (!$tokenRow) {
         installerError('Installer not found', 404);
