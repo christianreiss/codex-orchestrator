@@ -415,10 +415,10 @@ $router->add('POST', '#^/admin/users$#', function () use ($payload, $adminUserSe
     ]);
 });
 
-$router->add('POST', '#^/admin/users/(\\d+)$#', function ($matches) use ($payload, $adminUserService) {
+$router->add('POST', '#^/admin/users/(\\d+)$#', function ($id) use ($payload, $adminUserService) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
-    $id = (int) ($matches[1] ?? 0);
+    $id = (int) $id;
     $user = $adminUserService->updateUser($id, is_array($payload) ? $payload : []);
     Response::json([
         'status' => 'ok',
@@ -428,10 +428,10 @@ $router->add('POST', '#^/admin/users/(\\d+)$#', function ($matches) use ($payloa
     ]);
 });
 
-$router->add('DELETE', '#^/admin/users/(\\d+)$#', function ($matches) use ($adminUserService) {
+$router->add('DELETE', '#^/admin/users/(\\d+)$#', function ($id) use ($adminUserService) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_USERS_MANAGE);
-    $id = (int) ($matches[1] ?? 0);
+    $id = (int) $id;
     $adminUserService->deleteUser($id);
     Response::json([
         'status' => 'ok',
@@ -501,10 +501,8 @@ $router->add('GET', '#^/wrapper/download$#', function () use ($service, $wrapper
     exit;
 });
 
-$router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($installTokenRepository, $hostRepository, $logRepository, $service) {
-    // Router passes capture groups as individual args, not the full $matches array.
-    // This route has a single capture group (the token), so the first arg is the token.
-    $tokenValue = is_array($matches) ? ($matches[1] ?? '') : (string) $matches;
+$router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($tokenValue) use ($installTokenRepository, $hostRepository, $logRepository, $service) {
+    $tokenValue = (string) $tokenValue;
     $tokenRow = $installTokenRepository->findByToken($tokenValue);
     if (!$tokenRow) {
         installerError('Installer not found', 404);
@@ -550,8 +548,7 @@ $router->add('GET', '#^/install/([a-f0-9\-]{36})$#i', function ($matches) use ($
     emitInstaller($body, 200, $tokenRow['expires_at'] ?? null);
 });
 
-$router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($matches) use ($seedTokenRepository) {
-    $tokenValue = $matches[1];
+$router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($tokenValue) use ($seedTokenRepository) {
     $tokenRow = $seedTokenRepository->findByToken($tokenValue);
     if (!$tokenRow) {
         seedAuthError('Seed token not found', 404);
@@ -577,8 +574,7 @@ $router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($matches) use 
     emitSeedScript($body, 200, $tokenRow['expires_at'] ?? null);
 });
 
-$router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($matches) use ($seedTokenRepository, $service, $logRepository) {
-    $tokenValue = $matches[1];
+$router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#i', function ($tokenValue) use ($seedTokenRepository, $service, $logRepository) {
     $tokenRow = $seedTokenRepository->findByToken($tokenValue);
     if (!$tokenRow) {
         Response::json([
@@ -1337,9 +1333,9 @@ $router->add('POST', '#^/admin/prune-policy$#', function () use ($payload, $vers
     ]);
 });
 
-$router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hostRepository, $hostStateRepository, $authPayloadRepository, $service, $digestRepository) {
+$router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($hostId) use ($hostRepository, $hostStateRepository, $authPayloadRepository, $service, $digestRepository) {
     requireAdminAccess();
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1396,10 +1392,10 @@ $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', function ($matches) use ($hos
     ]);
 });
 
-$router->add('DELETE', '#^/admin/hosts/(\d+)$#', function ($matches) use ($hostRepository, $digestRepository, $logRepository) {
+$router->add('DELETE', '#^/admin/hosts/(\d+)$#', function ($hostId) use ($hostRepository, $digestRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1418,10 +1414,10 @@ $router->add('DELETE', '#^/admin/hosts/(\d+)$#', function ($matches) use ($hostR
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/clear$#', function ($matches) use ($hostRepository, $digestRepository, $logRepository) {
+$router->add('POST', '#^/admin/hosts/(\d+)/clear$#', function ($hostId) use ($hostRepository, $digestRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1446,10 +1442,10 @@ $router->add('POST', '#^/admin/hosts/(\d+)/clear$#', function ($matches) use ($h
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1484,10 +1480,10 @@ $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', function ($matches) use (
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1522,10 +1518,10 @@ $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', function ($matches) use ($
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -1953,11 +1949,11 @@ $router->add('POST', '#^/admin/insecure-approvals/(\\d+)/deny$#', function ($req
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', function ($matches) use ($insecureDomainAllowRepository, $logRepository) {
+$router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', function ($allowId) use ($insecureDomainAllowRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
-    $allowId = (int) $matches[1];
+    $allowId = (int) $allowId;
     $allow = $insecureDomainAllowRepository->findById($allowId);
     if (!$allow) {
         Response::json([
@@ -1984,10 +1980,10 @@ $router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', function 
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -2024,10 +2020,10 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/ipv4$#', function ($matches) use ($h
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -2062,10 +2058,10 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/curl-insecure$#', function ($matches
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\\d+)/reverse-dns$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/reverse-dns$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -2107,10 +2103,10 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/reverse-dns$#', function ($matches) 
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -2159,10 +2155,10 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($matches) use ($
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($matches) use ($hostRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -2215,10 +2211,10 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($matches
     ]);
 });
 
-$router->add('POST', '#^/admin/hosts/(\\d+)/agents-version$#', function ($matches) use ($hostRepository, $agentsRepository, $logRepository, $payload) {
+$router->add('POST', '#^/admin/hosts/(\\d+)/agents-version$#', function ($hostId) use ($hostRepository, $agentsRepository, $logRepository, $payload) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-    $hostId = (int) $matches[1];
+    $hostId = (int) $hostId;
     $host = $hostRepository->findById($hostId);
     if (!$host) {
         Response::json([
@@ -3044,11 +3040,11 @@ $router->add('POST', '#^/admin/agents/serve$#', function () use ($payload, $agen
     ]);
 });
 
-$router->add('DELETE', '#^/admin/agents/versions/(\d+)$#', function (array $matches) use ($agentsService) {
+$router->add('DELETE', '#^/admin/agents/versions/(\d+)$#', function ($versionId) use ($agentsService) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
-    $versionId = isset($matches[1]) ? (int) $matches[1] : 0;
+    $versionId = (int) $versionId;
 
     try {
         $result = $agentsService->deleteVersion($versionId);
@@ -3099,10 +3095,10 @@ $router->add('GET', '#^/admin/mcp/memories$#', function () use ($memoryService) 
     ]);
 });
 
-$router->add('DELETE', '#^/admin/mcp/memories/(\\d+)$#', function ($matches) use ($memoryService) {
+$router->add('DELETE', '#^/admin/mcp/memories/(\\d+)$#', function ($id) use ($memoryService) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-    $id = (int) $matches[1];
+    $id = (int) $id;
     $result = $memoryService->adminDelete($id);
 
     Response::json([
@@ -3122,9 +3118,9 @@ $router->add('GET', '#^/admin/slash-commands$#', function () use ($slashCommandR
     ]);
 });
 
-$router->add('GET', '#^/admin/slash-commands/([^/]+)$#', function ($matches) use ($slashCommandService) {
+$router->add('GET', '#^/admin/slash-commands/([^/]+)$#', function ($filename) use ($slashCommandService) {
     requireAdminAccess();
-    $filename = urldecode($matches[1]);
+    $filename = urldecode($filename);
     try {
         $command = $slashCommandService->find($filename);
     } catch (ValidationException $exception) {
@@ -3173,10 +3169,10 @@ $router->add('POST', '#^/admin/slash-commands/store$#', function () use ($payloa
     ]);
 });
 
-$router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', function ($matches) use ($slashCommandService) {
+$router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', function ($filename) use ($slashCommandService) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-    $filename = urldecode($matches[1]);
+    $filename = urldecode($filename);
     try {
         $deleted = $slashCommandService->delete($filename);
     } catch (ValidationException $exception) {
@@ -3213,9 +3209,9 @@ $router->add('GET', '#^/admin/skills$#', function () use ($skillRepository) {
     ]);
 });
 
-$router->add('GET', '#^/admin/skills/([^/]+)$#', function ($matches) use ($skillService) {
+$router->add('GET', '#^/admin/skills/([^/]+)$#', function ($slug) use ($skillService) {
     requireAdminAccess();
-    $slug = urldecode($matches[1]);
+    $slug = urldecode($slug);
     try {
         $skill = $skillService->find($slug);
     } catch (ValidationException $exception) {
@@ -3259,10 +3255,10 @@ $router->add('POST', '#^/admin/skills/store$#', function () use ($payload, $skil
     ]);
 });
 
-$router->add('DELETE', '#^/admin/skills/([^/]+)$#', function ($matches) use ($skillService) {
+$router->add('DELETE', '#^/admin/skills/([^/]+)$#', function ($slug) use ($skillService) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-    $slug = urldecode($matches[1]);
+    $slug = urldecode($slug);
     try {
         $deleted = $skillService->delete($slug);
     } catch (ValidationException $exception) {
@@ -3406,12 +3402,12 @@ $router->add('POST', '#^/mcp/memories/delete$#', function () use ($payload, $ser
     ]);
 });
 
-$router->add('DELETE', '#^/mcp/memories/([^/]+)$#', function ($matches) use ($service, $memoryService) {
+$router->add('DELETE', '#^/mcp/memories/([^/]+)$#', function ($id) use ($service, $memoryService) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
     $host = $service->authenticate($apiKey, $clientIp);
 
-    $id = rawurldecode($matches[1]);
+    $id = rawurldecode($id);
     $result = $memoryService->delete(['id' => $id], $host);
 
     Response::json([
