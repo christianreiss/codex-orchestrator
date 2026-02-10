@@ -1987,19 +1987,7 @@ PY
 	    # If the user didn't pass an explicit non-interactive flag, degrade gracefully.
 	    if [[ ! -t 1 ]]; then
 	      local args=("$@")
-	      local has_non_interactive=0
-	      local a
-	      for a in "${args[@]}"; do
-	        case "$a" in
-	          --non-interactive|--non_interactive|--json)
-	            has_non_interactive=1
-	            ;;
-	        esac
-	      done
-	      if (( has_non_interactive == 0 )); then
-	        args=(--non-interactive "${args[@]}")
-	      fi
-	      "$CODEX_REAL_BIN" "${args[@]}" 2>&1 | tee "$tmp_output"
+	      "$CODEX_REAL_BIN" exec "${args[@]}" 2>&1 | tee "$tmp_output"
 	      status=${PIPESTATUS[0]}
 	    else
 	      "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
