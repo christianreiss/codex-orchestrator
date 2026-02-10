@@ -1917,16 +1917,22 @@ detect_script_flags() {
 }
 
 run_codex_command() {
-  local tmp_output status
-  tmp_output="$(mktemp)"
-  set +e
-  local prompt_toolkit_no_cpr_added=0
-  if [[ -t 0 && -t 1 && "$CODEX_NO_PTY" != "1" ]]; then
-    if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
-      export PROMPT_TOOLKIT_NO_CPR=1
-      prompt_toolkit_no_cpr_added=1
-    fi
-    local cmd_line=("$CODEX_REAL_BIN" "$@")
+	  local tmp_output status
+	  tmp_output="$(mktemp)"
+	  set +e
+	  local prompt_toolkit_no_cpr_added=0
+	  # If we're not connected to a real TTY (common on some odd SSH/VM setups),
+	  # forcing prompt-toolkit cursor position reports can hard-fail.
+	  if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]] && [[ ! -t 0 || ! -t 1 ]]; then
+	    export PROMPT_TOOLKIT_NO_CPR=1
+	    prompt_toolkit_no_cpr_added=1
+	  fi
+	  if [[ -t 0 && -t 1 && "$CODEX_NO_PTY" != "1" ]]; then
+	    if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
+	      export PROMPT_TOOLKIT_NO_CPR=1
+	      prompt_toolkit_no_cpr_added=1
+	    fi
+	    local cmd_line=("$CODEX_REAL_BIN" "$@")
     if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
       # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
       local cmd_str
@@ -1976,10 +1982,30 @@ PY
       "${cmd_line[@]}" 2>&1 | tee "$tmp_output"
       status=${PIPESTATUS[0]}
     fi
-  else
-    "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
-    status=${PIPESTATUS[0]}
-  fi
+	  else
+	    # When stdout is not a terminal, some Codex builds refuse to run in interactive mode.
+	    # If the user didn't pass an explicit non-interactive flag, degrade gracefully.
+	    if [[ ! -t 1 ]]; then
+	      local args=("$@")
+	      local has_non_interactive=0
+	      local a
+	      for a in "${args[@]}"; do
+	        case "$a" in
+	          --non-interactive|--non_interactive|--json)
+	            has_non_interactive=1
+	            ;;
+	        esac
+	      done
+	      if (( has_non_interactive == 0 )); then
+	        args=(--non-interactive "${args[@]}")
+	      fi
+	      "$CODEX_REAL_BIN" "${args[@]}" 2>&1 | tee "$tmp_output"
+	      status=${PIPESTATUS[0]}
+	    else
+	      "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
+	      status=${PIPESTATUS[0]}
+	    fi
+	  fi
   if (( prompt_toolkit_no_cpr_added )); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi

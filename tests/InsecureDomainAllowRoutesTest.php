@@ -10,7 +10,7 @@ final class InsecureDomainAllowRoutesTest extends TestCase
         self::assertIsString($routerSource);
 
         self::assertStringContainsString(
-            "#^/admin/insecure-approvals/(\\d+)/allow-domain$#",
+            "#^/admin/insecure-approvals/(\\\\d+)/allow-domain$#",
             $routerSource,
             'Expected /admin/insecure-approvals/{id}/allow-domain route to exist in public/index.php'
         );
