@@ -82,6 +82,9 @@ final class ClientConfigServiceTest extends TestCase
             'sandbox_mode' => 'workspace-write',
             'notice' => [
                 'hide_gpt5_1_migration_prompt' => true,
+                'model_migrations' => [
+                    'gpt-5.2-codex' => 'gpt-5.3-codex',
+                ],
             ],
             'features' => [
                 'web_search' => 'live',
@@ -94,6 +97,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('web_search = "live"', $rendered['content']);
         $this->assertStringContainsString('[notice]', $rendered['content']);
         $this->assertStringContainsString('hide_gpt5_1_migration_prompt = true', $rendered['content']);
+        $this->assertStringContainsString('model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex" }', $rendered['content']);
         $this->assertEquals(64, strlen($rendered['sha256']));
     }
 

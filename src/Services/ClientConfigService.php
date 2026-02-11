@@ -431,18 +431,33 @@ class ClientConfigService
             'hide_gpt5_1_migration_prompt' => true,
             'hide_gpt-5.1-codex-max_migration_prompt' => true,
             'hide_rate_limit_model_nudge' => true,
+            'model_migrations' => [
+                'gpt-5.2-codex' => 'gpt-5.3-codex',
+            ],
         ];
         $notice = [];
         foreach ($noticeDefaults as $key => $default) {
             $candidate = array_key_exists($key, $noticeRaw) ? $noticeRaw[$key] : $default;
+            if ($key === 'model_migrations') {
+                $notice[$key] = $this->normalizeStringMap(is_array($candidate) ? $candidate : []);
+                continue;
+            }
             $notice[$key] = $normalizeBool($candidate, $default) ?? $default;
         }
         foreach ($noticeRaw as $key => $value) {
             if (array_key_exists($key, $notice)) {
+                if ($key === 'model_migrations') {
+                    $notice[$key] = $this->normalizeStringMap(is_array($value) ? $value : []);
+                    continue;
+                }
                 $override = $normalizeBool($value, $notice[$key]);
                 if ($override !== null) {
                     $notice[$key] = $override;
                 }
+                continue;
+            }
+            if ($key === 'model_migrations') {
+                $notice[$key] = $this->normalizeStringMap(is_array($value) ? $value : []);
                 continue;
             }
             $boolValue = $normalizeBool($value);

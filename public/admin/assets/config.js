@@ -150,6 +150,9 @@
         'hide_gpt5_1_migration_prompt': true,
         'hide_gpt-5.1-codex-max_migration_prompt': true,
         'hide_rate_limit_model_nudge': true,
+        'model_migrations': {
+          'gpt-5.2-codex': 'gpt-5.3-codex',
+        },
       },
       sandbox_workspace_write: {
         network_access: false,
