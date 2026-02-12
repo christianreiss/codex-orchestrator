@@ -1,3 +1,6 @@
+# 2026-02-12
+- cdx: refresh bootup summary styling (modern header + divider + wrapped rows) while keeping existing status content.
+
 # 2026-02-11
 - Config: add notice model migration defaults to map `gpt-5.2-codex` to `gpt-5.3-codex`.
 - Config: add `[security] dangerously_bypass_approvals_and_sandbox` toggle (wired into `cdx` to add `--dangerously-bypass-approvals-and-sandbox` when enabled).

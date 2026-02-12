@@ -308,7 +308,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.10-02"
+WRAPPER_VERSION="2026.02.12-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -4046,6 +4046,98 @@ ROW_LABEL_WIDTH=12
 ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 
+# Summary formatting (bootup message).
+# We render a compact "header + rows" block with a modern look while keeping
+# existing content + tone logic. This is intentionally plain bash (no tput
+# dependencies beyond what's already used elsewhere).
+SUMMARY_GUTTER="  "
+
+summary_divider() {
+  # Use an ASCII-only divider if unicode box-drawing isn't desired.
+  # (We already emit unicode icons/bars elsewhere; this keeps look consistent.)
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 40 )); then
+    cols=80
+  fi
+  local w=$(( cols - 2 ))
+  (( w < 20 )) && w=20
+  printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '─')${RESET}"
+}
+
+summary_header() {
+  local title="$1" tone="${2-}"
+  local ts=""
+  if command -v date >/dev/null 2>&1; then
+    ts="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
+  fi
+  local left="cdx"
+  [[ -n "$ts" ]] && left+=" ${DIM}${ts}${RESET}"
+  local right=""
+  [[ -n "$title" ]] && right="$(colorize "$title" "$tone")"
+  # Keep it single-line; row wrapping is handled below.
+  if [[ -n "$right" ]]; then
+    printf "%s%s%s" "$left" "${SUMMARY_GUTTER}•${SUMMARY_GUTTER}" "$right"
+  else
+    printf "%s" "$left"
+  fi
+}
+
+summary_row() {
+  local label="$1"; shift
+  local text="$*"
+  # "Label  · value" reads cleaner than the old aligned colon block.
+  printf "%b%s%b%s%s%b" "${DIM}" "$label" "${RESET}" "${SUMMARY_GUTTER}·${SUMMARY_GUTTER}" "$text" "${RESET}"
+}
+
+wrap_ansi_text() {
+  # Fold long lines to terminal width while preserving ANSI sequences.
+  # This is best-effort: we strip ANSI to estimate visible width and break on spaces.
+  local text="$1"
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 60 )); then
+    printf "%s" "$text"
+    return
+  fi
+  local indent="${2-}"
+  local max=$(( cols - ${#indent} ))
+  (( max < 30 )) && { printf "%s" "$text"; return; }
+
+  local out="" line="" token rest="$text"
+  while [[ -n "$rest" ]]; do
+    # Split on first space.
+    if [[ "$rest" == *" "* ]]; then
+      token="${rest%% *}"
+      rest="${rest#* }"
+    else
+      token="$rest"
+      rest=""
+    fi
+    local cand="$line"
+    [[ -n "$cand" ]] && cand+=" "
+    cand+="$token"
+    local cand_plain
+    cand_plain="$(sed -r 's/\x1B\\[[0-9;]*[mK]//g' <<<"$cand")"
+    if (( ${#cand_plain} > max )) && [[ -n "$line" ]]; then
+      if [[ -n "$out" ]]; then out+=$'\n'; fi
+      out+="${indent}${line}"
+      line="$token"
+    else
+      line="$cand"
+    fi
+  done
+  if [[ -n "$line" ]]; then
+    [[ -n "$out" ]] && out+=$'\n'
+    out+="${indent}${line}"
+  fi
+  printf "%s" "$out"
+}
+
 format_status_row() {
   local label="$1" installed="$2" target="$3" status="$4"
   local v1="$installed" v2="$target"
@@ -5347,42 +5439,62 @@ fi
   fi
 
 	  if (( ! wrapper_updated )); then
-	    format_label_prefix() {
-	      local label="$1"
-	      local width="${SUMMARY_LABEL_WIDTH:-12}"
-	      printf "%-${width}s: " "$label"
-	    }
-	
-	    log_info "$(format_label_prefix "Core")${core_line#Core: }"
+	    # Modern bootup summary block. Keeps the existing content but presents it
+	    # in a compact "card" with a divider and wrapped rows.
+	    summary_title="Ready"
+	    summary_tone="$result_tone"
+	    if (( QUOTA_BLOCKED )); then
+	      summary_title="Blocked by quota"
+	      summary_tone="red"
+	    elif (( QUOTA_WARNING )); then
+	      summary_title="Quota warning"
+	      summary_tone="yellow"
+	    elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+	      summary_title="Offline mode"
+	      summary_tone="yellow"
+	    fi
+
+	    log_info "$(summary_header "$summary_title" "$summary_tone")"
+	    log_info "$(summary_divider)"
+
+	    # Core can get long; wrap it to terminal width while preserving ANSI.
+	    core_display="${core_line#Core: }"
+	    log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
+
 	    if [[ -n "$versions_line" ]]; then
-	      log_info "$(format_label_prefix "Versions")${versions_line#Versions: }"
+	      versions_display="${versions_line#Versions: }"
+	      log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
 	    fi
+
 	    if [[ -n "$usage_line" ]]; then
-	      log_info "$(format_label_prefix "Usage")${usage_line#Usage: }"
+	      usage_display="${usage_line#Usage: }"
+	      log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
 	    fi
-	    quota_label_base="Quota"
+
 	    if [[ -n "$primary_quota_segment" ]]; then
 	      quota_line="${primary_quota_segment}"
 	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
 	        quota_line+=" ⚠"
 	      fi
-	      log_info "$(format_label_prefix "${quota_label_base} 5h")${quota_line}"
+	      log_info "$(wrap_ansi_text "$(summary_row "Quota 5h" "$quota_line")" "${SUMMARY_GUTTER}")"
 	    fi
 	    if [[ -n "$daily_quota_segment" ]]; then
 	      quota_line3="${daily_quota_segment}"
 	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
 	        quota_line3+=" ⚠"
 	      fi
-	      log_info "$(format_label_prefix "${quota_label_base} day")${quota_line3}"
+	      log_info "$(wrap_ansi_text "$(summary_row "Quota day" "$quota_line3")" "${SUMMARY_GUTTER}")"
 	    fi
 	    if [[ -n "$secondary_quota_segment" ]]; then
 	      quota_line2="${secondary_quota_segment}"
 	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
 	        quota_line2+=" ⚠"
 	      fi
-	      log_info "$(format_label_prefix "${quota_label_base} wk")${quota_line2}"
+	      log_info "$(wrap_ansi_text "$(summary_row "Quota wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
 	    fi
-	    log_info "$(format_label_prefix "Result")${result_line#Result: }"
+
+	    # Result last; keep VIP crown behavior.
+	    log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
 	  fi
 
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
