@@ -1900,6 +1900,55 @@ apply_otel_env_from_config() {
 
 apply_otel_env_from_config
 
+codex_cli_args_from_config_python() {
+  python3 - "$CONFIG_PATH" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+try:
+    raw = open(path, "r", encoding="utf-8", errors="ignore").read()
+except Exception:
+    sys.exit(0)
+
+def find_block(name: str) -> str:
+    m = re.search(r'(?m)^\\[' + re.escape(name) + r'\\]\\s*$', raw)
+    if not m:
+        return ""
+    start = m.end()
+    m2 = re.search(r'(?m)^\\[', raw[start:])
+    end = start + (m2.start() if m2 else len(raw[start:]))
+    return raw[start:end]
+
+block = find_block("security")
+if not block:
+    sys.exit(0)
+
+m = re.search(r'(?m)^\\s*dangerously_bypass_approvals_and_sandbox\\s*=\\s*(true|false)\\s*$', block)
+if m and m.group(1) == "true":
+    print("--dangerously-bypass-approvals-and-sandbox")
+PY
+}
+
+apply_codex_cli_toggles_from_config() {
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  local line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    case "$line" in
+      --dangerously-bypass-approvals-and-sandbox)
+        set -- "$line" "$@"
+        ;;
+    esac
+  done < <(codex_cli_args_from_config_python 2>/dev/null || true)
+}
+
+apply_codex_cli_toggles_from_config
+
 detect_script_flags() {
   local help_output
   SCRIPT_SUPPORTS_C=0

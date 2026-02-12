@@ -40,6 +40,12 @@ The config builder exposes the currently supported experimental feature flags un
 - `experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.
 - Additional feature flags may be passed through from the UI `extraFeatures` textarea; these are written verbatim under `[features]` when set.
 
+## Security toggles
+
+The builder also supports a small set of `cdx` wrapper toggles under a `[security]` block.
+
+- `dangerously_bypass_approvals_and_sandbox` — when `true`, `cdx` adds `--dangerously-bypass-approvals-and-sandbox` to the Codex CLI invocation. This disables safety guardrails; keep it off by default.
+
 ## Web search toggle
 
 `web_search` controls web search tool calls and is rendered at the root of `config.toml` (not under `[features]`): `live`, `cached`, or `disabled`. Legacy configs using `features.web_search_request` or `features.web_search` are normalized to the root field on save.

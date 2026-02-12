@@ -80,6 +80,9 @@ final class ClientConfigServiceTest extends TestCase
             'model' => 'gpt-5-codex',
             'approval_policy' => 'on-request',
             'sandbox_mode' => 'workspace-write',
+            'security' => [
+                'dangerously_bypass_approvals_and_sandbox' => true,
+            ],
             'notice' => [
                 'hide_gpt5_1_migration_prompt' => true,
                 'model_migrations' => [
@@ -96,6 +99,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
         $this->assertStringContainsString('web_search = "live"', $rendered['content']);
         $this->assertStringContainsString('[notice]', $rendered['content']);
+        $this->assertStringContainsString('[security]', $rendered['content']);
+        $this->assertStringContainsString('dangerously_bypass_approvals_and_sandbox = true', $rendered['content']);
         $this->assertStringContainsString('hide_gpt5_1_migration_prompt = true', $rendered['content']);
         $this->assertStringContainsString('model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex" }', $rendered['content']);
         $this->assertEquals(64, strlen($rendered['sha256']));

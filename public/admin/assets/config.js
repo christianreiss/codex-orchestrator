@@ -27,6 +27,7 @@
   let featureSandboxAssessment;
   let featureGhostCommit;
   let featureExperimentalWindowsSandbox;
+  let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
 
   let sandboxNetwork;
@@ -128,6 +129,9 @@
       model: 'gpt-5.3-codex',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
+      security: {
+        dangerously_bypass_approvals_and_sandbox: false,
+      },
       web_search: 'disabled',
       model_reasoning_effort: 'medium',
       model_reasoning_summary: 'detailed',
@@ -427,6 +431,11 @@
       model: modelInput.value.trim() || base.model,
       approval_policy: approvalPolicyInput.value.trim() || base.approval_policy,
       sandbox_mode: sandboxModeInput.value.trim() || base.sandbox_mode,
+      security: {
+        dangerously_bypass_approvals_and_sandbox: dangerousBypassApprovalsSandbox
+          ? dangerousBypassApprovalsSandbox.checked
+          : Boolean(base.security?.dangerously_bypass_approvals_and_sandbox),
+      },
       model_reasoning_effort: reasoningEffortInput.value.trim() || base.model_reasoning_effort,
       web_search: (() => {
         const raw = (featureWebSearch?.value || base.web_search || 'disabled').trim().toLowerCase();
@@ -479,6 +488,9 @@
     setSelectValue(modelInput, cfg.model || '');
     setSelectValue(approvalPolicyInput, cfg.approval_policy || '');
     setSelectValue(sandboxModeInput, cfg.sandbox_mode || '');
+    if (dangerousBypassApprovalsSandbox) {
+      dangerousBypassApprovalsSandbox.checked = Boolean(cfg.security?.dangerously_bypass_approvals_and_sandbox);
+    }
     rebuildReasoningOptions(cfg.model || '', cfg.model_reasoning_effort || '');
     const summaryValue = (cfg.model_reasoning_summary || '').toLowerCase() === 'none' ? '' : (cfg.model_reasoning_summary || '');
     setSelectValue(reasoningSummaryInput, summaryValue);
@@ -773,6 +785,7 @@
     featureSandboxAssessment = document.getElementById('featureSandboxAssessment');
     featureGhostCommit = document.getElementById('featureGhostCommit');
     featureExperimentalWindowsSandbox = document.getElementById('featureExperimentalWindowsSandbox');
+    dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');
 
     sandboxNetwork = document.getElementById('sandboxNetwork');

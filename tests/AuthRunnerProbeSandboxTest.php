@@ -17,5 +17,13 @@ final class AuthRunnerProbeSandboxTest extends TestCase
         $this->assertStringNotContainsString('danger-full-access', $py);
         $this->assertStringContainsString('"read-only"', $py);
     }
-}
 
+    public function testWrapperSupportsDangerousBypassFlagFromConfig(): void
+    {
+        $sh = file_get_contents(__DIR__ . '/../bin/cdx.d/05-main.sh');
+        $this->assertIsString($sh);
+
+        $this->assertStringContainsString('--dangerously-bypass-approvals-and-sandbox', $sh);
+        $this->assertStringContainsString('dangerously_bypass_approvals_and_sandbox', $sh);
+    }
+}

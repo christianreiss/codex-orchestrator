@@ -406,6 +406,11 @@ class ClientConfigService
             'profile' => $normalizeString($settings['profile'] ?? null),
             'approval_policy' => $normalizeString($settings['approval_policy'] ?? null),
             'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
+            'security' => [
+                'dangerously_bypass_approvals_and_sandbox' => $normalizeBool(
+                    (is_array($settings['security'] ?? null) ? ($settings['security']['dangerously_bypass_approvals_and_sandbox'] ?? null) : null)
+                ),
+            ],
             'web_search' => $this->normalizeWebSearchFeature($settings['web_search'] ?? null),
             'model_reasoning_effort' => $normalizeString($settings['model_reasoning_effort'] ?? null),
             'model_reasoning_summary' => null, // set after model-aware normalization
@@ -689,6 +694,13 @@ class ClientConfigService
             foreach ($this->sortedAssoc($settings['notice']) as $key => $value) {
                 $this->addKeyValue($lines, (string) $key, $value);
             }
+        }
+
+        if ($this->hasAny($settings['security'] ?? [])) {
+            $this->addBlankLine($lines);
+            $lines[] = '[security]';
+            $security = $settings['security'] ?? [];
+            $this->addKeyValue($lines, 'dangerously_bypass_approvals_and_sandbox', $security['dangerously_bypass_approvals_and_sandbox'] ?? null);
         }
 
         if ($this->hasAny($settings['sandbox_workspace_write'] ?? [])) {
