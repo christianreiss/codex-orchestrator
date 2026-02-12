@@ -1,6 +1,6 @@
 # Codex Auth Runner
 
-Lightweight HTTP microservice that validates an `auth.json` by running `cdx` inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
+Lightweight HTTP microservice that validates an `auth.json` by running the Codex CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
 ## Build
 
@@ -16,33 +16,73 @@ The image bundles the Codex CLI (default `rust-v0.63.0`, musl builds). Override 
 docker run --rm --name codex-auth-runner --network codex_auth codex-auth-runner
 ```
 
-## Request
+## HTTP API
+
+### `GET /health`
+
+Simple health check:
+
+```json
+{ "status": "ok" }
+```
+
+### `POST /verify`
+
+Request body:
+
+```json
+{
+  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "timeout_seconds": 8.0
+}
+```
+
+Fields:
+- `auth_json` (required object) — written to `~/.codex/auth.json` for the probe; must contain either `auths.api.openai.com.token` or `tokens.access_token` / `tokens.openai_api_key`, or the request fails with HTTP 400 (`"no usable token in auth_json"`).
+- `timeout_seconds` (optional float) — probe timeout in seconds; defaults to 8.0 when omitted.
+
+Example:
 
 ```bash
 curl -s http://codex-auth-runner:8080/verify \
   -H "Content-Type: application/json" \
-  -d '{
-        "auth_json": { "tokens": { "access_token": "sk-..." } },
-        "base_url": "http://api",
-        "probe": "login",
-        "probe_args": ["status"]
-      }'
+  -d '{ "auth_json": { "tokens": { "access_token": "sk-..." } } }'
 ```
 
-Response:
+Response (success):
 
 ```json
-{ "status":"ok", "latency_ms":123, "wrapper_version":"2025.11.22-6" }
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "rust-v0.63.0"
+}
 ```
 
-On failure:
+Response (failure):
 
 ```json
-{ "status":"fail", "reason":"probe failed", "latency_ms":123, "wrapper_version":"2025.11.22-6" }
+{
+  "status": "fail",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "rust-v0.63.0",
+  "reason": "probe failed"
+}
 ```
 
-If `cdx` mutates `~/.codex/auth.json` during the probe (for example by refreshing tokens), the response also includes `updated_auth` (the new auth.json body) and keeps the original status/latency fields.
+If the probe updates `~/.codex/auth.json` (for example by refreshing tokens), the response also includes:
 
-By default the runner executes `cdx -- login status` with an 8s timeout; override with `probe`, `probe_args`, or `timeout_seconds` as needed.
+```json
+{
+  "updated_auth": { "...": "..." }
+}
+```
 
-`probe_args` (array of tokens) and `timeout_seconds` are optional for custom probes. The service defaults to `CODEX_SYNC_BASE_URL=http://api` and sets `CODEX_SYNC_ALLOW_INSECURE=1` so it can talk to the in-network HTTP API.
+Behavior details:
+- Uses a temporary `$HOME` and writes `~/.codex/auth.json` with mode 0600 for each probe.
+- Runs `/usr/local/bin/codex exec "Reply Banana if this works." -s read-only --skip-git-repo-check`.
+- Sets `CODEX_SYNC_BASE_URL` from the container env (default `http://api` when unset), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
+- `status` is `ok` only when the command exits 0 and stdout contains `banana` (case-insensitive); otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
+- `codex_version` is taken from `/usr/local/bin/codex --version` (last whitespace-separated token), or `"unknown"` when the version call fails.

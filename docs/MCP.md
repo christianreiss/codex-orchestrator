@@ -1,19 +1,23 @@
 # MCP Server
 
-Native streamable HTTP MCP endpoint plus REST helpers for Codex hosts. Uses host API keys; IP binding applies (enable `allow_roaming_ips` if the IDE moves networks). Insecure hosts must still be inside their sliding window.
+Native streamable HTTP MCP endpoint plus REST helpers for Codex hosts. Uses host API keys; IP binding is **not** enforced for `/mcp` (clients may roam), but insecure-host windows still apply.
 
 ## Endpoints
 
 - `POST /mcp` — JSON-RPC 2.0, streamable_http spec `2025-03-26`. Accepts batch or single requests.
-- `POST /mcp/memories/store|retrieve|search|delete` — REST helpers that back the memory tools.
+- `GET /mcp` — JSON-RPC probe endpoint; always returns a 405 error body and `Allow: POST`.
+- `POST /mcp/memories/store` — REST helper backing `memory_store`.
+- `POST /mcp/memories/retrieve` — REST helper backing `memory_retrieve`.
+- `POST /mcp/memories/search` — REST helper backing `memory_search`.
+- `POST /mcp/memories/delete` — REST helper backing delete semantics.
 - `DELETE /mcp/memories/{id}` — delete by memory key (URL decoded).
 
 ## Auth & safety
 
-- `Authorization: Bearer {host_api_key}` required.
-- IP binding enforced (same rules as `/auth`); enable `allow_roaming_ips` on the host if the IDE moves networks.
-- Insecure hosts: window enforced the same as `/auth` (call extends window when enabled).
-- Origin allowlist: `MCP_ALLOWED_ORIGINS` plus `PUBLIC_BASE_URL` and the current Host/proto are accepted; disallowed origins get 403 `Origin not allowed` (missing Origin is allowed).
+- `Authorization: Bearer {host_api_key}` required for all `/mcp*` endpoints.
+- `/mcp` authentication bypasses IP binding (`allow_roaming_ips` is not used for MCP).
+- Insecure hosts: `/mcp` enforces the same sliding window as `/auth` (each successful call extends the window; closed windows return an error).
+- Origin allowlist: `MCP_ALLOWED_ORIGINS` plus `PUBLIC_BASE_URL` and the current Host/proto are accepted; disallowed origins get 403 `Origin not allowed` (missing `Origin` is allowed).
 - Rate limits: global per-IP bucket applies (same as other non-admin routes).
 - Access is logged; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
 
@@ -57,6 +61,6 @@ curl -s "$BASE/mcp/memories/search" \
 
 ## Client hints
 
-- `cdx` auto-adds an MCP server entry (managed) via the config builder; nothing to configure on the host.
-- Tool names also accept dot aliases in calls (`memory.store`) but responses advertise underscores.
+- `cdx` auto-adds an MCP server entry (managed) via the config builder when `orchestrator_mcp_enabled = true`; nothing to configure on the host.
+- Tool names also accept dot aliases in calls (`memory.store`, `resources.read`) but responses advertise underscore names.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

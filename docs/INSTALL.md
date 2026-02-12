@@ -13,7 +13,7 @@ This doc walks through setting up the Codex Auth stack with Docker, admin login,
   - `/var/docker_data/codex-auth.example.com/mysql_data`
   - `/var/docker_data/codex-auth.example.com/store` (wrapper, storage/sql exports)
   - When using the bundled Caddy frontend: `/var/docker_data/codex-auth.example.com/caddy/tls` for custom cert/key, `/var/docker_data/codex-auth.example.com/caddy/mtls` for the admin CA, plus named volumes `caddy_data` and `caddy_config` (ACME + Caddy state).
- - Optional internet egress for helper services:
+- Optional internet egress for helper services:
    - The auth runner pings Codex clients to validate auth.json (clear `AUTH_RUNNER_URL` to disable it).
    - The quota cron fetches ChatGPT usage; pricing lookups can pull from `PRICING_URL` when configured.
 

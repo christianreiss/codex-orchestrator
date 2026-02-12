@@ -3,7 +3,7 @@
 This doc is the “day 2” guide: how to provision hosts and how to actually run Codex via the baked `cdx` wrapper.
 
 - **Installing the service stack** (Docker, mTLS, `.env`, runner sidecars): see `docs/INSTALL.md`.
-- **API contracts** (source of truth): see `docs/interface-api.md` and `docs/interface-cdx.md`.
+- **API contracts** (source of truth): see `docs/API.md` and `docs/interface-cdx.md`.
 
 ## Roles (who does what)
 
@@ -41,7 +41,7 @@ Use the admin dashboard:
 
 Operational reality:
 
-- Installer tokens are **single-use** and expire (see `INSTALL_TOKEN_TTL_SECONDS` in the config/env).
+- Installer tokens are **single-use**, expire based on `INSTALL_TOKEN_TTL_SECONDS` (default 1800 seconds), and capture the baked base URL (`Host`/`X-Forwarded-Proto` or `PUBLIC_BASE_URL`).
 - Generating a new installer token for the same host rotates the API key and invalidates older tokens.
 
 #### Optional: mint an installer token via the admin API (automation)
@@ -109,7 +109,7 @@ cdx --version
 cdx
 ```
 
-The installer does not run `cdx` automatically; run it here to sync/auth or to retry after opening an insecure window.
+The installer does not run `cdx` automatically; run it here to sync/auth or to retry after opening an insecure window. The install script prints versions and exits with non-zero status on failure.
 
 ## Running Codex (host user workflow)
 
@@ -121,7 +121,7 @@ The wrapper is the supported entrypoint because it:
 - Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.codex/skills/`).
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed.
-- Reports token usage back to `/usage`.
+- Reports token usage back to `/usage` by parsing Codex stdout `Token usage` lines and POSTing single or batched entries; unparseable lines are sent as raw `line` only.
 
 Common commands:
 
@@ -148,8 +148,8 @@ Passing flags through to Codex works the same way you’d pass them to `codex`; 
 - `~/.codex/auth.json` — pulled from the server; **insecure hosts purge this after each run**.
 - `~/.codex/config.toml` — baked/synced from the server (`/config/retrieve`).
 - `~/.codex/AGENTS.md` — synced from the server (`/agents/retrieve`).
-- `~/.codex/prompts/` — slash commands synced from `/slash-commands`.
-- `~/.codex/skills/` — Skill manifests synced from `/skills`.
+- `~/.codex/prompts/` — slash commands synced from `/slash-commands` (pull on start, push edits on exit when a baseline exists).
+- `~/.codex/skills/` — Skill manifests synced from `/skills` (pull on start, push edits on exit when a baseline exists).
 
 ## Secure vs insecure hosts (and why it matters)
 
@@ -167,7 +167,7 @@ If you see failures about an insecure window being closed, that’s not somethin
 
 ### Update the wrapper / Codex CLI on a host
 
-`cdx` auto-updates in normal operation, but you can force it:
+`cdx` auto-updates in normal operation (using `/wrapper/download` and the server-reported wrapper metadata), but you can force it:
 
 ```bash
 cdx --update
@@ -197,14 +197,14 @@ This removes Codex artifacts and calls `DELETE /auth` to decommission (subject t
 CODEX_DEBUG=1 cdx --version
 ```
 
-This is the fastest way to confirm the baked base URL and that you’re running the expected wrapper build.
+This is the fastest way to confirm the baked base URL, wrapper version, and that you’re running the expected wrapper build.
 
 ### Common failure modes
 
 - **HTTP 503 / “API disabled”**: the admin kill switch is on (`/admin/api/state`). Only an operator can clear it.
 - **HTTP 401/403**: usually a bad API key (wrong wrapper) or an IP-binding mismatch. Operators can re-register the host (rotates API key) or enable roaming IPs.
-- **HTTP 429**: you hit a rate limit bucket. Back off until the server-provided `reset_at`.
-- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state.
+- **HTTP 429**: you hit a rate limit bucket (global or auth-fail). Back off until the server-provided `reset_at`.
+- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state; when set, sync and usage HTTPS calls bypass TLS verification.
 
 ### What to collect for an operator
 

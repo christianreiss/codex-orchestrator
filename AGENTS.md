@@ -17,14 +17,14 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - If a change requires Docker services or the baked `cdx`, rebuild + restart the stack.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every non-admin route, `/auth` included. Only `/admin/api/state` bypasses it.
-- Rate limits are always on: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
-- Pricing defaults to GPT-5.1 from `PRICING_URL` (or `GPT51_*`/`PRICING_CURRENCY`). `UsageCostService` backfills token rows + ingests on boot.
+- Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
+- Pricing uses GPT-5.1 from `PRICING_URL` when set, or env fallbacks (`GPT51_*`/`PRICING_CURRENCY`) when remote pricing is unavailable. `UsageCostService` backfills missing token usage + ingest costs on boot once.
 - When AGENTS/cdx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
 
 ## Repo Snapshot
 
 - `public/index.php` is the entrypoint/router: boots env + migrations, wires encryption (`SecretBox`), repositories, services, rate limits, wrapper seeding, usage cost backfill, and routes (host, admin, installer, slash commands, AGENTS, versions).
-- `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (0–480 min log-ish slider, stored per host), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight (default 8h with backoffs), token usage logging, ChatGPT snapshots, API kill switch enforcement, and pruning (inactive ≥30d or never-provisioned >30m).
+- `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (0–480 min log-ish slider, stored per host with sliding/grace periods and optional approval/domain auto-allow), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight (default 8h with backoffs), token usage logging, ChatGPT quota polling via `ChatGptUsageService`, API kill switch enforcement, and pruning (inactive by `inactivity_window_days`, expired, or never-provisioned >30m).
 - `WrapperService` seeds/stores the baked `bin/cdx`, tracks wrapper version/sha, bakes per-host scripts, and is the only source of truth for wrapper publishing.
 - `RunnerVerifier` posts canonical auth to `AUTH_RUNNER_URL`, tracks readiness, and applies runner-returned `updated_auth`. Runner failures flip `runner_state=fail` but don’t block `/auth`.
 - `SlashCommandService`, `SkillService`, and `AgentsService` back their respective MySQL tables (`slash_commands`, `skills`, `agents_documents`) so every host syncs prompts, skills, and AGENTS.md during wrapper runs.
@@ -39,9 +39,9 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
    - `GET /install/{token}` emits the `cdx` installer (single-use token, base URL baked from `PUBLIC_BASE_URL` or forwarded Host/proto). Missing/expired tokens return `text/x-shellscript` errors.
 
 2. **`/auth` retrieve/store**
-   - Requires API key header and passes through `global` + `auth-fail` buckets, IP binding, insecure host windows, and the API kill switch.
-   - Retrieve path returns canonical auth when digests differ plus metadata: versions (GitHub cache w/ stale fallback, wrapper sha/url, runner telemetry, `quota_hard_fail`, `quota_limit_percent`, `installation_id`), host stats (API calls, current-month tokens), VIP flag, insecure window timestamps, ChatGPT quota snapshot (`chatgpt_usage`), and up to three recent digests.
-   - Store path enforces RFC3339 `last_refresh` bounds (>= 2000-01-01, <= now+300s), token entropy, canonical sorting, hashed digests, and secretbox persistence to `auth_payloads` + `auth_entries`. Runner validations run opportunistically after stores; `updated_auth` from the runner replaces client uploads when newer.
+   - Requires API key header and passes through `global` + `auth-fail` buckets, IP binding, insecure host windows (including approval/domain auto-allow flows), and the API kill switch.
+   - Retrieve path returns canonical auth when digests differ plus metadata: versions (GitHub cache w/ stale fallback, wrapper sha/url, runner telemetry, `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`, `installation_id`), host stats (API calls, current-month tokens), VIP flag, insecure window timestamps + window minutes, ChatGPT quota snapshot (`chatgpt_usage`), and up to three recent digests.
+   - Store path enforces RFC3339 `last_refresh` bounds (>= 2000-01-01, <= now+300s), token entropy, canonical sorting, hashed digests, and secretbox persistence to `auth_payloads` + `auth_entries`. Runner validations run before stores; `updated_auth` from the runner can replace client uploads when newer, and failures block `/auth` store (admin upload bypasses).
    - Host uninstall uses `DELETE /auth` (respects IP binding unless `?force=1`).
 
 3. **Runner + daily preflight**
@@ -69,9 +69,9 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - Troubleshoot hosts with `CODEX_DEBUG=1 cdx --version`; shows baked base URL + masked API key.
 - Validate local `~/.codex/auth.json`: must include `last_refresh` + either `auths` tokens or `tokens.access_token`. Server synthesizes `auths = {"api.openai.com": ...}` when only tokens exist.
 - Insecure hosts auto-open 30m on register; afterwards “Enable” on the dashboard sets a 0–480 min sliding window (default 10, log-ish). Each `/auth` call extends by the stored duration. “Disable” closes instantly (no write grace).
-- Pruning: every register/auth call deletes inactive hosts (≥30d since last activity) or never-provisioned hosts older than 30m. Events log `host.pruned`.
-- ChatGPT snapshots refresh before `/auth` responses when the cooldown (5m) allows; errors log `chatgpt.snapshot_error` and surface in admin UI.
-- Pricing snapshot refresh: daily background pull from `PRICING_URL`, fallback to env constants. Admin overview uses the freshest values for month estimates; cost history falls back to zero cost when no pricing exists.
+- Pruning: register/auth/admin-host calls prune hosts inactive for `inactivity_window_days` (default 30; 0 disables), never-provisioned hosts older than 30m, and hosts with `expires_at` in the past (temporary/rescue); events log `host.pruned`.
+- ChatGPT snapshots are fetched via `ChatGptUsageService` with a 5-minute cooldown; errors log `chatgpt.usage` and snapshots surface in admin UI and `/auth`.
+- Pricing snapshot refresh: daily background pull from `PRICING_URL` with env fallbacks; admin overview uses the freshest values for month estimates, and cost history falls back to zero cost when no pricing exists.
 
 ## cdx Wrapper & Scripts
 

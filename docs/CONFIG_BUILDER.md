@@ -5,28 +5,26 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 ## Surfaces
 
 - Web UI: `/admin/config.html` — full-form builder for fleet `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
-- API: `/admin/config` (GET metadata), `/admin/config/render` (preview without saving), `/admin/config/store` (persist), `/config/retrieve` (host-facing baked download).
+- API: `/admin/config` (GET metadata + `content` + `settings`), `/admin/config/render` (preview without saving, rendered for a placeholder host API key), `/admin/config/store` (persist from normalized `settings`), `/config/retrieve` (host-facing baked download).
 
 ## Flow
 
 1. Admin edits `/admin/config.html`. The UI POSTs structured `settings` to `/admin/config/store`.
 2. Server normalizes and renders TOML, stores both the rendered file and the normalized `settings`, and returns `sha256` + size.
 3. Hosts call `/config/retrieve` with their API key. The server:
-   - Injects that host’s API key into the managed MCP entry (if enabled).
+   - Applies any per-host `model_override` + `reasoning_effort_override` to the effective settings.
+   - Injects that host’s API key into the managed HTTP MCP entry (when orchestrator MCP is enabled).
+   - Appends a trusted projects stanza when `username`/`home` identify a valid home path.
    - Returns baked `sha256` plus `base_sha256` (the stored template hash). When hashes match, `status:unchanged` omits the body.
    - Returns `status:missing` when no config is stored; clients should delete `~/.codex/config.toml`.
 4. `cdx` writes the baked file to `~/.codex/config.toml` on every run and deletes it when `status:missing`.
 
 ## Managed MCP entry
 
-- Native HTTP; no node shim.
-- Rendered automatically unless you disable it in the builder:
-  ```toml
-  [mcp_servers.cdx]
-  url = "{base_url}/mcp"
-  http_headers = { Authorization = "Bearer {host_api_key}" }
-  ```
-- Keys are injected at bake time only; the server never stores host API keys inside the template.
+- Native HTTP MCP transport; no node shim.
+- Controlled by `orchestrator_mcp_enabled` in the builder (enabled by default).
+- For each host, the server injects a managed entry ahead of any user-configured MCP servers and filters out reserved coordinator names (`codex-memory`, `codex-orchestrator`, `cdx`, `codex-coordinator`) from the UI-configurable list.
+- Keys are injected at bake time only; the server never stores host API keys inside the template. The exact TOML shape is derived from the internal settings and may change; treat it as implementation-defined rather than a user-editable block.
 
 ## Experimental feature switches
 
@@ -40,6 +38,7 @@ The config builder exposes the currently supported experimental feature flags un
 - `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
 - `ghost_commit` — create a ghost commit on each turn.
 - `experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.
+- Additional feature flags may be passed through from the UI `extraFeatures` textarea; these are written verbatim under `[features]` when set.
 
 ## Web search toggle
 
@@ -54,11 +53,13 @@ Example:
 [otel]
 environment = "prod"
 exporter = "otlp-http" # or otlp-grpc
-endpoint = "https://otel.example.com"
-protocol = "http/protobuf" # optional; defaults to http/protobuf for otlp-http
-headers = { "x-otlp-api-key" = "${OTLP_TOKEN}" }
-log_user_prompt = false
+  endpoint = "https://otel.example.com"
+  protocol = "http/protobuf" # optional; defaults to http/protobuf for otlp-http
+  headers = { "x-otlp-api-key" = "${OTLP_TOKEN}" }
+  log_user_prompt = false
 ```
+
+Any additional OTEL keys present in the `settings.otel` map are normalized and emitted as TOML fields; keys not present in code are ignored.
 
 ## Failure modes / edge cases
 

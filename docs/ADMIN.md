@@ -13,7 +13,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
   - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
 
 ## Page-by-page
-- **Overview**: fleet counts, avg refresh age, last log time, GitHub client cache, wrapper version/sha, runner state, quota mode/limit, pricing snapshot (GPT-5.1 by default) and estimated monthly cost, ChatGPT usage snapshot (cached ≤5m), mTLS presence flag, and whether canonical auth is seeded. With admin websockets enabled, these cards live-update from event streams.
+- **Overview**: fleet counts, avg refresh age, last log time, GitHub client cache, wrapper version/sha, runner state, quota mode/limit, pricing snapshot and estimated monthly cost, ChatGPT usage snapshot (5-minute cooldown), mTLS presence flag, and whether canonical auth is seeded.
 - **Theme**: header toggle cycles Auto/Light/Dark and stores the preference in `localStorage` (`adminTheme`). Auto follows `prefers-color-scheme`.
 - **Hosts**:
   - Table: FQDN, digest freshness, versions, IP, roaming flag, secure/insecure, VIP, IPv4-only, temporary expiry (`expires_at`), curl-insecure, API calls, monthly tokens, recent digests, and recorded users.
@@ -34,7 +34,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Cost History**: daily input/output/cached/total cost series, up to 180 days, anchored to first recorded usage and driven by the latest pricing snapshot (charts rendered with local uPlot assets under `/admin/assets`).
 - **Tokens**: aggregates by token line (total/input/output/cached/reasoning).
 - **Runner**: config + telemetry (enabled, URLs, timeouts, boot id, last ok/fail/check, 24h validation counts). Manual **Run now** forces a validation and reports whether canonical auth changed.
-- **ChatGPT Usage**: latest `/wham/usage` snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly, rendered with uPlot). With admin websockets enabled, the 5‑hour + weekly limit boxes update live when new snapshots land, and the “Resets in …” timers tick locally between refreshes.
+- **ChatGPT Usage**: latest chatgpt usage snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly, rendered with uPlot).
 - **Slash Commands**: list/create/update/delete prompt files; delete marks propagate to hosts.
 - **Config Builder**: edit the canonical `config.toml` (settings + rendered TOML), synced to hosts on every `cdx` run.
 - **AGENTS**: edit the canonical `AGENTS.md` (sha + size shown). Hosts sync it on wrapper runs.
@@ -43,7 +43,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Versions Check**: force-refresh the GitHub client release cache.
 - **Codex Version**: in Settings → Operations & Settings, choose `Latest` (tracks GitHub latest stable/full release) or pin the fleet to a specific Codex release (dropdown hides alpha/beta prereleases; the currently pinned/in-use version still shows for visibility).
 - **Logs**: recent audit events.
-- **Toasts**: `/admin/toasts` emits a transient on-screen notification to connected admin clients (requires admin websocket server).
+- **Toasts**: `/admin/toasts` emits a transient on-screen notification to connected admin clients (requires admin websocket server; endpoint details in code).
   - Test mode: successful `/auth` retrieves emit a “CDX authorized” toast so you can verify live websocket delivery.
   - Refused `/auth` attempts emit “CDX refused” toasts for known hosts (host disabled, IP mismatch, installation mismatch, or insecure window closed). Unknown keys are ignored to avoid noise.
 
@@ -60,5 +60,5 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - Installer tokens expire (`INSTALL_TOKEN_TTL_SECONDS`, default 1800s) and are single-use; re-register the host to mint a new one (rotates API key).
 - Global rate limits apply to non-admin routes only. Admin pages bypass them but still depend on correct client IP forwarding for host IP binding behavior elsewhere.
 - Pricing snapshot drives dashboard costs; if `PRICING_URL` is unset or failing, env defaults (`GPT51_*`, `PRICING_CURRENCY`) are used and cost charts may be zeroed until pricing is available.
-- Kill switch and quota settings are persisted; they survive restarts. ChatGPT usage snapshots respect a 5-minute cooldown unless you force refresh.
+- Kill switch and quota settings are persisted; they survive restarts. ChatGPT usage snapshots respect a 5-minute cooldown unless you force refresh via the admin UI.
 - Button hover styles are intentionally flat (no glow or lift); if a halo appears, refresh cached `/admin/assets/dashboard.css`.
