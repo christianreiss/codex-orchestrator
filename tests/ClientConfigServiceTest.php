@@ -367,7 +367,6 @@ final class ClientConfigServiceTest extends TestCase
                 [
                     'name' => 'ultra',
                     'model' => 'gpt-5.1-codex-max',
-                    'model_provider' => 'ignored',
                     'approval_policy' => 'on-request',
                     'sandbox_mode' => 'workspace-write',
                     'model_reasoning_effort' => 'xhigh',
@@ -392,13 +391,11 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('view_image_tool = true', $content);
         $this->assertStringContainsString('[profiles.ultra.sandbox_workspace_write]', $content);
         $this->assertStringContainsString('network_access = true', $content);
-        $this->assertStringNotContainsString('model_provider', $content);
 
         $settings = $rendered['settings'];
         $this->assertIsArray($settings);
         $this->assertIsArray($settings['profiles']);
         $this->assertSame('ultra', $settings['profiles'][0]['name']);
-        $this->assertArrayNotHasKey('model_provider', $settings['profiles'][0]);
         $this->assertSame(true, $settings['profiles'][0]['features']['streamable_shell']);
         $this->assertSame('cached', $settings['profiles'][0]['web_search']);
         $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);

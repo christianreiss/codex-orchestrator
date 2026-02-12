@@ -402,7 +402,6 @@ class ClientConfigService
 
         $result = [
             'model' => $normalizeString($settings['model'] ?? null),
-            'model_provider' => $normalizeString($settings['model_provider'] ?? null),
             'profile' => $normalizeString($settings['profile'] ?? null),
             'approval_policy' => $normalizeString($settings['approval_policy'] ?? null),
             'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
@@ -646,7 +645,6 @@ class ClientConfigService
 
         $rootKeys = [
             'model',
-            'model_provider',
             'profile',
             'approval_policy',
             'sandbox_mode',
