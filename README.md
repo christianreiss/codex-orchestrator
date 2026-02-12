@@ -1,6 +1,14 @@
 # Codex Orchestrator
 
-Codex Orchestrator is a small PHP/MySQL service that keeps one canonical Codex auth, config, prompts, and usage log for every host in your fleet. It bakes per-host installers, syncs everything every time someone runs `cdx`, and gives you dashboards for usage, quotas, and versions.
+Codex Orchestrator is a small PHP/MySQL service for managing OpenAI Codex across a fleet.
+
+It gives you an easy, one-command install for new machines, handles authorization in one swift go, and keeps everything in sync every time someone runs `cdx`:
+- Auth (`~/.codex/auth.json`)
+- Fleet `config.toml` (including managed MCP entries)
+- Slash commands (prompts)
+- Skills
+- AGENTS.md
+- Usage/cost reporting and quota policy
 
 ![Host-specific installer baking and sync flow](docs/img/cdx.png)
 
@@ -13,17 +21,17 @@ Codex Orchestrator is a small PHP/MySQL service that keeps one canonical Codex a
 
 If you only use Codex on one laptop, this is probably overkill.
 
-## How it works (one minute)
-1) Seed the canonical `~/.codex/auth.json` in the admin UI (or via `/auth` store).
-2) Add a host in `/admin` to mint a per-host API key and one-time installer token.
-3) Run the installer on the host: `curl .../install/<token> | bash`. It installs Codex plus a host-baked `cdx` wrapper.
-4) Every `cdx` run syncs auth, config, prompts, Skills, and AGENTS, enforces quota policy, self-updates, and posts usage back.
+## What this does (in one minute)
+1) Upload a canonical Codex `auth.json` once (Admin → Auth Upload).
+2) Register a host in the Admin UI to mint a per-host API key and one-time installer token.
+3) Run the installer on the host (`curl .../install/<token> | bash`).
+4) From then on, each `cdx` run pulls the latest auth/config/prompts/skills/AGENTS, enforces policy, self-updates, and reports usage.
 
 ## Features
 - Central auth vault: encrypted canonical auth.json plus per-target tokens; runner sidecar validates uploads and can auto-accept newer auth from Codex.
 - Host installer and wrapper: per-host API keys baked into the `cdx` script; offline-tolerant with secure vs insecure host modes; tracks per-host usernames for clean uninstalls.
 - Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
-- Prompt and Skill distribution: slash commands and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.codex/skills/`; AGENTS.md is canonical too.
+- Prompt and Skill distribution: slash commands (prompts) and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.codex/skills/`; AGENTS.md is canonical too.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.1 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from server-controlled binaries.
 - Dashboards and API: login-first admin UI/API with optional mTLS hardening (userless bootstrap until the first active admin); HTTP API for automation.
