@@ -89,6 +89,13 @@ Any additional OTEL keys present in the `settings.otel` map are normalized and e
     -d '{"sha256":""}' | jq .
   ```
 
+## Model provider controls
+
+The builder can also set:
+
+- `model_provider` — top-level `config.toml` key that maps to `codex --config model_provider=...` (e.g. `openai` or `oss`). Leave blank to inherit client defaults.
+- `local_provider` — used alongside `model_provider=oss` to select the local provider (e.g. `lmstudio` or `ollama`).
+
 ## When to update
 
 - Whenever you change models/providers, approval policy, sandbox defaults, notices, MCP servers, OTEL, or custom blocks.

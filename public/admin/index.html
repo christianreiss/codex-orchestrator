@@ -1081,6 +1081,22 @@
 	                      <option value="gpt-5.1">gpt-5.1</option>
 	                    </select>
 	                  </div>
+                  <div class="field">
+                    <label for="modelProviderInput">Model provider</label>
+                    <select id="modelProviderInput">
+                      <option value="">(default)</option>
+                      <option value="openai">openai</option>
+                      <option value="oss">oss</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="localProviderInput">Local provider</label>
+                    <select id="localProviderInput">
+                      <option value="">(default)</option>
+                      <option value="lmstudio">lmstudio</option>
+                      <option value="ollama">ollama</option>
+                    </select>
+                  </div>
                   <div class="inline-group">
                     <div class="field">
                       <label for="reasoningEffortInput">Model Reasoning Effort</label>
@@ -1482,7 +1498,7 @@
   <script src="/admin/assets/dashboard.js?v=2026-01-25-08"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
-  <script src="/admin/assets/config.js?v=2026-01-26-01"></script>
+  <script src="/admin/assets/config.js?v=2026-02-12-01"></script>
   <script src="/admin/assets/profiles.js?v=2025-12-14-09"></script>
 </body>
 </html>

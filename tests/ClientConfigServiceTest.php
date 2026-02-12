@@ -78,6 +78,8 @@ final class ClientConfigServiceTest extends TestCase
     {
         $rendered = $this->service->render([
             'model' => 'gpt-5-codex',
+            'model_provider' => 'oss',
+            'local_provider' => 'ollama',
             'approval_policy' => 'on-request',
             'sandbox_mode' => 'workspace-write',
             'security' => [
@@ -96,6 +98,8 @@ final class ClientConfigServiceTest extends TestCase
 
         $this->assertNotEmpty($rendered['content']);
         $this->assertStringContainsString('model = "gpt-5-codex"', $rendered['content']);
+        $this->assertStringContainsString('model_provider = "oss"', $rendered['content']);
+        $this->assertStringContainsString('local_provider = "ollama"', $rendered['content']);
         $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
         $this->assertStringContainsString('web_search = "live"', $rendered['content']);
         $this->assertStringContainsString('[notice]', $rendered['content']);

@@ -7,6 +7,8 @@
   let previewMetaEl;
 
   let modelInput;
+  let modelProviderInput;
+  let localProviderInput;
   let approvalPolicyInput;
   let sandboxModeInput;
   let reasoningEffortInput;
@@ -127,6 +129,8 @@
   function defaultSettings() {
     return {
       model: 'gpt-5.3-codex',
+      model_provider: '',
+      local_provider: '',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       security: {
@@ -429,6 +433,8 @@
     return {
       ...base,
       model: modelInput.value.trim() || base.model,
+      model_provider: modelProviderInput?.value.trim() || base.model_provider,
+      local_provider: localProviderInput?.value.trim() || base.local_provider,
       approval_policy: approvalPolicyInput.value.trim() || base.approval_policy,
       sandbox_mode: sandboxModeInput.value.trim() || base.sandbox_mode,
       security: {
@@ -486,6 +492,8 @@
     const cfg = deepMerge(defaultSettings(), settings || {});
     preservedProfiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
     setSelectValue(modelInput, cfg.model || '');
+    setSelectValue(modelProviderInput, cfg.model_provider || '');
+    setSelectValue(localProviderInput, cfg.local_provider || '');
     setSelectValue(approvalPolicyInput, cfg.approval_policy || '');
     setSelectValue(sandboxModeInput, cfg.sandbox_mode || '');
     if (dangerousBypassApprovalsSandbox) {
@@ -765,6 +773,8 @@
     previewMetaEl = document.getElementById('previewMeta');
 
     modelInput = document.getElementById('modelInput');
+    modelProviderInput = document.getElementById('modelProviderInput');
+    localProviderInput = document.getElementById('localProviderInput');
     approvalPolicyInput = document.getElementById('approvalPolicyInput');
     sandboxModeInput = document.getElementById('sandboxModeInput');
     reasoningEffortInput = document.getElementById('reasoningEffortInput');
