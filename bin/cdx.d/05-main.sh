@@ -458,7 +458,8 @@ summary_divider() {
   fi
   local w=$(( cols - 2 ))
   (( w < 20 )) && w=20
-  printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '─')${RESET}"
+  # Avoid box-drawing chars: some environments render them as mojibake.
+  printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
 }
 
 summary_header() {
@@ -502,6 +503,16 @@ wrap_ansi_text() {
   local max=$(( cols - ${#indent} ))
   (( max < 30 )) && { printf "%s" "$text"; return; }
 
+  # If the line already has a label separator, align wrapped continuation lines
+  # under the value column instead of repeating the label gutter.
+  local cont_indent="$indent"
+  if [[ "$text" == *"${SUMMARY_GUTTER}·${SUMMARY_GUTTER}"* ]]; then
+    local prefix="${text%%${SUMMARY_GUTTER}·${SUMMARY_GUTTER}*}"
+    local prefix_plain
+    prefix_plain="$(sed -r 's/\x1B\\[[0-9;]*[mK]//g' <<<"$prefix")"
+    cont_indent="$(printf '%*s' "${#prefix_plain}" '')"
+  fi
+
   local out="" line="" token rest="$text"
   while [[ -n "$rest" ]]; do
     # Split on first space.
@@ -528,6 +539,19 @@ wrap_ansi_text() {
   if [[ -n "$line" ]]; then
     [[ -n "$out" ]] && out+=$'\n'
     out+="${indent}${line}"
+  fi
+  # Replace the indent on continuation lines.
+  if [[ "$out" == *$'\n'* ]] && [[ -n "$cont_indent" ]]; then
+    local first=1 rebuilt="" ln
+    while IFS= read -r ln; do
+      if (( first )); then
+        rebuilt+="$ln"
+        first=0
+      else
+        rebuilt+=$'\n'"${cont_indent}${ln#${indent}}"
+      fi
+    done <<< "$out"
+    out="$rebuilt"
   fi
   printf "%s" "$out"
 }
@@ -1525,15 +1549,19 @@ if (( QUOTA_BLOCKED )); then
   command_tone="red"
 fi
 
-if (( ! HOST_IS_SECURE )); then
-  if (( insecure_compact_ok )); then
-    result_label="sync ok (insecure host; auth refreshed)"
-  elif [[ "$result_tone" == "green" ]]; then
-    result_label="Codex to brrrr (insecure host)"
+  if (( ! HOST_IS_SECURE )); then
+    if (( insecure_compact_ok )); then
+      result_label="sync ok (insecure host; auth refreshed)"
+    elif [[ "$result_tone" == "green" ]]; then
+      result_label="Codex to brrrr (insecure host)"
+    fi
+  elif [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
+    result_label="Codex go Brrrr!"
   fi
-elif [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
-  result_label="Codex go Brrrr!"
-fi
+
+  # Prefer an ASCII-friendly table (no box drawing). The "card" style divider
+  # and bullet header proved fragile across terminals/fonts.
+  SUMMARY_STYLE="${CDX_SUMMARY_STYLE:-table}"
 
   quota_limit="$QUOTA_LIMIT_PERCENT"
   if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
@@ -1833,62 +1861,86 @@ fi
   fi
 
 	  if (( ! wrapper_updated )); then
-	    # Modern bootup summary block. Keeps the existing content but presents it
-	    # in a compact "card" with a divider and wrapped rows.
-	    summary_title="Ready"
-	    summary_tone="$result_tone"
-	    if (( QUOTA_BLOCKED )); then
-	      summary_title="Blocked by quota"
-	      summary_tone="red"
-	    elif (( QUOTA_WARNING )); then
-	      summary_title="Quota warning"
-	      summary_tone="yellow"
-	    elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-	      summary_title="Offline mode"
-	      summary_tone="yellow"
-	    fi
-
-	    log_info "$(summary_header "$summary_title" "$summary_tone")"
-	    log_info "$(summary_divider)"
-
-	    # Core can get long; wrap it to terminal width while preserving ANSI.
+	    # Table summary (default). This is the most robust across terminals and
+	    # avoids unicode box-drawing; content already includes ✅/bars.
 	    core_display="${core_line#Core: }"
-	    log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
+	    versions_display=""
+	    usage_display=""
+	    [[ -n "$versions_line" ]] && versions_display="${versions_line#Versions: }"
+	    [[ -n "$usage_line" ]] && usage_display="${usage_line#Usage: }"
 
-	    if [[ -n "$versions_line" ]]; then
-	      versions_display="${versions_line#Versions: }"
-	      log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
-	    fi
+	    if [[ "$SUMMARY_STYLE" == "table" ]]; then
+	      log_info "$(format_simple_row "Core" "$core_display")"
+	      [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
+	      [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
 
-	    if [[ -n "$usage_line" ]]; then
-	      usage_display="${usage_line#Usage: }"
-	      log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
-	    fi
-
-	    if [[ -n "$primary_quota_segment" ]]; then
-	      quota_line="${primary_quota_segment}"
-	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	        quota_line+=" ⚠"
+	      quota_label_base="Quota"
+	      if [[ -n "$primary_quota_segment" ]]; then
+	        quota_line="${primary_quota_segment}"
+	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	          quota_line+=" ⚠"
+	        fi
+	        log_info "$(format_simple_row "${quota_label_base} 5h" "$quota_line")"
 	      fi
-	      log_info "$(wrap_ansi_text "$(summary_row "Quota 5h" "$quota_line")" "${SUMMARY_GUTTER}")"
-	    fi
-	    if [[ -n "$daily_quota_segment" ]]; then
-	      quota_line3="${daily_quota_segment}"
-	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	        quota_line3+=" ⚠"
+	      if [[ -n "$daily_quota_segment" ]]; then
+	        quota_line3="${daily_quota_segment}"
+	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	          quota_line3+=" ⚠"
+	        fi
+	        log_info "$(format_simple_row "${quota_label_base} day" "$quota_line3")"
 	      fi
-	      log_info "$(wrap_ansi_text "$(summary_row "Quota day" "$quota_line3")" "${SUMMARY_GUTTER}")"
-	    fi
-	    if [[ -n "$secondary_quota_segment" ]]; then
-	      quota_line2="${secondary_quota_segment}"
-	      if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	        quota_line2+=" ⚠"
+	      if [[ -n "$secondary_quota_segment" ]]; then
+	        quota_line2="${secondary_quota_segment}"
+	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	          quota_line2+=" ⚠"
+	        fi
+	        log_info "$(format_simple_row "${quota_label_base} wk" "$quota_line2")"
 	      fi
-	      log_info "$(wrap_ansi_text "$(summary_row "Quota wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
-	    fi
 
-	    # Result last; keep VIP crown behavior.
-	    log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
+	      log_info "$(format_simple_row "Result" "${result_line#Result: }")"
+	    else
+	      # Legacy "card" mode for experimentation.
+	      summary_title="Ready"
+	      summary_tone="$result_tone"
+	      if (( QUOTA_BLOCKED )); then
+	        summary_title="Blocked by quota"
+	        summary_tone="red"
+	      elif (( QUOTA_WARNING )); then
+	        summary_title="Quota warning"
+	        summary_tone="yellow"
+	      elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
+	        summary_title="Offline mode"
+	        summary_tone="yellow"
+	      fi
+
+	      log_info "$(summary_header "$summary_title" "$summary_tone")"
+	      log_info "$(summary_divider)"
+	      log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
+	      [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
+	      [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
+	      if [[ -n "$primary_quota_segment" ]]; then
+	        quota_line="${primary_quota_segment}"
+	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	          quota_line+=" ⚠"
+	        fi
+	        log_info "$(wrap_ansi_text "$(summary_row "Quota 5h" "$quota_line")" "${SUMMARY_GUTTER}")"
+	      fi
+	      if [[ -n "$daily_quota_segment" ]]; then
+	        quota_line3="${daily_quota_segment}"
+	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	          quota_line3+=" ⚠"
+	        fi
+	        log_info "$(wrap_ansi_text "$(summary_row "Quota day" "$quota_line3")" "${SUMMARY_GUTTER}")"
+	      fi
+	      if [[ -n "$secondary_quota_segment" ]]; then
+	        quota_line2="${secondary_quota_segment}"
+	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+	          quota_line2+=" ⚠"
+	        fi
+	        log_info "$(wrap_ansi_text "$(summary_row "Quota wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
+	      fi
+	      log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
+	    fi
 	  fi
 
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )); then
