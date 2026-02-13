@@ -123,7 +123,6 @@
     const dashboardRefreshBtn = document.getElementById('dashboardRefreshBtn');
     const dashboardNewHostBtn = document.getElementById('dashboardNewHostBtn');
     const dashboardSignalStrip = document.getElementById('dashboardSignalStrip');
-    const dashboardPulseCard = document.getElementById('dashboardPulseCard');
     const dashboardRadarCard = document.getElementById('dashboardRadarCard');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
@@ -4983,7 +4982,6 @@
       const hostTotal = Number.isFinite(hostTotalFromOverview) ? hostTotalFromOverview : fleetSummary.total;
       const hostDenominator = hostTotal > 0 ? hostTotal : 1;
       const secureRatio = hostTotal > 0 ? (fleetSummary.secure / hostDenominator) * 100 : 0;
-      const provisionedRatio = hostTotal > 0 ? (fleetSummary.provisioned / hostDenominator) * 100 : 0;
 
       const tokensMonth = safeData.tokens_month || {};
       const tokensWeek = safeData.tokens_week || {};
@@ -5114,49 +5112,6 @@
         dashboardSignalStrip.innerHTML = signalItems.map((item) => `
           <span class="signal-chip ${item.tone}">${escapeHtml(item.label)}</span>
         `).join('');
-      }
-
-      if (dashboardPulseCard) {
-        const pulseSummary = pulse.tone === 'ok'
-          ? 'Fleet posture is stable across security, auth freshness, and runner checks.'
-          : (pulse.tone === 'warn'
-            ? 'Attention recommended: one or more health indicators are drifting.'
-            : 'Action needed: blockers are reducing fleet reliability.');
-        dashboardPulseCard.innerHTML = `
-          <div class="pulse-head">
-            <div>
-              <div class="stat-label">Mission Pulse</div>
-              <h3>${pulse.label}</h3>
-              <p class="muted">${pulseSummary}</p>
-            </div>
-            <div class="pulse-ring ${pulse.tone}" style="--pulse:${pulse.score};">
-              <strong>${pulse.score}</strong>
-              <span>score</span>
-            </div>
-          </div>
-          <div class="pulse-grid">
-            <div class="pulse-kpi">
-              <span>Secure posture</span>
-              <strong>${formatPercent(secureRatio, 0)}</strong>
-              <small>${formatNumber(fleetSummary.secure)} secure / ${formatNumber(hostTotal)} total</small>
-            </div>
-            <div class="pulse-kpi">
-              <span>Provisioning</span>
-              <strong>${formatPercent(provisionedRatio, 0)}</strong>
-              <small>${formatNumber(fleetSummary.provisioned)} provisioned</small>
-            </div>
-            <div class="pulse-kpi">
-              <span>Auth freshness</span>
-              <strong>${formatNumber(Math.max(0, hostTotal - fleetSummary.staleAuth))}</strong>
-              <small>${formatNumber(fleetSummary.staleAuth)} stale digest</small>
-            </div>
-            <div class="pulse-kpi">
-              <span>Version drift</span>
-              <strong>${formatNumber(fleetSummary.behindVersion)}</strong>
-              <small>${formatNumber(hostTotal - fleetSummary.behindVersion)} aligned</small>
-            </div>
-          </div>
-        `;
       }
 
       if (dashboardRadarCard) {

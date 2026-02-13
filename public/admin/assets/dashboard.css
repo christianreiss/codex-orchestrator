@@ -141,7 +141,7 @@ body {
     linear-gradient(160deg, var(--surface-tint), rgba(255, 255, 255, 0.03));
   box-shadow: var(--shadow-pop);
   display: grid;
-  grid-template-columns: minmax(320px, 1.1fr) minmax(320px, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
   animation: dashboard-rise 420ms ease both;
 }
@@ -324,8 +324,8 @@ body {
   list-style: none;
   margin: 14px 0 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .radar-item {
@@ -984,6 +984,9 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
   .dashboard-hero {
     grid-template-columns: 1fr;
   }
+  .radar-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .dashboard-hero-actions {
     justify-content: flex-start;
   }
@@ -991,6 +994,9 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
 
 @media (max-width: 760px) {
   .metrics.metrics-2026 {
+    grid-template-columns: 1fr;
+  }
+  .radar-list {
     grid-template-columns: 1fr;
   }
   .pulse-grid {
