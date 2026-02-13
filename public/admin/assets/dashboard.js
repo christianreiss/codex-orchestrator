@@ -2857,8 +2857,10 @@
           <td data-label="Description">${desc || '—'}</td>
           <td data-label="Argument">${(p.argument_hint || '').replace(/</g, '&lt;') || '—'}</td>
           <td data-label="Actions">
-            <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
-            <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
+            <div class="table-actions">
+              <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
+              <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
+            </div>
           </td>
         </tr>`;
       }).join('');
@@ -2892,8 +2894,10 @@
           <td data-label="Display name">${(skill.display_name || '—').replace(/</g, '&lt;')}</td>
           <td data-label="Description">${(skill.description || '—').replace(/</g, '&lt;')}</td>
           <td data-label="Actions">
-            <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}">Edit</button>
-            <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : ''}>Delete</button>
+            <div class="table-actions">
+              <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}">Edit</button>
+              <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : ''}>Delete</button>
+            </div>
           </td>
         </tr>`;
       }).join('');

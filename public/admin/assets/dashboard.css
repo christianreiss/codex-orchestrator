@@ -1498,11 +1498,24 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
       line-height: 1.1;
     }
     .table-wrap,
-    .table-wrapper { margin-top: 0; border-radius: 18px; overflow: hidden; border: 1px solid rgba(15,23,42,0.08); background: var(--surface-tint); box-shadow: var(--shadow); }
+    .table-wrapper { margin-top: 0; border-radius: 18px; overflow-x: auto; overflow-y: hidden; border: 1px solid rgba(15,23,42,0.08); background: var(--surface-tint); box-shadow: var(--shadow); }
     table { width: 100%; min-width: 960px; border-collapse: collapse; }
     thead { background: var(--table-header); border-bottom: 1px solid rgba(15,23,42,0.08); }
     th, td { padding: 14px 12px; text-align: left; font-size: 13px; white-space: nowrap; }
     th { color: var(--muted); font-weight: 600; letter-spacing: 0.02em; text-transform: none; font-size: 13px; }
+    #skills th:last-child,
+    #skills td[data-label="Actions"] {
+      text-align: right;
+      min-width: 180px;
+    }
+    .table-actions {
+      display: inline-flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      width: 100%;
+    }
     .sort-link {
       display: inline-flex;
       align-items: center;

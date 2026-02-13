@@ -40,6 +40,9 @@ final class AdminSkillRegistryEditUiTest extends TestCase
         $this->assertStringContainsString("skillSave.textContent = isEdit ? 'Save changes' : 'Save';", $js);
         $this->assertStringContainsString('skillSlug.readOnly = isEdit;', $js);
         $this->assertStringContainsString('skillDelete.hidden = !isEdit;', $js);
+        $this->assertStringContainsString('<div class="table-actions">', $js);
+        $this->assertStringContainsString('class="ghost tiny-btn skill-edit"', $js);
+        $this->assertStringContainsString('class="ghost tiny-btn danger skill-delete"', $js);
         $this->assertStringContainsString('if (isEdit && slug !== skillEditingSlug)', $js);
         $this->assertStringContainsString('skillDelete.addEventListener(\'click\'', $js);
         $this->assertStringContainsString('deleteSkill(slug, { fromModal: true });', $js);

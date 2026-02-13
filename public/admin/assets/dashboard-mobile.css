@@ -332,6 +332,15 @@ body[data-view="mobile"] tbody td {
   gap: 4px;
 }
 
+body[data-view="mobile"] .table-actions {
+  width: 100%;
+  justify-content: stretch;
+}
+
+body[data-view="mobile"] .table-actions button {
+  flex: 1;
+}
+
 body[data-view="mobile"] tbody td::before {
   content: attr(data-label);
   font-weight: 700;
