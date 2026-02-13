@@ -7,13 +7,13 @@ prompt_sync_python() {
   local cafile="$5"
   local baseline_file="$6"
   CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, shutil, socket, ssl, sys, urllib.error, urllib.request
+import hashlib, json, os, pathlib, shutil, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")
@@ -23,57 +23,10 @@ baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 
-def contexts():
-    ctxs = []
-    primary = ssl.create_default_context()
-    if cafile:
-        try:
-            primary.load_verify_locations(cafile)
-        except Exception:
-            primary = None
-    if primary is not None:
-        try:
-            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        ctxs.append(primary)
-    try:
-        fallback = ssl.create_default_context()
-        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        ctxs.append(fallback)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            ctxs.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return ctxs or [None]
-
-
 def request_json(method: str, url: str, payload=None):
-    data = None
-    headers = {"X-API-Key": api_key}
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    last_err = None
-    for ctx in contexts():
-        try:
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:  # noqa: PERF203
-            body = exc.read().decode("utf-8", "ignore")
-            reason = f"http-{exc.code}"
-            if body:
-                reason = f"{reason}:{body.strip()[:80]}"
-            raise RuntimeError(reason) from exc
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            continue
-    raise RuntimeError(f"request failed: {last_err}")
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
 
 
 def parse_front_matter(text: str):
@@ -296,13 +249,13 @@ skill_sync_python() {
   local cafile="$5"
   local baseline_file="$6"
   CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+import hashlib, json, os, pathlib, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")
@@ -312,57 +265,10 @@ baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 
-def contexts():
-    ctxs = []
-    primary = ssl.create_default_context()
-    if cafile:
-        try:
-            primary.load_verify_locations(cafile)
-        except Exception:
-            primary = None
-    if primary is not None:
-        try:
-            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        ctxs.append(primary)
-    try:
-        fallback = ssl.create_default_context()
-        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        ctxs.append(fallback)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            ctxs.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return ctxs or [None]
-
-
 def request_json(method: str, url: str, payload=None):
-    data = None
-    headers = {"X-API-Key": api_key}
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    last_err = None
-    for ctx in contexts():
-        try:
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:  # noqa: PERF203
-            body = exc.read().decode("utf-8", "ignore")
-            reason = f"http-{exc.code}"
-            if body:
-                reason = f"{reason}:{body.strip()[:80]}"
-            raise RuntimeError(reason) from exc
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            continue
-    raise RuntimeError(f"request failed: {last_err}")
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
 
 
 def load_local(include_content: bool = False):
@@ -618,13 +524,13 @@ agents_sync_python() {
   local cafile="$4"
   local current_sha="$5"
   CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
-import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+import hashlib, json, os, pathlib, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 target = pathlib.Path(sys.argv[2]).expanduser()
@@ -633,57 +539,10 @@ current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 
-def contexts():
-    ctxs = []
-    primary = ssl.create_default_context()
-    if cafile:
-        try:
-            primary.load_verify_locations(cafile)
-        except Exception:
-            primary = None
-    if primary is not None:
-        try:
-            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        ctxs.append(primary)
-    try:
-        fallback = ssl.create_default_context()
-        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        ctxs.append(fallback)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            ctxs.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return ctxs or [None]
-
-
 def request_json(method: str, url: str, payload=None):
-    data = None
-    headers = {"X-API-Key": api_key}
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    last_err = None
-    for ctx in contexts():
-        try:
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:  # noqa: PERF203
-            body = exc.read().decode("utf-8", "ignore")
-            reason = f"http-{exc.code}"
-            if body:
-                reason = f"{reason}:{body.strip()[:80]}"
-            raise RuntimeError(reason) from exc
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            continue
-    raise RuntimeError(f"request failed: {last_err}")
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
 
 
 def atomic_write_text(target, content):
@@ -929,13 +788,13 @@ config_sync_python() {
     home_path="$(getent passwd "$username" | cut -d: -f6 2>/dev/null || true)"
   fi
   CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
-import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+import hashlib, json, os, pathlib, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 target = pathlib.Path(sys.argv[2]).expanduser()
@@ -944,57 +803,10 @@ current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 
-def contexts():
-    ctxs = []
-    primary = ssl.create_default_context()
-    if cafile:
-        try:
-            primary.load_verify_locations(cafile)
-        except Exception:
-            primary = None
-    if primary is not None:
-        try:
-            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        ctxs.append(primary)
-    try:
-        fallback = ssl.create_default_context()
-        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        ctxs.append(fallback)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            ctxs.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return ctxs or [None]
-
-
 def request_json(method: str, url: str, payload=None):
-    data = None
-    headers = {"X-API-Key": api_key}
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    last_err = None
-    for ctx in contexts():
-        try:
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:  # noqa: PERF203
-            body = exc.read().decode("utf-8", "ignore")
-            reason = f"http-{exc.code}"
-            if body:
-                reason = f"{reason}:{body.strip()[:80]}"
-            raise RuntimeError(reason) from exc
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            continue
-    raise RuntimeError(f"request failed: {last_err}")
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
 
 
 def atomic_write_text(target, content):
@@ -1450,13 +1262,13 @@ post_token_usage_payload() {
   local summary=""
   local status=0
   summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, os, socket, ssl, sys, urllib.error, urllib.request
+import json, os, sys, urllib.error, urllib.request
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 payload_raw = sys.argv[2]
@@ -1475,25 +1287,9 @@ req = urllib.request.Request(url, data=body, headers=headers, method="POST")
 
 
 def build_contexts():
-    contexts = []
-    try:
-        ctx = ssl.create_default_context()
-        if cafile:
-            ctx.load_verify_locations(cafile)
-        try:
-            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except Exception:
-            pass
-        contexts.append(ctx)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            contexts.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return contexts or [None]
+    if "cdx_build_ssl_contexts" in globals():
+        return cdx_build_ssl_contexts(cafile)
+    return [None]
 
 
 def format_summary(data: dict) -> str:
@@ -1594,13 +1390,13 @@ PY
       summary=""
       status=0
       summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, os, socket, ssl, sys, urllib.error, urllib.request
+import json, os, sys, urllib.error, urllib.request
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 payload_raw = sys.argv[2]
@@ -1612,32 +1408,30 @@ body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
 headers = {"Content-Type": "application/json", "X-API-Key": api_key}
 url = f"{base}/usage"
 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-
-ctx = ssl.create_default_context()
-if cafile:
+contexts = cdx_build_ssl_contexts(cafile) if "cdx_build_ssl_contexts" in globals() else [None]
+last_error = ""
+for ctx in contexts:
     try:
-        ctx.load_verify_locations(cafile)
-    except Exception:
-        pass
-try:
-    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
-        resp.read(512)
-        print("fallback")
-        sys.exit(0)
-except urllib.error.HTTPError as exc:  # noqa: PERF203
-    body = ""
-    try:
-        body = exc.read().decode("utf-8", "replace")
-    except Exception:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
+            resp.read(512)
+            print("fallback")
+            sys.exit(0)
+    except urllib.error.HTTPError as exc:  # noqa: PERF203
         body = ""
-    if exc.code == 503 and "disabled" in body.lower():
-        print("api disabled")
-        sys.exit(40)
-    print(str(exc))
-    sys.exit(1)
-except Exception as exc:  # noqa: BLE001
-    print(str(exc))
-    sys.exit(1)
+        try:
+            body = exc.read().decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        if exc.code == 503 and "disabled" in body.lower():
+            print("api disabled")
+            sys.exit(40)
+        last_error = str(exc)
+        continue
+    except Exception as exc:  # noqa: BLE001
+        last_error = str(exc)
+        continue
+print(last_error)
+sys.exit(1)
 PY
       )" || status=$?
       if (( status == 0 )); then

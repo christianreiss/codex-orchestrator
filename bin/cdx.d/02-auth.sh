@@ -32,13 +32,13 @@ sync_auth_with_api() {
     offline_reason=""
     deny_reason=""
     if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
-import hashlib, json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+import hashlib, json, os, pathlib, sys, urllib.error, urllib.request
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 path = pathlib.Path(sys.argv[2]).expanduser()
@@ -85,38 +85,6 @@ def atomic_write_text(target, content, mode=None):
             os.chmod(target, mode)
         except PermissionError:
             pass
-
-
-def build_context():
-    contexts = []
-    # Preferred: custom CA if provided
-    ctx_primary = ssl.create_default_context()
-    if cafile:
-        try:
-            ctx_primary.load_verify_locations(cafile)
-        except Exception:
-            ctx_primary = None
-    if ctx_primary is not None:
-        try:
-            ctx_primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        contexts.append(ctx_primary)
-    # Fallback: system default
-    try:
-        ctx_default = ssl.create_default_context()
-        ctx_default.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        contexts.append(ctx_default)
-    except Exception:
-        pass
-    # Last resort: unverified (only if others fail)
-    allow_insecure = os.environ.get("CODEX_SYNC_ALLOW_INSECURE", "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            contexts.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return contexts or [None]
 
 
 def parse_error_body(body: str):
@@ -198,7 +166,7 @@ def post_json(url: str, payload: dict, action: str):
     body = canonical_json(payload).encode("utf-8")
     headers = {"Content-Type": "application/json", "X-API-Key": api_key}
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    contexts = build_context()
+    contexts = cdx_build_ssl_contexts(cafile) if "cdx_build_ssl_contexts" in globals() else [None]
     last_err = None
     offline_reason = ""
     for ctx in contexts:
