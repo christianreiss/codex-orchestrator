@@ -27,7 +27,12 @@ final class AdminSkillRegistryEditUiTest extends TestCase
         $this->assertIsString($css);
         $this->assertStringContainsString('.table-wrap,', $css);
         $this->assertStringContainsString('.table-wrapper {', $css);
-        $this->assertStringContainsString('.table-wrapper { overflow-x: auto; }', $css);
+        $this->assertStringContainsString('#skills {', $css);
+        $this->assertStringContainsString('table-layout: fixed;', $css);
+        $this->assertStringContainsString('#skills td[data-label="Description"] {', $css);
+        $this->assertStringContainsString('max-width: 36ch;', $css);
+        $this->assertStringContainsString('#skills td[data-label="Actions"] {', $css);
+        $this->assertStringContainsString('width: 180px;', $css);
     }
 
     public function testSkillEditModeLocksSlugAndKeepsUpdateActionExplicit(): void
