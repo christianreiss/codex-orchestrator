@@ -294,6 +294,12 @@ body[data-view="mobile"] .table-wrap {
   overflow: visible;
 }
 
+body[data-view="mobile"] .table-wrapper {
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+
 body[data-view="mobile"] table {
   min-width: 0;
   width: 100%;

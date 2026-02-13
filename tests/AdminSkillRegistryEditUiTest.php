@@ -17,6 +17,19 @@ final class AdminSkillRegistryEditUiTest extends TestCase
         $this->assertStringContainsString('id="skillDelete"', $html);
     }
 
+    public function testSkillRegistryTableKeepsActionsVisibleAndLabeled(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+        $this->assertStringContainsString('<th>Actions</th>', $html);
+
+        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
+        $this->assertIsString($css);
+        $this->assertStringContainsString('.table-wrap,', $css);
+        $this->assertStringContainsString('.table-wrapper {', $css);
+        $this->assertStringContainsString('.table-wrapper { overflow-x: auto; }', $css);
+    }
+
     public function testSkillEditModeLocksSlugAndKeepsUpdateActionExplicit(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
