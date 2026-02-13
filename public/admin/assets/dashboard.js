@@ -109,6 +109,7 @@
     const skillCancel = document.getElementById('skillCancel');
     const skillStatus = document.getElementById('skillStatus');
     const skillSlugSuggest = document.getElementById('skillSlugSuggest');
+    const skillSlugNote = document.getElementById('skillSlugNote');
     const skillDigestBadge = document.getElementById('skillDigestBadge');
     const skillUpdatedBadge = document.getElementById('skillUpdatedBadge');
     const skillModalTitle = document.getElementById('skillModalTitle');
@@ -218,6 +219,8 @@
     let hostStatusFilter = ''; // maintained for clarity
     const hostTabLinks = Array.from(document.querySelectorAll('.host-tab'));
     let skillSlugAutofill = true;
+    let skillModalMode = 'new';
+    let skillEditingSlug = '';
     let skillTags = [];
 
     const THEME_OPTIONS = ['auto', 'light', 'dark'];
@@ -2929,13 +2932,33 @@
     }
 
     function setSkillModalMode(mode, slugLabel = '') {
+      const isEdit = mode === 'edit';
+      skillModalMode = isEdit ? 'edit' : 'new';
+      if (!isEdit) {
+        skillEditingSlug = '';
+      }
       if (skillModalTitle) {
-        skillModalTitle.textContent = mode === 'edit' ? 'Edit skill' : 'New skill';
+        skillModalTitle.textContent = isEdit ? 'Edit skill' : 'New skill';
       }
       if (skillModalSubtitle) {
-        skillModalSubtitle.textContent = mode === 'edit'
+        skillModalSubtitle.textContent = isEdit
           ? `Updating ${slugLabel || 'this skill'} for every host in the fleet.`
           : 'One manifest syncs across ~/.codex/skills on every host.';
+      }
+      if (skillSave) {
+        skillSave.textContent = isEdit ? 'Save changes' : 'Save';
+      }
+      if (skillSlug) {
+        skillSlug.readOnly = isEdit;
+        skillSlug.setAttribute('aria-readonly', isEdit ? 'true' : 'false');
+      }
+      if (skillSlugSuggest) {
+        skillSlugSuggest.hidden = isEdit;
+      }
+      if (skillSlugNote) {
+        skillSlugNote.innerHTML = isEdit
+          ? 'Slug is locked during edit. Use <strong>New</strong> to create a separate skill.'
+          : 'Becomes <code>~/.codex/skills/&lt;slug&gt;/SKILL.md</code>.';
       }
     }
 
@@ -6053,6 +6076,7 @@
     async function openSkillModal(slug) {
       if (!skillModal) return;
       const target = typeof slug === 'string' ? slug.trim() : '';
+      skillEditingSlug = target;
       setSkillModalMode(target ? 'edit' : 'new', target);
       setSkillBadges(null);
       if (skillSlug) skillSlug.value = target;
@@ -6075,7 +6099,9 @@
         const resp = await api(`/admin/skills/${encodeURIComponent(target)}`);
         const data = resp?.data || {};
         const parsed = parseSkillManifest(data.manifest || '');
-        if (skillSlug) skillSlug.value = data.slug || target || '';
+        const loadedSlug = (data.slug || target || '').trim();
+        skillEditingSlug = loadedSlug;
+        if (skillSlug) skillSlug.value = loadedSlug;
         if (skillNameInput) {
           skillNameInput.value = parsed.name || data.display_name || data.slug || '';
         }
@@ -6100,6 +6126,7 @@
         return;
       }
       const slug = skillSlug.value.trim();
+      const isEdit = skillModalMode === 'edit' && !!skillEditingSlug;
       const name = skillNameInput.value.trim();
       const description = skillDescriptionInput?.value?.trim() || '';
       const what = skillWhatInput.value.trim();
@@ -6117,6 +6144,12 @@
         if (skillStatus) skillStatus.textContent = 'All sections must be filled in';
         return;
       }
+      if (isEdit && slug !== skillEditingSlug) {
+        if (skillStatus) {
+          skillStatus.textContent = 'Slug is locked while editing. Use New to create a different slug.';
+        }
+        return;
+      }
       const manifest = buildSkillManifestFromFields();
       const payload = {
         slug,
@@ -6125,16 +6158,22 @@
         manifest,
       };
       if (skillStatus) skillStatus.textContent = 'Saving…';
+      if (skillSave) skillSave.disabled = true;
       try {
-        await api('/admin/skills/store', {
+        const resp = await api('/admin/skills/store', {
           method: 'POST',
           json: payload,
         });
-        if (skillStatus) skillStatus.textContent = 'Saved';
+        const saveState = resp?.data?.status || 'updated';
+        if (skillStatus) {
+          skillStatus.textContent = saveState === 'unchanged' ? 'No changes' : 'Saved';
+        }
         await loadAll();
         showSkillModal(false);
       } catch (err) {
         if (skillStatus) skillStatus.textContent = `Save failed: ${err.message}`;
+      } finally {
+        if (skillSave) skillSave.disabled = false;
       }
     }
 
