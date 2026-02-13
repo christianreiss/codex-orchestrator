@@ -165,7 +165,11 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
 def post_json(url: str, payload: dict, action: str):
     body = canonical_json(payload).encode("utf-8")
     headers = {"Content-Type": "application/json", "X-API-Key": api_key}
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    except Exception as exc:  # noqa: BLE001
+        print(f"{action} failed: {exc}", file=sys.stderr)
+        sys.exit(3)
     contexts = cdx_build_ssl_contexts(cafile) if "cdx_build_ssl_contexts" in globals() else [None]
     last_err = None
     offline_reason = ""

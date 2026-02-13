@@ -163,7 +163,10 @@ def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, 
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    except Exception as exc:
+        raise RuntimeError(f"request failed: {exc}") from exc
     last_err = None
     for ctx in cdx_build_ssl_contexts(cafile, allow_insecure_env=allow_insecure_env):
         try:
@@ -278,6 +281,8 @@ CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
 CODEX_DO_UNINSTALL=0
+CODEX_STATUS_ONLY=0
+CODEX_DOCTOR_ONLY=0
 CODEX_PROFILE_CANDIDATE=""
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
@@ -426,7 +431,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-09"
+WRAPPER_VERSION="2026.02.13-10"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -504,6 +509,14 @@ case "${1-}" in
     printf 'cdx wrapper %s\n' "$WRAPPER_VERSION"
     exit 0
     ;;
+  status|--status)
+    CODEX_STATUS_ONLY=1
+    shift
+    ;;
+  doctor|--doctor)
+    CODEX_DOCTOR_ONLY=1
+    shift
+    ;;
   --uninstall)
     CODEX_DO_UNINSTALL=1
     shift
@@ -521,6 +534,26 @@ case "${1-}" in
     shift
     ;;
 esac
+
+case "${1-}" in
+  status|--status)
+    CODEX_STATUS_ONLY=1
+    shift
+    ;;
+  doctor|--doctor)
+    CODEX_DOCTOR_ONLY=1
+    shift
+    ;;
+esac
+
+if (( CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )) && (( $# > 0 )); then
+  if (( CODEX_STATUS_ONLY )); then
+    printf 'Usage: cdx [--debug] status\n' >&2
+  else
+    printf 'Usage: cdx [--debug] doctor\n' >&2
+  fi
+  exit 1
+fi
 
 if [[ -n "${1-}" && "${1-}" != -* ]]; then
   CODEX_PROFILE_CANDIDATE="$1"

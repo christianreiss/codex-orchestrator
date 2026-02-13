@@ -37,6 +37,8 @@
   - Insecure hosts with a clean sync (no updates or errors) compress the Result line to `sync ok (insecure host; auth refreshed)` to avoid repetitive noise.
 - `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
 - `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
+- `cdx status` runs wrapper sync/update checks, prints the normal boot summary, and exits without launching Codex (`exit 0` for healthy/warn states, `exit 1` for red/error state).
+- `cdx doctor` runs wrapper checks plus diagnostics (dependencies, resolved paths, auth freshness, sync states, API reachability probe against `/versions`, PTY state) and exits without launching Codex; prints actionable hints and returns non-zero when critical checks fail.
 - `cdx -4` forces IPv4 for all wrapper network calls for that run (sync, usage, update/download), overriding the baked dual-stack default.
 - `cdx <profile> [args...]` is shorthand for `cdx --profile <profile> [args...]` when the named profile exists in the synced `config.toml` (`[profiles.<profile>]`); if the profile does not exist, the argument is passed through unchanged.
 - `cdx --execute "<prompt>" [codex args...]` skips wrapper boot logic and MOTD, runs `codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check --output-last-message <tmpfile> "<prompt>" [codex args...]`, then prints only the last assistant message from `<tmpfile>`; exit code is forwarded. Other wrapper flags (e.g. `--update`, `--uninstall`) are not processed in this mode.
