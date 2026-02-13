@@ -6625,7 +6625,22 @@
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
         if (copyCmdBtn) {
-          copyCmdBtn.onclick = () => copyToClipboard(cmd);
+          copyCmdBtn.onclick = async () => {
+            const previous = copyCmdBtn.textContent || 'Copy';
+            copyCmdBtn.disabled = true;
+            copyCmdBtn.textContent = 'Copying…';
+            try {
+              await copyToClipboard(cmd);
+              copyCmdBtn.textContent = 'Copied';
+            } catch (error) {
+              copyCmdBtn.textContent = 'Copy failed';
+            } finally {
+              window.setTimeout(() => {
+                copyCmdBtn.textContent = previous;
+                copyCmdBtn.disabled = false;
+              }, 900);
+            }
+          };
         }
         if (installerMeta) {
           const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;

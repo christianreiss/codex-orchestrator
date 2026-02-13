@@ -1,3 +1,6 @@
+# 2026-02-13
+- Admin new host modal: the “Run on the target host” copy button now shows inline feedback (`Copying…`, `Copied`, `Copy failed`).
+
 # 2026-02-12
 - Admin config: add `model_provider` and `local_provider` controls to the config.toml builder to match the current Codex CLI flags.
 - cdx: refresh bootup summary styling (modern header + divider + wrapped rows) while keeping existing status content.
