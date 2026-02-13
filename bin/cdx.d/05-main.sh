@@ -2076,7 +2076,26 @@ fi
 	    [[ -n "$versions_line" ]] && versions_display="${versions_line#Versions: }"
 	    [[ -n "$usage_line" ]] && usage_display="${usage_line#Usage: }"
 
-	    if [[ "$SUMMARY_STYLE" == "table" ]]; then
+	    if (( CODEX_MINIMAL_OUTPUT )); then
+	      minimal_core_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
+	      if [[ -n "$agents_label" ]]; then
+	        minimal_core_line+=" agents=${agents_tone}"
+	      fi
+	      if [[ -n "$config_label" ]]; then
+	        minimal_core_line+=" config=${config_tone}"
+	      fi
+	      if (( QUOTA_BLOCKED )); then
+	        minimal_core_line+=" quota=blocked"
+	      elif (( QUOTA_WARNING )); then
+	        minimal_core_line+=" quota=warn"
+	      fi
+	      minimal_result_line="$result_label"
+	      if [[ "${HOST_VIP:-0}" == "1" ]]; then
+	        minimal_result_line+=" (vip)"
+	      fi
+	      log_info "$(format_simple_row "Core" "$minimal_core_line")"
+	      log_info "$(format_simple_row "Result" "$minimal_result_line")"
+	    elif [[ "$SUMMARY_STYLE" == "table" ]]; then
 	      log_info "$(format_simple_row "Core" "$core_display")"
 	      [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
 	      [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"

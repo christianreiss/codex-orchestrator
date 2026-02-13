@@ -3,7 +3,17 @@
 set -euo pipefail
 
 # Fancy-ish log strings
-if [[ -t 1 ]]; then
+CODEX_TERM_IS_DUMB=0
+if [[ "${TERM:-}" == "dumb" ]]; then
+  CODEX_TERM_IS_DUMB=1
+fi
+
+CODEX_COLOR_ENABLED=0
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && (( ! CODEX_TERM_IS_DUMB )); then
+  CODEX_COLOR_ENABLED=1
+fi
+
+if (( CODEX_COLOR_ENABLED )); then
   BOLD="\033[1m"
   DIM="\033[2m"
   GREEN="\033[32m"
@@ -27,7 +37,11 @@ else
   RESET=""
 fi
 
-LOG_PREFIX_INFO="${LOG_PREFIX_INFO:-»}"
+if (( CODEX_TERM_IS_DUMB )); then
+  LOG_PREFIX_INFO="${LOG_PREFIX_INFO:->}"
+else
+  LOG_PREFIX_INFO="${LOG_PREFIX_INFO:-»}"
+fi
 LOG_PREFIX_WARN="${LOG_PREFIX_WARN:-!}"
 LOG_PREFIX_ERROR="${LOG_PREFIX_ERROR:-x}"
 
@@ -285,7 +299,19 @@ CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
 CODEX_PROFILE_CANDIDATE=""
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
+CODEX_MINIMAL_OUTPUT=${CODEX_MINIMAL_OUTPUT:-$CODEX_TERM_IS_DUMB}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
+case "$(lowercase "$CODEX_MINIMAL_OUTPUT")" in
+  1|true|yes|on)
+    CODEX_MINIMAL_OUTPUT=1
+    ;;
+  *)
+    CODEX_MINIMAL_OUTPUT=0
+    ;;
+esac
+if (( CODEX_MINIMAL_OUTPUT )); then
+  CODEX_SKIP_MOTD=1
+fi
 CODEX_HOST_MODEL="${CODEX_HOST_MODEL:-__CODEX_HOST_MODEL__}"
 CODEX_HOST_REASONING_EFFORT="${CODEX_HOST_REASONING_EFFORT:-__CODEX_HOST_REASONING_EFFORT__}"
 if [[ "$CODEX_HOST_MODEL" == __CODEX_*__ ]]; then
@@ -431,7 +457,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-11"
+WRAPPER_VERSION="2026.02.13-12"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -5746,7 +5772,26 @@ fi
 	    [[ -n "$versions_line" ]] && versions_display="${versions_line#Versions: }"
 	    [[ -n "$usage_line" ]] && usage_display="${usage_line#Usage: }"
 
-	    if [[ "$SUMMARY_STYLE" == "table" ]]; then
+	    if (( CODEX_MINIMAL_OUTPUT )); then
+	      minimal_core_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
+	      if [[ -n "$agents_label" ]]; then
+	        minimal_core_line+=" agents=${agents_tone}"
+	      fi
+	      if [[ -n "$config_label" ]]; then
+	        minimal_core_line+=" config=${config_tone}"
+	      fi
+	      if (( QUOTA_BLOCKED )); then
+	        minimal_core_line+=" quota=blocked"
+	      elif (( QUOTA_WARNING )); then
+	        minimal_core_line+=" quota=warn"
+	      fi
+	      minimal_result_line="$result_label"
+	      if [[ "${HOST_VIP:-0}" == "1" ]]; then
+	        minimal_result_line+=" (vip)"
+	      fi
+	      log_info "$(format_simple_row "Core" "$minimal_core_line")"
+	      log_info "$(format_simple_row "Result" "$minimal_result_line")"
+	    elif [[ "$SUMMARY_STYLE" == "table" ]]; then
 	      log_info "$(format_simple_row "Core" "$core_display")"
 	      [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
 	      [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
