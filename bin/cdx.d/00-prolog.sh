@@ -431,7 +431,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-10"
+WRAPPER_VERSION="2026.02.13-11"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -595,6 +595,24 @@ detect_linux_package_manager() {
           return 0
         fi
         ;;
+      arch|manjaro|endeavouros)
+        if command -v pacman >/dev/null 2>&1; then
+          printf '%s' pacman
+          return 0
+        fi
+        ;;
+      opensuse*|sles|sled|suse)
+        if command -v zypper >/dev/null 2>&1; then
+          printf '%s' zypper
+          return 0
+        fi
+        ;;
+      alpine)
+        if command -v apk >/dev/null 2>&1; then
+          printf '%s' apk
+          return 0
+        fi
+        ;;
     esac
   done
   if command -v apt-get >/dev/null 2>&1; then
@@ -603,6 +621,18 @@ detect_linux_package_manager() {
   fi
   if command -v dnf >/dev/null 2>&1; then
     printf '%s' dnf
+    return 0
+  fi
+  if command -v pacman >/dev/null 2>&1; then
+    printf '%s' pacman
+    return 0
+  fi
+  if command -v zypper >/dev/null 2>&1; then
+    printf '%s' zypper
+    return 0
+  fi
+  if command -v apk >/dev/null 2>&1; then
+    printf '%s' apk
     return 0
   fi
   return 1

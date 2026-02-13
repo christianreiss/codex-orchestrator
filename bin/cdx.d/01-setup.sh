@@ -49,23 +49,62 @@ ensure_commands() {
         fi
       fi
 
+      local install_missing=()
+      local dep pkg
+      for dep in "${missing[@]}"; do
+        pkg="$dep"
+        case "$pm:$dep" in
+          pacman:python3)
+            pkg="python"
+            ;;
+          pacman:script|apk:script)
+            pkg="util-linux"
+            ;;
+        esac
+        install_missing+=("$pkg")
+      done
+
       case "$pm" in
         apt-get)
           log_info "Installing prerequisites (${missing[*]}) with apt-get"
           if (( ${#use_sudo[@]} > 0 )); then
             "${use_sudo[@]}" apt-get update -qq
-            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}"
           else
             apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}"
           fi
           ;;
         dnf)
           log_info "Installing prerequisites (${missing[*]}) with dnf"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" dnf install -y "${missing[@]}"
+            "${use_sudo[@]}" dnf install -y "${install_missing[@]}"
           else
-            dnf install -y "${missing[@]}"
+            dnf install -y "${install_missing[@]}"
+          fi
+          ;;
+        pacman)
+          log_info "Installing prerequisites (${missing[*]}) with pacman"
+          if (( ${#use_sudo[@]} > 0 )); then
+            "${use_sudo[@]}" pacman -S --noconfirm --needed "${install_missing[@]}"
+          else
+            pacman -S --noconfirm --needed "${install_missing[@]}"
+          fi
+          ;;
+        zypper)
+          log_info "Installing prerequisites (${missing[*]}) with zypper"
+          if (( ${#use_sudo[@]} > 0 )); then
+            "${use_sudo[@]}" zypper --non-interactive install --no-recommends "${install_missing[@]}"
+          else
+            zypper --non-interactive install --no-recommends "${install_missing[@]}"
+          fi
+          ;;
+        apk)
+          log_info "Installing prerequisites (${missing[*]}) with apk"
+          if (( ${#use_sudo[@]} > 0 )); then
+            "${use_sudo[@]}" apk add --no-cache "${install_missing[@]}"
+          else
+            apk add --no-cache "${install_missing[@]}"
           fi
           ;;
         *)
