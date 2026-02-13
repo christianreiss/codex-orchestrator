@@ -20,7 +20,7 @@ fi
 
 if [[ "$platform_os" == "Linux" ]]; then
   if (( can_manage_codex )); then
-    ensure_commands curl unzip
+    ensure_commands curl unzip script
   fi
 elif [[ "$platform_os" == "Darwin" ]]; then
   ensure_commands python3 curl unzip
