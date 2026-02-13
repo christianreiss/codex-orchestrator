@@ -13,7 +13,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
   - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
 
 ## Page-by-page
-- **Overview**: fleet counts, avg refresh age, last log time, GitHub client cache, wrapper version/sha, runner state, quota mode/limit, pricing snapshot and estimated monthly cost, ChatGPT usage snapshot (5-minute cooldown), mTLS presence flag, and whether canonical auth is seeded.
+- **Overview**: 2026 mission-control layout with signal chips, mission pulse score, ops radar highlights, fleet posture carding (secure/insecure, locked windows, stale auth, version drift), runner/quota guardrails, pricing snapshot and estimated monthly cost, ChatGPT usage snapshot (5-minute cooldown), mTLS presence flag, and canonical-auth seed status.
 - **Theme**: header toggle cycles Auto/Light/Dark and stores the preference in `localStorage` (`adminTheme`). Auto follows `prefers-color-scheme`.
 - **Hosts**:
   - Table: FQDN, digest freshness, versions, IP, roaming flag, secure/insecure, VIP, IPv4-only, temporary expiry (`expires_at`), curl-insecure, API calls, monthly tokens, recent digests, and recorded users.

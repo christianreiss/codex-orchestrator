@@ -122,6 +122,9 @@
 
     const dashboardRefreshBtn = document.getElementById('dashboardRefreshBtn');
     const dashboardNewHostBtn = document.getElementById('dashboardNewHostBtn');
+    const dashboardSignalStrip = document.getElementById('dashboardSignalStrip');
+    const dashboardPulseCard = document.getElementById('dashboardPulseCard');
+    const dashboardRadarCard = document.getElementById('dashboardRadarCard');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
@@ -398,8 +401,8 @@
     const VIEW_LAYOUTS = {
       dashboard: {
         eyebrow: 'Dashboard',
-        title: 'Fleet overview',
-        copy: 'Lightweight, square, and consistent across every admin page.',
+        title: 'Fleet Mission Control',
+        copy: 'At-a-glance 2026 posture across hosts, auth, usage, quota, and spend.',
         show: ['stats', 'chatgpt-usage-card'],
       },
       hosts: {
@@ -500,6 +503,20 @@
       const num = Number(value);
       if (!Number.isFinite(num)) return '—';
       return num.toLocaleString('en-US');
+    }
+
+    function formatCompactNumber(value) {
+      if (value === null || value === undefined) return '—';
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '—';
+      try {
+        return new Intl.NumberFormat('en-US', {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(num);
+      } catch (_) {
+        return formatNumber(num);
+      }
     }
 
     function formatCurrency(value, currency = 'USD') {
@@ -3414,7 +3431,7 @@
           runnerSummary = runnerInfo;
         }
 
-        renderStats(currentOverview, runnerInfo);
+        renderStats(currentOverview, runnerInfo, currentHosts);
         renderDashboardGrid(currentOverview, runnerInfo, currentHosts);
         evaluateSeedRequirement(currentOverview, currentHosts);
       } catch (err) {
@@ -4781,120 +4798,231 @@
       showSeedModal(required);
     }
 
-    function renderStats(data, runnerInfo = null) {
+    function summarizeDashboardHosts(hostsList = []) {
+      const summary = {
+        total: 0,
+        secure: 0,
+        insecure: 0,
+        provisioned: 0,
+        unprovisioned: 0,
+        locked: 0,
+        grace: 0,
+        staleAuth: 0,
+        vip: 0,
+        temporary: 0,
+        roaming: 0,
+        ipv4Only: 0,
+        behindVersion: 0,
+      };
+
+      if (!Array.isArray(hostsList)) return summary;
+
+      hostsList.forEach((host) => {
+        if (!host || typeof host !== 'object') return;
+        summary.total += 1;
+
+        const secure = isHostSecure(host);
+        const insecureNow = insecureState(host);
+        if (secure) {
+          summary.secure += 1;
+        } else {
+          summary.insecure += 1;
+          if (!insecureNow.enabledActive && !insecureNow.graceActive) summary.locked += 1;
+          if (!insecureNow.enabledActive && insecureNow.graceActive) summary.grace += 1;
+        }
+
+        if (host.authed === true) {
+          summary.provisioned += 1;
+        } else {
+          summary.unprovisioned += 1;
+        }
+
+        if (secure && host.auth_outdated) summary.staleAuth += 1;
+        if (host.vip) summary.vip += 1;
+        if (host.expires_at) summary.temporary += 1;
+        if (host.allow_roaming_ips) summary.roaming += 1;
+        if (host.force_ipv4) summary.ipv4Only += 1;
+
+        if (isVersionBehind(host.client_version, latestVersions.client) || isVersionBehind(host.wrapper_version, latestVersions.wrapper)) {
+          summary.behindVersion += 1;
+        }
+      });
+
+      return summary;
+    }
+
+    function computeDashboardPulse(fleetSummary, {
+      runnerInfo = null,
+      monthPercentOfPlan = null,
+      quotaHardStop = false,
+      quotaLimit = QUOTA_LIMIT_DEFAULT,
+    } = {}) {
+      let score = 100;
+      const radar = [];
+      const plural = (value, singular, pluralValue = `${singular}s`) => `${value} ${value === 1 ? singular : pluralValue}`;
+      const addRadar = (tone, title, detail) => {
+        radar.push({ tone, title, detail });
+      };
+
+      if (fleetSummary.locked > 0) {
+        score -= Math.min(42, fleetSummary.locked * 11);
+        addRadar(
+          'danger',
+          `${plural(fleetSummary.locked, 'locked insecure window')}`,
+          'These hosts cannot complete /auth until an insecure window is opened.'
+        );
+      } else if (fleetSummary.insecure > 0) {
+        addRadar('ok', 'Insecure hosts reachable', 'No insecure hosts are blocked by a closed window.');
+      }
+
+      if (fleetSummary.staleAuth > 0) {
+        score -= Math.min(28, fleetSummary.staleAuth * 7);
+        addRadar(
+          'warn',
+          `${plural(fleetSummary.staleAuth, 'stale auth digest')}`,
+          'Secure hosts should refresh against canonical auth.json.'
+        );
+      }
+
+      if (fleetSummary.unprovisioned > 0) {
+        score -= Math.min(16, fleetSummary.unprovisioned * 4);
+        addRadar(
+          'warn',
+          `${plural(fleetSummary.unprovisioned, 'unprovisioned host')}`,
+          'Hosts are registered but have not completed their first successful /auth.'
+        );
+      }
+
+      if (fleetSummary.behindVersion > 0) {
+        score -= Math.min(16, fleetSummary.behindVersion * 4);
+        addRadar(
+          'warn',
+          `${plural(fleetSummary.behindVersion, 'host')} behind target version`,
+          'Wrapper or Codex client version drift detected.'
+        );
+      }
+
+      const validation = runnerInfo?.latest_validation || null;
+      const validationStatus = String(validation?.status || '').toLowerCase();
+      const runnerState = String(runnerInfo?.runner_state || '').toLowerCase();
+      if (runnerInfo?.enabled) {
+        if (validationStatus && validationStatus !== 'ok') {
+          score -= 12;
+          addRadar('danger', `Runner validation ${validationStatus}`, 'Validation service reported a non-ok state.');
+        } else if (runnerState === 'fail') {
+          score -= 10;
+          addRadar('danger', 'Runner state fail', 'Validation worker failed during the latest run.');
+        } else {
+          addRadar('ok', 'Runner validation healthy', validation?.created_at ? `Last validation ${formatRelative(validation.created_at)}.` : 'Ready for the next validation run.');
+        }
+      } else {
+        addRadar('neutral', 'Runner disabled', 'Auth uploads are accepted without live runner validation.');
+      }
+
+      if (Number.isFinite(monthPercentOfPlan)) {
+        if (monthPercentOfPlan >= 100) {
+          score -= 8;
+          addRadar('warn', `${formatPercent(monthPercentOfPlan, 0)} of plan consumed`, 'Estimated monthly spend is at or above plan baseline.');
+        } else if (monthPercentOfPlan >= 85) {
+          score -= 4;
+          addRadar('warn', `${formatPercent(monthPercentOfPlan, 0)} of plan consumed`, 'Spend is approaching plan baseline.');
+        } else if (monthPercentOfPlan <= 55) {
+          addRadar('ok', `Spend efficiency ${formatPercent(monthPercentOfPlan, 0)}`, 'Current API spend remains well below plan baseline.');
+        }
+      }
+
+      if (quotaHardStop) {
+        if (quotaLimit <= 85) {
+          score -= 6;
+          addRadar('warn', `Hard-stop quota at ${quotaLimit}%`, 'Non-VIP hosts will refuse launch once this threshold is reached.');
+        } else {
+          addRadar('neutral', `Hard-stop quota at ${quotaLimit}%`, 'Quota guardrail is enforced for non-VIP hosts.');
+        }
+      } else {
+        addRadar('ok', `Warn-only quota at ${quotaLimit}%`, 'Hosts continue launching after warnings.');
+      }
+
+      score = Math.max(0, Math.min(100, Math.round(score)));
+      const tone = score >= 85 ? 'ok' : (score >= 70 ? 'warn' : 'danger');
+      const label = score >= 85 ? 'Stable' : (score >= 70 ? 'Watch' : 'Action Needed');
+
+      return {
+        score,
+        tone,
+        label,
+        radar: radar.slice(0, 6),
+      };
+    }
+
+    function renderStats(data, runnerInfo = null, hostsList = currentHosts) {
       lastOverview = data;
       if (!statsEl) return;
-      const checkedAt = formatRelative(data.versions.client_version_checked_at);
-      const latestLog = formatRelative(data.latest_log_at);
-      const lastRefresh = data.last_refresh ? formatRelative(data.last_refresh) : 'n/a';
-      const avgRefresh = data.avg_refresh_age_days !== null ? data.avg_refresh_age_days.toFixed(2) + ' d' : 'n/a';
+
+      const safeData = data || {};
+      const versions = safeData.versions || {};
+      const hostTotalFromOverview = Number(safeData?.totals?.hosts);
+
       latestVersions = {
-        client: typeof data.versions.client_version === 'string'
-          ? data.versions.client_version.trim().replace(/^v/i, '')
+        client: typeof versions.client_version === 'string'
+          ? versions.client_version.trim().replace(/^v/i, '')
           : null,
-        wrapper: typeof data.versions.wrapper_version === 'string'
-          ? data.versions.wrapper_version.trim().replace(/^v/i, '')
+        wrapper: typeof versions.wrapper_version === 'string'
+          ? versions.wrapper_version.trim().replace(/^v/i, '')
           : null,
       };
-      tokensSummary = data.tokens || null;
-      const codexVersion = typeof data.versions.client_version === 'string'
-        ? data.versions.client_version.trim()
+
+      tokensSummary = safeData.tokens || null;
+
+      const codexVersion = typeof versions.client_version === 'string'
+        ? versions.client_version.trim()
         : null;
-      const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion : 'n/a';
-      const versionInfoBtn = '';
+      const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion.replace(/^v/i, '') : 'n/a';
+      const checkedAt = formatRelative(versions.client_version_checked_at);
 
-      runnerSummary = runnerInfo;
-      const validationLine = (() => {
-        if (!runnerInfo) return null;
-        const validation = runnerInfo.latest_validation || null;
-        const hasValidation = !!validation;
-        const validationStatus = hasValidation
-          ? (validation.status ?? 'unknown')
-          : (runnerInfo.enabled ? 'no runs' : 'disabled');
-        const validationWhen = (() => {
-          if (!validation?.created_at) return null;
-          const date = parseTimestamp(validation.created_at);
-          if (!date) return null;
-          const delta = Date.now() - date.getTime();
-          const minutes = Math.round(Math.abs(delta) / 60000);
-          return delta < 0 ? `in ${minutes}m` : `${minutes}m`;
-        })();
-        const validationLatency = validation?.latency_ms ? `${validation.latency_ms}ms` : null;
-        const parts = [
-          `Validation: ${validationStatus}`,
-          validationWhen ? validationWhen : null,
-          validationLatency ? validationLatency : null,
-        ].filter(Boolean);
-        return parts.join(' · ');
-      })();
+      const fleetSummary = summarizeDashboardHosts(Array.isArray(hostsList) ? hostsList : []);
+      const hostTotal = Number.isFinite(hostTotalFromOverview) ? hostTotalFromOverview : fleetSummary.total;
+      const hostDenominator = hostTotal > 0 ? hostTotal : 1;
+      const secureRatio = hostTotal > 0 ? (fleetSummary.secure / hostDenominator) * 100 : 0;
+      const provisionedRatio = hostTotal > 0 ? (fleetSummary.provisioned / hostDenominator) * 100 : 0;
 
-      const cards = [
-        `
-          <div class="card stat-card">
-            <div class="stat-head">
-              <span class="stat-label">Hosts</span>
-            </div>
-            <div class="stat-value">${data.totals.hosts}</div>
-            <small>Total registered</small>
-          </div>
-        `,
-        `
-          <div class="card stat-card version-card">
-            <div class="stat-head">
-              <span class="stat-label">Version</span>
-            </div>
-            <div class="stat-value upgrade-trigger ${codexVersion ? 'clickable' : ''}" ${codexVersion ? `data-version="${codexVersion}"` : ''}>
-              CLI ${codexVersionDisplay}
-            </div>
-            <small class="muted">Wrapper ${data.versions.wrapper_version ?? 'n/a'} · ${checkedAt}</small>
-            ${validationLine ? `<small class="muted">${validationLine}</small>` : ''}
-          </div>
-        `,
-      ];
-
-      const tokensMonth = data.tokens_month || {};
+      const tokensMonth = safeData.tokens_month || {};
+      const tokensWeek = safeData.tokens_week || {};
+      const tokensDay = safeData.tokens_day || {};
       const getToken = (bucket, key) => {
         const v = Number(bucket?.[key]);
         return Number.isFinite(v) ? v : 0;
       };
-      const tokenBreakdownCard = () => {
-        const monthInput = getToken(tokensMonth, 'input');
-        const monthOutput = getToken(tokensMonth, 'output');
-        const monthCached = getToken(tokensMonth, 'cached');
-        return `
-          <div class="card token-summary-card">
-            <div class="stat-head">
-              <span class="stat-label">Token breakdown (month)</span>
-            </div>
-            <div class="stat-breakdown">
-              <div class="stat-row">
-                <span>Input</span>
-                <strong>${formatNumber(monthInput)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Output</span>
-                <strong>${formatNumber(monthOutput)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Cached</span>
-                <strong>${formatNumber(monthCached)}</strong>
-              </div>
-            </div>
-          </div>
-        `;
-      };
+      const monthInput = getToken(tokensMonth, 'input');
+      const monthOutput = getToken(tokensMonth, 'output');
+      const monthCached = getToken(tokensMonth, 'cached');
+      const monthReasoning = getToken(tokensMonth, 'reasoning');
+      const monthTotal = getToken(tokensMonth, 'total') || (monthInput + monthOutput + monthCached + monthReasoning);
+      const weekTotal = getToken(tokensWeek, 'total') || (getToken(tokensWeek, 'input') + getToken(tokensWeek, 'output') + getToken(tokensWeek, 'cached') + getToken(tokensWeek, 'reasoning'));
+      const dayTotal = getToken(tokensDay, 'total') || (getToken(tokensDay, 'input') + getToken(tokensDay, 'output') + getToken(tokensDay, 'cached') + getToken(tokensDay, 'reasoning'));
+      const averageTokensPerHost = hostTotal > 0 ? (monthTotal / hostTotal) : 0;
 
-      const currency = typeof data?.pricing?.currency === 'string'
-        ? data.pricing.currency.toUpperCase()
+      const topTokenHost = (Array.isArray(hostsList) ? hostsList : []).reduce((best, host) => {
+        const hostTokens = Number(host?.token_usage?.total);
+        if (!Number.isFinite(hostTokens)) return best;
+        const bestTokens = Number(best?.token_usage?.total);
+        if (!best || !Number.isFinite(bestTokens) || hostTokens > bestTokens) return host;
+        return best;
+      }, null);
+      const topHostLabel = topTokenHost
+        ? `${clipText(topTokenHost.fqdn || `host #${topTokenHost.id}`, 24)} · ${formatCompactNumber(topTokenHost.token_usage.total)}`
+        : 'No host usage yet';
+
+      const currency = typeof safeData?.pricing?.currency === 'string'
+        ? safeData.pricing.currency.toUpperCase()
         : 'USD';
       const normalizeCost = (v) => {
         const n = Number(v);
         return Number.isFinite(n) ? n : 0;
       };
-      const dayCost = normalizeCost(data?.pricing_day_cost);
-      const weekCost = normalizeCost(data?.pricing_week_cost);
-      const monthCost = normalizeCost(data?.pricing_month_cost);
-      const subscriptionPlans = data?.subscription_plans || {};
+      const dayCost = normalizeCost(safeData?.pricing_day_cost);
+      const weekCost = normalizeCost(safeData?.pricing_week_cost);
+      const monthCost = normalizeCost(safeData?.pricing_month_cost);
+      const subscriptionPlans = safeData?.subscription_plans || {};
       const planCurrency = typeof subscriptionPlans?.currency === 'string' && subscriptionPlans.currency.trim() !== ''
         ? subscriptionPlans.currency.trim().toUpperCase()
         : currency;
@@ -4904,7 +5032,7 @@
       if (planPlusCost > 0) planOptions.push({ key: 'plus', label: 'Plus', cost: planPlusCost });
       if (planProCost > 0) planOptions.push({ key: 'pro', label: 'Pro', cost: planProCost });
       const planKeyFromStats = (() => {
-        const planType = data?.chatgpt_usage?.plan_type;
+        const planType = safeData?.chatgpt_usage?.plan_type;
         if (typeof planType !== 'string') return null;
         const lower = planType.toLowerCase();
         if (lower.includes('pro')) return 'pro';
@@ -4921,43 +5049,265 @@
       const overpayAmount = isOverpaying ? (planCost - monthCost) : 0;
       const costLevelClass = (() => {
         if (planCost <= 0) return '';
-        if (isOverpaying) return '';
-        return 'cost-green';
+        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 100) return 'cost-red';
+        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 85) return 'cost-yellow';
+        return isOverpaying ? '' : 'cost-green';
       })();
-      const costCard = () => `
-        <div class="card cost-card ${costLevelClass}">
-          <div class="stat-head">
-            <span class="stat-label">Estimated total</span>
-            <span class="stat-sub cost-head-actions">
-              <span class="cost-currency">${planCurrency}</span>
-              <button class="ghost tiny-btn cost-history-btn cost-history-emoji" type="button" aria-label="Open cost trend">📊</button>
-            </span>
-          </div>
-          <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
-          ${selectedPlan && monthPercentOfPlan !== null ? `
-            <div class="cost-meta">
-              <span class="cost-chip">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)}</span>
-              <span class="cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
-            </div>
-            ${isOverpaying ? `<small class="muted">Overpaying by ${formatCurrency(overpayAmount, planCurrency)}</small>` : ''}
-          ` : ''}
-          <div class="cost-foot">
-            <span>${formatCurrency(weekCost, planCurrency)} this week</span>
-            <span>${formatCurrency(dayCost, planCurrency)} today</span>
-          </div>
-        </div>
-      `;
 
-      cards.push(tokenBreakdownCard(), costCard());
+      runnerSummary = runnerInfo;
+      const validation = runnerInfo?.latest_validation || null;
+      const validationStatus = validation?.status ?? (runnerInfo?.enabled ? 'no runs' : 'disabled');
+      const runnerState = String(runnerInfo?.runner_state || (runnerInfo?.enabled ? 'unknown' : 'disabled')).toLowerCase();
+      const runnerTone = (() => {
+        if (runnerState === 'ok') return 'ok';
+        if (runnerState === 'fail') return 'danger';
+        if (!runnerInfo?.enabled) return 'neutral';
+        if (String(validationStatus).toLowerCase() !== 'ok') return 'warn';
+        return 'warn';
+      })();
+      const runnerToneLabel = runnerTone === 'ok'
+        ? 'Healthy'
+        : (runnerTone === 'danger' ? 'Failing' : (runnerTone === 'neutral' ? 'Disabled' : 'Watching'));
+      const runnerLast = validation?.created_at
+        ? formatRelative(validation.created_at)
+        : (runnerInfo?.runner_last_check ? formatRelative(runnerInfo.runner_last_check) : '—');
+      const validationLatency = Number.isFinite(Number(validation?.latency_ms))
+        ? `${Number(validation.latency_ms)}ms`
+        : 'n/a';
+
+      const quotaMode = quotaHardFail ? 'Hard-stop' : 'Warn-only';
+      const apiState = apiDisabled === true ? 'Disabled' : (apiDisabled === false ? 'Enabled' : 'Unknown');
+      const pulse = computeDashboardPulse(fleetSummary, {
+        runnerInfo,
+        monthPercentOfPlan,
+        quotaHardStop: quotaHardFail,
+        quotaLimit: quotaLimitPercent,
+      });
+
+      const plural = (value, singular, pluralValue = `${singular}s`) => `${value} ${value === 1 ? singular : pluralValue}`;
+
+      if (dashboardSignalStrip) {
+        const signalItems = [
+          { tone: 'neutral', label: `${formatNumber(hostTotal)} hosts tracked` },
+          {
+            tone: fleetSummary.locked > 0 ? 'danger' : 'ok',
+            label: fleetSummary.locked > 0
+              ? `${plural(fleetSummary.locked, 'locked window')}`
+              : 'No locked insecure windows',
+          },
+          {
+            tone: fleetSummary.staleAuth > 0 ? 'warn' : 'ok',
+            label: fleetSummary.staleAuth > 0
+              ? `${plural(fleetSummary.staleAuth, 'stale auth digest')}`
+              : 'Auth digests aligned',
+          },
+          { tone: runnerTone, label: `Runner ${runnerToneLabel}` },
+          {
+            tone: quotaHardFail ? 'warn' : 'ok',
+            label: `${quotaMode} @ ${quotaLimitPercent}%`,
+          },
+          {
+            tone: apiDisabled === true ? 'danger' : (apiDisabled === false ? 'ok' : 'neutral'),
+            label: `API ${apiState}`,
+          },
+        ];
+        dashboardSignalStrip.innerHTML = signalItems.map((item) => `
+          <span class="signal-chip ${item.tone}">${escapeHtml(item.label)}</span>
+        `).join('');
+      }
+
+      if (dashboardPulseCard) {
+        const pulseSummary = pulse.tone === 'ok'
+          ? 'Fleet posture is stable across security, auth freshness, and runner checks.'
+          : (pulse.tone === 'warn'
+            ? 'Attention recommended: one or more health indicators are drifting.'
+            : 'Action needed: blockers are reducing fleet reliability.');
+        dashboardPulseCard.innerHTML = `
+          <div class="pulse-head">
+            <div>
+              <div class="stat-label">Mission Pulse</div>
+              <h3>${pulse.label}</h3>
+              <p class="muted">${pulseSummary}</p>
+            </div>
+            <div class="pulse-ring ${pulse.tone}" style="--pulse:${pulse.score};">
+              <strong>${pulse.score}</strong>
+              <span>score</span>
+            </div>
+          </div>
+          <div class="pulse-grid">
+            <div class="pulse-kpi">
+              <span>Secure posture</span>
+              <strong>${formatPercent(secureRatio, 0)}</strong>
+              <small>${formatNumber(fleetSummary.secure)} secure / ${formatNumber(hostTotal)} total</small>
+            </div>
+            <div class="pulse-kpi">
+              <span>Provisioning</span>
+              <strong>${formatPercent(provisionedRatio, 0)}</strong>
+              <small>${formatNumber(fleetSummary.provisioned)} provisioned</small>
+            </div>
+            <div class="pulse-kpi">
+              <span>Auth freshness</span>
+              <strong>${formatNumber(Math.max(0, hostTotal - fleetSummary.staleAuth))}</strong>
+              <small>${formatNumber(fleetSummary.staleAuth)} stale digest</small>
+            </div>
+            <div class="pulse-kpi">
+              <span>Version drift</span>
+              <strong>${formatNumber(fleetSummary.behindVersion)}</strong>
+              <small>${formatNumber(hostTotal - fleetSummary.behindVersion)} aligned</small>
+            </div>
+          </div>
+        `;
+      }
+
+      if (dashboardRadarCard) {
+        const radarItems = pulse.radar.length
+          ? pulse.radar
+          : [{ tone: 'ok', title: 'No active blockers', detail: 'Everything looks quiet. Keep shipping.' }];
+        dashboardRadarCard.innerHTML = `
+          <div class="radar-head">
+            <div>
+              <div class="stat-label">Ops Radar</div>
+              <h3>${radarItems[0]?.title ? escapeHtml(radarItems[0].title) : 'Operational highlights'}</h3>
+              <p class="muted">Critical context for on-call and operators.</p>
+            </div>
+          </div>
+          <ul class="radar-list">
+            ${radarItems.map((item) => `
+              <li class="radar-item ${item.tone}">
+                <span class="radar-dot" aria-hidden="true"></span>
+                <div>
+                  <div class="radar-title">${escapeHtml(item.title)}</div>
+                  <div class="radar-copy">${escapeHtml(item.detail)}</div>
+                </div>
+              </li>
+            `).join('')}
+          </ul>
+        `;
+      }
+
+      const cards = [
+        `
+          <div class="card stat-card stat-card-2026 posture-card">
+            <div class="stat-head">
+              <span class="stat-label">Fleet posture</span>
+              <span class="stat-kicker">${formatPercent(secureRatio, 0)} secure</span>
+            </div>
+            <div class="stat-value">${formatNumber(hostTotal)}</div>
+            <small>Registered hosts</small>
+            <div class="stat-breakdown">
+              <div class="stat-row">
+                <span>Secure</span>
+                <strong>${formatNumber(fleetSummary.secure)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Insecure</span>
+                <strong>${formatNumber(fleetSummary.insecure)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Locked windows</span>
+                <strong>${formatNumber(fleetSummary.locked)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Stale auth</span>
+                <strong>${formatNumber(fleetSummary.staleAuth)}</strong>
+              </div>
+            </div>
+          </div>
+        `,
+        `
+          <div class="card stat-card stat-card-2026 throughput-card">
+            <div class="stat-head">
+              <span class="stat-label">Token throughput</span>
+              <span class="stat-kicker">${formatCompactNumber(averageTokensPerHost)}/host</span>
+            </div>
+            <div class="stat-value">${formatCompactNumber(monthTotal)}</div>
+            <small>Month-to-date tokens</small>
+            <div class="stat-trend">
+              <span class="trend-chip">Today ${formatCompactNumber(dayTotal)}</span>
+              <span class="trend-chip">Week ${formatCompactNumber(weekTotal)}</span>
+              <span class="trend-chip">Month ${formatCompactNumber(monthTotal)}</span>
+            </div>
+            <div class="stat-breakdown">
+              <div class="stat-row">
+                <span>Input</span>
+                <strong>${formatCompactNumber(monthInput)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Output</span>
+                <strong>${formatCompactNumber(monthOutput)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Cached</span>
+                <strong>${formatCompactNumber(monthCached)}</strong>
+              </div>
+            </div>
+            <div class="stat-note">Top emitter: ${escapeHtml(topHostLabel)}</div>
+          </div>
+        `,
+        `
+          <div class="card cost-card stat-card-2026 ${costLevelClass}">
+            <div class="stat-head">
+              <span class="stat-label">Spend intelligence</span>
+              <span class="stat-sub cost-head-actions">
+                <span class="cost-currency">${planCurrency}</span>
+                <button class="ghost tiny-btn cost-history-btn cost-history-emoji" type="button" aria-label="Open cost trend">📊</button>
+              </span>
+            </div>
+            <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
+            <small>Estimated month total</small>
+            ${selectedPlan && monthPercentOfPlan !== null ? `
+              <div class="cost-meta">
+                <span class="cost-chip">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)}</span>
+                <span class="cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
+              </div>
+              ${isOverpaying ? `<div class="stat-note">Overpaying by ${formatCurrency(overpayAmount, planCurrency)}</div>` : ''}
+            ` : '<div class="stat-note">Plan baseline unavailable.</div>'}
+            <div class="stat-trend">
+              <span class="trend-chip">Today ${formatCurrency(dayCost, planCurrency)}</span>
+              <span class="trend-chip">Week ${formatCurrency(weekCost, planCurrency)}</span>
+              <span class="trend-chip">Month ${formatCurrency(monthCost, planCurrency)}</span>
+            </div>
+          </div>
+        `,
+        `
+          <div class="card stat-card stat-card-2026 runtime-card">
+            <div class="stat-head">
+              <span class="stat-label">Runtime guardrails</span>
+              <span class="stat-kicker tone-${runnerTone}">${runnerToneLabel}</span>
+            </div>
+            <div class="stat-value tone-${runnerTone}">${runnerToneLabel}</div>
+            <small>Runner ${escapeHtml(String(validationStatus))} · ${escapeHtml(runnerLast)}</small>
+            <div class="stat-breakdown">
+              <div class="stat-row">
+                <span>Validation latency</span>
+                <strong>${escapeHtml(validationLatency)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Quota mode</span>
+                <strong>${escapeHtml(quotaMode)} @ ${escapeHtml(String(quotaLimitPercent))}%</strong>
+              </div>
+              <div class="stat-row">
+                <span>API state</span>
+                <strong>${escapeHtml(apiState)}</strong>
+              </div>
+              <div class="stat-row">
+                <span>Codex target</span>
+                <strong>${codexVersion ? `<span class="upgrade-trigger clickable" data-version="${escapeHtml(codexVersion)}">v${escapeHtml(codexVersionDisplay)}</span>` : 'n/a'}</strong>
+              </div>
+            </div>
+            <div class="stat-note">Wrapper ${escapeHtml(versions.wrapper_version ?? 'n/a')} · checked ${escapeHtml(checkedAt)}</div>
+          </div>
+        `,
+      ];
 
       statsEl.innerHTML = cards.join('\n');
       wireRunnerCardControls();
       wireUpgradeNotesControls();
 
       chatgptUsage = {
-        snapshot: data.chatgpt_usage || null,
-        cached: data.chatgpt_cached || false,
-        next_eligible_at: data.chatgpt_next_eligible_at || null,
+        snapshot: safeData.chatgpt_usage || null,
+        cached: safeData.chatgpt_cached || false,
+        next_eligible_at: safeData.chatgpt_next_eligible_at || null,
       };
       renderChatGptUsage(chatgptUsage);
     }
@@ -5081,7 +5431,7 @@
           renderInactivityWindowDays();
         }
 
-        renderStats(currentOverview, runner?.data || null);
+        renderStats(currentOverview, runner?.data || null, hostsList);
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
         renderInsecureHostsQuickButton(hostsList);
