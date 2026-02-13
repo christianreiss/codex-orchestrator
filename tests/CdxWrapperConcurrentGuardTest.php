@@ -1,0 +1,42 @@
+<?php
+
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+final class CdxWrapperConcurrentGuardTest extends TestCase
+{
+    public function testWrapperParsesConcurrentSyncOverrideFlag(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('--allow-concurrent-sync', $wrapperSource);
+        self::assertStringContainsString('CODEX_CONCURRENT_SYNC_OVERRIDE=1', $wrapperSource);
+    }
+
+    public function testWrapperSkipsMutatingSyncWhenConcurrentRunDetected(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('acquire_run_lock_or_mark_concurrent', $wrapperSource);
+        self::assertStringContainsString('AUTH_PULL_STATUS="concurrent"', $wrapperSource);
+        self::assertStringContainsString('skipping sync/update mutations for this run', $wrapperSource);
+        self::assertStringContainsString('AUTH_PUSH_REASON="active cdx run"', $wrapperSource);
+    }
+
+    public function testConcurrentAuthBranchUsesLocalValidation(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString("concurrent)\n", $wrapperSource);
+        self::assertStringContainsString('if (( HAS_VALID_LOCAL_AUTH )); then', $wrapperSource);
+        self::assertStringContainsString('local auth.json is invalid', $wrapperSource);
+    }
+
+}
