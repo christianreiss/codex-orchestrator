@@ -457,7 +457,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-12"
+WRAPPER_VERSION="2026.02.13-13"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -795,6 +795,32 @@ cmd_uninstall() {
   log_info "Starting Codex uninstall"
   load_sync_config
   record_host_user_with_api || true
+
+  # Refuse partial multi-user uninstalls when we cannot escalate permissions.
+  if (( EUID != 0 )) && (( CAN_SUDO == 0 )) && (( ${#HOST_USERS_CACHE[@]} > 0 )); then
+    local other_users=()
+    local seen_other=()
+    local other existing skip
+    for other in "${HOST_USERS_CACHE[@]}"; do
+      [[ -z "$other" || "$other" == "$CURRENT_USER" ]] && continue
+      skip=0
+      for existing in "${seen_other[@]}"; do
+        if [[ "$existing" == "$other" ]]; then
+          skip=1
+          break
+        fi
+      done
+      (( skip )) && continue
+      seen_other+=("$other")
+      other_users+=("$other")
+    done
+    if (( ${#other_users[@]} > 0 )); then
+      log_error "Uninstall refused: host has registered users besides ${CURRENT_USER} (${other_users[*]}), but root/sudo is unavailable."
+      log_error "Rerun as root or with passwordless sudo so all registered users can be cleaned safely."
+      exit 1
+    fi
+  fi
+
   uninstall_api_deregister
 
   # Legacy env/config files

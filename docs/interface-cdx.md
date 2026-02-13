@@ -36,7 +36,7 @@
   - Honors fleet-wide silent mode (`cdx_silent` from `/auth` or `CODEX_SILENT=1` env): suppresses info/warn/debug logs and the MOTD; only errors print. Restart-on-update still runs, but the re-exec stays quiet.
   - After Codex runs, pushes updated auth if changed and sends token-usage metrics. When the host is marked **insecure** (API `host.secure=false` or baked flag), `cdx` purges `~/.codex/auth.json` after the push so credentials are not left on disk and emits an extra bootstrap warning to flag the ephemeral state.
   - Insecure hosts with a clean sync (no updates or errors) compress the Result line to `sync ok (insecure host; auth refreshed)` to avoid repetitive noise.
-- `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`.
+- `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`. Safety guard: if the API reports host users beyond the current account and the wrapper cannot escalate (`root` or passwordless `sudo -n`), uninstall aborts with an error to avoid partial multi-user cleanup.
 - `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
 - `cdx status` runs wrapper sync/update checks, prints the normal boot summary, and exits without launching Codex (`exit 0` for healthy/warn states, `exit 1` for red/error state).
 - `cdx doctor` runs wrapper checks plus diagnostics (dependencies, resolved paths, auth freshness, sync states, API reachability probe against `/versions`, PTY state) and exits without launching Codex; prints actionable hints and returns non-zero when critical checks fail.
