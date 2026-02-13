@@ -105,6 +105,7 @@
     const skillWhatInput = document.getElementById('skillWhat');
     const skillWhenInput = document.getElementById('skillWhen');
     const skillStepsInput = document.getElementById('skillSteps');
+    const skillDelete = document.getElementById('skillDelete');
     const skillSave = document.getElementById('skillSave');
     const skillCancel = document.getElementById('skillCancel');
     const skillStatus = document.getElementById('skillStatus');
@@ -2888,7 +2889,7 @@
           <td data-label="Description">${(skill.description || '—').replace(/</g, '&lt;')}</td>
           <td data-label="Actions">
             <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}">Edit</button>
-            <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : ''}>Retire</button>
+            <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : ''}>Delete</button>
           </td>
         </tr>`;
       }).join('');
@@ -2902,7 +2903,7 @@
       skillsTbody.querySelectorAll('.skill-delete').forEach((btn) => {
         btn.addEventListener('click', () => {
           const slug = btn.getAttribute('data-slug');
-          retireSkill(slug);
+          deleteSkill(slug);
         });
       });
     }
@@ -2954,6 +2955,9 @@
       }
       if (skillSlugSuggest) {
         skillSlugSuggest.hidden = isEdit;
+      }
+      if (skillDelete) {
+        skillDelete.hidden = !isEdit;
       }
       if (skillSlugNote) {
         skillSlugNote.innerHTML = isEdit
@@ -6158,6 +6162,7 @@
         manifest,
       };
       if (skillStatus) skillStatus.textContent = 'Saving…';
+      if (skillDelete) skillDelete.disabled = true;
       if (skillSave) skillSave.disabled = true;
       try {
         const resp = await api('/admin/skills/store', {
@@ -6173,20 +6178,38 @@
       } catch (err) {
         if (skillStatus) skillStatus.textContent = `Save failed: ${err.message}`;
       } finally {
+        if (skillDelete) skillDelete.disabled = false;
         if (skillSave) skillSave.disabled = false;
       }
     }
 
-    async function retireSkill(slug) {
+    async function deleteSkill(slug, options = {}) {
       if (!slug) return;
-      if (!confirm(`Retire skill "${slug}"? Hosts remove it on next sync.`)) {
+      const fromModal = options?.fromModal === true;
+      if (!confirm(`Delete skill "${slug}"? Hosts remove it on next sync.`)) {
         return;
       }
+      if (fromModal && skillStatus) {
+        skillStatus.textContent = 'Deleting…';
+      }
+      if (skillDelete) skillDelete.disabled = true;
+      if (skillSave) skillSave.disabled = true;
       try {
         await api(`/admin/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+        if (fromModal && skillStatus) {
+          skillStatus.textContent = 'Deleted';
+          showSkillModal(false);
+        }
         await loadAll();
       } catch (err) {
-        alert(`Retire failed: ${err.message}`);
+        if (fromModal && skillStatus) {
+          skillStatus.textContent = `Delete failed: ${err.message}`;
+        } else {
+          alert(`Delete failed: ${err.message}`);
+        }
+      } finally {
+        if (skillDelete) skillDelete.disabled = false;
+        if (skillSave) skillSave.disabled = false;
       }
     }
 
@@ -6610,6 +6633,12 @@
     }
     if (skillSave) {
       skillSave.addEventListener('click', () => saveSkill());
+    }
+    if (skillDelete) {
+      skillDelete.addEventListener('click', () => {
+        const slug = (skillEditingSlug || skillSlug?.value || '').trim();
+        deleteSkill(slug, { fromModal: true });
+      });
     }
     if (skillSlugSuggest) {
       skillSlugSuggest.addEventListener('click', (event) => {

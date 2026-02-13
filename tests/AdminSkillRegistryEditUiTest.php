@@ -14,6 +14,7 @@ final class AdminSkillRegistryEditUiTest extends TestCase
         $this->assertStringContainsString('id="skillSlug"', $html);
         $this->assertStringContainsString('id="skillSlugSuggest"', $html);
         $this->assertStringContainsString('id="skillSlugNote"', $html);
+        $this->assertStringContainsString('id="skillDelete"', $html);
     }
 
     public function testSkillEditModeLocksSlugAndKeepsUpdateActionExplicit(): void
@@ -25,7 +26,10 @@ final class AdminSkillRegistryEditUiTest extends TestCase
         $this->assertStringContainsString("let skillEditingSlug = '';", $js);
         $this->assertStringContainsString("skillSave.textContent = isEdit ? 'Save changes' : 'Save';", $js);
         $this->assertStringContainsString('skillSlug.readOnly = isEdit;', $js);
+        $this->assertStringContainsString('skillDelete.hidden = !isEdit;', $js);
         $this->assertStringContainsString('if (isEdit && slug !== skillEditingSlug)', $js);
+        $this->assertStringContainsString('skillDelete.addEventListener(\'click\'', $js);
+        $this->assertStringContainsString('deleteSkill(slug, { fromModal: true });', $js);
+        $this->assertStringContainsString('Delete skill "${slug}"? Hosts remove it on next sync.', $js);
     }
 }
-
