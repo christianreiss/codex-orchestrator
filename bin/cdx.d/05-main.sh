@@ -148,7 +148,7 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
     if [[ "$norm_remote" != "$norm_local" ]]; then
       if (( enforce_exact_codex_version )); then
         need_update=1
-      elif [[ "$(printf '%s\n%s\n' "$norm_local" "$norm_remote" | sort -V | tail -n1)" == "$norm_remote" ]]; then
+      elif version_lt "$norm_local" "$norm_remote"; then
         need_update=1
       fi
     fi
@@ -294,7 +294,7 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
     need_wrapper_update=1
   fi
   if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
-    if current_wrapper_sha="$(sha256sum "$SCRIPT_REAL" 2>/dev/null | awk '{print $1}')" && [[ -n "$current_wrapper_sha" ]]; then
+    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
       if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
         need_wrapper_update=1
       fi
@@ -328,7 +328,7 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
           ;;
       esac
       if curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
-        dl_sha="$(sha256sum "$tmpwrapper" | awk '{print $1}')"
+        dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
         if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
           log_warn "Wrapper update skipped: hash mismatch (expected ${target_wrapper_sha}, got ${dl_sha})"
           wrapper_update_failed=1
@@ -509,7 +509,7 @@ wrap_ansi_text() {
   if [[ "$text" == *"${SUMMARY_GUTTER}·${SUMMARY_GUTTER}"* ]]; then
     local prefix="${text%%${SUMMARY_GUTTER}·${SUMMARY_GUTTER}*}"
     local prefix_plain
-    prefix_plain="$(sed -r 's/\x1B\\[[0-9;]*[mK]//g' <<<"$prefix")"
+    prefix_plain="$(strip_ansi_sgr "$prefix")"
     cont_indent="$(printf '%*s' "${#prefix_plain}" '')"
   fi
 
@@ -527,7 +527,7 @@ wrap_ansi_text() {
     [[ -n "$cand" ]] && cand+=" "
     cand+="$token"
     local cand_plain
-    cand_plain="$(sed -r 's/\x1B\\[[0-9;]*[mK]//g' <<<"$cand")"
+    cand_plain="$(strip_ansi_sgr "$cand")"
     if (( ${#cand_plain} > max )) && [[ -n "$line" ]]; then
       if [[ -n "$out" ]]; then out+=$'\n'; fi
       out+="${indent}${line}"

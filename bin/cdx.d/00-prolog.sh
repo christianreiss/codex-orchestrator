@@ -65,6 +65,52 @@ lowercase() {
   printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
 }
 
+SED_ERE_FLAG=""
+detect_sed_ere_flag() {
+  if [[ -n "$SED_ERE_FLAG" ]]; then
+    return 0
+  fi
+  if echo x | sed -r 's/x/x/' >/dev/null 2>&1; then
+    SED_ERE_FLAG="-r"
+  else
+    SED_ERE_FLAG="-E"
+  fi
+}
+
+strip_ansi_sgr() {
+  local text="${1-}"
+  detect_sed_ere_flag
+  sed "$SED_ERE_FLAG" 's/\x1B\[[0-9;]*[mK]//g' <<<"$text"
+}
+
+sha256_file() {
+  local target="${1-}"
+  [[ -n "$target" ]] || return 1
+  [[ -f "$target" ]] || return 1
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$target" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$target" | awk '{print $1}'
+    return 0
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$target" | awk '{print $NF}'
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$target" <<'PY'
+import hashlib, pathlib, sys
+print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+    return 0
+  fi
+
+  return 1
+}
+
 MOTD_TEXT="$(cat <<'EOF'
   ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗
  ██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝
@@ -308,7 +354,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-06"
+WRAPPER_VERSION="2026.02.13-07"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

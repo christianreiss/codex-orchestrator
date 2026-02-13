@@ -211,7 +211,30 @@ version_lt() {
   local a="$1"
   local b="$2"
   [[ "$a" == "$b" ]] && return 1
-  if [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)" == "$a" ]]; then
+
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 - "$a" "$b" <<'PY'
+import re
+import sys
+
+def parse(value: str):
+    parts = [int(token) for token in re.findall(r"\d+", value or "")]
+    return parts if parts else [0]
+
+left = parse(sys.argv[1])
+right = parse(sys.argv[2])
+width = max(len(left), len(right))
+left += [0] * (width - len(left))
+right += [0] * (width - len(right))
+sys.exit(0 if left < right else 1)
+PY
+    then
+      return 0
+    fi
+    return 1
+  fi
+
+  if [[ "$a" < "$b" ]]; then
     return 0
   fi
   return 1
