@@ -2133,6 +2133,22 @@ fi
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
 
+  concurrent_compact_summary=0
+  concurrent_compact_note=""
+  concurrent_compact_tone="yellow"
+  if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+    concurrent_compact_summary=1
+    if (( HAS_VALID_LOCAL_AUTH )); then
+      concurrent_compact_note="Concurrent guard active; using local auth.json."
+    elif (( HAS_LOCAL_AUTH )); then
+      concurrent_compact_note="Concurrent guard active; local auth.json is invalid."
+      concurrent_compact_tone="red"
+    else
+      concurrent_compact_note="Concurrent guard active; local auth.json is missing."
+      concurrent_compact_tone="red"
+    fi
+  fi
+
 	  if (( ! wrapper_updated || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
 	    # Table summary (default). This is the most robust across terminals and
 	    # avoids unicode box-drawing; content already includes ✅/bars.
@@ -2162,9 +2178,13 @@ fi
 	      log_info "$(format_simple_row "Core" "$minimal_core_line")"
 	      log_info "$(format_simple_row "Result" "$minimal_result_line")"
 	    elif [[ "$SUMMARY_STYLE" == "table" ]]; then
-	      log_info "$(format_simple_row "Core" "$core_display")"
-	      [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
-	      [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
+	      if (( concurrent_compact_summary )); then
+	        log_info "$(format_simple_row "Concurrent" "$(colorize "$concurrent_compact_note" "$concurrent_compact_tone")")"
+	      else
+	        log_info "$(format_simple_row "Core" "$core_display")"
+	        [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
+	        [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
+	      fi
 
 	      quota_label_base="Quota"
 	      if [[ -n "$primary_quota_segment" ]]; then
@@ -2189,7 +2209,9 @@ fi
 	        log_info "$(format_simple_row "${quota_label_base} wk" "$quota_line2")"
 	      fi
 
-	      log_info "$(format_simple_row "Result" "${result_line#Result: }")"
+	      if (( ! concurrent_compact_summary )); then
+	        log_info "$(format_simple_row "Result" "${result_line#Result: }")"
+	      fi
 	    else
 	      # Legacy "card" mode for experimentation.
 	      summary_title="Ready"
@@ -2210,9 +2232,13 @@ fi
 
 	      log_info "$(summary_header "$summary_title" "$summary_tone")"
 	      log_info "$(summary_divider)"
-	      log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
-	      [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
-	      [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
+	      if (( concurrent_compact_summary )); then
+	        log_info "$(wrap_ansi_text "$(summary_row "Concurrent" "$(colorize "$concurrent_compact_note" "$concurrent_compact_tone")")" "${SUMMARY_GUTTER}")"
+	      else
+	        log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
+	        [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
+	        [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
+	      fi
 	      if [[ -n "$primary_quota_segment" ]]; then
 	        quota_line="${primary_quota_segment}"
 	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
@@ -2234,7 +2260,9 @@ fi
 	        fi
 	        log_info "$(wrap_ansi_text "$(summary_row "Quota wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
 	      fi
-	      log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
+	      if (( ! concurrent_compact_summary )); then
+	        log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
+	      fi
 	    fi
 	  fi
 
