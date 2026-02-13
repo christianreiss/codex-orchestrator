@@ -2222,7 +2222,17 @@ PY
     # If the user didn't pass an explicit non-interactive flag, degrade gracefully.
     if [[ ! -t 1 ]]; then
       local args=("$@")
-      "$CODEX_REAL_BIN" exec "${args[@]}" 2>&1 | tee "$tmp_output"
+      local run_args=()
+      # Keep explicit subcommands/flags as-is; only prepend exec for default interactive launches.
+      case "${args[0]-}" in
+        exec|completion|help|-h|--help|-V|--version)
+          run_args=("${args[@]}")
+          ;;
+        *)
+          run_args=(exec "${args[@]}")
+          ;;
+      esac
+      "$CODEX_REAL_BIN" "${run_args[@]}" 2>&1 | tee "$tmp_output"
       status=${PIPESTATUS[0]}
     else
       "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
