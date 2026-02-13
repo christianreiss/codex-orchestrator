@@ -105,13 +105,22 @@ is_codex_installed_via_npm() {
 
 update_codex_via_npm() {
   local target="$1"
+  local cmd=(npm install -g)
   if ! command -v npm >/dev/null 2>&1; then
     return 1
   fi
   if [[ -z "$target" ]]; then
-    npm install -g codex-cli >/dev/null
+    cmd+=(codex-cli)
   else
-    npm install -g "codex-cli@$target" >/dev/null
+    cmd+=("codex-cli@$target")
+  fi
+
+  if (( EUID == 0 )); then
+    "${cmd[@]}" >/dev/null
+  elif (( CAN_SUDO )); then
+    "$SUDO_BIN" "${cmd[@]}" >/dev/null
+  else
+    "${cmd[@]}" >/dev/null
   fi
 }
 
