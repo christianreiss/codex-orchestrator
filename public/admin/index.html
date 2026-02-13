@@ -449,24 +449,6 @@
 
         <!-- Dashboard -->
         <section class="panel-set" data-panel="dashboard">
-          <section class="dashboard-hero">
-            <div class="dashboard-command-center">
-              <div class="dashboard-hero-head">
-                <div>
-                  <p class="eyebrow">2026 Mission Control</p>
-                  <h2 style="margin:0;">Fleet At A Glance</h2>
-                  <p class="muted dashboard-subtitle" style="margin:6px 0 0;">Pleasant signal across host posture, auth freshness, runner health, quota pressure, and spend.</p>
-                </div>
-              </div>
-              <div class="dashboard-signal-strip" id="dashboardSignalStrip">
-                <span class="signal-chip neutral">Loading fleet signals…</span>
-              </div>
-              <div class="dashboard-hero-actions">
-                <button class="ghost tiny-btn" id="dashboardRefreshBtn" type="button">↻ Refresh</button>
-                <button class="primary" id="dashboardNewHostBtn" type="button">New host</button>
-              </div>
-            </div>
-          </section>
           <section class="dashboard-overview-grid">
             <section class="card usage-card" id="chatgpt-usage-card">
               <div class="muted">Loading ChatGPT usage…</div>
@@ -475,6 +457,19 @@
             <section class="card ops-radar-card" id="dashboardRadarCard">
               <div class="muted">Loading ops radar…</div>
             </section>
+          </section>
+          <section class="dashboard-hero">
+            <div class="dashboard-command-center">
+              <div class="dashboard-hero-head">
+                <div>
+                  <p class="eyebrow"><span id="dashboardMissionYear">2026</span> Mission Control</p>
+                  <h2 style="margin:0;">Fleet At A Glance</h2>
+                </div>
+              </div>
+              <div class="dashboard-signal-strip" id="dashboardSignalStrip">
+                <span class="signal-chip neutral">Loading fleet signals…</span>
+              </div>
+            </div>
           </section>
         </section>
 
@@ -1504,7 +1499,7 @@
   <script src="/admin/assets/admin-auth.js?v=2026-01-18-05"></script>
   <script src="/admin/assets/users.js?v=2026-01-18-03"></script>
   <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-02-13-02"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-02-13-03"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-02-12-01"></script>

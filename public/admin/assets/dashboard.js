@@ -122,8 +122,7 @@
     const memoriesTableBody = document.querySelector('#memories tbody');
     const memoriesTableWrap = document.getElementById('memoriesTableWrap');
 
-    const dashboardRefreshBtn = document.getElementById('dashboardRefreshBtn');
-    const dashboardNewHostBtn = document.getElementById('dashboardNewHostBtn');
+    const dashboardMissionYear = document.getElementById('dashboardMissionYear');
     const dashboardSignalStrip = document.getElementById('dashboardSignalStrip');
     const dashboardRadarCard = document.getElementById('dashboardRadarCard');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
@@ -401,11 +400,16 @@
     let memoriesLoading = false;
     let memoriesOpen = false;
 
+    const dashboardYear = new Date().getFullYear();
+    if (dashboardMissionYear) {
+      dashboardMissionYear.textContent = String(dashboardYear);
+    }
+
     const VIEW_LAYOUTS = {
       dashboard: {
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
-        copy: 'At-a-glance 2026 posture across hosts, auth, usage, quota, and spend.',
+        copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
         show: ['stats', 'chatgpt-usage-card'],
       },
       hosts: {
@@ -6488,15 +6492,6 @@
     });
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => showNewHostModal(true));
-    }
-    if (dashboardNewHostBtn) {
-      dashboardNewHostBtn.addEventListener('click', () => showNewHostModal(true));
-    }
-    if (dashboardRefreshBtn) {
-      dashboardRefreshBtn.addEventListener('click', (event) => {
-        event.preventDefault();
-        ensureDataLoaded(true);
-      });
     }
     // Memories view is live-updating via filters; no explicit refresh button.
     if (memoriesHostFilter) {
