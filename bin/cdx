@@ -308,7 +308,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-04"
+WRAPPER_VERSION="2026.02.13-05"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -5812,7 +5812,8 @@ PY
       if [[ -f "$tmp_output" ]] && grep -Eiq '(stdout is not a terminal|stdin is not a terminal|stdin/stderr is not a TTY|stdin is not a tty|stdout is not a tty)' "$tmp_output"; then
         pty_tty_error=1
       fi
-      if (( pty_tty_error )); then
+      # Only retry when the PTY run itself failed and looks TTY-incompatible.
+      if (( pty_tty_error )) && [[ ${status:-1} -ne 0 ]]; then
         mkdir -p "$(dirname "$pty_auto_disable_file")" >/dev/null 2>&1 || true
         {
           printf 'detected_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

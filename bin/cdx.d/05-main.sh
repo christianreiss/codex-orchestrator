@@ -2206,7 +2206,8 @@ PY
       if [[ -f "$tmp_output" ]] && grep -Eiq '(stdout is not a terminal|stdin is not a terminal|stdin/stderr is not a TTY|stdin is not a tty|stdout is not a tty)' "$tmp_output"; then
         pty_tty_error=1
       fi
-      if (( pty_tty_error )); then
+      # Only retry when the PTY run itself failed and looks TTY-incompatible.
+      if (( pty_tty_error )) && [[ ${status:-1} -ne 0 ]]; then
         mkdir -p "$(dirname "$pty_auto_disable_file")" >/dev/null 2>&1 || true
         {
           printf 'detected_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
