@@ -121,10 +121,19 @@ def load_local(include_content: bool = False):
     return prompts
 
 
+def atomic_write_text(target, content):
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+
+
 def save_baseline(prompts: dict):
     try:
         baseline_file.parent.mkdir(parents=True, exist_ok=True)
-        baseline_file.write_text(json.dumps(prompts, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(baseline_file, json.dumps(prompts, indent=2) + "\n")
     except Exception:  # noqa: BLE001
         pass
 
@@ -383,10 +392,19 @@ def load_local(include_content: bool = False):
     return skills
 
 
+def atomic_write_text(target, content):
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+
+
 def save_baseline(skills: dict):
     try:
         baseline_file.parent.mkdir(parents=True, exist_ok=True)
-        baseline_file.write_text(json.dumps(skills, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(baseline_file, json.dumps(skills, indent=2) + "\n")
     except Exception:  # noqa: BLE001
         pass
 
@@ -668,6 +686,15 @@ def request_json(method: str, url: str, payload=None):
     raise RuntimeError(f"request failed: {last_err}")
 
 
+def atomic_write_text(target, content):
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+
+
 if not base:
     print("error reason=missing-base")
     sys.exit(1)
@@ -713,7 +740,7 @@ if status == "updated":
         sys.exit(1)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        atomic_write_text(target, content)
     except Exception as exc:  # noqa: BLE001
         print(f"error reason=write-failed:{str(exc).replace(' ', '_')}")
         sys.exit(1)
@@ -970,6 +997,15 @@ def request_json(method: str, url: str, payload=None):
     raise RuntimeError(f"request failed: {last_err}")
 
 
+def atomic_write_text(target, content):
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+
+
 if not base:
     print("error reason=missing-base")
     sys.exit(1)
@@ -1021,7 +1057,7 @@ if status == "updated":
         sys.exit(1)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        atomic_write_text(target, content)
     except Exception as exc:  # noqa: BLE001
         print(f"error reason=write-failed:{str(exc).replace(' ', '_')}")
         sys.exit(1)

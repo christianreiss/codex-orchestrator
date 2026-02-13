@@ -72,6 +72,21 @@ def canonical_json(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
+def atomic_write_text(target, content, mode=None):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+    if mode is not None:
+        try:
+            os.chmod(target, mode)
+        except PermissionError:
+            pass
+
+
 def build_context():
     contexts = []
     # Preferred: custom CA if provided
@@ -344,12 +359,7 @@ if status in ("missing", "upload_required"):
 if not isinstance(auth_to_write, dict):
     auth_to_write = current
 
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps(auth_to_write, indent=2) + "\n", encoding="utf-8")
-try:
-    os.chmod(path, 0o600)
-except PermissionError:
-    pass
+atomic_write_text(path, json.dumps(auth_to_write, indent=2) + "\n", mode=0o600)
 
 # Surface versions and auth outcome to caller via stdout as JSON
 print(
