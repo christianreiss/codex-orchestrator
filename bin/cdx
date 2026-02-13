@@ -5740,6 +5740,8 @@ run_codex_command() {
   tmp_output="$(mktemp)"
   set +e
   local prompt_toolkit_no_cpr_added=0
+  local pty_auto_disable_file="$HOME/.codex/.cdx_no_pty"
+  local pty_tty_error=0
   # If we're not connected to a real TTY (common on some odd SSH/VM setups),
   # forcing prompt-toolkit cursor position reports can hard-fail.
   if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]] && [[ ! -t 0 || ! -t 1 ]]; then
@@ -5751,6 +5753,10 @@ run_codex_command() {
     local cmd_line=("$CODEX_REAL_BIN" "$@")
     if [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
+      "${cmd_line[@]}"
+      status=$?
+    elif [[ "${CODEX_FORCE_PTY:-0}" != "1" && -f "$pty_auto_disable_file" ]]; then
+      # Auto-detected incompatible PTY host; run direct unless explicitly overridden.
       "${cmd_line[@]}"
       status=$?
     else
@@ -5802,8 +5808,17 @@ PY
         "${cmd_line[@]}"
         status=$?
       fi
-      if [[ ${status:-1} -ne 0 ]]; then
-        # Keep TTY intact for interactive retries; piping through tee can break Codex TTY checks.
+
+      if [[ -f "$tmp_output" ]] && grep -Eiq '(stdout is not a terminal|stdin is not a terminal|stdin/stderr is not a TTY|stdin is not a tty|stdout is not a tty)' "$tmp_output"; then
+        pty_tty_error=1
+      fi
+      if (( pty_tty_error )); then
+        mkdir -p "$(dirname "$pty_auto_disable_file")" >/dev/null 2>&1 || true
+        {
+          printf 'detected_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'wrapper_version=%s\n' "${WRAPPER_VERSION:-unknown}"
+        } > "$pty_auto_disable_file" 2>/dev/null || true
+        log_warn "PTY capture looks incompatible on this host; auto-disabling PTY capture. Remove $pty_auto_disable_file or set CODEX_FORCE_PTY=1 to retry."
         "${cmd_line[@]}"
         status=$?
       fi
