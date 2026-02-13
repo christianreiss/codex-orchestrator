@@ -297,6 +297,7 @@ CODEX_EXIT_AFTER_UPDATE=0
 CODEX_DO_UNINSTALL=0
 CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
+CODEX_CONCURRENT_SYNC_OVERRIDE=0
 CODEX_PROFILE_CANDIDATE=""
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_MINIMAL_OUTPUT=${CODEX_MINIMAL_OUTPUT:-$CODEX_TERM_IS_DUMB}
@@ -370,6 +371,7 @@ RUNNER_ENABLED=0
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 AUTH_PULL_REASON=""
+HAS_VALID_LOCAL_AUTH=0
 LOCAL_AUTH_IS_FRESH=0
 LOCAL_AUTH_IS_RECENT=0
 last_usage_payload=""
@@ -457,13 +459,21 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-13"
+WRAPPER_VERSION="2026.02.13-15"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
 RUNNER_STALE_CRIT_SECONDS=$((72 * 3600))
 SCRIPT_SUPPORTS_C=0
 SCRIPT_FLAGS="-qe"
+CDX_ACTIVE_RUN_DETECTED=0
+CDX_RUN_LOCK_HELD=0
+CDX_RUN_LOCK_FD=""
+CDX_RUN_LOCK_PATH=""
+CDX_RUN_LOCK_META_PATH=""
+CDX_RUN_LOCK_SCOPE_KEY=""
+CDX_ACTIVE_RUN_INFO=""
+CDX_RUN_GUARD_WARNING_EMITTED=0
 
 IS_ROOT=0
 CAN_SUDO=0
@@ -483,6 +493,172 @@ HOST_USERS_FETCHED=0
 
 CODEX_ORIGINAL_ARGS=("$@")
 
+sanitize_lock_token() {
+  local token="${1-}"
+  token="${token//$'\r'/}"
+  token="${token//$'\n'/}"
+  token="$(printf '%s' "$token" | tr -c '[:alnum:]._-' '_')"
+  token="${token#_}"
+  token="${token%_}"
+  if [[ -z "$token" ]]; then
+    token="default"
+  fi
+  printf '%s' "$token"
+}
+
+compute_run_lock_scope_key() {
+  local installation="${CODEX_INSTALLATION_ID:-}"
+  if [[ -n "$installation" ]]; then
+    printf '%s' "$(sanitize_lock_token "$installation")"
+    return 0
+  fi
+
+  local raw="${CODEX_SYNC_BASE_URL_DEFAULT:-${CODEX_SYNC_BASE_URL:-}}|${CODEX_SYNC_FQDN:-none}"
+  local digest=""
+  if command -v sha256sum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$raw" | sha256sum | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$raw" | shasum -a 256 | awk '{print $1}')"
+  elif command -v cksum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$raw" | cksum | awk '{print $1}')"
+  else
+    digest="$raw"
+  fi
+  digest="${digest:0:16}"
+  printf '%s' "$(sanitize_lock_token "scope-${digest}")"
+}
+
+select_run_lock_dir() {
+  # Use a shared writable location across users so host-wide contention works.
+  local candidates=("/tmp" "/var/tmp")
+  local dir=""
+  for dir in "${candidates[@]}"; do
+    if [[ -d "$dir" && -w "$dir" ]]; then
+      printf '%s' "$dir"
+      return 0
+    fi
+  done
+  return 1
+}
+
+close_run_lock_fd() {
+  if [[ -n "${CDX_RUN_LOCK_FD:-}" ]]; then
+    eval "exec ${CDX_RUN_LOCK_FD}>&-" 2>/dev/null || true
+    CDX_RUN_LOCK_FD=""
+  fi
+}
+
+write_run_lock_metadata() {
+  if [[ -z "$CDX_RUN_LOCK_META_PATH" ]]; then
+    return 1
+  fi
+
+  local started_at
+  started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)"
+  local argv_text
+  argv_text="$(printf '%q ' "${CODEX_ORIGINAL_ARGS[@]}")"
+  argv_text="${argv_text% }"
+  local tmp="${CDX_RUN_LOCK_META_PATH}.$$.$RANDOM.tmp"
+  {
+    printf 'pid=%s\n' "$$"
+    printf 'user=%s\n' "$CURRENT_USER"
+    printf 'host=%s\n' "$LOCAL_HOSTNAME"
+    printf 'started_at=%s\n' "$started_at"
+    printf 'wrapper=%s\n' "$WRAPPER_VERSION"
+    printf 'argv=%s\n' "$argv_text"
+  } >"$tmp" 2>/dev/null || return 1
+  mv -f "$tmp" "$CDX_RUN_LOCK_META_PATH" 2>/dev/null || {
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  }
+  return 0
+}
+
+read_run_lock_metadata_summary() {
+  local pid=""
+  local user=""
+  local host=""
+  local started_at=""
+  if [[ ! -f "$CDX_RUN_LOCK_META_PATH" ]]; then
+    return 1
+  fi
+  while IFS='=' read -r key value; do
+    case "$key" in
+      pid) pid="$value" ;;
+      user) user="$value" ;;
+      host) host="$value" ;;
+      started_at) started_at="$value" ;;
+    esac
+  done <"$CDX_RUN_LOCK_META_PATH"
+
+  local summary="active cdx run detected"
+  local details=()
+  [[ -n "$pid" ]] && details+=("pid ${pid}")
+  [[ -n "$user" ]] && details+=("user ${user}")
+  [[ -n "$host" ]] && details+=("host ${host}")
+  [[ -n "$started_at" ]] && details+=("started ${started_at}")
+  if (( ${#details[@]} > 0 )); then
+    summary+=" (${details[*]})"
+  fi
+  printf '%s' "$summary"
+  return 0
+}
+
+acquire_run_lock_or_mark_concurrent() {
+  CDX_ACTIVE_RUN_DETECTED=0
+  CDX_ACTIVE_RUN_INFO=""
+  CDX_RUN_LOCK_HELD=0
+
+  if (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+    return 0
+  fi
+
+  if ! command -v flock >/dev/null 2>&1; then
+    log_warn "flock not available; concurrent-run guard disabled."
+    return 0
+  fi
+
+  local lock_dir=""
+  if ! lock_dir="$(select_run_lock_dir)"; then
+    log_warn "No writable lock directory found; concurrent-run guard disabled."
+    return 0
+  fi
+  CDX_RUN_LOCK_SCOPE_KEY="$(compute_run_lock_scope_key)"
+  CDX_RUN_LOCK_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.lock"
+  CDX_RUN_LOCK_META_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.meta"
+
+  exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH" 2>/dev/null || {
+    CDX_RUN_LOCK_FD=""
+    log_warn "Cannot open run lock ${CDX_RUN_LOCK_PATH}; concurrent-run guard disabled."
+    return 0
+  }
+
+  if flock -n "$CDX_RUN_LOCK_FD" 2>/dev/null; then
+    CDX_RUN_LOCK_HELD=1
+    write_run_lock_metadata || true
+    return 0
+  fi
+
+  CDX_ACTIVE_RUN_DETECTED=1
+  CDX_ACTIVE_RUN_INFO="$(read_run_lock_metadata_summary 2>/dev/null || true)"
+  if [[ -z "$CDX_ACTIVE_RUN_INFO" ]]; then
+    CDX_ACTIVE_RUN_INFO="active cdx run detected (lock ${CDX_RUN_LOCK_PATH})"
+  fi
+  close_run_lock_fd
+  return 1
+}
+
+release_run_lock_if_held() {
+  if (( CDX_RUN_LOCK_HELD )) && [[ -n "${CDX_RUN_LOCK_FD:-}" ]]; then
+    flock -u "$CDX_RUN_LOCK_FD" 2>/dev/null || true
+  fi
+  close_run_lock_fd
+  if (( CDX_RUN_LOCK_HELD )) && [[ -n "$CDX_RUN_LOCK_META_PATH" ]]; then
+    rm -f "$CDX_RUN_LOCK_META_PATH" 2>/dev/null || true
+  fi
+  CDX_RUN_LOCK_HELD=0
+}
+
 # Wrapper flags (strip before handing args to Codex)
 if (( $# > 0 )); then
   parsed_args=()
@@ -499,6 +675,10 @@ if (( $# > 0 )); then
     fi
     if [[ "$arg" == "-4" ]]; then
       CODEX_FORCE_IPV4=1
+      continue
+    fi
+    if [[ "$arg" == "--allow-concurrent-sync" ]]; then
+      CODEX_CONCURRENT_SYNC_OVERRIDE=1
       continue
     fi
     parsed_args+=("$arg")

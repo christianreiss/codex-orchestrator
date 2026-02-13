@@ -34,12 +34,33 @@ if [[ -z "$LOCAL_VERSION" ]]; then
   log_warn "Could not determine local Codex version; attempting to refresh Codex before launch."
 fi
 
-# Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
-sync_auth_with_api "pull" || true
-sync_slash_commands_pull || true
-sync_skills_pull || true
-sync_agents_pull || true
-sync_config_pull || true
+# Guard mutating sync/update work when another cdx run is already active.
+if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+  acquire_run_lock_or_mark_concurrent || true
+fi
+if (( CDX_ACTIVE_RUN_DETECTED )); then
+  if (( CDX_RUN_GUARD_WARNING_EMITTED == 0 )); then
+    log_warn "${CDX_ACTIVE_RUN_INFO:-active cdx run detected}; skipping sync/update mutations for this run. Use --allow-concurrent-sync to override."
+    CDX_RUN_GUARD_WARNING_EMITTED=1
+  fi
+  AUTH_PULL_STATUS="concurrent"
+  AUTH_PULL_REASON="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
+  PROMPT_SYNC_STATUS="skip"
+  PROMPT_SYNC_REASON="active-run"
+  SKILL_SYNC_STATUS="skip"
+  SKILL_SYNC_REASON="active-run"
+  AGENTS_SYNC_STATUS="skip"
+  AGENTS_SYNC_REASON="active-run"
+  CONFIG_SYNC_STATUS="skip"
+  CONFIG_SYNC_REASON="active-run"
+else
+  # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
+  sync_auth_with_api "pull" || true
+  sync_slash_commands_pull || true
+  sync_skills_pull || true
+  sync_agents_pull || true
+  sync_config_pull || true
+fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
@@ -51,6 +72,10 @@ if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "${MAX_LOCAL_AUTH_RECENT_SECO
 fi
 HAS_LOCAL_AUTH=0
 [[ -f "$HOME/.codex/auth.json" ]] && HAS_LOCAL_AUTH=1
+HAS_VALID_LOCAL_AUTH=0
+if (( HAS_LOCAL_AUTH )) && validate_auth_json_file "$HOME/.codex/auth.json"; then
+  HAS_VALID_LOCAL_AUTH=1
+fi
 
 if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
   print_motd
@@ -60,7 +85,9 @@ os_name="$(uname -s)"
 arch_name="$(uname -m)"
 asset_name=""
 skip_update_check=0
-if (( ! can_manage_codex )); then
+if (( CDX_ACTIVE_RUN_DETECTED )); then
+  skip_update_check=1
+elif (( ! can_manage_codex )); then
   skip_update_check=1
 fi
 case "$os_name" in
@@ -208,7 +235,11 @@ codex_installed_label="${LOCAL_VERSION:-unknown}"
 if (( skip_update_check )); then
   codex_target_label="${remote_version:-${LOCAL_VERSION:-unknown}}"
   codex_status_label="Check skipped"
-  codex_status_note="not permitted to manage Codex (need root)"
+  if (( CDX_ACTIVE_RUN_DETECTED )); then
+    codex_status_note="active cdx run"
+  else
+    codex_status_note="not permitted to manage Codex (need root)"
+  fi
 elif (( need_update )) && [[ -n "$remote_url" ]]; then
   display_local="${LOCAL_VERSION:-unknown}"
   codex_target_label="$norm_remote"
@@ -276,7 +307,7 @@ target_wrapper_sha=""
 target_wrapper_url=""
 wrapper_target_label="$WRAPPER_VERSION"
 
-if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; then
+if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; }; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
   target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
@@ -381,9 +412,13 @@ if [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; th
     wrapper_status_label="Update skipped"
     wrapper_status_note="missing download URL"
   fi
+elif (( CDX_ACTIVE_RUN_DETECTED )); then
+  wrapper_status_label="Check skipped"
+  wrapper_status_note="active cdx run"
 fi
 
 if (( CODEX_EXIT_AFTER_UPDATE )); then
+  release_run_lock_if_held || true
   if (( wrapper_updated )); then
     log_info "Wrapper update completed (version ${WRAPPER_VERSION})."
     exit 0
@@ -1064,6 +1099,9 @@ print_doctor_report() {
     offline)
       hints+=("API is offline; cached auth may work temporarily but sync/push is limited.")
       ;;
+    concurrent)
+      hints+=("Another cdx process is active; this run skips sync/update mutations unless --allow-concurrent-sync is passed.")
+      ;;
   esac
 
   log_info "$(format_simple_row "Doctor deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
@@ -1150,6 +1188,10 @@ case "$AUTH_PULL_STATUS" in
     api_label="Insecure approval denied"
     api_tone="red"
     ;;
+  concurrent)
+    api_label="Concurrent guard active"
+    api_tone="yellow"
+    ;;
 esac
 
 auth_label="n/a"
@@ -1172,6 +1214,12 @@ elif [[ "$AUTH_PULL_STATUS" == "insecure" ]]; then
   auth_label="insecure host window closed"
 elif [[ "$AUTH_PULL_STATUS" == "insecure-denied" ]]; then
   auth_label="insecure host approval denied"
+elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
+  if (( HAS_VALID_LOCAL_AUTH )); then
+    auth_label="concurrent guard active; using local auth.json"
+  else
+    auth_label="concurrent guard active; local auth.json missing or invalid"
+  fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   auth_label="auth sync failed"
 fi
@@ -1194,6 +1242,12 @@ case "$AUTH_STATUS" in
 esac
 if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT) )); then
+    auth_tone="yellow"
+  else
+    auth_tone="red"
+  fi
+elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
+  if (( HAS_VALID_LOCAL_AUTH )); then
     auth_tone="yellow"
   else
     auth_tone="red"
@@ -1521,6 +1575,12 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   else
     result_parts+=("auth unavailable (${offline_note})")
   fi
+elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
+  if (( HAS_VALID_LOCAL_AUTH )); then
+    result_parts+=("auth local-only (active cdx run)")
+  else
+    result_parts+=("auth unavailable (active cdx run; local auth invalid)")
+  fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   result_parts+=("auth unavailable")
 fi
@@ -1689,10 +1749,16 @@ esac
 (( wrapper_update_failed )) && wrapper_tone="red"
 
 result_tone="green"
-if (( codex_update_failed )) || (( wrapper_update_failed )) || { [[ "$AUTH_PULL_STATUS" != "ok" ]] && [[ "$AUTH_PULL_STATUS" != "offline" ]]; }; then
+if (( codex_update_failed )) || (( wrapper_update_failed )) || { [[ "$AUTH_PULL_STATUS" != "ok" ]] && [[ "$AUTH_PULL_STATUS" != "offline" ]] && [[ "$AUTH_PULL_STATUS" != "concurrent" ]]; }; then
   result_tone="red"
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT) )); then
+    result_tone="yellow"
+  else
+    result_tone="red"
+  fi
+elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
+  if (( HAS_VALID_LOCAL_AUTH )); then
     result_tone="yellow"
   else
     result_tone="red"
@@ -2137,6 +2203,9 @@ fi
 	      elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
 	        summary_title="Offline mode"
 	        summary_tone="yellow"
+	      elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
+	        summary_title="Concurrent guard"
+	        summary_tone="yellow"
 	      fi
 
 	      log_info "$(summary_header "$summary_title" "$summary_tone")"
@@ -2172,20 +2241,25 @@ fi
 if (( CODEX_DOCTOR_ONLY )); then
   print_doctor_report
   if (( DOCTOR_FAILURES > 0 )) || [[ "$result_tone" == "red" ]]; then
+    release_run_lock_if_held || true
     exit 1
   fi
+  release_run_lock_if_held || true
   exit 0
 fi
 
 if (( CODEX_STATUS_ONLY )); then
   if [[ "$result_tone" == "red" ]]; then
+    release_run_lock_if_held || true
     exit 1
   fi
+  release_run_lock_if_held || true
   exit 0
 fi
 
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )); then
   if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
+    release_run_lock_if_held || true
     log_error "Wrapper update loop detected; aborting."
     exit 1
   fi
@@ -2193,6 +2267,7 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS
   if ! declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
     CODEX_ORIGINAL_ARGS=()
   fi
+  release_run_lock_if_held || true
   CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
 fi
 
@@ -2232,6 +2307,16 @@ case "$AUTH_PULL_STATUS" in
   insecure-denied)
     AUTH_LAUNCH_REASON="Insecure host approval denied; re-run or open the host window."
     ;;
+  concurrent)
+    if (( HAS_VALID_LOCAL_AUTH )); then
+      AUTH_LAUNCH_ALLOWED=1
+      AUTH_LAUNCH_REASON="Active cdx run detected; using local auth.json with sync/update mutations skipped"
+    elif (( HAS_LOCAL_AUTH )); then
+      AUTH_LAUNCH_REASON="Active cdx run detected and local auth.json is invalid."
+    else
+      AUTH_LAUNCH_REASON="Active cdx run detected and no local auth.json is available."
+    fi
+    ;;
   fail)
     AUTH_LAUNCH_REASON="Auth sync failed; check API connectivity."
     ;;
@@ -2254,27 +2339,36 @@ if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )); then
 fi
 
 if (( AUTH_LAUNCH_ALLOWED == 0 )); then
+  release_run_lock_if_held || true
   log_error "${AUTH_LAUNCH_REASON:-Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth.}"
   exit 1
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
+elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
+  log_warn "${AUTH_LAUNCH_REASON}."
 fi
 
 cleanup() {
   local exit_status=$?
   trap - EXIT
-  push_slash_commands_if_changed || true
-  push_skills_if_changed || true
-  if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
-    push_auth_if_changed "push" || true
+  if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+    AUTH_PUSH_RESULT="skipped"
+    AUTH_PUSH_REASON="active cdx run"
+  else
+    push_slash_commands_if_changed || true
+    push_skills_if_changed || true
+    if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
+      push_auth_if_changed "push" || true
+    fi
   fi
   # Emit final auth push status if determined
   if [[ -n "$AUTH_PUSH_RESULT" ]]; then
     log_info "Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}"
   fi
-  if (( PURGE_AUTH_AFTER_RUN )) && (( CODEX_COMMAND_STARTED )) && [[ -f "$HOME/.codex/auth.json" ]]; then
+  if (( PURGE_AUTH_AFTER_RUN )) && (( CODEX_COMMAND_STARTED )) && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ -f "$HOME/.codex/auth.json" ]]; then
     remove_path "$HOME/.codex/auth.json" "auth.json (insecure host)"
   fi
+  release_run_lock_if_held || true
   exit "$exit_status"
 }
 trap cleanup EXIT
@@ -2460,22 +2554,17 @@ PY
       fi
     fi
   else
-    # When stdout is not a terminal, some Codex builds refuse to run in interactive mode.
-    # If the user didn't pass an explicit non-interactive flag, degrade gracefully.
+    # Non-TTY stdout should not rewrite user intent (for example forcing `exec`).
+    # For interactive no-arg launches, fail fast with an explicit non-interactive hint.
     if [[ ! -t 1 ]]; then
-      local args=("$@")
-      local run_args=()
-      # Keep explicit subcommands/flags as-is; only prepend exec for default interactive launches.
-      case "${args[0]-}" in
-        exec|completion|help|-h|--help|-V|--version)
-          run_args=("${args[@]}")
-          ;;
-        *)
-          run_args=(exec "${args[@]}")
-          ;;
-      esac
-      "$CODEX_REAL_BIN" "${run_args[@]}" 2>&1 | tee "$tmp_output"
-      status=${PIPESTATUS[0]}
+      if (( $# == 0 )); then
+        log_error "stdout is not a TTY; interactive launch requires a terminal."
+        log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
+        status=1
+      else
+        "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
+        status=${PIPESTATUS[0]}
+      fi
     else
       "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
       status=${PIPESTATUS[0]}
@@ -2516,5 +2605,10 @@ if run_codex_command "$@"; then
 else
   cmd_status=$?
 fi
-push_auth_if_changed "push" || true
+if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+  AUTH_PUSH_RESULT="skipped"
+  AUTH_PUSH_REASON="active cdx run"
+else
+  push_auth_if_changed "push" || true
+fi
 exit "$cmd_status"
