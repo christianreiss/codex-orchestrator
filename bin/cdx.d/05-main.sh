@@ -39,12 +39,13 @@ if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
   acquire_run_lock_or_mark_concurrent || true
 fi
 if (( CDX_ACTIVE_RUN_DETECTED )); then
+  concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
   if (( CDX_RUN_GUARD_WARNING_EMITTED == 0 )); then
-    log_warn "${CDX_ACTIVE_RUN_INFO:-active cdx run detected}; skipping sync/update mutations for this run. Use --allow-concurrent-sync to override."
+    log_warn "${concurrent_reason}; skipping sync/update mutations for this run. Use --allow-concurrent-sync to override."
     CDX_RUN_GUARD_WARNING_EMITTED=1
   fi
   AUTH_PULL_STATUS="concurrent"
-  AUTH_PULL_REASON="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
+  AUTH_PULL_REASON="$concurrent_reason"
   PROMPT_SYNC_STATUS="skip"
   PROMPT_SYNC_REASON="active-run"
   SKILL_SYNC_STATUS="skip"
@@ -53,6 +54,13 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   AGENTS_SYNC_REASON="active-run"
   CONFIG_SYNC_STATUS="skip"
   CONFIG_SYNC_REASON="active-run"
+  # Keep concurrent mode non-mutating, but refresh quota/policy metadata.
+  load_sync_config
+  if command -v python3 >/dev/null 2>&1 && [[ -n "$CODEX_SYNC_API_KEY" && -n "$CODEX_SYNC_BASE_URL" ]]; then
+    sync_auth_with_api "pull-readonly" "1" || true
+    AUTH_PULL_STATUS="concurrent"
+    AUTH_PULL_REASON="$concurrent_reason"
+  fi
 else
   # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
   sync_auth_with_api "pull" || true

@@ -1,5 +1,6 @@
 sync_auth_with_api() {
   local phase="$1"
+  local read_only="${2:-0}"
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
     log_error "Sync config missing API key or base URL; download a fresh cdx wrapper from the server."
@@ -11,13 +12,13 @@ sync_auth_with_api() {
     log_error "python3 is required for Codex auth sync; install python3 and retry."
     exit 1
   fi
-  if (( HOST_USERS_FETCHED == 0 )); then
+  if (( read_only == 0 )) && (( HOST_USERS_FETCHED == 0 )); then
     record_host_user_with_api || true
   fi
   local auth_path="$HOME/.codex/auth.json"
   AUTH_PULL_REASON=""
   # Drop a malformed local auth.json so we can hydrate cleanly.
-  if [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
+  if (( read_only == 0 )) && [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
     rm -f "$auth_path"
   fi
   local phase_label
@@ -31,7 +32,7 @@ sync_auth_with_api() {
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, sys, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -48,6 +49,7 @@ wrapper_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 installation_id = (os.environ.get("CODEX_INSTALLATION_ID", "") or "").strip()
 session_started_at = (os.environ.get("CODEX_INSECURE_SESSION_STARTED_AT", "") or "").strip()
+read_only = (os.environ.get("CODEX_SYNC_READ_ONLY", "") or "").strip().lower() in ("1", "true", "yes", "on")
 
 if not base:
     print("Sync API base URL missing", file=sys.stderr)
@@ -299,7 +301,8 @@ elif status in ("missing", "upload_required"):
 else:
     status = "upload_required"
 
-if status in ("missing", "upload_required"):
+did_store = False
+if (not read_only) and status in ("missing", "upload_required"):
     store_payload = {
         "command": "store",
         "auth": current,
@@ -327,11 +330,13 @@ if status in ("missing", "upload_required"):
     lr = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
     if isinstance(lr, str):
         auth_to_write["last_refresh"] = lr
+    did_store = True
 
 if not isinstance(auth_to_write, dict):
     auth_to_write = current
 
-atomic_write_text(path, json.dumps(auth_to_write, indent=2) + "\n", mode=0o600)
+if not read_only:
+    atomic_write_text(path, json.dumps(auth_to_write, indent=2) + "\n", mode=0o600)
 
 # Surface versions and auth outcome to caller via stdout as JSON
 print(
@@ -339,11 +344,12 @@ print(
         {
             "versions": versions_out,
             "auth_status": status or "unknown",
-            "auth_action": ("store" if status in ("missing", "upload_required") else status or "unknown"),
+            "auth_action": ("store" if did_store else status or "unknown"),
             "auth_message": (
+                "retrieved metadata (read-only)" if read_only else
                 "synced (no change)" if status == "valid" else
                 "updated from api" if status == "outdated" else
-                "uploaded current auth" if status in ("missing", "upload_required") else
+                "uploaded current auth" if did_store else
                 status
             ),
             "host_secure": host_secure,
