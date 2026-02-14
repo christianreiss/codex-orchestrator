@@ -12,7 +12,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 1. Optionally persist the incoming auth to `/tmp/last-auth.json` (0600) when `RUNNER_DEBUG_DUMP_AUTH=1` is set in the runner env.
 2. Require at least one usable OpenAI token (`auths.api.openai.com.token` or `tokens.access_token`/`openai_api_key`), otherwise return HTTP 400 with `detail: "no usable token in auth_json"`.
-3. Create a temp `$HOME`, write `~/.codex/auth.json`, chmod 0600.
+3. Create a temp `$HOME` (overriding the container default), write `~/.codex/auth.json`, chmod 0600, and clean up the temp home after the probe.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from the runner container env (defaults in compose, falls back to `http://api` in code), `CODEX_SYNC_OPTIONAL=1`, `CODEX_SYNC_BAKED=0`.
 5. Run `/usr/local/bin/codex exec "Reply Banana if this works." -s read-only --skip-git-repo-check` with the provided or default timeout.
 6. Reload `~/.codex/auth.json` after the probe; when it differs from the input payload, include it in the response as `updated_auth`.

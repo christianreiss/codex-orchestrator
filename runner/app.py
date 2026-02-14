@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -72,62 +73,67 @@ def _run_probe(payload: VerifyRequest) -> dict:
         raise HTTPException(status_code=400, detail="no usable token in auth_json")
 
     env = os.environ.copy()
-    home_dir = env.setdefault("HOME", tempfile.mkdtemp(prefix="codex-runner-"))
-    codex_dir = os.path.join(home_dir, ".codex")
-    os.makedirs(codex_dir, exist_ok=True)
-    auth_path = os.path.join(codex_dir, "auth.json")
+    home_dir = tempfile.mkdtemp(prefix="codex-runner-")
+    env["HOME"] = home_dir
     try:
-        with open(auth_path, "w", encoding="utf-8") as fh:
-            json.dump(payload.auth_json, fh)
-        os.chmod(auth_path, 0o600)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
+        codex_dir = os.path.join(home_dir, ".codex")
+        os.makedirs(codex_dir, exist_ok=True)
+        auth_path = os.path.join(codex_dir, "auth.json")
+        try:
+            with open(auth_path, "w", encoding="utf-8") as fh:
+                json.dump(payload.auth_json, fh)
+            os.chmod(auth_path, 0o600)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
 
-    env.setdefault("CODEX_SYNC_BASE_URL", os.environ.get("CODEX_SYNC_BASE_URL", "http://api"))
-    env["CODEX_SYNC_OPTIONAL"] = "1"
-    env["CODEX_SYNC_BAKED"] = "0"
+        env.setdefault("CODEX_SYNC_BASE_URL", os.environ.get("CODEX_SYNC_BASE_URL", "http://api"))
+        env["CODEX_SYNC_OPTIONAL"] = "1"
+        env["CODEX_SYNC_BAKED"] = "0"
 
-    timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-    probe_cmd = [
-        "/usr/local/bin/codex",
-        "exec",
-        "Reply Banana if this works.",
-        "-s",
-        "read-only",
-        "--skip-git-repo-check",
-    ]
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        probe_cmd = [
+            "/usr/local/bin/codex",
+            "exec",
+            "Reply Banana if this works.",
+            "-s",
+            "read-only",
+            "--skip-git-repo-check",
+        ]
 
-    start = time.perf_counter()
-    proc = subprocess.run(
-        probe_cmd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    latency_ms = int((time.perf_counter() - start) * 1000)
-    stdout = (proc.stdout or "").strip()
-    stderr = (proc.stderr or "").strip()
+        start = time.perf_counter()
+        proc = subprocess.run(
+            probe_cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
 
-    ok = proc.returncode == 0 and "banana" in stdout.lower()
-    result = {
-        "status": "ok" if ok else "fail",
-        "latency_ms": latency_ms,
-        "reachable": True,
-        "codex_version": _codex_version(env),
-    }
-    try:
-        with open(auth_path, "r", encoding="utf-8") as fh:
-            updated_auth = json.load(fh)
-    except Exception:
-        updated_auth = None
-    if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
-        result["updated_auth"] = updated_auth
-    if not ok:
-        parts = [p for p in [stderr, stdout] if p]
-        message = "\n".join(parts).strip()
-        result["reason"] = message[:400] if message else "probe failed"
-    return result
+        ok = proc.returncode == 0 and "banana" in stdout.lower()
+        result = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        try:
+            with open(auth_path, "r", encoding="utf-8") as fh:
+                updated_auth = json.load(fh)
+        except Exception:
+            updated_auth = None
+        if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
+            result["updated_auth"] = updated_auth
+        if not ok:
+            parts = [p for p in [stderr, stdout] if p]
+            message = "\n".join(parts).strip()
+            result["reason"] = message[:400] if message else "probe failed"
+        return result
+    finally:
+        # The probe writes secrets to ~/.codex/auth.json; always clean up the temp HOME.
+        shutil.rmtree(home_dir, ignore_errors=True)
 
 
 @app.post("/verify")

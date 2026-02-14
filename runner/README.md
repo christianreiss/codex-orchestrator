@@ -8,7 +8,7 @@ Lightweight HTTP microservice that validates an `auth.json` by running the Codex
 docker build -t codex-auth-runner -f runner/Dockerfile .
 ```
 
-The image bundles the Codex CLI (default `rust-v0.63.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, and `CODEX_ASSET_ARM64` if you need a different release.
+The image bundles the Codex CLI (default `rust-v0.101.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, and `CODEX_ASSET_ARM64` if you need a different release.
 
 ## Run (standalone)
 
@@ -56,7 +56,7 @@ Response (success):
   "status": "ok",
   "latency_ms": 123,
   "reachable": true,
-  "codex_version": "rust-v0.63.0"
+  "codex_version": "0.101.0"
 }
 ```
 
@@ -67,7 +67,7 @@ Response (failure):
   "status": "fail",
   "latency_ms": 123,
   "reachable": true,
-  "codex_version": "rust-v0.63.0",
+  "codex_version": "0.101.0",
   "reason": "probe failed"
 }
 ```

@@ -4,7 +4,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl jq ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
-ARG CODEX_TAG=rust-v0.63.0
+ARG CODEX_TAG=rust-v0.101.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
 ARG TARGETARCH
