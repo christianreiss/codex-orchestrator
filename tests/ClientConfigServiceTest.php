@@ -357,6 +357,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[mcp_servers.cdx]', $content);
         $this->assertStringContainsString('url = "https://coord.example/mcp"', $content);
         $this->assertStringContainsString('Authorization = "Bearer abc123"', $content);
+        $this->assertStringContainsString('startup_timeout_sec = 30', $content);
         $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
         $this->assertStringNotContainsString('mcp_servers.codex-memory', $content);
     }

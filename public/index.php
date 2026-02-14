@@ -127,13 +127,56 @@ $dbConfig = [
     'charset' => Config::get('DB_CHARSET', 'utf8mb4'),
 ];
 $database = new Database($dbConfig);
-$database->migrate();
+// Avoid running full schema DDL on every request (can add seconds of latency under Apache/mod_php).
+// Use a durable sentinel keyed to the Database.php content hash so schema changes trigger a new migrate.
+$schemaHash = hash_file('sha256', $root . '/src/Database.php') ?: '';
+$schemaKey = $schemaHash !== '' ? substr($schemaHash, 0, 12) : 'unknown';
+$sentinelDir = $root . '/storage/wrapper';
+if (!is_dir($sentinelDir)) {
+    @mkdir($sentinelDir, 0775, true);
+}
+$migrateSentinel = $sentinelDir . '/.db_migrated_' . $schemaKey;
+$migrateLockPath = $sentinelDir . '/.db_migrate.lock';
+if (!is_file($migrateSentinel)) {
+    $lock = @fopen($migrateLockPath, 'c+');
+    if (is_resource($lock)) {
+        @flock($lock, LOCK_EX);
+    }
+    // Re-check after acquiring the lock to avoid duplicate work when multiple workers start at once.
+    if (!is_file($migrateSentinel)) {
+        $database->migrate();
+        @file_put_contents($migrateSentinel, gmdate(DATE_ATOM) . "\n");
+    }
+    if (is_resource($lock)) {
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
+    }
+}
+
+$versionRepository = new VersionRepository($database);
 
 $encryptionMigrator = new AuthEncryptionMigrator($database, $secretBox);
-$encryptionMigrator->migrate();
+// One-time backfill: encrypt legacy auth storage rows with SecretBox.
+// This can be expensive on large datasets; gate behind a durable versions flag.
+if ($versionRepository->get('auth_secretbox_migration_v1') === null) {
+    try {
+        $encryptionMigrator->migrate();
+        $versionRepository->set('auth_secretbox_migration_v1', gmdate(DATE_ATOM));
+    } catch (\Throwable $exception) {
+        error_log('[encryption] migration failed: ' . $exception->getMessage());
+    }
+}
 
 $hostRepository = new HostRepository($database, $secretBox);
-$hostRepository->backfillApiKeyEncryption();
+// One-time backfill: legacy host rows may store api_key without enc/hash columns.
+if ($versionRepository->get('hosts_api_key_encryption_backfill_v1') === null) {
+    try {
+        $hostRepository->backfillApiKeyEncryption();
+        $versionRepository->set('hosts_api_key_encryption_backfill_v1', gmdate(DATE_ATOM));
+    } catch (\Throwable $exception) {
+        error_log('[hosts] api key backfill failed: ' . $exception->getMessage());
+    }
+}
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $hostUserRepository = new HostUserRepository($database);
@@ -159,7 +202,6 @@ $mcpAccessLogRepository = new McpAccessLogRepository($database);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
-$versionRepository = new VersionRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $pricingModel = 'gpt-5.1';
 $pricingService = new PricingService(
@@ -242,7 +284,8 @@ if ($normalizedPath === '') {
 }
 
 // First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
-if (!str_starts_with($normalizedPath, '/admin')) {
+// Avoid doing preflight work on ultra-hot, unauthenticated endpoints (health checks) or latency-sensitive MCP init.
+if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp')) {
     try {
         $service->runDailyPreflight();
     } catch (\Throwable $exception) {

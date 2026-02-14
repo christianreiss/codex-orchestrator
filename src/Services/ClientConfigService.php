@@ -371,6 +371,8 @@ class ClientConfigService
             'http_headers' => [
                 'Authorization' => 'Bearer ' . $key,
             ],
+            // Codex may block startup while validating MCP servers; give the HTTP endpoint a bit more room.
+            'startup_timeout_sec' => 30,
         ];
 
         $existing = $settings['mcp_servers'] ?? [];

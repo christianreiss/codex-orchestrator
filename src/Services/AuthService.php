@@ -893,9 +893,11 @@ class AuthService
             || $lastPreflightTs > ($now + self::MAX_FUTURE_SKEW_SECONDS);
         $needsVersionRefresh = $bootChanged || $intervalElapsed;
 
+        $didWork = false;
         if ($needsVersionRefresh) {
             // Always refresh the cached GitHub client version on the first request of the interval or boot.
             $this->availableClientVersion(true);
+            $didWork = true;
         }
 
         $shouldRunRunner = false;
@@ -929,11 +931,15 @@ class AuthService
                         true,
                         $runnerReason
                     );
+                    $didWork = true;
                 }
             }
         }
 
-        $this->versions->set('daily_preflight', gmdate(DATE_ATOM));
+        // Avoid a DB write on every request; only record when we actually performed preflight work.
+        if ($didWork) {
+            $this->versions->set('daily_preflight', gmdate(DATE_ATOM));
+        }
     }
 
     /**
@@ -1166,6 +1172,10 @@ class AuthService
 
         if ($bootChanged) {
             return [true, 'boot'];
+        }
+        // Backoff always applies after a failure; otherwise a stale OK can trigger a runner retry on every request.
+        if (!$fifteenMinutesElapsed) {
+            return [false, null];
         }
         if ($fifteenMinutesElapsed) {
             return [true, 'fail_backoff'];

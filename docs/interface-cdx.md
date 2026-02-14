@@ -22,6 +22,7 @@
 	    [mcp_servers.cdx]
 	    url = "{base_url}/mcp"
 	    http_headers = { Authorization = "Bearer {host_api_key}" }
+	    startup_timeout_sec = 30
 	    ```  
 	    Config defaults now include `steer = true` to enable steering mode (Enter submits immediately; Tab queues messages when a task is running).
 	    When per-host model overrides are set (via the admin Hosts modal), the server also applies them to the baked `config.toml` (`model` and `model_reasoning_effort`) so the host’s file reflects its effective defaults.

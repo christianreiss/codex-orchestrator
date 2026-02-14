@@ -22,6 +22,7 @@
   [mcp_servers.cdx]
   url = "{base_url}/mcp"
   http_headers = { Authorization = "Bearer {host_api_key}" }
+  startup_timeout_sec = 30
   ```  
   The baked config may include top-level `model_provider` and `local_provider` keys when set in the admin config builder.
   When `hosts.model_override` / `hosts.reasoning_effort_override` are set, the baked config also overrides `model` and `model_reasoning_effort` so `~/.codex/config.toml` matches the host’s effective defaults.
