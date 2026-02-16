@@ -350,6 +350,13 @@ if (not read_only) and status in ("missing", "upload_required"):
         store_payload["installation_id"] = installation_id
     update_data = post_json(f"{base}/auth", store_payload, "auth store")
     payload_data = update_data.get("data") if isinstance(update_data, dict) else {}
+    store_status = (payload_data or {}).get("status")
+    if isinstance(store_status, str):
+        normalized_status = store_status.strip().lower()
+        if normalized_status in ("updated", "unchanged"):
+            status = "valid"
+        elif normalized_status:
+            status = normalized_status
     versions_out = record_versions(payload_data.get("versions", {})) or versions_out
     host_info = payload_data.get("host") if isinstance(payload_data, dict) else host_info
     host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else host_vip
@@ -376,12 +383,12 @@ print(
         {
             "versions": versions_out,
             "auth_status": status or "unknown",
-            "auth_action": ("store" if did_store else status or "unknown"),
+            "auth_action": ("store" if (did_store and status == "valid") else status or "unknown"),
             "auth_message": (
                 "retrieved metadata (read-only)" if read_only else
+                "uploaded current auth" if (did_store and status == "valid") else
                 "synced (no change)" if status == "valid" else
                 "updated from api" if status == "outdated" else
-                "uploaded current auth" if did_store else
                 status
             ),
             "host_secure": host_secure,

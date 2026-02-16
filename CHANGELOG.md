@@ -1,4 +1,5 @@
 # 2026-02-16
+- cdx: auth summary now reflects successful `store` uploads as `valid` (instead of lingering `upload_required` from the pre-store retrieve result), so healthy hosts no longer look stuck in upload-required state; wrapper bumped to `2026.02.16-12`.
 - cdx: Quota `Active lane` now marks Spark with a fastness hint (`spark ⚡` on UTF-8 terminals, `spark (fast)` fallback on non-Unicode terminals).
 - cdx: removed the `| <n> day partition` suffix from the Daily allowance note in Quota output; it now shows only `allowance <n>%/day` to reduce line noise.
 - cdx: summary packing defaults tuned for readability: Quota now prints one bar/metric per line (`SUMMARY_ITEMS_PER_ROW_QUOTA=1`), while Versions defaults to two entries per row (`SUMMARY_ITEMS_PER_ROW_VERSIONS=2`) to avoid overlong lines (e.g., keeps `AGENTS.md` with `config.toml`).
