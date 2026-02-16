@@ -12,13 +12,10 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('other_lane_usage_label="Quota (Spark@s)"', $wrapperSource);
-        self::assertStringContainsString('other_lane_usage_label="Quota (Normal@s)"', $wrapperSource);
-        self::assertStringContainsString('other_lane_usage_value="5h ${spark_5h}, week ${spark_wk}"', $wrapperSource);
-        self::assertStringContainsString('other_lane_usage_value="5h ${normal_5h}, week ${normal_wk}"', $wrapperSource);
-        self::assertStringContainsString('format_simple_row "$other_lane_usage_label" "$other_lane_usage_display"', $wrapperSource);
-        self::assertStringContainsString('ROW_LABEL_WIDTH="$(compute_row_label_width "${summary_row_labels[@]}")"', $wrapperSource);
-        self::assertStringContainsString('summary_row_labels+=("${quota_label_base} day")', $wrapperSource);
+        self::assertStringContainsString('other_lane_usage_value="Spark: 5h ${spark_5h}, week ${spark_wk}"', $wrapperSource);
+        self::assertStringContainsString('other_lane_usage_value="Normal: 5h ${normal_5h}, week ${normal_wk}"', $wrapperSource);
+        self::assertStringContainsString('quota_rows+=("${bullet} ${other_lane_usage_value}")', $wrapperSource);
+        self::assertStringContainsString('print_section_rows "Quota" "${quota_rows[@]}"', $wrapperSource);
         self::assertStringNotContainsString('usage_line+=" | ${other_lane_summary}"', $wrapperSource);
     }
 }

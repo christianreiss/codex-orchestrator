@@ -56,9 +56,9 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 4) **Wrapper distribution**
 - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
 - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` auto-checks/installs `curl`, `unzip`, and `script` (util-linux) before update/sync work. On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.
-- When a host has an already-active `cdx` run, concurrent guard still skips mutating sync/update work, but performs a read-only `/auth` retrieve to refresh quota/policy metadata for the compact boot summary (single concurrent-guard line + quota lines).
-- In the normal boot summary, `Usage` now stays focused on call/token stats; when the other quota lane is present it is shown as its own row (`Quota (Spark@s)` or `Quota (Normal@s)`).
-- Summary table labels now auto-size to the longest label in the current render so row separators stay vertically aligned.
+- When a host has an already-active `cdx` run, concurrent guard still skips mutating sync/update work, but performs a read-only `/auth` retrieve to refresh quota/policy metadata for the compact boot summary (single concurrent-guard section + quota lines).
+- The normal boot summary is now sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language labels and grouped numbers for calls/tokens.
+- Quota rendering is lean by default: active-lane 5h/weekly bars stay primary, while the non-active lane is condensed into an `Other lane` line (`Spark: 5h X%, week Y%` or `Normal: ...`).
 
 5) **Usage, prompts, and host telemetry**
 - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot (env fallbacks when remote pricing is absent), stores per-row entries, and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and total cost.

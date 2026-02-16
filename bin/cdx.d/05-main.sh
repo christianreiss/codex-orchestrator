@@ -640,6 +640,29 @@ format_simple_row() {
   printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
 }
 
+section_bullet() {
+  if output_supports_unicode; then
+    printf "•"
+  else
+    printf "-"
+  fi
+}
+
+print_section_rows() {
+  local label="$1"; shift
+  local first=1
+  local line
+  for line in "$@"; do
+    [[ -z "$line" ]] && continue
+    if (( first )); then
+      log_info "$(format_simple_row "$label" "$line")"
+      first=0
+    else
+      log_info "$(format_simple_row "" "$line")"
+    fi
+  done
+}
+
 compute_row_label_width() {
   local width="$ROW_LABEL_WIDTH"
   local label=""
@@ -678,13 +701,52 @@ join_with_sep() {
   printf "%s" "$out"
 }
 
+output_supports_unicode() {
+  (( CODEX_TERM_IS_DUMB )) && return 1
+  [[ -t 1 ]] || return 1
+  local locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+  [[ "$locale" =~ [Uu][Tt][Ff]-?8 ]] || return 1
+  return 0
+}
+
+format_grouped_int() {
+  local raw="$1"
+  [[ "$raw" =~ ^-?[0-9]+$ ]] || {
+    printf "%s" "$raw"
+    return
+  }
+  local sign=""
+  if [[ "$raw" == -* ]]; then
+    sign="-"
+    raw="${raw#-}"
+  fi
+  local out=""
+  local len=${#raw}
+  while (( len > 3 )); do
+    local chunk_start=$(( len - 3 ))
+    out=",${raw:chunk_start:3}${out}"
+    raw="${raw:0:chunk_start}"
+    len=${#raw}
+  done
+  printf "%s%s%s" "$sign" "$raw" "$out"
+}
+
 status_icon() {
-  case "$1" in
-    green) printf "✅" ;;
-    yellow) printf "⚠" ;;
-    red) printf "⛔" ;;
-    *) printf "•" ;;
-  esac
+  if output_supports_unicode; then
+    case "$1" in
+      green) printf "✅" ;;
+      yellow) printf "⚠" ;;
+      red) printf "⛔" ;;
+      *) printf "•" ;;
+    esac
+  else
+    case "$1" in
+      green) printf "OK" ;;
+      yellow) printf "WARN" ;;
+      red) printf "FAIL" ;;
+      *) printf "INFO" ;;
+    esac
+  fi
 }
 
 format_core_entry() {
@@ -827,8 +889,15 @@ build_quota_bar() {
   elif (( pct >= 80 )); then
     fill_color="${ORANGE}${BOLD}"
   fi
-  local fill_char="${CDX_QUOTA_FILL_CHAR:-█}"
-  local empty_char="${CDX_QUOTA_EMPTY_CHAR:-░}"
+  local fill_char
+  local empty_char
+  if output_supports_unicode; then
+    fill_char="${CDX_QUOTA_FILL_CHAR:-█}"
+    empty_char="${CDX_QUOTA_EMPTY_CHAR:-░}"
+  else
+    fill_char="${CDX_QUOTA_FILL_CHAR:-#}"
+    empty_char="${CDX_QUOTA_EMPTY_CHAR:--}"
+  fi
   local bar=""
   if (( filled > 0 )); then
     local filled_part
@@ -895,6 +964,15 @@ format_quota_bar_text() {
   text="${line#*$'\t'}"
   text="${text%%$'\t'*}"
   printf "%s" "$text"
+}
+
+quota_pct_or_na() {
+  local used="$1"
+  if [[ "$used" =~ ^[0-9]+$ ]]; then
+    printf "%s%%" "$used"
+  else
+    printf "n/a"
+  fi
 }
 
 project_quota_usage() {
@@ -1861,12 +1939,12 @@ fi
 
   if (( ! HOST_IS_SECURE )); then
     if (( insecure_compact_ok )); then
-      result_label="sync ok (insecure host; auth refreshed)"
+      result_label="Synced on insecure host; auth refreshed."
     elif [[ "$result_tone" == "green" ]]; then
-      result_label="Codex to brrrr (insecure host)"
+      result_label="Ready on insecure host."
     fi
   elif [[ "$result_tone" == "green" && "$command_tone" != "red" && "$auth_tone" == "green" && "$codex_tone" == "green" && "$wrapper_tone" == "green" ]]; then
-    result_label="Codex go Brrrr!"
+    result_label="Ready (Codex go brrrr)."
   fi
 
   # Prefer an ASCII-friendly table (no box drawing). The "card" style divider
@@ -1883,11 +1961,6 @@ fi
     quota_limit=100
   fi
   QUOTA_LIMIT_PERCENT="$quota_limit"
-  if (( QUOTA_HARD_FAIL )); then
-    quota_summary="Deny launches at ≥${quota_limit}% usage."
-  else
-    quota_summary="Warn at ≥${quota_limit}% usage; continue running."
-  fi
 
   quota_lane_label="normal"
   if [[ "$(lowercase "$CHATGPT_ACTIVE_LANE")" == "spark" ]]; then
@@ -1907,47 +1980,54 @@ fi
   fi
   QUOTA_WEEK_PARTITION="$partition_days"
 
-  command_line=""
-  if [[ -n "$command_label" ]]; then
-    command_line="Command: $(colorize "$command_label" "$command_tone")"
+  bullet="$(section_bullet)"
+  health_rows=()
+  api_state="reachable"
+  if [[ "$api_tone" != "green" ]]; then
+    api_state="${api_label:-unreachable}"
+    api_state="$(colorize "$api_state" "$api_tone")"
   fi
+  health_rows+=("${bullet} API: ${api_state}")
 
-  core_bits=()
-  api_detail=""
-  [[ "$api_tone" != "green" ]] && api_detail="$api_label"
-  core_bits+=("$(format_core_entry "API" "$api_tone" "$api_detail")")
-
-  auth_detail=""
+  auth_state="synced"
   if [[ "$auth_tone" != "green" ]]; then
-    auth_detail="$auth_label"
+    auth_state="${auth_label:-needs attention}"
+    auth_state="$(colorize "$auth_state" "$auth_tone")"
   fi
-  core_bits+=("$(format_core_entry "Auth" "$auth_tone" "$auth_detail")")
+  health_rows+=("${bullet} Auth: ${auth_state}")
 
-  prompt_detail=""
+  prompt_state="in sync"
   if [[ "$prompt_tone" == "green" ]]; then
     if [[ "$prompt_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
-      prompt_detail="(${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+      prompt_state="in sync (${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
     fi
   else
-    prompt_detail="$prompt_label"
+    prompt_state="${prompt_label:-needs attention}"
+    prompt_state="$(colorize "$prompt_state" "$prompt_tone")"
   fi
-  core_bits+=("$(format_core_entry "Prompts" "$prompt_tone" "$prompt_detail")")
+  health_rows+=("${bullet} Prompts: ${prompt_state}")
 
-  skill_detail=""
+  skill_state="in sync"
   if [[ "$skill_tone" == "green" ]]; then
     if [[ "$skill_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
-      skill_detail="(${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
+      skill_state="in sync (${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
     fi
   else
-    skill_detail="$skill_label"
+    skill_state="${skill_label:-needs attention}"
+    skill_state="$(colorize "$skill_state" "$skill_tone")"
   fi
-  core_bits+=("$(format_core_entry "Skills" "$skill_tone" "$skill_detail")")
+  health_rows+=("${bullet} Skills: ${skill_state}")
 
   if [[ -n "$runner_label" ]]; then
-    core_bits+=("$(format_core_entry "Runner" "$runner_tone")")
+    runner_state="healthy"
+    if [[ "$runner_tone" != "green" ]]; then
+      runner_state="$(colorize "$runner_label" "$runner_tone")"
+    fi
+    health_rows+=("${bullet} Runner: ${runner_state}")
   fi
 
   # MCP status (managed codex-orchestrator server in config.toml).
+  mcp_tone=""
   if [[ -f "$CONFIG_PATH" ]]; then
     mcp_tone="yellow"
     if toml_table_enabled "$CONFIG_PATH" "mcp_servers.cdx"; then
@@ -1964,92 +2044,103 @@ fi
           ;;
       esac
     fi
-    core_bits+=("$(format_core_entry "MCP" "$mcp_tone")")
+    mcp_state="enabled"
+    if [[ "$mcp_tone" != "green" ]]; then
+      mcp_state="$(colorize "disabled or not configured" "$mcp_tone")"
+    fi
+    health_rows+=("${bullet} MCP: ${mcp_state}")
   fi
 
-  policy_entry="Policy: $( (( QUOTA_HARD_FAIL )) && printf "Deny" || printf "Warn" )"
-  core_line_bits=("${core_bits[@]}" "$policy_entry")
-  core_line="Core: $(join_with_sep ' | ' "${core_line_bits[@]}")"
+  if (( QUOTA_HARD_FAIL )); then
+    policy_state="deny launches at >=${quota_limit}%"
+  else
+    policy_state="warn at >=${quota_limit}%"
+  fi
+  health_rows+=("${bullet} Quota policy: ${policy_state}")
 
-  versions_bits=()
-  versions_bits+=("$(format_version_entry "codex" "$codex_tone" "$codex_installed_display" "$codex_target_display" "$codex_status_display")")
-  versions_bits+=("$(format_version_entry "wrapper" "$wrapper_tone" "$wrapper_installed_display" "$wrapper_target_display" "$wrapper_status_display")")
+  version_rows=()
+  codex_ver_inst="$(extract_version_token "$codex_installed_display")"
+  codex_ver_target="$(extract_version_token "$codex_target_display")"
+  codex_ver_line="${codex_ver_inst:-${codex_installed_display:-unknown}}"
+  if [[ -n "$codex_ver_target" && "$codex_ver_target" != "$codex_ver_inst" ]]; then
+    codex_ver_line+=" -> ${codex_ver_target}"
+  fi
+  if [[ "$codex_tone" == "green" ]]; then
+    codex_ver_line+=" (current)"
+  else
+    codex_ver_line+=" ($(colorize "${codex_status_display:-needs attention}" "$codex_tone"))"
+  fi
+  version_rows+=("${bullet} Codex: ${codex_ver_line}")
+
+  wrapper_ver_inst="$(extract_version_token "$wrapper_installed_display")"
+  wrapper_ver_target="$(extract_version_token "$wrapper_target_display")"
+  wrapper_ver_line="${wrapper_ver_inst:-${wrapper_installed_display:-unknown}}"
+  if [[ -n "$wrapper_ver_target" && "$wrapper_ver_target" != "$wrapper_ver_inst" ]]; then
+    wrapper_ver_line+=" -> ${wrapper_ver_target}"
+  fi
+  if [[ "$wrapper_tone" == "green" ]]; then
+    wrapper_ver_line+=" (current)"
+  else
+    wrapper_ver_line+=" ($(colorize "${wrapper_status_display:-needs attention}" "$wrapper_tone"))"
+  fi
+  version_rows+=("${bullet} Wrapper: ${wrapper_ver_line}")
+
   if [[ -n "$agents_label" ]]; then
-    if [[ "$agents_tone" == "green" ]]; then
-      versions_bits+=("AGENTS ✅")
-    else
-      versions_bits+=("$(format_core_entry "AGENTS" "$agents_tone" "$agents_label")")
+    agents_state="synced"
+    if [[ "$agents_tone" != "green" ]]; then
+      agents_state="$(colorize "$agents_label" "$agents_tone")"
     fi
+    version_rows+=("${bullet} AGENTS.md: ${agents_state}")
   fi
   if [[ -n "$config_label" ]]; then
-    if [[ "$config_tone" == "green" ]]; then
-      versions_bits+=("config.toml ✅")
-    else
-      versions_bits+=("$(format_core_entry "config" "$config_tone" "$config_label")")
+    config_state="synced"
+    if [[ "$config_tone" != "green" ]]; then
+      config_state="$(colorize "$config_label" "$config_tone")"
     fi
-  fi
-  versions_line=""
-  if (( ${#versions_bits[@]} )); then
-    versions_line="Versions: $(join_with_sep ' | ' "${versions_bits[@]}")"
+    version_rows+=("${bullet} config.toml: ${config_state}")
   fi
 
-  usage_bits=()
-  if [[ -n "$HOST_API_CALLS" ]]; then
-    usage_bits+=("calls ${HOST_API_CALLS}")
+  usage_rows=()
+  if [[ "$HOST_API_CALLS" =~ ^[0-9]+$ ]]; then
+    usage_rows+=("${bullet} API calls (host total): $(format_grouped_int "$HOST_API_CALLS")")
   fi
-  token_bits=()
-  [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]] && token_bits+=("total ${HOST_TOKENS_MONTH_TOTAL}")
-  token_line=""
-  if (( ${#token_bits[@]} )); then
-    token_line="$(join_with_sep ' / ' "${token_bits[@]}")"
-  fi
-  if [[ -n "$token_line" ]]; then
-    usage_bits+=("tokens ${token_line}")
+  if [[ "$HOST_TOKENS_MONTH_TOTAL" =~ ^[0-9]+$ ]]; then
+    usage_rows+=("${bullet} Tokens this month: $(format_grouped_int "$HOST_TOKENS_MONTH_TOTAL")")
+  elif [[ -n "$HOST_TOKENS_MONTH_TOTAL" ]]; then
+    usage_rows+=("${bullet} Tokens this month: ${HOST_TOKENS_MONTH_TOTAL}")
   fi
   if [[ -n "$usage_summary" ]]; then
-    usage_bits+=("$usage_summary")
+    usage_rows+=("${bullet} Latest run: ${usage_summary}")
   fi
-  usage_line=""
-  if (( ${#usage_bits[@]} )); then
-    usage_line="Usage: $(join_with_sep ' | ' "${usage_bits[@]}")"
+  if (( ${#usage_rows[@]} == 0 )); then
+    usage_rows+=("${bullet} No host usage data reported yet.")
   fi
 
-  result_line="Result: $(colorize "$result_label" "$result_tone")"
+  result_line="$(colorize "$result_label" "$result_tone")"
   if [[ "${HOST_VIP:-0}" == "1" ]]; then
-    result_line+=" 👑"
+    if output_supports_unicode; then
+      result_line+=" 👑"
+    else
+      result_line+=" (VIP)"
+    fi
   fi
   lane_prefix=""
   if [[ "$quota_lane_label" == "spark" ]]; then
     lane_prefix="spark "
   fi
 
-  other_lane_usage_label=""
   other_lane_usage_value=""
   if [[ "$quota_lane_label" == "spark" ]]; then
     if [[ -n "$CHATGPT_NORMAL_PRIMARY_USED" || -n "$CHATGPT_NORMAL_SECONDARY_USED" ]]; then
-      normal_5h="$(format_quota_bar_text "$CHATGPT_NORMAL_PRIMARY_USED" "$CHATGPT_NORMAL_PRIMARY_RESET_AFTER" "$CHATGPT_NORMAL_PRIMARY_RESET_AT")"
-      normal_wk="$(format_quota_bar_text "$CHATGPT_NORMAL_SECONDARY_USED" "$CHATGPT_NORMAL_SECONDARY_RESET_AFTER" "$CHATGPT_NORMAL_SECONDARY_RESET_AT")"
-      if [[ -z "$normal_5h" ]]; then
-        normal_5h="n/a"
-      fi
-      if [[ -z "$normal_wk" ]]; then
-        normal_wk="n/a"
-      fi
-      other_lane_usage_label="Quota (Normal@s)"
-      other_lane_usage_value="5h ${normal_5h}, week ${normal_wk}"
+      normal_5h="$(quota_pct_or_na "$CHATGPT_NORMAL_PRIMARY_USED")"
+      normal_wk="$(quota_pct_or_na "$CHATGPT_NORMAL_SECONDARY_USED")"
+      other_lane_usage_value="Normal: 5h ${normal_5h}, week ${normal_wk}"
     fi
   else
     if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_USED" ]]; then
-      spark_5h="$(format_quota_bar_text "$CHATGPT_SPARK_PRIMARY_USED" "$CHATGPT_SPARK_PRIMARY_RESET_AFTER" "$CHATGPT_SPARK_PRIMARY_RESET_AT")"
-      spark_wk="$(format_quota_bar_text "$CHATGPT_SPARK_SECONDARY_USED" "$CHATGPT_SPARK_SECONDARY_RESET_AFTER" "$CHATGPT_SPARK_SECONDARY_RESET_AT")"
-      if [[ -z "$spark_5h" ]]; then
-        spark_5h="n/a"
-      fi
-      if [[ -z "$spark_wk" ]]; then
-        spark_wk="n/a"
-      fi
-      other_lane_usage_label="Quota (Spark@s)"
-      other_lane_usage_value="5h ${spark_5h}, week ${spark_wk}"
+      spark_5h="$(quota_pct_or_na "$CHATGPT_SPARK_PRIMARY_USED")"
+      spark_wk="$(quota_pct_or_na "$CHATGPT_SPARK_SECONDARY_USED")"
+      other_lane_usage_value="Spark: 5h ${spark_5h}, week ${spark_wk}"
     fi
   fi
   primary_reset_hint=""
@@ -2229,139 +2320,68 @@ fi
     fi
   fi
 
-	  if (( ! wrapper_updated || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
-	    row_label_width_default="$ROW_LABEL_WIDTH"
-	    # Table summary (default). This is the most robust across terminals and
-	    # avoids unicode box-drawing; content already includes ✅/bars.
-	    core_display="${core_line#Core: }"
-	    versions_display=""
-	    usage_display=""
-	    other_lane_usage_display=""
-	    quota_label_base="Quota (${quota_lane_display})"
-	    [[ -n "$versions_line" ]] && versions_display="${versions_line#Versions: }"
-	    [[ -n "$usage_line" ]] && usage_display="${usage_line#Usage: }"
-	    if [[ -n "$other_lane_usage_label" && -n "$other_lane_usage_value" ]]; then
-	      other_lane_usage_display="$other_lane_usage_value"
-	    fi
-	    if [[ "$SUMMARY_STYLE" == "table" ]]; then
-	      summary_row_labels=("Core" "Versions" "Usage" "Concurrent" "Result")
-	      [[ -n "$other_lane_usage_display" ]] && summary_row_labels+=("$other_lane_usage_label")
-	      [[ -n "$primary_quota_segment" ]] && summary_row_labels+=("${quota_label_base} 5h")
-	      [[ -n "$daily_quota_segment" ]] && summary_row_labels+=("${quota_label_base} day")
-	      [[ -n "$secondary_quota_segment" ]] && summary_row_labels+=("${quota_label_base} wk")
-	      ROW_LABEL_WIDTH="$(compute_row_label_width "${summary_row_labels[@]}")"
-	    fi
+  if (( ! wrapper_updated || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
+    row_label_width_default="$ROW_LABEL_WIDTH"
+    summary_row_labels=("Health" "Versions" "Usage" "Quota" "Result" "Concurrent" "Other lane")
+    ROW_LABEL_WIDTH="$(compute_row_label_width "${summary_row_labels[@]}")"
 
-	    if (( CODEX_MINIMAL_OUTPUT )); then
-	      minimal_core_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
-	      if [[ -n "$agents_label" ]]; then
-	        minimal_core_line+=" agents=${agents_tone}"
-	      fi
-	      if [[ -n "$config_label" ]]; then
-	        minimal_core_line+=" config=${config_tone}"
-	      fi
-	      if (( QUOTA_BLOCKED )); then
-	        minimal_core_line+=" quota=blocked"
-	      elif (( QUOTA_WARNING )); then
-	        minimal_core_line+=" quota=warn"
-	      fi
-	      minimal_result_line="$result_label"
-	      if [[ "${HOST_VIP:-0}" == "1" ]]; then
-	        minimal_result_line+=" (vip)"
-	      fi
-	      log_info "$(format_simple_row "Core" "$minimal_core_line")"
-	      log_info "$(format_simple_row "Result" "$minimal_result_line")"
-	    elif [[ "$SUMMARY_STYLE" == "table" ]]; then
-	      if (( concurrent_compact_summary )); then
-	        log_info "$(format_simple_row "Concurrent" "$(colorize "$concurrent_compact_note" "$concurrent_compact_tone")")"
-		      else
-		        log_info "$(format_simple_row "Core" "$core_display")"
-		        [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
-		        [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
-		        [[ -n "$other_lane_usage_display" ]] && log_info "$(format_simple_row "$other_lane_usage_label" "$other_lane_usage_display")"
-		      fi
-
-	      if [[ -n "$primary_quota_segment" ]]; then
-	        quota_line="${primary_quota_segment}"
-	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	          quota_line+=" ⚠"
-	        fi
-	        log_info "$(format_simple_row "${quota_label_base} 5h" "$quota_line")"
-	      fi
-	      if [[ -n "$daily_quota_segment" ]]; then
-	        quota_line3="${daily_quota_segment}"
-	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	          quota_line3+=" ⚠"
-	        fi
-	        log_info "$(format_simple_row "${quota_label_base} day" "$quota_line3")"
-	      fi
-	      if [[ -n "$secondary_quota_segment" ]]; then
-	        quota_line2="${secondary_quota_segment}"
-	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	          quota_line2+=" ⚠"
-	        fi
-	        log_info "$(format_simple_row "${quota_label_base} wk" "$quota_line2")"
-	      fi
-
-	      if (( ! concurrent_compact_summary )); then
-	        log_info "$(format_simple_row "Result" "${result_line#Result: }")"
-	      fi
-	    else
-	      # Legacy "card" mode for experimentation.
-	      summary_title="Ready"
-	      summary_tone="$result_tone"
-	      if (( QUOTA_BLOCKED )); then
-	        summary_title="Blocked by quota"
-	        summary_tone="red"
-	      elif (( QUOTA_WARNING )); then
-	        summary_title="Quota warning"
-	        summary_tone="yellow"
-	      elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-	        summary_title="Offline mode"
-	        summary_tone="yellow"
-	      elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-	        summary_title="Concurrent guard"
-	        summary_tone="yellow"
-	      fi
-
-	      log_info "$(summary_header "$summary_title" "$summary_tone")"
-	      log_info "$(summary_divider)"
-	      if (( concurrent_compact_summary )); then
-	        log_info "$(wrap_ansi_text "$(summary_row "Concurrent" "$(colorize "$concurrent_compact_note" "$concurrent_compact_tone")")" "${SUMMARY_GUTTER}")"
-		      else
-		        log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
-		        [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
-		        [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
-		        [[ -n "$other_lane_usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "$other_lane_usage_label" "$other_lane_usage_display")" "${SUMMARY_GUTTER}")"
-		      fi
-      log_info "$(wrap_ansi_text "$(summary_row "Quota lane" "$quota_lane_display")" "${SUMMARY_GUTTER}")"
-      if [[ -n "$primary_quota_segment" ]]; then
-        quota_line="${primary_quota_segment}"
-        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-          quota_line+=" ⚠"
-        fi
-        log_info "$(wrap_ansi_text "$(summary_row "Quota ${quota_lane_label} 5h" "$quota_line")" "${SUMMARY_GUTTER}")"
+    if (( CODEX_MINIMAL_OUTPUT )); then
+      minimal_health_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
+      if [[ -n "$agents_label" ]]; then
+        minimal_health_line+=" agents=${agents_tone}"
       fi
-      if [[ -n "$daily_quota_segment" ]]; then
-        quota_line3="${daily_quota_segment}"
-        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-          quota_line3+=" ⚠"
-        fi
-        log_info "$(wrap_ansi_text "$(summary_row "Quota ${quota_lane_label} day" "$quota_line3")" "${SUMMARY_GUTTER}")"
+      if [[ -n "$config_label" ]]; then
+        minimal_health_line+=" config=${config_tone}"
+      fi
+      if (( QUOTA_BLOCKED )); then
+        minimal_health_line+=" quota=blocked"
+      elif (( QUOTA_WARNING )); then
+        minimal_health_line+=" quota=warn"
+      fi
+      minimal_result_line="$result_label"
+      if [[ "${HOST_VIP:-0}" == "1" ]]; then
+        minimal_result_line+=" (vip)"
+      fi
+      log_info "$(format_simple_row "Health" "$minimal_health_line")"
+      log_info "$(format_simple_row "Result" "$minimal_result_line")"
+    else
+      if (( concurrent_compact_summary )); then
+        print_section_rows "Concurrent" "${bullet} $(colorize "$concurrent_compact_note" "$concurrent_compact_tone")"
+      else
+        print_section_rows "Health" "${health_rows[@]}"
+        print_section_rows "Versions" "${version_rows[@]}"
+        print_section_rows "Usage" "${usage_rows[@]}"
+      fi
+
+      quota_rows=()
+      quota_rows+=("${bullet} Active lane: ${quota_lane_display}")
+      if [[ -n "$primary_quota_segment" ]]; then
+        quota_rows+=("${bullet} 5h window: ${primary_quota_segment}")
       fi
       if [[ -n "$secondary_quota_segment" ]]; then
-        quota_line2="${secondary_quota_segment}"
-        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-          quota_line2+=" ⚠"
-        fi
-        log_info "$(wrap_ansi_text "$(summary_row "Quota ${quota_lane_label} wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
+        quota_rows+=("${bullet} Weekly window: ${secondary_quota_segment}")
       fi
-	      if (( ! concurrent_compact_summary )); then
-	        log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
-	      fi
-	    fi
-	    ROW_LABEL_WIDTH="$row_label_width_default"
-	  fi
+      if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
+        quota_rows+=("${bullet} Daily allowance: ${daily_quota_segment}")
+      fi
+      if [[ -n "$other_lane_usage_value" ]]; then
+        quota_rows+=("${bullet} ${other_lane_usage_value}")
+      fi
+      if (( QUOTA_WARNING )) && [[ -n "$QUOTA_WARNING_REASON" ]]; then
+        quota_rows+=("${bullet} $(colorize "Near limit: ${QUOTA_WARNING_REASON}" "yellow")")
+      fi
+      if (( QUOTA_BLOCKED )) && [[ -n "$QUOTA_BLOCK_REASON" ]]; then
+        quota_rows+=("${bullet} $(colorize "Limit reached: ${QUOTA_BLOCK_REASON}" "red")")
+      fi
+      print_section_rows "Quota" "${quota_rows[@]}"
+
+      if (( ! concurrent_compact_summary )); then
+        print_section_rows "Result" "${bullet} ${result_line}"
+      fi
+    fi
+
+    ROW_LABEL_WIDTH="$row_label_width_default"
+  fi
 
 if (( CODEX_DOCTOR_ONLY )); then
   print_doctor_report
