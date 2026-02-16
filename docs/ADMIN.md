@@ -4,11 +4,13 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 
 ## Access & Auth
 - Base path: `/admin/`.
+- Dedicated login page: `/admin/login`.
 - mTLS is enforced when `ADMIN_ACCESS_MODE=mtls` (default). If you disable it (`ADMIN_ACCESS_MODE=none`), gate the path another way (VPN/firewall).
 - Behind a proxy, make sure it forwards `X-MTLS-*` headers and real client IPs.
 - Admin login is enforced once at least one active admin user exists; userless installs behave like the legacy dashboard until the first admin is created.
+- When login is enforced, `/admin/` redirects unauthenticated sessions to `/admin/login`; authenticated sessions visiting `/admin/login` are redirected to `/admin/`.
 - Sessions are stored in an HTTP-only cookie (`ADMIN_SESSION_COOKIE`, default `codex_admin_session`) and expire after `ADMIN_SESSION_TTL_SECONDS` (default 8h).
-- Password recovery requires outbound email configuration (`ADMIN_PASSWORD_RESET_FROM`, optionally `ADMIN_PASSWORD_RESET_FROM_NAME` + `ADMIN_PASSWORD_RESET_BASE_URL`).
+- Password reset endpoints are disabled (`POST /admin/auth/password/request` and `POST /admin/auth/password/reset` return `410 Gone`).
 - Live updates (optional): enable the admin websocket server (`ADMIN_WS_ENABLED=1`) and run `scripts/admin-ws.php` (or the `admin-ws` compose service). `/admin/ws/info` advertises the public `wss://` URL (or set `ADMIN_WS_PUBLIC_URL`). mTLS is enforced by the proxy the same way as `/admin/`.
   - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
 

@@ -85,8 +85,9 @@ Records the current `username` and optional `hostname` for the calling host, ret
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
   - `POST /admin/auth/login` — `{username, password}`; sets HTTP-only session cookie.
   - `POST /admin/auth/logout` — clears session.
-  - `POST /admin/auth/password/request` — `{identity}` (username or email); sends reset email when configured.
-  - `POST /admin/auth/password/reset` — `{token, password}`.
+  - `GET /admin/login` — dedicated admin login page (HTML).
+  - `POST /admin/auth/password/request` — disabled (`410 Gone`).
+  - `POST /admin/auth/password/reset` — disabled (`410 Gone`).
   - `GET /admin/users` — list admin users.
   - `POST /admin/users` — create admin user (first user must be admin).
   - `POST /admin/users/{id}` — update admin user.

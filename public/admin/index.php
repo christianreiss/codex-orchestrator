@@ -7,6 +7,15 @@
  * GitHub: https://github.com/christianreiss/codex-orchestrator
  */
 
+use App\Config;
+use App\Database;
+use App\Repositories\AdminPasswordResetRepository;
+use App\Repositories\AdminSessionRepository;
+use App\Repositories\AdminUserRepository;
+use App\Repositories\LogRepository;
+use App\Services\AdminAuthService;
+use App\Support\Mailer;
+
 // Bootstrap env (mirrors public/index.php).
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 if (file_exists(dirname(__DIR__, 2) . '/.env')) {
@@ -31,6 +40,12 @@ if ($mode === false && array_key_exists('ADMIN_ACCESS_MODE', $_ENV)) {
 $mode = strtolower(trim((string) ($mode === false ? 'mtls' : $mode)));
 $mtlsRequired = $mode !== 'none';
 
+function redirectTo(string $path): void
+{
+    header('Location: ' . $path, true, 302);
+    exit;
+}
+
 function isMobileUserAgent(string $userAgent): bool
 {
     return preg_match('/android|iphone|ipad|ipod|mobile|blackberry|phone|opera mini|windows phone/i', $userAgent) === 1;
@@ -47,32 +62,120 @@ if ($mtlsRequired && !$hasValidFingerprint) {
     exit;
 }
 
-// No passkey system; admin enforcement is mTLS-only (or disabled explicitly).
+$root = dirname(__DIR__, 2);
+$adminAuthService = null;
 
-$html = __DIR__ . '/index.html';
+try {
+    $database = new Database([
+        'driver' => Config::get('DB_DRIVER', 'mysql'),
+        'host' => Config::get('DB_HOST', 'mysql'),
+        'port' => (int) Config::get('DB_PORT', 3306),
+        'database' => Config::get('DB_DATABASE', 'codex_auth'),
+        'username' => Config::get('DB_USERNAME', 'codex'),
+        'password' => Config::get('DB_PASSWORD', 'codex-pass'),
+        'charset' => Config::get('DB_CHARSET', 'utf8mb4'),
+    ]);
+
+    // Keep schema bootstrap behavior aligned with public/index.php.
+    $schemaHash = hash_file('sha256', $root . '/src/Database.php') ?: '';
+    $schemaKey = $schemaHash !== '' ? substr($schemaHash, 0, 12) : 'unknown';
+    $sentinelDir = $root . '/storage/wrapper';
+    if (!is_dir($sentinelDir)) {
+        @mkdir($sentinelDir, 0775, true);
+    }
+    $migrateSentinel = $sentinelDir . '/.db_migrated_' . $schemaKey;
+    $migrateLockPath = $sentinelDir . '/.db_migrate.lock';
+    if (!is_file($migrateSentinel)) {
+        $lock = @fopen($migrateLockPath, 'c+');
+        if (is_resource($lock)) {
+            @flock($lock, LOCK_EX);
+        }
+        if (!is_file($migrateSentinel)) {
+            $database->migrate();
+            @file_put_contents($migrateSentinel, gmdate(DATE_ATOM) . "\n");
+        }
+        if (is_resource($lock)) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
+    }
+
+    $adminAuthService = new AdminAuthService(
+        new AdminUserRepository($database),
+        new AdminSessionRepository($database),
+        new AdminPasswordResetRepository($database),
+        new LogRepository($database),
+        new Mailer()
+    );
+} catch (\Throwable $exception) {
+    error_log('[admin] auth bootstrap failed: ' . $exception->getMessage());
+}
+
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/admin', PHP_URL_PATH);
+if (!is_string($requestPath) || $requestPath === '') {
+    $requestPath = '/admin';
+}
+$normalizedPath = rtrim($requestPath, '/');
+if ($normalizedPath === '') {
+    $normalizedPath = '/';
+}
+
+$isLoginRoute = $normalizedPath === '/admin/login';
+$isDashboardRoute = !$isLoginRoute;
+$adminSession = null;
+$loginEnforced = false;
+
+if ($adminAuthService instanceof AdminAuthService) {
+    try {
+        $loginEnforced = $adminAuthService->isEnforced();
+        $cookieName = $adminAuthService->sessionCookieName();
+        $tokenRaw = $_COOKIE[$cookieName] ?? null;
+        $token = is_string($tokenRaw) ? trim($tokenRaw) : '';
+        if ($token !== '') {
+            $adminSession = $adminAuthService->resolveSession($token);
+        }
+    } catch (\Throwable $exception) {
+        error_log('[admin] auth session lookup failed: ' . $exception->getMessage());
+    }
+}
+
+$isAuthenticated = is_array($adminSession) && isset($adminSession['user']);
+
+if ($isDashboardRoute && $loginEnforced && !$isAuthenticated) {
+    redirectTo('/admin/login');
+}
+
+if ($isLoginRoute && (!$loginEnforced || $isAuthenticated)) {
+    redirectTo('/admin/');
+}
+
+$html = $isLoginRoute ? __DIR__ . '/login.html' : __DIR__ . '/index.html';
 if (!is_file($html)) {
     header('Content-Type: text/plain; charset=utf-8', true, 500);
-    echo 'Admin UI missing';
+    echo $isLoginRoute ? 'Admin login UI missing' : 'Admin UI missing';
     exit;
 }
 
-$viewParam = $_GET['view'] ?? '';
-if (is_array($viewParam)) {
-    $viewParam = '';
+$shouldServeMobile = false;
+if (!$isLoginRoute) {
+    $viewParam = $_GET['view'] ?? '';
+    if (is_array($viewParam)) {
+        $viewParam = '';
+    }
+    $viewParam = strtolower(trim((string) $viewParam));
+    $forceMobile = $viewParam === 'mobile';
+    $forceDesktop = $viewParam === 'desktop';
+    $shouldServeMobile = !$forceDesktop && ($forceMobile || isMobileUserAgent($_SERVER['HTTP_USER_AGENT'] ?? ''));
 }
-$viewParam = strtolower(trim((string) $viewParam));
-$forceMobile = $viewParam === 'mobile';
-$forceDesktop = $viewParam === 'desktop';
-$shouldServeMobile = !$forceDesktop && ($forceMobile || isMobileUserAgent($_SERVER['HTTP_USER_AGENT'] ?? ''));
 
 $content = file_get_contents($html);
 if ($content === false) {
     header('Content-Type: text/plain; charset=utf-8', true, 500);
-    echo 'Unable to load admin UI';
+    echo $isLoginRoute ? 'Unable to load admin login UI' : 'Unable to load admin UI';
     exit;
 }
 
-if ($shouldServeMobile) {
+if (!$isLoginRoute && $shouldServeMobile) {
     $content = str_replace('data-view="desktop"', 'data-view="mobile"', $content, $count);
     if ($count === 0) {
         $content = preg_replace('/<body(\\s*)>/', '<body data-view="mobile">', $content, 1);
@@ -80,5 +183,8 @@ if ($shouldServeMobile) {
 }
 
 header('Content-Type: text/html; charset=utf-8');
-header('X-Dashboard-View: ' . ($shouldServeMobile ? 'mobile' : 'desktop'));
+header('X-Admin-Page: ' . ($isLoginRoute ? 'login' : 'dashboard'));
+if (!$isLoginRoute) {
+    header('X-Dashboard-View: ' . ($shouldServeMobile ? 'mobile' : 'desktop'));
+}
 echo $content;

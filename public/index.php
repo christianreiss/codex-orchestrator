@@ -405,28 +405,20 @@ $router->add('POST', '#^/admin/auth/logout$#', function () use ($adminAuthServic
     ]);
 });
 
-$router->add('POST', '#^/admin/auth/password/request$#', function () use ($payload, $adminAuthService) {
+$router->add('POST', '#^/admin/auth/password/request$#', function () {
     requireAdminAccess();
-    $identity = is_array($payload) ? (string) ($payload['identity'] ?? '') : '';
-    $adminAuthService->requestPasswordReset($identity);
-
     Response::json([
-        'status' => 'ok',
-    ]);
+        'status' => 'error',
+        'message' => 'Password reset is disabled',
+    ], 410);
 });
 
-$router->add('POST', '#^/admin/auth/password/reset$#', function () use ($payload, $adminAuthService) {
+$router->add('POST', '#^/admin/auth/password/reset$#', function () {
     requireAdminAccess();
-    $token = is_array($payload) ? (string) ($payload['token'] ?? '') : '';
-    $password = is_array($payload) ? (string) ($payload['password'] ?? '') : '';
-    $user = $adminAuthService->resetPassword($token, $password);
-
     Response::json([
-        'status' => 'ok',
-        'data' => [
-            'user' => $user,
-        ],
-    ]);
+        'status' => 'error',
+        'message' => 'Password reset is disabled',
+    ], 410);
 });
 
 $router->add('GET', '#^/admin/users$#', function () use ($adminUserService, $adminUserRepository) {
