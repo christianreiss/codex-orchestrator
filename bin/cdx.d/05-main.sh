@@ -484,6 +484,8 @@ ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 QUOTA_METRIC_LABEL_WIDTH=20
 SUMMARY_ITEMS_PER_ROW=3
+SUMMARY_ITEMS_PER_ROW_QUOTA=1
+SUMMARY_COLUMN_GAP=4
 
 # Summary formatting (bootup message).
 # We render a compact "header + rows" block with a modern look while keeping
@@ -654,38 +656,93 @@ print_section_rows() {
   local label="$1"; shift
   local first=1
   local items_per_row="$SUMMARY_ITEMS_PER_ROW"
+  if [[ "$label" == "Quota" ]]; then
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"
+  fi
   if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then
     items_per_row="${CODEX_SUMMARY_ITEMS_PER_ROW}"
   fi
+  local label_key
+  label_key="$(printf '%s' "$label" | tr '[:lower:]' '[:upper:]' | tr -c '[:alnum:]' '_')"
+  local label_items_var="CODEX_SUMMARY_ITEMS_PER_ROW_${label_key}"
+  local label_items="${!label_items_var-}"
+  if [[ "$label_items" =~ ^[1-9][0-9]*$ ]]; then
+    items_per_row="$label_items"
+  fi
+  if [[ ! "$items_per_row" =~ ^[1-9][0-9]*$ ]]; then
+    items_per_row=1
+  fi
 
-  local packed_line=""
-  local packed_count=0
+  local gap_width="${SUMMARY_COLUMN_GAP:-4}"
+  if [[ ! "$gap_width" =~ ^[0-9]+$ ]]; then
+    gap_width=4
+  fi
+  local gap
+  gap="$(printf '%*s' "$gap_width" "")"
+
+  local section_entries=()
   local line
   for line in "$@"; do
     [[ -z "$line" ]] && continue
-    if (( packed_count == 0 )); then
-      packed_line="$line"
-    else
-      packed_line+=$'\t'"$line"
+    section_entries+=("$line")
+  done
+  if (( ${#section_entries[@]} == 0 )); then
+    return 0
+  fi
+
+  local column_widths=()
+  local col=0
+  for (( col = 0; col < items_per_row; col++ )); do
+    column_widths[col]=0
+  done
+
+  local entry_index=0
+  local entry=""
+  local plain=""
+  local plain_len=0
+  for entry in "${section_entries[@]}"; do
+    col=$(( entry_index % items_per_row ))
+    plain="$(strip_ansi_sgr "$entry")"
+    plain_len=${#plain}
+    if (( plain_len > column_widths[col] )); then
+      column_widths[col]=$plain_len
     fi
-    packed_count=$(( packed_count + 1 ))
-    if (( packed_count >= items_per_row )); then
+    entry_index=$(( entry_index + 1 ))
+  done
+
+  local row_text=""
+  local padded_entry=""
+  entry_index=0
+  for entry in "${section_entries[@]}"; do
+    col=$(( entry_index % items_per_row ))
+    if (( col > 0 )); then
+      row_text+="$gap"
+    fi
+    padded_entry="$entry"
+    plain="$(strip_ansi_sgr "$entry")"
+    plain_len=${#plain}
+    if (( plain_len < column_widths[col] )); then
+      padded_entry+="$(printf '%*s' "$((column_widths[col] - plain_len))" "")"
+    fi
+    row_text+="$padded_entry"
+
+    entry_index=$(( entry_index + 1 ))
+    if (( entry_index % items_per_row == 0 )); then
       if (( first )); then
-        log_info "$(format_simple_row "$label" "$packed_line")"
+        log_info "$(format_simple_row "$label" "$row_text")"
         first=0
       else
-        log_info "$(format_simple_row "" "$packed_line")"
+        log_info "$(format_simple_row "" "$row_text")"
       fi
-      packed_line=""
-      packed_count=0
+      row_text=""
     fi
   done
 
-  if (( packed_count > 0 )); then
+  if [[ -n "$row_text" ]]; then
     if (( first )); then
-      log_info "$(format_simple_row "$label" "$packed_line")"
+      log_info "$(format_simple_row "$label" "$row_text")"
     else
-      log_info "$(format_simple_row "" "$packed_line")"
+      log_info "$(format_simple_row "" "$row_text")"
     fi
   fi
 }
