@@ -1,0 +1,211 @@
+name: cdx-runnable-matrix
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wrapper-static-tests:
+    name: Wrapper Static Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer:v2
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Rebuild wrapper
+        run: scripts/build-cdx.sh
+
+      - name: Assert built wrapper is up to date
+        run: git diff --exit-code -- bin/cdx
+
+      - name: Run wrapper coverage tests
+        run: |
+          vendor/bin/phpunit \
+            tests/CdxWrapperScriptDependencyTest.php \
+            tests/CdxWrapperPackageManagerSupportTest.php \
+            tests/CdxWrapperPythonCompatibilityTest.php \
+            tests/CdxWrapperNonTtyDispatchTest.php
+
+  linux-runnable-smoke:
+    name: Linux Runnable Smoke (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 12
+            image: debian:12
+            expected_pm: apt-get
+          - name: Fedora 41
+            image: fedora:41
+            expected_pm: dnf
+          - name: CentOS 7
+            image: quay.io/centos/centos:7
+            expected_pm: yum
+          - name: CentOS Stream 9
+            image: quay.io/centos/centos:stream9
+            expected_pm: dnf
+          - name: AlmaLinux 9
+            image: almalinux:9
+            expected_pm: dnf
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Smoke wrapper in target distro
+        env:
+          IMAGE: ${{ matrix.image }}
+          EXPECTED_PM: ${{ matrix.expected_pm }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            -e EXPECTED_PM="$EXPECTED_PM" \
+            "$IMAGE" \
+            bash -s <<'EOF'
+              set -euo pipefail
+
+              detect_fn="$(awk '/^detect_linux_package_manager\(\) \{/{flag=1} flag{print} /^}/{if(flag){exit}}' bin/cdx.d/00-prolog.sh)"
+              eval "$detect_fn"
+              pm="$(detect_linux_package_manager)"
+              echo "detected package manager: $pm"
+              if [[ "$pm" != "$EXPECTED_PM" ]]; then
+                echo "expected package manager $EXPECTED_PM, got $pm" >&2
+                exit 1
+              fi
+
+              tmpbin="$(mktemp -d)"
+              home_tmp="$(mktemp -d)"
+              now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+              printf "%s\n" \
+                "#!/usr/bin/env bash" \
+                "if [[ \"\${1:-}\" == \"-V\" || \"\${1:-}\" == \"--version\" ]]; then" \
+                "  echo \"codex 0.0.0-test\"" \
+                "  exit 0" \
+                "fi" \
+                "echo \"codex stub\"" \
+                "exit 0" > "$tmpbin/codex"
+
+              printf "%s\n" \
+                "#!/usr/bin/env bash" \
+                "exit 1" > "$tmpbin/curl"
+
+              printf "%s\n" \
+                "#!/usr/bin/env bash" \
+                "exit 0" > "$tmpbin/unzip"
+
+              printf "%s\n" \
+                "#!/usr/bin/env bash" \
+                "exit 0" > "$tmpbin/script"
+
+              chmod +x "$tmpbin/codex" "$tmpbin/curl" "$tmpbin/unzip" "$tmpbin/script"
+
+              mkdir -p "$home_tmp/.codex"
+              printf '{"last_refresh":"%s","auths":{}}\n' "$now" > "$home_tmp/.codex/auth.json"
+
+              if ! PATH="$tmpbin:$PATH" HOME="$home_tmp" ./bin/cdx --wrapper-version | grep -q "^cdx wrapper "; then
+                echo "wrapper version command failed" >&2
+                exit 1
+              fi
+
+              set +e
+              PATH="$tmpbin:$PATH" HOME="$home_tmp" CODEX_SKIP_MOTD=1 CODEX_SILENT=1 ./bin/cdx status >"$home_tmp/cdx-status.out" 2>&1
+              status=$?
+              set -e
+              cat "$home_tmp/cdx-status.out" || true
+
+              if [[ "$status" -ne 0 && "$status" -ne 1 ]]; then
+                echo "unexpected cdx status exit code: $status" >&2
+                exit 1
+              fi
+              if grep -q "Unsupported package manager" "$home_tmp/cdx-status.out"; then
+                echo "unexpected unsupported package manager error" >&2
+                exit 1
+              fi
+              if grep -q "Unable to determine package manager" "$home_tmp/cdx-status.out"; then
+                echo "unexpected package manager detection failure" >&2
+                exit 1
+              fi
+          EOF
+
+  macos-runnable-smoke:
+    name: macOS Runnable Smoke (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - macos-13
+          - macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Smoke wrapper on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tmpbin="$(mktemp -d)"
+          home_tmp="$(mktemp -d)"
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          printf "%s\n" \
+            "#!/usr/bin/env bash" \
+            "if [[ \"\${1:-}\" == \"-V\" || \"\${1:-}\" == \"--version\" ]]; then" \
+            "  echo \"codex 0.0.0-test\"" \
+            "  exit 0" \
+            "fi" \
+            "echo \"codex stub\"" \
+            "exit 0" > "$tmpbin/codex"
+
+          printf "%s\n" \
+            "#!/usr/bin/env bash" \
+            "exit 1" > "$tmpbin/curl"
+
+          printf "%s\n" \
+            "#!/usr/bin/env bash" \
+            "exit 0" > "$tmpbin/unzip"
+
+          chmod +x "$tmpbin/codex" "$tmpbin/curl" "$tmpbin/unzip"
+
+          mkdir -p "$home_tmp/.codex"
+          printf '{"last_refresh":"%s","auths":{}}\n' "$now" > "$home_tmp/.codex/auth.json"
+
+          if ! PATH="$tmpbin:$PATH" HOME="$home_tmp" ./bin/cdx --wrapper-version | grep -q "^cdx wrapper "; then
+            echo "wrapper version command failed" >&2
+            exit 1
+          fi
+
+          set +e
+          PATH="$tmpbin:$PATH" HOME="$home_tmp" CODEX_SKIP_MOTD=1 CODEX_SILENT=1 ./bin/cdx status >"$home_tmp/cdx-status.out" 2>&1
+          status=$?
+          set -e
+          cat "$home_tmp/cdx-status.out" || true
+
+          if [[ "$status" -ne 0 && "$status" -ne 1 ]]; then
+            echo "unexpected cdx status exit code: $status" >&2
+            exit 1
+          fi
+          if grep -q "Install Homebrew (brew)" "$home_tmp/cdx-status.out"; then
+            echo "macOS prerequisite check unexpectedly failed for brew/python3/curl/unzip" >&2
+            exit 1
+          fi

@@ -57,7 +57,7 @@ ensure_commands() {
           pacman:python3)
             pkg="python"
             ;;
-          pacman:script|apk:script)
+          pacman:script|apk:script|dnf:script|yum:script)
             pkg="util-linux"
             ;;
         esac
@@ -81,6 +81,14 @@ ensure_commands() {
             "${use_sudo[@]}" dnf install -y "${install_missing[@]}"
           else
             dnf install -y "${install_missing[@]}"
+          fi
+          ;;
+        yum)
+          log_info "Installing prerequisites (${missing[*]}) with yum"
+          if (( ${#use_sudo[@]} > 0 )); then
+            "${use_sudo[@]}" yum install -y "${install_missing[@]}"
+          else
+            yum install -y "${install_missing[@]}"
           fi
           ;;
         pacman)

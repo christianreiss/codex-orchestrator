@@ -478,7 +478,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.16-06"
+WRAPPER_VERSION="2026.02.16-07"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -819,6 +819,10 @@ detect_linux_package_manager() {
           printf '%s' dnf
           return 0
         fi
+        if command -v yum >/dev/null 2>&1; then
+          printf '%s' yum
+          return 0
+        fi
         ;;
       arch|manjaro|endeavouros)
         if command -v pacman >/dev/null 2>&1; then
@@ -846,6 +850,10 @@ detect_linux_package_manager() {
   fi
   if command -v dnf >/dev/null 2>&1; then
     printf '%s' dnf
+    return 0
+  fi
+  if command -v yum >/dev/null 2>&1; then
+    printf '%s' yum
     return 0
   fi
   if command -v pacman >/dev/null 2>&1; then
