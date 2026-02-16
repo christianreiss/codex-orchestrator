@@ -136,15 +136,19 @@ try {
     $plan = (string) ($snapshot['plan_type'] ?? 'n/a');
     $primary = $snapshot['primary_used_percent'] ?? null;
     $secondary = $snapshot['secondary_used_percent'] ?? null;
+    $sparkPrimary = $snapshot['spark_primary_used_percent'] ?? null;
+    $sparkSecondary = $snapshot['spark_secondary_used_percent'] ?? null;
     $next = $result['next_eligible_at'] ?? ($snapshot['next_eligible_at'] ?? null);
     $cached = $result['cached'] ?? false;
 
     $summary = sprintf(
-        'chatgpt_usage status=%s plan=%s primary=%s secondary=%s cached=%s next=%s',
+        'chatgpt_usage status=%s plan=%s primary=%s secondary=%s spark_primary=%s spark_secondary=%s cached=%s next=%s',
         $status,
         $plan === '' ? 'n/a' : $plan,
         $primary === null ? 'n/a' : $primary . '%',
         $secondary === null ? 'n/a' : $secondary . '%',
+        $sparkPrimary === null ? 'n/a' : $sparkPrimary . '%',
+        $sparkSecondary === null ? 'n/a' : $sparkSecondary . '%',
         $cached ? 'yes' : 'no',
         $next ?? 'n/a'
     );

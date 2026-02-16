@@ -42,6 +42,22 @@ class InMemoryChatGptUsageRepository implements ChatGptUsageStore
             return $ts !== false && $ts >= $cutoff;
         }));
     }
+
+    public function earliestSince(string $sinceIso): ?array
+    {
+        $cutoff = strtotime($sinceIso);
+        if ($cutoff === false) {
+            return null;
+        }
+        foreach ($this->items as $item) {
+            $ts = isset($item['fetched_at']) ? strtotime((string) $item['fetched_at']) : false;
+            if ($ts !== false && $ts >= $cutoff) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
 }
 
 final class ChatGptUsageServiceTest extends TestCase
@@ -128,6 +144,28 @@ final class ChatGptUsageServiceTest extends TestCase
                     'reset_at' => 1234567999,
                 ],
             ],
+            'additional_rate_limits' => [
+                [
+                    'limit_name' => 'GPT-5.3-Codex-Spark',
+                    'metered_feature' => 'codex_bengalfox',
+                    'rate_limit' => [
+                        'allowed' => true,
+                        'limit_reached' => false,
+                        'primary_window' => [
+                            'used_percent' => 4,
+                            'limit_window_seconds' => 18000,
+                            'reset_after_seconds' => 1200,
+                            'reset_at' => 1234567000,
+                        ],
+                        'secondary_window' => [
+                            'used_percent' => 33,
+                            'limit_window_seconds' => 604800,
+                            'reset_after_seconds' => 3333,
+                            'reset_at' => 1234570000,
+                        ],
+                    ],
+                ],
+            ],
             'credits' => [
                 'has_credits' => false,
                 'unlimited' => false,
@@ -158,6 +196,9 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertSame('pro', $snapshot['plan_type']);
         $this->assertSame(10, $snapshot['primary_used_percent']);
         $this->assertSame(20, $snapshot['secondary_used_percent']);
+        $this->assertSame('GPT-5.3-Codex-Spark', $snapshot['spark_limit_name']);
+        $this->assertSame(4, $snapshot['spark_primary_used_percent']);
+        $this->assertSame(33, $snapshot['spark_secondary_used_percent']);
         $this->assertSame([0, 0], $snapshot['approx_local_messages']);
         $this->assertFalse($result['cached']);
     }
@@ -178,6 +219,18 @@ final class ChatGptUsageServiceTest extends TestCase
             'secondary_limit_seconds' => 604800,
             'secondary_reset_after_seconds' => 7200,
             'secondary_reset_at' => '2025-12-02T00:00:00Z',
+            'spark_limit_name' => 'GPT-5.3-Codex-Spark',
+            'spark_metered_feature' => 'codex_bengalfox',
+            'spark_rate_allowed' => true,
+            'spark_rate_limit_reached' => false,
+            'spark_primary_used_percent' => 9,
+            'spark_primary_limit_seconds' => 18000,
+            'spark_primary_reset_after_seconds' => 900,
+            'spark_primary_reset_at' => '2025-11-26T14:30:00Z',
+            'spark_secondary_used_percent' => 27,
+            'spark_secondary_limit_seconds' => 604800,
+            'spark_secondary_reset_after_seconds' => 42000,
+            'spark_secondary_reset_at' => '2025-12-01T09:00:00Z',
             'fetched_at' => '2025-11-26T10:00:00Z',
             'next_eligible_at' => '2025-11-26T10:05:00Z',
         ]);
@@ -193,6 +246,9 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertSame(45, $summary['primary_window']['used_percent']);
         $this->assertSame(604800, $summary['secondary_window']['limit_seconds']);
         $this->assertSame('2025-12-02T00:00:00Z', $summary['secondary_window']['reset_at']);
+        $this->assertSame(45, $summary['normal_window']['primary_window']['used_percent']);
+        $this->assertSame(27, $summary['spark_window']['secondary_window']['used_percent']);
+        $this->assertSame('GPT-5.3-Codex-Spark', $summary['spark_limit_name']);
     }
 
     public function testHistoryReturnsPointsWithinWindow(): void
@@ -200,9 +256,9 @@ final class ChatGptUsageServiceTest extends TestCase
         $repo = new InMemoryChatGptUsageRepository();
         $now = time();
         $repo->items = [
-            ['fetched_at' => gmdate(DATE_ATOM, $now - (70 * 86400)), 'primary_used_percent' => 10],
-            ['fetched_at' => gmdate(DATE_ATOM, $now - (40 * 86400)), 'primary_used_percent' => 20],
-            ['fetched_at' => gmdate(DATE_ATOM, $now - (5 * 86400)), 'primary_used_percent' => 30],
+            ['fetched_at' => gmdate(DATE_ATOM, $now - (70 * 86400)), 'primary_used_percent' => 10, 'spark_primary_used_percent' => 1],
+            ['fetched_at' => gmdate(DATE_ATOM, $now - (40 * 86400)), 'primary_used_percent' => 20, 'spark_primary_used_percent' => 5],
+            ['fetched_at' => gmdate(DATE_ATOM, $now - (5 * 86400)), 'primary_used_percent' => 30, 'spark_primary_used_percent' => 8],
         ];
 
         $auth = $this->getMockBuilder(AuthService::class)->disableOriginalConstructor()->getMock();
@@ -215,5 +271,7 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertCount(2, $history['points']);
         $this->assertSame(20, $history['points'][0]['primary_used_percent']);
         $this->assertSame(30, $history['points'][1]['primary_used_percent']);
+        $this->assertSame(5, $history['points'][0]['spark_primary_used_percent']);
+        $this->assertSame(8, $history['points'][1]['spark_primary_used_percent']);
     }
 }

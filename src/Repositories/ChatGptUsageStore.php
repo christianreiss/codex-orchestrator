@@ -19,4 +19,6 @@ interface ChatGptUsageStore
      * @return array<int, array<string, mixed>>
      */
     public function history(?string $since = null): array;
+
+    public function earliestSince(string $sinceIso): ?array;
 }

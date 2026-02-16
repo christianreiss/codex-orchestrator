@@ -1860,6 +1860,15 @@ fi
     quota_summary="Warn at ≥${quota_limit}% usage; continue running."
   fi
 
+  quota_lane_label="normal"
+  if [[ "$(lowercase "$CHATGPT_ACTIVE_LANE")" == "spark" ]]; then
+    quota_lane_label="spark"
+  fi
+  quota_lane_display="${quota_lane_label}"
+  if [[ "$quota_lane_display" == "spark" && -n "$CHATGPT_SPARK_LIMIT_NAME" ]]; then
+    quota_lane_display="${quota_lane_display} (${CHATGPT_SPARK_LIMIT_NAME})"
+  fi
+
   partition_days="$QUOTA_WEEK_PARTITION"
   if [[ ! "$partition_days" =~ ^[0-9]+$ ]]; then
     partition_days=0
@@ -1980,6 +1989,44 @@ fi
   if [[ "${HOST_VIP:-0}" == "1" ]]; then
     result_line+=" 👑"
   fi
+  lane_prefix=""
+  if [[ "$quota_lane_label" == "spark" ]]; then
+    lane_prefix="spark "
+  fi
+
+  other_lane_summary=""
+  if [[ "$quota_lane_label" == "spark" ]]; then
+    if [[ -n "$CHATGPT_NORMAL_PRIMARY_USED" || -n "$CHATGPT_NORMAL_SECONDARY_USED" ]]; then
+      normal_5h="${CHATGPT_NORMAL_PRIMARY_USED:-n/a}"
+      normal_wk="${CHATGPT_NORMAL_SECONDARY_USED:-n/a}"
+      if [[ "$normal_5h" =~ ^[0-9]+$ ]]; then
+        normal_5h="${normal_5h}%"
+      fi
+      if [[ "$normal_wk" =~ ^[0-9]+$ ]]; then
+        normal_wk="${normal_wk}%"
+      fi
+      other_lane_summary="normal lane 5h ${normal_5h}, week ${normal_wk}"
+    fi
+  else
+    if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_USED" ]]; then
+      spark_5h="${CHATGPT_SPARK_PRIMARY_USED:-n/a}"
+      spark_wk="${CHATGPT_SPARK_SECONDARY_USED:-n/a}"
+      if [[ "$spark_5h" =~ ^[0-9]+$ ]]; then
+        spark_5h="${spark_5h}%"
+      fi
+      if [[ "$spark_wk" =~ ^[0-9]+$ ]]; then
+        spark_wk="${spark_wk}%"
+      fi
+      other_lane_summary="spark lane 5h ${spark_5h}, week ${spark_wk}"
+    fi
+  fi
+  if [[ -n "$other_lane_summary" ]]; then
+    if [[ -n "$usage_line" ]]; then
+      usage_line+=" | ${other_lane_summary}"
+    else
+      usage_line="Usage: ${other_lane_summary}"
+    fi
+  fi
   primary_reset_hint=""
   primary_quota_segment=""
   qline=$(render_quota_line "$CHATGPT_PRIMARY_USED" "$CHATGPT_PRIMARY_RESET_AFTER" "$CHATGPT_PRIMARY_RESET_AT")
@@ -2095,12 +2142,12 @@ fi
   fi
   if [[ "$CHATGPT_PRIMARY_USED" =~ ^[0-9]+$ ]]; then
     if (( CHATGPT_PRIMARY_USED >= quota_limit )); then
-      reason="5h quota reached (${CHATGPT_PRIMARY_USED}% used"
+      reason="${lane_prefix}5h quota reached (${CHATGPT_PRIMARY_USED}% used"
       [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
       reason+=")"
       quota_reasons+=("$reason")
     elif (( CHATGPT_PRIMARY_USED >= quota_warn_threshold )); then
-      reason="5h quota high (${CHATGPT_PRIMARY_USED}% used"
+      reason="${lane_prefix}5h quota high (${CHATGPT_PRIMARY_USED}% used"
       [[ -n "$primary_reset_hint" ]] && reason+="; ${primary_reset_hint}"
       reason+=")"
       quota_warnings+=("$reason")
@@ -2108,12 +2155,12 @@ fi
   fi
   if [[ "$CHATGPT_SECONDARY_USED" =~ ^[0-9]+$ ]]; then
     if (( CHATGPT_SECONDARY_USED >= quota_limit )); then
-      reason="week quota reached (${CHATGPT_SECONDARY_USED}% used"
+      reason="${lane_prefix}week quota reached (${CHATGPT_SECONDARY_USED}% used"
       [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
       reason+=")"
       quota_reasons+=("$reason")
     elif (( CHATGPT_SECONDARY_USED >= quota_warn_threshold )); then
-      reason="week quota high (${CHATGPT_SECONDARY_USED}% used"
+      reason="${lane_prefix}week quota high (${CHATGPT_SECONDARY_USED}% used"
       [[ -n "$secondary_reset_hint" ]] && reason+="; ${secondary_reset_hint}"
       reason+=")"
       quota_warnings+=("$reason")
@@ -2194,7 +2241,7 @@ fi
 	        [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
 	      fi
 
-	      quota_label_base="Quota"
+	      quota_label_base="Quota (${quota_lane_display})"
 	      if [[ -n "$primary_quota_segment" ]]; then
 	        quota_line="${primary_quota_segment}"
 	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
@@ -2247,27 +2294,28 @@ fi
 	        [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
 	        [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
 	      fi
-	      if [[ -n "$primary_quota_segment" ]]; then
-	        quota_line="${primary_quota_segment}"
-	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	          quota_line+=" ⚠"
-	        fi
-	        log_info "$(wrap_ansi_text "$(summary_row "Quota 5h" "$quota_line")" "${SUMMARY_GUTTER}")"
-	      fi
-	      if [[ -n "$daily_quota_segment" ]]; then
-	        quota_line3="${daily_quota_segment}"
-	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	          quota_line3+=" ⚠"
-	        fi
-	        log_info "$(wrap_ansi_text "$(summary_row "Quota day" "$quota_line3")" "${SUMMARY_GUTTER}")"
-	      fi
-	      if [[ -n "$secondary_quota_segment" ]]; then
-	        quota_line2="${secondary_quota_segment}"
-	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
-	          quota_line2+=" ⚠"
-	        fi
-	        log_info "$(wrap_ansi_text "$(summary_row "Quota wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
-	      fi
+      log_info "$(wrap_ansi_text "$(summary_row "Quota lane" "$quota_lane_display")" "${SUMMARY_GUTTER}")"
+      if [[ -n "$primary_quota_segment" ]]; then
+        quota_line="${primary_quota_segment}"
+        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+          quota_line+=" ⚠"
+        fi
+        log_info "$(wrap_ansi_text "$(summary_row "Quota ${quota_lane_label} 5h" "$quota_line")" "${SUMMARY_GUTTER}")"
+      fi
+      if [[ -n "$daily_quota_segment" ]]; then
+        quota_line3="${daily_quota_segment}"
+        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+          quota_line3+=" ⚠"
+        fi
+        log_info "$(wrap_ansi_text "$(summary_row "Quota ${quota_lane_label} day" "$quota_line3")" "${SUMMARY_GUTTER}")"
+      fi
+      if [[ -n "$secondary_quota_segment" ]]; then
+        quota_line2="${secondary_quota_segment}"
+        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
+          quota_line2+=" ⚠"
+        fi
+        log_info "$(wrap_ansi_text "$(summary_row "Quota ${quota_lane_label} wk" "$quota_line2")" "${SUMMARY_GUTTER}")"
+      fi
 	      if (( ! concurrent_compact_summary )); then
 	        log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
 	      fi

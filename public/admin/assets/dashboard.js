@@ -3409,6 +3409,14 @@
       `;
     }
 
+    function hasWindowData(data) {
+      if (!data || typeof data !== 'object') return false;
+      return ['used_percent', 'limit_seconds', 'reset_after_seconds', 'reset_at'].some((key) => {
+        const value = data[key];
+        return value !== null && typeof value !== 'undefined' && value !== '';
+      });
+    }
+
     function renderChatGptUsage(usage) {
       if (!chatgptUsageCard) return;
       if (!usage || !usage.snapshot) {
@@ -3421,20 +3429,40 @@
       const plan = snapshot.plan_type || 'Unknown plan';
       const fetched = snapshot.fetched_at ? formatRelative(snapshot.fetched_at) : 'never';
       const next = usage.next_eligible_at ? formatRelative(usage.next_eligible_at) : null;
-      const primary = {
+      const normalPrimary = {
         used_percent: snapshot.primary_used_percent ?? null,
         limit_seconds: snapshot.primary_limit_seconds ?? null,
         reset_after_seconds: snapshot.primary_reset_after_seconds ?? null,
         reset_at: snapshot.primary_reset_at ?? null,
       };
-      const secondary = {
+      const normalSecondary = {
         used_percent: snapshot.secondary_used_percent ?? null,
         limit_seconds: snapshot.secondary_limit_seconds ?? null,
         reset_after_seconds: snapshot.secondary_reset_after_seconds ?? null,
         reset_at: snapshot.secondary_reset_at ?? null,
       };
+      const sparkPrimary = {
+        used_percent: snapshot.spark_primary_used_percent ?? null,
+        limit_seconds: snapshot.spark_primary_limit_seconds ?? null,
+        reset_after_seconds: snapshot.spark_primary_reset_after_seconds ?? null,
+        reset_at: snapshot.spark_primary_reset_at ?? null,
+      };
+      const sparkSecondary = {
+        used_percent: snapshot.spark_secondary_used_percent ?? null,
+        limit_seconds: snapshot.spark_secondary_limit_seconds ?? null,
+        reset_after_seconds: snapshot.spark_secondary_reset_after_seconds ?? null,
+        reset_at: snapshot.spark_secondary_reset_at ?? null,
+      };
+      const hasSpark = hasWindowData(sparkPrimary) || hasWindowData(sparkSecondary);
+      const laneRaw = usage?.active_lane
+        || usage?.summary?.active_quota_lane
+        || snapshot.active_quota_lane
+        || 'normal';
+      const activeLane = typeof laneRaw === 'string' && laneRaw.toLowerCase() === 'spark' ? 'spark' : 'normal';
       const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
       const planLabel = plan;
+      const sparkMeta = [snapshot.spark_limit_name, snapshot.spark_metered_feature].filter((part) => typeof part === 'string' && part.trim() !== '').join(' · ');
+      const laneChip = `<span class="chip ${activeLane === 'spark' ? 'warn' : ''}">Active lane: ${activeLane}</span>`;
 
       chatgptUsageCard.innerHTML = `
         <div class="usage-head">
@@ -3444,14 +3472,18 @@
             <div class="usage-meta">
               <span>Last check ${fetched}</span>
               ${next ? `<span>Next ${next}</span>` : ''}
+              ${laneChip}
               ${snapshot.rate_limit_reached ? '<span class="chip warn">Limit reached</span>' : ''}
+              ${hasSpark && sparkMeta ? `<span>${escapeHtml(sparkMeta)}</span>` : ''}
             </div>
           </div>
         </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
         <div class="usage-bars">
-          ${renderUsageWindow('5-hour limit', primary, 'primary')}
-          ${renderUsageWindow('Weekly limit', secondary, 'secondary')}
+          ${renderUsageWindow('Normal · 5-hour limit', normalPrimary, 'normal:primary')}
+          ${renderUsageWindow('Normal · Weekly limit', normalSecondary, 'normal:secondary')}
+          ${hasSpark ? renderUsageWindow('Spark · 5-hour limit', sparkPrimary, 'spark:primary') : ''}
+          ${hasSpark ? renderUsageWindow('Spark · Weekly limit', sparkSecondary, 'spark:secondary') : ''}
         </div>
       `;
 
@@ -3530,8 +3562,11 @@
       document.querySelectorAll('.usage-history-btn').forEach((el) => {
         el.onclick = (ev) => {
           ev.preventDefault();
-          const key = el.getAttribute('data-window') === 'secondary' ? 'secondary' : 'primary';
-          openUsageHistory(key);
+          const raw = (el.getAttribute('data-window') || '').trim().toLowerCase();
+          const [laneRaw, windowRaw] = raw.includes(':') ? raw.split(':', 2) : ['normal', raw];
+          const laneKey = laneRaw === 'spark' ? 'spark' : 'normal';
+          const windowKey = windowRaw === 'secondary' ? 'secondary' : 'primary';
+          openUsageHistory(laneKey, windowKey);
         };
       });
       document.querySelectorAll('.cost-history-btn').forEach((el) => {
@@ -3566,8 +3601,14 @@
       return `${dateText} ${timeText} UTC`;
     }
 
-    function buildUsageSeries(points, windowKey) {
-      const key = windowKey === 'secondary' ? 'secondary_used_percent' : 'primary_used_percent';
+    function buildUsageSeries(points, laneKey, windowKey) {
+      const lane = laneKey === 'spark' ? 'spark' : 'normal';
+      const key = (() => {
+        if (lane === 'spark' && windowKey === 'secondary') return 'spark_secondary_used_percent';
+        if (lane === 'spark') return 'spark_primary_used_percent';
+        if (windowKey === 'secondary') return 'secondary_used_percent';
+        return 'primary_used_percent';
+      })();
       const series = [];
       (points || []).forEach((p) => {
         const ts = parseTimestamp(p?.fetched_at);
@@ -3618,7 +3659,7 @@
       return value && value.trim() ? value.trim() : fallback;
     }
 
-    function renderUsageHistoryChart(series, windowKey) {
+    function renderUsageHistoryChart(series, laneKey, windowKey) {
       if (!usageHistoryChart) return;
       destroyPlot(usageHistoryPlot, usageHistoryResizeObserver);
       usageHistoryPlot = null;
@@ -3652,7 +3693,9 @@
           const tooltip = usageHistoryChart.querySelector('[data-usage-tooltip]');
           if (!plotRoot) return;
           plotRoot.setAttribute('role', 'img');
-          plotRoot.setAttribute('aria-label', windowKey === 'secondary' ? 'Weekly quota history' : '5-hour quota history');
+          const laneLabel = laneKey === 'spark' ? 'Spark' : 'Normal';
+          const windowLabel = windowKey === 'secondary' ? 'weekly' : '5-hour';
+          plotRoot.setAttribute('aria-label', `${laneLabel} ${windowLabel} quota history`);
 
           const { width } = getPlotSize(plotRoot, plotHeight);
           const data = [xVals, yVals];
@@ -3662,7 +3705,7 @@
             series: [
               {},
               {
-                label: windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota',
+                label: `${laneKey === 'spark' ? 'Spark' : 'Normal'} ${windowKey === 'secondary' ? 'weekly' : '5-hour'} quota`,
                 stroke: accent,
                 width: 2,
                 fill: `rgba(${accentRgb},0.18)`,
@@ -3793,7 +3836,7 @@
       }).join('');
 
       usageHistoryChart.innerHTML = `
-        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${windowKey === 'secondary' ? 'Weekly quota history' : '5-hour quota history'}">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${laneKey === 'spark' ? 'Spark' : 'Normal'} ${windowKey === 'secondary' ? 'weekly' : '5-hour'} quota history">
           <g class="grid">${gridLines}</g>
           ${areaPath ? `<path d="${areaPath}" class="area"></path>` : ''}
           ${path ? `<path d="${path}" class="line"></path>` : ''}
@@ -3821,9 +3864,10 @@
       return chatgptUsageHistoryPromise;
     }
 
-    async function openUsageHistory(windowKey = 'primary') {
+    async function openUsageHistory(laneKey = 'normal', windowKey = 'primary') {
       if (!usageHistoryModal) return;
-      const label = windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota';
+      const laneLabel = laneKey === 'spark' ? 'Spark' : 'Normal';
+      const label = `${laneLabel} ${windowKey === 'secondary' ? 'weekly quota' : '5-hour quota'}`;
       if (usageHistorySubtitle) {
         usageHistorySubtitle.textContent = `${label} · loading…`;
       }
@@ -3834,7 +3878,7 @@
       showUsageHistoryModal(true);
       try {
         const history = await loadUsageHistory();
-        const series = buildUsageSeries(history.points, windowKey);
+        const series = buildUsageSeries(history.points, laneKey, windowKey);
         if (series.length === 0) {
           if (usageHistorySubtitle) {
             usageHistorySubtitle.textContent = `${label} · no history yet`;
@@ -3845,7 +3889,7 @@
           return;
         }
 
-        renderUsageHistoryChart(series, windowKey);
+        renderUsageHistoryChart(series, laneKey, windowKey);
         const start = new Date(series[0].x);
         const end = new Date(series[series.length - 1].x);
         const latest = series[series.length - 1];
@@ -5334,6 +5378,8 @@
 
       chatgptUsage = {
         snapshot: safeData.chatgpt_usage || null,
+        summary: safeData.chatgpt_usage_summary || null,
+        active_lane: safeData?.chatgpt_usage_summary?.active_quota_lane || safeData?.chatgpt_usage?.active_quota_lane || null,
         cached: safeData.chatgpt_cached || false,
         next_eligible_at: safeData.chatgpt_next_eligible_at || null,
       };

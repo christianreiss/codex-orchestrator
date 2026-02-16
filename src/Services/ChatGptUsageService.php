@@ -38,19 +38,11 @@ class ChatGptUsageService
             return null;
         }
 
-        $primary = [
-            'used_percent' => $snapshot['primary_used_percent'] ?? null,
-            'limit_seconds' => $snapshot['primary_limit_seconds'] ?? null,
-            'reset_after_seconds' => $snapshot['primary_reset_after_seconds'] ?? null,
-            'reset_at' => $snapshot['primary_reset_at'] ?? null,
-        ];
-
-        $secondary = [
-            'used_percent' => $snapshot['secondary_used_percent'] ?? null,
-            'limit_seconds' => $snapshot['secondary_limit_seconds'] ?? null,
-            'reset_after_seconds' => $snapshot['secondary_reset_after_seconds'] ?? null,
-            'reset_at' => $snapshot['secondary_reset_at'] ?? null,
-        ];
+        $normalPrimary = $this->windowFromSnapshot($snapshot, 'primary_');
+        $normalSecondary = $this->windowFromSnapshot($snapshot, 'secondary_');
+        $sparkPrimary = $this->windowFromSnapshot($snapshot, 'spark_primary_');
+        $sparkSecondary = $this->windowFromSnapshot($snapshot, 'spark_secondary_');
+        $sparkWindow = $this->windowGroupOrNull($sparkPrimary, $sparkSecondary);
 
         $dailyBaseline = null;
         $dailyUsedPercent = null;
@@ -72,15 +64,34 @@ class ChatGptUsageService
             }
         }
 
+        $activeLane = 'normal';
+        if (isset($snapshot['active_quota_lane']) && is_string($snapshot['active_quota_lane'])) {
+            $normalizedLane = strtolower(trim($snapshot['active_quota_lane']));
+            if ($normalizedLane === 'spark' || $normalizedLane === 'normal') {
+                $activeLane = $normalizedLane;
+            }
+        }
+
         return [
             'status' => $snapshot['status'] ?? null,
             'plan_type' => $snapshot['plan_type'] ?? null,
             'rate_allowed' => $snapshot['rate_allowed'] ?? null,
             'rate_limit_reached' => $snapshot['rate_limit_reached'] ?? null,
+            'spark_rate_allowed' => $snapshot['spark_rate_allowed'] ?? null,
+            'spark_rate_limit_reached' => $snapshot['spark_rate_limit_reached'] ?? null,
+            'spark_limit_name' => $snapshot['spark_limit_name'] ?? null,
+            'spark_metered_feature' => $snapshot['spark_metered_feature'] ?? null,
+            'active_quota_lane' => $activeLane,
             'fetched_at' => $snapshot['fetched_at'] ?? null,
             'next_eligible_at' => $snapshot['next_eligible_at'] ?? null,
-            'primary_window' => $primary,
-            'secondary_window' => $secondary,
+            // Backward compatibility for existing wrappers/clients: keep legacy keys as the normal lane.
+            'primary_window' => $normalPrimary,
+            'secondary_window' => $normalSecondary,
+            'normal_window' => [
+                'primary_window' => $normalPrimary,
+                'secondary_window' => $normalSecondary,
+            ],
+            'spark_window' => $sparkWindow,
             'daily_used_percent' => $dailyUsedPercent,
             'daily_baseline_at' => $dailyBaseline['fetched_at'] ?? null,
         ];
@@ -168,6 +179,7 @@ class ChatGptUsageService
         $this->logs->log(null, 'chatgpt.usage', [
             'status' => 'ok',
             'plan_type' => $snapshot['plan_type'] ?? null,
+            'spark_limit_name' => $snapshot['spark_limit_name'] ?? null,
             'cached' => false,
         ]);
 
@@ -246,9 +258,13 @@ class ChatGptUsageService
 
     private function parseUsageJson(array $json): array
     {
-        $rate = $json['rate_limit'] ?? [];
-        $primary = $rate['primary_window'] ?? [];
-        $secondary = $rate['secondary_window'] ?? [];
+        $rate = is_array($json['rate_limit'] ?? null) ? $json['rate_limit'] : [];
+        $primary = is_array($rate['primary_window'] ?? null) ? $rate['primary_window'] : [];
+        $secondary = is_array($rate['secondary_window'] ?? null) ? $rate['secondary_window'] : [];
+        $spark = $this->extractSparkRateLimit($json['additional_rate_limits'] ?? null);
+        $sparkRate = is_array($spark['rate_limit'] ?? null) ? $spark['rate_limit'] : [];
+        $sparkPrimary = is_array($sparkRate['primary_window'] ?? null) ? $sparkRate['primary_window'] : [];
+        $sparkSecondary = is_array($sparkRate['secondary_window'] ?? null) ? $sparkRate['secondary_window'] : [];
         $credits = $json['credits'] ?? [];
 
         return [
@@ -263,11 +279,94 @@ class ChatGptUsageService
             'secondary_limit_seconds' => $this->normalizeInt($secondary['limit_window_seconds'] ?? null),
             'secondary_reset_after_seconds' => $this->normalizeInt($secondary['reset_after_seconds'] ?? null),
             'secondary_reset_at' => isset($secondary['reset_at']) ? (string) $secondary['reset_at'] : null,
+            'spark_limit_name' => isset($spark['limit_name']) && is_string($spark['limit_name']) ? trim($spark['limit_name']) : null,
+            'spark_metered_feature' => isset($spark['metered_feature']) && is_string($spark['metered_feature']) ? trim($spark['metered_feature']) : null,
+            'spark_rate_allowed' => isset($sparkRate['allowed']) ? (bool) $sparkRate['allowed'] : null,
+            'spark_rate_limit_reached' => isset($sparkRate['limit_reached']) ? (bool) $sparkRate['limit_reached'] : null,
+            'spark_primary_used_percent' => $this->normalizeInt($sparkPrimary['used_percent'] ?? null),
+            'spark_primary_limit_seconds' => $this->normalizeInt($sparkPrimary['limit_window_seconds'] ?? null),
+            'spark_primary_reset_after_seconds' => $this->normalizeInt($sparkPrimary['reset_after_seconds'] ?? null),
+            'spark_primary_reset_at' => isset($sparkPrimary['reset_at']) ? (string) $sparkPrimary['reset_at'] : null,
+            'spark_secondary_used_percent' => $this->normalizeInt($sparkSecondary['used_percent'] ?? null),
+            'spark_secondary_limit_seconds' => $this->normalizeInt($sparkSecondary['limit_window_seconds'] ?? null),
+            'spark_secondary_reset_after_seconds' => $this->normalizeInt($sparkSecondary['reset_after_seconds'] ?? null),
+            'spark_secondary_reset_at' => isset($sparkSecondary['reset_at']) ? (string) $sparkSecondary['reset_at'] : null,
             'has_credits' => isset($credits['has_credits']) ? (bool) $credits['has_credits'] : null,
             'unlimited' => isset($credits['unlimited']) ? (bool) $credits['unlimited'] : null,
             'credit_balance' => isset($credits['balance']) ? (string) $credits['balance'] : null,
             'approx_local_messages' => $credits['approx_local_messages'] ?? null,
             'approx_cloud_messages' => $credits['approx_cloud_messages'] ?? null,
+        ];
+    }
+
+    private function extractSparkRateLimit(mixed $limits): array
+    {
+        if (!is_array($limits)) {
+            return [];
+        }
+
+        $winner = [];
+        $winnerScore = 0;
+
+        foreach ($limits as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $rate = $candidate['rate_limit'] ?? null;
+            if (!is_array($rate)) {
+                continue;
+            }
+
+            $limitName = is_string($candidate['limit_name'] ?? null) ? strtolower(trim((string) $candidate['limit_name'])) : '';
+            $meteredFeature = is_string($candidate['metered_feature'] ?? null) ? strtolower(trim((string) $candidate['metered_feature'])) : '';
+            $score = 0;
+            if ($limitName !== '' && str_contains($limitName, 'spark')) {
+                $score = 3;
+            } elseif ($meteredFeature !== '' && str_contains($meteredFeature, 'spark')) {
+                $score = 2;
+            } elseif ($meteredFeature !== '' && str_contains($meteredFeature, 'bengalfox')) {
+                // Current upstream Spark metered feature uses codename "bengalfox".
+                $score = 1;
+            }
+
+            if ($score > $winnerScore) {
+                $winner = $candidate;
+                $winnerScore = $score;
+            }
+        }
+
+        return $winnerScore > 0 ? $winner : [];
+    }
+
+    private function windowFromSnapshot(array $snapshot, string $prefix): array
+    {
+        return [
+            'used_percent' => $snapshot[$prefix . 'used_percent'] ?? null,
+            'limit_seconds' => $snapshot[$prefix . 'limit_seconds'] ?? null,
+            'reset_after_seconds' => $snapshot[$prefix . 'reset_after_seconds'] ?? null,
+            'reset_at' => $snapshot[$prefix . 'reset_at'] ?? null,
+        ];
+    }
+
+    private function windowGroupOrNull(array $primary, array $secondary): ?array
+    {
+        $hasValue = false;
+        foreach ([$primary, $secondary] as $window) {
+            foreach ($window as $value) {
+                if ($value !== null && $value !== '') {
+                    $hasValue = true;
+                    break 2;
+                }
+            }
+        }
+
+        if (!$hasValue) {
+            return null;
+        }
+
+        return [
+            'primary_window' => $primary,
+            'secondary_window' => $secondary,
         ];
     }
 

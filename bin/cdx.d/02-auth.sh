@@ -286,8 +286,31 @@ if server_installation and installation_id and server_installation != installati
 if versions_out.get("wrapper_url"):
     SYNC_REMOTE_WRAPPER_URL = versions_out.get("wrapper_url")
 
-primary_window = window(chatgpt_usage.get("primary_window"))
-secondary_window = window(chatgpt_usage.get("secondary_window"))
+normal_window = chatgpt_usage.get("normal_window") if isinstance(chatgpt_usage.get("normal_window"), dict) else {}
+spark_window = chatgpt_usage.get("spark_window") if isinstance(chatgpt_usage.get("spark_window"), dict) else {}
+normal_primary_window = window(normal_window.get("primary_window"))
+normal_secondary_window = window(normal_window.get("secondary_window"))
+if not normal_primary_window and not normal_secondary_window:
+    # Backward compatibility with older API payloads.
+    normal_primary_window = window(chatgpt_usage.get("primary_window"))
+    normal_secondary_window = window(chatgpt_usage.get("secondary_window"))
+spark_primary_window = window(spark_window.get("primary_window"))
+spark_secondary_window = window(spark_window.get("secondary_window"))
+
+active_lane = "normal"
+active_lane_raw = chatgpt_usage.get("active_quota_lane")
+if isinstance(active_lane_raw, str) and active_lane_raw.strip().lower() in ("normal", "spark"):
+    active_lane = active_lane_raw.strip().lower()
+else:
+    model_override = host_info.get("model_override") if isinstance(host_info, dict) else None
+    if isinstance(model_override, str) and model_override.strip():
+        active_lane = "spark" if "spark" in model_override.strip().lower() else "normal"
+
+if active_lane == "spark" and not (spark_primary_window or spark_secondary_window):
+    active_lane = "normal"
+
+active_primary_window = spark_primary_window if active_lane == "spark" else normal_primary_window
+active_secondary_window = spark_secondary_window if active_lane == "spark" else normal_secondary_window
 
 if status == "valid":
     auth_to_write = current
@@ -356,14 +379,33 @@ print(
             "chatgpt_status": chatgpt_usage.get("status"),
             "chatgpt_plan": chatgpt_usage.get("plan_type"),
             "chatgpt_next": chatgpt_usage.get("next_eligible_at"),
-            "chatgpt_primary_used": primary_window.get("used_percent"),
-            "chatgpt_primary_limit": primary_window.get("limit_seconds"),
-            "chatgpt_primary_reset_after": primary_window.get("reset_after_seconds"),
-            "chatgpt_primary_reset_at": primary_window.get("reset_at"),
-            "chatgpt_secondary_used": secondary_window.get("used_percent"),
-            "chatgpt_secondary_limit": secondary_window.get("limit_seconds"),
-            "chatgpt_secondary_reset_after": secondary_window.get("reset_after_seconds"),
-            "chatgpt_secondary_reset_at": secondary_window.get("reset_at"),
+            "chatgpt_active_quota_lane": active_lane,
+            "chatgpt_primary_used": active_primary_window.get("used_percent"),
+            "chatgpt_primary_limit": active_primary_window.get("limit_seconds"),
+            "chatgpt_primary_reset_after": active_primary_window.get("reset_after_seconds"),
+            "chatgpt_primary_reset_at": active_primary_window.get("reset_at"),
+            "chatgpt_secondary_used": active_secondary_window.get("used_percent"),
+            "chatgpt_secondary_limit": active_secondary_window.get("limit_seconds"),
+            "chatgpt_secondary_reset_after": active_secondary_window.get("reset_after_seconds"),
+            "chatgpt_secondary_reset_at": active_secondary_window.get("reset_at"),
+            "chatgpt_normal_primary_used": normal_primary_window.get("used_percent"),
+            "chatgpt_normal_primary_limit": normal_primary_window.get("limit_seconds"),
+            "chatgpt_normal_primary_reset_after": normal_primary_window.get("reset_after_seconds"),
+            "chatgpt_normal_primary_reset_at": normal_primary_window.get("reset_at"),
+            "chatgpt_normal_secondary_used": normal_secondary_window.get("used_percent"),
+            "chatgpt_normal_secondary_limit": normal_secondary_window.get("limit_seconds"),
+            "chatgpt_normal_secondary_reset_after": normal_secondary_window.get("reset_after_seconds"),
+            "chatgpt_normal_secondary_reset_at": normal_secondary_window.get("reset_at"),
+            "chatgpt_spark_primary_used": spark_primary_window.get("used_percent"),
+            "chatgpt_spark_primary_limit": spark_primary_window.get("limit_seconds"),
+            "chatgpt_spark_primary_reset_after": spark_primary_window.get("reset_after_seconds"),
+            "chatgpt_spark_primary_reset_at": spark_primary_window.get("reset_at"),
+            "chatgpt_spark_secondary_used": spark_secondary_window.get("used_percent"),
+            "chatgpt_spark_secondary_limit": spark_secondary_window.get("limit_seconds"),
+            "chatgpt_spark_secondary_reset_after": spark_secondary_window.get("reset_after_seconds"),
+            "chatgpt_spark_secondary_reset_at": spark_secondary_window.get("reset_at"),
+            "chatgpt_spark_limit_name": chatgpt_usage.get("spark_limit_name"),
+            "chatgpt_spark_metered_feature": chatgpt_usage.get("spark_metered_feature"),
             "chatgpt_daily_used_percent": chatgpt_usage.get("daily_used_percent"),
             "chatgpt_daily_baseline_at": chatgpt_usage.get("daily_baseline_at"),
             "api_calls": payload_data.get("api_calls"),
@@ -466,6 +508,9 @@ if isinstance(cgpl, str) and cgpl.strip():
 cgnx = parsed.get("chatgpt_next")
 if isinstance(cgnx, str) and cgnx.strip():
     print(f"cgn={cgnx.strip()}")
+cqal = parsed.get("chatgpt_active_quota_lane")
+if isinstance(cqal, str) and cqal.strip().lower() in ("normal", "spark"):
+    print(f"cqal={cqal.strip().lower()}")
 cd_u = parsed.get("chatgpt_daily_used_percent") or parsed.get("chatgpt_daily_used")
 _emit_int(cd_u, "cgdu")
 cp_u = parsed.get("chatgpt_primary_used")
@@ -486,6 +531,48 @@ _emit_int(cs_r, "cgsr")
 cs_a = parsed.get("chatgpt_secondary_reset_at")
 if isinstance(cs_a, str) and cs_a.strip():
     print(f"cgsa={cs_a.strip()}")
+cnp_u = parsed.get("chatgpt_normal_primary_used")
+_emit_int(cnp_u, "cgnu")
+cnp_l = parsed.get("chatgpt_normal_primary_limit")
+_emit_int(cnp_l, "cgnl")
+cnp_r = parsed.get("chatgpt_normal_primary_reset_after")
+_emit_int(cnp_r, "cgnr")
+cnp_a = parsed.get("chatgpt_normal_primary_reset_at")
+if isinstance(cnp_a, str) and cnp_a.strip():
+    print(f"cgna={cnp_a.strip()}")
+cns_u = parsed.get("chatgpt_normal_secondary_used")
+_emit_int(cns_u, "cgnsu")
+cns_l = parsed.get("chatgpt_normal_secondary_limit")
+_emit_int(cns_l, "cgnsl")
+cns_r = parsed.get("chatgpt_normal_secondary_reset_after")
+_emit_int(cns_r, "cgnsr")
+cns_a = parsed.get("chatgpt_normal_secondary_reset_at")
+if isinstance(cns_a, str) and cns_a.strip():
+    print(f"cgnsa={cns_a.strip()}")
+csp_u = parsed.get("chatgpt_spark_primary_used")
+_emit_int(csp_u, "cgspu")
+csp_l = parsed.get("chatgpt_spark_primary_limit")
+_emit_int(csp_l, "cgspl")
+csp_r = parsed.get("chatgpt_spark_primary_reset_after")
+_emit_int(csp_r, "cgspr")
+csp_a = parsed.get("chatgpt_spark_primary_reset_at")
+if isinstance(csp_a, str) and csp_a.strip():
+    print(f"cgspa={csp_a.strip()}")
+css_u = parsed.get("chatgpt_spark_secondary_used")
+_emit_int(css_u, "cgssu")
+css_l = parsed.get("chatgpt_spark_secondary_limit")
+_emit_int(css_l, "cgssl")
+css_r = parsed.get("chatgpt_spark_secondary_reset_after")
+_emit_int(css_r, "cgssr")
+css_a = parsed.get("chatgpt_spark_secondary_reset_at")
+if isinstance(css_a, str) and css_a.strip():
+    print(f"cgssa={css_a.strip()}")
+csl = parsed.get("chatgpt_spark_limit_name")
+if isinstance(csl, str) and csl.strip():
+    print(f"cgsln={csl.strip()}")
+cmf = parsed.get("chatgpt_spark_metered_feature")
+if isinstance(cmf, str) and cmf.strip():
+    print(f"cgsmf={cmf.strip()}")
 api_calls = parsed.get("api_calls")
 _emit_int(api_calls, "hac")
 month_usage = parsed.get("token_usage_month")
@@ -571,6 +658,9 @@ PY
               cgn=*)
                 CHATGPT_NEXT="${line#cgn=}"
                 ;;
+              cqal=*)
+                CHATGPT_ACTIVE_LANE="${line#cqal=}"
+                ;;
               cgu=*)
                 CHATGPT_PRIMARY_USED="${line#cgu=}"
                 ;;
@@ -594,6 +684,60 @@ PY
                 ;;
               cgsa=*)
                 CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
+                ;;
+              cgnu=*)
+                CHATGPT_NORMAL_PRIMARY_USED="${line#cgnu=}"
+                ;;
+              cgnl=*)
+                CHATGPT_NORMAL_PRIMARY_LIMIT="${line#cgnl=}"
+                ;;
+              cgnr=*)
+                CHATGPT_NORMAL_PRIMARY_RESET_AFTER="${line#cgnr=}"
+                ;;
+              cgna=*)
+                CHATGPT_NORMAL_PRIMARY_RESET_AT="${line#cgna=}"
+                ;;
+              cgnsu=*)
+                CHATGPT_NORMAL_SECONDARY_USED="${line#cgnsu=}"
+                ;;
+              cgnsl=*)
+                CHATGPT_NORMAL_SECONDARY_LIMIT="${line#cgnsl=}"
+                ;;
+              cgnsr=*)
+                CHATGPT_NORMAL_SECONDARY_RESET_AFTER="${line#cgnsr=}"
+                ;;
+              cgnsa=*)
+                CHATGPT_NORMAL_SECONDARY_RESET_AT="${line#cgnsa=}"
+                ;;
+              cgspu=*)
+                CHATGPT_SPARK_PRIMARY_USED="${line#cgspu=}"
+                ;;
+              cgspl=*)
+                CHATGPT_SPARK_PRIMARY_LIMIT="${line#cgspl=}"
+                ;;
+              cgspr=*)
+                CHATGPT_SPARK_PRIMARY_RESET_AFTER="${line#cgspr=}"
+                ;;
+              cgspa=*)
+                CHATGPT_SPARK_PRIMARY_RESET_AT="${line#cgspa=}"
+                ;;
+              cgssu=*)
+                CHATGPT_SPARK_SECONDARY_USED="${line#cgssu=}"
+                ;;
+              cgssl=*)
+                CHATGPT_SPARK_SECONDARY_LIMIT="${line#cgssl=}"
+                ;;
+              cgssr=*)
+                CHATGPT_SPARK_SECONDARY_RESET_AFTER="${line#cgssr=}"
+                ;;
+              cgssa=*)
+                CHATGPT_SPARK_SECONDARY_RESET_AT="${line#cgssa=}"
+                ;;
+              cgsln=*)
+                CHATGPT_SPARK_LIMIT_NAME="${line#cgsln=}"
+                ;;
+              cgsmf=*)
+                CHATGPT_SPARK_METERED_FEATURE="${line#cgsmf=}"
                 ;;
               cgdu=*)
                 CHATGPT_DAILY_USED="${line#cgdu=}"
@@ -621,6 +765,49 @@ PY
                 ;;
             esac
           done <<<"$parsed"
+
+          if [[ -z "$CHATGPT_NORMAL_PRIMARY_USED" && -n "$CHATGPT_PRIMARY_USED" ]]; then
+            CHATGPT_NORMAL_PRIMARY_USED="$CHATGPT_PRIMARY_USED"
+            CHATGPT_NORMAL_PRIMARY_LIMIT="$CHATGPT_PRIMARY_LIMIT"
+            CHATGPT_NORMAL_PRIMARY_RESET_AFTER="$CHATGPT_PRIMARY_RESET_AFTER"
+            CHATGPT_NORMAL_PRIMARY_RESET_AT="$CHATGPT_PRIMARY_RESET_AT"
+            CHATGPT_NORMAL_SECONDARY_USED="$CHATGPT_SECONDARY_USED"
+            CHATGPT_NORMAL_SECONDARY_LIMIT="$CHATGPT_SECONDARY_LIMIT"
+            CHATGPT_NORMAL_SECONDARY_RESET_AFTER="$CHATGPT_SECONDARY_RESET_AFTER"
+            CHATGPT_NORMAL_SECONDARY_RESET_AT="$CHATGPT_SECONDARY_RESET_AT"
+          fi
+
+          if [[ "$CHATGPT_ACTIVE_LANE" != "spark" && "$CHATGPT_ACTIVE_LANE" != "normal" ]]; then
+            CHATGPT_ACTIVE_LANE="normal"
+          fi
+
+          local has_spark_lane=0
+          if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
+            has_spark_lane=1
+          fi
+          if [[ "$CHATGPT_ACTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
+            CHATGPT_ACTIVE_LANE="normal"
+          fi
+
+          if [[ "$CHATGPT_ACTIVE_LANE" == "spark" ]]; then
+            CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
+            CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
+            CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
+            CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
+            CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
+            CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
+            CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
+            CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
+          else
+            CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
+            CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
+            CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
+            CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
+            CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
+            CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
+            CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
+            CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
+          fi
 
           if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
             HOST_IS_SECURE=0

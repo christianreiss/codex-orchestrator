@@ -35,6 +35,18 @@ class ChatGptUsageRepository implements ChatGptUsageStore
                 secondary_limit_seconds,
                 secondary_reset_after_seconds,
                 secondary_reset_at,
+                spark_limit_name,
+                spark_metered_feature,
+                spark_rate_allowed,
+                spark_rate_limit_reached,
+                spark_primary_used_percent,
+                spark_primary_limit_seconds,
+                spark_primary_reset_after_seconds,
+                spark_primary_reset_at,
+                spark_secondary_used_percent,
+                spark_secondary_limit_seconds,
+                spark_secondary_reset_after_seconds,
+                spark_secondary_reset_at,
                 has_credits,
                 unlimited,
                 credit_balance,
@@ -59,6 +71,18 @@ class ChatGptUsageRepository implements ChatGptUsageStore
                 :secondary_limit_seconds,
                 :secondary_reset_after_seconds,
                 :secondary_reset_at,
+                :spark_limit_name,
+                :spark_metered_feature,
+                :spark_rate_allowed,
+                :spark_rate_limit_reached,
+                :spark_primary_used_percent,
+                :spark_primary_limit_seconds,
+                :spark_primary_reset_after_seconds,
+                :spark_primary_reset_at,
+                :spark_secondary_used_percent,
+                :spark_secondary_limit_seconds,
+                :spark_secondary_reset_after_seconds,
+                :spark_secondary_reset_at,
                 :has_credits,
                 :unlimited,
                 :credit_balance,
@@ -87,6 +111,18 @@ class ChatGptUsageRepository implements ChatGptUsageStore
             'secondary_limit_seconds' => $snapshot['secondary_limit_seconds'] ?? null,
             'secondary_reset_after_seconds' => $snapshot['secondary_reset_after_seconds'] ?? null,
             'secondary_reset_at' => $snapshot['secondary_reset_at'] ?? null,
+            'spark_limit_name' => $snapshot['spark_limit_name'] ?? null,
+            'spark_metered_feature' => $snapshot['spark_metered_feature'] ?? null,
+            'spark_rate_allowed' => isset($snapshot['spark_rate_allowed']) ? ($snapshot['spark_rate_allowed'] ? 1 : 0) : null,
+            'spark_rate_limit_reached' => isset($snapshot['spark_rate_limit_reached']) ? ($snapshot['spark_rate_limit_reached'] ? 1 : 0) : null,
+            'spark_primary_used_percent' => $snapshot['spark_primary_used_percent'] ?? null,
+            'spark_primary_limit_seconds' => $snapshot['spark_primary_limit_seconds'] ?? null,
+            'spark_primary_reset_after_seconds' => $snapshot['spark_primary_reset_after_seconds'] ?? null,
+            'spark_primary_reset_at' => $snapshot['spark_primary_reset_at'] ?? null,
+            'spark_secondary_used_percent' => $snapshot['spark_secondary_used_percent'] ?? null,
+            'spark_secondary_limit_seconds' => $snapshot['spark_secondary_limit_seconds'] ?? null,
+            'spark_secondary_reset_after_seconds' => $snapshot['spark_secondary_reset_after_seconds'] ?? null,
+            'spark_secondary_reset_at' => $snapshot['spark_secondary_reset_at'] ?? null,
             'has_credits' => isset($snapshot['has_credits']) ? ($snapshot['has_credits'] ? 1 : 0) : null,
             'unlimited' => isset($snapshot['unlimited']) ? ($snapshot['unlimited'] ? 1 : 0) : null,
             'credit_balance' => $snapshot['credit_balance'] ?? null,
@@ -128,7 +164,16 @@ class ChatGptUsageRepository implements ChatGptUsageStore
     public function history(?string $since = null): array
     {
         $params = [];
-        $sql = 'SELECT fetched_at, primary_used_percent, secondary_used_percent, primary_limit_seconds, secondary_limit_seconds FROM chatgpt_usage_snapshots';
+        $sql = 'SELECT fetched_at,
+                    primary_used_percent,
+                    secondary_used_percent,
+                    primary_limit_seconds,
+                    secondary_limit_seconds,
+                    spark_primary_used_percent,
+                    spark_secondary_used_percent,
+                    spark_primary_limit_seconds,
+                    spark_secondary_limit_seconds
+                FROM chatgpt_usage_snapshots';
         if ($since !== null) {
             $sql .= ' WHERE fetched_at >= :since';
             $params['since'] = $since;
@@ -140,7 +185,16 @@ class ChatGptUsageRepository implements ChatGptUsageStore
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
 
         return array_map(static function (array $row): array {
-            foreach (['primary_used_percent', 'secondary_used_percent', 'primary_limit_seconds', 'secondary_limit_seconds'] as $key) {
+            foreach ([
+                'primary_used_percent',
+                'secondary_used_percent',
+                'primary_limit_seconds',
+                'secondary_limit_seconds',
+                'spark_primary_used_percent',
+                'spark_secondary_used_percent',
+                'spark_primary_limit_seconds',
+                'spark_secondary_limit_seconds',
+            ] as $key) {
                 if (array_key_exists($key, $row) && $row[$key] !== null) {
                     $row[$key] = (int) $row[$key];
                 }
@@ -190,12 +244,25 @@ class ChatGptUsageRepository implements ChatGptUsageStore
     private function normalizeRow(array $row): array
     {
         $row['id'] = isset($row['id']) ? (int) $row['id'] : null;
-        foreach (['primary_used_percent', 'primary_limit_seconds', 'primary_reset_after_seconds', 'secondary_used_percent', 'secondary_limit_seconds', 'secondary_reset_after_seconds'] as $key) {
+        foreach ([
+            'primary_used_percent',
+            'primary_limit_seconds',
+            'primary_reset_after_seconds',
+            'secondary_used_percent',
+            'secondary_limit_seconds',
+            'secondary_reset_after_seconds',
+            'spark_primary_used_percent',
+            'spark_primary_limit_seconds',
+            'spark_primary_reset_after_seconds',
+            'spark_secondary_used_percent',
+            'spark_secondary_limit_seconds',
+            'spark_secondary_reset_after_seconds',
+        ] as $key) {
             if (isset($row[$key]) && $row[$key] !== null) {
                 $row[$key] = (int) $row[$key];
             }
         }
-        foreach (['rate_allowed', 'rate_limit_reached', 'has_credits', 'unlimited'] as $key) {
+        foreach (['rate_allowed', 'rate_limit_reached', 'spark_rate_allowed', 'spark_rate_limit_reached', 'has_credits', 'unlimited'] as $key) {
             if (array_key_exists($key, $row) && $row[$key] !== null) {
                 $row[$key] = (bool) (int) $row[$key];
             }

@@ -36,7 +36,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 - `api_calls`, `token_usage_month` (month-to-date totals incl. cached/reasoning/cost/events), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+source/checked_at), `wrapper_version`/`wrapper_sha256`/`wrapper_url`, `reported_client_version`, `quota_*` flags, `cdx_silent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
-- `chatgpt_usage`: latest window summary if a snapshot exists (primary/secondary window percentages, limits, reset timing, status, plan_type, next_eligible_at).
+- `chatgpt_usage`: latest window summary if a snapshot exists (lane-aware `normal_window` and optional `spark_window` blocks plus `active_quota_lane`; legacy `primary_window`/`secondary_window` are still present for compatibility).
 
 ### `DELETE /auth`
 Deregisters the calling host; IP binding enforced unless `?force=1`. Logs `host.delete` and removes host + digests.
@@ -79,7 +79,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/codex-version` — set the fleet Codex CLI version policy. Body: `{ selection: "latest" | "<x.y.z>" }`. `latest` keeps the GitHub-latest flow; selecting a specific version pins the server-reported `versions.client_version` to that release.
 
 ## Admin Endpoints (mTLS)
-- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m) plus `chatgpt_cached`/`chatgpt_next_eligible_at`, quota flags (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`), `cdx_silent`, `reverse_dns_enabled`, `inactivity_window_days`, optional Codex pin metadata (`client_version_lock`, `client_version_lock_updated_at`), and mTLS metadata.
+- `GET /admin/overview` — host count, avg refresh age, latest log time, `versions`, `has_canonical_auth`, `seed_required` reasons, `tokens` totals, `tokens_day` (UTC day), `tokens_week` (aligned to ChatGPT weekly limit window when available, otherwise last 7 days), `tokens_month` (month to date), GPT‑5.1 pricing snapshot, `pricing_day_cost`, `pricing_week_cost`, `pricing_month_cost`, `subscription_plans` (Plus/Pro monthly plan pricing), ChatGPT usage snapshot (cached ≤5m) plus `chatgpt_usage_summary` (normal/spark lane summary) and `chatgpt_cached`/`chatgpt_next_eligible_at`, quota flags (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`), `cdx_silent`, `reverse_dns_enabled`, `inactivity_window_days`, optional Codex pin metadata (`client_version_lock`, `client_version_lock_updated_at`), and mTLS metadata.
 - `GET /admin/ws/info` — websocket bootstrap for admin live updates (`enabled`, `url`, `last_event_id`, `heartbeat_seconds`, `backlog_limit`).
 - Admin auth + users:
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
@@ -123,7 +123,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - Runner: `GET /admin/runner` (config/telemetry, last validations, counts, state, timeouts, boot id); `POST /admin/runner/run` forces a runner validation and applies returned `updated_auth` when newer.
 - Logs/usage: `GET /admin/logs?limit=50`, `GET /admin/mcp/logs?limit=200`, `GET /admin/usage?limit=50`, `GET /admin/usage/ingests?limit=50` (includes aggregate `cost` + `currency`), `GET /admin/tokens?limit=50`.
 - Cost history: `GET /admin/usage/cost-history?days=60` — daily input/output/cached cost totals (plus overall) for up to 180 days, using the latest pricing snapshot and anchored to the first recorded token usage when it is newer than the lookback window.
-- ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days), `POST /admin/chatgpt/usage/refresh` (force refresh).
+- ChatGPT usage: `GET /admin/chatgpt/usage[?force=1]` (latest snapshot with 5‑minute cooldown unless `force`), `GET /admin/chatgpt/usage/history?days=60` (up to 180 days, includes normal + spark history keys), `POST /admin/chatgpt/usage/refresh` (force refresh).
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
 - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
 - Agents: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.

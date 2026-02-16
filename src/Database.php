@@ -492,6 +492,18 @@ class Database
                 secondary_limit_seconds BIGINT UNSIGNED NULL,
                 secondary_reset_after_seconds BIGINT UNSIGNED NULL,
                 secondary_reset_at VARCHAR(100) NULL,
+                spark_limit_name VARCHAR(128) NULL,
+                spark_metered_feature VARCHAR(128) NULL,
+                spark_rate_allowed TINYINT(1) NULL,
+                spark_rate_limit_reached TINYINT(1) NULL,
+                spark_primary_used_percent INT UNSIGNED NULL,
+                spark_primary_limit_seconds BIGINT UNSIGNED NULL,
+                spark_primary_reset_after_seconds BIGINT UNSIGNED NULL,
+                spark_primary_reset_at VARCHAR(100) NULL,
+                spark_secondary_used_percent INT UNSIGNED NULL,
+                spark_secondary_limit_seconds BIGINT UNSIGNED NULL,
+                spark_secondary_reset_after_seconds BIGINT UNSIGNED NULL,
+                spark_secondary_reset_at VARCHAR(100) NULL,
                 has_credits TINYINT(1) NULL,
                 unlimited TINYINT(1) NULL,
                 credit_balance VARCHAR(128) NULL,
@@ -603,6 +615,18 @@ class Database
         $this->ensureColumnExists('token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists('token_usages', 'cost', 'DECIMAL(18,6) NULL');
         $this->ensureColumnExists('token_usage_ingests', 'cost', 'DECIMAL(18,6) NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_limit_name', 'VARCHAR(128) NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_metered_feature', 'VARCHAR(128) NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_rate_allowed', 'TINYINT(1) NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_rate_limit_reached', 'TINYINT(1) NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_primary_used_percent', 'INT UNSIGNED NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_primary_limit_seconds', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_primary_reset_after_seconds', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_primary_reset_at', 'VARCHAR(100) NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_secondary_used_percent', 'INT UNSIGNED NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_secondary_limit_seconds', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_secondary_reset_after_seconds', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists('chatgpt_usage_snapshots', 'spark_secondary_reset_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('skills', 'deleted_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');

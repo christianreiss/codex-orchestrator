@@ -2433,6 +2433,13 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $insecureApprovalEnabled = $versionRepository->getFlag('insecure_approval_enabled', false);
     $inactivityWindowDays = inactivityWindowDays($versionRepository);
     $clientVersionLock = $versionRepository->getWithMetadata('client_version_lock');
+    $chatgptSummary = $chatGptUsageService->latestWindowSummary();
+    if (is_array($chatgptSummary)) {
+        $globalLaneSpark = modelUsesSparkQuotaLane($versionRepository->get('cdx_model'));
+        if ($globalLaneSpark !== null) {
+            $chatgptSummary['active_quota_lane'] = $globalLaneSpark ? 'spark' : 'normal';
+        }
+    }
 
     Response::json([
         'status' => 'ok',
@@ -2458,6 +2465,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'pricing_week_cost' => $weeklyCost,
             'subscription_plans' => $subscriptionPlans,
             'chatgpt_usage' => $chatgpt['snapshot'] ?? null,
+            'chatgpt_usage_summary' => $chatgptSummary,
             'chatgpt_cached' => $chatgpt['cached'] ?? false,
             'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
             'quota_hard_fail' => $quotaHardFail,
@@ -3389,7 +3397,11 @@ $router->add('POST', '#^/auth$#', function () use ($payload, $service, $chatGptU
     $chatGptUsageService->fetchLatest(false);
 
     $result = $service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
-    $result['chatgpt_usage'] = $chatGptUsageService->latestWindowSummary();
+    $chatgptUsage = $chatGptUsageService->latestWindowSummary();
+    if (is_array($chatgptUsage)) {
+        $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
+    }
+    $result['chatgpt_usage'] = $chatgptUsage;
 
     Response::json([
         'status' => 'ok',
@@ -4203,6 +4215,42 @@ function quotaWeekPartition(VersionRepository $versionRepository): int
     $raw = $versionRepository->get('quota_week_partition');
     $normalized = AuthService::normalizeQuotaWeekPartition($raw);
     return $normalized ?? AuthService::DEFAULT_QUOTA_WEEK_PARTITION;
+}
+
+function modelUsesSparkQuotaLane(?string $model): ?bool
+{
+    if (!is_string($model)) {
+        return null;
+    }
+
+    $trimmed = strtolower(trim($model));
+    if ($trimmed === '') {
+        return null;
+    }
+
+    return str_contains($trimmed, 'spark');
+}
+
+function resolveActiveQuotaLaneForHost(array $host, VersionRepository $versionRepository, mixed $fallback = null): string
+{
+    $hostModelSpark = modelUsesSparkQuotaLane($host['model_override'] ?? null);
+    if ($hostModelSpark !== null) {
+        return $hostModelSpark ? 'spark' : 'normal';
+    }
+
+    $globalModelSpark = modelUsesSparkQuotaLane($versionRepository->get('cdx_model'));
+    if ($globalModelSpark !== null) {
+        return $globalModelSpark ? 'spark' : 'normal';
+    }
+
+    if (is_string($fallback)) {
+        $normalized = strtolower(trim($fallback));
+        if ($normalized === 'spark' || $normalized === 'normal') {
+            return $normalized;
+        }
+    }
+
+    return 'normal';
 }
 
 function inactivityWindowDays(VersionRepository $versionRepository): int
