@@ -11,6 +11,7 @@
   - Surfaces runner telemetry from `/auth` versions (`runner_enabled`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`) with stale/failure warnings.
   - Shows host usage returned by `/auth` (`api_calls` and current-month token totals including cached/reasoning) in a dedicated `Usage` row in the boot summary.
   - When both quota lanes are available, prints the non-active lane snapshot in a dedicated row (`Quota (Spark@s)` or `Quota (Normal@s)`) instead of appending it to `Usage`.
+  - Table-summary label width now auto-sizes to the longest row label in that render, so `|` separators stay vertically aligned across `Core`/`Usage`/`Quota`/`Result` rows.
 - TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).
 - IPv4-only: when `force_ipv4` is baked for a host (or `cdx -4` is used), the wrapper forces IPv4 for all wrapper HTTPS calls (auth, prompts, skills, AGENTS, config, usage) plus update/download requests, not just `curl`.
 - Synchronizes slash command prompts in `~/.codex/prompts` against `/slash-commands` (lists + per-file retrieve on hash mismatch) and records a baseline; on exit it pushes any changed/new prompts back via `/slash-commands/store`. Server-retired prompts are removed locally.

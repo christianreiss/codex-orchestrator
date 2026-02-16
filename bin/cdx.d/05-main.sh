@@ -640,6 +640,22 @@ format_simple_row() {
   printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
 }
 
+compute_row_label_width() {
+  local width="$ROW_LABEL_WIDTH"
+  local label=""
+  local plain=""
+  local plain_len=0
+  for label in "$@"; do
+    [[ -z "$label" ]] && continue
+    plain="$(strip_ansi_sgr "$label")"
+    plain_len=${#plain}
+    if (( plain_len > width )); then
+      width=$plain_len
+    fi
+  done
+  printf '%s' "$width"
+}
+
 format_quota_row() {
   local label="$1" text="$2" note="$3"
   if [[ -n "$note" ]]; then
@@ -2214,16 +2230,26 @@ fi
   fi
 
 	  if (( ! wrapper_updated || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
+	    row_label_width_default="$ROW_LABEL_WIDTH"
 	    # Table summary (default). This is the most robust across terminals and
 	    # avoids unicode box-drawing; content already includes ✅/bars.
 	    core_display="${core_line#Core: }"
 	    versions_display=""
 	    usage_display=""
 	    other_lane_usage_display=""
+	    quota_label_base="Quota (${quota_lane_display})"
 	    [[ -n "$versions_line" ]] && versions_display="${versions_line#Versions: }"
 	    [[ -n "$usage_line" ]] && usage_display="${usage_line#Usage: }"
 	    if [[ -n "$other_lane_usage_label" && -n "$other_lane_usage_value" ]]; then
 	      other_lane_usage_display="$other_lane_usage_value"
+	    fi
+	    if [[ "$SUMMARY_STYLE" == "table" ]]; then
+	      summary_row_labels=("Core" "Versions" "Usage" "Concurrent" "Result")
+	      [[ -n "$other_lane_usage_display" ]] && summary_row_labels+=("$other_lane_usage_label")
+	      [[ -n "$primary_quota_segment" ]] && summary_row_labels+=("${quota_label_base} 5h")
+	      [[ -n "$daily_quota_segment" ]] && summary_row_labels+=("${quota_label_base} day")
+	      [[ -n "$secondary_quota_segment" ]] && summary_row_labels+=("${quota_label_base} wk")
+	      ROW_LABEL_WIDTH="$(compute_row_label_width "${summary_row_labels[@]}")"
 	    fi
 
 	    if (( CODEX_MINIMAL_OUTPUT )); then
@@ -2255,7 +2281,6 @@ fi
 		        [[ -n "$other_lane_usage_display" ]] && log_info "$(format_simple_row "$other_lane_usage_label" "$other_lane_usage_display")"
 		      fi
 
-	      quota_label_base="Quota (${quota_lane_display})"
 	      if [[ -n "$primary_quota_segment" ]]; then
 	        quota_line="${primary_quota_segment}"
 	        if (( QUOTA_WARNING )) || (( QUOTA_BLOCKED )); then
@@ -2335,6 +2360,7 @@ fi
 	        log_info "$(wrap_ansi_text "$(summary_row "Result" "${result_line#Result: }")" "${SUMMARY_GUTTER}")"
 	      fi
 	    fi
+	    ROW_LABEL_WIDTH="$row_label_width_default"
 	  fi
 
 if (( CODEX_DOCTOR_ONLY )); then
