@@ -200,6 +200,15 @@
     let pendingDeleteId = null;
     let pendingAgentsDeleteId = null;
     let pendingAgentsDeleteHosts = [];
+    const HOST_MODEL_REASONING = {
+      'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.2-codex': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.1-codex-max': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.2': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.1-codex-mini': ['medium', 'high'],
+    };
+    const HOST_REASONING_DEFAULTS = ['low', 'medium', 'high', 'xhigh'];
 
     const upgradeNotesCache = {};
     let currentHosts = [];
@@ -225,6 +234,37 @@
 
     const THEME_OPTIONS = ['auto', 'light', 'dark'];
     const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+
+    function formatReasoningEffortLabel(value) {
+      return value === 'xhigh' ? 'xhigh (Extra high)' : value;
+    }
+
+    function hostReasoningOptionsForModel(model) {
+      const normalized = String(model || '').trim();
+      return HOST_MODEL_REASONING[normalized] || HOST_REASONING_DEFAULTS;
+    }
+
+    function rebuildHostReasoningOptions(selectEl, model, currentValue) {
+      if (!selectEl) return;
+      const allowed = hostReasoningOptionsForModel(model);
+      const normalizedCurrent = String(currentValue || '').trim().toLowerCase();
+      selectEl.innerHTML = '';
+      const standardOpt = document.createElement('option');
+      standardOpt.value = '';
+      standardOpt.textContent = 'Standard (global)';
+      selectEl.appendChild(standardOpt);
+      allowed.forEach((effort) => {
+        const option = document.createElement('option');
+        option.value = effort;
+        option.textContent = formatReasoningEffortLabel(effort);
+        selectEl.appendChild(option);
+      });
+      if (normalizedCurrent && allowed.includes(normalizedCurrent)) {
+        selectEl.value = normalizedCurrent;
+      } else {
+        selectEl.value = '';
+      }
+    }
 
     function normalizeTheme(value) {
       return THEME_OPTIONS.includes(value) ? value : 'auto';
@@ -2146,13 +2186,11 @@
               <select id="hostModelOverrideSelect">
                 <option value="">Standard (global)</option>
                 <option value="gpt-5.3-codex">gpt-5.3-codex</option>
-                <option value="gpt-5.3">gpt-5.3</option>
+                <option value="gpt-5.3-codex-spark">gpt-5.3-codex-spark</option>
                 <option value="gpt-5.2-codex">gpt-5.2-codex</option>
-                <option value="gpt-5.2">gpt-5.2</option>
                 <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
-                <option value="gpt-5.1-codex">gpt-5.1-codex</option>
+                <option value="gpt-5.2">gpt-5.2</option>
                 <option value="gpt-5.1-codex-mini">gpt-5.1-codex-mini</option>
-                <option value="gpt-5.1">gpt-5.1</option>
               </select>
             </div>
             <div class="field" style="min-width:180px;">
@@ -2162,7 +2200,7 @@
                 <option value="low">low</option>
                 <option value="medium">medium</option>
                 <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
+                <option value="xhigh">xhigh (Extra high)</option>
               </select>
             </div>
           </div>
@@ -2381,9 +2419,8 @@
       if (modelSelect) {
         modelSelect.value = (host.model_override || '').trim();
       }
-      if (effortSelect) {
-        effortSelect.value = (host.reasoning_effort_override || '').trim();
-      }
+      const initialEffort = (host.reasoning_effort_override || '').trim();
+      rebuildHostReasoningOptions(effortSelect, modelSelect ? modelSelect.value : '', initialEffort);
       const saveOverrides = async () => {
         const modelVal = modelSelect ? String(modelSelect.value || '') : '';
         const effortVal = effortSelect ? String(effortSelect.value || '') : '';
@@ -2417,6 +2454,7 @@
       if (modelSelect) {
         modelSelect.addEventListener('change', async (ev) => {
           ev.stopPropagation();
+          rebuildHostReasoningOptions(effortSelect, modelSelect.value, effortSelect ? effortSelect.value : '');
           await saveOverrides();
         });
       }

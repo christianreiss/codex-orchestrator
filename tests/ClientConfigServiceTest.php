@@ -77,7 +77,7 @@ final class ClientConfigServiceTest extends TestCase
     public function testRenderBuildsTomlWithNoticeAndDefaults(): void
     {
         $rendered = $this->service->render([
-            'model' => 'gpt-5-codex',
+            'model' => 'gpt-5.3-codex-spark',
             'model_provider' => 'oss',
             'local_provider' => 'ollama',
             'approval_policy' => 'on-request',
@@ -97,7 +97,7 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertNotEmpty($rendered['content']);
-        $this->assertStringContainsString('model = "gpt-5-codex"', $rendered['content']);
+        $this->assertStringContainsString('model = "gpt-5.3-codex-spark"', $rendered['content']);
         $this->assertStringContainsString('model_provider = "oss"', $rendered['content']);
         $this->assertStringContainsString('local_provider = "ollama"', $rendered['content']);
         $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
@@ -113,7 +113,7 @@ final class ClientConfigServiceTest extends TestCase
     public function testReasoningSummaryNoneIsStripped(): void
     {
         $rendered = $this->service->render([
-            'model' => 'gpt-5-codex',
+            'model' => 'gpt-5.2',
             'model_reasoning_summary' => 'none',
         ]);
 
@@ -149,7 +149,7 @@ final class ClientConfigServiceTest extends TestCase
     public function testReasoningSummaryAutoPassesThrough(): void
     {
         $rendered = $this->service->render([
-            'model' => 'gpt-5-codex',
+            'model' => 'gpt-5.2',
             'model_reasoning_summary' => 'auto',
         ]);
 
@@ -159,7 +159,7 @@ final class ClientConfigServiceTest extends TestCase
     public function testReasoningSummaryForcedDetailedForGpt51CodexModels(): void
     {
         $rendered = $this->service->render([
-            'model' => 'gpt-5.1-codex',
+            'model' => 'gpt-5.3-codex-spark',
             'model_reasoning_summary' => 'concise',
         ]);
 
@@ -204,21 +204,56 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model_verbosity = "high"', $renderedAllowed['content']);
     }
 
+    public function testUnsupportedModelIsDroppedFromRenderedConfig(): void
+    {
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.1',
+            'model_reasoning_effort' => 'high',
+        ]);
+
+        $this->assertStringNotContainsString('model = "gpt-5.1"', $rendered['content']);
+        $this->assertStringNotContainsString('model_reasoning_effort = "high"', $rendered['content']);
+        $this->assertNull($rendered['settings']['model']);
+        $this->assertNull($rendered['settings']['model_reasoning_effort']);
+    }
+
+    public function testSparkModelSupportsXHighReasoningEffort(): void
+    {
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.3-codex-spark',
+            'model_reasoning_effort' => 'xhigh',
+        ]);
+
+        $this->assertStringContainsString('model = "gpt-5.3-codex-spark"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "xhigh"', $rendered['content']);
+    }
+
+    public function testStaticModelValidationHelpersUseSupportedAllowlist(): void
+    {
+        $this->assertSame(
+            'gpt-5.3-codex-spark',
+            ClientConfigService::normalizeSupportedModel('gpt-5.3-codex-spark')
+        );
+        $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.1'));
+        $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.3-codex-spark', 'xhigh'));
+        $this->assertFalse(ClientConfigService::modelSupportsReasoningEffort('gpt-5.1-codex-mini', 'low'));
+    }
+
     public function testStorePersistsAndDetectsUnchanged(): void
     {
-        $first = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $first = $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
         $this->assertSame('created', $first['status']);
         $this->assertArrayHasKey('sha256', $first);
         $this->assertNotEmpty($this->repository->latest());
 
-        $second = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $second = $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
         $this->assertSame('unchanged', $second['status']);
         $this->assertCount(2, $this->logs->records); // store + store
     }
 
     public function testStoreRejectsMismatchedProvidedSha(): void
     {
-        $created = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $created = $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
         $this->assertSame('created', $created['status']);
         $currentSha = $created['sha256'];
 
@@ -227,7 +262,7 @@ final class ClientConfigServiceTest extends TestCase
 
         try {
             $this->service->store([
-                'settings' => ['model' => 'gpt-5.1-codex'],
+                'settings' => ['model' => 'gpt-5.2'],
                 'sha256' => $wrongSha,
             ]);
             $this->fail('Expected store() to reject mismatched sha256');
@@ -238,7 +273,7 @@ final class ClientConfigServiceTest extends TestCase
         }
 
         $updated = $this->service->store([
-            'settings' => ['model' => 'gpt-5.1-codex'],
+            'settings' => ['model' => 'gpt-5.2'],
             'sha256' => $currentSha,
         ]);
         $this->assertSame('updated', $updated['status']);
@@ -246,7 +281,7 @@ final class ClientConfigServiceTest extends TestCase
 
     public function testRetrieveHonorsSha(): void
     {
-        $stored = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $stored = $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
         $sha = $stored['sha256'];
 
         $unchanged = $this->service->retrieve($sha, ['id' => 5]);
@@ -261,7 +296,7 @@ final class ClientConfigServiceTest extends TestCase
 
     public function testBakedShaChangesWhenApiKeyChanges(): void
     {
-        $stored = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $stored = $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
         $baseSha = $stored['sha256'];
 
         $first = $this->service->retrieve(null, ['id' => 1], 'https://example.test', 'api-key-one');
@@ -274,7 +309,7 @@ final class ClientConfigServiceTest extends TestCase
 
     public function testRetrieveInjectsTrustedProjectHome(): void
     {
-        $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
 
         $result = $this->service->retrieve(null, ['id' => 2], null, null, 'alice', '/home/alice');
 
@@ -285,7 +320,7 @@ final class ClientConfigServiceTest extends TestCase
 
     public function testRetrieveSkipsInvalidHomePath(): void
     {
-        $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
 
         $result = $this->service->retrieve(null, ['id' => 3], null, null, 'alice', 'home/alice');
 
@@ -295,7 +330,7 @@ final class ClientConfigServiceTest extends TestCase
 
     public function testBakedShaChangesWhenHomeChanges(): void
     {
-        $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
 
         $first = $this->service->retrieve(null, ['id' => 4], 'https://example.test', 'api-key', null, '/home/a');
         $second = $this->service->retrieve(null, ['id' => 4], 'https://example.test', 'api-key', null, '/home/b');
@@ -322,12 +357,12 @@ final class ClientConfigServiceTest extends TestCase
 
     public function testStoreDetectsSettingsOnlyChange(): void
     {
-        $first = $this->service->store(['settings' => ['model' => 'gpt-5-codex']]);
+        $first = $this->service->store(['settings' => ['model' => 'gpt-5.3-codex']]);
         $this->assertSame('created', $first['status']);
 
         $second = $this->service->store([
             'settings' => [
-                'model' => 'gpt-5-codex',
+                'model' => 'gpt-5.3-codex',
                 'orchestrator_mcp_enabled' => false,
             ],
         ]);

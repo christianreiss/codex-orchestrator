@@ -2173,15 +2173,40 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/model$#', function ($hostId) use ($h
         ], 422);
     }
 
+    $modelOverride = ClientConfigService::normalizeSupportedModel($modelRaw);
+    if (is_string($modelRaw) && trim($modelRaw) !== '' && $modelOverride === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'model_override must be one of: ' . implode(', ', ClientConfigService::supportedModels()),
+        ], 422);
+    }
+
+    $reasoningOverride = ClientConfigService::normalizeReasoningEffort($reasoningRaw);
+    if (is_string($reasoningRaw) && trim($reasoningRaw) !== '' && $reasoningOverride === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'reasoning_effort_override must be one of: ' . implode(', ', ClientConfigService::REASONING_EFFORTS),
+        ], 422);
+    }
+
+    if ($modelOverride !== null && $reasoningOverride !== null
+        && !ClientConfigService::modelSupportsReasoningEffort($modelOverride, $reasoningOverride)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'reasoning_effort_override for ' . $modelOverride
+                . ' must be one of: ' . implode(', ', ClientConfigService::supportedReasoningEffortsForModel($modelOverride)),
+        ], 422);
+    }
+
     $hostRepository->updateModelOverrides(
         $hostId,
-        is_string($modelRaw) ? $modelRaw : null,
-        is_string($reasoningRaw) ? $reasoningRaw : null
+        $modelOverride,
+        $reasoningOverride
     );
     $logRepository->log($hostId, 'admin.host.model_overrides', [
         'fqdn' => $host['fqdn'] ?? null,
-        'model_override' => is_string($modelRaw) ? $modelRaw : null,
-        'reasoning_effort_override' => is_string($reasoningRaw) ? $reasoningRaw : null,
+        'model_override' => $modelOverride,
+        'reasoning_effort_override' => $reasoningOverride,
     ]);
 
     $updated = $hostRepository->findById($hostId);

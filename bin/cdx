@@ -459,7 +459,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.13-18"
+WRAPPER_VERSION="2026.02.16-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -697,7 +697,7 @@ if [[ "${1-}" == "--execute" ]]; then
   tmp_output="$(mktemp -t cdx-exec-XXXXXX)"
   cleanup_tmp() { rm -f "$tmp_output"; }
   trap cleanup_tmp EXIT
-  if codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check \
+  if codex --model gpt-5.3-codex --sandbox read-only -a untrusted exec --skip-git-repo-check \
     --output-last-message "$tmp_output" "$prompt" "$@" >/dev/null 2>&1; then
     [[ -s "$tmp_output" ]] && cat "$tmp_output"
     cleanup_tmp

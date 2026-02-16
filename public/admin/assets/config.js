@@ -71,15 +71,14 @@
   let lastSavedSha = '';
 
   const MODEL_REASONING = {
-    'gpt-5.3': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
+    'gpt-5.3-codex-spark': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2-codex': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.1-codex': ['', 'low', 'medium', 'high'],
     'gpt-5.1-codex-max': ['', 'low', 'medium', 'high', 'xhigh'],
+    'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.1-codex-mini': ['', 'medium', 'high'],
-    'gpt-5.1': ['', 'low', 'medium', 'high'],
   };
+  const SUPPORTED_MODELS = Object.keys(MODEL_REASONING);
 
   function isGpt51CodexModel(model) {
     const lower = String(model || '').toLowerCase();
@@ -191,18 +190,29 @@
     };
   }
 
-  function setSelectValue(selectEl, value) {
+  function setSelectValue(selectEl, value, options = {}) {
     if (!selectEl) return;
+    const { allowUnknown = true } = options;
     const val = value || '';
-    const options = Array.from(selectEl.options || []);
-    const exists = options.some((opt) => opt.value === val);
-    if (!exists && val !== '') {
+    const selectOptions = Array.from(selectEl.options || []);
+    const exists = selectOptions.some((opt) => opt.value === val);
+    if (!exists && val !== '' && allowUnknown) {
       const opt = document.createElement('option');
       opt.value = val;
       opt.textContent = val;
       selectEl.appendChild(opt);
     }
-    selectEl.value = val;
+    if (exists || (val !== '' && allowUnknown)) {
+      selectEl.value = val;
+      return;
+    }
+    selectEl.value = '';
+  }
+
+  function reasoningLabel(optVal) {
+    if (optVal === '') return '—';
+    if (optVal === 'xhigh') return 'xhigh (Extra high)';
+    return optVal;
   }
 
   function rebuildReasoningOptions(model, currentValue) {
@@ -212,7 +222,7 @@
     allowed.forEach((optVal) => {
       const opt = document.createElement('option');
       opt.value = optVal;
-      opt.textContent = optVal === '' ? '—' : optVal;
+      opt.textContent = reasoningLabel(optVal);
       reasoningEffortInput.appendChild(opt);
     });
     setReasoningValue(currentValue);
@@ -491,7 +501,10 @@
     if (!modelInput) return;
     const cfg = deepMerge(defaultSettings(), settings || {});
     preservedProfiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
-    setSelectValue(modelInput, cfg.model || '');
+    setSelectValue(modelInput, cfg.model || '', { allowUnknown: false });
+    if (!SUPPORTED_MODELS.includes(modelInput.value)) {
+      modelInput.value = defaultSettings().model;
+    }
     setSelectValue(modelProviderInput, cfg.model_provider || '');
     setSelectValue(localProviderInput, cfg.local_provider || '');
     setSelectValue(approvalPolicyInput, cfg.approval_policy || '');

@@ -102,7 +102,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
 - `POST /admin/hosts/{id}/ipv4` — toggle IPv4-only wrapper behavior (`force` boolean; clears stored IP and bakes `curl -4`).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle TLS verification bypass for host sync (`allow` boolean).
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS enforcement (`mode`: `global` | `enabled` | `disabled`).
-- `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears).
+- `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears). Supported models: `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.2`, `gpt-5.1-codex-mini`; effort must be `low|medium|high|xhigh` and valid for the selected model.
 - `POST /admin/hosts/{id}/codex-version` — set per-host Codex CLI pin. Body `{selection:"global"|"<x.y.z>"}` (or `client_version_override` string/null).
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends a sliding allow window. Optional JSON body `duration_minutes` (integer 0–480) controls the window length (defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
 - `POST /admin/hosts/{id}/insecure/disable` — closes the window immediately and clears any grace.

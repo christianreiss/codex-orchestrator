@@ -11,14 +11,12 @@
   let loadedSettings = null;
 
   const MODEL_REASONING = {
-    'gpt-5.3': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
+    'gpt-5.3-codex-spark': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2-codex': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.1-codex': ['', 'low', 'medium', 'high'],
     'gpt-5.1-codex-max': ['', 'low', 'medium', 'high', 'xhigh'],
+    'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.1-codex-mini': ['', 'medium', 'high'],
-    'gpt-5.1': ['', 'low', 'medium', 'high'],
   };
 
   function deepClone(value) {
@@ -79,7 +77,13 @@
     allowed.forEach((optVal) => {
       const opt = document.createElement('option');
       opt.value = optVal;
-      opt.textContent = optVal === '' ? '—' : optVal;
+      if (optVal === '') {
+        opt.textContent = '—';
+      } else if (optVal === 'xhigh') {
+        opt.textContent = 'xhigh (Extra high)';
+      } else {
+        opt.textContent = optVal;
+      }
       selectEl.appendChild(opt);
     });
     selectEl.value = allowed.includes(currentValue || '') ? (currentValue || '') : '';

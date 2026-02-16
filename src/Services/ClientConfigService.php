@@ -16,6 +16,29 @@ use App\Repositories\VersionRepository;
 
 class ClientConfigService
 {
+    /** @var list<string> */
+    public const SUPPORTED_MODELS = [
+        'gpt-5.3-codex',
+        'gpt-5.3-codex-spark',
+        'gpt-5.2-codex',
+        'gpt-5.1-codex-max',
+        'gpt-5.2',
+        'gpt-5.1-codex-mini',
+    ];
+
+    /** @var array<string, list<string>> */
+    public const MODEL_REASONING_EFFORTS = [
+        'gpt-5.3-codex' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.3-codex-spark' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.2-codex' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.1-codex-max' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.2' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.1-codex-mini' => ['medium', 'high'],
+    ];
+
+    /** @var list<string> */
+    public const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+
     /**
      * Per-request cache for baked configs so multiple calls in one request
      * don't rebuild TOML (keyed by base sha + host + api key hash + base URL).
@@ -42,6 +65,8 @@ class ClientConfigService
 
         $body = (string) ($row['body'] ?? '');
         $sha = $row['sha256'] ?? hash('sha256', $body);
+        $settings = $row['settings'] ?? null;
+        $normalizedSettings = is_array($settings) ? $this->normalizeSettings($settings) : null;
 
         return [
             'status' => 'ok',
@@ -49,7 +74,7 @@ class ClientConfigService
             'updated_at' => $row['updated_at'] ?? null,
             'size_bytes' => strlen($body),
             'content' => $body,
-            'settings' => $row['settings'] ?? null,
+            'settings' => $normalizedSettings,
         ];
     }
 
@@ -89,8 +114,10 @@ class ClientConfigService
             return $settings;
         }
 
-        $modelOverride = $this->normalizeString($host['model_override'] ?? null);
-        $effortOverride = $this->normalizeString($host['reasoning_effort_override'] ?? null);
+        $modelOverride = self::normalizeSupportedModel($host['model_override'] ?? null);
+        $effectiveModel = $modelOverride ?? self::normalizeSupportedModel($settings['model'] ?? null);
+        $effortOverrideRaw = self::normalizeReasoningEffort($host['reasoning_effort_override'] ?? null);
+        $effortOverride = $this->normalizeReasoningEffortForModel($effortOverrideRaw, $effectiveModel);
         if ($modelOverride === null && $effortOverride === null) {
             return $settings;
         }
@@ -120,11 +147,13 @@ class ClientConfigService
             }
             $name = $this->normalizeString($entry['name'] ?? null);
             if ($name !== null && hash_equals($activeProfile, $name)) {
+                $profileModel = $modelOverride ?? self::normalizeSupportedModel($entry['model'] ?? null);
+                $profileEffort = $this->normalizeReasoningEffortForModel($effortOverrideRaw, $profileModel);
                 if ($modelOverride !== null) {
                     $entry['model'] = $modelOverride;
                 }
-                if ($effortOverride !== null) {
-                    $entry['model_reasoning_effort'] = $effortOverride;
+                if ($profileEffort !== null) {
+                    $entry['model_reasoning_effort'] = $profileEffort;
                 }
             }
             $updatedProfiles[] = $entry;
@@ -401,9 +430,10 @@ class ClientConfigService
     {
         $normalizeString = fn ($value): ?string => $this->normalizeString($value);
         $normalizeBool = fn ($value, ?bool $default = null): ?bool => $this->normalizeBool($value, $default);
+        $model = self::normalizeSupportedModel($settings['model'] ?? null);
 
         $result = [
-            'model' => $normalizeString($settings['model'] ?? null),
+            'model' => $model,
             'model_provider' => $normalizeString($settings['model_provider'] ?? null),
             'local_provider' => $normalizeString($settings['local_provider'] ?? null),
             'profile' => $normalizeString($settings['profile'] ?? null),
@@ -415,9 +445,12 @@ class ClientConfigService
                 ),
             ],
             'web_search' => $this->normalizeWebSearchFeature($settings['web_search'] ?? null),
-            'model_reasoning_effort' => $normalizeString($settings['model_reasoning_effort'] ?? null),
+            'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
+                $settings['model_reasoning_effort'] ?? null,
+                $model
+            ),
             'model_reasoning_summary' => null, // set after model-aware normalization
-            'model_verbosity' => $this->normalizeModelVerbosity($settings['model_verbosity'] ?? null, $settings['model'] ?? null),
+            'model_verbosity' => $this->normalizeModelVerbosity($settings['model_verbosity'] ?? null, $model),
             'model_supports_reasoning_summaries' => $normalizeBool($settings['model_supports_reasoning_summaries'] ?? null),
             'model_context_window' => $this->normalizeInt($settings['model_context_window'] ?? null),
             'model_max_output_tokens' => $this->normalizeInt($settings['model_max_output_tokens'] ?? null),
@@ -530,6 +563,7 @@ class ClientConfigService
             }
 
             $profileModel = $normalizeString($entry['model'] ?? null);
+            $profileModel = self::normalizeSupportedModel($profileModel);
             $profileWebSearch = $this->normalizeWebSearchFeature($entry['web_search'] ?? null);
             $profileFeaturesRaw = is_array($entry['features'] ?? null) ? $entry['features'] : [];
             $profileFeatures = [];
@@ -559,7 +593,10 @@ class ClientConfigService
                 'approval_policy' => $normalizeString($entry['approval_policy'] ?? null),
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
                 'web_search' => $profileWebSearch,
-                'model_reasoning_effort' => $normalizeString($entry['model_reasoning_effort'] ?? null),
+                'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
+                    $entry['model_reasoning_effort'] ?? null,
+                    $profileModel
+                ),
                 'model_reasoning_summary' => $this->normalizeReasoningSummary($entry['model_reasoning_summary'] ?? null, $profileModel),
                 'model_verbosity' => $this->normalizeModelVerbosity($entry['model_verbosity'] ?? null, $profileModel),
                 'model_supports_reasoning_summaries' => $normalizeBool($entry['model_supports_reasoning_summaries'] ?? null),
@@ -1017,12 +1054,76 @@ class ClientConfigService
         return $lower;
     }
 
+    private function normalizeReasoningEffortForModel(mixed $value, ?string $model): ?string
+    {
+        $effort = self::normalizeReasoningEffort($value);
+        if ($effort === null || $model === null) {
+            return null;
+        }
+
+        return self::modelSupportsReasoningEffort($model, $effort) ? $effort : null;
+    }
+
     private function isGpt51CodexModel(string $model): bool
     {
         $m = strtolower(trim($model));
         return str_starts_with($m, 'gpt-5.1-codex')
             || str_starts_with($m, 'gpt-5.2-codex')
             || str_starts_with($m, 'gpt-5.3-codex');
+    }
+
+    /** @return list<string> */
+    public static function supportedModels(): array
+    {
+        return self::SUPPORTED_MODELS;
+    }
+
+    public static function normalizeSupportedModel(mixed $value): ?string
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+        $model = strtolower(trim((string) $value));
+        if ($model === '') {
+            return null;
+        }
+
+        return in_array($model, self::SUPPORTED_MODELS, true) ? $model : null;
+    }
+
+    /** @return list<string> */
+    public static function supportedReasoningEffortsForModel(mixed $model): array
+    {
+        $normalized = self::normalizeSupportedModel($model);
+        if ($normalized === null) {
+            return [];
+        }
+
+        return self::MODEL_REASONING_EFFORTS[$normalized] ?? [];
+    }
+
+    public static function normalizeReasoningEffort(mixed $value): ?string
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+        $effort = strtolower(trim((string) $value));
+        if ($effort === '') {
+            return null;
+        }
+
+        return in_array($effort, self::REASONING_EFFORTS, true) ? $effort : null;
+    }
+
+    public static function modelSupportsReasoningEffort(mixed $model, mixed $effort): bool
+    {
+        $normalizedModel = self::normalizeSupportedModel($model);
+        $normalizedEffort = self::normalizeReasoningEffort($effort);
+        if ($normalizedModel === null || $normalizedEffort === null) {
+            return false;
+        }
+
+        return in_array($normalizedEffort, self::supportedReasoningEffortsForModel($normalizedModel), true);
     }
 
     private function normalizeInt(mixed $value): ?int
