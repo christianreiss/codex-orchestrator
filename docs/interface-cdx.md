@@ -12,7 +12,7 @@
   - Boot summary output is sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language status labels instead of dense pipe-delimited status blocks.
   - Section rows are compacted across all summary blocks: up to three entries per printed line separated by tabs (default `3`; override with `CODEX_SUMMARY_ITEMS_PER_ROW=<n>`).
   - Shows host usage returned by `/auth` (`api_calls` and current-month token totals including cached/reasoning) in a dedicated `Usage` section with grouped numeric formatting.
-  - When both quota lanes are available, prints the non-active lane as a compact `Other lane` quota line (`Spark: 5h X%, week Y%` or `Normal: ...`) while keeping the active lane bars primary.
+  - When both quota lanes are available, prints aligned bar rows for the non-active lane as well (`Spark 5h window`/`Spark weekly window` or `Normal ...`) so active and alternate lane graphs share the same layout.
   - Quota defaults are intentionally lean: always show active-lane 5-hour and weekly bars, and show the daily allowance bar only for warn/block or explicit status/doctor contexts.
 - TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).
 - IPv4-only: when `force_ipv4` is baked for a host (or `cdx -4` is used), the wrapper forces IPv4 for all wrapper HTTPS calls (auth, prompts, skills, AGENTS, config, usage) plus update/download requests, not just `curl`.

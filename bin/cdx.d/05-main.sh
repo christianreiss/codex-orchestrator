@@ -482,6 +482,7 @@ colorize() {
 ROW_LABEL_WIDTH=12
 ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
+QUOTA_METRIC_LABEL_WIDTH=20
 SUMMARY_ITEMS_PER_ROW=3
 
 # Summary formatting (bootup message).
@@ -667,7 +668,7 @@ print_section_rows() {
     else
       packed_line+=$'\t'"$line"
     fi
-    (( packed_count++ ))
+    packed_count=$(( packed_count + 1 ))
     if (( packed_count >= items_per_row )); then
       if (( first )); then
         log_info "$(format_simple_row "$label" "$packed_line")"
@@ -990,6 +991,15 @@ format_quota_bar_text() {
   text="${line#*$'\t'}"
   text="${text%%$'\t'*}"
   printf "%s" "$text"
+}
+
+format_quota_metric_row() {
+  local label="$1" value="$2"
+  local width="${QUOTA_METRIC_LABEL_WIDTH:-20}"
+  if [[ ! "$width" =~ ^[0-9]+$ ]] || (( width < 8 )); then
+    width=20
+  fi
+  printf "%-${width}s: %s" "$label" "$value"
 }
 
 quota_pct_or_na() {
@@ -2155,18 +2165,86 @@ fi
     lane_prefix="spark "
   fi
 
-  other_lane_usage_value=""
+  other_lane_label=""
+  other_lane_primary_used=""
+  other_lane_primary_limit=""
+  other_lane_primary_reset_after=""
+  other_lane_primary_reset_at=""
+  other_lane_secondary_used=""
+  other_lane_secondary_limit=""
+  other_lane_secondary_reset_after=""
+  other_lane_secondary_reset_at=""
   if [[ "$quota_lane_label" == "spark" ]]; then
-    if [[ -n "$CHATGPT_NORMAL_PRIMARY_USED" || -n "$CHATGPT_NORMAL_SECONDARY_USED" ]]; then
-      normal_5h="$(quota_pct_or_na "$CHATGPT_NORMAL_PRIMARY_USED")"
-      normal_wk="$(quota_pct_or_na "$CHATGPT_NORMAL_SECONDARY_USED")"
-      other_lane_usage_value="Normal: 5h ${normal_5h}, week ${normal_wk}"
-    fi
+    other_lane_label="Normal"
+    other_lane_primary_used="$CHATGPT_NORMAL_PRIMARY_USED"
+    other_lane_primary_limit="$CHATGPT_NORMAL_PRIMARY_LIMIT"
+    other_lane_primary_reset_after="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
+    other_lane_primary_reset_at="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
+    other_lane_secondary_used="$CHATGPT_NORMAL_SECONDARY_USED"
+    other_lane_secondary_limit="$CHATGPT_NORMAL_SECONDARY_LIMIT"
+    other_lane_secondary_reset_after="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
+    other_lane_secondary_reset_at="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
   else
-    if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_USED" ]]; then
-      spark_5h="$(quota_pct_or_na "$CHATGPT_SPARK_PRIMARY_USED")"
-      spark_wk="$(quota_pct_or_na "$CHATGPT_SPARK_SECONDARY_USED")"
-      other_lane_usage_value="Spark: 5h ${spark_5h}, week ${spark_wk}"
+    other_lane_label="Spark"
+    other_lane_primary_used="$CHATGPT_SPARK_PRIMARY_USED"
+    other_lane_primary_limit="$CHATGPT_SPARK_PRIMARY_LIMIT"
+    other_lane_primary_reset_after="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
+    other_lane_primary_reset_at="$CHATGPT_SPARK_PRIMARY_RESET_AT"
+    other_lane_secondary_used="$CHATGPT_SPARK_SECONDARY_USED"
+    other_lane_secondary_limit="$CHATGPT_SPARK_SECONDARY_LIMIT"
+    other_lane_secondary_reset_after="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
+    other_lane_secondary_reset_at="$CHATGPT_SPARK_SECONDARY_RESET_AT"
+  fi
+
+  other_lane_primary_quota_segment=""
+  other_lane_secondary_quota_segment=""
+  if [[ -n "$other_lane_primary_used" || -n "$other_lane_secondary_used" ]]; then
+    qline=$(render_quota_line "$other_lane_primary_used" "$other_lane_primary_reset_after" "$other_lane_primary_reset_at")
+    if [[ -n "$qline" ]]; then
+      other_qtone="${qline%%$'\t'*}"
+      other_rest="${qline#*$'\t'}"
+      other_qtext="${other_rest%%$'\t'*}"
+      other_qnote="${other_rest#*$'\t'}"
+      other_qnote_disp="$other_qnote"
+      if [[ -n "$other_qnote_disp" ]]; then
+        printf -v other_qnote_disp "%b" "${DIM}${other_qnote_disp}${RESET}"
+      fi
+      other_lane_primary_quota_segment="$(colorize "$other_qtext" "$other_qtone")"
+      if [[ -n "$other_qnote_disp" ]]; then
+        other_lane_primary_quota_segment+=" ${other_qnote_disp}"
+      fi
+    fi
+
+    qline=$(render_quota_line "$other_lane_secondary_used" "$other_lane_secondary_reset_after" "$other_lane_secondary_reset_at")
+    if [[ -n "$qline" ]]; then
+      other_qtone2="${qline%%$'\t'*}"
+      other_rest2="${qline#*$'\t'}"
+      other_qtext2="${other_rest2%%$'\t'*}"
+      other_qnote2="${other_rest2#*$'\t'}"
+      other_projection_note=""
+      other_projection_alert=0
+      other_projection_pct="$(project_quota_usage "$other_lane_secondary_used" "$other_lane_secondary_limit" "$other_lane_secondary_reset_after" || true)"
+      if [[ -n "$other_projection_pct" ]]; then
+        if (( other_projection_pct >= 100 )); then
+          other_projection_note="proj 100% at reset"
+          other_projection_alert=1
+        else
+          other_projection_note="proj ~${other_projection_pct}% at reset"
+        fi
+      fi
+      other_qnote_full="$(join_with_semicolon "$other_qnote2" "$other_projection_note")"
+      other_qnote2_disp="$other_qnote_full"
+      if [[ -n "$other_qnote2_disp" ]]; then
+        if (( other_projection_alert )); then
+          printf -v other_qnote2_disp "%b" "${RED}${BOLD}${other_qnote2_disp}${RESET}"
+        else
+          printf -v other_qnote2_disp "%b" "${DIM}${other_qnote2_disp}${RESET}"
+        fi
+      fi
+      other_lane_secondary_quota_segment="$(colorize "$other_qtext2" "$other_qtone2")"
+      if [[ -n "$other_qnote2_disp" ]]; then
+        other_lane_secondary_quota_segment+=" ${other_qnote2_disp}"
+      fi
     fi
   fi
   primary_reset_hint=""
@@ -2380,18 +2458,47 @@ fi
       fi
 
       quota_rows=()
-      quota_rows+=("${bullet} Active lane: ${quota_lane_display}")
+      quota_metric_labels=("Active lane")
       if [[ -n "$primary_quota_segment" ]]; then
-        quota_rows+=("${bullet} 5h window: ${primary_quota_segment}")
+        quota_metric_labels+=("5h window")
       fi
       if [[ -n "$secondary_quota_segment" ]]; then
-        quota_rows+=("${bullet} Weekly window: ${secondary_quota_segment}")
+        quota_metric_labels+=("Weekly window")
       fi
       if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
-        quota_rows+=("${bullet} Daily allowance: ${daily_quota_segment}")
+        quota_metric_labels+=("Daily allowance")
       fi
-      if [[ -n "$other_lane_usage_value" ]]; then
-        quota_rows+=("${bullet} ${other_lane_usage_value}")
+      if [[ -n "$other_lane_primary_quota_segment" ]]; then
+        quota_metric_labels+=("${other_lane_label} 5h window")
+      fi
+      if [[ -n "$other_lane_secondary_quota_segment" ]]; then
+        quota_metric_labels+=("${other_lane_label} weekly window")
+      fi
+      quota_metric_label_width=0
+      for quota_metric_label in "${quota_metric_labels[@]}"; do
+        quota_metric_len=${#quota_metric_label}
+        if (( quota_metric_len > quota_metric_label_width )); then
+          quota_metric_label_width=$quota_metric_len
+        fi
+      done
+      (( quota_metric_label_width < 12 )) && quota_metric_label_width=12
+      QUOTA_METRIC_LABEL_WIDTH="$quota_metric_label_width"
+
+      quota_rows+=("${bullet} $(format_quota_metric_row "Active lane" "${quota_lane_display}")")
+      if [[ -n "$primary_quota_segment" ]]; then
+        quota_rows+=("${bullet} $(format_quota_metric_row "5h window" "${primary_quota_segment}")")
+      fi
+      if [[ -n "$secondary_quota_segment" ]]; then
+        quota_rows+=("${bullet} $(format_quota_metric_row "Weekly window" "${secondary_quota_segment}")")
+      fi
+      if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
+        quota_rows+=("${bullet} $(format_quota_metric_row "Daily allowance" "${daily_quota_segment}")")
+      fi
+      if [[ -n "$other_lane_primary_quota_segment" ]]; then
+        quota_rows+=("${bullet} $(format_quota_metric_row "${other_lane_label} 5h window" "${other_lane_primary_quota_segment}")")
+      fi
+      if [[ -n "$other_lane_secondary_quota_segment" ]]; then
+        quota_rows+=("${bullet} $(format_quota_metric_row "${other_lane_label} weekly window" "${other_lane_secondary_quota_segment}")")
       fi
       if (( QUOTA_WARNING )) && [[ -n "$QUOTA_WARNING_REASON" ]]; then
         quota_rows+=("${bullet} $(colorize "Near limit: ${QUOTA_WARNING_REASON}" "yellow")")

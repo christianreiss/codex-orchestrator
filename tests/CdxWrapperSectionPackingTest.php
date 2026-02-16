@@ -15,6 +15,8 @@ final class CdxWrapperSectionPackingTest extends TestCase
         self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW=3', $wrapperSource);
         self::assertStringContainsString('packed_line+=$\'\\t\'"$line"', $wrapperSource);
         self::assertStringContainsString('if (( packed_count >= items_per_row )); then', $wrapperSource);
+        self::assertStringContainsString('packed_count=$(( packed_count + 1 ))', $wrapperSource);
+        self::assertStringNotContainsString('(( packed_count++ ))', $wrapperSource);
     }
 
     public function testWrapperAllowsSummaryPackingOverrideViaEnvVar(): void

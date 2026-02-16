@@ -1,4 +1,5 @@
 # 2026-02-16
+- cdx: fixed summary rendering exit-on-start regression caused by tabbed row packing (`set -e` with `(( packed_count++ ))`), aligned quota graph labels, and added non-active lane (Spark/Normal) 5h + weekly bar rows in the Quota block; wrapper bumped to `2026.02.16-09`.
 - cdx: compact summary blocks now pack up to three tab-separated entries per line across Health/Versions/Usage/Quota/Result sections (override with `CODEX_SUMMARY_ITEMS_PER_ROW`); wrapper bumped to `2026.02.16-08`.
 - cdx: add Linux `yum` fallback support for RHEL-family prerequisite installs (including legacy CentOS 7/8/9 paths), map `script` to `util-linux` for `dnf`/`yum`, and add wrapper package-manager coverage tests; wrapper bumped to `2026.02.16-07`.
 - cdx: redesigned the boot summary into human-readable `Health`/`Versions`/`Usage`/`Quota`/`Result` sections, improved quota bar presentation with Unicode+ASCII fallback, condensed non-active quota lane output into an `Other lane` line, and switched insecure clean-sync result text to `Synced on insecure host; auth refreshed.`; wrapper bumped to `2026.02.16-06`.
