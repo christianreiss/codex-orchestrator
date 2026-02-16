@@ -868,6 +868,19 @@ render_quota_line() {
   printf "%s\t%s\t%s" "$tone" "$text" "$note"
 }
 
+format_quota_bar_text() {
+  local used="$1" reset_after="$2" reset_at="$3"
+  local line
+  line=$(render_quota_line "$used" "$reset_after" "$reset_at")
+  if [[ -z "$line" ]]; then
+    return
+  fi
+  local text
+  text="${line#*$'\t'}"
+  text="${text%%$'\t'*}"
+  printf "%s" "$text"
+}
+
 project_quota_usage() {
   local used_pct="$1" limit_seconds="$2" reset_after="$3"
   [[ "$used_pct" =~ ^[0-9]+$ ]] || return
@@ -1997,25 +2010,25 @@ fi
   other_lane_summary=""
   if [[ "$quota_lane_label" == "spark" ]]; then
     if [[ -n "$CHATGPT_NORMAL_PRIMARY_USED" || -n "$CHATGPT_NORMAL_SECONDARY_USED" ]]; then
-      normal_5h="${CHATGPT_NORMAL_PRIMARY_USED:-n/a}"
-      normal_wk="${CHATGPT_NORMAL_SECONDARY_USED:-n/a}"
-      if [[ "$normal_5h" =~ ^[0-9]+$ ]]; then
-        normal_5h="${normal_5h}%"
+      normal_5h="$(format_quota_bar_text "$CHATGPT_NORMAL_PRIMARY_USED" "$CHATGPT_NORMAL_PRIMARY_RESET_AFTER" "$CHATGPT_NORMAL_PRIMARY_RESET_AT")"
+      normal_wk="$(format_quota_bar_text "$CHATGPT_NORMAL_SECONDARY_USED" "$CHATGPT_NORMAL_SECONDARY_RESET_AFTER" "$CHATGPT_NORMAL_SECONDARY_RESET_AT")"
+      if [[ -z "$normal_5h" ]]; then
+        normal_5h="n/a"
       fi
-      if [[ "$normal_wk" =~ ^[0-9]+$ ]]; then
-        normal_wk="${normal_wk}%"
+      if [[ -z "$normal_wk" ]]; then
+        normal_wk="n/a"
       fi
       other_lane_summary="normal lane 5h ${normal_5h}, week ${normal_wk}"
     fi
   else
     if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_USED" ]]; then
-      spark_5h="${CHATGPT_SPARK_PRIMARY_USED:-n/a}"
-      spark_wk="${CHATGPT_SPARK_SECONDARY_USED:-n/a}"
-      if [[ "$spark_5h" =~ ^[0-9]+$ ]]; then
-        spark_5h="${spark_5h}%"
+      spark_5h="$(format_quota_bar_text "$CHATGPT_SPARK_PRIMARY_USED" "$CHATGPT_SPARK_PRIMARY_RESET_AFTER" "$CHATGPT_SPARK_PRIMARY_RESET_AT")"
+      spark_wk="$(format_quota_bar_text "$CHATGPT_SPARK_SECONDARY_USED" "$CHATGPT_SPARK_SECONDARY_RESET_AFTER" "$CHATGPT_SPARK_SECONDARY_RESET_AT")"
+      if [[ -z "$spark_5h" ]]; then
+        spark_5h="n/a"
       fi
-      if [[ "$spark_wk" =~ ^[0-9]+$ ]]; then
-        spark_wk="${spark_wk}%"
+      if [[ -z "$spark_wk" ]]; then
+        spark_wk="n/a"
       fi
       other_lane_summary="spark lane 5h ${spark_5h}, week ${spark_wk}"
     fi

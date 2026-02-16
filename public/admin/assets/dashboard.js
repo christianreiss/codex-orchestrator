@@ -1680,22 +1680,22 @@
 
     function updateUsageResetLabels() {
       if (!chatgptUsageCard) return;
-      const bars = chatgptUsageCard.querySelectorAll('.usage-bar');
-      if (!bars.length) return;
+      const lanes = chatgptUsageCard.querySelectorAll('.usage-lane');
+      if (!lanes.length) return;
       const now = Date.now();
-      bars.forEach((bar) => {
-        const resetAt = bar.dataset.resetAt || null;
-        const resetAfterRaw = bar.dataset.resetAfter;
+      lanes.forEach((lane) => {
+        const resetAt = lane.dataset.resetAt || null;
+        const resetAfterRaw = lane.dataset.resetAfter;
         const resetAfter = resetAfterRaw ? Number(resetAfterRaw) : null;
         const label = formatResetLabel(
           Number.isFinite(resetAfter) ? resetAfter : null,
           resetAt || null
         );
-        const resetEl = bar.querySelector('.usage-reset');
+        const resetEl = lane.querySelector('.usage-reset');
         if (resetEl && resetEl.textContent !== label) {
           resetEl.textContent = label;
         }
-        const limitSecondsRaw = bar.dataset.limitSeconds;
+        const limitSecondsRaw = lane.dataset.limitSeconds;
         const limitSeconds = limitSecondsRaw ? Number(limitSecondsRaw) : null;
         if (Number.isFinite(limitSeconds) && limitSeconds > 0) {
           let targetMs = null;
@@ -1709,7 +1709,7 @@
           if (targetMs !== null) {
             const remaining = Math.max(0, (targetMs - now) / 1000);
             const pct = Math.min(100, Math.max(0, Math.round(((limitSeconds - remaining) / limitSeconds) * 100)));
-            const meterSpan = bar.querySelector('.meter.time span');
+            const meterSpan = lane.querySelector('.meter.time span');
             if (meterSpan) {
               meterSpan.style.width = `${pct}%`;
             }
@@ -3361,7 +3361,7 @@
       `;
     }
 
-    function renderUsageWindow(label, data, windowKey = null) {
+    function renderUsageLane(label, data, windowKey = null) {
       const used = Number.isFinite(data?.used_percent) ? Math.min(100, Math.max(0, data.used_percent)) : null;
       const limitLabel = Number.isFinite(data?.limit_seconds) ? formatDurationSeconds(data.limit_seconds) : '';
       const resetAt = resolveResetTarget(data?.reset_after_seconds ?? null, data?.reset_at ?? null);
@@ -3391,7 +3391,7 @@
         </div>
       `;
       return `
-        <div class="usage-bar"
+        <div class="usage-lane"
           data-reset-at="${resetAt ?? ''}"
           data-reset-after="${Number.isFinite(data?.reset_after_seconds) ? data.reset_after_seconds : ''}"
           data-limit-seconds="${Number.isFinite(data?.limit_seconds) ? data.limit_seconds : ''}">
@@ -3405,6 +3405,22 @@
           </div>
           ${meter}
           <small class="usage-reset">${resetLabel}</small>
+        </div>
+      `;
+    }
+
+    function renderUsageWindowCard(label, rows = []) {
+      const lanes = Array.isArray(rows)
+        ? rows.map((row) => renderUsageLane(row.label, row.data, row.windowKey)).join('')
+        : '';
+      return `
+        <div class="usage-bar">
+          <div class="label usage-window-label">
+            <span>${label}</span>
+          </div>
+          <div class="usage-lanes">
+            ${lanes}
+          </div>
         </div>
       `;
     }
@@ -3463,6 +3479,16 @@
       const planLabel = plan;
       const sparkMeta = [snapshot.spark_limit_name, snapshot.spark_metered_feature].filter((part) => typeof part === 'string' && part.trim() !== '').join(' · ');
       const laneChip = `<span class="chip ${activeLane === 'spark' ? 'warn' : ''}">Active lane: ${activeLane}</span>`;
+      const primaryRows = [
+        { label: 'Normal', data: normalPrimary, windowKey: 'normal:primary' },
+      ];
+      const secondaryRows = [
+        { label: 'Normal', data: normalSecondary, windowKey: 'normal:secondary' },
+      ];
+      if (hasSpark) {
+        primaryRows.push({ label: 'Spark', data: sparkPrimary, windowKey: 'spark:primary' });
+        secondaryRows.push({ label: 'Spark', data: sparkSecondary, windowKey: 'spark:secondary' });
+      }
 
       chatgptUsageCard.innerHTML = `
         <div class="usage-head">
@@ -3480,10 +3506,8 @@
         </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
         <div class="usage-bars">
-          ${renderUsageWindow('Normal · 5-hour limit', normalPrimary, 'normal:primary')}
-          ${renderUsageWindow('Normal · Weekly limit', normalSecondary, 'normal:secondary')}
-          ${hasSpark ? renderUsageWindow('Spark · 5-hour limit', sparkPrimary, 'spark:primary') : ''}
-          ${hasSpark ? renderUsageWindow('Spark · Weekly limit', sparkSecondary, 'spark:secondary') : ''}
+          ${renderUsageWindowCard('5-hour limit', primaryRows)}
+          ${renderUsageWindowCard('Weekly limit', secondaryRows)}
         </div>
       `;
 

@@ -2053,6 +2053,9 @@ body.auth-locked .nav-actions {
     .usage-meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .usage-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
     .usage-bar { padding: 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--usage-section); box-shadow: none; }
+    .usage-window-label { margin-bottom: 8px; }
+    .usage-lanes { display: flex; flex-direction: column; gap: 10px; }
+    .usage-lane + .usage-lane { border-top: 1px solid var(--usage-divider); padding-top: 10px; }
     .usage-bar .label { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .usage-bar .value { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-weight: 800; font-size: 18px; }
     .usage-bar .meter { height: 8px; background: var(--panel-strong); border-radius: 999px; overflow: hidden; }
