@@ -1,6 +1,7 @@
 # 2026-02-16
 - Quotas: capture and normalize both ChatGPT quota lanes from `/wham/usage` (normal top-level `rate_limit` plus Spark from `additional_rate_limits`), persist Spark lane columns in `chatgpt_usage_snapshots`, and expose lane-aware payloads (`normal_window`, `spark_window`, `active_quota_lane`) while keeping legacy `primary_window`/`secondary_window` compatibility.
 - cdx: quota enforcement is now active-lane aware (`normal` vs `spark`), summaries include lane context + other-lane snapshot, and wrapper auth sync now parses dual-lane quota payloads; wrapper bumped to `2026.02.16-02`.
+- cdx: split alternate-lane quota summaries out of `Usage` into dedicated rows (`Quota (Spark@s)` / `Quota (Normal@s)`), so call/token usage stays isolated; wrapper bumped to `2026.02.16-04`.
 - Admin dashboard: ChatGPT usage card and quota history now render both normal and Spark lanes (including Spark history points when available).
 - Admin dashboard: restored the legacy two-card quota layout (`5-hour` + `weekly`) and now stacks Spark bars under normal bars inside each card.
 - Admin auth UX: replaced dashboard login overlay with a dedicated `/admin/login` page (bright glass UI), added server-side redirects between `/admin/` and `/admin/login` based on session state, and removed password-reset UI/API paths (`/admin/auth/password/request|reset` now return `410 Gone`).

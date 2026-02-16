@@ -2007,7 +2007,8 @@ fi
     lane_prefix="spark "
   fi
 
-  other_lane_summary=""
+  other_lane_usage_label=""
+  other_lane_usage_value=""
   if [[ "$quota_lane_label" == "spark" ]]; then
     if [[ -n "$CHATGPT_NORMAL_PRIMARY_USED" || -n "$CHATGPT_NORMAL_SECONDARY_USED" ]]; then
       normal_5h="$(format_quota_bar_text "$CHATGPT_NORMAL_PRIMARY_USED" "$CHATGPT_NORMAL_PRIMARY_RESET_AFTER" "$CHATGPT_NORMAL_PRIMARY_RESET_AT")"
@@ -2018,7 +2019,8 @@ fi
       if [[ -z "$normal_wk" ]]; then
         normal_wk="n/a"
       fi
-      other_lane_summary="normal lane 5h ${normal_5h}, week ${normal_wk}"
+      other_lane_usage_label="Quota (Normal@s)"
+      other_lane_usage_value="5h ${normal_5h}, week ${normal_wk}"
     fi
   else
     if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_USED" ]]; then
@@ -2030,14 +2032,8 @@ fi
       if [[ -z "$spark_wk" ]]; then
         spark_wk="n/a"
       fi
-      other_lane_summary="spark lane 5h ${spark_5h}, week ${spark_wk}"
-    fi
-  fi
-  if [[ -n "$other_lane_summary" ]]; then
-    if [[ -n "$usage_line" ]]; then
-      usage_line+=" | ${other_lane_summary}"
-    else
-      usage_line="Usage: ${other_lane_summary}"
+      other_lane_usage_label="Quota (Spark@s)"
+      other_lane_usage_value="5h ${spark_5h}, week ${spark_wk}"
     fi
   fi
   primary_reset_hint=""
@@ -2223,8 +2219,12 @@ fi
 	    core_display="${core_line#Core: }"
 	    versions_display=""
 	    usage_display=""
+	    other_lane_usage_display=""
 	    [[ -n "$versions_line" ]] && versions_display="${versions_line#Versions: }"
 	    [[ -n "$usage_line" ]] && usage_display="${usage_line#Usage: }"
+	    if [[ -n "$other_lane_usage_label" && -n "$other_lane_usage_value" ]]; then
+	      other_lane_usage_display="$other_lane_usage_value"
+	    fi
 
 	    if (( CODEX_MINIMAL_OUTPUT )); then
 	      minimal_core_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
@@ -2248,11 +2248,12 @@ fi
 	    elif [[ "$SUMMARY_STYLE" == "table" ]]; then
 	      if (( concurrent_compact_summary )); then
 	        log_info "$(format_simple_row "Concurrent" "$(colorize "$concurrent_compact_note" "$concurrent_compact_tone")")"
-	      else
-	        log_info "$(format_simple_row "Core" "$core_display")"
-	        [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
-	        [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
-	      fi
+		      else
+		        log_info "$(format_simple_row "Core" "$core_display")"
+		        [[ -n "$versions_display" ]] && log_info "$(format_simple_row "Versions" "$versions_display")"
+		        [[ -n "$usage_display" ]] && log_info "$(format_simple_row "Usage" "$usage_display")"
+		        [[ -n "$other_lane_usage_display" ]] && log_info "$(format_simple_row "$other_lane_usage_label" "$other_lane_usage_display")"
+		      fi
 
 	      quota_label_base="Quota (${quota_lane_display})"
 	      if [[ -n "$primary_quota_segment" ]]; then
@@ -2302,11 +2303,12 @@ fi
 	      log_info "$(summary_divider)"
 	      if (( concurrent_compact_summary )); then
 	        log_info "$(wrap_ansi_text "$(summary_row "Concurrent" "$(colorize "$concurrent_compact_note" "$concurrent_compact_tone")")" "${SUMMARY_GUTTER}")"
-	      else
-	        log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
-	        [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
-	        [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
-	      fi
+		      else
+		        log_info "$(wrap_ansi_text "$(summary_row "Core" "$core_display")" "${SUMMARY_GUTTER}")"
+		        [[ -n "$versions_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Versions" "$versions_display")" "${SUMMARY_GUTTER}")"
+		        [[ -n "$usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "Usage" "$usage_display")" "${SUMMARY_GUTTER}")"
+		        [[ -n "$other_lane_usage_display" ]] && log_info "$(wrap_ansi_text "$(summary_row "$other_lane_usage_label" "$other_lane_usage_display")" "${SUMMARY_GUTTER}")"
+		      fi
       log_info "$(wrap_ansi_text "$(summary_row "Quota lane" "$quota_lane_display")" "${SUMMARY_GUTTER}")"
       if [[ -n "$primary_quota_segment" ]]; then
         quota_line="${primary_quota_segment}"
