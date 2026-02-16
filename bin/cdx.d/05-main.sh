@@ -484,7 +484,8 @@ ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 QUOTA_METRIC_LABEL_WIDTH=20
 SUMMARY_ITEMS_PER_ROW=3
-SUMMARY_ITEMS_PER_ROW_QUOTA=3
+SUMMARY_ITEMS_PER_ROW_QUOTA=1
+SUMMARY_ITEMS_PER_ROW_VERSIONS=2
 SUMMARY_COLUMN_GAP=4
 
 # Summary formatting (bootup message).
@@ -657,7 +658,9 @@ print_section_rows() {
   local first=1
   local items_per_row="$SUMMARY_ITEMS_PER_ROW"
   if [[ "$label" == "Quota" ]]; then
-    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-3}"
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"
+  elif [[ "$label" == "Versions" ]]; then
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_VERSIONS:-2}"
   fi
   if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then
     items_per_row="${CODEX_SUMMARY_ITEMS_PER_ROW}"
