@@ -224,6 +224,13 @@ chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, di
 host_info = payload_data.get("host") if isinstance(payload_data, dict) else {}
 host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
 host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else None
+host_lane_preference = None
+if isinstance(host_info, dict):
+    lane_pref_raw = host_info.get("lane_preference")
+    if isinstance(lane_pref_raw, str):
+        lane_pref = lane_pref_raw.strip().lower()
+        if lane_pref in ("normal", "spark"):
+            host_lane_preference = lane_pref
 
 
 def record_versions(vblock):
@@ -301,6 +308,8 @@ active_lane = "normal"
 active_lane_raw = chatgpt_usage.get("active_quota_lane")
 if isinstance(active_lane_raw, str) and active_lane_raw.strip().lower() in ("normal", "spark"):
     active_lane = active_lane_raw.strip().lower()
+elif host_lane_preference in ("normal", "spark"):
+    active_lane = host_lane_preference
 else:
     model_override = host_info.get("model_override") if isinstance(host_info, dict) else None
     if isinstance(model_override, str) and model_override.strip():
@@ -376,6 +385,7 @@ print(
                 status
             ),
             "host_secure": host_secure,
+            "host_lane_preference": host_lane_preference,
             "chatgpt_status": chatgpt_usage.get("status"),
             "chatgpt_plan": chatgpt_usage.get("plan_type"),
             "chatgpt_next": chatgpt_usage.get("next_eligible_at"),
@@ -499,6 +509,11 @@ if isinstance(csil, bool):
 hs = parsed.get("host_secure")
 if isinstance(hs, bool):
     print("hs=1" if hs else "hs=0")
+hlp = parsed.get("host_lane_preference")
+if isinstance(hlp, str):
+    hlp = hlp.strip().lower()
+    if hlp in ("normal", "spark"):
+        print(f"hlp={hlp}")
 cgst = parsed.get("chatgpt_status")
 if isinstance(cgst, str) and cgst.strip():
     print(f"cgs={cgst.strip()}")
@@ -648,6 +663,9 @@ PY
                 ;;
               hs=*)
                 HOST_SECURE="${line#hs=}"
+                ;;
+              hlp=*)
+                HOST_LANE_PREFERENCE="${line#hlp=}"
                 ;;
               cgs=*)
                 CHATGPT_STATUS="${line#cgs=}"

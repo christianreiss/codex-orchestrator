@@ -299,6 +299,13 @@ CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
 CODEX_CONCURRENT_SYNC_OVERRIDE=0
 CODEX_PROFILE_CANDIDATE=""
+CODEX_LANE_COMMAND=0
+CODEX_LANE_TARGET=""
+CODEX_LANE_PERSIST_REQUEST=0
+CODEX_LANE_CLEAR_REQUEST=0
+CODEX_LANE_SHOW_ONLY=0
+CODEX_LANE_WANTS_RUN=1
+CODEX_LANE_USER_SET=0
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_MINIMAL_OUTPUT=${CODEX_MINIMAL_OUTPUT:-$CODEX_TERM_IS_DUMB}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
@@ -426,6 +433,10 @@ HOST_TOKENS_MONTH_OUTPUT=""
 HOST_TOKENS_MONTH_CACHED=""
 HOST_TOKENS_MONTH_REASONING=""
 HOST_TOKENS_MONTH_EVENTS=""
+HOST_LANE_PREFERENCE=""
+CODEX_EFFECTIVE_LANE=""
+CODEX_EFFECTIVE_LANE_SOURCE=""
+CODEX_EFFECTIVE_LANE_SELECTOR=""
 PROMPT_DIR="$HOME/.codex/prompts"
 PROMPT_BASELINE_FILE="$HOME/.codex/.prompt-baseline.json"
 PROMPT_SYNC_STATUS="skip"
@@ -478,7 +489,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.16-10"
+WRAPPER_VERSION="2026.02.16-11"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -678,6 +689,17 @@ release_run_lock_if_held() {
   CDX_RUN_LOCK_HELD=0
 }
 
+config_has_profile() {
+  local profile="${1-}"
+  if [[ ! "$profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    return 1
+  fi
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+  grep -qE "^[[:space:]]*\\[profiles\\.${profile}\\][[:space:]]*$" "$CONFIG_PATH"
+}
+
 # Wrapper flags (strip before handing args to Codex)
 if (( $# > 0 )); then
   parsed_args=()
@@ -703,6 +725,99 @@ if (( $# > 0 )); then
     parsed_args+=("$arg")
   done
   set -- "${parsed_args[@]}"
+fi
+
+print_lane_usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  cdx lane
+  cdx lane normal [--persist] [-- <codex args...>]
+  cdx lane spark [--persist] [-- <codex args...>]
+  cdx lane clear --persist [-- <codex args...>]
+USAGE
+}
+
+if [[ "${1-}" == "lane" ]]; then
+  CODEX_LANE_COMMAND=1
+  CODEX_LANE_SHOW_ONLY=1
+  CODEX_LANE_WANTS_RUN=0
+  shift
+
+  lane_passthrough=()
+  lane_passthrough_mode=0
+  while (( $# > 0 )); do
+    if (( lane_passthrough_mode )); then
+      lane_passthrough+=("$1")
+      shift
+      continue
+    fi
+    case "$1" in
+      normal|spark)
+        if [[ -n "$CODEX_LANE_TARGET" || "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
+          print_lane_usage
+          exit 1
+        fi
+        CODEX_LANE_TARGET="$1"
+        CODEX_LANE_USER_SET=1
+        CODEX_LANE_SHOW_ONLY=0
+        CODEX_LANE_WANTS_RUN=1
+        shift
+        ;;
+      clear)
+        if [[ -n "$CODEX_LANE_TARGET" || "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
+          print_lane_usage
+          exit 1
+        fi
+        CODEX_LANE_CLEAR_REQUEST=1
+        CODEX_LANE_SHOW_ONLY=1
+        CODEX_LANE_WANTS_RUN=0
+        shift
+        ;;
+      --persist)
+        CODEX_LANE_PERSIST_REQUEST=1
+        shift
+        ;;
+      --)
+        lane_passthrough_mode=1
+        shift
+        ;;
+      *)
+        print_lane_usage
+        printf 'Invalid lane argument: %s\n' "$1" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  if (( CODEX_LANE_PERSIST_REQUEST )) && [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]]; then
+    print_lane_usage
+    printf 'cdx lane --persist requires a lane target or clear.\n' >&2
+    exit 1
+  fi
+
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" && "$CODEX_LANE_PERSIST_REQUEST" != "1" ]]; then
+    print_lane_usage
+    printf 'cdx lane clear requires --persist.\n' >&2
+    exit 1
+  fi
+
+  if [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]] && (( ${#lane_passthrough[@]} > 0 )); then
+    print_lane_usage
+    printf 'cdx lane passthrough requires selecting normal or spark.\n' >&2
+    exit 1
+  fi
+
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" ]] && (( ${#lane_passthrough[@]} > 0 )); then
+    print_lane_usage
+    printf 'cdx lane clear does not support Codex passthrough arguments.\n' >&2
+    exit 1
+  fi
+
+  if (( ${#lane_passthrough[@]} > 0 )); then
+    CODEX_LANE_WANTS_RUN=1
+  fi
+
+  set -- "${lane_passthrough[@]}"
 fi
 
 if [[ "${1-}" == "--execute" ]]; then
@@ -995,6 +1110,113 @@ PY
   fi
   HOST_USERS_CACHE=("${parsed_users[@]-}")
   HOST_USERS_FETCHED=1
+  return 0
+}
+
+persist_lane_preference_with_api() {
+  load_sync_config
+  local requested_lane="${1-}"
+  local base="${CODEX_SYNC_BASE_URL%/}"
+  local key="$CODEX_SYNC_API_KEY"
+  local cafile="$CODEX_SYNC_CA_FILE"
+  if [[ -z "$base" || -z "$key" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local parsed_output=""
+  if ! parsed_output="$(CODEX_SYNC_BASE="$base" CODEX_SYNC_API_KEY="$key" CODEX_SYNC_CA_FILE="$cafile" CODEX_SYNC_LANE_REQUEST="$requested_lane" python3 - <<'PY' 2>/dev/null
+import os
+import sys
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
+base = (os.environ.get("CODEX_SYNC_BASE", "") or "").rstrip("/")
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "") or ""
+cafile = os.environ.get("CODEX_SYNC_CA_FILE", "") or ""
+lane_raw = (os.environ.get("CODEX_SYNC_LANE_REQUEST", "") or "").strip().lower()
+
+if not base or not api_key:
+    sys.exit(2)
+
+lane = None
+if lane_raw:
+    if lane_raw not in ("normal", "spark"):
+        print("error=invalid-lane")
+        sys.exit(3)
+    lane = lane_raw
+
+payload = {"lane": lane, "reason": "cdx lane --persist"}
+try:
+    if "cdx_request_json" in globals():
+        response = cdx_request_json(
+            "POST",
+            f"{base}/host/lane",
+            api_key,
+            cafile=cafile,
+            payload=payload,
+            allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE",
+        )
+    else:
+        raise RuntimeError("python-http-util-missing")
+except Exception as exc:  # noqa: BLE001
+    print(f"error={exc}")
+    sys.exit(4)
+
+data = response.get("data") if isinstance(response, dict) else {}
+if not isinstance(data, dict):
+    data = {}
+
+pref = data.get("lane_preference")
+effective = data.get("effective_lane")
+
+if isinstance(pref, str):
+    pref = pref.strip().lower()
+else:
+    pref = ""
+if pref not in ("normal", "spark"):
+    pref = ""
+if pref:
+    print(f"pref={pref}")
+else:
+    print("pref=")
+
+if isinstance(effective, str):
+    effective = effective.strip().lower()
+else:
+    effective = ""
+if effective in ("normal", "spark"):
+    print(f"effective={effective}")
+PY
+)"; then
+    return 1
+  fi
+
+  local line
+  local parsed_pref=""
+  local parsed_effective=""
+  while IFS= read -r line; do
+    case "$line" in
+      pref=*)
+        parsed_pref="${line#pref=}"
+        ;;
+      effective=*)
+        parsed_effective="${line#effective=}"
+        ;;
+    esac
+  done <<< "$parsed_output"
+
+  HOST_LANE_PREFERENCE="$parsed_pref"
+  if [[ "$parsed_effective" == "normal" || "$parsed_effective" == "spark" ]]; then
+    CODEX_EFFECTIVE_LANE="$parsed_effective"
+  fi
+
   return 0
 }
 
@@ -1654,6 +1876,13 @@ chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, di
 host_info = payload_data.get("host") if isinstance(payload_data, dict) else {}
 host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
 host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else None
+host_lane_preference = None
+if isinstance(host_info, dict):
+    lane_pref_raw = host_info.get("lane_preference")
+    if isinstance(lane_pref_raw, str):
+        lane_pref = lane_pref_raw.strip().lower()
+        if lane_pref in ("normal", "spark"):
+            host_lane_preference = lane_pref
 
 
 def record_versions(vblock):
@@ -1731,6 +1960,8 @@ active_lane = "normal"
 active_lane_raw = chatgpt_usage.get("active_quota_lane")
 if isinstance(active_lane_raw, str) and active_lane_raw.strip().lower() in ("normal", "spark"):
     active_lane = active_lane_raw.strip().lower()
+elif host_lane_preference in ("normal", "spark"):
+    active_lane = host_lane_preference
 else:
     model_override = host_info.get("model_override") if isinstance(host_info, dict) else None
     if isinstance(model_override, str) and model_override.strip():
@@ -1806,6 +2037,7 @@ print(
                 status
             ),
             "host_secure": host_secure,
+            "host_lane_preference": host_lane_preference,
             "chatgpt_status": chatgpt_usage.get("status"),
             "chatgpt_plan": chatgpt_usage.get("plan_type"),
             "chatgpt_next": chatgpt_usage.get("next_eligible_at"),
@@ -1929,6 +2161,11 @@ if isinstance(csil, bool):
 hs = parsed.get("host_secure")
 if isinstance(hs, bool):
     print("hs=1" if hs else "hs=0")
+hlp = parsed.get("host_lane_preference")
+if isinstance(hlp, str):
+    hlp = hlp.strip().lower()
+    if hlp in ("normal", "spark"):
+        print(f"hlp={hlp}")
 cgst = parsed.get("chatgpt_status")
 if isinstance(cgst, str) and cgst.strip():
     print(f"cgs={cgst.strip()}")
@@ -2078,6 +2315,9 @@ PY
                 ;;
               hs=*)
                 HOST_SECURE="${line#hs=}"
+                ;;
+              hlp=*)
+                HOST_LANE_PREFERENCE="${line#hlp=}"
                 ;;
               cgs=*)
                 CHATGPT_STATUS="${line#cgs=}"
@@ -4614,7 +4854,7 @@ ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 QUOTA_METRIC_LABEL_WIDTH=20
 SUMMARY_ITEMS_PER_ROW=3
-SUMMARY_ITEMS_PER_ROW_QUOTA=1
+SUMMARY_ITEMS_PER_ROW_QUOTA=3
 SUMMARY_COLUMN_GAP=4
 
 # Summary formatting (bootup message).
@@ -4787,7 +5027,7 @@ print_section_rows() {
   local first=1
   local items_per_row="$SUMMARY_ITEMS_PER_ROW"
   if [[ "$label" == "Quota" ]]; then
-    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-3}"
   fi
   if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then
     items_per_row="${CODEX_SUMMARY_ITEMS_PER_ROW}"
@@ -6174,6 +6414,60 @@ fi
   # and bullet header proved fragile across terminals/fonts.
   SUMMARY_STYLE="${CDX_SUMMARY_STYLE:-table}"
 
+  lane_requested=""
+  CODEX_EFFECTIVE_LANE_SOURCE=""
+  if [[ "$CODEX_LANE_TARGET" == "normal" || "$CODEX_LANE_TARGET" == "spark" ]]; then
+    lane_requested="$CODEX_LANE_TARGET"
+    CODEX_EFFECTIVE_LANE_SOURCE="command"
+  elif [[ "$HOST_LANE_PREFERENCE" == "normal" || "$HOST_LANE_PREFERENCE" == "spark" ]]; then
+    lane_requested="$HOST_LANE_PREFERENCE"
+    CODEX_EFFECTIVE_LANE_SOURCE="host"
+  elif [[ "$(lowercase "$CHATGPT_ACTIVE_LANE")" == "spark" ]]; then
+    lane_requested="spark"
+    CODEX_EFFECTIVE_LANE_SOURCE="api"
+  else
+    lane_requested="normal"
+    CODEX_EFFECTIVE_LANE_SOURCE="api"
+  fi
+
+  has_spark_lane=0
+  if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
+    has_spark_lane=1
+  fi
+  CODEX_EFFECTIVE_LANE="$lane_requested"
+  if [[ "$CODEX_EFFECTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
+    CODEX_EFFECTIVE_LANE="normal"
+    if [[ -n "$CODEX_EFFECTIVE_LANE_SOURCE" ]]; then
+      CODEX_EFFECTIVE_LANE_SOURCE="${CODEX_EFFECTIVE_LANE_SOURCE}:fallback"
+    else
+      CODEX_EFFECTIVE_LANE_SOURCE="fallback"
+    fi
+  fi
+  if [[ "$CODEX_EFFECTIVE_LANE" != "spark" && "$CODEX_EFFECTIVE_LANE" != "normal" ]]; then
+    CODEX_EFFECTIVE_LANE="normal"
+  fi
+
+  CHATGPT_ACTIVE_LANE="$CODEX_EFFECTIVE_LANE"
+  if [[ "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+    CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
+  else
+    CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
+  fi
+
   quota_limit="$QUOTA_LIMIT_PERCENT"
   if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
     quota_limit=100
@@ -6790,7 +7084,7 @@ case "$AUTH_PULL_STATUS" in
     ;;
 esac
 
-if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
+if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )) && (( QUOTA_BLOCKED )); then
   if (( QUOTA_HARD_FAIL )); then
     AUTH_LAUNCH_ALLOWED=0
     AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
@@ -6799,7 +7093,7 @@ if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
   fi
 fi
 
-if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )); then
+if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )); then
   log_warn "ChatGPT quota near limit: ${QUOTA_WARNING_REASON:-see usage above}."
 fi
 
@@ -6811,6 +7105,51 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
 elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
   log_warn "${AUTH_LAUNCH_REASON}."
+fi
+
+if (( CODEX_LANE_PERSIST_REQUEST )); then
+  if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+    release_run_lock_if_held || true
+    log_error "Cannot persist lane while another cdx run is active. Re-run with --allow-concurrent-sync if you want to override."
+    exit 1
+  fi
+  lane_to_persist="$CODEX_LANE_TARGET"
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
+    lane_to_persist=""
+  fi
+  if persist_lane_preference_with_api "$lane_to_persist"; then
+    if [[ -n "$lane_to_persist" ]]; then
+      log_info "Persisted host lane preference: ${lane_to_persist}"
+    else
+      log_info "Cleared host lane preference (host now follows inherited defaults)."
+    fi
+  else
+    release_run_lock_if_held || true
+    log_error "Failed to persist lane preference via /host/lane."
+    exit 1
+  fi
+fi
+
+if (( CODEX_LANE_COMMAND )); then
+  lane_effective_display="${CODEX_EFFECTIVE_LANE:-normal}"
+  lane_persisted_display="${HOST_LANE_PREFERENCE:-inherit}"
+  lane_source_display="${CODEX_EFFECTIVE_LANE_SOURCE:-unknown}"
+  if [[ "$lane_persisted_display" != "inherit" ]]; then
+    lane_persisted_display="host:${lane_persisted_display}"
+  fi
+  log_info "Lane state | effective=${lane_effective_display} (${lane_source_display}) | persisted=${lane_persisted_display}"
+  if (( CODEX_LANE_USER_SET )); then
+    lane_request_line="Lane request | one-shot=${CODEX_LANE_TARGET}"
+    if (( CODEX_LANE_PERSIST_REQUEST )); then
+      lane_request_line+=", persisted"
+    fi
+    log_info "$lane_request_line"
+  fi
+fi
+
+if (( CODEX_LANE_WANTS_RUN == 0 )); then
+  release_run_lock_if_held || true
+  exit 0
 fi
 
 cleanup() {
@@ -7046,21 +7385,75 @@ PY
   return "$status"
 }
 
-	if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
-	  candidate="$CODEX_PROFILE_CANDIDATE"
-	  CODEX_PROFILE_CANDIDATE=""
-	  if [[ "$candidate" =~ ^[A-Za-z0-9_-]+$ && -f "$CONFIG_PATH" ]] && grep -qE "^[[:space:]]*\\[profiles\\.${candidate}\\][[:space:]]*$" "$CONFIG_PATH"; then
-	    set -- --profile "$candidate" "$@"
-	  else
-	    set -- "$candidate" "$@"
-	  fi
-	fi
+codex_args_include_profile_or_model() {
+  local arg=""
+  for arg in "$@"; do
+    case "$arg" in
+      --model|--profile|--model=*|--profile=*)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
 
-	if [[ -n "$CODEX_HOST_MODEL" ]]; then
-	  set -- --model "$CODEX_HOST_MODEL" "$@"
-	fi
+user_selected_profile_or_model=0
+if codex_args_include_profile_or_model "$@"; then
+  user_selected_profile_or_model=1
+fi
+if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
+  user_selected_profile_or_model=1
+fi
 
-if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
+if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
+  candidate="$CODEX_PROFILE_CANDIDATE"
+  CODEX_PROFILE_CANDIDATE=""
+  if config_has_profile "$candidate"; then
+    set -- --profile "$candidate" "$@"
+  else
+    set -- "$candidate" "$@"
+  fi
+fi
+
+lane_selector_profile=""
+lane_selector_model=""
+CODEX_EFFECTIVE_LANE_SELECTOR=""
+apply_lane_selector=0
+if [[ "$CODEX_EFFECTIVE_LANE_SOURCE" == command* || "$CODEX_EFFECTIVE_LANE_SOURCE" == host* ]]; then
+  apply_lane_selector=1
+fi
+if (( apply_lane_selector )) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+  if config_has_profile "$CODEX_EFFECTIVE_LANE"; then
+    lane_selector_profile="$CODEX_EFFECTIVE_LANE"
+    CODEX_EFFECTIVE_LANE_SELECTOR="profile:${lane_selector_profile}"
+  elif [[ "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+    lane_selector_model="gpt-5.3-codex-spark"
+    CODEX_EFFECTIVE_LANE_SELECTOR="model:${lane_selector_model}"
+  else
+    lane_selector_model="gpt-5.3-codex"
+    CODEX_EFFECTIVE_LANE_SELECTOR="model:${lane_selector_model}"
+  fi
+fi
+
+if (( user_selected_profile_or_model )) && (( CODEX_LANE_USER_SET )); then
+  log_warn "Lane override requested, but explicit --model/--profile args were provided; honoring explicit Codex args."
+fi
+
+injected_model=0
+if (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_profile" ]]; then
+  set -- --profile "$lane_selector_profile" "$@"
+elif (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_model" ]]; then
+  set -- --model "$lane_selector_model" "$@"
+  injected_model=1
+elif (( ! user_selected_profile_or_model )) && [[ -n "$CODEX_HOST_MODEL" ]]; then
+  set -- --model "$CODEX_HOST_MODEL" "$@"
+  injected_model=1
+  if [[ -z "$CODEX_EFFECTIVE_LANE_SELECTOR" ]]; then
+    CODEX_EFFECTIVE_LANE_SELECTOR="model:${CODEX_HOST_MODEL}"
+  fi
+fi
+
+if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
   set -- --config "model_reasoning_effort=${CODEX_HOST_REASONING_EFFORT}" "$@"
 fi
 

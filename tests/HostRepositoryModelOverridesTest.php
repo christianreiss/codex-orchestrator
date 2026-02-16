@@ -35,6 +35,7 @@ final class HostRepositoryModelOverridesTest extends TestCase
                 status TEXT,
                 secure INTEGER DEFAULT 1,
                 allow_roaming_ips INTEGER DEFAULT 0,
+                lane_preference TEXT NULL,
                 model_override TEXT NULL,
                 reasoning_effort_override TEXT NULL,
                 expires_at TEXT NULL,
@@ -48,8 +49,8 @@ final class HostRepositoryModelOverridesTest extends TestCase
         $this->repository = new HostRepository($database, $secretBox);
 
         $seed = $this->pdo->prepare(
-            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, model_override, reasoning_effort_override, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :model_override, :reasoning_effort_override, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, lane_preference, model_override, reasoning_effort_override, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :lane_preference, :model_override, :reasoning_effort_override, :created_at, :updated_at)'
         );
         $seed->execute([
             'fqdn' => 'host.test',
@@ -57,6 +58,7 @@ final class HostRepositoryModelOverridesTest extends TestCase
             'status' => 'active',
             'secure' => 1,
             'allow_roaming_ips' => 0,
+            'lane_preference' => null,
             'model_override' => null,
             'reasoning_effort_override' => null,
             'created_at' => '2024-01-01T00:00:00Z',
@@ -73,6 +75,16 @@ final class HostRepositoryModelOverridesTest extends TestCase
         $this->assertNotNull($host);
         $this->assertSame('gpt-5.2', $host['model_override']);
         $this->assertSame('high', $host['reasoning_effort_override']);
+        $this->assertNotSame('2024-01-01T00:00:00Z', $host['updated_at']);
+    }
+
+    public function testUpdateLanePreferencePersistsValues(): void
+    {
+        $this->repository->updateLanePreference($this->hostId, 'spark');
+
+        $host = $this->repository->findById($this->hostId);
+        $this->assertNotNull($host);
+        $this->assertSame('spark', $host['lane_preference']);
         $this->assertNotSame('2024-01-01T00:00:00Z', $host['updated_at']);
     }
 

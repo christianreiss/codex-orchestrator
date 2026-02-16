@@ -132,6 +132,15 @@ cdx
 # Run with a named profile (shorthand for `--profile <name>`)
 cdx ultra
 
+# Show current lane steering state (effective + persisted)
+cdx lane
+
+# One-shot lane switch for this run (maps to profile/model automatically)
+cdx lane spark
+
+# Persist lane preference on this host for future runs
+cdx lane normal --persist
+
 # One-shot, script-friendly execution (prints only the final assistant reply)
 cdx --execute "explain what this repo does in 5 bullets"
 

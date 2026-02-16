@@ -40,7 +40,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Authentication & Authorization
 
-- **Host calls** (`/auth`, `/usage`, `/wrapper*`, `/slash-commands*`, `/host/users`): require API key + IP binding. Roaming must be explicitly allowed per host.
+- **Host calls** (`/auth`, `/usage`, `/wrapper*`, `/slash-commands*`, `/host/users`, `/host/lane`): require API key + IP binding. Roaming must be explicitly allowed per host.
 - **Admin routes** (`/admin/*`): mTLS gate by default. Admins can view/upload raw canonical auth and rotate keys—restrict to trusted operators only.
 - **Installer** (`/install/{token}`): public endpoint that returns a shell script; token is validated for expiry/one-time use and tags host/base URL. Returned script bakes API key/FQDN/base URL into the wrapper.
 - **Runner**: Optional external validator invoked daily/on store and on admin trigger. Runner receives full auth JSON; deploy it on a trusted, TLS-protected network and secure the endpoint separately (no auth headers are sent by default).

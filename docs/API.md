@@ -32,7 +32,7 @@ Unified retrieve/store. Auth required; IP binding enforced; blocked when insecur
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on `retrieve` when an upload is required.
-- `host`: fqdn/status/last_refresh/updated_at/expires_at, client_version/client_version_override/wrapper_version, api_calls, allow_roaming_ips, secure, vip, insecure window timestamps + `insecure_window_minutes`, `force_ipv4`, optional model overrides (`model_override`, `reasoning_effort_override`).
+- `host`: fqdn/status/last_refresh/updated_at/expires_at, client_version/client_version_override/wrapper_version, api_calls, allow_roaming_ips, secure, vip, insecure window timestamps + `insecure_window_minutes`, `force_ipv4`, optional lane steering override (`lane_preference`: `normal|spark`), optional model overrides (`model_override`, `reasoning_effort_override`).
 - `api_calls`, `token_usage_month` (month-to-date totals incl. cached/reasoning/cost/events), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+source/checked_at), `wrapper_version`/`wrapper_sha256`/`wrapper_url`, `reported_client_version`, `quota_*` flags, `cdx_silent`, `runner_enabled`, `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`, `installation_id`.
 - `runner_applied` boolean plus optional `validation` when the auth runner ran during `store`.
@@ -46,6 +46,12 @@ Token-usage ingest. Body may be a single entry or `usages` array; each entry may
 
 ### `POST /host/users`
 Records the current `username` and optional `hostname` for the calling host, returning all known users with `first_seen`/`last_seen`. Auth + IP binding required.
+
+### `GET /host/lane`
+Returns lane steering metadata for the calling host. Auth + IP binding required, and insecure-window checks apply. Response includes `lane_preference` (`normal|spark|null`) and `effective_lane`.
+
+### `POST /host/lane`
+Sets or clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` (`null` clears preference). Auth + IP binding required, and insecure-window checks apply.
 
 ### Slash commands
 - `GET /slash-commands` — list commands (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`, optional `deleted_at`). Auth required.
@@ -94,7 +100,7 @@ Records the current `username` and optional `hostname` for the calling host, ret
   - `DELETE /admin/users/{id}` — delete admin user (blocked if it removes the last active admin).
   - `POST /admin/users/wipe` — delete all admin users (returns to userless mode).
 - `POST /admin/toasts` — emit an admin toast via websockets (body: `message`, optional `title`, `level`, `timeout_ms`; aliases `body`/`text`, `tone`).
-- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IPs (`ip4` and `ip6` when a dual-stack host binds both families), roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4`, `curl_insecure`, per-host overrides (`client_version_override`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`), latest token usage, `auth_source` (true when the host last submitted the current canonical auth.json), and recorded users.
+- `GET /admin/hosts` — list hosts with canonical digest, recent digests, versions, API calls, IPs (`ip4` and `ip6` when a dual-stack host binds both families), roaming flag, `secure`, `vip`, optional `expires_at`, insecure window fields (`insecure_enabled_until`, `insecure_grace_until`, `insecure_window_minutes`), `force_ipv4`, `curl_insecure`, per-host overrides (`client_version_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`), latest token usage, `auth_source` (true when the host last submitted the current canonical auth.json), and recorded users.
 - `GET /admin/hosts/insecure` — list insecure hosts only (id/fqdn/active + `insecure_enabled_until` and `secure` flag) for quick actions.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional `auth` body with `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).

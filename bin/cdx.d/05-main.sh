@@ -484,7 +484,7 @@ ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
 QUOTA_METRIC_LABEL_WIDTH=20
 SUMMARY_ITEMS_PER_ROW=3
-SUMMARY_ITEMS_PER_ROW_QUOTA=1
+SUMMARY_ITEMS_PER_ROW_QUOTA=3
 SUMMARY_COLUMN_GAP=4
 
 # Summary formatting (bootup message).
@@ -657,7 +657,7 @@ print_section_rows() {
   local first=1
   local items_per_row="$SUMMARY_ITEMS_PER_ROW"
   if [[ "$label" == "Quota" ]]; then
-    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-3}"
   fi
   if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then
     items_per_row="${CODEX_SUMMARY_ITEMS_PER_ROW}"
@@ -2044,6 +2044,60 @@ fi
   # and bullet header proved fragile across terminals/fonts.
   SUMMARY_STYLE="${CDX_SUMMARY_STYLE:-table}"
 
+  lane_requested=""
+  CODEX_EFFECTIVE_LANE_SOURCE=""
+  if [[ "$CODEX_LANE_TARGET" == "normal" || "$CODEX_LANE_TARGET" == "spark" ]]; then
+    lane_requested="$CODEX_LANE_TARGET"
+    CODEX_EFFECTIVE_LANE_SOURCE="command"
+  elif [[ "$HOST_LANE_PREFERENCE" == "normal" || "$HOST_LANE_PREFERENCE" == "spark" ]]; then
+    lane_requested="$HOST_LANE_PREFERENCE"
+    CODEX_EFFECTIVE_LANE_SOURCE="host"
+  elif [[ "$(lowercase "$CHATGPT_ACTIVE_LANE")" == "spark" ]]; then
+    lane_requested="spark"
+    CODEX_EFFECTIVE_LANE_SOURCE="api"
+  else
+    lane_requested="normal"
+    CODEX_EFFECTIVE_LANE_SOURCE="api"
+  fi
+
+  has_spark_lane=0
+  if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
+    has_spark_lane=1
+  fi
+  CODEX_EFFECTIVE_LANE="$lane_requested"
+  if [[ "$CODEX_EFFECTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
+    CODEX_EFFECTIVE_LANE="normal"
+    if [[ -n "$CODEX_EFFECTIVE_LANE_SOURCE" ]]; then
+      CODEX_EFFECTIVE_LANE_SOURCE="${CODEX_EFFECTIVE_LANE_SOURCE}:fallback"
+    else
+      CODEX_EFFECTIVE_LANE_SOURCE="fallback"
+    fi
+  fi
+  if [[ "$CODEX_EFFECTIVE_LANE" != "spark" && "$CODEX_EFFECTIVE_LANE" != "normal" ]]; then
+    CODEX_EFFECTIVE_LANE="normal"
+  fi
+
+  CHATGPT_ACTIVE_LANE="$CODEX_EFFECTIVE_LANE"
+  if [[ "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+    CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
+  else
+    CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
+  fi
+
   quota_limit="$QUOTA_LIMIT_PERCENT"
   if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
     quota_limit=100
@@ -2660,7 +2714,7 @@ case "$AUTH_PULL_STATUS" in
     ;;
 esac
 
-if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
+if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )) && (( QUOTA_BLOCKED )); then
   if (( QUOTA_HARD_FAIL )); then
     AUTH_LAUNCH_ALLOWED=0
     AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
@@ -2669,7 +2723,7 @@ if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( QUOTA_BLOCKED )); then
   fi
 fi
 
-if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )); then
+if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )); then
   log_warn "ChatGPT quota near limit: ${QUOTA_WARNING_REASON:-see usage above}."
 fi
 
@@ -2681,6 +2735,51 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
 elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
   log_warn "${AUTH_LAUNCH_REASON}."
+fi
+
+if (( CODEX_LANE_PERSIST_REQUEST )); then
+  if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+    release_run_lock_if_held || true
+    log_error "Cannot persist lane while another cdx run is active. Re-run with --allow-concurrent-sync if you want to override."
+    exit 1
+  fi
+  lane_to_persist="$CODEX_LANE_TARGET"
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
+    lane_to_persist=""
+  fi
+  if persist_lane_preference_with_api "$lane_to_persist"; then
+    if [[ -n "$lane_to_persist" ]]; then
+      log_info "Persisted host lane preference: ${lane_to_persist}"
+    else
+      log_info "Cleared host lane preference (host now follows inherited defaults)."
+    fi
+  else
+    release_run_lock_if_held || true
+    log_error "Failed to persist lane preference via /host/lane."
+    exit 1
+  fi
+fi
+
+if (( CODEX_LANE_COMMAND )); then
+  lane_effective_display="${CODEX_EFFECTIVE_LANE:-normal}"
+  lane_persisted_display="${HOST_LANE_PREFERENCE:-inherit}"
+  lane_source_display="${CODEX_EFFECTIVE_LANE_SOURCE:-unknown}"
+  if [[ "$lane_persisted_display" != "inherit" ]]; then
+    lane_persisted_display="host:${lane_persisted_display}"
+  fi
+  log_info "Lane state | effective=${lane_effective_display} (${lane_source_display}) | persisted=${lane_persisted_display}"
+  if (( CODEX_LANE_USER_SET )); then
+    lane_request_line="Lane request | one-shot=${CODEX_LANE_TARGET}"
+    if (( CODEX_LANE_PERSIST_REQUEST )); then
+      lane_request_line+=", persisted"
+    fi
+    log_info "$lane_request_line"
+  fi
+fi
+
+if (( CODEX_LANE_WANTS_RUN == 0 )); then
+  release_run_lock_if_held || true
+  exit 0
 fi
 
 cleanup() {
@@ -2916,21 +3015,75 @@ PY
   return "$status"
 }
 
-	if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
-	  candidate="$CODEX_PROFILE_CANDIDATE"
-	  CODEX_PROFILE_CANDIDATE=""
-	  if [[ "$candidate" =~ ^[A-Za-z0-9_-]+$ && -f "$CONFIG_PATH" ]] && grep -qE "^[[:space:]]*\\[profiles\\.${candidate}\\][[:space:]]*$" "$CONFIG_PATH"; then
-	    set -- --profile "$candidate" "$@"
-	  else
-	    set -- "$candidate" "$@"
-	  fi
-	fi
+codex_args_include_profile_or_model() {
+  local arg=""
+  for arg in "$@"; do
+    case "$arg" in
+      --model|--profile|--model=*|--profile=*)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
 
-	if [[ -n "$CODEX_HOST_MODEL" ]]; then
-	  set -- --model "$CODEX_HOST_MODEL" "$@"
-	fi
+user_selected_profile_or_model=0
+if codex_args_include_profile_or_model "$@"; then
+  user_selected_profile_or_model=1
+fi
+if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
+  user_selected_profile_or_model=1
+fi
 
-if [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
+if [[ -n "${CODEX_PROFILE_CANDIDATE:-}" ]]; then
+  candidate="$CODEX_PROFILE_CANDIDATE"
+  CODEX_PROFILE_CANDIDATE=""
+  if config_has_profile "$candidate"; then
+    set -- --profile "$candidate" "$@"
+  else
+    set -- "$candidate" "$@"
+  fi
+fi
+
+lane_selector_profile=""
+lane_selector_model=""
+CODEX_EFFECTIVE_LANE_SELECTOR=""
+apply_lane_selector=0
+if [[ "$CODEX_EFFECTIVE_LANE_SOURCE" == command* || "$CODEX_EFFECTIVE_LANE_SOURCE" == host* ]]; then
+  apply_lane_selector=1
+fi
+if (( apply_lane_selector )) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+  if config_has_profile "$CODEX_EFFECTIVE_LANE"; then
+    lane_selector_profile="$CODEX_EFFECTIVE_LANE"
+    CODEX_EFFECTIVE_LANE_SELECTOR="profile:${lane_selector_profile}"
+  elif [[ "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+    lane_selector_model="gpt-5.3-codex-spark"
+    CODEX_EFFECTIVE_LANE_SELECTOR="model:${lane_selector_model}"
+  else
+    lane_selector_model="gpt-5.3-codex"
+    CODEX_EFFECTIVE_LANE_SELECTOR="model:${lane_selector_model}"
+  fi
+fi
+
+if (( user_selected_profile_or_model )) && (( CODEX_LANE_USER_SET )); then
+  log_warn "Lane override requested, but explicit --model/--profile args were provided; honoring explicit Codex args."
+fi
+
+injected_model=0
+if (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_profile" ]]; then
+  set -- --profile "$lane_selector_profile" "$@"
+elif (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_model" ]]; then
+  set -- --model "$lane_selector_model" "$@"
+  injected_model=1
+elif (( ! user_selected_profile_or_model )) && [[ -n "$CODEX_HOST_MODEL" ]]; then
+  set -- --model "$CODEX_HOST_MODEL" "$@"
+  injected_model=1
+  if [[ -z "$CODEX_EFFECTIVE_LANE_SELECTOR" ]]; then
+    CODEX_EFFECTIVE_LANE_SELECTOR="model:${CODEX_HOST_MODEL}"
+  fi
+fi
+
+if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
   set -- --config "model_reasoning_effort=${CODEX_HOST_REASONING_EFFORT}" "$@"
 fi
 

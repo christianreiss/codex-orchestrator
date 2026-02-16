@@ -32,14 +32,14 @@ final class CdxWrapperSectionPackingTest extends TestCase
         self::assertStringContainsString('CODEX_SUMMARY_ITEMS_PER_ROW_${label_key}', $wrapperSource);
     }
 
-    public function testWrapperDefaultsQuotaSectionToSingleItemPerRowForBarAlignment(): void
+    public function testWrapperDefaultsQuotaSectionToThreeItemsPerRow(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW_QUOTA=1', $wrapperSource);
+        self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW_QUOTA=3', $wrapperSource);
         self::assertStringContainsString('if [[ "$label" == "Quota" ]]; then', $wrapperSource);
-        self::assertStringContainsString('items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"', $wrapperSource);
+        self::assertStringContainsString('items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-3}"', $wrapperSource);
     }
 }

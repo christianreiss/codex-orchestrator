@@ -49,6 +49,9 @@ class HostRepository
         if (!array_key_exists('vip', $host)) {
             $host['vip'] = 0;
         }
+        if (!array_key_exists('lane_preference', $host)) {
+            $host['lane_preference'] = null;
+        }
         if (!array_key_exists('expires_at', $host)) {
             $host['expires_at'] = null;
         }
@@ -386,6 +389,22 @@ class HostRepository
         $statement->execute([
             'model_override' => $modelOverride,
             'reasoning_effort_override' => $reasoningEffortOverride,
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
+    public function updateLanePreference(int $hostId, ?string $lanePreference): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts
+             SET lane_preference = :lane_preference,
+                 updated_at = :updated_at
+             WHERE id = :id'
+        );
+
+        $statement->execute([
+            'lane_preference' => $lanePreference,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $hostId,
         ]);

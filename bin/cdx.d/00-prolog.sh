@@ -299,6 +299,13 @@ CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
 CODEX_CONCURRENT_SYNC_OVERRIDE=0
 CODEX_PROFILE_CANDIDATE=""
+CODEX_LANE_COMMAND=0
+CODEX_LANE_TARGET=""
+CODEX_LANE_PERSIST_REQUEST=0
+CODEX_LANE_CLEAR_REQUEST=0
+CODEX_LANE_SHOW_ONLY=0
+CODEX_LANE_WANTS_RUN=1
+CODEX_LANE_USER_SET=0
 CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_MINIMAL_OUTPUT=${CODEX_MINIMAL_OUTPUT:-$CODEX_TERM_IS_DUMB}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
@@ -426,6 +433,10 @@ HOST_TOKENS_MONTH_OUTPUT=""
 HOST_TOKENS_MONTH_CACHED=""
 HOST_TOKENS_MONTH_REASONING=""
 HOST_TOKENS_MONTH_EVENTS=""
+HOST_LANE_PREFERENCE=""
+CODEX_EFFECTIVE_LANE=""
+CODEX_EFFECTIVE_LANE_SOURCE=""
+CODEX_EFFECTIVE_LANE_SELECTOR=""
 PROMPT_DIR="$HOME/.codex/prompts"
 PROMPT_BASELINE_FILE="$HOME/.codex/.prompt-baseline.json"
 PROMPT_SYNC_STATUS="skip"
@@ -478,7 +489,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.16-10"
+WRAPPER_VERSION="2026.02.16-11"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -678,6 +689,17 @@ release_run_lock_if_held() {
   CDX_RUN_LOCK_HELD=0
 }
 
+config_has_profile() {
+  local profile="${1-}"
+  if [[ ! "$profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    return 1
+  fi
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+  grep -qE "^[[:space:]]*\\[profiles\\.${profile}\\][[:space:]]*$" "$CONFIG_PATH"
+}
+
 # Wrapper flags (strip before handing args to Codex)
 if (( $# > 0 )); then
   parsed_args=()
@@ -703,6 +725,99 @@ if (( $# > 0 )); then
     parsed_args+=("$arg")
   done
   set -- "${parsed_args[@]}"
+fi
+
+print_lane_usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  cdx lane
+  cdx lane normal [--persist] [-- <codex args...>]
+  cdx lane spark [--persist] [-- <codex args...>]
+  cdx lane clear --persist [-- <codex args...>]
+USAGE
+}
+
+if [[ "${1-}" == "lane" ]]; then
+  CODEX_LANE_COMMAND=1
+  CODEX_LANE_SHOW_ONLY=1
+  CODEX_LANE_WANTS_RUN=0
+  shift
+
+  lane_passthrough=()
+  lane_passthrough_mode=0
+  while (( $# > 0 )); do
+    if (( lane_passthrough_mode )); then
+      lane_passthrough+=("$1")
+      shift
+      continue
+    fi
+    case "$1" in
+      normal|spark)
+        if [[ -n "$CODEX_LANE_TARGET" || "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
+          print_lane_usage
+          exit 1
+        fi
+        CODEX_LANE_TARGET="$1"
+        CODEX_LANE_USER_SET=1
+        CODEX_LANE_SHOW_ONLY=0
+        CODEX_LANE_WANTS_RUN=1
+        shift
+        ;;
+      clear)
+        if [[ -n "$CODEX_LANE_TARGET" || "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
+          print_lane_usage
+          exit 1
+        fi
+        CODEX_LANE_CLEAR_REQUEST=1
+        CODEX_LANE_SHOW_ONLY=1
+        CODEX_LANE_WANTS_RUN=0
+        shift
+        ;;
+      --persist)
+        CODEX_LANE_PERSIST_REQUEST=1
+        shift
+        ;;
+      --)
+        lane_passthrough_mode=1
+        shift
+        ;;
+      *)
+        print_lane_usage
+        printf 'Invalid lane argument: %s\n' "$1" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  if (( CODEX_LANE_PERSIST_REQUEST )) && [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]]; then
+    print_lane_usage
+    printf 'cdx lane --persist requires a lane target or clear.\n' >&2
+    exit 1
+  fi
+
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" && "$CODEX_LANE_PERSIST_REQUEST" != "1" ]]; then
+    print_lane_usage
+    printf 'cdx lane clear requires --persist.\n' >&2
+    exit 1
+  fi
+
+  if [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]] && (( ${#lane_passthrough[@]} > 0 )); then
+    print_lane_usage
+    printf 'cdx lane passthrough requires selecting normal or spark.\n' >&2
+    exit 1
+  fi
+
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" ]] && (( ${#lane_passthrough[@]} > 0 )); then
+    print_lane_usage
+    printf 'cdx lane clear does not support Codex passthrough arguments.\n' >&2
+    exit 1
+  fi
+
+  if (( ${#lane_passthrough[@]} > 0 )); then
+    CODEX_LANE_WANTS_RUN=1
+  fi
+
+  set -- "${lane_passthrough[@]}"
 fi
 
 if [[ "${1-}" == "--execute" ]]; then
@@ -995,6 +1110,113 @@ PY
   fi
   HOST_USERS_CACHE=("${parsed_users[@]-}")
   HOST_USERS_FETCHED=1
+  return 0
+}
+
+persist_lane_preference_with_api() {
+  load_sync_config
+  local requested_lane="${1-}"
+  local base="${CODEX_SYNC_BASE_URL%/}"
+  local key="$CODEX_SYNC_API_KEY"
+  local cafile="$CODEX_SYNC_CA_FILE"
+  if [[ -z "$base" || -z "$key" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local parsed_output=""
+  if ! parsed_output="$(CODEX_SYNC_BASE="$base" CODEX_SYNC_API_KEY="$key" CODEX_SYNC_CA_FILE="$cafile" CODEX_SYNC_LANE_REQUEST="$requested_lane" python3 - <<'PY' 2>/dev/null
+import os
+import sys
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
+base = (os.environ.get("CODEX_SYNC_BASE", "") or "").rstrip("/")
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "") or ""
+cafile = os.environ.get("CODEX_SYNC_CA_FILE", "") or ""
+lane_raw = (os.environ.get("CODEX_SYNC_LANE_REQUEST", "") or "").strip().lower()
+
+if not base or not api_key:
+    sys.exit(2)
+
+lane = None
+if lane_raw:
+    if lane_raw not in ("normal", "spark"):
+        print("error=invalid-lane")
+        sys.exit(3)
+    lane = lane_raw
+
+payload = {"lane": lane, "reason": "cdx lane --persist"}
+try:
+    if "cdx_request_json" in globals():
+        response = cdx_request_json(
+            "POST",
+            f"{base}/host/lane",
+            api_key,
+            cafile=cafile,
+            payload=payload,
+            allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE",
+        )
+    else:
+        raise RuntimeError("python-http-util-missing")
+except Exception as exc:  # noqa: BLE001
+    print(f"error={exc}")
+    sys.exit(4)
+
+data = response.get("data") if isinstance(response, dict) else {}
+if not isinstance(data, dict):
+    data = {}
+
+pref = data.get("lane_preference")
+effective = data.get("effective_lane")
+
+if isinstance(pref, str):
+    pref = pref.strip().lower()
+else:
+    pref = ""
+if pref not in ("normal", "spark"):
+    pref = ""
+if pref:
+    print(f"pref={pref}")
+else:
+    print("pref=")
+
+if isinstance(effective, str):
+    effective = effective.strip().lower()
+else:
+    effective = ""
+if effective in ("normal", "spark"):
+    print(f"effective={effective}")
+PY
+)"; then
+    return 1
+  fi
+
+  local line
+  local parsed_pref=""
+  local parsed_effective=""
+  while IFS= read -r line; do
+    case "$line" in
+      pref=*)
+        parsed_pref="${line#pref=}"
+        ;;
+      effective=*)
+        parsed_effective="${line#effective=}"
+        ;;
+    esac
+  done <<< "$parsed_output"
+
+  HOST_LANE_PREFERENCE="$parsed_pref"
+  if [[ "$parsed_effective" == "normal" || "$parsed_effective" == "spark" ]]; then
+    CODEX_EFFECTIVE_LANE="$parsed_effective"
+  fi
+
   return 0
 }
 

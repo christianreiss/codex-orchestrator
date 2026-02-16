@@ -1662,6 +1662,20 @@ class AuthService
         return null;
     }
 
+    public static function normalizeQuotaLane(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = strtolower(trim($value));
+        if ($normalized === 'normal' || $normalized === 'spark') {
+            return $normalized;
+        }
+
+        return null;
+    }
+
     public static function dailyAllowanceForPartition(int $quotaLimitPercent, int $partitionDays): int
     {
         $limit = $quotaLimitPercent;
@@ -2306,6 +2320,7 @@ class AuthService
                 ? (int) $host['insecure_window_minutes']
                 : null,
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
+            'lane_preference' => self::normalizeQuotaLane($host['lane_preference'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
         ];

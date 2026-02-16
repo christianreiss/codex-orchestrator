@@ -2673,6 +2673,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
             'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
             'reverse_dns_mode' => formatReverseDnsModeOutput($host['reverse_dns_mode'] ?? null),
+            'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
             'canonical_digest' => $host['auth_digest'] ?? null,
@@ -3625,6 +3626,83 @@ $router->add('POST', '#^/host/users$#', function () use ($payload, $service) {
     ]);
 });
 
+$router->add('GET', '#^/host/lane$#', function () use ($service, $versionRepository) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $host = $service->enforceInsecureWindow($host, 'host_lane_get');
+
+    $lanePreference = AuthService::normalizeQuotaLane($host['lane_preference'] ?? null);
+    $effectiveLane = resolveActiveQuotaLaneForHost($host, $versionRepository, $lanePreference);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'lane_preference' => $lanePreference,
+            'effective_lane' => $effectiveLane,
+            'host_id' => isset($host['id']) ? (int) $host['id'] : null,
+            'fqdn' => $host['fqdn'] ?? null,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/host/lane$#', function () use ($payload, $service, $hostRepository, $logRepository, $versionRepository) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+    $host = $service->enforceInsecureWindow($host, 'host_lane_set');
+
+    $hostId = isset($host['id']) ? (int) $host['id'] : 0;
+    if ($hostId <= 0) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    if (!is_array($payload) || !array_key_exists('lane', $payload)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'lane is required (set null to clear)',
+        ], 422);
+    }
+
+    $laneRaw = $payload['lane'];
+    if ($laneRaw !== null && !is_string($laneRaw)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'lane must be one of: normal, spark, or null',
+        ], 422);
+    }
+
+    $lanePreference = AuthService::normalizeQuotaLane($laneRaw);
+    if ($laneRaw !== null && is_string($laneRaw) && trim($laneRaw) !== '' && $lanePreference === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'lane must be one of: normal, spark, or null',
+        ], 422);
+    }
+
+    $hostRepository->updateLanePreference($hostId, $lanePreference);
+    $updated = $hostRepository->findById($hostId) ?? $host;
+    $effectiveLane = resolveActiveQuotaLaneForHost($updated, $versionRepository, $lanePreference);
+    $logRepository->log($hostId, 'host.lane.set', [
+        'fqdn' => $updated['fqdn'] ?? ($host['fqdn'] ?? null),
+        'lane_preference' => $lanePreference,
+        'effective_lane' => $effectiveLane,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'lane_preference' => $lanePreference,
+            'effective_lane' => $effectiveLane,
+            'host_id' => $hostId,
+            'fqdn' => $updated['fqdn'] ?? ($host['fqdn'] ?? null),
+        ],
+    ]);
+});
+
 $router->add('POST', '#^/usage$#', function () use ($payload, $service) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
@@ -4233,6 +4311,11 @@ function modelUsesSparkQuotaLane(?string $model): ?bool
 
 function resolveActiveQuotaLaneForHost(array $host, VersionRepository $versionRepository, mixed $fallback = null): string
 {
+    $hostLanePreference = AuthService::normalizeQuotaLane($host['lane_preference'] ?? null);
+    if ($hostLanePreference !== null) {
+        return $hostLanePreference;
+    }
+
     $hostModelSpark = modelUsesSparkQuotaLane($host['model_override'] ?? null);
     if ($hostModelSpark !== null) {
         return $hostModelSpark ? 'spark' : 'normal';
@@ -4243,11 +4326,9 @@ function resolveActiveQuotaLaneForHost(array $host, VersionRepository $versionRe
         return $globalModelSpark ? 'spark' : 'normal';
     }
 
-    if (is_string($fallback)) {
-        $normalized = strtolower(trim($fallback));
-        if ($normalized === 'spark' || $normalized === 'normal') {
-            return $normalized;
-        }
+    $fallbackLane = AuthService::normalizeQuotaLane($fallback);
+    if ($fallbackLane !== null) {
+        return $fallbackLane;
     }
 
     return 'normal';
