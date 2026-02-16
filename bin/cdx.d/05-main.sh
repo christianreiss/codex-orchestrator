@@ -2442,7 +2442,7 @@ fi
         printf -v qtext3 "%3d%% [%s]" "$bar_pct" "$bar"
         note_parts=()
         note_parts+=("today used ${daily_used}% of week")
-        note_parts+=("allowance ${allowance_per_day}%/day | ${partition_days} day partition")
+        note_parts+=("allowance ${allowance_per_day}%/day")
         daily_reset_hint="$(join_with_semicolon "${note_parts[@]}")"
         note3_disp="$daily_reset_hint"
         if [[ -n "$note3_disp" ]]; then
@@ -2460,7 +2460,7 @@ fi
     allowance_per_day=$(( (100 + QUOTA_WEEK_PARTITION / 2) / QUOTA_WEEK_PARTITION ))
     bar="$(build_quota_bar 0 "$QUOTA_BAR_WIDTH")"
     qtext3=$(printf "%3d%% [%s]" 0 "$bar")
-    note3_disp=$(printf "%b" "${DIM}allowance ${allowance_per_day}%/day | ${QUOTA_WEEK_PARTITION} day partition${RESET}")
+    note3_disp=$(printf "%b" "${DIM}allowance ${allowance_per_day}%/day${RESET}")
     daily_quota_segment="$(colorize "$qtext3" "green") ${note3_disp}"
     daily_allowance_used_pct=0
   fi
