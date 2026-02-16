@@ -58,6 +58,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` auto-checks/installs `curl`, `unzip`, and `script` (util-linux) before update/sync work using `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` (RHEL-family prefers `dnf` with `yum` fallback for legacy CentOS 7/8/9 compatibility). On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.
 - When a host has an already-active `cdx` run, concurrent guard still skips mutating sync/update work, but performs a read-only `/auth` retrieve to refresh quota/policy metadata for the compact boot summary (single concurrent-guard section + quota lines).
 - The normal boot summary is now sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language labels and grouped numbers for calls/tokens.
+- Summary blocks are compacted to up to three tab-separated entries per row by default (tunable with `CODEX_SUMMARY_ITEMS_PER_ROW`).
 - Quota rendering is lean by default: active-lane 5h/weekly bars stay primary, while the non-active lane is condensed into an `Other lane` line (`Spark: 5h X%, week Y%` or `Normal: ...`).
 
 5) **Usage, prompts, and host telemetry**

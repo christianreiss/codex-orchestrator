@@ -482,6 +482,7 @@ colorize() {
 ROW_LABEL_WIDTH=12
 ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
+SUMMARY_ITEMS_PER_ROW=3
 
 # Summary formatting (bootup message).
 # We render a compact "header + rows" block with a modern look while keeping
@@ -651,16 +652,41 @@ section_bullet() {
 print_section_rows() {
   local label="$1"; shift
   local first=1
+  local items_per_row="$SUMMARY_ITEMS_PER_ROW"
+  if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then
+    items_per_row="${CODEX_SUMMARY_ITEMS_PER_ROW}"
+  fi
+
+  local packed_line=""
+  local packed_count=0
   local line
   for line in "$@"; do
     [[ -z "$line" ]] && continue
-    if (( first )); then
-      log_info "$(format_simple_row "$label" "$line")"
-      first=0
+    if (( packed_count == 0 )); then
+      packed_line="$line"
     else
-      log_info "$(format_simple_row "" "$line")"
+      packed_line+=$'\t'"$line"
+    fi
+    (( packed_count++ ))
+    if (( packed_count >= items_per_row )); then
+      if (( first )); then
+        log_info "$(format_simple_row "$label" "$packed_line")"
+        first=0
+      else
+        log_info "$(format_simple_row "" "$packed_line")"
+      fi
+      packed_line=""
+      packed_count=0
     fi
   done
+
+  if (( packed_count > 0 )); then
+    if (( first )); then
+      log_info "$(format_simple_row "$label" "$packed_line")"
+    else
+      log_info "$(format_simple_row "" "$packed_line")"
+    fi
+  fi
 }
 
 compute_row_label_width() {
