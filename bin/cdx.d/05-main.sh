@@ -2117,7 +2117,14 @@ fi
     quota_lane_label="spark"
   fi
   quota_lane_display="${quota_lane_label}"
-  if [[ "$quota_lane_display" == "spark" && -n "$CHATGPT_SPARK_LIMIT_NAME" ]]; then
+  if [[ "$quota_lane_display" == "spark" ]]; then
+    if output_supports_unicode; then
+      quota_lane_display="${quota_lane_display} ⚡"
+    else
+      quota_lane_display="${quota_lane_display} (fast)"
+    fi
+  fi
+  if [[ "$quota_lane_label" == "spark" && -n "$CHATGPT_SPARK_LIMIT_NAME" ]]; then
     quota_lane_display="${quota_lane_display} (${CHATGPT_SPARK_LIMIT_NAME})"
   fi
 

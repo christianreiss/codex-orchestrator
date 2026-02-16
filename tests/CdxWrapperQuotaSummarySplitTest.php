@@ -33,4 +33,15 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
         self::assertStringContainsString('quota_rows+=("${bullet} $(format_quota_metric_row "5h window" "${primary_quota_segment}")")', $wrapperSource);
         self::assertStringContainsString('quota_rows+=("${bullet} $(format_quota_metric_row "Weekly window" "${secondary_quota_segment}")")', $wrapperSource);
     }
+
+    public function testWrapperAddsSparkFastnessMarkerInActiveLaneDisplay(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('quota_lane_display="${quota_lane_display} ⚡"', $wrapperSource);
+        self::assertStringContainsString('quota_lane_display="${quota_lane_display} (fast)"', $wrapperSource);
+        self::assertStringContainsString('if [[ "$quota_lane_label" == "spark" && -n "$CHATGPT_SPARK_LIMIT_NAME" ]]; then', $wrapperSource);
+    }
 }
