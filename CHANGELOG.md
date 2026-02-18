@@ -1,3 +1,6 @@
+# 2026-02-18
+- Skills: added "Checkmk Deploy Verify" skill manifest with `#checkmk` trigger plus mandatory pre/post Checkmk agent verification and Dockerized git-copy workflow guidance.
+
 # 2026-02-16
 - cdx: auth summary now reflects successful `store` uploads as `valid` (instead of lingering `upload_required` from the pre-store retrieve result), so healthy hosts no longer look stuck in upload-required state; wrapper bumped to `2026.02.16-12`.
 - cdx: Quota `Active lane` now marks Spark with a fastness hint (`spark ⚡` on UTF-8 terminals, `spark (fast)` fallback on non-Unicode terminals).
