@@ -4732,3 +4732,340 @@ body[data-theme="dark"] .panel-set[data-panel="dashboard"] .dashboard-chart-canv
     height: 230px;
   }
 }
+
+/* === 2026 nav layer (desktop command bar + mobile drawer) === */
+body[data-nav-version="2026"] {
+  --nav-height: 70px;
+  --nav-z: 320;
+  --nav-drawer-width: min(360px, calc(100vw - 20px));
+}
+
+body[data-nav-version="2026"] .main-nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--nav-z);
+  height: var(--nav-height);
+  min-height: var(--nav-height);
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 26px rgba(2, 6, 23, 0.09);
+}
+
+body[data-nav-version="2026"] .nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+body[data-nav-version="2026"] .brand-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+body[data-nav-version="2026"] .nav-menu-toggle {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+}
+
+body[data-nav-version="2026"] .nav-menu-toggle-lines {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transition: background 160ms ease;
+}
+
+body[data-nav-version="2026"] .nav-menu-toggle-lines::before,
+body[data-nav-version="2026"] .nav-menu-toggle-lines::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transition: transform 180ms ease;
+}
+
+body[data-nav-version="2026"] .nav-menu-toggle-lines::before {
+  top: -5px;
+}
+
+body[data-nav-version="2026"] .nav-menu-toggle-lines::after {
+  top: 5px;
+}
+
+body[data-nav-version="2026"] .nav-panel {
+  margin-left: auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+}
+
+body[data-nav-version="2026"] .nav-groups {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-item {
+  position: relative;
+  height: 40px;
+  padding: 0 12px !important;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: var(--muted) !important;
+  background: transparent !important;
+  font-size: 14px;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-item::after {
+  display: none !important;
+  content: none !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-item:hover,
+body[data-nav-version="2026"] .main-nav .nav-item:focus-visible,
+body[data-nav-version="2026"] .main-nav .nav-item.active,
+body[data-nav-version="2026"] .main-nav .nav-item.has-children.open {
+  color: var(--text) !important;
+  border-color: rgba(var(--accent-rgb), 0.20) !important;
+  background: rgba(var(--accent-rgb), 0.11) !important;
+  box-shadow: none !important;
+}
+
+body[data-nav-version="2026"] .nav-actions {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+body[data-nav-version="2026"] .nav-status {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+body[data-nav-version="2026"] .nav-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+body[data-nav-version="2026"] .nav-user-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-nav-version="2026"] .nav-lock {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 6px;
+  line-height: 1;
+  background: transparent;
+  color: inherit;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-btn {
+  min-height: 38px;
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  background: var(--card) !important;
+  box-shadow: none !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-btn.primary {
+  border-color: rgba(var(--accent-rgb), 0.48) !important;
+  background: var(--accent-gradient) !important;
+  color: #ffffff !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-btn.ghost {
+  background: transparent !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-btn:hover,
+body[data-nav-version="2026"] .main-nav .nav-btn:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.34) !important;
+}
+
+body[data-nav-version="2026"] .nav-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--nav-z) + 1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(2, 6, 23, 0.50);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (max-width: 940px) {
+  body[data-nav-version="2026"] .main-nav {
+    height: 64px;
+    min-height: 64px;
+    padding: 0 14px;
+    justify-content: space-between;
+  }
+
+  body[data-nav-version="2026"] .nav-menu-toggle {
+    display: inline-flex;
+  }
+
+  body[data-nav-version="2026"] .nav-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: calc(var(--nav-z) + 2);
+    width: var(--nav-drawer-width);
+    max-width: 100vw;
+    height: 100dvh;
+    padding: 16px;
+    border-left: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: -24px 0 48px rgba(2, 6, 23, 0.26);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transform: translateX(102%);
+    transition: transform 220ms ease;
+  }
+
+  body[data-nav-version="2026"] .nav-panel[aria-hidden="true"] {
+    pointer-events: none;
+  }
+
+  body[data-nav-version="2026"].nav-drawer-open .nav-panel {
+    transform: translateX(0);
+  }
+
+  body[data-nav-version="2026"].nav-drawer-open {
+    overflow: hidden;
+  }
+
+  body[data-nav-version="2026"].nav-drawer-open .nav-menu-toggle-lines {
+    background: transparent;
+  }
+
+  body[data-nav-version="2026"].nav-drawer-open .nav-menu-toggle-lines::before {
+    transform: translateY(5px) rotate(45deg);
+  }
+
+  body[data-nav-version="2026"].nav-drawer-open .nav-menu-toggle-lines::after {
+    transform: translateY(-5px) rotate(-45deg);
+  }
+
+  body[data-nav-version="2026"] .nav-groups {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  body[data-nav-version="2026"] .main-nav .nav-item {
+    width: 100%;
+    justify-content: flex-start;
+    min-height: 42px;
+  }
+
+  body[data-nav-version="2026"] .nav-actions {
+    width: 100%;
+    margin-left: 0;
+    margin-top: auto;
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  body[data-nav-version="2026"] .nav-actions .nav-btn {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  body[data-nav-version="2026"] .nav-status {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border-left: 0;
+  }
+
+  body[data-nav-version="2026"] .nav-user {
+    width: 100%;
+    justify-content: space-between;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 7px 10px;
+    background: var(--frost);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-nav-version="2026"] .nav-item,
+  body[data-nav-version="2026"] .nav-btn,
+  body[data-nav-version="2026"] .nav-drawer-backdrop,
+  body[data-nav-version="2026"] .nav-panel,
+  body[data-nav-version="2026"] .nav-menu-toggle-lines,
+  body[data-nav-version="2026"] .nav-menu-toggle-lines::before,
+  body[data-nav-version="2026"] .nav-menu-toggle-lines::after {
+    transition: none !important;
+  }
+}

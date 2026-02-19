@@ -542,3 +542,67 @@ body[data-view="mobile"] .log-footer {
   align-items: flex-start;
   gap: 8px;
 }
+
+/* Keep 2026 nav drawer behavior stable against legacy mobile overrides. */
+@media (max-width: 940px) {
+  body[data-nav-version="2026"] .main-nav {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    padding: 0 14px !important;
+  }
+
+  body[data-nav-version="2026"] .nav-panel {
+    position: fixed !important;
+    top: 0;
+    right: 0;
+    height: 100dvh;
+    z-index: 322;
+    width: min(360px, calc(100vw - 20px));
+    max-width: 100vw;
+    padding: 16px;
+    background: var(--card);
+    border-left: 1px solid var(--border);
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    transform: translateX(102%);
+    transition: transform 220ms ease;
+  }
+
+  body[data-nav-version="2026"] .nav-panel[aria-hidden="true"] {
+    pointer-events: none;
+  }
+
+  body[data-nav-version="2026"].nav-drawer-open .nav-panel {
+    transform: translateX(0);
+  }
+
+  body[data-nav-version="2026"] .nav-groups,
+  body[data-nav-version="2026"] .nav-actions,
+  body[data-nav-version="2026"] .nav-status {
+    width: 100% !important;
+    border-left: 0 !important;
+    padding-left: 0 !important;
+    margin: 0 !important;
+    justify-content: flex-start !important;
+  }
+
+  body[data-nav-version="2026"] .nav-groups {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  body[data-nav-version="2026"] .nav-actions {
+    margin-top: auto !important;
+    border-top: 1px solid var(--border) !important;
+    padding-top: 12px !important;
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 8px !important;
+  }
+}
