@@ -3495,6 +3495,23 @@ body[data-view-mode="hosts"] .content {
 body[data-view-mode="hosts"] main.main {
   padding-bottom: 8px;
 }
+body[data-view-mode="settings"] .app {
+  padding-left: 0;
+  padding-right: 0;
+}
+body[data-view-mode="settings"] .content {
+  max-width: none;
+  margin: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+body[data-view-mode="settings"] .panel-set[data-panel="settings"] {
+  width: 100%;
+  margin: 0;
+}
+body[data-view-mode="settings"] .settings-sidebar {
+  top: 16px;
+}
 
 /* Respect hidden panels even when layout styles apply. */
 .panel-set[hidden] {
@@ -3852,7 +3869,7 @@ body[data-view-mode="logs"] main.main {
 
 .settings-sidebar {
   position: sticky;
-  top: 16px;
+  top: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
@@ -3864,7 +3881,7 @@ body[data-view-mode="logs"] main.main {
   min-width: 0;
 }
 
-.settings-content .panel:first-child {
+.settings-content .panel {
   margin-top: 0;
 }
 
@@ -3875,15 +3892,16 @@ body[data-view-mode="logs"] main.main {
 .settings-nav-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   padding: 0;
   margin: 0;
 }
 
 .settings-tab {
-  padding: 9px 11px;
-  border-radius: 10px;
-  border: 1px solid transparent;
+  padding: 11px 12px;
+  border-radius: 0;
+  border: 0;
+  border-left: 3px solid transparent;
   background: transparent;
   color: var(--muted);
   font-weight: 650;
@@ -3894,16 +3912,16 @@ body[data-view-mode="logs"] main.main {
 .settings-tab:focus-visible,
 .settings-tab:hover {
   color: var(--text);
-  border-color: var(--border);
+  border-left-color: var(--border);
   background: color-mix(in srgb, var(--frost) 70%, transparent);
   outline: none;
 }
 
 .settings-tab.active {
   color: var(--text);
-  border-color: var(--accent-ring);
+  border-left-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.14);
+  box-shadow: none;
 }
 
 .settings-pane { display: none; }
