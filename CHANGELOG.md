@@ -1,5 +1,6 @@
 # 2026-02-19
-- Admin settings: replaced the flat settings tab row with a cleaner IA (desktop left rail + grouped `Operations`/`Advanced`, mobile sticky segmented scroller), while preserving existing `#settings/<tab>` hash routes and panel behavior.
+- Admin settings: flattened the left sidebar menu to a single level (removed the `Advanced` subsection) and removed extra top/left inset spacing so nav items align flush with the rail.
+- Admin settings: replaced the flat settings tab row with a cleaner IA (desktop left rail + mobile sticky segmented scroller), while preserving existing `#settings/<tab>` hash routes and panel behavior.
 - Admin dashboard: removed the hero copy block (`2026 Mission Control` / `Fleet At A Glance`) from the top dashboard info box.
 - Admin hosts: re-added the `🍪` marker in the `Authorized Hosts` list for the host that last submitted the current canonical `auth.json` (`auth_source=true`), restoring quick visual attribution.
 - Admin dashboard: replaced the top menu bar with a scoped 2026 navigation layer (`data-nav-version="2026"`) featuring a cleaner desktop command bar, explicit `Overview` entry, and a mobile hamburger off-canvas drawer/backdrop flow while preserving existing nav IDs/actions (`New host`, theme toggle, logout) and hash-based panel routing.
