@@ -645,6 +645,98 @@ format_simple_row() {
   printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
 }
 
+format_footer_sync_fragment() {
+  local name="$1"
+  local result="$2"
+  local reason="$3"
+  local tone="yellow"
+  local state="${result:-unknown}"
+
+  case "$result" in
+    ok|uploaded)
+      tone="green"
+      state="uploaded"
+      ;;
+    not-needed)
+      tone="green"
+      state="unchanged"
+      ;;
+    skipped)
+      tone="yellow"
+      state="skipped"
+      ;;
+    failed|error)
+      tone="red"
+      state="failed"
+      ;;
+    "")
+      tone="yellow"
+      state="unknown"
+      ;;
+  esac
+
+  local text="${name} ${state}"
+  case "$result" in
+    skipped|failed|error)
+      if [[ -n "$reason" ]]; then
+        text+=" (${reason})"
+      fi
+      ;;
+  esac
+  if [[ "$tone" != "green" ]]; then
+    text="$(colorize "$text" "$tone")"
+  fi
+  printf "%s" "$text"
+}
+
+print_run_exit_footer() {
+  (( CODEX_COMMAND_STARTED )) || return 0
+
+  local usage_label="Run usage"
+  local cost_label="Run cost"
+  if output_supports_unicode; then
+    cost_label="💰 Run cost"
+  fi
+  local sync_label="Sync"
+
+  local usage_text="${USAGE_PUSH_SUMMARY:-}"
+  if [[ -z "$usage_text" && -n "$last_usage_payload" ]]; then
+    usage_text="$(parse_usage_summary "$last_usage_payload")"
+  fi
+  if [[ -z "$usage_text" ]]; then
+    usage_text="no token usage captured"
+  fi
+  if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
+    usage_text="$(colorize "$usage_text" "red")"
+  elif [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]]; then
+    usage_text="$(colorize "$usage_text" "yellow")"
+  fi
+
+  local cost_text=""
+  local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
+  if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
+    cost_text="${USAGE_PUSH_COST}"
+  else
+    cost_text="unavailable (${cost_reason})"
+    if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
+      cost_text="$(colorize "$cost_text" "red")"
+    else
+      cost_text="$(colorize "$cost_text" "yellow")"
+    fi
+  fi
+
+  local usage_sync=""
+  local auth_sync=""
+  usage_sync="$(format_footer_sync_fragment "usage" "${USAGE_PUSH_RESULT:-}" "${USAGE_PUSH_REASON:-}")"
+  auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
+  local sync_text="${usage_sync}; ${auth_sync}"
+
+  log_info "$(summary_divider)"
+  log_info "$(format_simple_row "$usage_label" "$usage_text")"
+  log_info "$(format_simple_row "$cost_label" "$cost_text")"
+  log_info "$(format_simple_row "$sync_label" "$sync_text")"
+}
+
 section_bullet() {
   if output_supports_unicode; then
     printf "•"
@@ -2805,13 +2897,10 @@ cleanup() {
       push_auth_if_changed "push" || true
     fi
   fi
-  # Emit final auth push status if determined
-  if [[ -n "$AUTH_PUSH_RESULT" ]]; then
-    log_info "Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}"
-  fi
   if (( PURGE_AUTH_AFTER_RUN )) && (( CODEX_COMMAND_STARTED )) && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ -f "$HOME/.codex/auth.json" ]]; then
     remove_path "$HOME/.codex/auth.json" "auth.json (insecure host)"
   fi
+  print_run_exit_footer || true
   release_run_lock_if_held || true
   exit "$exit_status"
 }

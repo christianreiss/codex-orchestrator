@@ -1,4 +1,5 @@
 # 2026-02-19
+- cdx: redesigned end-of-run output into a compact footer (`Run usage`, `Run cost`, `Sync`), removed noisy raw `Usage push | ...` / `Auth push | ...` lines, and added a dedicated `💰` run-cost line populated from `/usage` `data.cost` (ASCII fallback label when Unicode is unavailable); wrapper bumped to `2026.02.19-01`.
 - Admin hosts: fully redesigned the `Authorized Hosts` list for lower visual noise; rows now focus on hostname, status, last seen, Codex version, and a single insecure-window toggle (removed IP/added/auth-meta/wrapper clutter from list rows; details remain on host pages).
 - Admin hosts: replaced the host detail modal with dedicated host detail pages at `/admin/hosts/{id}` and reorganized the content into visual sections (`Action Items`, `Features`, `Stats`, `Infos`) with deep-linkable URLs.
 - Admin routing: added HTML dispatch for `GET /admin/hosts/{id}` through `public/admin/index.php` so direct host detail links resolve without falling through API routes.

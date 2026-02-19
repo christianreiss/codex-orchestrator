@@ -1245,23 +1245,11 @@ print(json.dumps({"usages": entries}, separators=(",", ":")))
 PY
 }
 
-post_token_usage_payload() {
-  local payload_json="$1"
-  if [[ -z "$payload_json" ]]; then
-    return 0
-  fi
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    log_warn "Usage push skipped: API key or base URL missing"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    log_warn "Usage push skipped: python3 missing"
-    return 1
-  fi
-
-  local summary=""
-  local status=0
-  summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$payload_json" "$CODEX_SYNC_CA_FILE" <<'PY'
+post_token_usage_payload_once() {
+  local base_url="$1"
+  local payload_json="$2"
+  local ca_file="${3-}"
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
 import json, os, sys, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -1278,6 +1266,7 @@ api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 try:
     payload = json.loads(payload_raw)
 except Exception:  # noqa: BLE001
+    print("error=invalid payload")
     sys.exit(1)
 
 body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -1319,26 +1308,70 @@ def format_summary(data: dict) -> str:
     return " ".join(parts)
 
 
+def parse_response_fields(body_text: str):
+    cost_value = ""
+    recorded_value = ""
+    reason_value = ""
+    try:
+        parsed = json.loads(body_text)
+    except Exception:  # noqa: BLE001
+        return cost_value, recorded_value, reason_value
+
+    if not isinstance(parsed, dict):
+        return cost_value, recorded_value, reason_value
+    data = parsed.get("data")
+    if not isinstance(data, dict):
+        return cost_value, recorded_value, reason_value
+
+    recorded = data.get("recorded")
+    if isinstance(recorded, bool):
+        recorded_value = "true" if recorded else "false"
+    elif isinstance(recorded, (int, float)):
+        recorded_value = "true" if recorded > 0 else "false"
+
+    reason = data.get("reason")
+    if isinstance(reason, str) and reason.strip():
+        reason_value = reason.strip()
+
+    cost = data.get("cost")
+    if isinstance(cost, (int, float)):
+        cost_value = f"{float(cost):.6f}"
+    elif isinstance(cost, str):
+        try:
+            cost_value = f"{float(cost.strip()):.6f}"
+        except Exception:  # noqa: BLE001
+            cost_value = ""
+
+    return cost_value, recorded_value, reason_value
+
+
 last_err = None
 last_code = 1
 for ctx in build_contexts():
     try:
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
-            resp.read(512)
-            print(format_summary(payload))
+            body_text = resp.read(65536).decode("utf-8", "replace")
+            cost_val, recorded_val, reason_val = parse_response_fields(body_text)
+            print(f"summary={format_summary(payload)}")
+            if cost_val:
+                print(f"cost={cost_val}")
+            if recorded_val:
+                print(f"recorded={recorded_val}")
+            if reason_val:
+                print(f"reason={reason_val}")
             sys.exit(0)
     except urllib.error.HTTPError as exc:
-        body = ""
+        body_text = ""
         try:
-            body = exc.read().decode("utf-8", "replace")
+            body_text = exc.read().decode("utf-8", "replace")
         except Exception:
-            body = ""
-        if exc.code == 503 and "disabled" in body.lower():
-            print("api disabled")
+            body_text = ""
+        if exc.code == 503 and "disabled" in body_text.lower():
+            print("reason=API disabled by administrator")
             sys.exit(40)
-        body_snip = (body or "").replace("\n", " ").strip()
+        body_snip = (body_text or "").replace("\n", " ").strip()
         if len(body_snip) > 160:
-            body_snip = body_snip[:160] + "…"
+            body_snip = body_snip[:160] + "..."
         last_err = f"HTTP {exc.code}" + (f": {body_snip}" if body_snip else "")
         last_code = exc.code or 1
         continue
@@ -1347,22 +1380,89 @@ for ctx in build_contexts():
         continue
 
 if last_err:
-    print(last_err)
+    print(f"error={last_err}")
 sys.exit(last_code)
 PY
-  )" || status=$?
+}
+
+post_token_usage_payload() {
+  local payload_json="$1"
+  local status=0
+  local output=""
+  local line=""
+  local summary=""
+  local cost=""
+  local recorded=""
+  local reason=""
+
+  USAGE_PUSH_RESULT=""
+  USAGE_PUSH_REASON=""
+  USAGE_PUSH_SUMMARY="$(parse_usage_summary "$payload_json")"
+  USAGE_PUSH_COST=""
+  USAGE_PUSH_COST_REASON=""
+
+  if [[ -z "$payload_json" ]]; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="no usage payload"
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="API key or base URL missing"
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="python3 missing"
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 1
+  fi
+
+  output="$(post_token_usage_payload_once "$CODEX_SYNC_BASE_URL" "$payload_json" "$CODEX_SYNC_CA_FILE")" || status=$?
+  while IFS= read -r line; do
+    case "$line" in
+      summary=*) summary="${line#summary=}" ;;
+      cost=*) cost="${line#cost=}" ;;
+      recorded=*) recorded="${line#recorded=}" ;;
+      reason=*) reason="${line#reason=}" ;;
+      error=*)
+        if [[ -z "$reason" ]]; then
+          reason="${line#error=}"
+        fi
+        ;;
+    esac
+  done <<< "$output"
+  if [[ -n "$summary" ]]; then
+    USAGE_PUSH_SUMMARY="$summary"
+  fi
+
   if (( status == 0 )); then
-    log_info "Usage push | ok | ${summary}"
+    if [[ "$recorded" == "false" ]]; then
+      USAGE_PUSH_RESULT="failed"
+      USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
+      USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+      return 1
+    fi
+    USAGE_PUSH_RESULT="ok"
+    USAGE_PUSH_REASON="recorded"
+    if [[ -n "$cost" ]]; then
+      USAGE_PUSH_COST="$cost"
+    else
+      USAGE_PUSH_COST_REASON="server did not return cost"
+    fi
     return 0
   fi
 
   if (( status == 40 )); then
-    log_warn "Usage push skipped: API disabled by administrator"
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="API disabled by administrator"
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
-  local primary_err="$summary"
-
+  local primary_err="${reason:-$output}"
   # Fallback: retry without the freeform line if present (avoid bad payloads/escape debris)
   if [[ "$payload_json" == *'"line"'* ]]; then
     local fallback_payload=""
@@ -1387,68 +1487,60 @@ print(json.dumps(data, separators=(",", ":")))
 PY
     )" || fallback_payload=""
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
-      summary=""
       status=0
-      summary="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE" <<'PY'
-import json, os, sys, urllib.error, urllib.request
+      summary=""
+      cost=""
+      recorded=""
+      reason=""
+      output="$(post_token_usage_payload_once "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE")" || status=$?
+      while IFS= read -r line; do
+        case "$line" in
+          summary=*) summary="${line#summary=}" ;;
+          cost=*) cost="${line#cost=}" ;;
+          recorded=*) recorded="${line#recorded=}" ;;
+          reason=*) reason="${line#reason=}" ;;
+          error=*)
+            if [[ -z "$reason" ]]; then
+              reason="${line#error=}"
+            fi
+            ;;
+        esac
+      done <<< "$output"
+      if [[ -n "$summary" ]]; then
+        USAGE_PUSH_SUMMARY="$summary"
+      fi
 
-py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
-if py_http_util:
-    exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
-
-base = (sys.argv[1] or "").rstrip("/")
-payload_raw = sys.argv[2]
-cafile = sys.argv[3] if len(sys.argv) > 3 else ""
-api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
-
-payload = json.loads(payload_raw)
-body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-headers = {"Content-Type": "application/json", "X-API-Key": api_key}
-url = f"{base}/usage"
-req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-contexts = cdx_build_ssl_contexts(cafile) if "cdx_build_ssl_contexts" in globals() else [None]
-last_error = ""
-for ctx in contexts:
-    try:
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
-            resp.read(512)
-            print("fallback")
-            sys.exit(0)
-    except urllib.error.HTTPError as exc:  # noqa: PERF203
-        body = ""
-        try:
-            body = exc.read().decode("utf-8", "replace")
-        except Exception:
-            body = ""
-        if exc.code == 503 and "disabled" in body.lower():
-            print("api disabled")
-            sys.exit(40)
-        last_error = str(exc)
-        continue
-    except Exception as exc:  # noqa: BLE001
-        last_error = str(exc)
-        continue
-print(last_error)
-sys.exit(1)
-PY
-      )" || status=$?
       if (( status == 0 )); then
-        log_info "Usage push | ok (fallback) | ${summary}"
+        if [[ "$recorded" == "false" ]]; then
+          USAGE_PUSH_RESULT="failed"
+          USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
+          USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+          return 1
+        fi
+        USAGE_PUSH_RESULT="ok"
+        USAGE_PUSH_REASON="recorded (fallback)"
+        if [[ -n "$cost" ]]; then
+          USAGE_PUSH_COST="$cost"
+        else
+          USAGE_PUSH_COST_REASON="server did not return cost"
+        fi
         return 0
       elif (( status == 40 )); then
-        log_warn "Usage push skipped: API disabled by administrator"
+        USAGE_PUSH_RESULT="skipped"
+        USAGE_PUSH_REASON="API disabled by administrator"
+        USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
         return 0
       fi
-      [[ -z "$primary_err" ]] && primary_err="$summary"
+      [[ -z "$primary_err" ]] && primary_err="${reason:-$output}"
     fi
   fi
 
   if [[ -z "$primary_err" ]]; then
     primary_err="unknown error"
   fi
-  log_warn "Usage push | failed | ${primary_err}"
+  USAGE_PUSH_RESULT="failed"
+  USAGE_PUSH_REASON="$primary_err"
+  USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
   return 1
 }
 
@@ -1501,6 +1593,11 @@ send_token_usage_if_present() {
   local payload
   payload="$(extract_token_usage_payload "$log_path")" || return 0
   if [[ -z "$payload" ]]; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="no token usage captured"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
