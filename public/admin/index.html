@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-02-13-05">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-02-19-01">
   <link rel="stylesheet" href="/admin/assets/uPlot.min.css?v=2026-01-15-01">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-13-04">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-19-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto">
   <header class="main-nav">
@@ -205,24 +205,6 @@
               <button class="ghost" id="agentsDeleteCancel">Cancel</button>
               <button class="danger" id="agentsDeleteConfirm">Move &amp; Delete</button>
             </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="hostDetailModal">
-          <div class="modal host-detail-modal">
-            <div class="host-detail-head">
-              <div>
-                <p class="muted overline">Authorized Host</p>
-                <h3 id="hostDetailTitle">Loading…</h3>
-                <div class="chip-row" id="hostDetailPills"></div>
-              </div>
-              <div class="host-detail-head-actions">
-                <button class="ghost tiny-btn" id="closeHostDetail">Close</button>
-              </div>
-            </div>
-            <div class="host-detail-problems" id="hostDetailProblems" hidden></div>
-            <div class="host-detail-summary" id="hostDetailSummary"></div>
-            <div class="kv-grid" id="hostDetailGrid"></div>
-            <div class="host-detail-actions" id="hostDetailActions"></div>
           </div>
         </div>
         <div class="modal-backdrop" id="runnerModal">
@@ -432,7 +414,7 @@
                 <h2>Authorized Hosts</h2>
               </div>
               <div class="panel-actions">
-                <input type="search" id="host-filter" placeholder="Search host, IP, or version">
+                <input type="search" id="host-filter" placeholder="Search host, status, or codex version">
               </div>
             </div>
             <div class="table-wrap">
@@ -440,15 +422,64 @@
                 <thead>
                   <tr>
                     <th data-sort-key="host"><span class="sort-link" role="button" tabindex="0" data-sort="host"><span>Host</span><span class="sort-indicator">↕</span></span></th>
-                    <th>Status</th>
+                    <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
                     <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
-                    <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client"><span>Client</span><span class="sort-indicator">↕</span></span></th>
-                    <th data-sort-key="wrapper"><span class="sort-link" role="button" tabindex="0" data-sort="wrapper"><span>Wrapper</span><span class="sort-indicator">↕</span></span></th>
-                    <th class="insecure-col">Insecure API</th>
+                    <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
+                    <th class="insecure-col">Insecure Window</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
               </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel-set" data-panel="host-detail" hidden>
+          <section class="card panel host-detail-page" id="hostDetailPanel">
+            <div class="host-detail-head">
+              <div>
+                <p class="muted overline">Authorized Host</p>
+                <h2 id="hostDetailTitle">Loading…</h2>
+                <div class="chip-row" id="hostDetailPills"></div>
+              </div>
+              <div class="host-detail-head-actions">
+                <a class="ghost tiny-btn" id="hostDetailBack" href="/admin/#hosts">Back to hosts</a>
+              </div>
+            </div>
+            <div class="host-detail-empty" id="hostDetailEmptyState" hidden>
+              <h3 id="hostDetailEmptyTitle">Loading host…</h3>
+              <p class="muted" id="hostDetailEmptyBody">Fetching host details.</p>
+            </div>
+            <div class="host-detail-layout" id="hostDetailLayout" hidden>
+              <section class="host-detail-section">
+                <div class="host-detail-section-head">
+                  <p class="eyebrow">Action Items</p>
+                  <h3>Needs attention</h3>
+                </div>
+                <div class="host-detail-problems" id="hostDetailProblems" hidden></div>
+                <div class="host-detail-problems-empty muted" id="hostDetailProblemsEmpty">No active action items.</div>
+              </section>
+              <section class="host-detail-section">
+                <div class="host-detail-section-head">
+                  <p class="eyebrow">Features</p>
+                  <h3>Host controls</h3>
+                </div>
+                <div class="host-detail-actions" id="hostDetailActions"></div>
+              </section>
+              <section class="host-detail-section">
+                <div class="host-detail-section-head">
+                  <p class="eyebrow">Stats</p>
+                  <h3>Current signal</h3>
+                </div>
+                <div class="host-detail-summary" id="hostDetailSummary"></div>
+              </section>
+              <section class="host-detail-section">
+                <div class="host-detail-section-head">
+                  <p class="eyebrow">Infos</p>
+                  <h3>Technical context</h3>
+                </div>
+                <div class="kv-grid" id="hostDetailGrid"></div>
+              </section>
             </div>
           </section>
         </section>
@@ -1420,12 +1451,21 @@
   <script>
     // Basic hash router to set initial view for legacy JS
     (function() {
+      function pathHostId() {
+        const match = String(window.location.pathname || '').match(/^\/admin\/hosts\/(\d+)\/?$/);
+        return match ? match[1] : '';
+      }
       function applyFromHash() {
-        const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
+        const hostId = pathHostId();
+        const fallbackHash = hostId ? `#host-detail/${hostId}` : '#dashboard';
+        const hash = (window.location.hash || fallbackHash).replace(/^#/, '');
         const [panel, sub] = hash.split('/');
-        document.body.dataset.viewMode = panel || 'dashboard';
+        document.body.dataset.viewMode = panel || (hostId ? 'host-detail' : 'dashboard');
         if (panel === 'hosts') {
           document.body.dataset.hostTab = sub || '';
+        }
+        if ((panel === 'host-detail' || (!panel && hostId)) && (sub || hostId)) {
+          document.body.dataset.hostId = sub || hostId;
         }
         if (panel === 'logs') {
           document.body.dataset.logTab = sub || 'client';
@@ -1438,11 +1478,11 @@
       window.addEventListener('hashchange', applyFromHash);
     })();
   </script>
-  <script src="/admin/assets/nav.js?v=2025-12-12-02"></script>
+  <script src="/admin/assets/nav.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
   <script src="/admin/assets/users.js?v=2026-01-18-03"></script>
   <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-02-13-04"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>
   <script src="/admin/assets/config.js?v=2026-02-12-01"></script>

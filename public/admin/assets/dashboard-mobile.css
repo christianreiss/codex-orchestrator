@@ -420,7 +420,7 @@ body[data-view="mobile"] .modal {
   border-radius: 18px;
 }
 
-body[data-view="mobile"] .host-detail-modal {
+body[data-view="mobile"] .host-detail-page {
   max-width: none;
 }
 
@@ -428,6 +428,10 @@ body[data-view="mobile"] .host-detail-head {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
+}
+
+body[data-view="mobile"] .host-detail-layout {
+  grid-template-columns: 1fr;
 }
 
 body[data-view="mobile"] .host-detail-summary {

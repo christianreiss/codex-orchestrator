@@ -336,6 +336,10 @@ $router->add('GET', '#^/admin/login$#', function (): void {
     require __DIR__ . '/admin/index.php';
 });
 
+$router->add('GET', '#^/admin/hosts/(\\d+)$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
 $router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);

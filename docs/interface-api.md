@@ -53,6 +53,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 - `POST /admin/auth/login` — login with `{username, password}`; issues an HTTP-only session cookie.
 - `POST /admin/auth/logout` — clears the session cookie.
 - `GET /admin/login` — dedicated admin login page (HTML; served by `public/admin/index.php` dispatch through `/admin/.htaccess`).
+- `GET /admin/hosts/{id}` — dedicated admin host detail page (HTML shell). Uses the same dashboard assets but resolves the active host from the path instead of opening an in-page modal.
 - `POST /admin/auth/password/request` — disabled; always returns `410 Gone`.
 - `POST /admin/auth/password/reset` — disabled; always returns `410 Gone`.
 - `GET /admin/users` — list admin users (id, name, username, email, access_level, active, last_login_at, timestamps).

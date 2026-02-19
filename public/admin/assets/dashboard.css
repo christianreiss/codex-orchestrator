@@ -651,22 +651,59 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
 .host-kpis .kpi .label { color: var(--muted); font-size: 12px; font-weight: 800; }
 .host-kpis .kpi code { font-family: var(--font-mono); font-size: 12px; }
 
-/* Host detail becomes a “drawer-ish” modal on desktop */
-.host-detail-modal {
-  width: min(1100px, 96vw);
-  max-height: min(92vh, 960px);
-  overflow: auto;
+/* Host detail page */
+.host-detail-page {
+  width: min(1180px, 100%);
+  margin-inline: auto;
+  padding: 18px;
   border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.host-detail-head { position: sticky; top: 0; background: var(--panel); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); z-index: 2; }
-
+.host-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.host-detail-head h2 {
+  margin: 2px 0 6px;
+  letter-spacing: -0.02em;
+}
+.host-detail-head-actions { display: flex; align-items: center; gap: 8px; }
+.host-detail-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.host-detail-section {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 14px 16px;
+}
+.host-detail-section-head { margin-bottom: 10px; }
+.host-detail-section-head h3 { margin: 4px 0 0; letter-spacing: -0.02em; }
+.host-detail-empty {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  background: var(--card);
+}
 .host-detail-problems {
-  margin: 12px 0 0;
+  margin: 0;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   background: var(--card);
   box-shadow: var(--shadow-soft);
+}
+.host-detail-problems-empty {
+  margin-top: 10px;
+  font-size: 13px;
 }
 .problems-head {
   display: flex;
@@ -692,6 +729,8 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
 .problem-body { margin-top: 4px; color: var(--muted); font-size: 13px; }
 .problem.warn { border-color: rgba(251, 191, 36, 0.28); background: rgba(251, 191, 36, 0.10); }
 .problem.err { border-color: rgba(251, 113, 133, 0.26); background: rgba(251, 113, 133, 0.10); }
+
+.host-detail-summary { margin: 0; }
     .sidebar { display: none; }
     .sidebar .brand {
       display: flex;
@@ -2363,26 +2402,19 @@ body.auth-locked .nav-actions {
       border: 1px solid var(--accent-ring);
     }
     .details-chip::after { content: '›'; font-weight: 800; }
-    .host-detail-modal {
-      max-width: 920px;
-      max-height: calc(100vh - 80px);
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-    }
     .host-detail-head {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 16px;
     }
-    .host-detail-head h3 { margin: 2px 0 6px; }
+    .host-detail-head h2 { margin: 2px 0 6px; }
     .host-detail-head-actions { display: flex; align-items: center; gap: 8px; }
     .host-detail-summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 10px;
-      margin: 12px 0 6px;
+      margin: 0;
     }
     .summary-card {
       padding: 12px;

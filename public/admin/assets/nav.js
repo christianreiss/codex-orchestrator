@@ -123,6 +123,7 @@
     const anchor = (window.location.hash || '').replace(/^#/, '');
     if (anchor) return anchor.toLowerCase();
     if (/\/admin\/?$/.test(pathname)) return 'dashboard';
+    if (/\/admin\/hosts\/\d+\/?$/.test(pathname)) return 'host-detail';
     return '';
   };
 

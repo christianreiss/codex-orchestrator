@@ -73,14 +73,18 @@
     const agentsDeleteStatus = document.getElementById('agentsDeleteStatus');
     const agentsDeleteCancel = document.getElementById('agentsDeleteCancel');
     const agentsDeleteConfirm = document.getElementById('agentsDeleteConfirm');
-    const hostDetailModal = document.getElementById('hostDetailModal');
     const hostDetailTitle = document.getElementById('hostDetailTitle');
     const hostDetailPills = document.getElementById('hostDetailPills');
     const hostDetailGrid = document.getElementById('hostDetailGrid');
     const hostDetailActions = document.getElementById('hostDetailActions');
     const hostDetailSummary = document.getElementById('hostDetailSummary');
     const hostDetailProblems = document.getElementById('hostDetailProblems');
-    const closeHostDetailBtn = document.getElementById('closeHostDetail');
+    const hostDetailProblemsEmpty = document.getElementById('hostDetailProblemsEmpty');
+    const hostDetailLayout = document.getElementById('hostDetailLayout');
+    const hostDetailBack = document.getElementById('hostDetailBack');
+    const hostDetailEmptyState = document.getElementById('hostDetailEmptyState');
+    const hostDetailEmptyTitle = document.getElementById('hostDetailEmptyTitle');
+    const hostDetailEmptyBody = document.getElementById('hostDetailEmptyBody');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const promptsTbody = document.querySelector('#prompts tbody');
     const promptsToggle = document.getElementById('promptsToggle');
@@ -317,12 +321,27 @@
 
     initThemeToggle();
 
+    function parseHostIdFromPath(pathname = window.location.pathname) {
+      const match = String(pathname || '').match(/^\/admin\/hosts\/(\d+)\/?$/);
+      if (!match) return null;
+      const parsed = Number(match[1]);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return Math.trunc(parsed);
+    }
+
+    function currentPathHostId() {
+      return parseHostIdFromPath(window.location.pathname);
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
-    const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
-    const [panelFromHash, subFromHash] = hash.split('/');
+    const pathHostId = currentPathHostId();
+    const hash = (window.location.hash || (pathHostId ? `#host-detail/${pathHostId}` : '#dashboard')).replace(/^#/, '');
+    const [panelFromHashRaw, subFromHashRaw] = hash.split('/');
+    const panelFromHash = (panelFromHashRaw || '').toLowerCase();
+    const subFromHash = (subFromHashRaw || '').toLowerCase();
     const bodyView = (document.body?.dataset?.viewMode || '').toLowerCase();
-    const viewMode = (panelFromHash || bodyView || urlParams.get('view') || 'dashboard').toLowerCase();
-    const subView = (subFromHash || '').toLowerCase();
+    const viewMode = (panelFromHash || (pathHostId ? 'host-detail' : bodyView) || urlParams.get('view') || 'dashboard').toLowerCase();
+    const subView = (subFromHash || (pathHostId ? String(pathHostId) : '')).toLowerCase();
     // Legacy redirect guard: in SPA we keep everything inline, so no redirects needed.
     const initialHostParam = (urlParams.get('host') || 'insecure').toLowerCase();
     if (initialHostParam) {
@@ -458,6 +477,12 @@
         copy: 'Search, filter, and manage host state.',
         show: ['hosts-panel'],
       },
+      'host-detail': {
+        eyebrow: 'Host Details',
+        title: 'Host mission page',
+        copy: 'Action items, features, stats, and technical context for one host.',
+        show: ['hostDetailPanel'],
+      },
       users: {
         eyebrow: 'Users',
         title: 'User management',
@@ -500,7 +525,7 @@
       // Use the live body dataset view to reflect navigation without reloads.
       const activeView = (document.body?.dataset?.viewMode || viewMode || 'dashboard').toLowerCase();
       const config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'users-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'hostDetailPanel', 'users-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -1860,12 +1885,30 @@
       }
     }
 
+    function hostListStatus(host) {
+      const status = String(host?.status || '').toLowerCase();
+      if (status && status !== 'active') {
+        return { label: 'Suspended', tone: 'err', rank: 3 };
+      }
+      if (host?.authed !== true) {
+        return { label: 'Unprovisioned', tone: 'warn', rank: 2 };
+      }
+      if (!isHostSecure(host)) {
+        const { enabledActive, graceActive } = insecureState(host);
+        if (!enabledActive && !graceActive) {
+          return { label: 'Insecure closed', tone: 'warn', rank: 1 };
+        }
+      }
+      return { label: 'Healthy', tone: 'ok', rank: 0 };
+    }
+
     function applyHostFilters(list) {
       return list.filter(host => {
         if (!hostMatchesStatus(host)) return false;
         if (!hostFilterText) return true;
-        const haystacks = [host.fqdn, host.ip4, host.ip6, host.client_version, host.wrapper_version]
-          .map(value => (typeof value === 'string' ? value.toLowerCase() : ''));
+        const statusLabel = hostListStatus(host).label.toLowerCase();
+        const haystacks = [host.fqdn, host.client_version, statusLabel]
+          .map((value) => (typeof value === 'string' ? value.toLowerCase() : ''));
         return haystacks.some(text => text.includes(hostFilterText));
       });
     }
@@ -1874,16 +1917,14 @@
       switch (key) {
         case 'host':
           return (host.fqdn || '').toLowerCase();
+        case 'status':
+          return hostListStatus(host).rank;
         case 'last_seen': {
           const ts = parseTimestamp(host.updated_at);
           return ts ? ts.getTime() : -Infinity;
         }
         case 'client':
           return (host.client_version || '').toLowerCase();
-        case 'wrapper':
-          return (host.wrapper_version || '').toLowerCase();
-        case 'ip':
-          return (host.ip4 || host.ip6 || '').toLowerCase();
         default:
           return '';
       }
@@ -2224,14 +2265,12 @@
           ev.stopPropagation();
           const action = btn.getAttribute('data-action');
           if (action === 'install') {
-            showHostDetailModal(false);
             regenerateInstaller(host.fqdn, host.id);
           } else if (action === 'clear') {
             if (!confirm(`Clear auth for ${host.fqdn}?`)) return;
             confirmClear(host.id);
           } else if (action === 'remove') {
             if (!confirm(`Remove ${host.fqdn}? This cannot be undone.`)) return;
-            showHostDetailModal(false);
             openDeleteModal(host.id);
           }
         };
@@ -2609,20 +2648,45 @@
       return rows;
     }
 
-    function showHostDetailModal(show) {
-      if (!hostDetailModal) return;
-      if (show) {
-        hostDetailModal.classList.add('show');
-      } else {
-        hostDetailModal.classList.remove('show');
-        activeHostId = null;
-        if (hostDetailGrid) hostDetailGrid.innerHTML = '';
-        if (hostDetailSummary) hostDetailSummary.innerHTML = '';
-        if (hostDetailPills) hostDetailPills.innerHTML = '';
-        if (hostDetailProblems) {
-          hostDetailProblems.innerHTML = '';
-          hostDetailProblems.hidden = true;
-        }
+    function isHostDetailView() {
+      return (document.body?.dataset?.viewMode || '').toLowerCase() === 'host-detail';
+    }
+
+    function clearHostDetailContent() {
+      if (hostDetailGrid) hostDetailGrid.innerHTML = '';
+      if (hostDetailSummary) hostDetailSummary.innerHTML = '';
+      if (hostDetailPills) hostDetailPills.innerHTML = '';
+      if (hostDetailActions) hostDetailActions.innerHTML = '';
+      if (hostDetailProblems) {
+        hostDetailProblems.innerHTML = '';
+        hostDetailProblems.hidden = true;
+      }
+      if (hostDetailProblemsEmpty) {
+        hostDetailProblemsEmpty.hidden = false;
+      }
+    }
+
+    function showHostDetailEmpty(title, body) {
+      if (hostDetailLayout) {
+        hostDetailLayout.hidden = true;
+      }
+      if (hostDetailEmptyState) {
+        hostDetailEmptyState.hidden = false;
+      }
+      if (hostDetailEmptyTitle) {
+        hostDetailEmptyTitle.textContent = title;
+      }
+      if (hostDetailEmptyBody) {
+        hostDetailEmptyBody.textContent = body;
+      }
+    }
+
+    function showHostDetailContent() {
+      if (hostDetailEmptyState) {
+        hostDetailEmptyState.hidden = true;
+      }
+      if (hostDetailLayout) {
+        hostDetailLayout.hidden = false;
       }
     }
 
@@ -2664,7 +2728,13 @@
       if (!issues.length) {
         hostDetailProblems.innerHTML = '';
         hostDetailProblems.hidden = true;
+        if (hostDetailProblemsEmpty) {
+          hostDetailProblemsEmpty.hidden = false;
+        }
         return;
+      }
+      if (hostDetailProblemsEmpty) {
+        hostDetailProblemsEmpty.hidden = true;
       }
       hostDetailProblems.hidden = false;
       hostDetailProblems.innerHTML = `
@@ -2683,15 +2753,18 @@
       `;
     }
 
-    function closeHostDetail() {
-      showHostDetailModal(false);
-    }
-
-    function renderHostDetail(host, { keepOpen = false } = {}) {
+    function renderHostDetail(host) {
       if (!host) return;
       activeHostId = host.id;
+      if (document.body) {
+        document.body.dataset.hostId = String(host.id);
+      }
+      showHostDetailContent();
       if (hostDetailTitle) {
         hostDetailTitle.textContent = host.fqdn || `Host #${host.id}`;
+      }
+      if (hostDetailBack) {
+        hostDetailBack.setAttribute('href', '/admin/#hosts');
       }
       if (hostDetailPills) {
         const pills = [];
@@ -2722,15 +2795,42 @@
         hostDetailActions.innerHTML = renderHostActionButtons(host);
         bindHostDetailActions(host);
       }
-      if (!keepOpen) {
-        showHostDetailModal(true);
+    }
+
+    function renderActiveHostDetail() {
+      if (!isHostDetailView()) return;
+      if (!activeHostId) {
+        if (hostDetailTitle) {
+          hostDetailTitle.textContent = 'Unknown host';
+        }
+        clearHostDetailContent();
+        showHostDetailEmpty('Host not found', 'This host link is invalid.');
+        return;
       }
+      if (!dataLoaded) {
+        if (hostDetailTitle) {
+          hostDetailTitle.textContent = `Host #${activeHostId}`;
+        }
+        clearHostDetailContent();
+        showHostDetailEmpty('Loading host…', 'Fetching host details.');
+        return;
+      }
+      const host = currentHosts.find((entry) => entry.id === activeHostId);
+      if (!host) {
+        if (hostDetailTitle) {
+          hostDetailTitle.textContent = `Host #${activeHostId}`;
+        }
+        clearHostDetailContent();
+        showHostDetailEmpty('Host not found', 'This host was deleted or is no longer visible.');
+        return;
+      }
+      renderHostDetail(host);
     }
 
     function openHostDetail(hostId) {
-      const host = currentHosts.find(h => h.id === hostId);
-      if (!host) return;
-      renderHostDetail(host);
+      const numericId = Number(hostId);
+      if (!Number.isFinite(numericId) || numericId <= 0) return;
+      window.location.assign(`/admin/hosts/${Math.trunc(numericId)}`);
     }
 
     function isInsecureActive(host) {
@@ -2738,79 +2838,41 @@
       return state.enabledActive || state.graceActive;
     }
 
-    function createHostRow(host, hasInsecure) {
+    function createHostRow(host) {
       const tr = document.createElement('tr');
-      const addedAt = host.created_at ?? host.last_refresh ?? host.updated_at ?? null;
-      const shouldPruneSoon = (!host.last_refresh || host.last_refresh === '') && (!host.auth_digest || host.auth_digest === '') && (host.api_calls ?? 0) === 0;
-      const addedDate = parseTimestamp(addedAt);
-      const pruneAt = shouldPruneSoon && addedDate ? new Date(addedDate.getTime() + 30 * 60 * 1000) : null;
-      const willPruneAt = pruneAt ? formatUntil(pruneAt.toISOString()) : null;
       const isSecure = isHostSecure(host);
-      const vipChip = host.vip
-        ? renderVipCrown()
-        : '';
-      const authSourceChip = host.auth_source
-        ? '<span class="chip ok" title="Latest auth.json source" aria-label="Latest auth.json source">🍪</span>'
-        : '';
       const insecureStateNow = insecureState(host);
       const minutesActive = countdownMinutes(host.insecure_enabled_until);
       const minutesGrace = countdownMinutes(host.insecure_grace_until);
-      let insecureLabel = 'Turn On';
+      let insecureLabel = 'Open insecure window';
       if (!isSecure && insecureStateNow.enabledActive) {
-        insecureLabel = `Turn Off (${minutesActive ?? 0} min left)`;
+        insecureLabel = `Close insecure window (${minutesActive ?? 0} min left)`;
       } else if (!isSecure && insecureStateNow.graceActive) {
         const graceText = minutesGrace !== null ? `${minutesGrace} min` : 'grace';
-        insecureLabel = `Turn On (${graceText} left)`;
+        insecureLabel = `Open insecure window (${graceText} left in grace)`;
       }
-      const health = hostHealth(host);
-      const pill = hostTablePill(host);
-      const pillChip = pill ? `<span class="chip ${pill.tone === 'ok' ? 'ok' : 'warn'}">${pill.label}</span>` : '';
-      const statusChip = pillChip || '<span class="muted">—</span>';
-      const securityChip = isSecure ? '<span class="chip ok">Secure</span>' : '<span class="chip warn">Insecure</span>';
-      const roamingChip = host.allow_roaming_ips ? '<span class="chip warn">Roaming</span>' : '<span class="chip neutral">IP locked</span>';
-      const reverseDnsChip = isReverseDnsEffective(host) ? '<span class="chip neutral">rDNS</span>' : '';
-      const tokensChip = host?.token_usage?.total !== null && host?.token_usage?.total !== undefined
-        ? `<span class="chip neutral">${formatNumber(host.token_usage.total)} tok</span>`
-        : '';
+      const status = hostListStatus(host);
+      const statusChip = `<span class="chip ${status.tone}">${status.label}</span>`;
       const lastSeenText = host.updated_at ? formatRelative(host.updated_at) : 'Never';
-      const authText = host.last_refresh ? formatRelative(host.last_refresh) : '—';
-      const ipText = (host.ip4 || host.ip6) ? `<code>${escapeHtml(host.ip4 || host.ip6)}</code>` : '<span class="muted">Not bound</span>';
-      tr.classList.add(`status-${health.tone}`);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
       tr.tabIndex = 0;
-      tr.innerHTML = `
-        <td data-label="Host">
-          <div class="inline-cell" style="flex-direction:column; align-items:flex-start; gap:6px;">
-            <strong>${escapeHtml(host.fqdn)}</strong>
-            <div class="host-meta">
-              <span class="muted">${shouldPruneSoon && willPruneAt ? `added ${formatRelative(addedAt)} · removes in ${willPruneAt}` : `added ${formatRelative(addedAt)}`}</span>
-              <span class="host-badges">${vipChip}${authSourceChip}${securityChip}${tokensChip}${reverseDnsChip}</span>
-            </div>
-          </div>
-        </td>
-        <td data-label="Status" class="status-cell">
-          <div class="host-kpis">
-            <div class="kpi"><span class="label">Status</span> ${statusChip}</div>
-            <div class="kpi"><span class="label">IP</span> ${ipText} ${roamingChip}</div>
-          </div>
-        </td>
-        <td data-label="Last Seen">
-          <div class="host-kpis">
-            <div class="kpi"><span class="label">Seen</span> <span>${escapeHtml(lastSeenText)}</span></div>
-            <div class="kpi"><span class="label">Auth</span> <span class="muted">${escapeHtml(authText)}</span></div>
-          </div>
-        </td>
-        <td data-label="Client">${renderVersionTag(host.client_version, latestVersions.client)}</td>
-        <td data-label="Wrapper">${renderVersionTag(host.wrapper_version, latestVersions.wrapper)}</td>
-        ${hasInsecure ? `<td class="actions-cell insecure-cell" data-label="Insecure API">
-          ${isSecure ? '' : `
+      const insecureToggleCell = isSecure
+        ? '<span class="muted">—</span>'
+        : `
             <label class="toggle insecure-inline-toggle" data-id="${host.id}" title="${insecureLabel}">
               <input type="checkbox" ${insecureStateNow.enabledActive ? 'checked' : ''} aria-label="${insecureLabel}">
               <span class="track"><span class="thumb"></span></span>
             </label>
-          `}
-        </td>` : ''}
+          `;
+      tr.innerHTML = `
+        <td data-label="Host">
+          <strong class="host-primary">${escapeHtml(host.fqdn || `Host #${host.id}`)}</strong>
+        </td>
+        <td data-label="Status" class="status-cell">${statusChip}</td>
+        <td data-label="Last Seen"><span class="host-secondary">${escapeHtml(lastSeenText)}</span></td>
+        <td data-label="Codex">${renderVersionTag(host.client_version, latestVersions.client)}</td>
+        <td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>
       `;
       tr.addEventListener('click', () => openHostDetail(host.id));
       tr.addEventListener('keydown', (ev) => {
@@ -2837,14 +2899,9 @@
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
       const filtered = applyHostFilters(currentHosts);
-      const hasInsecure = filtered.some((h) => !isHostSecure(h));
-      const insecureHeader = document.querySelector('th.insecure-col');
-      if (insecureHeader) {
-        insecureHeader.style.display = hasInsecure ? '' : 'none';
-      }
 
       hostsTbody.innerHTML = '';
-      const cols = hasInsecure ? 6 : 5;
+      const cols = 5;
       if (!filtered.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
         updateSortIndicators();
@@ -2852,7 +2909,7 @@
       }
 
       const sorted = sortHosts(filtered);
-      sorted.forEach((host) => hostsTbody.appendChild(createHostRow(host, hasInsecure)));
+      sorted.forEach((host) => hostsTbody.appendChild(createHostRow(host)));
       updateSortIndicators();
     }
 
@@ -2865,13 +2922,8 @@
         uploadHostSelect.value = 'system';
       }
       setMemoriesHostOptions();
-      if (hostDetailModal?.classList.contains('show') && activeHostId) {
-        const active = currentHosts.find(h => h.id === activeHostId);
-        if (active) {
-          renderHostDetail(active, { keepOpen: true });
-        } else {
-          closeHostDetail();
-        }
+      if (isHostDetailView()) {
+        renderActiveHostDetail();
       }
       paintHosts();
     }
@@ -6430,10 +6482,19 @@
     }
 
     function applyHashRouting() {
-      const hash = (window.location.hash || '#dashboard').replace(/^#/, '');
+      const pathHostId = currentPathHostId();
+      const hash = (window.location.hash || '').replace(/^#/, '');
       const [panelRaw, subRaw] = hash.split('/');
-      let panel = (panelRaw || 'dashboard').toLowerCase();
+      let panel = (panelRaw || '').toLowerCase();
       let sub = (subRaw || '').toLowerCase();
+
+      if (!panel && pathHostId) {
+        panel = 'host-detail';
+        sub = String(pathHostId);
+      }
+      if (!panel) {
+        panel = 'dashboard';
+      }
 
       if (panel === 'skills') {
         if (window.location.hash !== '#settings/skills') {
@@ -6444,11 +6505,22 @@
         sub = 'skills';
       }
 
+      if (pathHostId && panel !== 'host-detail') {
+        const canonicalUrl = new URL(window.location.href);
+        canonicalUrl.pathname = '/admin/';
+        window.history.replaceState({}, '', canonicalUrl.toString());
+      }
+
       document.querySelectorAll('.panel-set').forEach((section) => {
         const p = (section.dataset.panel || '').toLowerCase();
         section.hidden = p !== panel;
       });
       document.body.dataset.viewMode = panel;
+      if (panel === 'host-detail' && sub) {
+        document.body.dataset.hostId = sub;
+      } else if (document.body?.dataset?.hostId) {
+        delete document.body.dataset.hostId;
+      }
 
       // Clean up host/status query params when leaving hosts, so dashboard links
       // don't carry stale ?host=unprovisioned into other views.
@@ -6464,6 +6536,19 @@
         setHostStatusFilter(hostStatusFilter);
         setActiveLinks('.host-tab', hostStatusFilter);
         ensureHostsLoaded();
+      }
+
+      if (panel === 'host-detail') {
+        const parsedHostId = Number(sub || pathHostId || 0);
+        activeHostId = Number.isFinite(parsedHostId) && parsedHostId > 0 ? Math.trunc(parsedHostId) : null;
+        renderActiveHostDetail();
+        ensureHostsLoaded()
+          .then(() => renderActiveHostDetail())
+          .catch((err) => {
+            console.error('host detail load failed', err);
+            clearHostDetailContent();
+            showHostDetailEmpty('Host load failed', err?.message || 'Unable to load host details.');
+          });
       }
 
       if (panel === 'dashboard') {
@@ -6791,16 +6876,7 @@
         if (e.target === agentsDeleteModal) closeAgentsDeleteModal();
       });
     }
-    if (hostDetailModal) {
-      hostDetailModal.addEventListener('click', (e) => {
-        if (e.target === hostDetailModal) closeHostDetail();
-      });
-    }
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && hostDetailModal?.classList.contains('show')) {
-        e.preventDefault();
-        closeHostDetail();
-      }
       if (e.key === 'Escape' && agentsDeleteModal?.classList.contains('show')) {
         e.preventDefault();
         closeAgentsDeleteModal();
@@ -6810,9 +6886,6 @@
         denyInsecureApproval();
       }
     });
-    if (closeHostDetailBtn) {
-      closeHostDetailBtn.addEventListener('click', () => closeHostDetail());
-    }
     if (runnerModal) {
       runnerModal.addEventListener('click', (e) => {
         if (e.target === runnerModal) showRunnerModal(false);
