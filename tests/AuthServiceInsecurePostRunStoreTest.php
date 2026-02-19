@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Exceptions\HttpException;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
@@ -324,10 +325,8 @@ class InsecureSessionWrapperService extends WrapperService
 
 final class AuthServiceInsecurePostRunStoreTest extends TestCase
 {
-    public function testStoreAllowedWhenSessionStartedDuringWindow(): void
+    public function testStoreAllowedWhenInsecureWindowClosedWithoutSessionHint(): void
     {
-        $_ENV['INSECURE_SESSION_MAX_MINUTES'] = '120';
-
         $now = time();
         $host = [
             'id' => 1,
@@ -339,6 +338,71 @@ final class AuthServiceInsecurePostRunStoreTest extends TestCase
             'insecure_grace_until' => gmdate(DATE_ATOM, $now - 600),
         ];
 
+        [$service, $logs] = $this->buildService($host);
+
+        $authPayload = [
+            'last_refresh' => gmdate(DATE_ATOM, $now - 60),
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => 'tok-1234567890abcdef-XYZ987654',
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+
+        $response = $service->handleAuth(
+            [
+                'command' => 'store',
+                'auth' => $authPayload,
+            ],
+            $host,
+            '1.0.0',
+            '2026.01.26-01',
+            null,
+            true
+        );
+
+        self::assertSame('updated', $response['status'] ?? null);
+        $actions = array_map(static fn (array $event): string => (string) ($event[1] ?? ''), $logs->events);
+        self::assertContains('auth.store', $actions);
+        self::assertNotContains('auth.insecure.post_run_store', $actions);
+        self::assertNotContains('auth.insecure.denied', $actions);
+    }
+
+    public function testRetrieveStillDeniedWhenInsecureWindowClosed(): void
+    {
+        $now = time();
+        $host = [
+            'id' => 1,
+            'fqdn' => 'insecure.long.run',
+            'status' => 'active',
+            'secure' => 0,
+            'api_calls' => 0,
+            'insecure_enabled_until' => gmdate(DATE_ATOM, $now - 1200),
+            'insecure_grace_until' => gmdate(DATE_ATOM, $now - 600),
+        ];
+
+        [$service] = $this->buildService($host);
+
+        $this->expectException(HttpException::class);
+        $this->expectExceptionMessage('Insecure host API access disabled');
+
+        $service->handleAuth(
+            [
+                'command' => 'retrieve',
+                'last_refresh' => gmdate(DATE_ATOM, $now - 60),
+                'digest' => str_repeat('a', 64),
+            ],
+            $host,
+            '1.0.0',
+            '2026.01.26-01',
+            null,
+            true
+        );
+    }
+
+    private function buildService(array $host): array
+    {
         $hosts = new InsecureSessionHostRepository($host);
         $payloads = new InsecureSessionAuthPayloadRepository();
         $hostStates = new InsecureSessionHostAuthStateRepository();
@@ -366,31 +430,6 @@ final class AuthServiceInsecurePostRunStoreTest extends TestCase
             null
         );
 
-        $authPayload = [
-            'last_refresh' => gmdate(DATE_ATOM, $now - 60),
-            'auths' => [
-                'api.openai.com' => [
-                    'token' => 'tok-1234567890abcdef-XYZ987654',
-                    'token_type' => 'bearer',
-                ],
-            ],
-        ];
-
-        $response = $service->handleAuth(
-            [
-                'command' => 'store',
-                'auth' => $authPayload,
-                'session_started_at' => gmdate(DATE_ATOM, $now - 1500),
-            ],
-            $host,
-            '1.0.0',
-            '2026.01.26-01',
-            null,
-            true
-        );
-
-        self::assertSame('updated', $response['status'] ?? null);
-        self::assertNotEmpty($logs->events);
-        self::assertSame('auth.insecure.post_run_store', $logs->events[0][1] ?? null);
+        return [$service, $logs];
     }
 }

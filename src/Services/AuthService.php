@@ -368,7 +368,7 @@ class AuthService
         $hostVip = isset($host['vip']) ? (bool) (int) $host['vip'] : false;
         $trackHost = $hostId > 0;
 
-        if (!$hostSecure) {
+        if (!$hostSecure && $command !== 'store') {
             $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost, $sessionStartedAt);
         }
 
