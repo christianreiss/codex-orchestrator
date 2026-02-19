@@ -13,6 +13,7 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - Password reset endpoints are disabled (`POST /admin/auth/password/request` and `POST /admin/auth/password/reset` return `410 Gone`).
 - Live updates (optional): enable the admin websocket server (`ADMIN_WS_ENABLED=1`) and run `scripts/admin-ws.php` (or the `admin-ws` compose service). `/admin/ws/info` advertises the public `wss://` URL (or set `ADMIN_WS_PUBLIC_URL`). mTLS is enforced by the proxy the same way as `/admin/`.
   - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
+  - UI refreshes are action-targeted: websocket `log.created` events update only the affected panels (overview/hosts/settings/prompts/skills/agents/memories/users/config/profiles). Config/Profiles editors do not auto-overwrite unsaved local edits; they show a remote-update notice instead.
 
 ## Page-by-page
 - **Overview**: 2026 mission-control layout with signal chips, mission pulse score, ops radar highlights, fleet posture carding (secure/insecure, locked windows, stale auth, version drift), runner/quota guardrails, pricing snapshot and estimated monthly cost, ChatGPT usage snapshot (5-minute cooldown), mTLS presence flag, and canonical-auth seed status.

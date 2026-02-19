@@ -12,6 +12,9 @@ final class AdminDashboardOverviewLiveUpdateTest extends TestCase
         $this->assertIsString($js);
 
         $this->assertStringContainsString('admin-ws-event', $js);
+        $this->assertStringContainsString('actionDomainsForLiveRefresh', $js);
+        $this->assertStringContainsString('emitAdminDataDirty', $js);
+        $this->assertStringContainsString("api('/admin/hosts')", $js);
         $this->assertStringContainsString('shouldRefreshOverviewForAction', $js);
         $this->assertStringContainsString('token.usage', $js);
     }

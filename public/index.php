@@ -1126,7 +1126,7 @@ $router->add('GET', '#^/admin/api/state$#', function () use ($versionRepository)
     ]);
 });
 
-$router->add('POST', '#^/admin/api/state$#', function () use ($payload, $versionRepository) {
+$router->add('POST', '#^/admin/api/state$#', function () use ($payload, $versionRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1140,6 +1140,9 @@ $router->add('POST', '#^/admin/api/state$#', function () use ($payload, $version
     }
 
     $versionRepository->set('api_disabled', $disabled ? '1' : '0');
+    $logRepository->log(null, 'admin.api.state', [
+        'disabled' => $disabled,
+    ]);
 
     Response::json([
         'status' => 'ok',
@@ -1158,7 +1161,7 @@ $router->add('GET', '#^/admin/cdx-silent$#', function () use ($versionRepository
     ]);
 });
 
-$router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versionRepository) {
+$router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versionRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1172,6 +1175,9 @@ $router->add('POST', '#^/admin/cdx-silent$#', function () use ($payload, $versio
     }
 
     $versionRepository->set('cdx_silent', $silent ? '1' : '0');
+    $logRepository->log(null, 'admin.cdx_silent', [
+        'silent' => $silent,
+    ]);
 
     Response::json([
         'status' => 'ok',
@@ -1190,7 +1196,7 @@ $router->add('GET', '#^/admin/reverse-dns$#', function () use ($versionRepositor
     ]);
 });
 
-$router->add('POST', '#^/admin/reverse-dns$#', function () use ($payload, $versionRepository) {
+$router->add('POST', '#^/admin/reverse-dns$#', function () use ($payload, $versionRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1204,6 +1210,9 @@ $router->add('POST', '#^/admin/reverse-dns$#', function () use ($payload, $versi
     }
 
     $versionRepository->set('reverse_dns_enabled', $enabled ? '1' : '0');
+    $logRepository->log(null, 'admin.reverse_dns', [
+        'enabled' => $enabled,
+    ]);
 
     Response::json([
         'status' => 'ok',
@@ -1222,7 +1231,7 @@ $router->add('GET', '#^/admin/insecure-approval$#', function () use ($versionRep
     ]);
 });
 
-$router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, $versionRepository) {
+$router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, $versionRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1236,6 +1245,9 @@ $router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, 
     }
 
     $versionRepository->set('insecure_approval_enabled', $enabled ? '1' : '0');
+    $logRepository->log(null, 'admin.insecure_approval', [
+        'enabled' => $enabled,
+    ]);
 
     Response::json([
         'status' => 'ok',
@@ -1243,7 +1255,7 @@ $router->add('POST', '#^/admin/insecure-approval$#', function () use ($payload, 
     ]);
 });
 
-$router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $versionRepository, $service) {
+$router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $versionRepository, $service, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1257,6 +1269,7 @@ $router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $ver
 
     $selection = trim($selectionRaw);
     $selectionLower = strtolower($selection);
+    $logSelection = 'latest';
     if ($selectionLower === 'latest' || $selectionLower === 'auto') {
         $versionRepository->delete('client_version_lock');
         // Opportunistically refresh the cached GitHub latest value so dashboards update quickly.
@@ -1272,9 +1285,14 @@ $router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $ver
             ], 422);
         }
         $versionRepository->set('client_version_lock', $normalized);
+        $logSelection = $normalized;
     }
 
     $lock = $versionRepository->getWithMetadata('client_version_lock');
+    $logRepository->log(null, 'admin.codex_version', [
+        'selection' => $logSelection,
+        'locked_version' => $lock['version'] ?? null,
+    ]);
 
     Response::json([
         'status' => 'ok',
@@ -1302,7 +1320,7 @@ $router->add('GET', '#^/admin/quota-mode$#', function () use ($versionRepository
     ]);
 });
 
-$router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versionRepository) {
+$router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versionRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1340,6 +1358,11 @@ $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versio
     $versionRepository->set('quota_hard_fail', $hardFail ? '1' : '0');
     $versionRepository->set('quota_limit_percent', (string) $limitPercent);
     $versionRepository->set('quota_week_partition', (string) $weekPartition);
+    $logRepository->log(null, 'admin.quota_mode', [
+        'hard_fail' => $hardFail,
+        'limit_percent' => $limitPercent,
+        'week_partition' => $weekPartition,
+    ]);
 
     Response::json([
         'status' => 'ok',
@@ -1351,7 +1374,7 @@ $router->add('POST', '#^/admin/quota-mode$#', function () use ($payload, $versio
     ]);
 });
 
-$router->add('POST', '#^/admin/prune-policy$#', function () use ($payload, $versionRepository) {
+$router->add('POST', '#^/admin/prune-policy$#', function () use ($payload, $versionRepository, $logRepository) {
     requireAdminAccess();
     requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
@@ -1371,6 +1394,9 @@ $router->add('POST', '#^/admin/prune-policy$#', function () use ($payload, $vers
     }
 
     $versionRepository->set('inactivity_window_days', (string) $days);
+    $logRepository->log(null, 'admin.prune_policy', [
+        'inactivity_window_days' => $days,
+    ]);
 
     Response::json([
         'status' => 'ok',

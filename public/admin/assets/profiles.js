@@ -9,6 +9,11 @@
 
   let lastSavedSha = '';
   let loadedSettings = null;
+  let profilesDirty = false;
+  let profilesRemotePending = false;
+  let profilesReloadTimer = null;
+  let profilesReloadInFlight = false;
+  let profilesReloadQueued = false;
 
   const MODEL_REASONING = {
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
@@ -90,7 +95,16 @@
   }
 
   function markDirty() {
+    profilesDirty = true;
+    profilesRemotePending = false;
     setStatus('Edited (not saved)', shaEl?.textContent || null, updatedEl?.textContent || null);
+  }
+
+  function markProfilesRemotePending() {
+    profilesRemotePending = true;
+    if (statusEl) {
+      statusEl.textContent = 'Remote update available (unsaved edits)';
+    }
   }
 
   function renderProfileRow(data = {}, defaults = {}, options = {}) {
@@ -380,6 +394,8 @@
       (cfg.profiles || []).forEach((p) => renderProfileRow(p, defaults, { open: false }));
 
       setStatus(data.status === 'missing' ? 'No saved config yet' : 'Loaded', data.sha256 || null, data.updated_at || null);
+      profilesDirty = false;
+      profilesRemotePending = false;
     } catch (err) {
       console.error('load profiles', err);
       setStatus('Failed to load');
@@ -419,11 +435,53 @@
       lastSavedSha = data.sha256 || '';
       loadedSettings = data.settings && typeof data.settings === 'object' ? data.settings : base;
       setStatus(`Saved (${data.status || 'ok'})`, data.sha256 || null, data.updated_at || null);
+      profilesDirty = false;
+      profilesRemotePending = false;
     } catch (err) {
       console.error('save profiles', err);
       const details = err && err.message ? String(err.message) : '';
       setStatus(details ? `Save failed (${details})` : 'Save failed', shaEl?.textContent || null, updatedEl?.textContent || null);
     }
+  }
+
+  async function refreshProfilesFromPush() {
+    if (!inited) return;
+    if (profilesDirty) {
+      markProfilesRemotePending();
+      return;
+    }
+    if (profilesReloadInFlight) {
+      profilesReloadQueued = true;
+      return;
+    }
+    profilesReloadInFlight = true;
+    try {
+      await load();
+      profilesRemotePending = false;
+    } finally {
+      profilesReloadInFlight = false;
+      if (profilesReloadQueued) {
+        profilesReloadQueued = false;
+        scheduleProfilesReload(500);
+      }
+    }
+  }
+
+  function scheduleProfilesReload(delay = 700) {
+    if (!inited) return;
+    if (profilesDirty) {
+      markProfilesRemotePending();
+      return;
+    }
+    if (profilesReloadInFlight) {
+      profilesReloadQueued = true;
+      return;
+    }
+    if (profilesReloadTimer) return;
+    profilesReloadTimer = window.setTimeout(() => {
+      profilesReloadTimer = null;
+      refreshProfilesFromPush();
+    }, delay);
   }
 
   function initDomRefs() {
@@ -461,6 +519,12 @@
   }
 
   window.__initProfiles = init;
+
+  window.addEventListener('admin-data-dirty', (event) => {
+    const domains = event?.detail?.domains;
+    if (!Array.isArray(domains) || !domains.includes('profiles')) return;
+    scheduleProfilesReload(700);
+  });
 
   const hash = (window.location.hash || '').toLowerCase();
   if (hash.startsWith('#settings/profiles')) {

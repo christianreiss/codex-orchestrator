@@ -40,6 +40,10 @@
     user: 'User',
   };
   let editingId = null;
+  let usersEnabled = false;
+  let usersLiveRefreshTimer = null;
+  let usersLiveRefreshInFlight = false;
+  let usersLiveRefreshQueued = false;
 
   function api(path, opts = {}) {
     const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
@@ -233,12 +237,53 @@
     const isAdmin = user?.access_level === 'admin' || status?.admin_count === 0;
 
     if (!isAdmin) {
+      usersEnabled = false;
       hideUsersNav();
       return;
     }
 
+    usersEnabled = true;
     await loadUsers();
   }
+
+  async function refreshUsersLive() {
+    if (!usersEnabled) return;
+    if (usersLiveRefreshInFlight) {
+      usersLiveRefreshQueued = true;
+      return;
+    }
+    usersLiveRefreshInFlight = true;
+    try {
+      await ensureStatus();
+      await loadUsers();
+    } finally {
+      usersLiveRefreshInFlight = false;
+      if (usersLiveRefreshQueued) {
+        usersLiveRefreshQueued = false;
+        scheduleLiveUsersRefresh(500);
+      }
+    }
+  }
+
+  function scheduleLiveUsersRefresh(delay = 700) {
+    if (!usersEnabled) return;
+    if (usersLiveRefreshInFlight) {
+      usersLiveRefreshQueued = true;
+      return;
+    }
+    if (usersLiveRefreshTimer) return;
+    usersLiveRefreshTimer = window.setTimeout(() => {
+      usersLiveRefreshTimer = null;
+      refreshUsersLive();
+    }, delay);
+  }
+
+  window.addEventListener('admin-data-dirty', (event) => {
+    const domains = event?.detail?.domains;
+    if (!Array.isArray(domains) || !domains.includes('users')) return;
+    const viewMode = (document.body?.dataset?.viewMode || '').toLowerCase();
+    scheduleLiveUsersRefresh(viewMode === 'users' ? 250 : 700);
+  });
 
   addBtn?.addEventListener('click', () => openModal(null));
   wipeBtn?.addEventListener('click', () => openWipeModal());

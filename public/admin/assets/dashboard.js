@@ -425,9 +425,10 @@
     syncHostTabs();
     let lastOverview = null;
     let chatgptUsage = null;
-    let overviewLiveUpdateTimer = null;
-    let overviewLiveUpdateInFlight = false;
-    let overviewLiveUpdateQueued = false;
+    let liveRefreshTimer = null;
+    let liveRefreshInFlight = false;
+    let liveRefreshQueued = false;
+    const liveRefreshPendingDomains = new Set();
     let apiDisabled = null;
     let mtlsMeta = null;
     let uploadFileContent = '';
@@ -3652,66 +3653,279 @@
       return viewMode === 'dashboard';
     }
 
-    function shouldRefreshOverviewForAction(action) {
-      if (!action) return false;
-      if (action === 'register') return true;
-      if (action === 'token.usage') return true;
-      if (action === 'chatgpt.usage') return true;
-      if (action.startsWith('auth.')) return true;
-      if (action.startsWith('host.')) return true;
-      if (action.startsWith('admin.host.')) return true;
-      if (action.startsWith('pricing.')) return true;
-      return false;
+    const DASHBOARD_LIVE_DOMAINS = new Set([
+      'overview',
+      'hosts',
+      'settings-general',
+      'prompts',
+      'skills',
+      'agents',
+      'memories',
+    ]);
+
+    function actionDomainsForLiveRefresh(action) {
+      const normalized = String(action || '').trim().toLowerCase();
+      const domains = new Set();
+      if (!normalized) return domains;
+      const settingsActions = new Set([
+        'admin.api.state',
+        'admin.cdx_silent',
+        'admin.reverse_dns',
+        'admin.insecure_approval',
+        'admin.codex_version',
+        'admin.quota_mode',
+        'admin.prune_policy',
+      ]);
+      const promptActions = new Set(['slash.store', 'slash.delete']);
+      const skillActions = new Set(['skill.store', 'skill.delete']);
+      const agentsActions = new Set(['agents.store', 'agents.delete']);
+      const memoryActions = new Set([
+        'memory.store',
+        'memory.delete',
+        'memory.admin.delete',
+      ]);
+
+      if (
+        normalized === 'register'
+        || normalized === 'token.usage'
+        || normalized === 'chatgpt.usage'
+        || normalized.startsWith('auth.')
+        || normalized.startsWith('host.')
+        || normalized.startsWith('admin.host.')
+        || normalized.startsWith('pricing.')
+      ) {
+        domains.add('overview');
+        domains.add('hosts');
+      }
+
+      if (normalized.startsWith('admin.insecure.')) {
+        domains.add('overview');
+        domains.add('hosts');
+      }
+
+      if (settingsActions.has(normalized)) {
+        domains.add('settings-general');
+      }
+
+      if (promptActions.has(normalized)) {
+        domains.add('prompts');
+      }
+
+      if (skillActions.has(normalized)) {
+        domains.add('skills');
+      }
+
+      if (agentsActions.has(normalized) || normalized === 'admin.host.agents_version_override') {
+        domains.add('agents');
+      }
+
+      if (memoryActions.has(normalized)) {
+        domains.add('memories');
+      }
+
+      if (normalized === 'config.store') {
+        domains.add('config');
+        domains.add('profiles');
+        domains.add('settings-general');
+      }
+
+      if (normalized.startsWith('admin.user.') || normalized.startsWith('admin.auth.')) {
+        domains.add('users');
+      }
+
+      return domains;
     }
 
-    async function refreshOverviewLive() {
-      if (!statsEl) return;
-      if (overviewLiveUpdateInFlight) {
-        overviewLiveUpdateQueued = true;
-        return;
-      }
-      overviewLiveUpdateInFlight = true;
-      try {
-        const [overview, runner] = await Promise.all([
-          api('/admin/overview'),
-          api('/admin/runner').catch((err) => {
-            console.warn('Runner status unavailable', err);
-            return null;
-          }),
-        ]);
+    function shouldRefreshOverviewForAction(action) {
+      return actionDomainsForLiveRefresh(action).has('overview');
+    }
 
-        currentOverview = overview?.data || {};
+    function emitAdminDataDirty(action, domains) {
+      window.dispatchEvent(new CustomEvent('admin-data-dirty', {
+        detail: {
+          action: String(action || ''),
+          domains: Array.isArray(domains) ? domains : [],
+          source: 'websocket',
+          created_at: new Date().toISOString(),
+        },
+      }));
+    }
+
+    function queueLiveRefreshDomains(domains) {
+      const values = Array.isArray(domains) ? domains : [];
+      values.forEach((domain) => {
+        const normalized = String(domain || '').trim().toLowerCase();
+        if (normalized) {
+          liveRefreshPendingDomains.add(normalized);
+        }
+      });
+    }
+
+    async function runLiveRefreshDomains(domainsInput) {
+      const requested = new Set(Array.isArray(domainsInput) ? domainsInput : []);
+      if (requested.has('settings-general')) {
+        requested.add('overview');
+      }
+      if (requested.has('overview')) {
+        requested.add('hosts');
+      }
+      if (requested.has('agents')) {
+        requested.add('hosts');
+      }
+
+      const needOverview = requested.has('overview');
+      const needHosts = requested.has('hosts');
+      const needRunner = needOverview;
+      const needPrompts = requested.has('prompts');
+      const needSkills = requested.has('skills');
+      const needAgents = requested.has('agents');
+      const needMemories = requested.has('memories');
+      const needSettingsGeneral = requested.has('settings-general');
+
+      let overviewResponse = null;
+      let hostsResponse = null;
+      let runnerResponse = null;
+      let promptsResponse = null;
+      let skillsResponse = null;
+      let agentsResponse = null;
+      const requests = [];
+
+      if (needOverview) {
+        requests.push(api('/admin/overview')
+          .then((res) => { overviewResponse = res; })
+          .catch((err) => console.warn('Live overview update failed', err)));
+      }
+      if (needHosts) {
+        requests.push(api('/admin/hosts')
+          .then((res) => { hostsResponse = res; })
+          .catch((err) => console.warn('Live host refresh failed', err)));
+      }
+      if (needRunner) {
+        requests.push(api('/admin/runner')
+          .then((res) => { runnerResponse = res; })
+          .catch((err) => console.warn('Runner status unavailable', err)));
+      }
+      if (needPrompts) {
+        requests.push(api('/admin/slash-commands')
+          .then((res) => { promptsResponse = res; })
+          .catch((err) => console.warn('Live slash-command refresh failed', err)));
+      }
+      if (needSkills) {
+        requests.push(api('/admin/skills')
+          .then((res) => { skillsResponse = res; })
+          .catch((err) => console.warn('Live skills refresh failed', err)));
+      }
+      if (needAgents) {
+        requests.push(api('/admin/agents')
+          .then((res) => { agentsResponse = res; })
+          .catch((err) => console.warn('Live AGENTS refresh failed', err)));
+      }
+
+      if (requests.length) {
+        await Promise.all(requests);
+      }
+
+      if (hostsResponse) {
+        const hostsList = hostsResponse?.data?.hosts || [];
+        renderHosts(hostsList);
+        renderInsecureHostsQuickButton(hostsList);
+      }
+
+      if (overviewResponse) {
+        currentOverview = overviewResponse?.data || {};
         setMtls(currentOverview.mtls);
+        if (typeof currentOverview.inactivity_window_days !== 'undefined') {
+          inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
+          renderInactivityWindowDays();
+        }
+        if (typeof currentOverview.quota_limit_percent !== 'undefined') {
+          quotaLimitPercent = clampQuotaLimitPercent(currentOverview.quota_limit_percent);
+        }
+        if (typeof currentOverview.quota_week_partition !== 'undefined') {
+          quotaWeekPartition = normalizeQuotaPartition(currentOverview.quota_week_partition);
+        }
+        if (typeof currentOverview.quota_hard_fail !== 'undefined') {
+          quotaHardFail = !!currentOverview.quota_hard_fail;
+        }
+        if (typeof currentOverview.cdx_silent !== 'undefined') {
+          cdxSilent = !!currentOverview.cdx_silent;
+          renderCdxSilent();
+        }
+        if (typeof currentOverview.reverse_dns_enabled !== 'undefined') {
+          reverseDnsEnabled = !!currentOverview.reverse_dns_enabled;
+          renderReverseDns();
+        }
         if (typeof currentOverview.insecure_approval_enabled !== 'undefined') {
           insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
           renderInsecureApproval();
         }
-        const runnerInfo = runner?.data || runnerSummary || null;
-        if (runnerInfo) {
-          runnerSummary = runnerInfo;
-        }
+      }
 
+      const runnerInfo = runnerResponse?.data || runnerSummary || null;
+      if (runnerResponse?.data) {
+        runnerSummary = runnerResponse.data;
+      }
+
+      if (needSettingsGeneral) {
+        await loadApiState();
+      }
+
+      if (needOverview && currentOverview) {
+        renderQuotaMode();
         renderStats(currentOverview, runnerInfo, currentHosts);
         renderDashboardGrid(currentOverview, runnerInfo, currentHosts);
         evaluateSeedRequirement(currentOverview, currentHosts);
-      } catch (err) {
-        console.warn('Live overview update failed', err);
-      } finally {
-        overviewLiveUpdateInFlight = false;
-        if (overviewLiveUpdateQueued) {
-          overviewLiveUpdateQueued = false;
-          scheduleOverviewLiveRefresh(750);
-        }
+      }
+
+      if (needSettingsGeneral && currentOverview) {
+        await loadCodexVersionControl();
+      }
+
+      if (needPrompts && promptsResponse) {
+        renderPrompts(promptsResponse?.data?.commands || []);
+      }
+      if (needSkills && skillsResponse) {
+        renderSkills(skillsResponse?.data?.skills || []);
+      }
+      if (needAgents && agentsResponse) {
+        renderAgents(agentsResponse?.data || { status: 'missing' });
+      }
+      if (needMemories) {
+        await loadMemories();
       }
     }
 
-    function scheduleOverviewLiveRefresh(delay = 1000) {
-      if (!isDashboardView()) return;
-      if (overviewLiveUpdateTimer || overviewLiveUpdateInFlight) return;
-      overviewLiveUpdateTimer = window.setTimeout(() => {
-        overviewLiveUpdateTimer = null;
-        refreshOverviewLive();
+    function scheduleLiveDataRefresh(domains, delay = 1000) {
+      queueLiveRefreshDomains(domains);
+      if (liveRefreshInFlight) {
+        liveRefreshQueued = true;
+        return;
+      }
+      if (liveRefreshTimer) return;
+      liveRefreshTimer = window.setTimeout(async () => {
+        liveRefreshTimer = null;
+        const domainsToRefresh = Array.from(liveRefreshPendingDomains);
+        liveRefreshPendingDomains.clear();
+        if (!domainsToRefresh.length) return;
+        liveRefreshInFlight = true;
+        try {
+          await runLiveRefreshDomains(domainsToRefresh);
+        } finally {
+          liveRefreshInFlight = false;
+          if (liveRefreshQueued || liveRefreshPendingDomains.size > 0) {
+            liveRefreshQueued = false;
+            scheduleLiveDataRefresh([], 750);
+          }
+        }
       }, delay);
+    }
+
+    async function refreshOverviewLive() {
+      await runLiveRefreshDomains(['overview', 'hosts']);
+    }
+
+    function scheduleOverviewLiveRefresh(delay = 1000) {
+      scheduleLiveDataRefresh(['overview', 'hosts'], delay);
     }
 
     function wireChatGptControls() {
@@ -8058,8 +8272,17 @@
           resolveInsecureApproval(requestId);
         }
       }
-      if (!shouldRefreshOverviewForAction(action)) return;
-      scheduleOverviewLiveRefresh();
+      const liveDomains = Array.from(actionDomainsForLiveRefresh(action));
+      emitAdminDataDirty(action, liveDomains);
+      const dashboardDomains = liveDomains.filter((domain) => DASHBOARD_LIVE_DOMAINS.has(domain));
+      if (dashboardDomains.length > 0) {
+        scheduleLiveDataRefresh(dashboardDomains);
+        return;
+      }
+      if (action) {
+        // Safety net for newly introduced log actions: refresh summary + hosts.
+        scheduleLiveDataRefresh(['overview', 'hosts'], 1500);
+      }
     });
     loadApiState();
     loadCdxSilent();

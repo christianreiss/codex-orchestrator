@@ -69,6 +69,11 @@
   let lastRenderedSha = '';
   let lastRenderedSize = 0;
   let lastSavedSha = '';
+  let configDirty = false;
+  let configRemotePending = false;
+  let configReloadTimer = null;
+  let configReloadInFlight = false;
+  let configReloadQueued = false;
 
   const MODEL_REASONING = {
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
@@ -613,6 +618,54 @@
     if (updatedEl) updatedEl.textContent = updated ? formatTimestamp(updated) : '—';
   }
 
+  function markConfigRemotePending() {
+    configRemotePending = true;
+    if (statusEl) {
+      statusEl.textContent = 'Remote update available (unsaved edits)';
+    }
+  }
+
+  async function refreshConfigFromPush() {
+    if (!inited) return;
+    if (configDirty) {
+      markConfigRemotePending();
+      return;
+    }
+    if (configReloadInFlight) {
+      configReloadQueued = true;
+      return;
+    }
+    configReloadInFlight = true;
+    try {
+      await loadConfig();
+      await renderPreview();
+      configRemotePending = false;
+    } finally {
+      configReloadInFlight = false;
+      if (configReloadQueued) {
+        configReloadQueued = false;
+        scheduleConfigReload(500);
+      }
+    }
+  }
+
+  function scheduleConfigReload(delay = 700) {
+    if (!inited) return;
+    if (configDirty) {
+      markConfigRemotePending();
+      return;
+    }
+    if (configReloadInFlight) {
+      configReloadQueued = true;
+      return;
+    }
+    if (configReloadTimer) return;
+    configReloadTimer = window.setTimeout(() => {
+      configReloadTimer = null;
+      refreshConfigFromPush();
+    }, delay);
+  }
+
   async function loadConfig() {
     if (!statusEl) return;
     setStatus('Loading…');
@@ -632,6 +685,7 @@
         lastSavedSha = data.sha256;
         previewMetaEl.textContent = `saved sha ${data.sha256}${data.size_bytes ? ` · ${data.size_bytes} bytes` : ''}`;
       }
+      configDirty = false;
     } catch (err) {
       console.error('load config', err);
       setStatus('Failed to load config');
@@ -741,6 +795,8 @@
         lastSavedSha = data.sha256;
         previewMetaEl.textContent = `sha ${data.sha256}${data.size_bytes ? ` · ${data.size_bytes} bytes` : ''}`;
       }
+      configDirty = false;
+      configRemotePending = false;
     } catch (err) {
       console.error('save config', err);
       const details = err && err.message ? String(err.message) : '';
@@ -765,6 +821,8 @@
       const markDirty = () => {
         lastRenderedSha = '';
         lastRenderedSize = 0;
+        configDirty = true;
+        configRemotePending = false;
         if (previewMetaEl) previewMetaEl.textContent = 'Edited (preview pending)';
       };
       el.addEventListener('input', () => {
@@ -895,6 +953,12 @@
 
   // Expose to dashboard router for lazy init when #settings/config is shown.
   window.__initConfigBuilder = init;
+
+  window.addEventListener('admin-data-dirty', (event) => {
+    const domains = event?.detail?.domains;
+    if (!Array.isArray(domains) || !domains.includes('config')) return;
+    scheduleConfigReload(700);
+  });
 
   // Auto-init if the current hash already targets the config tab (deep links / reload).
   const hash = (window.location.hash || '').toLowerCase();
