@@ -2955,8 +2955,59 @@ $router->add('GET', '#^/admin/usage/cost-history$#', function () use ($costHisto
     if ($days < 1) {
         $days = 60;
     }
+    $from = resolveStringQuery('from');
+    $until = resolveStringQuery('until');
+    $interval = strtolower(resolveStringQuery('interval') ?? 'day');
+    $groupBy = strtolower(resolveStringQuery('group_by') ?? 'component');
+    $includeTokensRaw = resolveStringQuery('include_tokens');
+    $includeTokens = true;
 
-    $history = $costHistoryService->history($days);
+    if ($from !== null && strtotime($from) === false) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Invalid from timestamp (expected RFC3339/date string)',
+        ], 400);
+    }
+    if ($until !== null && strtotime($until) === false) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Invalid until timestamp (expected RFC3339/date string)',
+        ], 400);
+    }
+    if ($from !== null && $until !== null) {
+        $fromTs = strtotime($from);
+        $untilTs = strtotime($until);
+        if ($fromTs !== false && $untilTs !== false && $fromTs > $untilTs) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'from must be before until',
+            ], 400);
+        }
+    }
+    if (!in_array($interval, ['day', 'week'], true)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'interval must be one of: day, week',
+        ], 400);
+    }
+    if (!in_array($groupBy, ['component', 'total'], true)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'group_by must be one of: component, total',
+        ], 400);
+    }
+    if ($includeTokensRaw !== null) {
+        $normalizedIncludeTokens = normalizeBoolean($includeTokensRaw);
+        if ($normalizedIncludeTokens === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'include_tokens must be a boolean-like value',
+            ], 400);
+        }
+        $includeTokens = $normalizedIncludeTokens;
+    }
+
+    $history = $costHistoryService->historyAdvanced($days, $from, $until, $interval, $groupBy, $includeTokens);
 
     Response::json([
         'status' => 'ok',
@@ -2981,8 +3032,54 @@ $router->add('GET', '#^/admin/chatgpt/usage/history$#', function () use ($chatGp
     if ($days < 1) {
         $days = 60;
     }
+    $from = resolveStringQuery('from');
+    $until = resolveStringQuery('until');
+    $interval = strtolower(resolveStringQuery('interval') ?? 'day');
+    $lane = strtolower(resolveStringQuery('lane') ?? 'both');
+    $window = strtolower(resolveStringQuery('window') ?? 'both');
 
-    $history = $chatGptUsageService->history($days);
+    if ($from !== null && strtotime($from) === false) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Invalid from timestamp (expected RFC3339/date string)',
+        ], 400);
+    }
+    if ($until !== null && strtotime($until) === false) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Invalid until timestamp (expected RFC3339/date string)',
+        ], 400);
+    }
+    if ($from !== null && $until !== null) {
+        $fromTs = strtotime($from);
+        $untilTs = strtotime($until);
+        if ($fromTs !== false && $untilTs !== false && $fromTs > $untilTs) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'from must be before until',
+            ], 400);
+        }
+    }
+    if (!in_array($interval, ['raw', 'hour', 'day'], true)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'interval must be one of: raw, hour, day',
+        ], 400);
+    }
+    if (!in_array($lane, ['normal', 'spark', 'both'], true)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'lane must be one of: normal, spark, both',
+        ], 400);
+    }
+    if (!in_array($window, ['primary', 'secondary', 'both'], true)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'window must be one of: primary, secondary, both',
+        ], 400);
+    }
+
+    $history = $chatGptUsageService->historyAdvanced($days, $from, $until, $interval, $lane, $window);
 
     Response::json([
         'status' => 'ok',
@@ -4692,4 +4789,18 @@ function resolveIntQuery(string $key): ?int
     }
 
     return (int) $filtered;
+}
+
+function resolveStringQuery(string $key): ?string
+{
+    if (!isset($_GET[$key])) {
+        return null;
+    }
+
+    if (is_array($_GET[$key])) {
+        return null;
+    }
+
+    $value = trim((string) $_GET[$key]);
+    return $value === '' ? null : $value;
 }

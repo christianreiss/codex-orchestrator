@@ -110,8 +110,191 @@ class ChatGptUsageService
         return [
             'days' => $days,
             'since' => $since,
+            'from' => $since,
+            'until' => gmdate(DATE_ATOM),
+            'interval' => 'raw',
+            'lane' => 'both',
+            'window' => 'both',
+            'series' => $this->buildSeries($points, 'raw', 'both', 'both'),
             'points' => $points,
         ];
+    }
+
+    public function historyAdvanced(
+        int $days = 60,
+        ?string $from = null,
+        ?string $until = null,
+        string $interval = 'day',
+        string $lane = 'both',
+        string $window = 'both'
+    ): array {
+        $normalizedDays = $days < 1 ? 60 : min(180, $days);
+        $normalizedInterval = $this->normalizeInterval($interval);
+        $normalizedLane = $this->normalizeLane($lane);
+        $normalizedWindow = $this->normalizeWindow($window);
+
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $fromDate = $from !== null ? $this->parseDate($from) : null;
+        $untilDate = $until !== null ? $this->parseDate($until) : null;
+
+        if ($untilDate === null) {
+            $untilDate = $now;
+        }
+        if ($fromDate === null) {
+            $fromDate = $untilDate->sub(new \DateInterval('P' . $normalizedDays . 'D'));
+        }
+        if ($fromDate > $untilDate) {
+            [$fromDate, $untilDate] = [$untilDate, $fromDate];
+        }
+
+        $fromIso = $fromDate->format(DATE_ATOM);
+        $untilIso = $untilDate->format(DATE_ATOM);
+        $rawPoints = $this->repository->history($fromIso);
+        $points = array_values(array_filter($rawPoints, static function (array $point) use ($fromDate, $untilDate): bool {
+            $ts = isset($point['fetched_at']) ? strtotime((string) $point['fetched_at']) : false;
+            if ($ts === false) {
+                return false;
+            }
+            return $ts >= $fromDate->getTimestamp() && $ts <= $untilDate->getTimestamp();
+        }));
+
+        return [
+            'days' => $normalizedDays,
+            'since' => $fromIso,
+            'from' => $fromIso,
+            'until' => $untilIso,
+            'interval' => $normalizedInterval,
+            'lane' => $normalizedLane,
+            'window' => $normalizedWindow,
+            'series' => $this->buildSeries($points, $normalizedInterval, $normalizedLane, $normalizedWindow),
+            'points' => $points,
+        ];
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, points: array<int, array{ts: string, value: int}>}>
+     */
+    private function buildSeries(array $points, string $interval, string $lane, string $window): array
+    {
+        $definitions = [
+            ['key' => 'normal_primary', 'label' => 'Normal 5-hour quota', 'field' => 'primary_used_percent', 'lane' => 'normal', 'window' => 'primary'],
+            ['key' => 'normal_secondary', 'label' => 'Normal weekly quota', 'field' => 'secondary_used_percent', 'lane' => 'normal', 'window' => 'secondary'],
+            ['key' => 'spark_primary', 'label' => 'Spark 5-hour quota', 'field' => 'spark_primary_used_percent', 'lane' => 'spark', 'window' => 'primary'],
+            ['key' => 'spark_secondary', 'label' => 'Spark weekly quota', 'field' => 'spark_secondary_used_percent', 'lane' => 'spark', 'window' => 'secondary'],
+        ];
+
+        $series = [];
+        foreach ($definitions as $definition) {
+            if ($lane !== 'both' && $definition['lane'] !== $lane) {
+                continue;
+            }
+            if ($window !== 'both' && $definition['window'] !== $window) {
+                continue;
+            }
+            $bucketed = [];
+            foreach ($points as $point) {
+                $rawTs = isset($point['fetched_at']) ? strtotime((string) $point['fetched_at']) : false;
+                if ($rawTs === false) {
+                    continue;
+                }
+                $rawValue = $point[$definition['field']] ?? null;
+                if (!is_numeric($rawValue)) {
+                    continue;
+                }
+                $value = (int) $rawValue;
+                if ($value < 0) {
+                    $value = 0;
+                } elseif ($value > 130) {
+                    $value = 130;
+                }
+                $bucketKey = $this->bucketKey($rawTs, $interval);
+                if (!isset($bucketed[$bucketKey]) || $value > $bucketed[$bucketKey]['value']) {
+                    $bucketed[$bucketKey] = [
+                        'ts' => $this->bucketTimestampIso($rawTs, $interval),
+                        'value' => $value,
+                    ];
+                }
+            }
+            if (!$bucketed) {
+                continue;
+            }
+            $series[] = [
+                'key' => $definition['key'],
+                'label' => $definition['label'],
+                'points' => array_values($bucketed),
+            ];
+        }
+
+        return $series;
+    }
+
+    private function bucketKey(int $timestamp, string $interval): string
+    {
+        if ($interval === 'hour') {
+            return gmdate('Y-m-d-H', $timestamp);
+        }
+        if ($interval === 'day') {
+            return gmdate('Y-m-d', $timestamp);
+        }
+
+        return gmdate(DATE_ATOM, $timestamp);
+    }
+
+    private function bucketTimestampIso(int $timestamp, string $interval): string
+    {
+        if ($interval === 'hour') {
+            return gmdate('Y-m-d\TH:00:00\Z', $timestamp);
+        }
+        if ($interval === 'day') {
+            return gmdate('Y-m-d\T00:00:00\Z', $timestamp);
+        }
+
+        return gmdate(DATE_ATOM, $timestamp);
+    }
+
+    private function normalizeInterval(string $interval): string
+    {
+        $value = strtolower(trim($interval));
+        if ($value === 'raw' || $value === 'hour' || $value === 'day') {
+            return $value;
+        }
+
+        return 'day';
+    }
+
+    private function normalizeLane(string $lane): string
+    {
+        $value = strtolower(trim($lane));
+        if ($value === 'normal' || $value === 'spark' || $value === 'both') {
+            return $value;
+        }
+
+        return 'both';
+    }
+
+    private function normalizeWindow(string $window): string
+    {
+        $value = strtolower(trim($window));
+        if ($value === 'primary' || $value === 'secondary' || $value === 'both') {
+            return $value;
+        }
+
+        return 'both';
+    }
+
+    private function parseDate(string $value): ?\DateTimeImmutable
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+        try {
+            $date = new \DateTimeImmutable($trimmed);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $date->setTimezone(new \DateTimeZone('UTC'));
     }
 
     public function fetchLatest(bool $force = false): array

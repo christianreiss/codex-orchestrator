@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-02-19-01">
-  <link rel="stylesheet" href="/admin/assets/uPlot.min.css?v=2026-01-15-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-19-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto">
@@ -398,6 +397,7 @@
             </section>
             <section class="grid metrics metrics-2026 dashboard-stats-grid" id="stats"></section>
           </section>
+          <section class="dashboard-charts-grid" id="dashboardGrid"></section>
         </section>
 
         <!-- Hosts -->
@@ -1481,7 +1481,9 @@
   <script src="/admin/assets/nav.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
   <script src="/admin/assets/users.js?v=2026-01-18-03"></script>
-  <script src="/admin/assets/uPlot.min.js?v=2026-01-15-01"></script>
+  <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
+  <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
+  <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/dashboard.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-01-13-01"></script>

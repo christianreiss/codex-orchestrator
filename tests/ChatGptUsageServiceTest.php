@@ -274,4 +274,50 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertSame(5, $history['points'][0]['spark_primary_used_percent']);
         $this->assertSame(8, $history['points'][1]['spark_primary_used_percent']);
     }
+
+    public function testHistoryAdvancedBuildsSeriesAndFiltersByLaneAndWindow(): void
+    {
+        $repo = new InMemoryChatGptUsageRepository();
+        $repo->items = [
+            [
+                'fetched_at' => '2026-01-01T10:00:00Z',
+                'primary_used_percent' => 10,
+                'secondary_used_percent' => 12,
+                'spark_primary_used_percent' => 9,
+            ],
+            [
+                'fetched_at' => '2026-01-02T10:00:00Z',
+                'primary_used_percent' => 15,
+                'secondary_used_percent' => 30,
+                'spark_primary_used_percent' => 11,
+            ],
+            [
+                'fetched_at' => '2026-01-03T10:00:00Z',
+                'primary_used_percent' => 20,
+                'secondary_used_percent' => 45,
+                'spark_primary_used_percent' => 13,
+            ],
+        ];
+
+        $auth = $this->getMockBuilder(AuthService::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+        $service = new ChatGptUsageService($auth, $repo, $logs);
+
+        $history = $service->historyAdvanced(
+            7,
+            '2026-01-01T00:00:00Z',
+            '2026-01-03T23:59:59Z',
+            'day',
+            'normal',
+            'primary'
+        );
+
+        $this->assertSame('day', $history['interval']);
+        $this->assertSame('normal', $history['lane']);
+        $this->assertSame('primary', $history['window']);
+        $this->assertCount(1, $history['series']);
+        $this->assertSame('normal_primary', $history['series'][0]['key']);
+        $this->assertCount(3, $history['series'][0]['points']);
+        $this->assertSame(20, $history['series'][0]['points'][2]['value']);
+    }
 }

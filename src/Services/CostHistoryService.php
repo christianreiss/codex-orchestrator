@@ -17,6 +17,7 @@ use DateTimeZone;
 class CostHistoryService
 {
     private const MAX_DAYS = 180;
+    private const DEFAULT_DAYS = 60;
 
     public function __construct(
         private readonly TokenUsageRepository $tokenUsageRepository,
@@ -27,36 +28,56 @@ class CostHistoryService
 
     public function history(int $days = 60): array
     {
-        $normalizedDays = $days < 1 ? 60 : $days;
+        return $this->historyAdvanced($days, null, null, 'day', 'component', true);
+    }
+
+    public function historyAdvanced(
+        int $days = self::DEFAULT_DAYS,
+        ?string $from = null,
+        ?string $until = null,
+        string $interval = 'day',
+        string $groupBy = 'component',
+        bool $includeTokens = true
+    ): array {
+        $normalizedDays = $days < 1 ? self::DEFAULT_DAYS : $days;
         $normalizedDays = min(self::MAX_DAYS, $normalizedDays);
+        $normalizedInterval = $this->normalizeInterval($interval);
+        $normalizedGroupBy = $this->normalizeGroupBy($groupBy);
 
         $pricing = $this->pricingService->latestPricing($this->model, false);
         $hasPricing = $this->hasPricing($pricing);
         $firstRecorded = $this->tokenUsageRepository->firstRecordedAt();
+        $untilDate = $this->normalizeDate($until) ?? new DateTimeImmutable('today', new DateTimeZone('UTC'));
+        $startDate = $this->normalizeDate($from);
 
         if ($firstRecorded === null) {
             return [
                 'days' => $normalizedDays,
                 'since' => null,
-                'until' => gmdate(DATE_ATOM),
+                'from' => null,
+                'until' => $untilDate->format(DATE_ATOM),
+                'interval' => $normalizedInterval,
+                'group_by' => $normalizedGroupBy,
+                'include_tokens' => $includeTokens,
                 'currency' => $pricing['currency'] ?? 'USD',
                 'pricing' => $pricing,
                 'has_pricing' => $hasPricing,
+                'series' => [],
                 'points' => [],
             ];
         }
 
-        $sinceTs = strtotime('-' . $normalizedDays . ' days');
-        $firstTs = strtotime($firstRecorded);
-        if ($firstTs && $sinceTs !== false && $firstTs > $sinceTs) {
-            $sinceTs = $firstTs;
+        $firstDate = $this->normalizeDate($firstRecorded) ?? new DateTimeImmutable('today', new DateTimeZone('UTC'));
+        if ($startDate === null) {
+            $startDate = $untilDate->sub(new DateInterval('P' . $normalizedDays . 'D'));
         }
-        if ($sinceTs === false) {
-            $sinceTs = time() - (60 * 86400);
+        if ($startDate < $firstDate) {
+            $startDate = $firstDate;
         }
-
-        $startDate = new DateTimeImmutable(gmdate('Y-m-d', $sinceTs), new DateTimeZone('UTC'));
-        $endDate = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+        $endDate = $untilDate;
+        if ($startDate > $endDate) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
         if ($endDate < $startDate) {
             $endDate = $startDate;
         }
@@ -74,33 +95,185 @@ class CostHistoryService
             ];
         }
 
-        $points = [];
+        $dailyPoints = [];
         for ($cursor = $startDate; $cursor <= $endDate; $cursor = $cursor->add(new DateInterval('P1D'))) {
             $dayKey = $cursor->format('Y-m-d');
             $tokens = $pointMap[$dayKey] ?? ['input' => 0, 'output' => 0, 'cached' => 0];
             $costs = $this->calculateCosts($tokens, $pricing, $hasPricing);
-
-            $points[] = [
+            $dailyPoints[] = [
                 'date' => $dayKey,
                 'tokens' => [
-                    'input' => $tokens['input'],
-                    'output' => $tokens['output'],
-                    'cached' => $tokens['cached'],
-                    'total' => $tokens['input'] + $tokens['output'] + $tokens['cached'],
+                    'input' => (int) $tokens['input'],
+                    'output' => (int) $tokens['output'],
+                    'cached' => (int) $tokens['cached'],
+                    'total' => (int) $tokens['input'] + (int) $tokens['output'] + (int) $tokens['cached'],
                 ],
                 'costs' => $costs,
             ];
         }
 
+        $points = $normalizedInterval === 'week'
+            ? $this->aggregateWeekly($dailyPoints, $pricing, $hasPricing)
+            : $dailyPoints;
+
+        $responsePoints = array_map(static function (array $point) use ($includeTokens): array {
+            $item = [
+                'date' => $point['date'],
+                'costs' => $point['costs'],
+            ];
+            if ($includeTokens) {
+                $item['tokens'] = $point['tokens'];
+            }
+            return $item;
+        }, $points);
+
         return [
             'days' => $normalizedDays,
             'since' => $startDate->format(DATE_ATOM),
+            'from' => $startDate->format(DATE_ATOM),
             'until' => $endDate->format(DATE_ATOM),
+            'interval' => $normalizedInterval,
+            'group_by' => $normalizedGroupBy,
+            'include_tokens' => $includeTokens,
             'currency' => $pricing['currency'] ?? 'USD',
             'pricing' => $pricing,
             'has_pricing' => $hasPricing,
-            'points' => $points,
+            'series' => $this->buildSeries($points, $normalizedGroupBy, $includeTokens),
+            'points' => $responsePoints,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $points
+     * @return array<int, array<string, mixed>>
+     */
+    private function aggregateWeekly(array $points, array $pricing, bool $hasPricing): array
+    {
+        $buckets = [];
+        foreach ($points as $point) {
+            $date = $this->normalizeDate((string) ($point['date'] ?? ''));
+            if ($date === null) {
+                continue;
+            }
+            $weekStart = $date->modify('monday this week');
+            $key = $weekStart->format('Y-m-d');
+            if (!isset($buckets[$key])) {
+                $buckets[$key] = [
+                    'date' => $key,
+                    'tokens' => [
+                        'input' => 0,
+                        'output' => 0,
+                        'cached' => 0,
+                        'total' => 0,
+                    ],
+                ];
+            }
+            $buckets[$key]['tokens']['input'] += (int) ($point['tokens']['input'] ?? 0);
+            $buckets[$key]['tokens']['output'] += (int) ($point['tokens']['output'] ?? 0);
+            $buckets[$key]['tokens']['cached'] += (int) ($point['tokens']['cached'] ?? 0);
+            $buckets[$key]['tokens']['total'] += (int) ($point['tokens']['total'] ?? 0);
+        }
+
+        ksort($buckets);
+        $weekly = [];
+        foreach ($buckets as $bucket) {
+            $tokens = $bucket['tokens'];
+            $costs = $this->calculateCosts([
+                'input' => (int) $tokens['input'],
+                'output' => (int) $tokens['output'],
+                'cached' => (int) $tokens['cached'],
+            ], $pricing, $hasPricing);
+            $weekly[] = [
+                'date' => $bucket['date'],
+                'tokens' => $tokens,
+                'costs' => $costs,
+            ];
+        }
+
+        return $weekly;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $points
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildSeries(array $points, string $groupBy, bool $includeTokens): array
+    {
+        $definitions = $groupBy === 'total'
+            ? [
+                ['key' => 'total', 'label' => 'Total cost'],
+            ]
+            : [
+                ['key' => 'total', 'label' => 'Total cost'],
+                ['key' => 'input', 'label' => 'Input cost'],
+                ['key' => 'output', 'label' => 'Output cost'],
+                ['key' => 'cached', 'label' => 'Cached cost'],
+            ];
+
+        $series = [];
+        foreach ($definitions as $definition) {
+            $seriesPoints = [];
+            foreach ($points as $point) {
+                $date = (string) ($point['date'] ?? '');
+                if ($date === '') {
+                    continue;
+                }
+                $entry = [
+                    'ts' => $date . 'T00:00:00Z',
+                    'value' => (float) ($point['costs'][$definition['key']] ?? 0.0),
+                ];
+                if ($includeTokens) {
+                    $entry['tokens'] = (int) ($point['tokens'][$definition['key']] ?? 0);
+                }
+                $seriesPoints[] = $entry;
+            }
+
+            $series[] = [
+                'key' => $definition['key'],
+                'label' => $definition['label'],
+                'points' => $seriesPoints,
+            ];
+        }
+
+        return $series;
+    }
+
+    private function normalizeInterval(string $interval): string
+    {
+        $value = strtolower(trim($interval));
+        if ($value === 'day' || $value === 'week') {
+            return $value;
+        }
+
+        return 'day';
+    }
+
+    private function normalizeGroupBy(string $groupBy): string
+    {
+        $value = strtolower(trim($groupBy));
+        if ($value === 'total' || $value === 'component') {
+            return $value;
+        }
+
+        return 'component';
+    }
+
+    private function normalizeDate(?string $value): ?DateTimeImmutable
+    {
+        if ($value === null) {
+            return null;
+        }
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+        try {
+            $date = new DateTimeImmutable($trimmed);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $date->setTimezone(new DateTimeZone('UTC'))->setTime(0, 0, 0);
     }
 
     private function hasPricing(array $pricing): bool

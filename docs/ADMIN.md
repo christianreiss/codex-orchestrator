@@ -33,10 +33,10 @@ Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you ch
 - **Insecure hosts toggler**: the modal list live-refreshes from websocket events (enable/disable/auto-allow changes) and keeps remaining-time countdowns ticking while open.
 - **Usage**: recent token rows with host + reasoning tokens where present (`limit` param).
 - **Usage Ingests**: per-ingest aggregates with search/sort (host, client IP, totals, cached/reasoning, cost, payload snapshot). `per_page` max 200; sortable keys include totals and cost.
-- **Cost History**: daily input/output/cached/total cost series, up to 180 days, anchored to first recorded usage and driven by the latest pricing snapshot (charts rendered with local uPlot assets under `/admin/assets`).
+- **Cost History**: inline dashboard cost chart with range presets (7/30/60/90/180 days), zoom/pan, previous-period compare overlay, line/stacked toggle, legend visibility toggles, pinned selection, and CSV export. Backed by `GET /admin/usage/cost-history` (`from`/`until`, `interval`, `group_by`, `include_tokens`) and capped to 180 days.
 - **Tokens**: aggregates by token line (total/input/output/cached/reasoning).
 - **Runner**: config + telemetry (enabled, URLs, timeouts, boot id, last ok/fail/check, 24h validation counts). Manual **Run now** forces a validation and reports whether canonical auth changed.
-- **ChatGPT Usage**: latest chatgpt usage snapshot (5-minute cooldown unless forced). **History** shows up to 180 days of percent-used points (5-hour + weekly, rendered with uPlot).
+- **ChatGPT Usage**: latest chatgpt usage snapshot (5-minute cooldown unless forced). **History** now surfaces inline quota trend charts (normal + spark lanes, 5-hour + weekly windows) with the same advanced controls (range, zoom/pan, compare, line/stacked, pinned point, CSV export), powered by `GET /admin/chatgpt/usage/history` (`from`/`until`, `interval`, `lane`, `window`).
 - **Slash Commands**: list/create/update/delete prompt files; delete marks propagate to hosts.
 - **Config Builder**: edit the canonical `config.toml` (settings + rendered TOML), synced to hosts on every `cdx` run.
 - **AGENTS**: edit the canonical `AGENTS.md` (sha + size shown). Hosts sync it on wrapper runs.

@@ -193,6 +193,14 @@
       { key: 'output', label: 'Output', color: '#16a34a' },
       { key: 'cached', label: 'Cached', color: '#f97316' },
     ];
+    const DASHBOARD_RANGE_PRESETS = [7, 30, 60, 90, 180];
+    const DASHBOARD_CHART_STORAGE_KEY = 'codex.dashboardCharts.v1';
+    const QUOTA_SERIES_META = [
+      { key: 'normal_primary', label: 'Normal 5-hour', color: '#0b7c73' },
+      { key: 'normal_secondary', label: 'Normal weekly', color: '#2563eb' },
+      { key: 'spark_primary', label: 'Spark 5-hour', color: '#f97316' },
+      { key: 'spark_secondary', label: 'Spark weekly', color: '#7c3aed' },
+    ];
     const QUOTA_LIMIT_MIN = 50;
     const QUOTA_LIMIT_MAX = 100;
     const QUOTA_LIMIT_DEFAULT = 100;
@@ -431,12 +439,25 @@
     let insecureApprovalEnabled = false;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
+    const chatgptUsageHistoryCache = new Map();
+    const chatgptUsageHistoryPromiseCache = new Map();
     let costHistory = null;
     let costHistoryPromise = null;
+    const costHistoryCache = new Map();
+    const costHistoryPromiseCache = new Map();
     let usageHistoryPlot = null;
     let usageHistoryResizeObserver = null;
     let costHistoryPlot = null;
     let costHistoryResizeObserver = null;
+    let dashboardQuotaChart = null;
+    let dashboardCostChart = null;
+    let dashboardQuotaPoints = [];
+    let dashboardCostPoints = [];
+    let dashboardCostCurrency = 'USD';
+    let dashboardQuotaPinnedIndex = null;
+    let dashboardCostPinnedIndex = null;
+    let dashboardChartsWired = false;
+    let dashboardChartRenderToken = 0;
     let activeHostId = null;
     let activeInsecureApproval = null;
     const insecureApprovalQueue = [];
@@ -458,6 +479,7 @@
     let inactivityWindowDays = PRUNE_WINDOW_DEFAULT;
     let memoriesLoading = false;
     let memoriesOpen = false;
+    let dashboardChartPrefs = readDashboardChartPrefs();
 
     const dashboardYear = new Date().getFullYear();
     if (dashboardMissionYear) {
@@ -610,6 +632,64 @@
       if (!Number.isFinite(num)) return '—';
       const safeDigits = Number.isFinite(digits) ? Math.max(0, Math.min(2, Math.floor(digits))) : 0;
       return `${num.toFixed(safeDigits)}%`;
+    }
+
+    function clampRangeDays(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return USAGE_HISTORY_DAYS;
+      const rounded = Math.round(numeric);
+      if (!DASHBOARD_RANGE_PRESETS.includes(rounded)) return USAGE_HISTORY_DAYS;
+      return rounded;
+    }
+
+    function normalizeChartType(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      return normalized === 'stacked' ? 'stacked' : 'line';
+    }
+
+    function normalizeVisibleSeries(value) {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((item) => String(item || '').trim().toLowerCase())
+        .filter((item) => item !== '');
+    }
+
+    function readDashboardChartPrefs() {
+      const defaults = {
+        range_days: USAGE_HISTORY_DAYS,
+        compare_previous: false,
+        chart_type: 'line',
+        quota_visible: [],
+        cost_visible: [],
+      };
+      try {
+        const raw = localStorage.getItem(DASHBOARD_CHART_STORAGE_KEY);
+        if (!raw) return defaults;
+        const parsed = JSON.parse(raw);
+        return {
+          range_days: clampRangeDays(parsed?.range_days),
+          compare_previous: !!parsed?.compare_previous,
+          chart_type: normalizeChartType(parsed?.chart_type),
+          quota_visible: normalizeVisibleSeries(parsed?.quota_visible),
+          cost_visible: normalizeVisibleSeries(parsed?.cost_visible),
+        };
+      } catch (_) {
+        return defaults;
+      }
+    }
+
+    function writeDashboardChartPrefs() {
+      try {
+        localStorage.setItem(DASHBOARD_CHART_STORAGE_KEY, JSON.stringify({
+          range_days: clampRangeDays(dashboardChartPrefs?.range_days),
+          compare_previous: !!dashboardChartPrefs?.compare_previous,
+          chart_type: normalizeChartType(dashboardChartPrefs?.chart_type),
+          quota_visible: normalizeVisibleSeries(dashboardChartPrefs?.quota_visible),
+          cost_visible: normalizeVisibleSeries(dashboardChartPrefs?.cost_visible),
+        }));
+      } catch (_) {
+        // Storage can fail in private mode; ignore.
+      }
     }
 
     function formatCountdown(value) {
@@ -3649,6 +3729,11 @@
         el.onclick = (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
+          const inline = document.getElementById('dashboardCostCanvas');
+          if (inline) {
+            inline.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+          }
           openCostHistory();
         };
       });
@@ -3921,23 +4006,85 @@
       `;
     }
 
-    async function loadUsageHistory(force = false) {
-      if (!force && chatgptUsageHistory) return chatgptUsageHistory;
-      if (!force && chatgptUsageHistoryPromise) return chatgptUsageHistoryPromise;
-      const url = `/admin/chatgpt/usage/history?days=${USAGE_HISTORY_DAYS}`;
-      chatgptUsageHistoryPromise = api(url).then((res) => {
+    function normalizeUsageHistoryOptions(options = {}) {
+      const source = options && typeof options === 'object' ? options : {};
+      const days = Number.isFinite(Number(source.days))
+        ? Math.max(1, Math.min(180, Math.round(Number(source.days))))
+        : USAGE_HISTORY_DAYS;
+      const intervalRaw = String(source.interval || '').trim().toLowerCase();
+      const interval = ['raw', 'hour', 'day'].includes(intervalRaw) ? intervalRaw : 'day';
+      const laneRaw = String(source.lane || '').trim().toLowerCase();
+      const lane = ['normal', 'spark', 'both'].includes(laneRaw) ? laneRaw : 'both';
+      const windowRaw = String(source.window || '').trim().toLowerCase();
+      const window = ['primary', 'secondary', 'both'].includes(windowRaw) ? windowRaw : 'both';
+      const from = parseTimestamp(source.from) || null;
+      const until = parseTimestamp(source.until) || null;
+      return {
+        days,
+        from: from ? from.toISOString() : null,
+        until: until ? until.toISOString() : null,
+        interval,
+        lane,
+        window,
+      };
+    }
+
+    function usageHistoryCacheKey(options = {}) {
+      const normalized = normalizeUsageHistoryOptions(options);
+      return JSON.stringify(normalized);
+    }
+
+    function usageHistoryQueryString(options = {}) {
+      const normalized = normalizeUsageHistoryOptions(options);
+      const params = new URLSearchParams();
+      params.set('days', String(normalized.days));
+      params.set('interval', normalized.interval);
+      params.set('lane', normalized.lane);
+      params.set('window', normalized.window);
+      if (normalized.from) params.set('from', normalized.from);
+      if (normalized.until) params.set('until', normalized.until);
+      return params.toString();
+    }
+
+    async function loadUsageHistory(force = false, options = {}) {
+      const hasCustomOptions = options && Object.keys(options).length > 0;
+      const cacheKey = usageHistoryCacheKey(options);
+      if (!force && !hasCustomOptions && chatgptUsageHistory) return chatgptUsageHistory;
+      if (!force && !hasCustomOptions && chatgptUsageHistoryPromise) return chatgptUsageHistoryPromise;
+      if (!force && chatgptUsageHistoryCache.has(cacheKey)) return chatgptUsageHistoryCache.get(cacheKey);
+      if (!force && chatgptUsageHistoryPromiseCache.has(cacheKey)) return chatgptUsageHistoryPromiseCache.get(cacheKey);
+
+      const url = `/admin/chatgpt/usage/history?${usageHistoryQueryString(options)}`;
+      const request = api(url).then((res) => {
         const data = res?.data || {};
         const result = {
           points: Array.isArray(data.points) ? data.points : [],
+          series: Array.isArray(data.series) ? data.series : [],
           days: data.days ?? USAGE_HISTORY_DAYS,
           since: data.since || null,
+          from: data.from || data.since || null,
+          until: data.until || null,
+          interval: typeof data.interval === 'string' ? data.interval : 'day',
+          lane: typeof data.lane === 'string' ? data.lane : 'both',
+          window: typeof data.window === 'string' ? data.window : 'both',
         };
-        chatgptUsageHistory = result;
+        chatgptUsageHistoryCache.set(cacheKey, result);
+        if (!hasCustomOptions) {
+          chatgptUsageHistory = result;
+        }
         return result;
       }).finally(() => {
-        chatgptUsageHistoryPromise = null;
+        chatgptUsageHistoryPromiseCache.delete(cacheKey);
+        if (!hasCustomOptions) {
+          chatgptUsageHistoryPromise = null;
+        }
       });
-      return chatgptUsageHistoryPromise;
+
+      chatgptUsageHistoryPromiseCache.set(cacheKey, request);
+      if (!hasCustomOptions) {
+        chatgptUsageHistoryPromise = request;
+      }
+      return request;
     }
 
     async function openUsageHistory(laneKey = 'normal', windowKey = 'primary') {
@@ -4633,11 +4780,57 @@
       return value;
     }
 
-    async function loadCostHistory(force = false) {
-      if (!force && costHistory) return costHistory;
-      if (!force && costHistoryPromise) return costHistoryPromise;
-      const url = `/admin/usage/cost-history?days=${USAGE_HISTORY_DAYS}`;
-      costHistoryPromise = api(url).then((res) => {
+    function normalizeCostHistoryOptions(options = {}) {
+      const source = options && typeof options === 'object' ? options : {};
+      const days = Number.isFinite(Number(source.days))
+        ? Math.max(1, Math.min(180, Math.round(Number(source.days))))
+        : USAGE_HISTORY_DAYS;
+      const intervalRaw = String(source.interval || '').trim().toLowerCase();
+      const interval = ['day', 'week'].includes(intervalRaw) ? intervalRaw : 'day';
+      const groupByRaw = String(source.group_by || source.groupBy || '').trim().toLowerCase();
+      const groupBy = ['component', 'total'].includes(groupByRaw) ? groupByRaw : 'component';
+      const includeTokens = source.include_tokens === false || source.includeTokens === false
+        ? false
+        : true;
+      const from = parseTimestamp(source.from) || null;
+      const until = parseTimestamp(source.until) || null;
+      return {
+        days,
+        interval,
+        group_by: groupBy,
+        include_tokens: includeTokens,
+        from: from ? from.toISOString() : null,
+        until: until ? until.toISOString() : null,
+      };
+    }
+
+    function costHistoryCacheKey(options = {}) {
+      const normalized = normalizeCostHistoryOptions(options);
+      return JSON.stringify(normalized);
+    }
+
+    function costHistoryQueryString(options = {}) {
+      const normalized = normalizeCostHistoryOptions(options);
+      const params = new URLSearchParams();
+      params.set('days', String(normalized.days));
+      params.set('interval', normalized.interval);
+      params.set('group_by', normalized.group_by);
+      params.set('include_tokens', normalized.include_tokens ? '1' : '0');
+      if (normalized.from) params.set('from', normalized.from);
+      if (normalized.until) params.set('until', normalized.until);
+      return params.toString();
+    }
+
+    async function loadCostHistory(force = false, options = {}) {
+      const hasCustomOptions = options && Object.keys(options).length > 0;
+      const cacheKey = costHistoryCacheKey(options);
+      if (!force && !hasCustomOptions && costHistory) return costHistory;
+      if (!force && !hasCustomOptions && costHistoryPromise) return costHistoryPromise;
+      if (!force && costHistoryCache.has(cacheKey)) return costHistoryCache.get(cacheKey);
+      if (!force && costHistoryPromiseCache.has(cacheKey)) return costHistoryPromiseCache.get(cacheKey);
+
+      const url = `/admin/usage/cost-history?${costHistoryQueryString(options)}`;
+      const request = api(url).then((res) => {
         const data = res?.data || {};
         const rawPoints = Array.isArray(data.points) ? data.points : [];
         const normalizeNumber = (value) => {
@@ -4666,19 +4859,35 @@
 
         const result = {
           points,
+          series: Array.isArray(data.series) ? data.series : [],
           currency: data.currency || 'USD',
           has_pricing: data.has_pricing ?? false,
           pricing: data.pricing || {},
           since: data.since || null,
+          from: data.from || data.since || null,
           until: data.until || null,
+          interval: typeof data.interval === 'string' ? data.interval : 'day',
+          group_by: typeof data.group_by === 'string' ? data.group_by : 'component',
+          include_tokens: data.include_tokens !== false,
           days: data.days ?? USAGE_HISTORY_DAYS,
         };
-        costHistory = result;
+        costHistoryCache.set(cacheKey, result);
+        if (!hasCustomOptions) {
+          costHistory = result;
+        }
         return result;
       }).finally(() => {
-        costHistoryPromise = null;
+        costHistoryPromiseCache.delete(cacheKey);
+        if (!hasCustomOptions) {
+          costHistoryPromise = null;
+        }
       });
-      return costHistoryPromise;
+
+      costHistoryPromiseCache.set(cacheKey, request);
+      if (!hasCustomOptions) {
+        costHistoryPromise = request;
+      }
+      return request;
     }
 
     async function openCostHistory() {
@@ -5462,10 +5671,850 @@
       renderChatGptUsage(chatgptUsage);
     }
 
+    function destroyDashboardCharts() {
+      if (dashboardQuotaChart && typeof dashboardQuotaChart.destroy === 'function') {
+        dashboardQuotaChart.destroy();
+      }
+      if (dashboardCostChart && typeof dashboardCostChart.destroy === 'function') {
+        dashboardCostChart.destroy();
+      }
+      dashboardQuotaChart = null;
+      dashboardCostChart = null;
+      dashboardQuotaPoints = [];
+      dashboardCostPoints = [];
+      dashboardQuotaPinnedIndex = null;
+      dashboardCostPinnedIndex = null;
+    }
+
+    function colorWithAlpha(color, alpha = 1) {
+      const safeAlpha = clamp(Number(alpha), 0, 1);
+      const source = String(color || '').trim();
+      if (/^#([0-9a-f]{6})$/i.test(source)) {
+        const hex = source.slice(1);
+        const r = Number.parseInt(hex.slice(0, 2), 16);
+        const g = Number.parseInt(hex.slice(2, 4), 16);
+        const b = Number.parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
+      }
+      if (/^#([0-9a-f]{3})$/i.test(source)) {
+        const hex = source.slice(1);
+        const r = Number.parseInt(hex.charAt(0) + hex.charAt(0), 16);
+        const g = Number.parseInt(hex.charAt(1) + hex.charAt(1), 16);
+        const b = Number.parseInt(hex.charAt(2) + hex.charAt(2), 16);
+        return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
+      }
+      return source;
+    }
+
+    function dashboardRangeWindow(days) {
+      const safeDays = clampRangeDays(days);
+      const until = new Date();
+      const from = new Date(until.getTime());
+      from.setUTCDate(from.getUTCDate() - safeDays + 1);
+      from.setUTCHours(0, 0, 0, 0);
+      return {
+        days: safeDays,
+        from,
+        until,
+        fromIso: from.toISOString(),
+        untilIso: until.toISOString(),
+        shiftMs: until.getTime() - from.getTime(),
+      };
+    }
+
+    function normalizeQuotaHistorySeries(history) {
+      const palette = new Map(QUOTA_SERIES_META.map((item) => [item.key, item]));
+      const result = [];
+      const pushSeries = (key, label, values) => {
+        const points = (values || [])
+          .map((pt) => {
+            const ts = parseTimestamp(pt?.ts || pt?.fetched_at || null);
+            const val = Number(pt?.value ?? pt?.y);
+            if (!ts || !Number.isFinite(val)) return null;
+            return { x: ts.getTime(), y: clamp(val, 0, 130) };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.x - b.x);
+        if (!points.length) return;
+        const style = palette.get(key);
+        result.push({
+          key,
+          label: label || style?.label || key,
+          color: style?.color || '#0b7c73',
+          points,
+        });
+      };
+
+      const series = Array.isArray(history?.series) ? history.series : [];
+      if (series.length) {
+        series.forEach((item) => {
+          const key = String(item?.key || '').trim().toLowerCase();
+          pushSeries(key, item?.label, item?.points);
+        });
+        if (result.length) return result;
+      }
+
+      const fallbackDefs = [
+        { key: 'normal_primary', label: 'Normal 5-hour', lane: 'normal', window: 'primary' },
+        { key: 'normal_secondary', label: 'Normal weekly', lane: 'normal', window: 'secondary' },
+        { key: 'spark_primary', label: 'Spark 5-hour', lane: 'spark', window: 'primary' },
+        { key: 'spark_secondary', label: 'Spark weekly', lane: 'spark', window: 'secondary' },
+      ];
+      fallbackDefs.forEach((definition) => {
+        const values = buildUsageSeries(history?.points || [], definition.lane, definition.window);
+        pushSeries(definition.key, definition.label, values);
+      });
+      return result;
+    }
+
+    function normalizeCostHistorySeries(history) {
+      const palette = new Map(COST_SERIES.map((item) => [item.key, item]));
+      const result = [];
+      const pushSeries = (key, label, values) => {
+        const points = (values || [])
+          .map((pt) => {
+            const ts = parseTimestamp(pt?.ts || null) || parseDateOnly(pt?.date || null);
+            const val = Number(pt?.value ?? pt?.y);
+            if (!ts || !Number.isFinite(val)) return null;
+            return { x: ts.getTime(), y: Math.max(0, val) };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.x - b.x);
+        if (!points.length) return;
+        const style = palette.get(key);
+        result.push({
+          key,
+          label: label || style?.label || key,
+          color: style?.color || '#2563eb',
+          points,
+        });
+      };
+
+      const series = Array.isArray(history?.series) ? history.series : [];
+      if (series.length) {
+        series.forEach((item) => {
+          const key = String(item?.key || '').trim().toLowerCase();
+          pushSeries(key, item?.label, item?.points);
+        });
+        if (result.length) return result;
+      }
+
+      const fallback = buildCostSeries(history);
+      fallback.forEach((item) => {
+        pushSeries(item.key, item.label, item.values);
+      });
+      return result;
+    }
+
+    function buildSeriesPointIndex(series) {
+      const byX = new Map();
+      (series || []).forEach((item) => {
+        (item?.points || []).forEach((point) => {
+          const x = Number(point?.x);
+          const y = Number(point?.y);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+          if (!byX.has(x)) {
+            byX.set(x, { x, values: {} });
+          }
+          byX.get(x).values[item.key] = y;
+        });
+      });
+      return Array.from(byX.values()).sort((a, b) => a.x - b.x);
+    }
+
+    function selectedVisibleKeys(current, available) {
+      const safeAvailable = Array.isArray(available) ? available : [];
+      const preferred = Array.isArray(current) ? current.filter((key) => safeAvailable.includes(key)) : [];
+      if (preferred.length > 0) return preferred;
+      return safeAvailable.slice();
+    }
+
+    function buildCompareSeries(series, shiftMs) {
+      return (series || []).map((item) => ({
+        ...item,
+        points: (item?.points || []).map((point) => ({
+          x: point.x + shiftMs,
+          y: point.y,
+        })),
+      }));
+    }
+
+    function renderDashboardQuotaMeta(index = null) {
+      const el = document.getElementById('dashboardQuotaMeta');
+      if (!el) return;
+      if (!Array.isArray(dashboardQuotaPoints) || dashboardQuotaPoints.length === 0) {
+        el.textContent = 'No quota data in the selected range.';
+        return;
+      }
+      const lastIdx = dashboardQuotaPoints.length - 1;
+      const idx = Number.isFinite(index) ? clamp(Math.round(index), 0, lastIdx) : lastIdx;
+      const point = dashboardQuotaPoints[idx];
+      const dateText = formatShortDate(new Date(point.x), true);
+      const parts = QUOTA_SERIES_META
+        .map((item) => {
+          const value = point?.values?.[item.key];
+          return Number.isFinite(value) ? `${item.label} ${Math.round(value)}%` : null;
+        })
+        .filter(Boolean);
+      el.textContent = `${dateText} · ${parts.join(' · ') || 'No lane values'}`;
+    }
+
+    function renderDashboardCostMeta(index = null) {
+      const el = document.getElementById('dashboardCostMeta');
+      if (!el) return;
+      if (!Array.isArray(dashboardCostPoints) || dashboardCostPoints.length === 0) {
+        el.textContent = 'No cost data in the selected range.';
+        return;
+      }
+      const lastIdx = dashboardCostPoints.length - 1;
+      const idx = Number.isFinite(index) ? clamp(Math.round(index), 0, lastIdx) : lastIdx;
+      const point = dashboardCostPoints[idx];
+      const dateText = point?.dateObj ? formatShortDate(point.dateObj) : point?.date || '—';
+      const total = formatMoney(point?.costs?.total ?? 0, dashboardCostCurrency);
+      const tokens = formatNumber(point?.tokens?.total ?? 0);
+      el.textContent = `${dateText} · Total ${total} · ${tokens} tokens`;
+    }
+
+    function syncVisibleSeriesPreference(chart, kind) {
+      if (!chart || !Array.isArray(chart?.data?.datasets)) return;
+      const visible = [];
+      chart.data.datasets.forEach((dataset, idx) => {
+        if (dataset?.compare === true) return;
+        if (dataset?.seriesKey && chart.isDatasetVisible(idx)) {
+          visible.push(dataset.seriesKey);
+        }
+      });
+      if (kind === 'quota') {
+        dashboardChartPrefs.quota_visible = visible;
+      } else {
+        dashboardChartPrefs.cost_visible = visible;
+      }
+      writeDashboardChartPrefs();
+    }
+
+    function wireDashboardChartCanvas(chart, kind) {
+      if (!chart || !chart.canvas) return;
+      const canvas = chart.canvas;
+      canvas.tabIndex = 0;
+      canvas.onkeydown = (event) => {
+        const points = kind === 'quota' ? dashboardQuotaPoints : dashboardCostPoints;
+        if (!Array.isArray(points) || points.length === 0) return;
+        if (event.key === 'Escape') {
+          if (kind === 'quota') {
+            dashboardQuotaPinnedIndex = null;
+            chart.$pinnedIndex = null;
+            renderDashboardQuotaMeta();
+          } else {
+            dashboardCostPinnedIndex = null;
+            chart.$pinnedIndex = null;
+            renderDashboardCostMeta();
+          }
+          chart.update('none');
+          return;
+        }
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const delta = event.key === 'ArrowLeft' ? -1 : 1;
+        const current = kind === 'quota' ? dashboardQuotaPinnedIndex : dashboardCostPinnedIndex;
+        const next = clamp((current ?? (points.length - 1)) + delta, 0, points.length - 1);
+        chart.$pinnedIndex = next;
+        if (kind === 'quota') {
+          dashboardQuotaPinnedIndex = next;
+          renderDashboardQuotaMeta(next);
+        } else {
+          dashboardCostPinnedIndex = next;
+          renderDashboardCostMeta(next);
+        }
+        chart.update('none');
+      };
+      canvas.onclick = (event) => {
+        const items = chart.getElementsAtEventForMode(event, 'nearest', { intersect: false }, false);
+        if (!items.length) {
+          chart.$pinnedIndex = null;
+          if (kind === 'quota') {
+            dashboardQuotaPinnedIndex = null;
+            renderDashboardQuotaMeta();
+          } else {
+            dashboardCostPinnedIndex = null;
+            renderDashboardCostMeta();
+          }
+          chart.update('none');
+          return;
+        }
+        const idx = items[0].index;
+        if (kind === 'quota') {
+          dashboardQuotaPinnedIndex = dashboardQuotaPinnedIndex === idx ? null : idx;
+          chart.$pinnedIndex = dashboardQuotaPinnedIndex;
+          renderDashboardQuotaMeta(dashboardQuotaPinnedIndex);
+        } else {
+          dashboardCostPinnedIndex = dashboardCostPinnedIndex === idx ? null : idx;
+          chart.$pinnedIndex = dashboardCostPinnedIndex;
+          renderDashboardCostMeta(dashboardCostPinnedIndex);
+        }
+        chart.update('none');
+      };
+      canvas.onmouseleave = () => {
+        if (kind === 'quota' && dashboardQuotaPinnedIndex === null) {
+          renderDashboardQuotaMeta();
+        }
+        if (kind === 'cost' && dashboardCostPinnedIndex === null) {
+          renderDashboardCostMeta();
+        }
+      };
+    }
+
+    function buildDashboardChartCsv(kind) {
+      const points = kind === 'quota' ? dashboardQuotaPoints : dashboardCostPoints;
+      if (!Array.isArray(points) || points.length === 0) return null;
+      const visible = kind === 'quota'
+        ? selectedVisibleKeys(dashboardChartPrefs?.quota_visible, QUOTA_SERIES_META.map((item) => item.key))
+        : selectedVisibleKeys(dashboardChartPrefs?.cost_visible, COST_SERIES.map((item) => item.key));
+      if (!visible.length) return null;
+      const labelMap = kind === 'quota'
+        ? new Map(QUOTA_SERIES_META.map((item) => [item.key, item.label]))
+        : new Map(COST_SERIES.map((item) => [item.key, item.label]));
+      const header = ['timestamp_utc', ...visible.map((key) => labelMap.get(key) || key)];
+      const rows = points.map((point) => {
+        const date = new Date(point.x);
+        const values = visible.map((key) => {
+          const value = point?.values?.[key];
+          return Number.isFinite(value) ? String(value) : '';
+        });
+        return [date.toISOString(), ...values];
+      });
+      return [header, ...rows].map((row) => row.join(',')).join('\n');
+    }
+
+    function exportDashboardChartCsv(kind) {
+      const csv = buildDashboardChartCsv(kind);
+      if (!csv) {
+        showToast({
+          title: 'Export',
+          message: 'No chart data available for CSV export.',
+          level: 'warn',
+        });
+        return;
+      }
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const today = new Date().toISOString().slice(0, 10);
+      const range = clampRangeDays(dashboardChartPrefs?.range_days);
+      const filename = `dashboard-${kind}-${range}d-${today}.csv`;
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }
+
+    function updateDashboardChartControls() {
+      if (!dashboardGrid) return;
+      const range = clampRangeDays(dashboardChartPrefs?.range_days);
+      dashboardGrid.querySelectorAll('[data-dashboard-range]').forEach((btn) => {
+        const value = Number(btn.getAttribute('data-dashboard-range'));
+        const active = value === range;
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      const compareBtn = document.getElementById('dashboardCompareBtn');
+      if (compareBtn) {
+        compareBtn.setAttribute('aria-pressed', dashboardChartPrefs?.compare_previous ? 'true' : 'false');
+      }
+      const typeBtn = document.getElementById('dashboardTypeBtn');
+      if (typeBtn) {
+        const type = normalizeChartType(dashboardChartPrefs?.chart_type);
+        typeBtn.setAttribute('aria-pressed', type === 'stacked' ? 'true' : 'false');
+        typeBtn.textContent = type === 'stacked' ? 'Stacked' : 'Line';
+      }
+    }
+
+    function wireDashboardChartControls() {
+      if (!dashboardGrid) return;
+      dashboardGrid.querySelectorAll('[data-dashboard-range]').forEach((btn) => {
+        btn.onclick = () => {
+          const value = Number(btn.getAttribute('data-dashboard-range'));
+          const next = clampRangeDays(value);
+          if (next === dashboardChartPrefs.range_days) return;
+          dashboardChartPrefs.range_days = next;
+          writeDashboardChartPrefs();
+          updateDashboardChartControls();
+          refreshDashboardCharts(true);
+        };
+      });
+      const compareBtn = document.getElementById('dashboardCompareBtn');
+      if (compareBtn) {
+        compareBtn.onclick = () => {
+          dashboardChartPrefs.compare_previous = !dashboardChartPrefs.compare_previous;
+          writeDashboardChartPrefs();
+          updateDashboardChartControls();
+          refreshDashboardCharts(true);
+        };
+      }
+      const typeBtn = document.getElementById('dashboardTypeBtn');
+      if (typeBtn) {
+        typeBtn.onclick = () => {
+          dashboardChartPrefs.chart_type = normalizeChartType(dashboardChartPrefs?.chart_type) === 'line' ? 'stacked' : 'line';
+          writeDashboardChartPrefs();
+          updateDashboardChartControls();
+          refreshDashboardCharts(true);
+        };
+      }
+      const quotaReset = document.getElementById('dashboardQuotaReset');
+      if (quotaReset) {
+        quotaReset.onclick = () => {
+          if (dashboardQuotaChart && typeof dashboardQuotaChart.resetZoom === 'function') {
+            dashboardQuotaChart.resetZoom();
+          }
+        };
+      }
+      const costReset = document.getElementById('dashboardCostReset');
+      if (costReset) {
+        costReset.onclick = () => {
+          if (dashboardCostChart && typeof dashboardCostChart.resetZoom === 'function') {
+            dashboardCostChart.resetZoom();
+          }
+        };
+      }
+      const quotaExport = document.getElementById('dashboardQuotaExport');
+      if (quotaExport) quotaExport.onclick = () => exportDashboardChartCsv('quota');
+      const costExport = document.getElementById('dashboardCostExport');
+      if (costExport) costExport.onclick = () => exportDashboardChartCsv('cost');
+      dashboardChartsWired = true;
+      updateDashboardChartControls();
+    }
+
+    function ensureChartJsReady() {
+      if (!window.Chart) return false;
+      const Chart = window.Chart;
+      if (!Chart.__dashboardZoomRegistered) {
+        const zoomPlugin = window.chartjsPluginZoom || window.ChartZoom || window['chartjs-plugin-zoom'] || null;
+        if (zoomPlugin) {
+          try {
+            Chart.register(zoomPlugin);
+          } catch (_) {
+            // Already registered or incompatible build.
+          }
+        }
+        Chart.__dashboardZoomRegistered = true;
+      }
+      if (!Chart.__dashboardPinnedCrosshairRegistered) {
+        const plugin = {
+          id: 'dashboardPinnedCrosshair',
+          afterDatasetsDraw(chart) {
+            const idx = Number.isFinite(chart.$pinnedIndex) ? chart.$pinnedIndex : null;
+            if (idx === null) return;
+            const datasets = chart.data?.datasets || [];
+            let xPixel = null;
+            datasets.some((dataset) => {
+              const point = dataset?.data?.[idx];
+              if (!point || typeof point !== 'object') return false;
+              const x = Number(point.x);
+              if (!Number.isFinite(x)) return false;
+              const xScale = chart.scales?.x;
+              if (!xScale || typeof xScale.getPixelForValue !== 'function') return false;
+              xPixel = xScale.getPixelForValue(x);
+              return Number.isFinite(xPixel);
+            });
+            if (!Number.isFinite(xPixel)) return;
+            const area = chart.chartArea;
+            if (!area) return;
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(15,23,42,0.35)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(xPixel, area.top);
+            ctx.lineTo(xPixel, area.bottom);
+            ctx.stroke();
+            ctx.restore();
+          },
+        };
+        try {
+          Chart.register(plugin);
+        } catch (_) {
+          // ignore duplicate registration
+        }
+        Chart.__dashboardPinnedCrosshairRegistered = true;
+      }
+      return true;
+    }
+
+    async function refreshDashboardCharts(force = false) {
+      if (!dashboardGrid || !isDashboardView()) return;
+      if (!ensureChartJsReady()) {
+        dashboardGrid.querySelectorAll('.dashboard-chart-status').forEach((el) => {
+          el.textContent = 'Chart.js assets failed to load.';
+          el.classList.add('error');
+        });
+        return;
+      }
+
+      const renderToken = ++dashboardChartRenderToken;
+      const range = dashboardRangeWindow(dashboardChartPrefs?.range_days);
+      const rangeDays = range.days;
+      const quotaInterval = rangeDays <= 14 ? 'hour' : 'day';
+      const costInterval = rangeDays <= 90 ? 'day' : 'week';
+      const useCompare = !!dashboardChartPrefs?.compare_previous;
+      const chartType = normalizeChartType(dashboardChartPrefs?.chart_type);
+
+      const quotaStatus = document.getElementById('dashboardQuotaStatus');
+      const costStatus = document.getElementById('dashboardCostStatus');
+      if (quotaStatus) quotaStatus.textContent = 'Loading quota history…';
+      if (costStatus) costStatus.textContent = 'Loading cost history…';
+
+      const currentQuotaOpts = {
+        days: rangeDays,
+        from: range.fromIso,
+        until: range.untilIso,
+        interval: quotaInterval,
+        lane: 'both',
+        window: 'both',
+      };
+      const currentCostOpts = {
+        days: rangeDays,
+        from: range.fromIso,
+        until: range.untilIso,
+        interval: costInterval,
+        group_by: 'component',
+        include_tokens: true,
+      };
+
+      const previousWindow = dashboardRangeWindow(rangeDays);
+      previousWindow.until = new Date(range.from.getTime() - 1000);
+      previousWindow.from = new Date(previousWindow.until.getTime());
+      previousWindow.from.setUTCDate(previousWindow.from.getUTCDate() - rangeDays + 1);
+      previousWindow.from.setUTCHours(0, 0, 0, 0);
+      previousWindow.fromIso = previousWindow.from.toISOString();
+      previousWindow.untilIso = previousWindow.until.toISOString();
+      previousWindow.shiftMs = range.from.getTime() - previousWindow.from.getTime();
+
+      try {
+        const requests = [
+          loadUsageHistory(force, currentQuotaOpts),
+          loadCostHistory(force, currentCostOpts),
+        ];
+        if (useCompare) {
+          requests.push(
+            loadUsageHistory(force, {
+              ...currentQuotaOpts,
+              from: previousWindow.fromIso,
+              until: previousWindow.untilIso,
+            }),
+            loadCostHistory(force, {
+              ...currentCostOpts,
+              from: previousWindow.fromIso,
+              until: previousWindow.untilIso,
+            })
+          );
+        }
+        const [quotaCurrent, costCurrent, quotaPrevious, costPrevious] = await Promise.all(requests);
+        if (renderToken !== dashboardChartRenderToken) return;
+
+        const quotaSeries = normalizeQuotaHistorySeries(quotaCurrent);
+        const costSeries = normalizeCostHistorySeries(costCurrent);
+        const quotaKeys = quotaSeries.map((item) => item.key);
+        const costKeys = costSeries.map((item) => item.key);
+        dashboardChartPrefs.quota_visible = selectedVisibleKeys(dashboardChartPrefs?.quota_visible, quotaKeys);
+        dashboardChartPrefs.cost_visible = selectedVisibleKeys(dashboardChartPrefs?.cost_visible, costKeys);
+        writeDashboardChartPrefs();
+
+        const includeFill = chartType === 'stacked';
+        const visibleQuota = new Set(dashboardChartPrefs.quota_visible);
+        const visibleCost = new Set(dashboardChartPrefs.cost_visible);
+
+        const quotaDatasets = quotaSeries.map((item) => ({
+          label: item.label,
+          data: item.points.map((point) => ({ x: point.x, y: point.y })),
+          borderColor: item.color,
+          backgroundColor: includeFill ? colorWithAlpha(item.color, 0.16) : colorWithAlpha(item.color, 0.08),
+          borderWidth: 2.2,
+          tension: 0.25,
+          fill: includeFill ? 'origin' : false,
+          pointRadius: 0,
+          pointHitRadius: 10,
+          hidden: !visibleQuota.has(item.key),
+          parsing: false,
+          seriesKey: item.key,
+          compare: false,
+          stack: includeFill ? 'quota' : undefined,
+        }));
+        if (useCompare && quotaPrevious) {
+          const shifted = buildCompareSeries(normalizeQuotaHistorySeries(quotaPrevious), previousWindow.shiftMs);
+          shifted.forEach((item) => {
+            quotaDatasets.push({
+              label: `${item.label} (prev)`,
+              data: item.points.map((point) => ({ x: point.x, y: point.y })),
+              borderColor: colorWithAlpha(item.color, 0.55),
+              borderDash: [6, 5],
+              borderWidth: 1.6,
+              tension: 0.25,
+              fill: false,
+              pointRadius: 0,
+              pointHitRadius: 8,
+              hidden: !visibleQuota.has(item.key),
+              parsing: false,
+              seriesKey: item.key,
+              compare: true,
+            });
+          });
+        }
+
+        const costDatasets = costSeries.map((item) => ({
+          label: item.label,
+          data: item.points.map((point) => ({ x: point.x, y: point.y })),
+          borderColor: item.color,
+          backgroundColor: includeFill ? colorWithAlpha(item.color, 0.14) : colorWithAlpha(item.color, 0.08),
+          borderWidth: item.key === 'total' ? 2.8 : 2,
+          tension: 0.2,
+          fill: includeFill ? 'origin' : false,
+          pointRadius: 0,
+          pointHitRadius: 10,
+          hidden: !visibleCost.has(item.key),
+          parsing: false,
+          seriesKey: item.key,
+          compare: false,
+          stack: includeFill ? 'cost' : undefined,
+        }));
+        if (useCompare && costPrevious) {
+          const shifted = buildCompareSeries(normalizeCostHistorySeries(costPrevious), previousWindow.shiftMs);
+          shifted.forEach((item) => {
+            costDatasets.push({
+              label: `${item.label} (prev)`,
+              data: item.points.map((point) => ({ x: point.x, y: point.y })),
+              borderColor: colorWithAlpha(item.color, 0.5),
+              borderDash: [6, 5],
+              borderWidth: 1.6,
+              tension: 0.2,
+              fill: false,
+              pointRadius: 0,
+              pointHitRadius: 8,
+              hidden: !visibleCost.has(item.key),
+              parsing: false,
+              seriesKey: item.key,
+              compare: true,
+            });
+          });
+        }
+
+        dashboardQuotaPoints = buildSeriesPointIndex(quotaSeries);
+        dashboardCostPoints = buildCostPointIndex(costCurrent);
+        dashboardCostCurrency = costCurrent?.currency || 'USD';
+
+        const quotaCanvas = document.getElementById('dashboardQuotaCanvas');
+        const costCanvas = document.getElementById('dashboardCostCanvas');
+        if (!quotaCanvas || !costCanvas) return;
+
+        if (dashboardQuotaChart) dashboardQuotaChart.destroy();
+        if (dashboardCostChart) dashboardCostChart.destroy();
+
+        const defaultLegendClick = window.Chart.defaults.plugins.legend.onClick;
+        dashboardQuotaChart = new window.Chart(quotaCanvas.getContext('2d'), {
+          type: 'line',
+          data: { datasets: quotaDatasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            normalized: true,
+            interaction: { mode: 'nearest', intersect: false },
+            plugins: {
+              legend: {
+                labels: {
+                  filter(item, chartData) {
+                    return chartData.datasets[item.datasetIndex]?.compare !== true;
+                  },
+                },
+                onClick: (event, legendItem, legend) => {
+                  defaultLegendClick(event, legendItem, legend);
+                  syncVisibleSeriesPreference(legend.chart, 'quota');
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label(context) {
+                    const value = Number(context.parsed?.y);
+                    return `${context.dataset.label}: ${Math.round(value)}%`;
+                  },
+                },
+              },
+              decimation: {
+                enabled: true,
+                algorithm: 'lttb',
+                samples: 900,
+              },
+              zoom: {
+                pan: { enabled: true, mode: 'x' },
+                zoom: {
+                  wheel: { enabled: true },
+                  pinch: { enabled: true },
+                  mode: 'x',
+                },
+              },
+            },
+            scales: {
+              x: {
+                type: 'linear',
+                ticks: {
+                  maxTicksLimit: 8,
+                  callback(value) {
+                    return formatShortDate(new Date(Number(value)));
+                  },
+                },
+              },
+              y: {
+                min: 0,
+                max: 130,
+                stacked: includeFill,
+                ticks: {
+                  callback(value) {
+                    return `${Math.round(Number(value))}%`;
+                  },
+                },
+              },
+            },
+            onHover(event, elements, chart) {
+              if (dashboardQuotaPinnedIndex !== null) return;
+              if (!elements || !elements.length) return;
+              renderDashboardQuotaMeta(elements[0].index);
+            },
+          },
+        });
+
+        dashboardCostChart = new window.Chart(costCanvas.getContext('2d'), {
+          type: 'line',
+          data: { datasets: costDatasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            normalized: true,
+            interaction: { mode: 'nearest', intersect: false },
+            plugins: {
+              legend: {
+                labels: {
+                  filter(item, chartData) {
+                    return chartData.datasets[item.datasetIndex]?.compare !== true;
+                  },
+                },
+                onClick: (event, legendItem, legend) => {
+                  defaultLegendClick(event, legendItem, legend);
+                  syncVisibleSeriesPreference(legend.chart, 'cost');
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label(context) {
+                    return `${context.dataset.label}: ${formatMoney(context.parsed?.y ?? 0, dashboardCostCurrency)}`;
+                  },
+                },
+              },
+              decimation: {
+                enabled: true,
+                algorithm: 'lttb',
+                samples: 900,
+              },
+              zoom: {
+                pan: { enabled: true, mode: 'x' },
+                zoom: {
+                  wheel: { enabled: true },
+                  pinch: { enabled: true },
+                  mode: 'x',
+                },
+              },
+            },
+            scales: {
+              x: {
+                type: 'linear',
+                ticks: {
+                  maxTicksLimit: 8,
+                  callback(value) {
+                    return formatShortDate(new Date(Number(value)));
+                  },
+                },
+              },
+              y: {
+                min: 0,
+                stacked: includeFill,
+                ticks: {
+                  callback(value) {
+                    return formatMoney(value, dashboardCostCurrency);
+                  },
+                },
+              },
+            },
+            onHover(event, elements, chart) {
+              if (dashboardCostPinnedIndex !== null) return;
+              if (!elements || !elements.length) return;
+              renderDashboardCostMeta(elements[0].index);
+            },
+          },
+        });
+
+        wireDashboardChartCanvas(dashboardQuotaChart, 'quota');
+        wireDashboardChartCanvas(dashboardCostChart, 'cost');
+        renderDashboardQuotaMeta();
+        renderDashboardCostMeta();
+        if (quotaStatus) quotaStatus.textContent = `Range ${rangeDays} days · interval ${quotaInterval}`;
+        if (costStatus) costStatus.textContent = `Range ${rangeDays} days · interval ${costInterval}`;
+      } catch (err) {
+        if (quotaStatus) quotaStatus.textContent = `Failed loading quota history: ${err.message}`;
+        if (costStatus) costStatus.textContent = `Failed loading cost history: ${err.message}`;
+      }
+    }
+
     function renderDashboardGrid(data, runnerInfo = null, hostsList = []) {
       if (!dashboardGrid) return;
-      // Fleet snapshot grid removed per request; keep function no-op to avoid null checks elsewhere.
-      dashboardGrid.innerHTML = '';
+      dashboardChartsWired = false;
+      dashboardGrid.innerHTML = `
+        <section class="card dashboard-chart-shell">
+          <div class="dashboard-chart-controls">
+            <div class="dashboard-chart-ranges" role="group" aria-label="History range">
+              ${DASHBOARD_RANGE_PRESETS.map((days) => `<button type="button" class="ghost tiny-btn dashboard-range-btn" data-dashboard-range="${days}" aria-pressed="false">${days}D</button>`).join('')}
+            </div>
+            <div class="dashboard-chart-actions">
+              <button type="button" class="ghost tiny-btn" id="dashboardCompareBtn" aria-pressed="false">Compare previous</button>
+              <button type="button" class="ghost tiny-btn" id="dashboardTypeBtn" aria-pressed="false">Line</button>
+            </div>
+          </div>
+          <div class="dashboard-chart-panels">
+            <section class="dashboard-chart-card">
+              <div class="dashboard-chart-head">
+                <div>
+                  <div class="stat-label">Quota trend</div>
+                  <h3>ChatGPT lane utilization</h3>
+                </div>
+                <div class="dashboard-chart-head-actions">
+                  <button type="button" class="ghost tiny-btn" id="dashboardQuotaReset">Reset zoom</button>
+                  <button type="button" class="ghost tiny-btn" id="dashboardQuotaExport">Export CSV</button>
+                </div>
+              </div>
+              <div class="dashboard-chart-canvas-wrap">
+                <canvas id="dashboardQuotaCanvas" aria-label="ChatGPT quota trend"></canvas>
+              </div>
+              <div class="muted dashboard-chart-meta" id="dashboardQuotaMeta">Loading quota details…</div>
+              <div class="muted dashboard-chart-status" id="dashboardQuotaStatus">Loading…</div>
+            </section>
+            <section class="dashboard-chart-card">
+              <div class="dashboard-chart-head">
+                <div>
+                  <div class="stat-label">Cost trend</div>
+                  <h3>Token spend over time</h3>
+                </div>
+                <div class="dashboard-chart-head-actions">
+                  <button type="button" class="ghost tiny-btn" id="dashboardCostReset">Reset zoom</button>
+                  <button type="button" class="ghost tiny-btn" id="dashboardCostExport">Export CSV</button>
+                </div>
+              </div>
+              <div class="dashboard-chart-canvas-wrap">
+                <canvas id="dashboardCostCanvas" aria-label="Cost trend"></canvas>
+              </div>
+              <div class="muted dashboard-chart-meta" id="dashboardCostMeta">Loading cost details…</div>
+              <div class="muted dashboard-chart-status" id="dashboardCostStatus">Loading…</div>
+            </section>
+          </div>
+        </section>
+      `;
+      wireDashboardChartControls();
+      refreshDashboardCharts();
     }
 
     function wireRunnerCardControls() {
@@ -6553,6 +7602,8 @@
 
       if (panel === 'dashboard') {
         ensureDataLoaded();
+      } else {
+        destroyDashboardCharts();
       }
 
       if (panel === 'agents') {
