@@ -617,17 +617,31 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
 }
 .config-main { min-width: 0; }
 
-/* Hosts table: scan-first rows */
-#hosts-table td { vertical-align: top; }
-.host-row strong { font-weight: 900; letter-spacing: -0.01em; }
-.host-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+/* Hosts table: reduced signal, single-line scan */
+#hosts-table td { vertical-align: middle; }
+#hosts-table tbody tr.host-row td { padding-top: 14px; padding-bottom: 14px; }
+#hosts-table .host-primary {
+  font-weight: 850;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
-.host-meta .muted { font-size: 12px; }
-.host-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+#hosts-table .host-secondary {
+  color: var(--muted);
+  font-size: 13px;
+}
+#hosts-table .status-cell { white-space: nowrap; }
+#hosts-table .insecure-cell {
+  width: 164px;
+  text-align: center;
+}
+#hosts-table .insecure-cell .muted {
+  font-size: 13px;
+}
+#hosts-table .insecure-inline-toggle {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+}
 
 .chip {
   display: inline-flex;
@@ -645,11 +659,6 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
 .chip.warn { color: var(--warning); border-color: rgba(251, 191, 36, 0.32); background: rgba(251, 191, 36, 0.10); }
 .chip.err { color: var(--danger); border-color: rgba(251, 113, 133, 0.28); background: rgba(251, 113, 133, 0.10); }
 .chip.neutral { color: var(--muted); border-color: var(--border); background: rgba(148, 163, 184, 0.10); }
-
-.host-kpis { display: grid; gap: 4px; }
-.host-kpis .kpi { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.host-kpis .kpi .label { color: var(--muted); font-size: 12px; font-weight: 800; }
-.host-kpis .kpi code { font-family: var(--font-mono); font-size: 12px; }
 
 /* Host detail page */
 .host-detail-page {
@@ -2386,8 +2395,6 @@ body.auth-locked .nav-actions {
     /* Host details */
     tbody tr.host-row { cursor: pointer; }
     tbody tr.host-row:hover { background: var(--table-hover); }
-    .status-cell { white-space: nowrap; }
-    .insecure-inline-toggle { margin: 0; }
     .details-cell { text-align: right; }
     .details-chip {
       display: inline-flex;

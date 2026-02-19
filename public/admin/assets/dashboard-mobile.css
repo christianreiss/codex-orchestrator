@@ -325,6 +325,22 @@ body[data-view="mobile"] #hosts-table tbody tr {
   background: transparent !important;
 }
 
+body[data-view="mobile"] #hosts-table .host-primary {
+  font-size: 15px;
+}
+
+body[data-view="mobile"] #hosts-table .status-cell {
+  white-space: normal;
+}
+
+body[data-view="mobile"] #hosts-table .actions-cell {
+  width: auto;
+}
+
+body[data-view="mobile"] #hosts-table .insecure-inline-toggle {
+  margin-top: 2px;
+}
+
 body[data-view="mobile"] tbody td {
   display: flex;
   flex-direction: column;

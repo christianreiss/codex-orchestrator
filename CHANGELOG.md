@@ -1,4 +1,5 @@
 # 2026-02-19
+- Admin hosts: fully redesigned the `Authorized Hosts` list for lower visual noise; rows now focus on hostname, status, last seen, Codex version, and a single insecure-window toggle (removed IP/added/auth-meta/wrapper clutter from list rows; details remain on host pages).
 - Admin hosts: replaced the host detail modal with dedicated host detail pages at `/admin/hosts/{id}` and reorganized the content into visual sections (`Action Items`, `Features`, `Stats`, `Infos`) with deep-linkable URLs.
 - Admin routing: added HTML dispatch for `GET /admin/hosts/{id}` through `public/admin/index.php` so direct host detail links resolve without falling through API routes.
 - Docs/tests: updated host-detail interface references (`docs/OVERVIEW.md`, `docs/interface-api.md`, `docs/interface-cdx.md`) and added UI routing coverage for the dedicated host detail page shell.
