@@ -101,27 +101,24 @@ body[data-view="mobile"] .card {
 
 body[data-view="mobile"] .panel-set[data-panel="dashboard"] {
   padding: 0;
-  border-radius: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
+  gap: 10px;
 }
 
 body[data-view="mobile"] .dashboard-hero {
-  margin-top: 10px;
-  padding: 12px;
-  border-radius: 18px;
-  grid-template-columns: 1fr;
-  gap: 12px;
+  margin-top: 0;
+  border-radius: 14px;
 }
 
 body[data-view="mobile"] .dashboard-command-center {
   padding: 12px;
-  border-radius: 14px;
+  gap: 8px;
 }
 
 body[data-view="mobile"] .dashboard-hero-head h2 {
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1.1;
 }
 
@@ -130,13 +127,11 @@ body[data-view="mobile"] .dashboard-subtitle {
 }
 
 body[data-view="mobile"] .dashboard-signal-strip {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 body[data-view="mobile"] .signal-chip {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 body[data-view="mobile"] .dashboard-hero-grid {
@@ -157,12 +152,18 @@ body[data-view="mobile"] .pulse-grid {
 }
 
 body[data-view="mobile"] .dashboard-overview-grid {
-  margin-top: 12px;
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
-body[data-view="mobile"] #stats {
+body[data-view="mobile"] #stats.dashboard-stats-grid {
   grid-template-columns: 1fr;
+}
+
+body[data-view="mobile"] .dashboard-equal-card,
+body[data-view="mobile"] #stats .dashboard-stat-card {
+  min-height: 250px;
+  padding: 12px;
 }
 
 body[data-view="mobile"] .summary-card .summary-metrics {
@@ -252,7 +253,7 @@ body[data-view="mobile"] .insecure-window-head {
 }
 
 body[data-view="mobile"] #chatgpt-usage-card {
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 body[data-view="mobile"] .usage-bars {

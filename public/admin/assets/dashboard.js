@@ -5335,7 +5335,7 @@
 
       const cards = [
         `
-          <div class="card stat-card stat-card-2026 posture-card">
+          <div class="card stat-card stat-card-2026 posture-card dashboard-equal-card dashboard-stat-card">
             <div class="stat-head">
               <span class="stat-label">Fleet posture</span>
               <span class="stat-kicker">${formatPercent(secureRatio, 0)} secure</span>
@@ -5363,7 +5363,7 @@
           </div>
         `,
         `
-          <div class="card stat-card stat-card-2026 throughput-card">
+          <div class="card stat-card stat-card-2026 throughput-card dashboard-equal-card dashboard-stat-card">
             <div class="stat-head">
               <span class="stat-label">Token throughput</span>
               <span class="stat-kicker">${formatCompactNumber(averageTokensPerHost)}/host</span>
@@ -5393,7 +5393,7 @@
           </div>
         `,
         `
-          <div class="card cost-card stat-card-2026 ${costLevelClass}">
+          <div class="card cost-card stat-card-2026 ${costLevelClass} dashboard-equal-card dashboard-stat-card">
             <div class="stat-head">
               <span class="stat-label">Spend intelligence</span>
               <span class="stat-sub cost-head-actions">
@@ -5418,7 +5418,7 @@
           </div>
         `,
         `
-          <div class="card stat-card stat-card-2026 runtime-card">
+          <div class="card stat-card stat-card-2026 runtime-card dashboard-equal-card dashboard-stat-card">
             <div class="stat-head">
               <span class="stat-label">Runtime guardrails</span>
               <span class="stat-kicker tone-${runnerTone}">${runnerToneLabel}</span>

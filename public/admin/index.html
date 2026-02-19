@@ -375,16 +375,7 @@
         </div>
 
         <!-- Dashboard -->
-        <section class="panel-set" data-panel="dashboard">
-          <section class="dashboard-overview-grid">
-            <section class="card usage-card" id="chatgpt-usage-card">
-              <div class="muted">Loading ChatGPT usage…</div>
-            </section>
-            <section class="grid metrics metrics-2026" id="stats"></section>
-            <section class="card ops-radar-card" id="dashboardRadarCard">
-              <div class="muted">Loading ops radar…</div>
-            </section>
-          </section>
+        <section class="panel-set dashboard-shell" data-panel="dashboard">
           <section class="dashboard-hero">
             <div class="dashboard-command-center">
               <div class="dashboard-hero-head">
@@ -397,6 +388,15 @@
                 <span class="signal-chip neutral">Loading fleet signals…</span>
               </div>
             </div>
+          </section>
+          <section class="dashboard-overview-grid">
+            <section class="card usage-card dashboard-equal-card" id="chatgpt-usage-card">
+              <div class="muted">Loading ChatGPT usage…</div>
+            </section>
+            <section class="card ops-radar-card dashboard-equal-card" id="dashboardRadarCard">
+              <div class="muted">Loading ops radar…</div>
+            </section>
+            <section class="grid metrics metrics-2026 dashboard-stats-grid" id="stats"></section>
           </section>
         </section>
 
