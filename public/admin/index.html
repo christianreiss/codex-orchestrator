@@ -660,15 +660,39 @@
 
         <!-- Settings -->
         <section class="panel-set" data-panel="settings" hidden>
-	          <div class="subtabs settings-tabs" role="tablist" aria-label="Settings tabs">
-	            <a class="settings-tab active" data-settings-tab="general" href="#settings/general">General</a>
-	            <a class="settings-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
-	            <a class="settings-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
-	            <a class="settings-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
-	            <a class="settings-tab" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
-	            <a class="settings-tab" data-settings-tab="skills" href="#settings/skills">Skills</a>
-	            <a class="settings-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
-	          </div>
+          <nav class="settings-mobile-nav" aria-label="Settings tabs">
+            <a class="settings-tab settings-mobile-tab active" data-settings-tab="general" href="#settings/general">General</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="#settings/skills">Skills</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
+          </nav>
+          <div class="settings-layout">
+            <aside class="settings-sidebar" aria-label="Settings sections">
+              <div class="settings-nav-group">
+                <p class="settings-group-label">Operations</p>
+                <div class="settings-nav-group-list">
+                  <a class="settings-tab settings-nav-link active" data-settings-tab="general" href="#settings/general">General</a>
+                  <a class="settings-tab settings-nav-link" data-settings-tab="agents" href="#settings/agents">Agents</a>
+                  <a class="settings-tab settings-nav-link" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
+                  <a class="settings-tab settings-nav-link" data-settings-tab="memories" href="#settings/memories">Memories</a>
+                </div>
+              </div>
+              <div class="settings-nav-group">
+                <button class="settings-nav-group-toggle" type="button" id="settingsAdvancedToggle" aria-expanded="false" aria-controls="settingsAdvancedGroup">
+                  <span>Advanced</span>
+                  <span class="settings-group-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="settings-nav-group-list is-collapsed" id="settingsAdvancedGroup" data-settings-group="advanced">
+                  <a class="settings-tab settings-nav-link" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
+                  <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="#settings/skills">Skills</a>
+                  <a class="settings-tab settings-nav-link" data-settings-tab="config" href="#settings/config">config.toml</a>
+                </div>
+              </div>
+            </aside>
+            <div class="settings-content">
           <section class="card panel settings-panel" data-settings-panel="general">
             <div class="panel-head">
               <div>
@@ -1379,6 +1403,8 @@
               </div>
             </div>
           </section>
+            </div>
+          </div>
         </section>
     </main>
   </div>

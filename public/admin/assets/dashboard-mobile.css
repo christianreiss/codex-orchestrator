@@ -275,6 +275,39 @@ body[data-view="mobile"] .settings-panel .setting-actions {
 body[data-view="mobile"] .settings-panel .setting-actions button {
   width: 100%;
 }
+body[data-view="mobile"] .settings-layout {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+body[data-view="mobile"] .settings-sidebar {
+  display: none;
+}
+body[data-view="mobile"] .settings-mobile-nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  position: sticky;
+  top: 8px;
+  z-index: 3;
+  padding: 2px 2px 8px;
+  margin-bottom: 6px;
+}
+body[data-view="mobile"] .settings-mobile-nav .settings-mobile-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+body[data-view="mobile"] .settings-mobile-nav .settings-mobile-tab.active {
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+}
+body[data-view="mobile"] .settings-content .panel:first-child {
+  margin-top: 10px;
+}
 body[data-view="mobile"] .quota-limit-head {
   flex-direction: column;
   align-items: flex-start;

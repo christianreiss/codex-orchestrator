@@ -172,6 +172,8 @@
     const insecureApprovalDeny = document.getElementById('insecureApprovalDeny');
     const insecureApprovalAllowDomain = document.getElementById('insecureApprovalAllowDomain');
     const settingsToggle = document.getElementById('settingsToggle');
+    const settingsAdvancedToggle = document.getElementById('settingsAdvancedToggle');
+    const settingsAdvancedGroup = document.getElementById('settingsAdvancedGroup');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
     const pruneWindowSlider = document.getElementById('pruneWindowSlider');
@@ -230,6 +232,7 @@
     let currentAgents = null;
     let promptsExpanded = true;
     let settingsExpanded = true;
+    let settingsAdvancedExpanded = false;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -243,6 +246,7 @@
     let skillModalMode = 'new';
     let skillEditingSlug = '';
     let skillTags = [];
+    const ADVANCED_SETTINGS_TABS = new Set(['profiles', 'skills', 'config']);
 
     const THEME_OPTIONS = ['auto', 'light', 'dark'];
     const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
@@ -1538,6 +1542,16 @@
       }
       if (settingsPanel) {
         settingsPanel.classList.toggle('settings-collapsed', !settingsExpanded);
+      }
+    }
+
+    function setSettingsAdvancedExpanded(expanded) {
+      settingsAdvancedExpanded = !!expanded;
+      if (settingsAdvancedToggle) {
+        settingsAdvancedToggle.setAttribute('aria-expanded', settingsAdvancedExpanded ? 'true' : 'false');
+      }
+      if (settingsAdvancedGroup) {
+        settingsAdvancedGroup.classList.toggle('is-collapsed', !settingsAdvancedExpanded);
       }
     }
 
@@ -7726,6 +7740,7 @@
     }
 
     setSettingsExpanded(true);
+    setSettingsAdvancedExpanded(false);
 
     function setActiveLinks(selector, match) {
       document.querySelectorAll(selector).forEach((link) => {
@@ -7855,6 +7870,9 @@
 
       if (panel === 'settings') {
         const settingsTab = sub || 'general';
+        if (ADVANCED_SETTINGS_TABS.has(settingsTab)) {
+          setSettingsAdvancedExpanded(true);
+        }
         setActiveLinks('.settings-tab', settingsTab);
         document.querySelectorAll('[data-settings-panel]').forEach((panelEl) => {
           const tab = (panelEl.dataset.settingsPanel || '').toLowerCase();
@@ -7885,6 +7903,11 @@
     if (settingsToggle) {
       settingsToggle.addEventListener('click', () => {
         setSettingsExpanded(!settingsExpanded);
+      });
+    }
+    if (settingsAdvancedToggle) {
+      settingsAdvancedToggle.addEventListener('click', () => {
+        setSettingsAdvancedExpanded(!settingsAdvancedExpanded);
       });
     }
     if (filterInput) {

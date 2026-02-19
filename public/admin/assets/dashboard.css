@@ -3842,32 +3842,121 @@ body[data-view-mode="logs"] main.main {
 .logs-main { gap: 12px; }
 .panel:last-child { margin-bottom: 0; }
 
-/* Settings tab hub */
-.settings-tabs {
+/* Settings navigation */
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-sidebar {
+  position: sticky;
+  top: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  padding: 14px;
+}
+
+.settings-content {
+  min-width: 0;
+}
+
+.settings-content .panel:first-child {
+  margin-top: 0;
+}
+
+.settings-mobile-nav {
+  display: none;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-group-label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.settings-nav-group-toggle {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   display: flex;
-  gap: 14px;
   align-items: center;
-  margin: 6px 0 12px;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.settings-nav-group-toggle:hover,
+.settings-nav-group-toggle:focus-visible {
+  border-color: var(--accent-ring);
+  box-shadow: var(--ring-muted);
+  outline: none;
+}
+
+.settings-group-chevron::before {
+  content: '▾';
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.settings-nav-group-toggle[aria-expanded="false"] .settings-group-chevron::before {
+  content: '▸';
+}
+
+.settings-nav-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.settings-nav-group-list.is-collapsed {
+  display: none;
 }
 
 .settings-tab {
-  padding: 6px 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid transparent;
   background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 650;
+  text-decoration: none;
   cursor: pointer;
 }
 
 .settings-tab:focus-visible,
 .settings-tab:hover {
   color: var(--text);
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--frost) 70%, transparent);
+  outline: none;
 }
 
 .settings-tab.active {
   color: var(--text);
-  border-color: var(--text);
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.14);
 }
 
 .settings-pane { display: none; }
