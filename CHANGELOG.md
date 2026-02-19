@@ -1,4 +1,7 @@
 # 2026-02-19
+- Admin hosts/logs: removed the same outer left/right content gutter as Settings so left rails sit flush to the viewport edge on both pages.
+- Admin logs: replaced the old top `API/MCP/Events` selector with a left-rail view selector (matching the new hosts/settings rail pattern) and kept mobile on a sticky segmented selector.
+- Admin hosts: replaced the old top `All/Secure/Insecure/Unprovisioned` selector with a left-rail filter box (matching settings rail styling) and kept mobile on a sticky segmented selector.
 - Admin settings: normalized settings-panel spacing by removing per-panel top margin inside the settings content column, aligning the main table/panel start line with the left rail.
 - Admin settings: aligned the left rail vertical start with page content by restoring a settings-specific sidebar top offset (`top: 16px`) while keeping the outer left gutter removed.
 - Admin settings: removed the remaining outer gutter in the Settings view so the left rail aligns to the browser edge (settings-only override for `.app`/`.content` spacing).

@@ -406,36 +406,48 @@
 
         <!-- Hosts -->
         <section class="panel-set" data-panel="hosts" hidden>
-          <div class="subtabs host-tabs" role="tablist" aria-label="Hosts tabs">
-            <a class="host-tab active" data-host-tab="" href="#hosts">All</a>
-            <a class="host-tab" data-host-tab="secure" href="#hosts/secure">Secure</a>
-            <a class="host-tab" data-host-tab="insecure" href="#hosts/insecure">Insecure</a>
-            <a class="host-tab" data-host-tab="unprovisioned" href="#hosts/unprovisioned">Unprovisioned</a>
+          <nav class="hosts-mobile-nav" aria-label="Hosts tabs">
+            <a class="host-tab hosts-mobile-tab active" data-host-tab="" href="#hosts">All</a>
+            <a class="host-tab hosts-mobile-tab" data-host-tab="secure" href="#hosts/secure">Secure</a>
+            <a class="host-tab hosts-mobile-tab" data-host-tab="insecure" href="#hosts/insecure">Insecure</a>
+            <a class="host-tab hosts-mobile-tab" data-host-tab="unprovisioned" href="#hosts/unprovisioned">Unprovisioned</a>
+          </nav>
+          <div class="hosts-layout">
+            <aside class="hosts-sidebar" aria-label="Host filters">
+              <div class="hosts-nav-list">
+                <a class="host-tab hosts-nav-link active" data-host-tab="" href="#hosts">All</a>
+                <a class="host-tab hosts-nav-link" data-host-tab="secure" href="#hosts/secure">Secure</a>
+                <a class="host-tab hosts-nav-link" data-host-tab="insecure" href="#hosts/insecure">Insecure</a>
+                <a class="host-tab hosts-nav-link" data-host-tab="unprovisioned" href="#hosts/unprovisioned">Unprovisioned</a>
+              </div>
+            </aside>
+            <div class="hosts-content">
+              <section class="card panel" id="hosts-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Authorized Hosts</h2>
+                  </div>
+                  <div class="panel-actions">
+                    <input type="search" id="host-filter" placeholder="Search host, status, or codex version">
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table id="hosts-table">
+                    <thead>
+                      <tr>
+                        <th data-sort-key="host"><span class="sort-link" role="button" tabindex="0" data-sort="host"><span>Host</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
+                        <th class="insecure-col">Insecure Window</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
           </div>
-          <section class="card panel" id="hosts-panel">
-            <div class="panel-head">
-              <div>
-                <h2>Authorized Hosts</h2>
-              </div>
-              <div class="panel-actions">
-                <input type="search" id="host-filter" placeholder="Search host, status, or codex version">
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table id="hosts-table">
-                <thead>
-                  <tr>
-                    <th data-sort-key="host"><span class="sort-link" role="button" tabindex="0" data-sort="host"><span>Host</span><span class="sort-indicator">↕</span></span></th>
-                    <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
-                    <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
-                    <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
-                    <th class="insecure-col">Insecure Window</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </section>
         </section>
 
         <section class="panel-set" data-panel="host-detail" hidden>
@@ -523,139 +535,150 @@
 
         <!-- Logs -->
 	        <section class="panel-set" data-panel="logs" hidden>
-	          <div class="subtabs log-tabs" role="tablist" aria-label="Logs tabs">
-	            <a class="log-tab active" data-log-tab="client" href="#logs/api">API logs</a>
-	            <a class="log-tab" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
-	            <a class="log-tab" data-log-tab="events" href="#logs/events">Events</a>
-	          </div>
-	          <section class="card panel log-panel" id="client-logs-panel">
-	            <div class="panel-head">
-	              <div>
-	                <h2>Client Reports</h2>
-                <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
-              </div>
-              <div class="panel-actions log-actions">
-                <input type="search" id="log-search" placeholder="Search host or IP">
-                <select id="log-page-size" title="Rows per page">
-                  <option value="25">25 / page</option>
-                  <option value="50" selected>50 / page</option>
-                  <option value="100">100 / page</option>
-                </select>
-                <button id="log-refresh" class="ghost tiny-btn">↻ Refresh</button>
+            <nav class="logs-mobile-nav" aria-label="Logs tabs">
+              <a class="log-tab logs-mobile-tab active" data-log-tab="client" href="#logs/api">API logs</a>
+              <a class="log-tab logs-mobile-tab" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
+              <a class="log-tab logs-mobile-tab" data-log-tab="events" href="#logs/events">Events</a>
+            </nav>
+            <div class="logs-layout">
+              <aside class="logs-sidebar" aria-label="Log views">
+                <div class="logs-nav-list">
+                  <a class="log-tab logs-nav-link active" data-log-tab="client" href="#logs/api">API logs</a>
+                  <a class="log-tab logs-nav-link" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
+                  <a class="log-tab logs-nav-link" data-log-tab="events" href="#logs/events">Events</a>
+                </div>
+              </aside>
+              <div class="logs-content">
+                <section class="card panel log-panel" id="client-logs-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Client Reports</h2>
+                      <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
+                    </div>
+                    <div class="panel-actions log-actions">
+                      <input type="search" id="log-search" placeholder="Search host or IP">
+                      <select id="log-page-size" title="Rows per page">
+                        <option value="25">25 / page</option>
+                        <option value="50" selected>50 / page</option>
+                        <option value="100">100 / page</option>
+                      </select>
+                      <button id="log-refresh" class="ghost tiny-btn">↻ Refresh</button>
+                    </div>
+                  </div>
+                  <div class="table-wrap log-table-wrap">
+                    <table id="log-table">
+                      <thead>
+                        <tr>
+                          <th class="sortable" data-sort="created_at">Time</th>
+                          <th class="sortable" data-sort="host">Host</th>
+                          <th class="sortable" data-sort="client_ip">Client IP</th>
+                          <th class="sortable" data-sort="input">Input</th>
+                          <th class="sortable" data-sort="output">Output</th>
+                          <th class="sortable" data-sort="cached">Cached</th>
+                          <th class="sortable" data-sort="reasoning">Reasoning</th>
+                          <th class="sortable" data-sort="cost">Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr class="loading-row"><td colspan="8">Loading…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="log-footer">
+                    <div id="log-status" class="muted">Loading…</div>
+                    <div class="log-pagination">
+                      <button id="page-prev" class="ghost tiny-btn">← Prev</button>
+                      <div class="page-indicator" id="page-indicator">Page 1 / 1</div>
+                      <button id="page-next" class="ghost tiny-btn">Next →</button>
+                    </div>
+                  </div>
+                </section>
+                <section class="card panel log-panel" id="mcp-logs-panel" hidden>
+                  <div class="panel-head">
+                    <div>
+                      <h2>MCP Access Logs</h2>
+                      <p class="muted" style="margin:4px 0 0;">Recent MCP access events.</p>
+                    </div>
+                    <div class="panel-actions log-actions">
+                      <button id="mcp-refresh" class="ghost tiny-btn">↻ Refresh</button>
+                    </div>
+                  </div>
+                  <div class="table-wrap log-table-wrap">
+                    <table id="mcp-log-table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Host</th>
+                          <th>Tool</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr class="loading-row"><td colspan="4">Loading…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+                <section class="card panel log-panel" id="events-logs-panel" hidden>
+                  <div class="panel-head">
+                    <div>
+                      <h2>Events / Audit Log</h2>
+                      <p class="muted" style="margin:4px 0 0;">Newest first · filter by host/action/time · copy JSON for incident tickets.</p>
+                    </div>
+                    <div class="panel-actions log-actions">
+                      <select id="event-host" title="Host filter">
+                        <option value="" selected>All hosts</option>
+                        <option value="system">System</option>
+                      </select>
+                      <input type="text" id="event-prefix" placeholder="Action prefix (e.g. admin.host.)" list="event-prefixes">
+                      <datalist id="event-prefixes">
+                        <option value="admin.host."></option>
+                        <option value="auth."></option>
+                        <option value="runner."></option>
+                        <option value="host."></option>
+                        <option value="register"></option>
+                      </datalist>
+                      <select id="event-window" title="Time window">
+                        <option value="0" selected>Any time</option>
+                        <option value="15m">Last 15 min</option>
+                        <option value="1h">Last 1 hour</option>
+                        <option value="6h">Last 6 hours</option>
+                        <option value="24h">Last 24 hours</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                      </select>
+                      <input type="search" id="event-search" placeholder="Search action, host, or details">
+                      <select id="event-limit" title="Rows to load">
+                        <option value="50">50</option>
+                        <option value="100" selected>100</option>
+                        <option value="200">200</option>
+                        <option value="500">500</option>
+                      </select>
+                      <button id="event-refresh" class="ghost tiny-btn">↻ Refresh</button>
+                    </div>
+                  </div>
+                  <div class="table-wrap log-table-wrap">
+                    <table id="event-log-table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Host</th>
+                          <th>Action</th>
+                          <th>Details</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr class="loading-row"><td colspan="5">Loading…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="log-footer">
+                    <div id="event-log-status" class="muted">Loading…</div>
+                  </div>
+                </section>
               </div>
             </div>
-            <div class="table-wrap log-table-wrap">
-              <table id="log-table">
-                <thead>
-                  <tr>
-                    <th class="sortable" data-sort="created_at">Time</th>
-                    <th class="sortable" data-sort="host">Host</th>
-                    <th class="sortable" data-sort="client_ip">Client IP</th>
-                    <th class="sortable" data-sort="input">Input</th>
-                    <th class="sortable" data-sort="output">Output</th>
-                    <th class="sortable" data-sort="cached">Cached</th>
-                    <th class="sortable" data-sort="reasoning">Reasoning</th>
-                    <th class="sortable" data-sort="cost">Cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="loading-row"><td colspan="8">Loading…</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="log-footer">
-              <div id="log-status" class="muted">Loading…</div>
-              <div class="log-pagination">
-                <button id="page-prev" class="ghost tiny-btn">← Prev</button>
-                <div class="page-indicator" id="page-indicator">Page 1 / 1</div>
-                <button id="page-next" class="ghost tiny-btn">Next →</button>
-              </div>
-            </div>
-          </section>
-          <section class="card panel log-panel" id="mcp-logs-panel" hidden>
-            <div class="panel-head">
-              <div>
-                <h2>MCP Access Logs</h2>
-                <p class="muted" style="margin:4px 0 0;">Recent MCP access events.</p>
-              </div>
-              <div class="panel-actions log-actions">
-                <button id="mcp-refresh" class="ghost tiny-btn">↻ Refresh</button>
-              </div>
-            </div>
-	            <div class="table-wrap log-table-wrap">
-	              <table id="mcp-log-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Host</th>
-                    <th>Tool</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="loading-row"><td colspan="4">Loading…</td></tr>
-                </tbody>
-	              </table>
-	            </div>
-	          </section>
-	          <section class="card panel log-panel" id="events-logs-panel" hidden>
-	            <div class="panel-head">
-	              <div>
-	                <h2>Events / Audit Log</h2>
-	                <p class="muted" style="margin:4px 0 0;">Newest first · filter by host/action/time · copy JSON for incident tickets.</p>
-	              </div>
-	              <div class="panel-actions log-actions">
-	                <select id="event-host" title="Host filter">
-	                  <option value="" selected>All hosts</option>
-	                  <option value="system">System</option>
-	                </select>
-	                <input type="text" id="event-prefix" placeholder="Action prefix (e.g. admin.host.)" list="event-prefixes">
-	                <datalist id="event-prefixes">
-	                  <option value="admin.host."></option>
-	                  <option value="auth."></option>
-	                  <option value="runner."></option>
-	                  <option value="host."></option>
-	                  <option value="register"></option>
-	                </datalist>
-	                <select id="event-window" title="Time window">
-	                  <option value="0" selected>Any time</option>
-	                  <option value="15m">Last 15 min</option>
-	                  <option value="1h">Last 1 hour</option>
-	                  <option value="6h">Last 6 hours</option>
-	                  <option value="24h">Last 24 hours</option>
-	                  <option value="7d">Last 7 days</option>
-	                  <option value="30d">Last 30 days</option>
-	                </select>
-	                <input type="search" id="event-search" placeholder="Search action, host, or details">
-	                <select id="event-limit" title="Rows to load">
-	                  <option value="50">50</option>
-	                  <option value="100" selected>100</option>
-	                  <option value="200">200</option>
-	                  <option value="500">500</option>
-	                </select>
-	                <button id="event-refresh" class="ghost tiny-btn">↻ Refresh</button>
-	              </div>
-	            </div>
-	            <div class="table-wrap log-table-wrap">
-	              <table id="event-log-table">
-	                <thead>
-	                  <tr>
-	                    <th>Time</th>
-	                    <th>Host</th>
-	                    <th>Action</th>
-	                    <th>Details</th>
-	                    <th></th>
-	                  </tr>
-	                </thead>
-	                <tbody>
-	                  <tr class="loading-row"><td colspan="5">Loading…</td></tr>
-	                </tbody>
-	              </table>
-	            </div>
-	            <div class="log-footer">
-	              <div id="event-log-status" class="muted">Loading…</div>
-	            </div>
-	          </section>
 	        </section>
 
         <!-- Settings -->
