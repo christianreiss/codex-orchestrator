@@ -386,10 +386,6 @@
           <section class="dashboard-hero">
             <div class="dashboard-command-center">
               <div class="dashboard-hero-head">
-                <div>
-                  <p class="eyebrow"><span id="dashboardMissionYear">2026</span> Mission Control</p>
-                  <h2 style="margin:0;">Fleet At A Glance</h2>
-                </div>
               </div>
               <div class="dashboard-signal-strip" id="dashboardSignalStrip">
                 <span class="signal-chip neutral">Loading fleet signals…</span>
@@ -461,6 +457,13 @@
             <div class="host-detail-layout" id="hostDetailLayout" hidden>
               <section class="host-detail-section">
                 <div class="host-detail-section-head">
+                  <p class="eyebrow">Stats</p>
+                  <h3>Current signal</h3>
+                </div>
+                <div class="host-detail-summary" id="hostDetailSummary"></div>
+              </section>
+              <section class="host-detail-section">
+                <div class="host-detail-section-head">
                   <p class="eyebrow">Action Items</p>
                   <h3>Needs attention</h3>
                 </div>
@@ -469,24 +472,17 @@
               </section>
               <section class="host-detail-section">
                 <div class="host-detail-section-head">
-                  <p class="eyebrow">Features</p>
-                  <h3>Host controls</h3>
-                </div>
-                <div class="host-detail-actions" id="hostDetailActions"></div>
-              </section>
-              <section class="host-detail-section">
-                <div class="host-detail-section-head">
-                  <p class="eyebrow">Stats</p>
-                  <h3>Current signal</h3>
-                </div>
-                <div class="host-detail-summary" id="hostDetailSummary"></div>
-              </section>
-              <section class="host-detail-section">
-                <div class="host-detail-section-head">
                   <p class="eyebrow">Infos</p>
                   <h3>Technical context</h3>
                 </div>
                 <div class="kv-grid" id="hostDetailGrid"></div>
+              </section>
+              <section class="host-detail-section">
+                <div class="host-detail-section-head">
+                  <p class="eyebrow">Features</p>
+                  <h3>Host controls</h3>
+                </div>
+                <div class="host-detail-actions" id="hostDetailActions"></div>
               </section>
             </div>
           </section>

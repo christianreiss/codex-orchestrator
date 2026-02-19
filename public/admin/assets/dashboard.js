@@ -2922,6 +2922,9 @@
     function createHostRow(host) {
       const tr = document.createElement('tr');
       const isSecure = isHostSecure(host);
+      const authSourceMarker = host.auth_source
+        ? '<span class="host-auth-source" title="Current canonical auth.json source host" aria-label="Current canonical auth.json source host">🍪</span>'
+        : '';
       const insecureStateNow = insecureState(host);
       const minutesActive = countdownMinutes(host.insecure_enabled_until);
       const minutesGrace = countdownMinutes(host.insecure_grace_until);
@@ -2948,7 +2951,7 @@
           `;
       tr.innerHTML = `
         <td data-label="Host">
-          <strong class="host-primary">${escapeHtml(host.fqdn || `Host #${host.id}`)}</strong>
+          <strong class="host-primary">${escapeHtml(host.fqdn || `Host #${host.id}`)}${authSourceMarker}</strong>
         </td>
         <td data-label="Status" class="status-cell">${statusChip}</td>
         <td data-label="Last Seen"><span class="host-secondary">${escapeHtml(lastSeenText)}</span></td>

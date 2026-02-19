@@ -624,6 +624,13 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
   font-weight: 850;
   letter-spacing: -0.01em;
   line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#hosts-table .host-auth-source {
+  font-size: 14px;
+  line-height: 1;
 }
 #hosts-table .host-secondary {
   color: var(--muted);
