@@ -703,8 +703,9 @@ print_run_exit_footer() {
 
   local usage_label="Run usage"
   local cost_label="Run cost"
+  local cost_prefix=""
   if output_supports_unicode; then
-    cost_label="💰 Run cost"
+    cost_prefix="💰 "
   fi
   local sync_label="Sync"
 
@@ -724,9 +725,9 @@ print_run_exit_footer() {
   local cost_text=""
   local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
   if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
-    cost_text="$(format_run_cost_value "${USAGE_PUSH_COST}")"
+    cost_text="${cost_prefix}$(format_run_cost_value "${USAGE_PUSH_COST}")"
   else
-    cost_text="unavailable (${cost_reason})"
+    cost_text="${cost_prefix}unavailable (${cost_reason})"
     if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
       cost_text="$(colorize "$cost_text" "red")"
     else
