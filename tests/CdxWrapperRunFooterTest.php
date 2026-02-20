@@ -43,4 +43,15 @@ final class CdxWrapperRunFooterTest extends TestCase
         self::assertStringContainsString($moneyLabel, $wrapperSource);
         self::assertStringContainsString('cost_label="Run cost"', $wrapperSource);
     }
+
+    public function testWrapperFormatsRunCostWithTwoDecimalsAndCurrencySuffix(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('format_run_cost_value() {', $wrapperSource);
+        self::assertStringContainsString('LC_NUMERIC=C printf "%.2f$" "$raw"', $wrapperSource);
+        self::assertStringContainsString('cost_text="$(format_run_cost_value "${USAGE_PUSH_COST}")"', $wrapperSource);
+    }
 }

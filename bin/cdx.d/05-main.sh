@@ -689,6 +689,15 @@ format_footer_sync_fragment() {
   printf "%s" "$text"
 }
 
+format_run_cost_value() {
+  local raw="$1"
+  if [[ "$raw" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    LC_NUMERIC=C printf "%.2f$" "$raw"
+    return
+  fi
+  printf "%s" "$raw"
+}
+
 print_run_exit_footer() {
   (( CODEX_COMMAND_STARTED )) || return 0
 
@@ -715,7 +724,7 @@ print_run_exit_footer() {
   local cost_text=""
   local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
   if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
-    cost_text="${USAGE_PUSH_COST}"
+    cost_text="$(format_run_cost_value "${USAGE_PUSH_COST}")"
   else
     cost_text="unavailable (${cost_reason})"
     if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then

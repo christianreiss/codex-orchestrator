@@ -1,3 +1,6 @@
+# 2026-02-20
+- cdx: run-footer cost display now formats `/usage` `data.cost` as two decimals with a trailing dollar sign (for example `0.43$`) on the `Run cost` line; wrapper bumped to `2026.02.20-01`.
+
 # 2026-02-19
 - Admin hosts/logs: removed the same outer left/right content gutter as Settings so left rails sit flush to the viewport edge on both pages.
 - Admin logs: replaced the old top `API/MCP/Events` selector with a left-rail view selector (matching the new hosts/settings rail pattern) and kept mobile on a sticky segmented selector.
