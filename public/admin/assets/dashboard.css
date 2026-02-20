@@ -3500,7 +3500,7 @@ body.auth-locked .nav-actions {
 
 .hosts-sidebar {
   position: sticky;
-  top: 16px;
+  top: calc(var(--nav-height, 70px) + 12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
@@ -3562,7 +3562,7 @@ body.auth-locked .nav-actions {
 
 .logs-sidebar {
   position: sticky;
-  top: 16px;
+  top: calc(var(--nav-height, 70px) + 12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
@@ -3651,7 +3651,7 @@ body[data-view-mode="settings"] .panel-set[data-panel="settings"] {
   margin: 0;
 }
 body[data-view-mode="settings"] .settings-sidebar {
-  top: 16px;
+  top: calc(var(--nav-height, 70px) + 12px);
 }
 
 /* Respect hidden panels even when layout styles apply. */
@@ -4010,7 +4010,7 @@ body[data-view-mode="logs"] main.main {
 
 .settings-sidebar {
   position: sticky;
-  top: 0;
+  top: calc(var(--nav-height, 70px) + 12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
