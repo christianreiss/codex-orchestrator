@@ -76,6 +76,18 @@
 
   const isCompactNav = () => (drawerMedia ? drawerMedia.matches : window.innerWidth <= 940);
 
+  function syncNavHeightVar() {
+    const body = document.body;
+    if (!body) return;
+    const navRect = nav.getBoundingClientRect();
+    const navHeight = Math.max(0, Math.round(navRect.height));
+    if (navHeight > 0) {
+      body.style.setProperty('--nav-height', `${navHeight}px`);
+      return;
+    }
+    body.style.removeProperty('--nav-height');
+  }
+
   let drawerOpen = false;
 
   function applyDrawerState(open) {
@@ -297,6 +309,7 @@
 
   const handleViewportChange = () => {
     applyDrawerState(false);
+    syncNavHeightVar();
     syncActiveLinks();
   };
 
@@ -310,6 +323,16 @@
     window.addEventListener('resize', handleViewportChange);
   }
 
+  if (typeof ResizeObserver === 'function') {
+    const navResizeObserver = new ResizeObserver(() => {
+      syncNavHeightVar();
+    });
+    navResizeObserver.observe(nav);
+  } else {
+    window.addEventListener('resize', syncNavHeightVar);
+  }
+
   applyDrawerState(false);
+  syncNavHeightVar();
   syncActiveLinks();
 })();

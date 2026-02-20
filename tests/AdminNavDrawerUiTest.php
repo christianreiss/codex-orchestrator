@@ -28,6 +28,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('nav-drawer-open', $js);
         $this->assertStringContainsString('navMenuToggle', $js);
         $this->assertStringContainsString('navDrawerBackdrop', $js);
+        $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
+        $this->assertStringContainsString('new ResizeObserver(() => {', $js);
         $this->assertStringContainsString("window.addEventListener('hashchange'", $js);
         $this->assertStringContainsString("attributeFilter: ['data-view-mode']", $js);
     }
