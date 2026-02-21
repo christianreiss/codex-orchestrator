@@ -494,7 +494,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.21-01"
+WRAPPER_VERSION="2026.02.21-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -744,6 +744,16 @@ Usage:
 USAGE
 }
 
+is_reserved_codex_command() {
+  local candidate="${1-}"
+  case "$candidate" in
+    exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 if [[ "${1-}" == "lane" ]]; then
   CODEX_LANE_COMMAND=1
   CODEX_LANE_SHOW_ONLY=1
@@ -903,8 +913,10 @@ if (( CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )) && (( $# > 0 )); then
 fi
 
 if [[ -n "${1-}" && "${1-}" != -* ]]; then
-  CODEX_PROFILE_CANDIDATE="$1"
-  shift
+  if ! is_reserved_codex_command "${1-}"; then
+    CODEX_PROFILE_CANDIDATE="$1"
+    shift
+  fi
 fi
 
 if (( ! IS_ROOT )) && (( CAN_SUDO == 0 )); then

@@ -149,6 +149,7 @@ cdx -4
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
+Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `resume`, `fork`, `cloud`, `features`, `help`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
 
 ### Where files land
 

@@ -46,6 +46,13 @@ The builder also supports a small set of `cdx` wrapper toggles under a `[securit
 
 - `dangerously_bypass_approvals_and_sandbox` — when `true`, `cdx` adds `--dangerously-bypass-approvals-and-sandbox` to the Codex CLI invocation. This disables safety guardrails; keep it off by default.
 
+## Approval policy values
+
+`approval_policy` should use `untrusted`, `on-request`, or `never`.
+
+- Legacy `on-failure` inputs are accepted for backward compatibility but normalized to `on-request` on render/store.
+- The admin UI intentionally omits `on-failure` because upstream Codex marks it deprecated.
+
 ## Web search toggle
 
 `web_search` controls web search tool calls and is rendered at the root of `config.toml` (not under `[features]`): `live`, `cached`, or `disabled`. Legacy configs using `features.web_search_request` or `features.web_search` are normalized to the root field on save.

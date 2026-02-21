@@ -437,7 +437,7 @@ class ClientConfigService
             'model_provider' => $normalizeString($settings['model_provider'] ?? null),
             'local_provider' => $normalizeString($settings['local_provider'] ?? null),
             'profile' => $normalizeString($settings['profile'] ?? null),
-            'approval_policy' => $normalizeString($settings['approval_policy'] ?? null),
+            'approval_policy' => $this->normalizeApprovalPolicy($settings['approval_policy'] ?? null),
             'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
             'security' => [
                 'dangerously_bypass_approvals_and_sandbox' => $normalizeBool(
@@ -590,7 +590,7 @@ class ClientConfigService
             $profiles[] = [
                 'name' => $name,
                 'model' => $profileModel,
-                'approval_policy' => $normalizeString($entry['approval_policy'] ?? null),
+                'approval_policy' => $this->normalizeApprovalPolicy($entry['approval_policy'] ?? null),
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
                 'web_search' => $profileWebSearch,
                 'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
@@ -1027,6 +1027,20 @@ class ClientConfigService
         }
 
         return null;
+    }
+
+    private function normalizeApprovalPolicy(mixed $value): ?string
+    {
+        $normalized = $this->normalizeString($value);
+        if ($normalized === null) {
+            return null;
+        }
+
+        if (strtolower($normalized) === 'on-failure') {
+            return 'on-request';
+        }
+
+        return $normalized;
     }
 
     private function normalizeReasoningSummary(mixed $value, ?string $model = null): ?string

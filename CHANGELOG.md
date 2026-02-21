@@ -1,4 +1,6 @@
 # 2026-02-21
+- cdx/config: reserved Codex top-level subcommands from profile shorthand so `cdx cloud|features|...` always passes through to Codex (explicit `--profile <name>` still works for colliding profile names); wrapper bumped to `2026.02.21-02`.
+- Config builder: removed deprecated `approval_policy=on-failure` from admin UI and added server-side normalization that auto-migrates stored/rendered root/profile approval policy values from `on-failure` to `on-request`.
 - cdx: fixed wrapper self-update restart on macOS/legacy Linux by guarding empty original argv under `set -u` (preserves original args when present, falls back to no-arg re-exec when empty, and hardens lock metadata argv formatting); wrapper bumped to `2026.02.21-01`.
 
 # 2026-02-20

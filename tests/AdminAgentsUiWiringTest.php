@@ -107,6 +107,16 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="featureExperimentalWindowsSandbox"', $html);
     }
 
+    public function testAdminConfigBuilderApprovalPolicyOmitsDeprecatedOnFailure(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="approvalPolicyInput"', $html);
+        $this->assertStringNotContainsString('<option value="on-failure">on-failure</option>', $html);
+        $this->assertStringContainsString('auto-migrated to <code>on-request</code>', $html);
+    }
+
     public function testQuickInsecureHostsStylesIncludeOnlineSubline(): void
     {
         $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');

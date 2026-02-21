@@ -135,6 +135,34 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('web_search', $rendered['settings']['features']);
     }
 
+    public function testDeprecatedApprovalPolicyOnFailureMigratesToOnRequest(): void
+    {
+        $rendered = $this->service->render([
+            'approval_policy' => 'on-failure',
+        ]);
+
+        $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
+        $this->assertSame('on-request', $rendered['settings']['approval_policy']);
+        $this->assertStringNotContainsString('approval_policy = "on-failure"', $rendered['content']);
+    }
+
+    public function testDeprecatedProfileApprovalPolicyOnFailureMigratesToOnRequest(): void
+    {
+        $rendered = $this->service->render([
+            'profiles' => [
+                [
+                    'name' => 'legacy',
+                    'approval_policy' => 'on-failure',
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString('[profiles.legacy]', $rendered['content']);
+        $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
+        $this->assertSame('on-request', $rendered['settings']['profiles'][0]['approval_policy']);
+        $this->assertStringNotContainsString('approval_policy = "on-failure"', $rendered['content']);
+    }
+
     public function testSteerDefaultsToTrueAndCanDisable(): void
     {
         $renderedDefault = $this->service->render([]);
