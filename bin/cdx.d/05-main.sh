@@ -41,7 +41,7 @@ fi
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
   if (( CDX_RUN_GUARD_WARNING_EMITTED == 0 )); then
-    log_warn "${concurrent_reason}; skipping sync/update mutations for this run. Use --allow-concurrent-sync to override."
+    log_warn "${concurrent_reason}; skipping pre-run sync/update mutations for this run. Post-run auth/usage upload still runs. Use --allow-concurrent-sync to override."
     CDX_RUN_GUARD_WARNING_EMITTED=1
   fi
   AUTH_PULL_STATUS="concurrent"
@@ -54,7 +54,7 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   AGENTS_SYNC_REASON="active-run"
   CONFIG_SYNC_STATUS="skip"
   CONFIG_SYNC_REASON="active-run"
-  # Keep concurrent mode non-mutating, but refresh quota/policy metadata.
+  # Keep concurrent mode non-mutating for pre-run sync/update work, but refresh quota/policy metadata.
   load_sync_config
   if command -v python3 >/dev/null 2>&1 && [[ -n "$CODEX_SYNC_API_KEY" && -n "$CODEX_SYNC_BASE_URL" ]]; then
     sync_auth_with_api "pull-readonly" "1" || true
@@ -1413,7 +1413,7 @@ print_doctor_report() {
       hints+=("API is offline; cached auth may work temporarily but sync/push is limited.")
       ;;
     concurrent)
-      hints+=("Another cdx process is active; this run skips sync/update mutations unless --allow-concurrent-sync is passed.")
+      hints+=("Another cdx process is active; this run skips pre-run sync/update mutations unless --allow-concurrent-sync is passed.")
       ;;
   esac
 
@@ -2900,15 +2900,12 @@ fi
 cleanup() {
   local exit_status=$?
   trap - EXIT
-  if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
-    AUTH_PUSH_RESULT="skipped"
-    AUTH_PUSH_REASON="active cdx run"
-  else
+  if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     push_slash_commands_if_changed || true
     push_skills_if_changed || true
-    if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
-      push_auth_if_changed "push" || true
-    fi
+  fi
+  if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
+    push_auth_if_changed "push" || true
   fi
   if (( PURGE_AUTH_AFTER_RUN )) && (( CODEX_COMMAND_STARTED )) && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ -f "$HOME/.codex/auth.json" ]]; then
     remove_path "$HOME/.codex/auth.json" "auth.json (insecure host)"
@@ -3205,10 +3202,5 @@ if run_codex_command "$@"; then
 else
   cmd_status=$?
 fi
-if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
-  AUTH_PUSH_RESULT="skipped"
-  AUTH_PUSH_REASON="active cdx run"
-else
-  push_auth_if_changed "push" || true
-fi
+push_auth_if_changed "push" || true
 exit "$cmd_status"

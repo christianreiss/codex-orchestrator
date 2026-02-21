@@ -24,11 +24,12 @@ final class CdxWrapperConcurrentGuardTest extends TestCase
 
         self::assertStringContainsString('acquire_run_lock_or_mark_concurrent', $wrapperSource);
         self::assertStringContainsString('AUTH_PULL_STATUS="concurrent"', $wrapperSource);
-        self::assertStringContainsString('skipping sync/update mutations for this run', $wrapperSource);
+        self::assertStringContainsString('skipping pre-run sync/update mutations for this run', $wrapperSource);
         self::assertStringContainsString('sync_auth_with_api "pull-readonly" "1"', $wrapperSource);
         self::assertStringContainsString('CODEX_SYNC_READ_ONLY="$read_only"', $wrapperSource);
         self::assertStringContainsString('if (( read_only == 0 )) && [[ -f "$auth_path" ]]', $wrapperSource);
-        self::assertStringContainsString('AUTH_PUSH_REASON="active cdx run"', $wrapperSource);
+        self::assertStringContainsString('push_auth_if_changed "push" || true', $wrapperSource);
+        self::assertStringNotContainsString('AUTH_PUSH_REASON="active cdx run"', $wrapperSource);
     }
 
     public function testConcurrentAuthBranchUsesLocalValidation(): void

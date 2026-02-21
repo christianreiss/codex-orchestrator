@@ -26,6 +26,7 @@
   let featureRmcpClient;
   let featureWebSearch;
   let featureViewImage;
+  let featureMultiAgent;
   let featureSandboxAssessment;
   let featureGhostCommit;
   let featureExperimentalWindowsSandbox;
@@ -154,6 +155,7 @@
         unified_exec: false,
         rmcp_client: false,
         view_image_tool: false,
+        multi_agent: true,
         experimental_sandbox_command_assessment: false,
         ghost_commit: false,
         experimental_windows_sandbox: false,
@@ -423,6 +425,7 @@
       unified_exec: featureUnifiedExec.checked,
       rmcp_client: featureRmcpClient.checked,
       view_image_tool: featureViewImage.checked,
+      multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
       experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
       ghost_commit: featureGhostCommit.checked,
       experimental_windows_sandbox: featureExperimentalWindowsSandbox.checked,
@@ -539,6 +542,9 @@
       : (typeof cfg.features?.web_search === 'string' ? cfg.features.web_search : (legacyWebSearch ? 'live' : 'disabled'));
     setSelectValue(featureWebSearch, webSearchValue || 'disabled');
     featureViewImage.checked = cfg.features?.view_image_tool !== false;
+    if (featureMultiAgent) {
+      featureMultiAgent.checked = cfg.features?.multi_agent !== false;
+    }
     featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
     featureGhostCommit.checked = Boolean(cfg.features?.ghost_commit);
     featureExperimentalWindowsSandbox.checked = Boolean(
@@ -552,6 +558,7 @@
     delete featureExtras.web_search_request;
     delete featureExtras.web_search;
     delete featureExtras.view_image_tool;
+    delete featureExtras.multi_agent;
     delete featureExtras.experimental_sandbox_command_assessment;
     delete featureExtras.ghost_commit;
     delete featureExtras.experimental_windows_sandbox;
@@ -863,6 +870,7 @@
     featureRmcpClient = document.getElementById('featureRmcpClient');
     featureWebSearch = document.getElementById('featureWebSearch');
     featureViewImage = document.getElementById('featureViewImage');
+    featureMultiAgent = document.getElementById('featureMultiAgent');
     featureSandboxAssessment = document.getElementById('featureSandboxAssessment');
     featureGhostCommit = document.getElementById('featureGhostCommit');
     featureExperimentalWindowsSandbox = document.getElementById('featureExperimentalWindowsSandbox');

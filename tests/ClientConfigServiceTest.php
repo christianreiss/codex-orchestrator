@@ -167,11 +167,29 @@ final class ClientConfigServiceTest extends TestCase
     {
         $renderedDefault = $this->service->render([]);
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
+        $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
         $this->assertStringContainsString('steer = true', $renderedDefault['content']);
 
         $renderedDisabled = $this->service->render(['steer' => false]);
         $this->assertStringContainsString('[features]', $renderedDisabled['content']);
         $this->assertStringContainsString('steer = false', $renderedDisabled['content']);
+    }
+
+    public function testMultiAgentDefaultsToTrueAndCanDisable(): void
+    {
+        $renderedDefault = $this->service->render([]);
+        $this->assertStringContainsString('[features]', $renderedDefault['content']);
+        $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
+
+        $renderedDisabled = $this->service->render([
+            'features' => [
+                'multi_agent' => false,
+            ],
+        ]);
+        $this->assertStringContainsString('[features]', $renderedDisabled['content']);
+        $this->assertStringContainsString('multi_agent = false', $renderedDisabled['content']);
+        $this->assertSame(false, $renderedDisabled['settings']['features']['multi_agent']);
     }
 
     public function testReasoningSummaryAutoPassesThrough(): void

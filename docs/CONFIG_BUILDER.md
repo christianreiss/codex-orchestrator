@@ -35,6 +35,7 @@ The config builder exposes the currently supported experimental feature flags un
 - `unified_exec` — use the unified PTY-backed exec tool.
 - `rmcp_client` — enable OAuth for streamable HTTP MCP servers.
 - `view_image_tool` — enable image input tooling for supported clients.
+- `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
 - `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
 - `ghost_commit` — create a ghost commit on each turn.
 - `experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.

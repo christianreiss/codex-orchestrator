@@ -531,6 +531,9 @@ class ClientConfigService
         if (array_key_exists('steer', $features)) {
             $result['steer'] = $features['steer'];
         }
+        if (!array_key_exists('multi_agent', $features)) {
+            $features['multi_agent'] = true;
+        }
         $features['steer'] = $result['steer'];
         $result['features'] = $features;
 
