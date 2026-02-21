@@ -494,7 +494,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.20-02"
+WRAPPER_VERSION="2026.02.21-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -590,9 +590,11 @@ write_run_lock_metadata() {
 
   local started_at
   started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)"
-  local argv_text
-  argv_text="$(printf '%q ' "${CODEX_ORIGINAL_ARGS[@]}")"
-  argv_text="${argv_text% }"
+  local argv_text=""
+  if declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1 && (( ${#CODEX_ORIGINAL_ARGS[@]} > 0 )); then
+    argv_text="$(printf '%q ' "${CODEX_ORIGINAL_ARGS[@]}")"
+    argv_text="${argv_text% }"
+  fi
   local tmp="${CDX_RUN_LOCK_META_PATH}.$$.$RANDOM.tmp"
   {
     printf 'pid=%s\n' "$$"
@@ -7248,7 +7250,10 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS
     CODEX_ORIGINAL_ARGS=()
   fi
   release_run_lock_if_held || true
-  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
+  if (( ${#CODEX_ORIGINAL_ARGS[@]} > 0 )); then
+    CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
+  fi
+  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL"
 fi
 
 AUTH_LAUNCH_ALLOWED=0

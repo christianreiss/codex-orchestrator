@@ -1,3 +1,6 @@
+# 2026-02-21
+- cdx: fixed wrapper self-update restart on macOS/legacy Linux by guarding empty original argv under `set -u` (preserves original args when present, falls back to no-arg re-exec when empty, and hardens lock metadata argv formatting); wrapper bumped to `2026.02.21-01`.
+
 # 2026-02-20
 - cdx: fixed run-footer column alignment by keeping the `Run cost` label ASCII-only and moving the Unicode `💰` marker into the cost value text; wrapper bumped to `2026.02.20-02`.
 - Admin hosts/logs/settings: left-rail menus now use a nav-height-aware sticky top offset so they remain below the main header bar while scrolling.

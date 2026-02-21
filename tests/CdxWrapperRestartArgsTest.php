@@ -22,6 +22,11 @@ final class CdxWrapperRestartArgsTest extends TestCase
             $wrapperSource,
             'Wrapper self-update restart should re-exec using the original argv so `cdx resume` survives.'
         );
+        self::assertMatchesRegularExpression(
+            '/if \\(\\( \\$\\{#CODEX_ORIGINAL_ARGS\\[@\\]\\} > 0 \\)\\); then\\s+CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "\\$SCRIPT_REAL" "\\$\\{CODEX_ORIGINAL_ARGS\\[@\\]\\}"\\s+fi\\s+CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "\\$SCRIPT_REAL"/',
+            $wrapperSource,
+            'Wrapper self-update restart should fall back to a no-arg re-exec when original argv is empty (bash 3/legacy nounset safety).'
+        );
         self::assertStringNotContainsString(
             'exec "$SCRIPT_REAL" "$@"',
             $wrapperSource,
