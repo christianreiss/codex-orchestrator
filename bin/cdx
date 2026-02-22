@@ -494,7 +494,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.21-03"
+WRAPPER_VERSION="2026.02.22-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -542,29 +542,39 @@ sanitize_lock_token() {
 }
 
 compute_run_lock_scope_key() {
+  local base_scope=""
   local installation="${CODEX_INSTALLATION_ID:-}"
   if [[ -n "$installation" ]]; then
-    printf '%s' "$(sanitize_lock_token "$installation")"
-    return 0
+    base_scope="$(sanitize_lock_token "$installation")"
+  else
+    local raw="${CODEX_SYNC_BASE_URL_DEFAULT:-${CODEX_SYNC_BASE_URL:-}}|${CODEX_SYNC_FQDN:-none}"
+    local digest=""
+    if command -v sha256sum >/dev/null 2>&1; then
+      digest="$(printf '%s' "$raw" | sha256sum | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+      digest="$(printf '%s' "$raw" | shasum -a 256 | awk '{print $1}')"
+    elif command -v cksum >/dev/null 2>&1; then
+      digest="$(printf '%s' "$raw" | cksum | awk '{print $1}')"
+    else
+      digest="$raw"
+    fi
+    digest="${digest:0:16}"
+    base_scope="$(sanitize_lock_token "scope-${digest}")"
   fi
 
-  local raw="${CODEX_SYNC_BASE_URL_DEFAULT:-${CODEX_SYNC_BASE_URL:-}}|${CODEX_SYNC_FQDN:-none}"
-  local digest=""
-  if command -v sha256sum >/dev/null 2>&1; then
-    digest="$(printf '%s' "$raw" | sha256sum | awk '{print $1}')"
-  elif command -v shasum >/dev/null 2>&1; then
-    digest="$(printf '%s' "$raw" | shasum -a 256 | awk '{print $1}')"
-  elif command -v cksum >/dev/null 2>&1; then
-    digest="$(printf '%s' "$raw" | cksum | awk '{print $1}')"
+  local uid=""
+  uid="$(id -u 2>/dev/null || true)"
+  local user_scope=""
+  if [[ "$uid" =~ ^[0-9]+$ ]]; then
+    user_scope="u${uid}"
   else
-    digest="$raw"
+    user_scope="user-$(sanitize_lock_token "$CURRENT_USER")"
   fi
-  digest="${digest:0:16}"
-  printf '%s' "$(sanitize_lock_token "scope-${digest}")"
+  printf '%s' "$(sanitize_lock_token "${base_scope}-${user_scope}")"
 }
 
 select_run_lock_dir() {
-  # Use a shared writable location across users so host-wide contention works.
+  # Use shared temp locations; lock scope is per-user to avoid cross-user lock collisions.
   local candidates=("/tmp" "/var/tmp")
   local dir=""
   for dir in "${candidates[@]}"; do

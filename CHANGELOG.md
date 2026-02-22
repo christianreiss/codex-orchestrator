@@ -1,6 +1,7 @@
 # 2026-02-22
 - Installer: `curl .../install/<token> | bash` now ends with a compact post-install quickstart block (`cdx --version`, first `cdx` sync/auth run, and `cdx --execute` example) so hosts get immediate usage guidance at install completion.
 - Host registration: insecure `POST /admin/hosts/register` now accepts optional `duration_minutes` (0–480) so newly created/rotated insecure hosts can immediately use the configured allow-window duration instead of always starting from the fixed 30-minute default; admin New Host now sends the current Insecure Host Window slider value and cache-bumps the dashboard asset version.
+- cdx: run-lock scope now appends the caller UID (`<installation-or-api-scope>-u<uid>`) so stale root-owned files in `/tmp` do not disable concurrent-guard locking for non-root users on shared hosts; wrapper bumped to `2026.02.22-01`.
 
 # 2026-02-21
 - cdx: concurrent-guard runs now still push changed `auth.json` at exit and still report token usage to `/usage`; guard messaging now clarifies only pre-run sync/update mutations are skipped. Wrapper bumped to `2026.02.21-03`.
