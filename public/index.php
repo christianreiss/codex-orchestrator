@@ -779,7 +779,32 @@ $router->add('POST', '#^/admin/hosts/register$#', function () use ($payload, $se
         }
     }
 
-    $hostPayload = $service->register($fqdn, $secure);
+    $durationMinutes = null;
+    if (array_key_exists('duration_minutes', $payload)) {
+        $durationRaw = $payload['duration_minutes'];
+        if ($durationRaw !== null && $durationRaw !== '') {
+            if (!is_numeric($durationRaw) || (int) $durationRaw != (float) $durationRaw) {
+                Response::json([
+                    'status' => 'error',
+                    'message' => 'duration_minutes must be an integer',
+                ], 422);
+            }
+
+            $durationMinutes = (int) $durationRaw;
+            if ($durationMinutes < AuthService::MIN_INSECURE_WINDOW_MINUTES || $durationMinutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
+                Response::json([
+                    'status' => 'error',
+                    'message' => sprintf(
+                        'duration_minutes must be between %d and %d',
+                        AuthService::MIN_INSECURE_WINDOW_MINUTES,
+                        AuthService::MAX_INSECURE_WINDOW_MINUTES
+                    ),
+                ], 422);
+            }
+        }
+    }
+
+    $hostPayload = $service->register($fqdn, $secure, $durationMinutes);
     $host = $hostRepository->findByFqdn($fqdn);
     if (!$host) {
         Response::json([

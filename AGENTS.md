@@ -35,7 +35,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 ## Request Flow & Behavior Cheatsheet
 
 1. **Provision → install**
-   - `POST /admin/hosts/register` mints/rotates API keys, hashes + secretbox-encrypts them, issues one pending installer token, and opens a 30-minute provisioning window if `secure=false`.
+   - `POST /admin/hosts/register` mints/rotates API keys, hashes + secretbox-encrypts them, issues one pending installer token, and opens an insecure provisioning window if `secure=false` (default 30 minutes, or `duration_minutes` when provided).
    - `GET /install/{token}` emits the `cdx` installer (single-use token, base URL baked from `PUBLIC_BASE_URL` or forwarded Host/proto). Missing/expired tokens return `text/x-shellscript` errors.
 
 2. **`/auth` retrieve/store**

@@ -147,6 +147,26 @@ final class AuthServiceRegisterApiKeyTest extends TestCase
         self::assertSame($payload['api_key'], $decrypted);
     }
 
+    public function testRegisterInsecureHonorsProvidedInitialWindowDuration(): void
+    {
+        $before = time();
+        $payload = $this->service->register('insecure-custom.test', false, 45);
+        $after = time();
+
+        self::assertSame('insecure-custom.test', $payload['fqdn']);
+        self::assertFalse($payload['secure']);
+        self::assertSame(45, $payload['insecure_window_minutes']);
+
+        $enabledTs = strtotime((string) $payload['insecure_enabled_until']);
+        self::assertNotFalse($enabledTs);
+        self::assertGreaterThanOrEqual($before + (45 * 60), $enabledTs);
+        self::assertLessThanOrEqual($after + (45 * 60), $enabledTs);
+
+        $hostRow = $this->hosts->findByFqdn('insecure-custom.test');
+        self::assertNotNull($hostRow);
+        self::assertSame(45, (int) ($hostRow['insecure_window_minutes'] ?? -1));
+    }
+
     private function fakeDatabase(PDO $pdo): Database
     {
         $reflection = new ReflectionClass(Database::class);

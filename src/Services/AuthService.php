@@ -88,7 +88,7 @@ class AuthService
         $this->runnerPreflightIntervalSeconds = $configuredInterval > 0 ? $configuredInterval : self::RUNNER_PREFLIGHT_INTERVAL_SECONDS;
     }
 
-    public function register(string $fqdn, bool $secure = true): array
+    public function register(string $fqdn, bool $secure = true, ?int $insecureWindowMinutes = null): array
     {
         $this->pruneInactiveHosts();
 
@@ -111,7 +111,7 @@ class AuthService
             $apiKey = bin2hex(random_bytes(32));
             $host = $this->hosts->rotateApiKey((int) $existing['id'], $apiKey);
             if (!$secure) {
-                $this->openInitialInsecureWindow((int) $existing['id']);
+                $this->openInitialInsecureWindow((int) $existing['id'], $insecureWindowMinutes);
                 $host = $this->hosts->findById((int) $existing['id']) ?? $host;
             }
             if ($host !== null) {
@@ -127,7 +127,7 @@ class AuthService
         $apiKey = bin2hex(random_bytes(32));
         $host = $this->hosts->create($fqdn, $apiKey, $secure);
         if (!$secure && isset($host['id'])) {
-            $this->openInitialInsecureWindow((int) $host['id']);
+            $this->openInitialInsecureWindow((int) $host['id'], $insecureWindowMinutes);
             $host = $this->hosts->findById((int) $host['id']) ?? $host;
         }
         $host['api_key_plain'] = $apiKey;
@@ -2286,13 +2286,23 @@ class AuthService
         return substr($fqdn, -$suffixLength) === $suffix;
     }
 
-    private function openInitialInsecureWindow(int $hostId): void
+    private function openInitialInsecureWindow(int $hostId, ?int $windowMinutes = null): void
     {
-        $initialUntil = gmdate(DATE_ATOM, time() + (self::PROVISIONING_WINDOW_MINUTES * 60));
-        $graceUntil = $this->resolveInsecureGraceUntil($initialUntil, self::DEFAULT_INSECURE_WINDOW_MINUTES);
-        $this->hosts->updateInsecureWindows($hostId, $initialUntil, $graceUntil, self::DEFAULT_INSECURE_WINDOW_MINUTES);
+        $initialWindowMinutes = self::PROVISIONING_WINDOW_MINUTES;
+        $storedWindowMinutes = self::DEFAULT_INSECURE_WINDOW_MINUTES;
+        if ($windowMinutes !== null) {
+            $normalizedWindow = $this->normalizeInsecureWindowMinutes($windowMinutes);
+            $initialWindowMinutes = $normalizedWindow;
+            $storedWindowMinutes = $normalizedWindow;
+        }
+
+        $initialUntil = gmdate(DATE_ATOM, time() + ($initialWindowMinutes * 60));
+        $graceUntil = $this->resolveInsecureGraceUntil($initialUntil, $storedWindowMinutes);
+        $this->hosts->updateInsecureWindows($hostId, $initialUntil, $graceUntil, $storedWindowMinutes);
         $this->logs->log($hostId, 'auth.insecure.initial_window', [
             'enabled_until' => $initialUntil,
+            'window_minutes' => $initialWindowMinutes,
+            'stored_window_minutes' => $storedWindowMinutes,
         ]);
     }
 

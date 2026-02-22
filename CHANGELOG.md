@@ -1,3 +1,6 @@
+# 2026-02-22
+- Host registration: insecure `POST /admin/hosts/register` now accepts optional `duration_minutes` (0–480) so newly created/rotated insecure hosts can immediately use the configured allow-window duration instead of always starting from the fixed 30-minute default; admin New Host now sends the current Insecure Host Window slider value and cache-bumps the dashboard asset version.
+
 # 2026-02-21
 - cdx: concurrent-guard runs now still push changed `auth.json` at exit and still report token usage to `/usage`; guard messaging now clarifies only pre-run sync/update mutations are skipped. Wrapper bumped to `2026.02.21-03`.
 - Admin config builder: added a `Multi-agents` feature toggle and defaulted `[features].multi_agent = true` in rendered/normalized `config.toml`; cache-bumped `config.js` asset version.

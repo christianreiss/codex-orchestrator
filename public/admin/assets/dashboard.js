@@ -8433,6 +8433,17 @@
       const secure = secureHostToggle ? secureHostToggle.checked : true;
       const vip = vipToggle ? vipToggle.checked : false;
       const temporary = temporaryHostToggle ? temporaryHostToggle.checked : false;
+      const registerPayload = {
+        fqdn: targetFqdn,
+        host_id: hostId ?? undefined,
+        secure,
+        vip,
+        temporary: !!temporary,
+        curl_insecure: insecureToggle ? !!insecureToggle.checked : undefined,
+      };
+      if (!secure) {
+        registerPayload.duration_minutes = insecureWindowMinutes;
+      }
       if (createHostBtn) {
         createHostBtn.disabled = true;
         createHostBtn.textContent = 'Generating…';
@@ -8440,7 +8451,7 @@
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
-          json: { fqdn: targetFqdn, host_id: hostId ?? undefined, secure, vip, temporary: !!temporary, curl_insecure: insecureToggle ? !!insecureToggle.checked : undefined },
+          json: registerPayload,
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
