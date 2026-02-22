@@ -1,0 +1,92 @@
+{
+  "status": "ok",
+  "data": {
+    "status": "update",
+    "reasons": [
+      "slash_commands_changed",
+      "skills_changed",
+      "auth_stored"
+    ],
+    "slash_commands": {
+      "status": "updated",
+      "changed_count": 2,
+      "updated_count": 1,
+      "removed_count": 1,
+      "remote_count": 2,
+      "local_count": 2,
+      "remote": [
+        {
+          "filename": "deploy.md",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deleted_at": null
+        },
+        {
+          "filename": "legacy.md",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "deleted_at": "2026-02-22T11:50:00Z"
+        }
+      ],
+      "changed": [
+        {
+          "filename": "deploy.md",
+          "status": "updated",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt": "# Deploy"
+        },
+        {
+          "filename": "legacy.md",
+          "status": "deleted",
+          "deleted_at": "2026-02-22T11:50:00Z"
+        }
+      ]
+    },
+    "skills": {
+      "status": "updated",
+      "changed_count": 1,
+      "updated_count": 1,
+      "removed_count": 0,
+      "remote_count": 1,
+      "local_count": 1,
+      "remote": [
+        {
+          "slug": "docker-restart",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "deleted_at": null
+        }
+      ],
+      "changed": [
+        {
+          "slug": "docker-restart",
+          "status": "updated",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "manifest": "# SKILL"
+        }
+      ]
+    },
+    "agents": {
+      "status": "updated",
+      "changed": true,
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "content": "AGENTS.md body"
+    },
+    "config": {
+      "status": "updated",
+      "changed": true,
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "base_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "content": "model = \"gpt-5.3-codex\""
+    },
+    "auth": {
+      "status": "updated",
+      "versions": {
+        "client_version": "0.61.0"
+      }
+    },
+    "host_users": [
+      {
+        "username": "chris",
+        "hostname": "devbox"
+      }
+    ]
+  }
+}

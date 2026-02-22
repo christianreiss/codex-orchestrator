@@ -1,0 +1,27 @@
+{
+  "status": "ok",
+  "data": {
+    "status": "update",
+    "reasons": [],
+    "slash_commands": {
+      "status": "updated",
+      "changed_count": 1,
+      "remote": [],
+      "changed": []
+    },
+    "skills": {
+      "status": "updated",
+      "changed_count": 1,
+      "remote": [],
+      "changed": []
+    },
+    "agents": {
+      "status": "updated",
+      "changed": true
+    },
+    "config": {
+      "status": "updated",
+      "changed": true
+    }
+  }
+}

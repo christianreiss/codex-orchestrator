@@ -64,10 +64,12 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
 else
   # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
   sync_auth_with_api "pull" || true
-  sync_slash_commands_pull || true
-  sync_skills_pull || true
-  sync_agents_pull || true
-  sync_config_pull || true
+  if ! sync_startup_bundle_pull; then
+    sync_slash_commands_pull || true
+    sync_skills_pull || true
+    sync_agents_pull || true
+    sync_config_pull || true
+  fi
 fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 LOCAL_AUTH_IS_FRESH=0
@@ -438,4 +440,3 @@ if (( CODEX_EXIT_AFTER_UPDATE )); then
   log_warn "Wrapper update not attempted (status ${wrapper_status_label})."
   exit 1
 fi
-

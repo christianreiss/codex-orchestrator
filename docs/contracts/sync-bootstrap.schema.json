@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /sync/bootstrap response",
+  "type": "object",
+  "required": [
+    "status",
+    "data"
+  ],
+  "properties": {
+    "status": {
+      "const": "ok"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "status",
+        "reasons",
+        "slash_commands",
+        "skills",
+        "agents",
+        "config",
+        "host_users"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "update"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "slash_commands": {
+          "type": "object",
+          "required": [
+            "status",
+            "changed_count",
+            "remote",
+            "changed"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "unchanged",
+                "updated"
+              ]
+            },
+            "changed_count": {
+              "type": "integer"
+            },
+            "remote": {
+              "type": "array"
+            },
+            "changed": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": true
+        },
+        "skills": {
+          "type": "object",
+          "required": [
+            "status",
+            "changed_count",
+            "remote",
+            "changed"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "unchanged",
+                "updated"
+              ]
+            },
+            "changed_count": {
+              "type": "integer"
+            },
+            "remote": {
+              "type": "array"
+            },
+            "changed": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": true
+        },
+        "agents": {
+          "type": "object",
+          "required": [
+            "status",
+            "changed"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "missing",
+                "unchanged",
+                "updated"
+              ]
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "content": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "config": {
+          "type": "object",
+          "required": [
+            "status",
+            "changed"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "missing",
+                "unchanged",
+                "updated"
+              ]
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "content": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "host_users": {
+          "type": "array"
+        },
+        "auth": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

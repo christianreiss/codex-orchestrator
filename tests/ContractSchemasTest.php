@@ -76,6 +76,14 @@ final class ContractSchemasTest extends TestCase
                 __DIR__ . '/../docs/contracts/usage-ingest.schema.json',
                 __DIR__ . '/contracts/fixtures/usage-ingest/valid-degraded.json',
             ],
+            'sync status unchanged' => [
+                __DIR__ . '/../docs/contracts/sync-status.schema.json',
+                __DIR__ . '/contracts/fixtures/sync-status/valid-unchanged.json',
+            ],
+            'sync bootstrap updated' => [
+                __DIR__ . '/../docs/contracts/sync-bootstrap.schema.json',
+                __DIR__ . '/contracts/fixtures/sync-bootstrap/valid-updated.json',
+            ],
         ];
     }
 
@@ -101,6 +109,14 @@ final class ContractSchemasTest extends TestCase
                 __DIR__ . '/../docs/contracts/usage-ingest.schema.json',
                 __DIR__ . '/contracts/fixtures/usage-ingest/invalid-success-missing-usages.json',
             ],
+            'sync status missing components' => [
+                __DIR__ . '/../docs/contracts/sync-status.schema.json',
+                __DIR__ . '/contracts/fixtures/sync-status/invalid-missing-components.json',
+            ],
+            'sync bootstrap missing host users' => [
+                __DIR__ . '/../docs/contracts/sync-bootstrap.schema.json',
+                __DIR__ . '/contracts/fixtures/sync-bootstrap/invalid-missing-host-users.json',
+            ],
         ];
     }
 
@@ -114,6 +130,8 @@ final class ContractSchemasTest extends TestCase
             __DIR__ . '/../docs/contracts/auth-store.schema.json',
             __DIR__ . '/../docs/contracts/versions.schema.json',
             __DIR__ . '/../docs/contracts/usage-ingest.schema.json',
+            __DIR__ . '/../docs/contracts/sync-status.schema.json',
+            __DIR__ . '/../docs/contracts/sync-bootstrap.schema.json',
         ];
     }
 

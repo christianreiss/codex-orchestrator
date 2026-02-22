@@ -55,6 +55,7 @@ use App\Services\AgentsService;
 use App\Services\SkillService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
+use App\Services\StartupSyncService;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
 use App\Security\EncryptionKeyManager;
@@ -264,6 +265,7 @@ $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
 $mcpServer = new McpServer($memoryService, $root);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository);
+$startupSyncService = new StartupSyncService($slashCommandService, $skillService, $agentsService, $clientConfigService);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -3562,6 +3564,122 @@ $router->add('POST', '#^/auth$#', function () use ($payload, $service, $chatGptU
     ]);
 });
 
+$router->add('POST', '#^/sync/status$#', function () use ($payload, $service, $startupSyncService, $chatGptUsageService, $versionRepository) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp, false, true);
+    $baseUrl = resolveBaseUrl();
+    $requestPayload = is_array($payload) ? $payload : [];
+
+    $hostUserInput = extractSyncHostUserInput($requestPayload);
+    $users = $service->recordHostUser($host, $hostUserInput['username'], $hostUserInput['hostname']);
+
+    $result = $startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, false);
+    $includeAuth = normalizeBoolean($requestPayload['include_auth'] ?? null);
+    if ($includeAuth !== false) {
+        $authFingerprint = extractSyncAuthFingerprint($requestPayload);
+        $clientVersion = extractClientVersion($requestPayload);
+        $wrapperVersion = extractWrapperVersion($requestPayload);
+        $authResult = $service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
+
+        $chatGptUsageService->fetchLatest(false);
+        $chatgptUsage = $chatGptUsageService->latestWindowSummary();
+        if (is_array($chatgptUsage)) {
+            $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
+        }
+        $authResult['chatgpt_usage'] = $chatgptUsage;
+        $result['auth'] = $authResult;
+
+        $authStatus = strtolower(trim((string) ($authResult['status'] ?? '')));
+        if ($authStatus !== 'valid') {
+            $result['reasons'][] = 'auth_' . ($authStatus !== '' ? $authStatus : 'unknown');
+        }
+    }
+
+    $result['reasons'] = array_values(array_unique(array_filter($result['reasons'] ?? [])));
+    $result['status'] = $result['reasons'] === [] ? 'ok' : 'update';
+    $result['host_users'] = $users;
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
+$router->add('POST', '#^/sync/bootstrap$#', function () use ($payload, $service, $startupSyncService, $chatGptUsageService, $versionRepository) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp, false, true);
+    $baseUrl = resolveBaseUrl();
+    $requestPayload = is_array($payload) ? $payload : [];
+
+    $hostUserInput = extractSyncHostUserInput($requestPayload);
+    $users = $service->recordHostUser($host, $hostUserInput['username'], $hostUserInput['hostname']);
+
+    $result = $startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, true);
+    $includeAuth = normalizeBoolean($requestPayload['include_auth'] ?? null);
+    if ($includeAuth !== false) {
+        $authFingerprint = extractSyncAuthFingerprint($requestPayload);
+        $clientVersion = extractClientVersion($requestPayload);
+        $wrapperVersion = extractWrapperVersion($requestPayload);
+        $authResult = $service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
+        $authStatus = strtolower(trim((string) ($authResult['status'] ?? '')));
+        $authCandidate = extractSyncAuthCandidate($requestPayload);
+        $didStore = false;
+
+        if (($authStatus === 'missing' || $authStatus === 'upload_required') && is_array($authCandidate)) {
+            $storePayload = [
+                'command' => 'store',
+                'auth' => $authCandidate,
+            ];
+            if (isset($authResult['canonical_digest']) && is_string($authResult['canonical_digest']) && trim($authResult['canonical_digest']) !== '') {
+                $storePayload['digest'] = trim((string) $authResult['canonical_digest']);
+            }
+            if (
+                array_key_exists('session_started_at', $requestPayload)
+                && is_string($requestPayload['session_started_at'])
+                && trim($requestPayload['session_started_at']) !== ''
+            ) {
+                $storePayload['session_started_at'] = trim((string) $requestPayload['session_started_at']);
+            }
+            if (
+                array_key_exists('installation_id', $requestPayload)
+                && is_string($requestPayload['installation_id'])
+                && trim($requestPayload['installation_id']) !== ''
+            ) {
+                $storePayload['installation_id'] = trim((string) $requestPayload['installation_id']);
+            }
+
+            $authResult = $service->handleAuth($storePayload, $host, $clientVersion, $wrapperVersion, $baseUrl);
+            $authStatus = strtolower(trim((string) ($authResult['status'] ?? '')));
+            $didStore = true;
+        }
+
+        $chatGptUsageService->fetchLatest(false);
+        $chatgptUsage = $chatGptUsageService->latestWindowSummary();
+        if (is_array($chatgptUsage)) {
+            $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
+        }
+        $authResult['chatgpt_usage'] = $chatgptUsage;
+        $result['auth'] = $authResult;
+
+        if ($didStore && ($authStatus === 'updated' || $authStatus === 'unchanged')) {
+            $result['reasons'][] = 'auth_stored';
+        } elseif ($authStatus !== 'valid') {
+            $result['reasons'][] = 'auth_' . ($authStatus !== '' ? $authStatus : 'unknown');
+        }
+    }
+
+    $result['reasons'] = array_values(array_unique(array_filter($result['reasons'] ?? [])));
+    $result['status'] = $result['reasons'] === [] ? 'ok' : 'update';
+    $result['host_users'] = $users;
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+});
+
 $router->add('DELETE', '#^/auth$#', function () use ($service) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
@@ -4292,6 +4410,91 @@ function isOriginAllowed(?string $origin): bool
 function resolveClientIp(): ?string
 {
     return \App\Http\ClientIp::fromServer($_SERVER);
+}
+
+/**
+ * @return array{command:string,last_refresh:string,digest:string,installation_id?:string}
+ */
+function extractSyncAuthFingerprint(mixed $payload): array
+{
+    $defaultDigest = hash('sha256', '{"last_refresh":"2000-01-01T00:00:00Z","auths":{}}');
+    $authPayload = [];
+    if (is_array($payload) && isset($payload['auth']) && is_array($payload['auth'])) {
+        $authPayload = $payload['auth'];
+    } elseif (is_array($payload)) {
+        $authPayload = $payload;
+    }
+
+    $lastRefresh = '2000-01-01T00:00:00Z';
+    if (isset($authPayload['last_refresh']) && is_string($authPayload['last_refresh']) && trim($authPayload['last_refresh']) !== '') {
+        $lastRefresh = trim($authPayload['last_refresh']);
+    }
+
+    $digest = $defaultDigest;
+    if (isset($authPayload['digest']) && is_string($authPayload['digest'])) {
+        $candidate = strtolower(trim($authPayload['digest']));
+        if (preg_match('/^[a-f0-9]{64}$/', $candidate) === 1) {
+            $digest = $candidate;
+        }
+    }
+
+    $result = [
+        'command' => 'retrieve',
+        'last_refresh' => $lastRefresh,
+        'digest' => $digest,
+    ];
+
+    if (
+        is_array($payload)
+        && array_key_exists('installation_id', $payload)
+        && is_string($payload['installation_id'])
+        && trim($payload['installation_id']) !== ''
+    ) {
+        $result['installation_id'] = trim((string) $payload['installation_id']);
+    }
+
+    return $result;
+}
+
+function extractSyncAuthCandidate(mixed $payload): ?array
+{
+    if (!is_array($payload)) {
+        return null;
+    }
+
+    if (isset($payload['auth_candidate']) && is_array($payload['auth_candidate'])) {
+        return $payload['auth_candidate'];
+    }
+
+    return null;
+}
+
+/**
+ * @return array{username:?string,hostname:?string}
+ */
+function extractSyncHostUserInput(mixed $payload): array
+{
+    $source = [];
+    if (is_array($payload) && isset($payload['host_user']) && is_array($payload['host_user'])) {
+        $source = $payload['host_user'];
+    } elseif (is_array($payload)) {
+        $source = $payload;
+    }
+
+    $username = null;
+    if (isset($source['username']) && is_string($source['username']) && trim($source['username']) !== '') {
+        $username = trim($source['username']);
+    }
+
+    $hostname = null;
+    if (isset($source['hostname']) && is_string($source['hostname']) && trim($source['hostname']) !== '') {
+        $hostname = trim($source['hostname']);
+    }
+
+    return [
+        'username' => $username,
+        'hostname' => $hostname,
+    ];
 }
 
 function extractClientVersion(mixed $payload): ?string

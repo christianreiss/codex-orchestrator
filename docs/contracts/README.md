@@ -7,6 +7,8 @@ Current schemas:
 - `auth-store.schema.json` - `POST /auth` store (`updated|unchanged|outdated`)
 - `versions.schema.json` - `GET /versions`
 - `usage-ingest.schema.json` - `POST /usage`
+- `sync-status.schema.json` - `POST /sync/status` (startup diff summary)
+- `sync-bootstrap.schema.json` - `POST /sync/bootstrap` (startup bundled payload)
 
 Validation and sync checks are enforced by:
 - `tests/ContractSchemasTest.php` (fixture + schema validation)

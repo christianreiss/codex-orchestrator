@@ -1,0 +1,65 @@
+{
+  "status": "ok",
+  "data": {
+    "status": "ok",
+    "reasons": [],
+    "slash_commands": {
+      "status": "unchanged",
+      "changed_count": 0,
+      "updated_count": 0,
+      "removed_count": 0,
+      "remote_count": 2,
+      "local_count": 2,
+      "remote": [
+        {
+          "filename": "deploy.md",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deleted_at": null
+        },
+        {
+          "filename": "ops.md",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "deleted_at": null
+        }
+      ],
+      "changed": []
+    },
+    "skills": {
+      "status": "unchanged",
+      "changed_count": 0,
+      "updated_count": 0,
+      "removed_count": 0,
+      "remote_count": 1,
+      "local_count": 1,
+      "remote": [
+        {
+          "slug": "docker-restart",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "deleted_at": null
+        }
+      ],
+      "changed": []
+    },
+    "agents": {
+      "status": "unchanged",
+      "changed": false,
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "updated_at": "2026-02-22T12:00:00Z",
+      "size_bytes": 1821
+    },
+    "config": {
+      "status": "unchanged",
+      "changed": false,
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "base_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "updated_at": "2026-02-22T12:00:00Z",
+      "size_bytes": 1408
+    },
+    "host_users": [
+      {
+        "username": "chris",
+        "hostname": "devbox"
+      }
+    ]
+  }
+}

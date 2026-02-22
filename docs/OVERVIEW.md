@@ -18,6 +18,8 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
   - `auth-store.schema.json`
   - `versions.schema.json`
   - `usage-ingest.schema.json`
+  - `sync-status.schema.json`
+  - `sync-bootstrap.schema.json`
 - CI validates fixture coverage (`tests/ContractSchemasTest.php`), live `AuthService` response shapes (`tests/AuthServiceContractResponsesTest.php`), and schema/docs drift (`scripts/verify-interface-contracts.php`).
 
 ## Why teams use it
@@ -36,6 +38,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
 - **`SlashCommandService`** — CRUD for prompts stored in MySQL, hashed by sha256, with delete markers for retirements.
+- **`StartupSyncService`** — computes combined startup diffs/payloads for prompts, Skills, AGENTS.md, and config (`/sync/status`, `/sync/bootstrap`) so wrappers can reduce pre-run API fan-out.
 - **`AgentsService`** — stores versioned AGENTS.md editions, serves either the latest/pinned fleet version or a per-host pin, and feeds the admin editor + host sync.
 - **`MemoryService`** — MCP memory storage per host (content, tags, optional metadata) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`) and an admin browser + delete panel.
 - **`ClientConfigService`** — renders/stores canonical `config.toml` from structured settings (sha + TOML body + saved builder payload) for the admin config page and wrapper sync; `/config/retrieve` bakes a per-host copy using that host’s API key for the managed HTTP MCP entry (Authorization header, no npm).
@@ -65,6 +68,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 4) **Wrapper distribution**
 - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
+- Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (prompts/Skills/AGENTS/config in one flow). Older servers automatically fall back to legacy per-resource pull endpoints.
 - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` auto-checks/installs `curl`, `unzip`, and `script` (util-linux) before update/sync work using `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` (RHEL-family prefers `dnf` with `yum` fallback for legacy CentOS 7/8/9 compatibility). On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.
 - When a host has an already-active `cdx` run, concurrent guard still skips mutating sync/update work, but performs a read-only `/auth` retrieve to refresh quota/policy metadata for the compact boot summary (single concurrent-guard section + quota lines).
 - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and falls back to a no-arg restart when argv is empty, avoiding `set -u` empty-array crashes on older bash builds (common on macOS and legacy Linux hosts).

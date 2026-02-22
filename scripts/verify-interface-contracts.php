@@ -40,11 +40,15 @@ $authRetrieveSchemaPath = $contractsDir . '/auth-retrieve.schema.json';
 $authStoreSchemaPath = $contractsDir . '/auth-store.schema.json';
 $versionsSchemaPath = $contractsDir . '/versions.schema.json';
 $usageSchemaPath = $contractsDir . '/usage-ingest.schema.json';
+$syncStatusSchemaPath = $contractsDir . '/sync-status.schema.json';
+$syncBootstrapSchemaPath = $contractsDir . '/sync-bootstrap.schema.json';
 
 $authRetrieveSchema = $loadJsonObject($authRetrieveSchemaPath);
 $authStoreSchema = $loadJsonObject($authStoreSchemaPath);
 $versionsSchema = $loadJsonObject($versionsSchemaPath);
 $usageSchema = $loadJsonObject($usageSchemaPath);
+$syncStatusSchema = $loadJsonObject($syncStatusSchemaPath);
+$syncBootstrapSchema = $loadJsonObject($syncBootstrapSchemaPath);
 $apiDoc = $requireFile($apiDocPath);
 $cdxDoc = $requireFile($cdxDocPath);
 $overviewDoc = $requireFile($overviewDocPath);
@@ -54,6 +58,8 @@ if (
     && $authStoreSchema !== null
     && $versionsSchema !== null
     && $usageSchema !== null
+    && $syncStatusSchema !== null
+    && $syncBootstrapSchema !== null
     && $apiDoc !== null
     && $cdxDoc !== null
     && $overviewDoc !== null
@@ -129,6 +135,8 @@ if (
         'auth-store.schema.json',
         'versions.schema.json',
         'usage-ingest.schema.json',
+        'sync-status.schema.json',
+        'sync-bootstrap.schema.json',
     ];
     foreach ($contractFiles as $contractFile) {
         if (strpos($apiDoc, $contractFile) === false) {
