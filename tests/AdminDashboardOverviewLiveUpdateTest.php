@@ -16,6 +16,11 @@ final class AdminDashboardOverviewLiveUpdateTest extends TestCase
         $this->assertStringContainsString('emitAdminDataDirty', $js);
         $this->assertStringContainsString("api('/admin/hosts')", $js);
         $this->assertStringContainsString('shouldRefreshOverviewForAction', $js);
+        $this->assertStringContainsString('OVERVIEW_HOST_LIVE_ACTIONS', $js);
+        $this->assertStringContainsString('OVERVIEW_HOST_LIVE_PREFIXES', $js);
+        $this->assertStringContainsString('SETTINGS_GENERAL_LIVE_ACTIONS', $js);
+        $this->assertStringContainsString('WS_UNKNOWN_ACTION_FALLBACK_DOMAINS', $js);
+        $this->assertStringContainsString('WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS', $js);
         $this->assertStringContainsString('token.usage', $js);
     }
 }

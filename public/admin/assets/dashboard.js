@@ -3665,64 +3665,67 @@
       'agents',
       'memories',
     ]);
+    const WS_UNKNOWN_ACTION_FALLBACK_DOMAINS = ['overview', 'hosts'];
+    const WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS = 1500;
+    const OVERVIEW_HOST_LIVE_ACTIONS = new Set([
+      'register',
+      'token.usage',
+      'chatgpt.usage',
+    ]);
+    const OVERVIEW_HOST_LIVE_PREFIXES = [
+      'auth.',
+      'host.',
+      'admin.host.',
+      'pricing.',
+      'admin.insecure.',
+    ];
+    const SETTINGS_GENERAL_LIVE_ACTIONS = new Set([
+      'admin.api.state',
+      'admin.cdx_silent',
+      'admin.reverse_dns',
+      'admin.insecure_approval',
+      'admin.codex_version',
+      'admin.quota_mode',
+      'admin.prune_policy',
+    ]);
+    const PROMPT_LIVE_ACTIONS = new Set(['slash.store', 'slash.delete']);
+    const SKILL_LIVE_ACTIONS = new Set(['skill.store', 'skill.delete']);
+    const AGENTS_LIVE_ACTIONS = new Set(['agents.store', 'agents.delete']);
+    const MEMORY_LIVE_ACTIONS = new Set([
+      'memory.store',
+      'memory.delete',
+      'memory.admin.delete',
+    ]);
 
     function actionDomainsForLiveRefresh(action) {
       const normalized = String(action || '').trim().toLowerCase();
       const domains = new Set();
       if (!normalized) return domains;
-      const settingsActions = new Set([
-        'admin.api.state',
-        'admin.cdx_silent',
-        'admin.reverse_dns',
-        'admin.insecure_approval',
-        'admin.codex_version',
-        'admin.quota_mode',
-        'admin.prune_policy',
-      ]);
-      const promptActions = new Set(['slash.store', 'slash.delete']);
-      const skillActions = new Set(['skill.store', 'skill.delete']);
-      const agentsActions = new Set(['agents.store', 'agents.delete']);
-      const memoryActions = new Set([
-        'memory.store',
-        'memory.delete',
-        'memory.admin.delete',
-      ]);
+      const refreshesOverviewAndHosts = OVERVIEW_HOST_LIVE_ACTIONS.has(normalized)
+        || OVERVIEW_HOST_LIVE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 
-      if (
-        normalized === 'register'
-        || normalized === 'token.usage'
-        || normalized === 'chatgpt.usage'
-        || normalized.startsWith('auth.')
-        || normalized.startsWith('host.')
-        || normalized.startsWith('admin.host.')
-        || normalized.startsWith('pricing.')
-      ) {
+      if (refreshesOverviewAndHosts) {
         domains.add('overview');
         domains.add('hosts');
       }
 
-      if (normalized.startsWith('admin.insecure.')) {
-        domains.add('overview');
-        domains.add('hosts');
-      }
-
-      if (settingsActions.has(normalized)) {
+      if (SETTINGS_GENERAL_LIVE_ACTIONS.has(normalized)) {
         domains.add('settings-general');
       }
 
-      if (promptActions.has(normalized)) {
+      if (PROMPT_LIVE_ACTIONS.has(normalized)) {
         domains.add('prompts');
       }
 
-      if (skillActions.has(normalized)) {
+      if (SKILL_LIVE_ACTIONS.has(normalized)) {
         domains.add('skills');
       }
 
-      if (agentsActions.has(normalized) || normalized === 'admin.host.agents_version_override') {
+      if (AGENTS_LIVE_ACTIONS.has(normalized) || normalized === 'admin.host.agents_version_override') {
         domains.add('agents');
       }
 
-      if (memoryActions.has(normalized)) {
+      if (MEMORY_LIVE_ACTIONS.has(normalized)) {
         domains.add('memories');
       }
 
@@ -8284,7 +8287,7 @@
       }
       if (action) {
         // Safety net for newly introduced log actions: refresh summary + hosts.
-        scheduleLiveDataRefresh(['overview', 'hosts'], 1500);
+        scheduleLiveDataRefresh(WS_UNKNOWN_ACTION_FALLBACK_DOMAINS, WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS);
       }
     });
     loadApiState();

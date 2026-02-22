@@ -13,6 +13,14 @@
     window.dispatchEvent(new CustomEvent(name, { detail }));
   }
 
+  function isObject(value) {
+    return value !== null && typeof value === 'object';
+  }
+
+  function isEventEnvelope(message) {
+    return isObject(message) && message.kind === 'event' && isObject(message.event);
+  }
+
   function loadLastEventId() {
     try {
       const stored = window.localStorage?.getItem(STORAGE_KEY);
@@ -84,7 +92,11 @@
         return;
       }
 
-      if (message?.kind === 'event' && message?.event) {
+      if (!isObject(message)) {
+        return;
+      }
+
+      if (isEventEnvelope(message)) {
         const eventId = Number(message.event.id || 0);
         if (Number.isFinite(eventId) && eventId > 0) {
           state.lastEventId = String(eventId);
@@ -102,6 +114,9 @@
     };
 
     ws.onclose = () => {
+      if (state.socket === ws) {
+        state.socket = null;
+      }
       emit('admin-ws-status', { status: 'closed' });
       scheduleReconnect();
     };
@@ -116,6 +131,11 @@
       if (!data.enabled || !data.url) return;
       state.enabled = true;
       state.url = data.url;
+      const lastEventId = Number(data.last_event_id || 0);
+      if (!state.lastEventId && Number.isFinite(lastEventId) && lastEventId > 0) {
+        state.lastEventId = String(lastEventId);
+        saveLastEventId(state.lastEventId);
+      }
       connect();
     } catch (err) {
       console.warn('admin ws: info fetch failed', err);
