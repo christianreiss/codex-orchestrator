@@ -43,7 +43,7 @@ Scheduled preflight: the first non-admin request after an ~8-hour gap (or after 
 
 ## Installer
 
-- `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register` (one pending token per host; issuing a new one rotates the API key and deletes prior tokens), expire after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s), and embed the resolved public base URL (from token metadata, `PUBLIC_BASE_URL`, or forwarded Host/proto) plus the API key/FQDN into `cdx`. The installer prints versions and leaves `cdx` ready to run (no auto-launch). Used/expired/missing tokens return shell-script errors.
+- `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register` (one pending token per host; issuing a new one rotates the API key and deletes prior tokens), expire after `INSTALL_TOKEN_TTL_SECONDS` (default 1800s), and embed the resolved public base URL (from token metadata, `PUBLIC_BASE_URL`, or forwarded Host/proto) plus the API key/FQDN into `cdx`. The installer prints versions, a compact usage quickstart (`cdx --version`, `cdx`, `cdx --execute ...`), and leaves `cdx` ready to run (no auto-launch). Used/expired/missing tokens return shell-script errors.
 
 ## Admin (mTLS on by default)
 

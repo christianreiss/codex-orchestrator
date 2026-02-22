@@ -213,7 +213,10 @@ if (( user_bin )); then
   echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' is not found."
 fi
 echo "Install complete for __FQDN__"
-echo "Run 'cdx' to sync/auth when you're ready."
+echo "Next steps:"
+echo "  1) Check versions: cdx --version"
+echo "  2) Sync auth + start Codex: cdx"
+echo "  3) Run one-shot prompt: cdx --execute \"summarize this repo\""
 SCRIPT;
 
         return strtr($template, [

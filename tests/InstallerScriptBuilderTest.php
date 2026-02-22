@@ -47,7 +47,10 @@ final class InstallerScriptBuilderTest extends TestCase
 
         $this->assertStringNotContainsString('Launching cdx...', $script);
         $this->assertStringNotContainsString('if ! "$install_path"; then', $script);
-        $this->assertStringContainsString("Run 'cdx' to sync/auth when you're ready.", $script);
+        $this->assertStringContainsString('Next steps:', $script);
+        $this->assertStringContainsString('1) Check versions: cdx --version', $script);
+        $this->assertStringContainsString('2) Sync auth + start Codex: cdx', $script);
+        $this->assertStringContainsString('3) Run one-shot prompt: cdx --execute \"summarize this repo\"', $script);
     }
 
     /**

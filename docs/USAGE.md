@@ -92,7 +92,7 @@ What the installer does:
 - Downloads the **host-baked** `cdx` wrapper from the service (`/wrapper/download`).
 - Installs `cdx` to `/usr/local/bin/cdx` when writable, otherwise to `$HOME/.local/bin/cdx`.
 - Downloads the matching Codex CLI release from GitHub and installs `codex` similarly.
-- Prints the installed versions and leaves `cdx` ready to run.
+- Prints installed versions plus a compact `Next steps` quickstart (`cdx --version`, `cdx`, `cdx --execute ...`) and leaves `cdx` ready to run.
 
 If it installed into `~/.local/bin`, make sure that’s on `PATH`:
 
