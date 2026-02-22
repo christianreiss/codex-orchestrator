@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /versions response",
+  "type": "object",
+  "required": [
+    "status",
+    "data"
+  ],
+  "properties": {
+    "status": {
+      "const": "ok"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "client_version",
+        "client_version_checked_at",
+        "client_version_source",
+        "wrapper_version",
+        "wrapper_sha256",
+        "wrapper_url",
+        "reported_client_version",
+        "quota_hard_fail",
+        "quota_limit_percent",
+        "quota_week_partition",
+        "cdx_silent",
+        "runner_enabled",
+        "runner_state",
+        "runner_last_ok",
+        "runner_last_fail",
+        "runner_last_check",
+        "installation_id"
+      ],
+      "properties": {
+        "client_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_version_checked_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_version_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wrapper_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wrapper_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wrapper_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reported_client_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quota_hard_fail": {
+          "type": "boolean"
+        },
+        "quota_limit_percent": {
+          "type": "integer"
+        },
+        "quota_week_partition": {
+          "type": "integer"
+        },
+        "cdx_silent": {
+          "type": "boolean"
+        },
+        "runner_enabled": {
+          "type": "boolean"
+        },
+        "runner_state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runner_last_ok": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runner_last_fail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runner_last_check": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "installation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

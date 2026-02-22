@@ -1,0 +1,7 @@
+{
+  "status": "ok",
+  "data": {
+    "recorded": false,
+    "reason": "usage ingestion failed"
+  }
+}

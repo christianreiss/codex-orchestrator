@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /auth retrieve response",
+  "type": "object",
+  "required": [
+    "status",
+    "data"
+  ],
+  "properties": {
+    "status": {
+      "const": "ok"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "status",
+        "canonical_last_refresh",
+        "canonical_digest",
+        "api_calls",
+        "token_usage_month",
+        "versions",
+        "quota_hard_fail",
+        "quota_limit_percent",
+        "quota_week_partition",
+        "cdx_silent",
+        "chatgpt_usage"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "valid",
+            "upload_required",
+            "outdated",
+            "missing"
+          ]
+        },
+        "canonical_last_refresh": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "canonical_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "const": "store"
+        },
+        "auth": {
+          "type": "object"
+        },
+        "host": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "fqdn",
+            "status",
+            "api_calls",
+            "allow_roaming_ips",
+            "secure",
+            "vip",
+            "force_ipv4",
+            "lane_preference",
+            "model_override",
+            "reasoning_effort_override"
+          ],
+          "properties": {
+            "fqdn": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "last_refresh": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "updated_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expires_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_version_override": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "wrapper_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agents_document_id_override": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "api_calls": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "allow_roaming_ips": {
+              "type": "boolean"
+            },
+            "secure": {
+              "type": "boolean"
+            },
+            "vip": {
+              "type": "boolean"
+            },
+            "insecure_enabled_until": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "insecure_grace_until": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "insecure_window_minutes": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "force_ipv4": {
+              "type": "boolean"
+            },
+            "lane_preference": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "normal",
+                "spark",
+                null
+              ]
+            },
+            "model_override": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reasoning_effort_override": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "api_calls": {
+          "type": "integer"
+        },
+        "token_usage_month": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "total",
+            "input",
+            "output",
+            "cached",
+            "reasoning",
+            "cost",
+            "events"
+          ],
+          "properties": {
+            "total": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "input": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "output": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "cached": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "reasoning": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "cost": {
+              "type": [
+                "number",
+                "integer",
+                "null"
+              ]
+            },
+            "events": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "versions": {
+          "type": "object",
+          "required": [
+            "client_version",
+            "client_version_checked_at",
+            "client_version_source",
+            "wrapper_version",
+            "wrapper_sha256",
+            "wrapper_url",
+            "reported_client_version",
+            "quota_hard_fail",
+            "quota_limit_percent",
+            "quota_week_partition",
+            "cdx_silent",
+            "runner_enabled",
+            "runner_state",
+            "runner_last_ok",
+            "runner_last_fail",
+            "runner_last_check",
+            "installation_id"
+          ],
+          "properties": {
+            "client_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_version_checked_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_version_source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "wrapper_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "wrapper_sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "wrapper_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reported_client_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "quota_hard_fail": {
+              "type": "boolean"
+            },
+            "quota_limit_percent": {
+              "type": "integer"
+            },
+            "quota_week_partition": {
+              "type": "integer"
+            },
+            "cdx_silent": {
+              "type": "boolean"
+            },
+            "runner_enabled": {
+              "type": "boolean"
+            },
+            "runner_state": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "runner_last_ok": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "runner_last_fail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "runner_last_check": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installation_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "quota_hard_fail": {
+          "type": "boolean"
+        },
+        "quota_limit_percent": {
+          "type": "integer"
+        },
+        "quota_week_partition": {
+          "type": "integer"
+        },
+        "cdx_silent": {
+          "type": "boolean"
+        },
+        "chatgpt_usage": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "valid"
+            }
+          }
+        },
+        {
+          "required": [
+            "status",
+            "action"
+          ],
+          "properties": {
+            "status": {
+              "const": "upload_required"
+            }
+          }
+        },
+        {
+          "required": [
+            "status",
+            "action"
+          ],
+          "properties": {
+            "status": {
+              "const": "missing"
+            }
+          }
+        },
+        {
+          "required": [
+            "status",
+            "auth"
+          ],
+          "properties": {
+            "status": {
+              "const": "outdated"
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

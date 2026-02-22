@@ -11,6 +11,15 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Audit who synced/rotated auth, what versions they run, and how many tokens they burn.
 - Run Codex in environments that require IP binding, mTLS, and rate limits.
 
+## Contract guardrails
+
+- Critical host-facing response contracts are machine-readable under `docs/contracts/`:
+  - `auth-retrieve.schema.json`
+  - `auth-store.schema.json`
+  - `versions.schema.json`
+  - `usage-ingest.schema.json`
+- CI validates fixture coverage (`tests/ContractSchemasTest.php`), live `AuthService` response shapes (`tests/AuthServiceContractResponsesTest.php`), and schema/docs drift (`scripts/verify-interface-contracts.php`).
+
 ## Why teams use it
 
 - One `/auth` call decides whether to accept a client upload or return the canonical copy and always includes versions + quota metadata.
