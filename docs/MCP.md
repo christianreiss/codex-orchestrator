@@ -1,33 +1,41 @@
 # MCP Server
 
-Native streamable HTTP MCP endpoint plus REST helpers for Codex hosts. Uses host API keys; IP binding is **not** enforced for `/mcp` (clients may roam), but insecure-host windows still apply.
+Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts.
 
 ## Endpoints
 
-- `POST /mcp` — JSON-RPC 2.0, streamable_http spec `2025-03-26`. Accepts batch or single requests.
-- `GET /mcp` — JSON-RPC probe endpoint; always returns a 405 error body and `Allow: POST`.
-- `POST /mcp/memories/store` — REST helper backing `memory_store`.
-- `POST /mcp/memories/retrieve` — REST helper backing `memory_retrieve`.
-- `POST /mcp/memories/search` — REST helper backing `memory_search`.
-- `POST /mcp/memories/delete` — REST helper backing delete semantics.
+- `POST /mcp` — JSON-RPC 2.0 streamable HTTP endpoint (`protocolVersion: 2025-03-26`). Accepts single or batch requests.
+- `GET /mcp` — probe endpoint. Checks `Origin`; when allowed, returns HTTP 405 with `Allow: POST`.
+- `POST /mcp/memories/store` — REST helper for memory store.
+- `POST /mcp/memories/retrieve` — REST helper for memory retrieve.
+- `POST /mcp/memories/search` — REST helper for memory search.
+- `POST /mcp/memories/delete` — REST helper for memory delete.
 - `DELETE /mcp/memories/{id}` — delete by memory key (URL decoded).
 
 ## Auth & safety
 
-- `Authorization: Bearer {host_api_key}` required for all `/mcp*` endpoints.
-- `/mcp` authentication bypasses IP binding (`allow_roaming_ips` is not used for MCP).
-- Insecure hosts: `/mcp` enforces the same sliding window as `/auth` (each successful call extends the window; closed windows return an error).
-- Origin allowlist: `MCP_ALLOWED_ORIGINS` plus `PUBLIC_BASE_URL` and the current Host/proto are accepted; disallowed origins get 403 `Origin not allowed` (missing `Origin` is allowed).
-- Rate limits: global per-IP bucket applies (same as other non-admin routes).
-- Access is logged; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
+- Endpoints that authenticate (`POST /mcp` and `/mcp/memories/*`) accept API keys via `X-API-Key` or `Authorization: Bearer {host_api_key}`.
+- `GET /mcp` does not authenticate hosts.
+- `/mcp/memories/*` uses normal host IP checks from `AuthService::authenticate` (including `allow_roaming_ips` and insecure-window IP override behavior).
+- `POST /mcp` uses the same `AuthService::authenticate` IP policy, then enforces insecure-host sliding-window access via `enforceInsecureWindow($host, 'mcp')`.
+- Origin allowlist checks apply to `/mcp` `GET` and `POST` only. Allowed origins come from `MCP_ALLOWED_ORIGINS`, `PUBLIC_BASE_URL`, and the current request host/proto. Missing `Origin` is allowed.
+- Rate limits: global per-IP bucket applies to `/mcp*` (same non-admin bucket; defaults `120` requests per `60` seconds).
+- MCP JSON-RPC requests are logged in `mcp_access_logs`; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
+
+## JSON-RPC methods
+
+- Core: `initialize`, `notifications/initialized` (also `notifications.initialized`).
+- Tools: `tools/list` (`tools.list`, `list_tools`), `tools/call` (`tools.call`, `call_tool`).
+- Resources: `resources/templates/list` (`resources.templates.list`, `list_resource_templates`), `resources/list` (`resources.list`, `list_resources`), `resources/read` (`resources.read`, `read_resource`), `resources/create` (`resources.create`, `create_resource`), `resources/update` (`resources.update`, `update_resource`), `resources/delete` (`resources.delete`, `delete_resource`).
 
 ## Tools (names satisfy `^[a-zA-Z0-9_-]+$`)
 
-- Memory: `memory_store`, `memory_retrieve`, `memory_search`.
-- Scoped notes: `memory_append`, `memory_query`, `memory_list` (tags memories with `resource:{id}`).
-- Resources: `resources/templates/list`, `resources/list`, `resources/read`, plus tool aliases `resource_read|create|update|delete|list`. Templates include `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`).
-- Filesystem (app root sandbox): `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_stat`, `fs_file_exists`, `fs_search_in_files`.
-- Aliases: `list_tools|tools.list`, `call_tool|tools.call`, dot variants for tools/resources are accepted; names are normalized with underscores.
+- Memory: `memory_store`, `memory_retrieve`, `memory_search`, `memory_append`, `memory_query`, `memory_list`.
+- Filesystem (app root sandbox): `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`.
+- Resource tools: `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
+- Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
+- `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`).
+- Memory/FS/resource tool responses are wrapped in `CallToolResult.content` blocks.
 
 ## Example JSON-RPC call
 
@@ -49,6 +57,7 @@ Store:
 ```bash
 curl -s "$BASE/mcp/memories/store" \
   -H "Authorization: Bearer $HOST_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"content":"triage notes","tags":["incident-42","ops"]}'
 ```
 
@@ -56,11 +65,12 @@ Search:
 ```bash
 curl -s "$BASE/mcp/memories/search" \
   -H "Authorization: Bearer $HOST_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"query":"incident-42","limit":5}' | jq .
 ```
 
 ## Client hints
 
-- `cdx` auto-adds an MCP server entry (managed) via the config builder when `orchestrator_mcp_enabled = true`; nothing to configure on the host.
-- Tool names also accept dot aliases in calls (`memory.store`, `resources.read`) but responses advertise underscore names.
+- `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"`, static `Authorization` header, and `startup_timeout_sec = 30`.
+- Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

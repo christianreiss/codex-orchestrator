@@ -28,14 +28,14 @@ If you only use Codex on one laptop, this is probably overkill.
 4) From then on, each `cdx` run pulls the latest auth/config/prompts/skills/AGENTS, enforces policy, self-updates, and reports usage.
 
 ## Features
-- Central auth vault: encrypted canonical auth.json plus per-target tokens; runner sidecar validates uploads and can auto-accept newer auth from Codex.
-- Host installer and wrapper: per-host API keys baked into the `cdx` script; offline-tolerant with secure vs insecure host modes; tracks per-host usernames for clean uninstalls.
+- Central auth vault: canonical `auth.json` and per-target entries are encrypted (`libsodium secretbox`); runner validation runs before `/auth` store writes, can apply runner `updated_auth`, and blocks `/auth` store when runner is unreachable/non-OK.
+- Host installer and wrapper: per-host API keys baked into the `cdx` script; secure hosts can launch from cached auth during API outages (fresh window: 24h, secure fallback: 7d); insecure hosts purge auth after each run and require an open insecure window.
 - Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
 - Prompt and Skill distribution: slash commands (prompts) and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.codex/skills/`; AGENTS.md is canonical too.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.1 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
-- Version control: pin Codex version fleet-wide or per host; wrapper self-updates from server-controlled binaries.
-- Dashboards and API: login-first admin UI/API with optional mTLS hardening (userless bootstrap until the first active admin); HTTP API for automation.
-- MCP server: native HTTP MCP endpoint with memory store/retrieve/search and filesystem helpers; baked into managed `config.toml` entries.
+- Version control: pin Codex version fleet-wide or per host; wrapper self-updates from the server-managed wrapper artifact (`/wrapper/download`).
+- Dashboards and API: admin API defaults to mTLS access (`ADMIN_ACCESS_MODE=mtls`) and supports userless bootstrap until the first active admin user; HTTP API for automation.
+- MCP server: native HTTP MCP endpoint (`/mcp`) with memory/resource/file tools; baked into managed `config.toml` entries.
 
 ## See it in action
 ![Admin dashboard overview](docs/img/dashboard_1.png)
@@ -55,6 +55,7 @@ This runs the guided installer for `.env`, data directories, TLS/Caddy/mTLS defa
 1) Ensure the canonical `~/.codex/auth.json` is uploaded (Admin → Auth Upload).
 2) Admin → Hosts → New Host → copy the installer command (`curl .../install/<token> | bash`).
 3) Run that command on the target machine. It installs Codex and the baked `cdx` wrapper.
+4) Optional: use Admin → Auth Seed Command (`POST /admin/auth/seed-command`) for a one-time `/seed/auth/<token>` bootstrap script.
 
 You can also automate provisioning with `POST /admin/hosts/register` (requires admin mTLS by default).
 
@@ -66,11 +67,30 @@ cdx --execute "show me open PRs"  # one-shot output
 ```
 Secure hosts keep `~/.codex/auth.json` on disk; insecure hosts delete it after each run and require an open insecure window.
 
+```bash
+cdx status
+cdx doctor
+cdx lane
+cdx lane spark --persist
+cdx --update
+cdx --uninstall
+```
+
+## Host API surface
+- Auth + uninstall: `POST /auth`, `DELETE /auth`
+- Host install/bootstrap: `GET /install/{token}`, `GET /seed/auth/{token}`, `POST /seed/auth/{token}`
+- Wrapper metadata/download: `GET /wrapper`, `GET /wrapper/download`
+- Startup bundled sync: `POST /sync/status`, `POST /sync/bootstrap`
+- Sync endpoints (legacy/fallback + push): `GET /slash-commands`, `POST /slash-commands/retrieve`, `POST /slash-commands/store`, `GET /skills`, `POST /skills/retrieve`, `POST /skills/store`, `POST /agents/retrieve`, `POST /config/retrieve`
+- Telemetry + host state: `POST /usage`, `POST /host/users`, `GET /host/lane`, `POST /host/lane`
+- MCP: `GET /mcp`, `POST /mcp`, plus `/mcp/memories/*` helpers
+- Version snapshot: `GET /versions` (unauthenticated while API kill switch is off)
+
 ## Security guardrails
 - Per-IP binding with optional roaming; insecure windows for hosts that must not keep auth on disk.
 - Secretbox encryption for API keys and auth payloads; API kill switch for emergencies.
 - Rate limits for all non-admin routes plus an auth-fail bucket for repeated bad keys.
-- Runner validation and hash-checked wrapper downloads.
+- Runner validation gates `/auth` store (retrieve keeps serving canonical auth); wrapper updates verify SHA-256 before replacement.
 
 ## Documentation
 - Installation: `docs/INSTALL.md`

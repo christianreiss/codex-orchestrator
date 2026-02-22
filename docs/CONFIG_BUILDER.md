@@ -4,12 +4,12 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 
 ## Surfaces
 
-- Web UI: `/admin/config.html` — full-form builder for fleet `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
+- Web UI: `/admin/` (Config tab in the admin SPA served for `/admin/*`) — full-form builder for fleet `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
 - API: `/admin/config` (GET metadata + `content` + `settings`), `/admin/config/render` (preview without saving, rendered for a placeholder host API key), `/admin/config/store` (persist from normalized `settings`), `/config/retrieve` (host-facing baked download).
 
 ## Flow
 
-1. Admin edits `/admin/config.html`. The UI POSTs structured `settings` to `/admin/config/store`.
+1. Admin edits the Config tab under `/admin/`. The UI can preview via `/admin/config/render` and POSTs structured `settings` to `/admin/config/store`.
 2. Server normalizes and renders TOML, stores both the rendered file and the normalized `settings`, and returns `sha256` + size.
 3. Hosts call `/config/retrieve` with their API key. The server:
    - Applies any per-host `model_override` + `reasoning_effort_override` to the effective settings.
@@ -17,7 +17,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
    - Appends a trusted projects stanza when `username`/`home` identify a valid home path.
    - Returns baked `sha256` plus `base_sha256` (the stored template hash). When hashes match, `status:unchanged` omits the body.
    - Returns `status:missing` when no config is stored; clients should delete `~/.codex/config.toml`.
-4. `cdx` writes the baked file to `~/.codex/config.toml` on every run and deletes it when `status:missing`.
+4. `cdx` writes the baked file to `~/.codex/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
 
 ## Managed MCP entry
 
@@ -36,6 +36,7 @@ The config builder exposes the currently supported experimental feature flags un
 - `rmcp_client` — enable OAuth for streamable HTTP MCP servers.
 - `view_image_tool` — enable image input tooling for supported clients.
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
+- `steer` — rendered as a feature toggle (enabled by default).
 - `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
 - `ghost_commit` — create a ghost commit on each turn.
 - `experimental_windows_sandbox` — use the Windows restricted-token sandbox when supported.
@@ -66,21 +67,18 @@ Example:
 ```toml
 [otel]
 environment = "prod"
-exporter = "otlp-http" # or otlp-grpc
-  endpoint = "https://otel.example.com"
-  protocol = "http/protobuf" # optional; defaults to http/protobuf for otlp-http
-  headers = { "x-otlp-api-key" = "${OTLP_TOKEN}" }
-  log_user_prompt = false
+exporter = { "otlp-http" = { endpoint = "https://otel.example.com", protocol = "http/protobuf", headers = { "x-otlp-api-key" = "${OTLP_TOKEN}" } } } # or otlp-grpc
+log_user_prompt = false
 ```
 
-Any additional OTEL keys present in the `settings.otel` map are normalized and emitted as TOML fields; keys not present in code are ignored.
+Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`, `headers`, and `log_user_prompt`. Unknown keys are ignored.
 
 ## Failure modes / edge cases
 
 - API key + IP binding enforced (same as `/auth`); roaming hosts need `allow_roaming_ips` toggled if their IP changes.
 - Hash short-circuit: if the client sends `sha256` matching the baked file, response is `status:unchanged` with no `content`.
 - Missing config: `status:missing` → client must delete local file to avoid stale defaults.
-- Origin: `/admin/config.html` is behind admin auth/mTLS; host fetches require only the host API key.
+- Origin: `/admin/` is behind admin auth/mTLS; host fetches use host API key auth and the same host/IP policy checks used by `/auth`.
 
 ## Quick commands
 
@@ -88,7 +86,7 @@ Any additional OTEL keys present in the `settings.otel` map are normalized and e
   ```bash
   curl -s "$BASE/admin/config/render" \
     -H "Content-Type: application/json" \
-    -d '{"settings":{"model":"gpt-5.3-codex","approval_policy":"trusted"}}' | jq .
+    -d '{"settings":{"model":"gpt-5.3-codex","approval_policy":"on-request"}}' | jq .
   ```
 - Fetch baked config for a host:
   ```bash

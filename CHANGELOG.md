@@ -49,7 +49,6 @@
 - cdx: Quota `Active lane` now marks Spark with a fastness hint (`spark ⚡` on UTF-8 terminals, `spark (fast)` fallback on non-Unicode terminals).
 - cdx: removed the `| <n> day partition` suffix from the Daily allowance note in Quota output; it now shows only `allowance <n>%/day` to reduce line noise.
 - cdx: summary packing defaults tuned for readability: Quota now prints one bar/metric per line (`SUMMARY_ITEMS_PER_ROW_QUOTA=1`), while Versions defaults to two entries per row (`SUMMARY_ITEMS_PER_ROW_VERSIONS=2`) to avoid overlong lines (e.g., keeps `AGENTS.md` with `config.toml`).
-- cdx: Quota summary packing now defaults to three aligned metrics per row (`SUMMARY_ITEMS_PER_ROW_QUOTA=3`) so all summary blocks share the same 3-column layout by default.
 - cdx: add first-class lane steering via `cdx lane` (`normal|spark`, optional `--persist`, and `clear --persist`), plus host lane persistence endpoints (`GET/POST /host/lane`) and host-level `lane_preference`; wrapper now maps host/command-selected lanes to profile-first (`[profiles.normal|spark]`) with model fallbacks, and wrapper version bumped to `2026.02.16-11`.
 - cdx: summary blocks now render aligned padded columns instead of raw tab joins, and Quota defaults to one metric per row (`SUMMARY_ITEMS_PER_ROW_QUOTA=1`) so quota bars line up cleanly across lines; wrapper bumped to `2026.02.16-10`.
 - cdx: fixed summary rendering exit-on-start regression caused by tabbed row packing (`set -e` with `(( packed_count++ ))`), aligned quota graph labels, and added non-active lane (Spark/Normal) 5h + weekly bar rows in the Quota block; wrapper bumped to `2026.02.16-09`.
@@ -219,7 +218,7 @@
 - cdx wrapper: surface reverse DNS denial reason in auth sync output; wrapper bumped to 2026.01.15-01.
 - Auth: add reverse DNS enforcement for `/auth` (global setting with per-host overrides); requests now require forward A/AAAA + PTR match when enabled.
 - Admin dashboard: add Reverse DNS Enforcement toggle + per-host override selector; cache-bumped dashboard.js v=2026-01-15-01.
-- Installer: run `cdx` automatically after a successful install to sync/auth immediately.
+- Installer: Unknown / not found in code (current installer prints manual next-step `cdx` commands and does not auto-run `cdx`; superseded by 2026-01-18 installer behavior).
 - Auth: add trailing insecure-host grace window for final auth/usage pushes after the window expires (configurable via `INSECURE_GRACE_MINUTES`, default 60); explicit disable clears grace.
 - Admin dashboard: refine uPlot usage + cost charts with consistent tick splits and hide the default legend; cache-bumped dashboard.js v=2026-01-15-03 and dashboard-mobile.css v=2026-01-15-01.
 - Hosts: rename stored IP columns to `ip4`/`ip6` (auto-migrated from legacy `ip`/`ip_alt`), and surface the new fields in admin API/UI.
@@ -444,7 +443,7 @@
 - Restyled the Authorized Hosts table to stick with the green accent palette (header gradient + green row fills/hover states) so the list feels cohesive with the rest of the admin look.
 - Swapped all button hover states (nav + standard + “ghost” controls such as Logs/Seed/New Host) to the green accent gradient so the old blue dip is gone.
 - Tweaked the cdx CLI (bin + seeded wrapper) so insecure hosts treat expected auth refreshes as normal: no more “updating auth / auth outdated” noise in the command/result/auth rows, and the auth status tone stays green unless there’s a real problem.
-- Added dedicated launcher commands: `cdx shell` now forces `--model gpt-5.1-codex` and `cdx code` forces `--model gpt-5.1-codex-max` before calling Codex, and `cdx --execute "<prompt>"` runs `codex --model gpt-5.1 --sandbox read-only -a untrusted exec --skip-git-repo-check` directly (no wrapper output) while passing through extra arguments, capturing the final reply via `--output-last-message` and printing only that reply; wrapper bumped to 2025.12.02-04.
+- cdx shell/code launchers: Unknown / not found in code (current wrapper does not implement `cdx shell` or `cdx code`; superseded by later profile shorthand + `--execute` flows).
 - Boot summary rows are now deduplicated, sorted, and easier to read while keeping the quota bars untouched.
 - Fixed `cdx --execute` so `--skip-git-repo-check` is passed after `exec`, matching Codex CLI expectations.
 - Fixed cdx runner telemetry so the status line reflects the fresh verification time immediately after the runner is triggered.

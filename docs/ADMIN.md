@@ -1,67 +1,141 @@
 # Admin Dashboard
 
-Operator crib sheet for the `/admin/` UI (mTLS by default, see below). If you change behavior, also keep `docs/interface-api.md` and friends in sync—this doc is meant to be the human-friendly map, not a second source of truth.
+Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public/index.php`, `public/admin/*`, `src/Services/*`, `src/Repositories/*`).
 
 ## Access & Auth
-- Base path: `/admin/`.
-- Dedicated login page: `/admin/login`.
-- mTLS is enforced when `ADMIN_ACCESS_MODE=mtls` (default). If you disable it (`ADMIN_ACCESS_MODE=none`), gate the path another way (VPN/firewall).
-- Behind a proxy, make sure it forwards `X-MTLS-*` headers and real client IPs.
-- Admin login is enforced once at least one active admin user exists; userless installs behave like the legacy dashboard until the first admin is created.
-- When login is enforced, `/admin/` redirects unauthenticated sessions to `/admin/login`; authenticated sessions visiting `/admin/login` are redirected to `/admin/`.
-- Sessions are stored in an HTTP-only cookie (`ADMIN_SESSION_COOKIE`, default `codex_admin_session`) and expire after `ADMIN_SESSION_TTL_SECONDS` (default 8h).
-- Password reset endpoints are disabled (`POST /admin/auth/password/request` and `POST /admin/auth/password/reset` return `410 Gone`).
-- Live updates (optional): enable the admin websocket server (`ADMIN_WS_ENABLED=1`) and run `scripts/admin-ws.php` (or the `admin-ws` compose service). `/admin/ws/info` advertises the public `wss://` URL (or set `ADMIN_WS_PUBLIC_URL`). mTLS is enforced by the proxy the same way as `/admin/`.
-  - Wire `/admin/ws` through your proxy (e.g., Caddy reverse_proxy to `ADMIN_WS_BIND`) and keep the `X-MTLS-*` headers intact so the websocket server can enforce admin access.
-  - UI refreshes are action-targeted: websocket `log.created` events update only the affected panels (overview/hosts/settings/prompts/skills/agents/memories/users/config/profiles). Config/Profiles editors do not auto-overwrite unsaved local edits; they show a remote-update notice instead.
+- UI routes served by `public/admin/index.php`: `/admin/`, `/admin/login`, `/admin/hosts/{id}`.
+- `ADMIN_ACCESS_MODE` defaults to `mtls`. Any value except `none` is treated as `mtls`.
+- mTLS is considered present only when `X-MTLS-Fingerprint` (or `X-MTLS-Present`) contains at least 64 hex chars.
+- Admin login enforcement starts only after at least one active admin exists (`countAdmins(true) > 0`).
+- If login is enforced:
+  - `/admin/` redirects to `/admin/login` when no valid session.
+  - `/admin/login` redirects to `/admin/` when already authenticated.
+  - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`.
+- If login is not enforced (fresh/userless install), auth/capability checks are bypassed so first admin can be created.
+- Session cookie:
+  - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
+  - TTL: `ADMIN_SESSION_TTL_SECONDS` (default `28800`, clamped to `300..604800`).
+  - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when request is HTTPS.
+- Password reset endpoints are hard-disabled: `POST /admin/auth/password/request` and `POST /admin/auth/password/reset` always return `410`.
 
-## Page-by-page
-- **Overview**: 2026 mission-control layout with signal chips, mission pulse score, ops radar highlights, fleet posture carding (secure/insecure, locked windows, stale auth, version drift), runner/quota guardrails, pricing snapshot and estimated monthly cost, ChatGPT usage snapshot (5-minute cooldown), mTLS presence flag, and canonical-auth seed status.
-- **Theme**: header toggle cycles Auto/Light/Dark and stores the preference in `localStorage` (`adminTheme`). Auto follows `prefers-color-scheme`.
+## Roles & Capabilities
+- Roles: `admin`, `fleet_operator`, `trusted_user`, `user`.
+- Capability matrix:
+  - `admin`: all capabilities.
+  - `fleet_operator`: `settings.manage`, `hosts.manage`, `hosts.activate`.
+  - `trusted_user`: `hosts.activate`.
+  - `user`: none.
+- Capability checks are only active when login enforcement is active.
+
+## API Kill Switch
+- `POST /admin/api/state` stores `api_disabled` in `versions`.
+- Guard runs before route dispatch: when enabled, every path returns `503` except exact path `/admin/api/state`.
+- Practical effect: UI/API routes, `/auth`, `/versions`, `/mcp`, installer/seed routes are all blocked until `/admin/api/state` is toggled back.
+
+## Live Updates (WebSocket)
+- `GET /admin/ws/info` (admin-auth protected) returns:
+  - `enabled` from `ADMIN_WS_ENABLED`.
+  - `url` from `ADMIN_WS_PUBLIC_URL` or derived from base URL as `/admin/ws`.
+  - `last_event_id`, `heartbeat_seconds` (`ADMIN_WS_PING_INTERVAL`, min `5`), `backlog_limit` (`ADMIN_WS_BACKLOG_LIMIT`, clamped `1..500`).
+- WebSocket server: `scripts/admin-ws.php` (also in compose service `admin-ws`).
+  - Bind: `ADMIN_WS_BIND` (default `0.0.0.0:8091`).
+  - Poll interval: `ADMIN_WS_POLL_INTERVAL` (min `0.2`).
+  - Enforces mTLS unless `ADMIN_ACCESS_MODE=none`.
+  - Tracks admin client presence in `versions.admin_ws_connections` for insecure-approval gating.
+- Dashboard consumes `log.created` events for targeted data refresh and `toast` events for notifications.
+- Config and profiles tabs do not auto-overwrite dirty local edits; they show `Remote update available (unsaved edits)`.
+
+## Page-by-Page (Code-Backed)
+- **Theme**: Auto/Light/Dark cycle stored in `localStorage.adminTheme`.
+- **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, pricing snapshot/costs, ChatGPT usage snapshot/summary, mTLS metadata, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
 - **Hosts**:
-  - Table: FQDN, digest freshness, versions, IP, roaming flag, secure/insecure, VIP, IPv4-only, temporary expiry (`expires_at`), curl-insecure, API calls, monthly tokens, recent digests, and recorded users.
-- **Users**: create/edit/delete admin users, set roles, toggle active state, and wipe all users (returns the system to userless mode).
-- Actions per host: enable/disable insecure window (0–480 min log-ish slider; each `/auth` extends it), toggle secure vs insecure (insecure hosts purge `~/.codex/auth.json` after each run), toggle roaming IPs, toggle IPv4-only (re-bakes curl -4 and clears pinned IP), toggle curl-insecure (bakes `CODEX_SYNC_ALLOW_INSECURE=1`), set per-host reverse DNS mode (global/enabled/disabled), set per-host model/reasoning overrides, pin Codex version per host, mark VIP (quota never hard-fails), clear canonical auth (reset digest/last_refresh), delete host, view canonical auth (`include_body`); re-register (New Host) to mint a fresh installer token.
-  - New Host flow: mint/rotate API key + single-use installer token; optional temporary host (2‑hour sliding expiry) and curl-insecure; insecure hosts auto-open a provisioning window (default 30 minutes, or register `duration_minutes` when provided).
-- **Auth Upload**: seed/replace canonical `auth.json` (system or host-scoped). Runner validation is skipped for this flow.
-- **One-time seed command**: generate a `curl -fsSL ... | bash` command that reads the current user’s `~/.codex/auth.json` and posts it to `/seed/auth/{uuid}`. Tokens expire after `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900s) and are invalidated on first use.
-- **API Kill Switch**: `/admin/api/state` flag. When enabled, every non-admin route (including `/auth`) returns 503 until you clear it.
-- **Quota Mode**: toggle hard-fail vs warn-only and set `limit_percent` (50–100). VIP hosts always operate in warn-only regardless of the global toggle.
-- **Prune Policy**: slider for `inactivity_window_days` (0–60, “Never” disables pruning of inactive hosts).
-- **cdx Silent Mode**: fleet-wide wrapper quiet mode toggle (syncs to all hosts).
-- **Reverse DNS Enforcement**: require forward A/AAAA and PTR match for `/auth` callers; per-host overrides can disable or force it.
-- **Insecure Host Approval**: when enabled, insecure hosts outside their window will wait for admin approval if a websocket client is connected. A modal pops with hostname/FQDN/time and **Enable**/**Cancel** actions; **Allow domain** adds an auto-allow rule for subdomains (revokable in the Insecure hosts toggler list). Approvals use the current Insecure Host Window duration.
-- **Insecure hosts toggler**: the modal list live-refreshes from websocket events (enable/disable/auto-allow changes) and keeps remaining-time countdowns ticking while open.
-- **Usage**: recent token rows with host + reasoning tokens where present (`limit` param).
-- **Usage Ingests**: per-ingest aggregates with search/sort (host, client IP, totals, cached/reasoning, cost, payload snapshot). `per_page` max 200; sortable keys include totals and cost.
-- **Cost History**: inline dashboard cost chart with range presets (7/30/60/90/180 days), zoom/pan, previous-period compare overlay, line/stacked toggle, legend visibility toggles, pinned selection, and CSV export. Backed by `GET /admin/usage/cost-history` (`from`/`until`, `interval`, `group_by`, `include_tokens`) and capped to 180 days.
-- **Tokens**: aggregates by token line (total/input/output/cached/reasoning).
-- **Runner**: config + telemetry (enabled, URLs, timeouts, boot id, last ok/fail/check, 24h validation counts). Manual **Run now** forces a validation and reports whether canonical auth changed.
-- **ChatGPT Usage**: latest chatgpt usage snapshot (5-minute cooldown unless forced). **History** now surfaces inline quota trend charts (normal + spark lanes, 5-hour + weekly windows) with the same advanced controls (range, zoom/pan, compare, line/stacked, pinned point, CSV export), powered by `GET /admin/chatgpt/usage/history` (`from`/`until`, `interval`, `lane`, `window`).
-- **Slash Commands**: list/create/update/delete prompt files; delete marks propagate to hosts.
-- **Config Builder**: edit the canonical `config.toml` (settings + rendered TOML), synced to hosts on every `cdx` run.
-- **AGENTS**: edit the canonical `AGENTS.md` (sha + size shown). Hosts sync it on wrapper runs.
-- **MCP Memories**: search/browse memories by text, tags, host, limit (1–200) and delete entries directly from the table (uses the numeric `record_id`).
-- **MCP Logs**: recent MCP tool calls (success/failure, method, host, error details).
-- **Versions Check**: force-refresh the GitHub client release cache.
-- **Codex Version**: in Settings → Operations & Settings, choose `Latest` (tracks GitHub latest stable/full release) or pin the fleet to a specific Codex release (dropdown hides alpha/beta prereleases; the currently pinned/in-use version still shows for visibility).
-- **Logs**: recent audit events.
-- **Toasts**: `/admin/toasts` emits a transient on-screen notification to connected admin clients (requires admin websocket server; endpoint details in code).
-  - Test mode: successful `/auth` retrieves emit a “CDX authorized” toast so you can verify live websocket delivery.
-  - Refused `/auth` attempts emit “CDX refused” toasts for known hosts (host disabled, IP mismatch, installation mismatch, or insecure window closed). Unknown keys are ignored to avoid noise.
+  - List: `GET /admin/hosts`.
+  - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body).
+  - Register/rotate host key + installer token: `POST /admin/hosts/register` (`hosts.manage`).
+    - Required: `fqdn`.
+    - Optional: `secure` (default `true`), `vip` (default `false`), `temporary`, `curl_insecure`, `reverse_dns_mode` (`global|enabled|disabled`), `duration_minutes` (`0..480`).
+  - Host actions:
+    - Delete host: `DELETE /admin/hosts/{id}` (`hosts.manage`).
+    - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (`hosts.manage`).
+    - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool, `hosts.manage`).
+    - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool, `hosts.manage`).
+    - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool, `hosts.manage`).
+    - Toggle IPv4-only wrapper behavior: `POST /admin/hosts/{id}/ipv4` (`force` bool, clears pinned IPs, `hosts.manage`).
+    - Toggle curl insecure wrapper behavior: `POST /admin/hosts/{id}/curl-insecure` (`allow` bool, `hosts.manage`).
+    - Per-host reverse DNS mode: `POST /admin/hosts/{id}/reverse-dns` (`mode`, `hosts.manage`).
+    - Per-host model/reasoning override: `POST /admin/hosts/{id}/model` (`hosts.manage`).
+    - Per-host codex version override: `POST /admin/hosts/{id}/codex-version` (`hosts.manage`).
+    - Per-host AGENTS version override: `POST /admin/hosts/{id}/agents-version` (`hosts.manage`).
+- **Insecure Windows & Approval**:
+  - Enable/disable per-host window: `POST /admin/hosts/{id}/insecure/enable|disable` (`hosts.activate`).
+  - List insecure hosts + domain auto-allows: `GET /admin/hosts/insecure`.
+  - Bulk extend active insecure windows: `POST /admin/hosts/insecure/extend` (`hosts.activate`).
+  - Bulk disable active insecure windows: `POST /admin/hosts/insecure/disable-all` (`hosts.activate`).
+  - Approval queue actions:
+    - Approve/deny: `POST /admin/insecure-approvals/{id}/approve|deny` (`hosts.activate`).
+    - Approve + allow parent domain: `POST /admin/insecure-approvals/{id}/allow-domain` (`settings.manage`).
+    - Revoke domain allow: `POST /admin/insecure-domain-allows/{id}/revoke` (`settings.manage`).
+- **Users**:
+  - List/create/update/delete: `/admin/users`, `/admin/users/{id}`.
+  - Wipe all users: `POST /admin/users/wipe` with `{"confirm":"WIPE"}`.
+  - `users.manage` required once any users exist.
+- **Auth Upload & Seed**:
+  - Upload canonical auth (runner skipped): `POST /admin/auth/upload` (`settings.manage`).
+  - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`).
+  - Seed token TTL: `AUTH_SEED_TOKEN_TTL_SECONDS` (default `900`, fallback if invalid/<=0).
+- **Global Settings**:
+  - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).
+  - Reverse DNS global flag: `GET/POST /admin/reverse-dns` (`settings.manage` for POST).
+  - Insecure-approval global flag: `GET/POST /admin/insecure-approval` (`settings.manage` for POST).
+  - Quota mode: `GET/POST /admin/quota-mode` (`settings.manage` for POST).
+    - `hard_fail` boolean.
+    - `limit_percent` normalized to `50..100` (default `100`).
+    - `week_partition` one of `off|5|7` (stored as `0|5|7`, default `0`).
+  - Prune policy: `POST /admin/prune-policy` (`inactivity_days` clamped `0..60`, `settings.manage`).
+  - Fleet codex version lock: `POST /admin/codex-version` (`latest|auto` clears lock, or strict `x.y.z`, `settings.manage`).
+  - Version refresh: `POST /admin/versions/check` (`settings.manage`).
+- **Runner**:
+  - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
+  - Manual run: `POST /admin/runner/run` (`settings.manage`).
+- **Usage, Cost, ChatGPT, Logs**:
+  - Usage rows: `GET /admin/usage` (`limit`, repository clamps to `1..500`).
+  - Usage ingests: `GET /admin/usage/ingests` (`page`, `per_page<=200`, `host_id`, `q`, `sort`, `direction`).
+  - Cost history: `GET /admin/usage/cost-history` (`days`, `from`, `until`, `interval=day|week`, `group_by=component|total`, `include_tokens`).
+  - ChatGPT usage snapshot: `GET /admin/chatgpt/usage` (`force` optional, cooldown is 300s unless forced).
+  - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).
+  - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh` (`settings.manage`).
+  - Token line aggregates: `GET /admin/tokens` (`limit`, repository clamps to `1..200`).
+  - Audit logs: `GET /admin/logs` (`limit`, repository clamps to `1..500`).
+  - MCP logs: `GET /admin/mcp/logs` (`limit`, repository clamps to `1..500`).
+- **Content Sync Surfaces**:
+  - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
+  - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
+  - AGENTS docs: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
+  - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
+  - MCP memories: `GET /admin/mcp/memories` (`limit` clamped `1..200`), `DELETE /admin/mcp/memories/{id}`.
+- **Toasts**:
+  - Manual toast endpoint: `POST /admin/toasts` (admin-auth protected, no extra capability gate).
+  - Automatic auth toasts are emitted from log actions:
+    - `auth.retrieve` => `CDX authorized` (success).
+    - `auth.denied` / `auth.insecure.denied` => `CDX refused` (warn/error).
 
-## Common workflows
-- **Onboard a host**: Overview → ensure canonical auth exists → Hosts → New Host (set secure/insecure, VIP, IPv4-only if needed) → copy installer command → run on target. For insecure hosts, keep the window open or re-enable before `/auth` runs.
-- **Rotate auth**: Upload fresh `auth.json` via Auth Upload. Runner is bypassed here; hosts pick up the new digest on next `/auth`.
-- **Reopen insecure window**: Hosts → select host → set duration (0–480, log-ish) → enable. Each `/auth` call extends by that duration.
-- **Tighten quota**: Quota Mode → set `limit_percent` and choose hard-fail vs warn-only. Remember VIP hosts ignore the hard-fail.
-- **Pause the world**: API Kill Switch on; only `/admin/api/state` stays reachable.
-- **Check costs/quotas**: Overview for current month + snapshot; Usage/Cost History for trends; ChatGPT Usage/History for account quotas.
-- **Troubleshoot runner**: Runner page for last ok/fail, boot id, and logs; use **Run now** to retry after fixes.
+## Common Workflows
+- **Onboard host**: `POST /admin/hosts/register` -> run returned installer command.
+- **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
+- **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` -> execute generated `curl | bash`.
+- **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.
+- **Force runner validation now**: `POST /admin/runner/run`.
+- **Freeze/unfreeze fleet codex version**: `POST /admin/codex-version` with `selection` (`latest` or pinned semver).
 
-## Notes & gotchas
-- Installer tokens expire (`INSTALL_TOKEN_TTL_SECONDS`, default 1800s) and are single-use; re-register the host to mint a new one (rotates API key).
-- Global rate limits apply to non-admin routes only. Admin pages bypass them but still depend on correct client IP forwarding for host IP binding behavior elsewhere.
-- Pricing snapshot drives dashboard costs; if `PRICING_URL` is unset or failing, env defaults (`GPT51_*`, `PRICING_CURRENCY`) are used and cost charts may be zeroed until pricing is available.
-- Kill switch and quota settings are persisted; they survive restarts. ChatGPT usage snapshots respect a 5-minute cooldown unless you force refresh via the admin UI.
-- Button hover styles are intentionally flat (no glow or lift); if a halo appears, refresh cached `/admin/assets/dashboard.css`.
+## Notes & Gotchas
+- Installer tokens are single-use and expire (`INSTALL_TOKEN_TTL_SECONDS`, default `1800`, fallback to `1800` if invalid).
+- Insecure host registration opens an initial window:
+  - Initial open window defaults to `30` minutes.
+  - Stored sliding window defaults to `10` minutes unless `duration_minutes` is provided.
+- Insecure window refresh is applied on non-store checks (`/auth` retrieve path, `/mcp`, `/host/lane`), not on plain `/auth` store.
+- Insecure approval queue is only offered when both conditions are true:
+  - `insecure_approval_enabled` flag is on.
+  - WebSocket presence is fresh (`admin_ws_connections` heartbeat window).
+- Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
+- Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).
+- Pricing fallback path when remote pricing is unavailable: `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`, `PRICING_CURRENCY`.
