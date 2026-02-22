@@ -1,0 +1,860 @@
+human_join() {
+  local items=("$@")
+  local count=${#items[@]}
+  if (( count == 0 )); then
+    printf ''
+  elif (( count == 1 )); then
+    printf '%s' "${items[0]}"
+  elif (( count == 2 )); then
+    printf '%s and %s' "${items[0]}" "${items[1]}"
+  else
+    local last="${items[count-1]}"
+    items=("${items[@]:0:count-1}")
+    printf '%s, and %s' "$(printf '%s, ' "${items[@]}" | sed 's/, $//')" "$last"
+  fi
+}
+
+join_with_semicolon() {
+  local out=""
+  local part
+  for part in "$@"; do
+    [[ -z "$part" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+="; "
+    fi
+    out+="$part"
+  done
+  printf "%s" "$out"
+}
+
+colorize() {
+  local text="$1" tone="$2"
+  case "$tone" in
+    green) printf "%b%s%b" "${GREEN}${BOLD}" "$text" "${RESET}" ;;
+    yellow) printf "%b%s%b" "${YELLOW}${BOLD}" "$text" "${RESET}" ;;
+    orange) printf "%b%s%b" "${ORANGE}${BOLD}" "$text" "${RESET}" ;;
+    red) printf "%b%s%b" "${RED}${BOLD}" "$text" "${RESET}" ;;
+    *) printf "%s" "$text" ;;
+  esac
+}
+
+ROW_LABEL_WIDTH=12
+ROW_VALUE_WIDTH=32
+QUOTA_BAR_WIDTH=24
+QUOTA_METRIC_LABEL_WIDTH=20
+SUMMARY_ITEMS_PER_ROW=3
+SUMMARY_ITEMS_PER_ROW_QUOTA=1
+SUMMARY_ITEMS_PER_ROW_VERSIONS=2
+SUMMARY_COLUMN_GAP=4
+
+# Summary formatting (bootup message).
+# We render a compact "header + rows" block with a modern look while keeping
+# existing content + tone logic. This is intentionally plain bash (no tput
+# dependencies beyond what's already used elsewhere).
+SUMMARY_GUTTER="  "
+
+summary_divider() {
+  # Use an ASCII-only divider if unicode box-drawing isn't desired.
+  # (We already emit unicode icons/bars elsewhere; this keeps look consistent.)
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 40 )); then
+    cols=80
+  fi
+  local w=$(( cols - 2 ))
+  (( w < 20 )) && w=20
+  # Avoid box-drawing chars: some environments render them as mojibake.
+  printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
+}
+
+summary_header() {
+  local title="$1" tone="${2-}"
+  local ts=""
+  if command -v date >/dev/null 2>&1; then
+    ts="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
+  fi
+  local left="cdx"
+  [[ -n "$ts" ]] && left+=" ${DIM}${ts}${RESET}"
+  local right=""
+  [[ -n "$title" ]] && right="$(colorize "$title" "$tone")"
+  # Keep it single-line; row wrapping is handled below.
+  if [[ -n "$right" ]]; then
+    printf "%s%s%s" "$left" "${SUMMARY_GUTTER}•${SUMMARY_GUTTER}" "$right"
+  else
+    printf "%s" "$left"
+  fi
+}
+
+summary_row() {
+  local label="$1"; shift
+  local text="$*"
+  # "Label  · value" reads cleaner than the old aligned colon block.
+  printf "%b%s%b%s%s%b" "${DIM}" "$label" "${RESET}" "${SUMMARY_GUTTER}·${SUMMARY_GUTTER}" "$text" "${RESET}"
+}
+
+wrap_ansi_text() {
+  # Fold long lines to terminal width while preserving ANSI sequences.
+  # This is best-effort: we strip ANSI to estimate visible width and break on spaces.
+  local text="$1"
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 60 )); then
+    printf "%s" "$text"
+    return
+  fi
+  local indent="${2-}"
+  local max=$(( cols - ${#indent} ))
+  (( max < 30 )) && { printf "%s" "$text"; return; }
+
+  # If the line already has a label separator, align wrapped continuation lines
+  # under the value column instead of repeating the label gutter.
+  local cont_indent="$indent"
+  if [[ "$text" == *"${SUMMARY_GUTTER}·${SUMMARY_GUTTER}"* ]]; then
+    local prefix="${text%%${SUMMARY_GUTTER}·${SUMMARY_GUTTER}*}"
+    local prefix_plain
+    prefix_plain="$(strip_ansi_sgr "$prefix")"
+    cont_indent="$(printf '%*s' "${#prefix_plain}" '')"
+  fi
+
+  local out="" line="" token rest="$text"
+  while [[ -n "$rest" ]]; do
+    # Split on first space.
+    if [[ "$rest" == *" "* ]]; then
+      token="${rest%% *}"
+      rest="${rest#* }"
+    else
+      token="$rest"
+      rest=""
+    fi
+    local cand="$line"
+    [[ -n "$cand" ]] && cand+=" "
+    cand+="$token"
+    local cand_plain
+    cand_plain="$(strip_ansi_sgr "$cand")"
+    if (( ${#cand_plain} > max )) && [[ -n "$line" ]]; then
+      if [[ -n "$out" ]]; then out+=$'\n'; fi
+      out+="${indent}${line}"
+      line="$token"
+    else
+      line="$cand"
+    fi
+  done
+  if [[ -n "$line" ]]; then
+    [[ -n "$out" ]] && out+=$'\n'
+    out+="${indent}${line}"
+  fi
+  # Replace the indent on continuation lines.
+  if [[ "$out" == *$'\n'* ]] && [[ -n "$cont_indent" ]]; then
+    local first=1 rebuilt="" ln
+    while IFS= read -r ln; do
+      if (( first )); then
+        rebuilt+="$ln"
+        first=0
+      else
+        rebuilt+=$'\n'"${cont_indent}${ln#${indent}}"
+      fi
+    done <<< "$out"
+    out="$rebuilt"
+  fi
+  printf "%s" "$out"
+}
+
+format_status_row() {
+  local label="$1" installed="$2" target="$3" status="$4"
+  local v1="$installed" v2="$target"
+  [[ "$v1" == *" installed" ]] && v1="${v1% installed}"
+  [[ "$v2" == *" available" ]] && v2="${v2% available}"
+  [[ "$v2" == "n/a" || "$v2" == "unknown" ]] && v2=""
+  local ver="$v1"
+  if [[ -n "$v2" && "$v2" != "$v1" ]]; then
+    ver="${v1} → ${v2}"
+  fi
+  local msg="$ver"
+  [[ -n "$status" ]] && msg="${msg} · ${status}"
+  format_simple_row "$label" "$msg"
+}
+
+format_simple_row() {
+  local label="$1" text="$2"
+  if [[ -t 1 && "$text" != *$'\033['* ]]; then
+    local cols="${COLUMNS:-}"
+    if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+      cols="$(tput cols 2>/dev/null || true)"
+    fi
+    if [[ "$cols" =~ ^[0-9]+$ ]]; then
+      local max=$(( cols - ROW_LABEL_WIDTH - 5 ))
+      if (( max >= 20 )) && (( ${#text} > max )); then
+        local first=1 chunk
+        while IFS= read -r chunk; do
+          if (( first )); then
+            printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
+            first=0
+          else
+            printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+          fi
+        done <<< "$(fold -s -w "$max" <<< "$text")"
+        return
+      fi
+    fi
+  fi
+  printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
+}
+
+format_footer_sync_fragment() {
+  local name="$1"
+  local result="$2"
+  local reason="$3"
+  local tone="yellow"
+  local state="${result:-unknown}"
+
+  case "$result" in
+    ok|uploaded)
+      tone="green"
+      state="uploaded"
+      ;;
+    not-needed)
+      tone="green"
+      state="unchanged"
+      ;;
+    skipped)
+      tone="yellow"
+      state="skipped"
+      ;;
+    failed|error)
+      tone="red"
+      state="failed"
+      ;;
+    "")
+      tone="yellow"
+      state="unknown"
+      ;;
+  esac
+
+  local text="${name} ${state}"
+  case "$result" in
+    skipped|failed|error)
+      if [[ -n "$reason" ]]; then
+        text+=" (${reason})"
+      fi
+      ;;
+  esac
+  if [[ "$tone" != "green" ]]; then
+    text="$(colorize "$text" "$tone")"
+  fi
+  printf "%s" "$text"
+}
+
+format_run_cost_value() {
+  local raw="$1"
+  if [[ "$raw" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    LC_NUMERIC=C printf "%.2f$" "$raw"
+    return
+  fi
+  printf "%s" "$raw"
+}
+
+print_run_exit_footer() {
+  (( CODEX_COMMAND_STARTED )) || return 0
+
+  local usage_label="Run usage"
+  local cost_label="Run cost"
+  local cost_prefix=""
+  if output_supports_unicode; then
+    cost_prefix="💰 "
+  fi
+  local sync_label="Sync"
+
+  local usage_text="${USAGE_PUSH_SUMMARY:-}"
+  if [[ -z "$usage_text" && -n "$last_usage_payload" ]]; then
+    usage_text="$(parse_usage_summary "$last_usage_payload")"
+  fi
+  if [[ -z "$usage_text" ]]; then
+    usage_text="no token usage captured"
+  fi
+  if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
+    usage_text="$(colorize "$usage_text" "red")"
+  elif [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]]; then
+    usage_text="$(colorize "$usage_text" "yellow")"
+  fi
+
+  local cost_text=""
+  local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
+  if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
+    cost_text="${cost_prefix}$(format_run_cost_value "${USAGE_PUSH_COST}")"
+  else
+    cost_text="${cost_prefix}unavailable (${cost_reason})"
+    if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
+      cost_text="$(colorize "$cost_text" "red")"
+    else
+      cost_text="$(colorize "$cost_text" "yellow")"
+    fi
+  fi
+
+  local usage_sync=""
+  local auth_sync=""
+  usage_sync="$(format_footer_sync_fragment "usage" "${USAGE_PUSH_RESULT:-}" "${USAGE_PUSH_REASON:-}")"
+  auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
+  local sync_text="${usage_sync}; ${auth_sync}"
+
+  log_info "$(summary_divider)"
+  log_info "$(format_simple_row "$usage_label" "$usage_text")"
+  log_info "$(format_simple_row "$cost_label" "$cost_text")"
+  log_info "$(format_simple_row "$sync_label" "$sync_text")"
+}
+
+section_bullet() {
+  if output_supports_unicode; then
+    printf "•"
+  else
+    printf "-"
+  fi
+}
+
+print_section_rows() {
+  local label="$1"; shift
+  local first=1
+  local items_per_row="$SUMMARY_ITEMS_PER_ROW"
+  if [[ "$label" == "Quota" ]]; then
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"
+  elif [[ "$label" == "Versions" ]]; then
+    items_per_row="${SUMMARY_ITEMS_PER_ROW_VERSIONS:-2}"
+  fi
+  if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then
+    items_per_row="${CODEX_SUMMARY_ITEMS_PER_ROW}"
+  fi
+  local label_key
+  label_key="$(printf '%s' "$label" | tr '[:lower:]' '[:upper:]' | tr -c '[:alnum:]' '_')"
+  local label_items_var="CODEX_SUMMARY_ITEMS_PER_ROW_${label_key}"
+  local label_items="${!label_items_var-}"
+  if [[ "$label_items" =~ ^[1-9][0-9]*$ ]]; then
+    items_per_row="$label_items"
+  fi
+  if [[ ! "$items_per_row" =~ ^[1-9][0-9]*$ ]]; then
+    items_per_row=1
+  fi
+
+  local gap_width="${SUMMARY_COLUMN_GAP:-4}"
+  if [[ ! "$gap_width" =~ ^[0-9]+$ ]]; then
+    gap_width=4
+  fi
+  local gap
+  gap="$(printf '%*s' "$gap_width" "")"
+
+  local section_entries=()
+  local line
+  for line in "$@"; do
+    [[ -z "$line" ]] && continue
+    section_entries+=("$line")
+  done
+  if (( ${#section_entries[@]} == 0 )); then
+    return 0
+  fi
+
+  local column_widths=()
+  local col=0
+  for (( col = 0; col < items_per_row; col++ )); do
+    column_widths[col]=0
+  done
+
+  local entry_index=0
+  local entry=""
+  local plain=""
+  local plain_len=0
+  for entry in "${section_entries[@]}"; do
+    col=$(( entry_index % items_per_row ))
+    plain="$(strip_ansi_sgr "$entry")"
+    plain_len=${#plain}
+    if (( plain_len > column_widths[col] )); then
+      column_widths[col]=$plain_len
+    fi
+    entry_index=$(( entry_index + 1 ))
+  done
+
+  local row_text=""
+  local padded_entry=""
+  entry_index=0
+  for entry in "${section_entries[@]}"; do
+    col=$(( entry_index % items_per_row ))
+    if (( col > 0 )); then
+      row_text+="$gap"
+    fi
+    padded_entry="$entry"
+    plain="$(strip_ansi_sgr "$entry")"
+    plain_len=${#plain}
+    if (( plain_len < column_widths[col] )); then
+      padded_entry+="$(printf '%*s' "$((column_widths[col] - plain_len))" "")"
+    fi
+    row_text+="$padded_entry"
+
+    entry_index=$(( entry_index + 1 ))
+    if (( entry_index % items_per_row == 0 )); then
+      if (( first )); then
+        log_info "$(format_simple_row "$label" "$row_text")"
+        first=0
+      else
+        log_info "$(format_simple_row "" "$row_text")"
+      fi
+      row_text=""
+    fi
+  done
+
+  if [[ -n "$row_text" ]]; then
+    if (( first )); then
+      log_info "$(format_simple_row "$label" "$row_text")"
+    else
+      log_info "$(format_simple_row "" "$row_text")"
+    fi
+  fi
+}
+
+compute_row_label_width() {
+  local width="$ROW_LABEL_WIDTH"
+  local label=""
+  local plain=""
+  local plain_len=0
+  for label in "$@"; do
+    [[ -z "$label" ]] && continue
+    plain="$(strip_ansi_sgr "$label")"
+    plain_len=${#plain}
+    if (( plain_len > width )); then
+      width=$plain_len
+    fi
+  done
+  printf '%s' "$width"
+}
+
+format_quota_row() {
+  local label="$1" text="$2" note="$3"
+  if [[ -n "$note" ]]; then
+    printf "%-${ROW_LABEL_WIDTH}s | %s\n%${ROW_LABEL_WIDTH}s | %s" "$label" "$text" "" "$note"
+  else
+    printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$text"
+  fi
+}
+
+join_with_sep() {
+  local sep="$1"; shift
+  local out="" part
+  for part in "$@"; do
+    [[ -z "$part" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+="$sep"
+    fi
+    out+="$part"
+  done
+  printf "%s" "$out"
+}
+
+output_supports_unicode() {
+  (( CODEX_TERM_IS_DUMB )) && return 1
+  [[ -t 1 ]] || return 1
+  local locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+  [[ "$locale" =~ [Uu][Tt][Ff]-?8 ]] || return 1
+  return 0
+}
+
+format_grouped_int() {
+  local raw="$1"
+  [[ "$raw" =~ ^-?[0-9]+$ ]] || {
+    printf "%s" "$raw"
+    return
+  }
+  local sign=""
+  if [[ "$raw" == -* ]]; then
+    sign="-"
+    raw="${raw#-}"
+  fi
+  local out=""
+  local len=${#raw}
+  while (( len > 3 )); do
+    local chunk_start=$(( len - 3 ))
+    out=",${raw:chunk_start:3}${out}"
+    raw="${raw:0:chunk_start}"
+    len=${#raw}
+  done
+  printf "%s%s%s" "$sign" "$raw" "$out"
+}
+
+status_icon() {
+  if output_supports_unicode; then
+    case "$1" in
+      green) printf "✅" ;;
+      yellow) printf "⚠" ;;
+      red) printf "⛔" ;;
+      *) printf "•" ;;
+    esac
+  else
+    case "$1" in
+      green) printf "OK" ;;
+      yellow) printf "WARN" ;;
+      red) printf "FAIL" ;;
+      *) printf "INFO" ;;
+    esac
+  fi
+}
+
+format_core_entry() {
+  local name="$1" tone="$2" detail="${3-}" note="${4-}"
+  local icon
+  icon="$(status_icon "$tone")"
+  local text="$name $icon"
+  if [[ -n "$detail" ]]; then
+    if [[ "$tone" == "green" ]]; then
+      text+=" $detail"
+    else
+      text+=" $(colorize "$detail" "$tone")"
+    fi
+  elif [[ -n "$note" ]]; then
+    text+=" $note"
+  fi
+  printf "%s" "$text"
+}
+
+toml_table_enabled() {
+  local path="$1" table="$2"
+  [[ -f "$path" ]] || return 2
+  local header="[$table]"
+  awk -v header="$header" '
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    BEGIN { in_table=0; found=0; disabled=0 }
+    {
+      line = trim($0)
+      if (line == header) { in_table=1; found=1; next }
+      if (in_table && line ~ /^\[/) { in_table=0 }
+      if (in_table && line ~ /^enabled[[:space:]]*=[[:space:]]*false([[:space:]]*(#.*)?)?$/) { disabled=1 }
+    }
+    END {
+      if (!found) exit 2
+      if (disabled) exit 1
+      exit 0
+    }
+  ' "$path"
+}
+
+extract_version_token() {
+  local display="$1"
+  if [[ "$display" =~ ([0-9]+[0-9A-Za-z\.\-\+_]*) ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+  fi
+}
+
+format_version_entry() {
+  local name="$1" tone="$2" installed="$3" target="$4" status="$5"
+  local icon
+  icon="$(status_icon "$tone")"
+  local ver_inst
+  ver_inst="$(extract_version_token "$installed")"
+  local ver_target
+  ver_target="$(extract_version_token "$target")"
+  local text="$name"
+  if [[ -n "$ver_inst" ]]; then
+    text+=" ${ver_inst}"
+  fi
+  if [[ -n "$ver_target" && "$ver_target" != "$ver_inst" ]]; then
+    text+="→${ver_target}"
+  fi
+  if [[ "$tone" == "green" && ( -z "$ver_target" || "$ver_target" == "$ver_inst" ) ]]; then
+    text+=" ✅"
+  else
+    text+=" ${icon}"
+    if [[ -n "$status" ]]; then
+      text+=" $(colorize "$status" "$tone")"
+    fi
+  fi
+  printf "%s" "$text"
+}
+
+seconds_since_iso() {
+  local iso="$1"
+  [[ -z "$iso" ]] && return 1
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$iso" <<'PY'
+import datetime, sys
+raw = sys.argv[1]
+try:
+    dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+now = datetime.datetime.now(datetime.timezone.utc)
+delta = now - dt
+print(int(delta.total_seconds()))
+PY
+}
+
+format_duration_short() {
+  local seconds="$1"
+  [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
+  local s=$seconds
+  local days=$(( s / 86400 ))
+  s=$(( s % 86400 ))
+  local hours=$(( s / 3600 ))
+  s=$(( s % 3600 ))
+  local mins=$(( s / 60 ))
+  local parts=()
+  (( days > 0 )) && parts+=("${days}d")
+  (( hours > 0 )) && parts+=("${hours}h")
+  (( mins > 0 )) && parts+=("${mins}m")
+  if (( ${#parts[@]} == 0 )); then
+    parts=("<1m")
+  fi
+  printf "%s" "${parts[*]}"
+}
+
+format_relative_iso() {
+  local iso="$1"
+  local seconds=""
+  seconds="$(seconds_since_iso "$iso" 2>/dev/null || true)"
+  if [[ -z "$seconds" ]]; then
+    return 1
+  fi
+  if (( seconds < 0 )); then
+    seconds=$(( -seconds ))
+  fi
+  local label
+  label="$(format_duration_short "$seconds")"
+  if [[ -z "$label" ]]; then
+    return 1
+  fi
+  printf "%s ago" "$label"
+}
+
+build_quota_bar() {
+  local pct="$1" width="$2"
+  (( width < 1 )) && width=24
+  (( pct < 0 )) && pct=0
+  (( pct > 100 )) && pct=100
+  local filled=$(( (pct * width + 50) / 100 ))
+  (( filled > width )) && filled=$width
+  local fill_color="${GREEN}${BOLD}"
+  if (( pct >= 95 )); then
+    fill_color="${RED}${BOLD}"
+  elif (( pct >= 80 )); then
+    fill_color="${ORANGE}${BOLD}"
+  fi
+  local fill_char
+  local empty_char
+  if output_supports_unicode; then
+    fill_char="${CDX_QUOTA_FILL_CHAR:-█}"
+    empty_char="${CDX_QUOTA_EMPTY_CHAR:-░}"
+  else
+    fill_char="${CDX_QUOTA_FILL_CHAR:-#}"
+    empty_char="${CDX_QUOTA_EMPTY_CHAR:--}"
+  fi
+  local bar=""
+  if (( filled > 0 )); then
+    local filled_part
+    filled_part="$(printf '%*s' "$filled" "")"
+    filled_part="${filled_part// /$fill_char}"
+    bar+="${fill_color}${filled_part}"
+  fi
+  local empty_count=$(( width - filled ))
+  if (( empty_count > 0 )); then
+    local empty_part
+    empty_part="$(printf '%*s' "$empty_count" "")"
+    empty_part="${empty_part// /$empty_char}"
+    bar+="${RESET}${DIM}${empty_part}"
+  fi
+  bar+="${RESET}"
+  printf -v bar "%b" "$bar"
+  printf "%s" "$bar"
+}
+
+render_quota_line() {
+  local used="$1" reset_after="$2" reset_at="$3"
+  local width=${QUOTA_BAR_WIDTH:-24}
+  local tone="yellow"
+  local text="n/a"
+  local note=""
+
+  if [[ "$used" =~ ^[0-9]+$ ]]; then
+    local pct=$used
+    (( pct < 0 )) && pct=0
+    (( pct > 100 )) && pct=100
+    (( width < 1 )) && width=24
+    local bar
+    bar="$(build_quota_bar "$pct" "$width")"
+    if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
+      local dur
+      dur=$(format_duration_short "$reset_after")
+      [[ -n "$dur" ]] && note="resets in ${dur}"
+    elif [[ -n "$reset_at" ]]; then
+      note="resets @ ${reset_at}"
+    fi
+
+    if (( pct >= 95 )); then
+      tone="red"
+    elif (( pct >= 80 )); then
+      tone="orange"
+    else
+      tone="green"
+    fi
+
+    text=$(printf "%3d%% [%s]" "$pct" "$bar")
+  fi
+
+  printf "%s\t%s\t%s" "$tone" "$text" "$note"
+}
+
+format_quota_bar_text() {
+  local used="$1" reset_after="$2" reset_at="$3"
+  local line
+  line=$(render_quota_line "$used" "$reset_after" "$reset_at")
+  if [[ -z "$line" ]]; then
+    return
+  fi
+  local text
+  text="${line#*$'\t'}"
+  text="${text%%$'\t'*}"
+  printf "%s" "$text"
+}
+
+format_quota_metric_row() {
+  local label="$1" value="$2"
+  local width="${QUOTA_METRIC_LABEL_WIDTH:-20}"
+  if [[ ! "$width" =~ ^[0-9]+$ ]] || (( width < 8 )); then
+    width=20
+  fi
+  printf "%-${width}s: %s" "$label" "$value"
+}
+
+quota_pct_or_na() {
+  local used="$1"
+  if [[ "$used" =~ ^[0-9]+$ ]]; then
+    printf "%s%%" "$used"
+  else
+    printf "n/a"
+  fi
+}
+
+project_quota_usage() {
+  local used_pct="$1" limit_seconds="$2" reset_after="$3"
+  [[ "$used_pct" =~ ^[0-9]+$ ]] || return
+  [[ "$limit_seconds" =~ ^[0-9]+$ ]] || return
+  (( limit_seconds > 0 )) || return
+  local remaining=0
+  if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
+    remaining="$reset_after"
+  fi
+  (( remaining < 0 )) && remaining=0
+  local elapsed=$(( limit_seconds - remaining ))
+  (( elapsed < 1 )) && return
+  (( elapsed > limit_seconds )) && elapsed=limit_seconds
+  local projected=$(( (used_pct * limit_seconds + elapsed / 2) / elapsed ))
+  (( projected > 999 )) && projected=999
+  (( projected > 100 )) && projected=100
+  printf "%d" "$projected"
+}
+
+format_auth_label() {
+  local status="$1" action="$2" msg="$3"
+  if (( ! HOST_IS_SECURE )) && [[ "$status" =~ ^(outdated|missing|upload_required)$ ]]; then
+    local parts=("status refreshed (insecure host)")
+    case "$action" in
+      store|retrieve|outdated) parts+=("fetched latest auth") ;;
+    esac
+    [[ -n "$msg" ]] && parts+=("$msg")
+    printf "%s" "$(join_with_semicolon "${parts[@]}")"
+    return
+  fi
+  local parts=()
+  case "$status" in
+    valid) parts+=("status valid (matches server)") ;;
+    outdated) parts+=("status outdated (server newer)") ;;
+    missing) parts+=("status missing (upload needed)") ;;
+    upload_required) parts+=("status upload required (client newer)") ;;
+    *)
+      [[ -n "$status" ]] && parts+=("status ${status}")
+      ;;
+  esac
+  case "$action" in
+    valid) parts+=("no update needed") ;;
+    store) parts+=("stored latest auth on server") ;;
+    retrieve) parts+=("pulled latest auth from server") ;;
+    *)
+      [[ -n "$action" ]] && parts+=("action ${action}")
+      ;;
+  esac
+  [[ -n "$msg" ]] && parts+=("$msg")
+  printf "%s" "$(join_with_semicolon "${parts[@]}")"
+}
+
+doctor_probe_api_versions() {
+  if [[ -z "${CODEX_SYNC_BASE_URL:-}" ]]; then
+    printf "fail\tmissing base url"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf "skip\tpython3 missing"
+    return 2
+  fi
+
+  local probe=""
+  local rc=0
+  probe="$(CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
+base = (sys.argv[1] or "").rstrip("/")
+cafile = sys.argv[2] if len(sys.argv) > 2 else ""
+if not base:
+    print("missing base url")
+    sys.exit(2)
+
+url = f"{base}/versions"
+try:
+    req = urllib.request.Request(url, method="GET")
+except Exception as exc:  # noqa: BLE001
+    print(str(exc))
+    sys.exit(1)
+contexts = cdx_build_ssl_contexts(cafile) if "cdx_build_ssl_contexts" in globals() else [None]
+last_error = ""
+for ctx in contexts:
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
+            code = getattr(resp, "status", 200)
+            payload = {}
+            try:
+                payload = json.load(resp)
+            except Exception:
+                payload = {}
+            wrapper_version = payload.get("wrapper_version") if isinstance(payload, dict) else ""
+            if isinstance(wrapper_version, str) and wrapper_version:
+                print(f"http {code}; wrapper {wrapper_version}")
+            else:
+                print(f"http {code}")
+            sys.exit(0)
+    except Exception as exc:  # noqa: BLE001
+        last_error = str(exc)
+        continue
+
+print(last_error or "unreachable")
+sys.exit(1)
+PY
+)" || rc=$?
+
+  if (( rc == 0 )); then
+    printf "ok\t%s" "$probe"
+    return 0
+  fi
+  if (( rc == 2 )); then
+    printf "skip\t%s" "$probe"
+    return 2
+  fi
+  printf "fail\t%s" "${probe:-unreachable}"
+  return 1
+}
+

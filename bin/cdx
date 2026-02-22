@@ -494,7 +494,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.22-01"
+WRAPPER_VERSION="2026.02.22-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2631,6 +2631,7 @@ PY
   return 1
 }
 
+
 get_auth_last_refresh() {
   local path="$1"
   if [[ ! -f "$path" ]]; then
@@ -2740,6 +2741,7 @@ for target, entry in auths.items():
 sys.exit(0)
 PY
 }
+
 
 push_auth_if_changed() {
   local phase="${1:-push}"
@@ -4942,6 +4944,7 @@ if (( CODEX_EXIT_AFTER_UPDATE )); then
   exit 1
 fi
 
+
 human_join() {
   local items=("$@")
   local count=${#items[@]}
@@ -5802,6 +5805,7 @@ PY
   return 1
 }
 
+
 DOCTOR_FAILURES=0
 print_doctor_report() {
   local failures=0
@@ -5937,6 +5941,7 @@ print_doctor_report() {
 
   DOCTOR_FAILURES=$failures
 }
+
 
 codex_target_label="${codex_target_label:-${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}}"
 wrapper_target_label="${wrapper_target_label:-${WRAPPER_VERSION}}"
@@ -7399,6 +7404,7 @@ if (( CODEX_LANE_WANTS_RUN == 0 )); then
   release_run_lock_if_held || true
   exit 0
 fi
+
 
 cleanup() {
   local exit_status=$?

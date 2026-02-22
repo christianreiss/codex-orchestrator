@@ -63,6 +63,12 @@ jobs:
       - name: Assert built wrapper is up to date
         run: git diff --exit-code -- bin/cdx
 
+      - name: Lint built wrapper with ShellCheck
+        run: shellcheck -S warning -e SC2034 bin/cdx
+
+      - name: Verify wrapper version bump when wrapper changes
+        run: bash scripts/verify-wrapper-version-bump.sh
+
       - name: Run wrapper coverage tests
         run: |
           vendor/bin/phpunit \
