@@ -8,13 +8,20 @@ Lightweight HTTP microservice that validates an `auth.json` by running the Codex
 docker build -t codex-auth-runner -f runner/Dockerfile .
 ```
 
-The image bundles the Codex CLI (default `rust-v0.101.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, and `CODEX_ASSET_ARM64` if you need a different release.
+The image bundles the Codex CLI (default `rust-v0.101.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, and `CODEX_ASSET_ARM64` if you need a different release. Supported `TARGETARCH` values in the Dockerfile are `amd64` and `arm64`.
 
 ## Run (standalone)
 
 ```bash
 docker run --rm --name codex-auth-runner --network codex_auth codex-auth-runner
 ```
+
+The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
+
+## Environment variables
+
+- `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
+- `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — debug mode that writes the incoming payload to `/tmp/last-auth.json` (mode `0600`). Contains secrets.
 
 ## HTTP API
 
@@ -72,6 +79,11 @@ Response (failure):
 }
 ```
 
+Error responses:
+- HTTP 400: invalid input/auth payload (for example missing usable token).
+- HTTP 504: probe timeout (`"probe timeout"`).
+- HTTP 500: write/probe runtime errors (`detail` contains the exception text).
+
 If the probe updates `~/.codex/auth.json` (for example by refreshing tokens), the response also includes:
 
 ```json
@@ -82,7 +94,9 @@ If the probe updates `~/.codex/auth.json` (for example by refreshing tokens), th
 
 Behavior details:
 - Uses a temporary `$HOME` and writes `~/.codex/auth.json` with mode 0600 for each probe.
+- Token extraction order is `auths.api.openai.com.token` first, then `tokens.access_token`, then `tokens.openai_api_key`.
 - Runs `/usr/local/bin/codex exec "Reply Banana if this works." -s read-only --skip-git-repo-check`.
 - Sets `CODEX_SYNC_BASE_URL` from the container env (default `http://api` when unset), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
 - `status` is `ok` only when the command exits 0 and stdout contains `banana` (case-insensitive); otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
 - `codex_version` is taken from `/usr/local/bin/codex --version` (last whitespace-separated token), or `"unknown"` when the version call fails.
+- The temp `$HOME` directory is always removed after the probe.
