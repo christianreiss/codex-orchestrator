@@ -42,7 +42,7 @@ Use the admin dashboard:
 Operational reality:
 
 - Installer tokens are **single-use**, expire based on `INSTALL_TOKEN_TTL_SECONDS` (default 1800 seconds), and capture the baked base URL (`Host`/`X-Forwarded-Proto` or `PUBLIC_BASE_URL`).
-- Generating a new installer token for the same host rotates the API key and invalidates older tokens.
+- Re-registering the same host rotates its API key; older wrappers/tokens keep the old key and then fail authenticated API calls.
 
 #### Optional: mint an installer token via the admin API (automation)
 
@@ -118,9 +118,9 @@ The installer does not run `cdx` automatically; run it here to sync/auth or to r
 The wrapper is the supported entrypoint because it:
 
 - Pulls/pushes canonical `auth.json` via `/auth`.
-- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.codex/skills/`).
+- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.codex/skills/`) via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints).
 - Enforces the server’s quota policy and kill switch.
-- Self-updates the wrapper and Codex CLI as needed.
+- Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
 - Reports token usage back to `/usage` by parsing Codex stdout `Token usage` lines and POSTing single or batched entries; unparseable lines are sent as raw `line` only.
 
 Common commands:
@@ -141,11 +141,19 @@ cdx lane spark
 # Persist lane preference on this host for future runs
 cdx lane normal --persist
 
-# One-shot, script-friendly execution (prints only the final assistant reply)
+# Clear persisted lane preference (host follows inherited/default lane)
+cdx lane clear --persist
+
+# One-shot, script-friendly execution (prints only the final assistant reply;
+# direct codex exec fast path, not the full wrapper sync lifecycle)
 cdx --execute "explain what this repo does in 5 bullets"
 
 # Force IPv4 for wrapper network calls (sync/usage/update/download)
 cdx -4
+
+# Wrapper diagnostics
+cdx status
+cdx doctor
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
@@ -155,11 +163,11 @@ Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server
 
 `cdx` manages a few host-local files:
 
-- `~/.codex/auth.json` — pulled from the server; **insecure hosts purge this after each run**.
-- `~/.codex/config.toml` — baked/synced from the server (`/config/retrieve`).
-- `~/.codex/AGENTS.md` — synced from the server (`/agents/retrieve`).
-- `~/.codex/prompts/` — slash commands synced from `/slash-commands` (pull on start, push edits on exit when a baseline exists).
-- `~/.codex/skills/` — Skill manifests synced from `/skills` (pull on start, push edits on exit when a baseline exists).
+- `~/.codex/auth.json` — pulled from the server; insecure hosts purge this after each run (except concurrent-run guarded sessions).
+- `~/.codex/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`).
+- `~/.codex/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
+- `~/.codex/prompts/` — slash commands synced from server startup sync (fallback `/slash-commands`); local edits push on exit when a baseline exists.
+- `~/.codex/skills/` — Skill manifests synced from server startup sync (fallback `/skills`); local edits push on exit when a baseline exists.
 
 ## Secure vs insecure hosts (and why it matters)
 
@@ -168,8 +176,8 @@ Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server
   - Recommended for most real machines (servers, workstations with proper disk controls).
 - **Insecure host**:
   - `cdx` deletes `~/.codex/auth.json` after each run.
-  - `/auth` calls are only allowed while an **insecure window** is open.
-- New insecure hosts usually start with a short provisioning window; after that, operators must re-enable it (0–480 minute sliding window, log-ish) before hosts can sync.
+  - Insecure-window policy is enforced on sync APIs; `store` also has server-side grace/post-run allowances.
+- New insecure hosts open with a 30-minute provisioning window. After that, access follows the stored sliding window (`insecure_window_minutes`, default 10, clamped 0–480).
 
 If you see failures about an insecure window being closed, that’s not something you fix on the host — an operator needs to open the window in the dashboard.
 
@@ -177,7 +185,7 @@ If you see failures about an insecure window being closed, that’s not somethin
 
 ### Update the wrapper / Codex CLI on a host
 
-`cdx` auto-updates in normal operation (using `/wrapper/download` and the server-reported wrapper metadata), but you can force it:
+`cdx` auto-updates in normal operation (using `/wrapper/download` and the server-reported wrapper metadata) when it can manage install locations, but you can force an update check/run:
 
 ```bash
 cdx --update
@@ -197,7 +205,7 @@ On the host:
 cdx --uninstall
 ```
 
-This removes Codex artifacts and calls `DELETE /auth` to decommission (subject to the server’s IP-binding rules; operators can also delete the host from the dashboard).
+This removes Codex artifacts and calls `DELETE /auth?force=1` to decommission (host-side uninstall bypasses IP-binding checks on that call; operators can also delete the host from the dashboard).
 
 ## Troubleshooting
 
@@ -214,7 +222,7 @@ This is the fastest way to confirm the baked base URL, wrapper version, and that
 - **HTTP 503 / “API disabled”**: the admin kill switch is on (`/admin/api/state`). Only an operator can clear it.
 - **HTTP 401/403**: usually a bad API key (wrong wrapper) or an IP-binding mismatch. Operators can re-register the host (rotates API key) or enable roaming IPs.
 - **HTTP 429**: you hit a rate limit bucket (global or auth-fail). Back off until the server-provided `reset_at`.
-- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state; when set, sync and usage HTTPS calls bypass TLS verification.
+- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state; when set, sync/usage/wrapper-update HTTPS calls bypass TLS verification.
 
 ### What to collect for an operator
 

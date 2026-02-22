@@ -1,58 +1,257 @@
 # cdx Wrapper Interface (Source of Truth)
 
-- `cdx` is downloaded per host via `/wrapper/download`; the script is baked with `BASE_URL`, `API_KEY`, `FQDN`, optional CA file (for private/self-signed TLS), optional TLS-bypass flag (`CODEX_SYNC_ALLOW_INSECURE=1` when a host is configured as `curl_insecure`), and the host security flag (`secure`, defaults to on). It also hard-enforces that the runtime host FQDN matches the baked `FQDN` to prevent reusing wrappers on other hosts; set `CODEX_ALLOW_FQDN_MISMATCH=1` to override intentionally (e.g., during host rename/transition). It can also be baked with per-host `model` and `model_reasoning_effort` defaults (host override wins; otherwise uses the fleet-wide config values). Insecure hosts start with a provisioning window (default 30 minutes, or register `duration_minutes` when provided) so initial sync works immediately; dashboard “Enable” exposes a log-ish 0–480 minute (0–8 hour) slider (default 10) that opens a sliding window for `/auth` calls, and each subsequent non-store `/auth` refresh extends the window by the configured duration. When the window expires naturally, retrieve requests are denied (or queued for approval when enabled); submitted `/auth` `store` payloads are still accepted as candidates and runner-validated. Long runs may still tag store uploads with `session_started_at` (bounded by `INSECURE_SESSION_MAX_MINUTES`, default 480, max 1440). “Disable” closes the window immediately. Config defaults include `[features]` → `steer = true` and `multi_agent = true` to enable steering mode and multi-agent parallelization by default. `config.toml` may also set `model_provider`/`local_provider` to control Codex OSS provider selection.
-- Source is organized under `bin/cdx.d/*.sh`; run `scripts/build-cdx.sh` to assemble the shipped `bin/cdx`. Edit fragments, not the built file, and bump `WRAPPER_VERSION` whenever `bin/cdx` changes.
-- On launch it:
-  - Uses a per-user active-run lock (scope key prefers `installation_id`, fallback based on baked API identity, and appends the caller UID) to prevent same-user concurrent mutation storms without cross-user `/tmp` lock permission collisions. When another same-user `cdx` run already holds the lock, the new run warns and skips pre-run mutating wrapper operations (slash command/skills/AGENTS/config pull/push, Codex update, wrapper self-update, and insecure-host post-run `auth.json` purge in that path). In this mode, `cdx` still performs a read-only `/auth` retrieve (no local `auth.json` write, no pre-run `store`) so quota/policy metadata stays current, launches with local cached files only when local `auth.json` is valid, and still uploads post-run auth/token usage when local auth changed. The summary stays intentionally compact: one concurrent-guard section plus ChatGPT quota lines only.
-  - Pulls `auth.json` from `/auth` (store/retrieve). If the API is unreachable or returns HTTP 5xx it proceeds with cached auth when `last_refresh` is ≤24h old (or ≤7 days for secure hosts, with a warning) and surfaces the offline reason. It refuses to start when the API key is invalid, the insecure window is closed, the API kill-switch is on, or no recent auth is available; when insecure approvals are enabled and an admin websocket client is connected, `cdx` waits and polls `/auth` every 5s until explicit approval pending/approval denied resolution. Denied auth requests now surface a specific reason (for example, reverse DNS mismatches) in the wrapper output. Local `auth.json` validation accepts either `auths` or a `tokens.access_token`/`OPENAI_API_KEY` fallback so `codex login` outputs aren’t discarded before sync. When `/auth` retrieve requests `upload_required`/`missing` and the follow-up store succeeds (`updated`/`unchanged`), the wrapper normalizes the run status to `valid` so summaries reflect the successful sync outcome.
-  - Runs bundled startup pull sync via `POST /sync/status` and (when updates are reported) `POST /sync/bootstrap`, sending local digests for prompts/skills/AGENTS/config and applying returned payload diffs in one pass. If either bundled endpoint is missing/fails (for example older servers), it automatically falls back to legacy per-resource pull calls (`/slash-commands*`, `/skills*`, `/agents/retrieve`, `/config/retrieve`) so mixed-version fleets keep working.
-  - Reports the current user + hostname to `/host/users` (API key + IP binding) and receives the known user list for the host; `--uninstall` removes `~/.codex` for those users (fallback: current user only if the API call fails). Lane preference persistence uses `/host/lane` (same host auth + insecure-window checks).
-  - When launching Codex through the wrapper PTY capture, sets `PROMPT_TOOLKIT_NO_CPR=1` unless already provided so terminals that mishandle cursor position reports don’t break interactive runs. PTY capture only runs when stdin/stdout are TTYs and selects `script` flags based on platform support (`-f` on Linux, `-F` on macOS); it only uses `-c` when the platform supports it. If PTY capture is disabled (`CODEX_NO_PTY=1`) or PTY capture fails while a real TTY is available, `cdx` retries directly without `tee` piping so interactive TTY behavior is preserved (token usage capture may be skipped in that fallback). If a PTY run fails and Codex reports TTY-incompatible PTY output, `cdx` auto-disables PTY capture for future runs by writing `~/.codex/.cdx_no_pty`, then reruns once without PTY capture; set `CODEX_FORCE_PTY=1` (or remove that file) to force a PTY retry. On non-TTY stdout runs, `cdx` preserves the original Codex argv (no implicit subcommand rewrite). If stdout is non-TTY and no args are provided (interactive default launch), the wrapper exits with an explicit hint to use `cdx --execute`.
-- Honors the server-side ChatGPT quota policy (`quota_hard_fail`, `quota_limit_percent`, and optional `quota_week_partition` daily allowance pacing); admins can flip to warn-only or lower the kill threshold in the dashboard (or set `CODEX_QUOTA_HARD_FAIL=0` / `CODEX_QUOTA_LIMIT_PERCENT=<percent>` before running `cdx`). Quota enforcement is lane-aware: `cdx` blocks/warns against the active quota lane (`normal` or `spark`) while still showing the other lane when available. Hosts marked VIP always receive `quota_hard_fail=false`, regardless of the global policy, so the wrapper warns but never aborts on quota. Wrapper env overrides are optional; when unset, values from `/auth` are used.
-  - Surfaces runner telemetry from `/auth` versions (`runner_enabled`, `runner_state`, `runner_last_ok`/`runner_last_fail`/`runner_last_check`) with stale/failure warnings.
-  - Boot summary output is sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language status labels instead of dense pipe-delimited status blocks.
-  - Section rows are compacted into aligned columns with per-column padding. Default density is up to three entries per row (`CODEX_SUMMARY_ITEMS_PER_ROW=<n>`), while Quota defaults to one metric per row (`CODEX_SUMMARY_ITEMS_PER_ROW_QUOTA=1`) and Versions defaults to two entries per row (`CODEX_SUMMARY_ITEMS_PER_ROW_VERSIONS=2`) for readability; override globally with `CODEX_SUMMARY_ITEMS_PER_ROW=<n>` or per section with `CODEX_SUMMARY_ITEMS_PER_ROW_<SECTION>=<n>`.
-  - Shows host usage returned by `/auth` (`api_calls` and current-month token totals including cached/reasoning) in a dedicated `Usage` section with grouped numeric formatting.
-  - When both quota lanes are available, prints aligned bar rows for the non-active lane as well (`Spark 5h window`/`Spark weekly window` or `Normal ...`) so active and alternate lane graphs share the same layout.
-  - Quota defaults are intentionally lean: always show active-lane 5-hour and weekly bars, and show the daily allowance bar only for warn/block or explicit status/doctor contexts.
-- TLS: respects baked CA; as a last resort `CODEX_SYNC_ALLOW_INSECURE=1` permits unverified HTTPS for sync/prompt calls (not recommended).
-- IPv4-only: when `force_ipv4` is baked for a host (or `cdx -4` is used), the wrapper forces IPv4 for all wrapper HTTPS calls (auth, prompts, skills, AGENTS, config, usage) plus update/download requests, not just `curl`.
-- Synchronizes slash command prompts in `~/.codex/prompts` using bundled startup pulls (`/sync/status` + `/sync/bootstrap`) with automatic fallback to `/slash-commands` + `/slash-commands/retrieve`, then records a baseline; on exit it pushes changed/new prompts via `/slash-commands/store`. Server-retired prompts are removed locally.
-- Synchronizes Skills in `~/.codex/skills` using the same bundled startup pull path (fallback: `/skills` + `/skills/retrieve`) and push path (`/skills/store` on exit). Each Skill is stored as `~/.codex/skills/<slug>/SKILL.md`; retired Skills remove their local directories. Metadata is read from SKILL.md frontmatter (`name`, `description`).
-  - Local sync artifacts are written atomically (`auth.json`, `AGENTS.md`, `config.toml`, `.prompt-baseline.json`, `.skill-baseline.json`) using temp-file + `fsync` + replace to avoid partial writes on interruption.
-  - Slash command sync treats API outages/HTTP 5xx as offline (warn) instead of a hard failure; prompt push still runs when possible.
-  - AGENTS.md and `config.toml` pull through bundled startup sync (`/sync/status` + `/sync/bootstrap`) and fall back to `/agents/retrieve` + `/config/retrieve` when needed. AGENTS is **never** pushed upstream; `status:missing` deletes local `~/.codex/AGENTS.md` to avoid stale instructions.
-	  - `config.toml` is written to `~/.codex/config.toml` and the wrapper includes the calling username + home path so the server can append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) for that user, avoiding Codex trust warnings. The server bakes it per host using the caller’s API key and native HTTP MCP:  
-	    ```toml
-	    [mcp_servers.cdx]
-	    url = "{base_url}/mcp"
-	    http_headers = { Authorization = "Bearer {host_api_key}" }
-	    startup_timeout_sec = 30
-	    ```  
-	    Config defaults now include `steer = true` and `multi_agent = true` to enable steering mode (Enter submits immediately; Tab queues messages when a task is running) and multi-agent parallelization by default.
-	    When per-host model overrides are set (via the admin host detail page), the server also applies them to the baked `config.toml` (`model` and `model_reasoning_effort`) so the host’s file reflects its effective defaults. Supported override models are `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.2`, and `gpt-5.1-codex-mini`; reasoning efforts use `low|medium|high|xhigh` (with per-model compatibility checks).
-	    Responses include `status:updated|unchanged|missing`, baked `sha256`, `base_sha256`, and `content` only when changed. When the server reports `status:missing`, the local file is deleted; offline/missing-config states are surfaced as warnings but do not block auth.
-	  - Portability helpers avoid GNU-only dependencies where practical: version compares use a Python-backed comparator instead of relying on `sort -V`, ANSI stripping in summary wrapping auto-detects `sed -r` vs `sed -E`, and SHA-256 checksums use a portable helper (`sha256sum`, `shasum -a 256`, `openssl`, then `python3` fallback).
-	  - Output respects `NO_COLOR` (disables ANSI color even on TTYs). When `TERM=dumb`, wrapper output switches to a minimal mode (no MOTD, compact Health/Result summary lines). Non-UTF/basic terminals automatically fall back to ASCII-safe icons and quota bars.
-	  - Python sync networking now reuses a shared embedded helper (`CODEX_PY_HTTP_UTIL`) for IPv4 forcing, TLS context fallback, and JSON request plumbing across auth/prompt/skill/AGENTS/config/usage paths.
-  - Autodetects/installs prerequisites when missing (`curl`, `unzip`, and Linux `script` for PTY capture; plus `python3` on macOS) using `brew` on macOS and `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` on Linux; updates Codex CLI/binary to the server-reported target `versions.client_version`; and self-updates the wrapper (self-update triggers a re-exec; only the final run prints the boot summary to avoid double headers). Self-update re-exec preserves the original argv when present and falls back to a no-arg re-exec when argv is empty, which keeps `set -u` compatibility on older bash builds. RHEL-family hosts prefer `dnf` when available and fall back to `yum` for legacy CentOS compatibility. macOS uses the `apple-darwin` release assets; unsupported OSes skip update checks. When the server pins a target version (`client_version_source=locked`, either fleet-wide or per-host), `cdx` enforces the exact target (upgrade or downgrade) so hosts converge on the pinned release. npm-based Codex updates now use `sudo -n` automatically when needed (same privilege model as uninstall) so root-owned global npm installs can still be updated non-interactively.
-  - Parses **all** Codex stdout lines like `Token usage: total=… input=… (+ … cached) output=… (reasoning …)` and POSTs them to `/usage` (as an array) with the host API key; if a line cannot be parsed into numbers, it is still sent as raw `line`. The server calculates and stores per-entry/aggregate costs from pricing (env fallbacks `GPT51_*`/`PRICING_CURRENCY`).
-  - MCP-compatible memory endpoints live under `/mcp/memories/*` (store/retrieve/search/delete) and reuse the host API key; clients can sync cross-session memories there (content ≤32k, up to 32 tags).
-  - The streamable MCP server at `/mcp` (protocol `2025-03-26`) advertises `memory_store|memory_retrieve|memory_search|memory_append|memory_query|memory_list`, filesystem helpers (`fs_read_file|fs_write_file|fs_list_dir|fs_file_exists|fs_stat|fs_search_in_files`), and resource helpers (`resource_read|resource_create|resource_update|resource_delete|resource_list`); `tools/call` tolerates dot aliases. It also implements `resources/templates/list` (templates `memory_by_id` and `memory_store`), `resources/list` (recent memories for the host, up to 20), and `resources/read` (returns `text/plain` memory content for `memory://{id}`).
-- When `/auth` returns a `chatgpt_usage` block, surfaces 5-hour and weekly ChatGPT quota bars during boot for both normal and Spark lanes (when Spark is present), highlights the active lane, and shows a daily allowance bar when `quota_week_partition` is enabled.
-  - Honors fleet-wide silent mode (`cdx_silent` from `/auth` or `CODEX_SILENT=1` env): suppresses info/warn/debug logs and the MOTD; only errors print. Restart-on-update still runs, but the re-exec stays quiet.
-  - After Codex runs, pushes updated auth if changed and sends token-usage metrics. Exit output uses a compact footer (`Run usage`, `Run cost`, `Sync`) instead of raw `Usage push | ...` / `Auth push | ...` lines; when `/usage` returns an aggregated `cost`, the footer shows it as `Run cost | 💰 <amount>` on UTF-8 terminals (ASCII fallback omits the icon), formatted to two decimals with a trailing `$` (example `0.43$`). When the host is marked **insecure** (API `host.secure=false` or baked flag), `cdx` purges `~/.codex/auth.json` after the push so credentials are not left on disk and emits an extra bootstrap warning to flag the ephemeral state.
-  - Insecure hosts with a clean sync (no updates or errors) compress the Result line to `Synced on insecure host; auth refreshed.` to avoid repetitive noise.
-- `cdx --uninstall` removes Codex binaries/config, legacy env/auth files, npm `codex-cli`, and calls `DELETE /auth`. Safety guard: if the API reports host users beyond the current account and the wrapper cannot escalate (`root` or passwordless `sudo -n`), uninstall aborts with an error to avoid partial multi-user cleanup.
-- `cdx --update` forces a wrapper refresh from the server (via `/wrapper/download`) even when versions match, then exits after the update attempt.
-- `cdx --allow-concurrent-sync` bypasses the active-run lock for that invocation and allows full pre/post sync + update mutation flow even when another `cdx` run is active.
-- `cdx status` runs wrapper sync/update checks, prints the normal boot summary, and exits without launching Codex (`exit 0` for healthy/warn states, `exit 1` for red/error state).
-- `cdx doctor` runs wrapper checks plus diagnostics (dependencies, resolved paths, auth freshness, sync states, API reachability probe against `/versions`, PTY state) and exits without launching Codex; prints actionable hints and returns non-zero when critical checks fail.
-- `cdx -4` forces IPv4 for all wrapper network calls for that run (sync, usage, update/download), overriding the baked dual-stack default.
-- `cdx <profile> [args...]` is shorthand for `cdx --profile <profile> [args...]` when the named profile exists in the synced `config.toml` (`[profiles.<profile>]`); if the profile does not exist, the argument is passed through unchanged. Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `resume`, `fork`, `cloud`, `features`, `help`) are reserved and always passed through as commands; use explicit `--profile <name>` when a profile name collides with one of those commands.
-- `cdx lane` prints current lane state (`effective`, source, and persisted host preference) without launching Codex.
-- `cdx lane normal|spark [--persist] [-- <codex args...>]` selects a one-shot lane for the current run and maps it to `--profile normal|spark` when that profile exists, otherwise to model fallback (`gpt-5.3-codex` for normal, `gpt-5.3-codex-spark` for spark). `--persist` also stores the host lane preference via `/host/lane`.
-- `cdx lane clear --persist` clears host lane preference (reverts to inherited behavior from host/global model defaults).
-- `cdx --execute "<prompt>" [codex args...]` skips wrapper boot logic and MOTD, runs `codex --model gpt-5.3-codex --sandbox read-only -a untrusted exec --skip-git-repo-check --output-last-message <tmpfile> "<prompt>" [codex args...]`, then prints only the last assistant message from `<tmpfile>`; exit code is forwarded. Other wrapper flags (e.g. `--update`, `--uninstall`) are not processed in this mode.
-- The API can return HTTP 429 when IP rate limits trip (global bucket or repeated invalid API keys). Responses include `bucket`, `limit`, and `reset_at`; callers should back off until `reset_at` before retrying.
-- Wrapper publishing: the bundled `bin/cdx` in the Docker image is the source of truth. Rebuilds seed storage automatically; there is no `/wrapper` upload endpoint. Any change to `bin/cdx` must bump `WRAPPER_VERSION`.
+## Build + Publish
+- `bin/cdx` is generated from sorted `bin/cdx.d/*.sh` fragments by `scripts/build-cdx.sh`.
+- Edit `bin/cdx.d/*.sh`, then rebuild; do not edit generated `bin/cdx` directly.
+- Wrapper download surfaces are:
+  - `GET /wrapper` (metadata JSON; script content omitted).
+  - `GET /wrapper/download` (host-baked shell script; includes `X-SHA256`/`ETag` when available).
+- No non-admin HTTP route exists to upload/replace wrappers.
+
+## Host-Baked Runtime Values
+At download time, the server bakes host-specific placeholders into the wrapper:
+- `CODEX_SYNC_BASE_URL`
+- `CODEX_SYNC_API_KEY`
+- `CODEX_SYNC_FQDN`
+- `CODEX_SYNC_CA_FILE`
+- `CODEX_HOST_SECURE`
+- `CODEX_FORCE_IPV4`
+- `CODEX_INSTALLATION_ID`
+- `CODEX_SILENT`
+- `CODEX_SYNC_ALLOW_INSECURE`
+- Optional host model defaults: `CODEX_HOST_MODEL`, `CODEX_HOST_REASONING_EFFORT`
+
+Guardrails:
+- Wrapper enforces baked FQDN at runtime. Override only with `CODEX_ALLOW_FQDN_MISMATCH=1`.
+- `load_sync_config` uses baked config only; it does not read local sync env files.
+
+## Startup Sequence
+1. Resolve real `codex` binary (`/usr/local/bin/codex`, `/opt/codex/bin/codex`, or `PATH`); abort if none found.
+2. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
+3. Sync auth via `POST /auth`.
+4. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
+5. If bundle pull fails, fallback pulls run: slash commands, skills, AGENTS, config.
+6. Compute local auth freshness:
+   - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
+   - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
+7. Check/update Codex + wrapper.
+8. Render boot summary and enforce launch gates.
+9. Launch Codex (unless status/doctor/lane-only path exits first).
+10. Cleanup trap: prompt/skill push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
+
+Concurrent-run guard behavior (`active cdx run detected`):
+- Skips pre-run mutating sync/update operations.
+- Still performs read-only auth retrieve (`CODEX_SYNC_READ_ONLY=1`) for policy/quota metadata.
+- Requires valid local auth to proceed.
+- Still performs post-run auth/usage upload.
+- Skips insecure-host post-run `auth.json` purge in this path.
+
+## Auth Contract Used By Wrapper
+- `/auth` command defaults to `retrieve`; wrapper also uses `store`.
+- Local auth validation requires `last_refresh` plus:
+  - non-empty `auths`, or
+  - fallback token (`tokens.access_token` or `OPENAI_API_KEY`).
+- Retrieve statuses handled: `valid`, `outdated`, `upload_required`, `missing`.
+- On `upload_required|missing`, wrapper attempts `store`.
+- If `store` returns `updated|unchanged`, wrapper normalizes local auth status to `valid`.
+- Offline launch fallback:
+  - allowed with fresh auth (`<=24h`), or
+  - allowed on secure hosts with recent auth (`<=7d`).
+- Insecure approval flow:
+  - pending approval returns 423 and wrapper polls every 5 seconds.
+  - denied approval blocks launch.
+- Installation ID mismatches block sync.
+
+## CLI Surface
+| Command | Behavior |
+| --- | --- |
+| `cdx --wrapper-version` / `cdx -W` | Print wrapper version and exit. |
+| `cdx status` / `cdx --status` | Run sync/update checks + summary, do not launch Codex. Exit `0` unless red/error state (`1`). |
+| `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, PTY state). Exit non-zero on critical failures/red state. |
+| `cdx --update` / `cdx -U` | Force wrapper update attempt from server and exit immediately after the attempt. |
+| `cdx --uninstall` | Deregister host auth and remove Codex/wrapper artifacts. |
+| `cdx -4` | Force IPv4 for wrapper network calls for this invocation. |
+| `cdx --allow-concurrent-sync` | Bypass active-run lock for this invocation. |
+| `cdx --debug` / `cdx --verbose` | Enable wrapper debug logs. |
+| `cdx --execute "<prompt>" [codex args...]` | Bypass wrapper boot/sync/update path and run direct non-interactive `codex exec` with fixed defaults. |
+
+Lane subcommand:
+- `cdx lane` prints effective lane/source/persisted preference and exits.
+- `cdx lane normal|spark [--persist] [-- <codex args...>]` sets one-shot lane and launches Codex.
+- `cdx lane clear --persist` clears persisted lane and exits (no passthrough args allowed).
+- `--persist` writes lane preference through `POST /host/lane`.
+- If lane profile exists in config (`[profiles.normal]`/`[profiles.spark]`), wrapper injects `--profile`.
+- If lane profile is missing, wrapper injects model fallback:
+  - `normal` -> `gpt-5.3-codex`
+  - `spark` -> `gpt-5.3-codex-spark`
+
+Profile shorthand:
+- `cdx <name> [args...]` maps to `--profile <name>` when `[profiles.<name>]` exists.
+- Reserved commands are never treated as profile shorthand:
+  - `exec`, `review`, `login`, `logout`, `mcp`, `mcp-server`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `resume`, `fork`, `cloud`, `features`, `help`.
+
+## Synced Local State
+| Resource | Pull | Push | Local path |
+| --- | --- | --- | --- |
+| Slash commands | `GET /slash-commands` + `POST /slash-commands/retrieve` | `POST /slash-commands/store` | `~/.codex/prompts/*`, baseline `~/.codex/.prompt-baseline.json` |
+| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | `~/.codex/skills/<slug>/SKILL.md`, baseline `~/.codex/.skill-baseline.json` |
+| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` |
+| Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
+
+Sync details:
+- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts/skills/AGENTS/config in one pass.
+- Wrapper falls back to legacy per-resource pulls if bundle path fails or endpoints are missing.
+- Deleted/retired remote prompts and skills are removed locally.
+- `status:missing` from AGENTS/config retrieval deletes local file.
+- Prompt store reads frontmatter keys `description` and `argument-hint`.
+- Skill store reads frontmatter keys `name` and `description`.
+- Wrapper includes `username` + `home` when retrieving config so server can bake per-user trusted project settings.
+- Atomic writes (temp + `fsync` + replace) are used for auth, baselines, AGENTS, and config files.
+
+## Config Bake Rules (`/config/retrieve`)
+- Response statuses: `updated`, `unchanged`, `missing`.
+- Response includes `sha256` (baked), `base_sha256` (stored canonical), `updated_at`, `size_bytes`.
+- `content` is returned only when status is `updated`.
+- When status is `missing`, wrapper deletes local `~/.codex/config.toml`.
+- Server applies host model overrides before baking config.
+- Supported override models:
+  - `gpt-5.3-codex`
+  - `gpt-5.3-codex-spark`
+  - `gpt-5.2-codex`
+  - `gpt-5.1-codex-max`
+  - `gpt-5.2`
+  - `gpt-5.1-codex-mini`
+- Supported reasoning effort values: `low|medium|high|xhigh`.
+- `gpt-5.1-codex-mini` accepts only `medium|high`.
+- Normalization defaults include `steer=true` and `features.multi_agent=true` when unset.
+- When `home` is provided, server appends trusted project stanza for that path.
+
+## Quota, Lane, and Summary Rendering
+Inputs consumed from auth/sync responses:
+- `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`
+- `chatgpt_usage` windows and `active_quota_lane`
+- Runner telemetry (`runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`)
+- Host usage (`api_calls`, monthly token totals)
+
+Wrapper quota behavior:
+- `QUOTA_LIMIT_PERCENT` is clamped to `50..100`.
+- `QUOTA_WEEK_PARTITION` is normalized to `0|5|7`.
+- Hard fail mode blocks launch at/above threshold.
+- Warn mode logs warning but continues.
+
+Summary layout:
+- Sections: `Health`, `Versions`, `Usage`, `Quota`, `Result`.
+- In non-minimal output, concurrent-guard mode is compact (`Concurrent` + `Quota`).
+- Default row density:
+  - global: `3` (`SUMMARY_ITEMS_PER_ROW`)
+  - `Versions`: `2`
+  - `Quota`: `1`
+- Overrides:
+  - `CODEX_SUMMARY_ITEMS_PER_ROW`
+  - `CODEX_SUMMARY_ITEMS_PER_ROW_<SECTION>`
+- Daily allowance bar is shown only in warn/block/status/doctor contexts.
+- `NO_COLOR` disables ANSI color.
+- `TERM=dumb` or `CODEX_MINIMAL_OUTPUT=1` enables minimal summary mode and suppresses MOTD.
+- `CODEX_SILENT=1` suppresses info/warn/debug and MOTD.
+
+## PTY + Execution Behavior
+- PTY capture is used only when stdin/stdout are TTYs.
+- PTY backends:
+  - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
+  - Python `pty` fallback
+  - direct execution fallback
+- `CODEX_NO_PTY=1` disables PTY capture.
+- PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
+- `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
+- Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues.
+
+`--execute` behavior:
+- Runs:
+  - `codex --model gpt-5.3-codex --sandbox read-only -a untrusted exec --skip-git-repo-check --output-last-message <tmpfile> "<prompt>" ...`
+- Prints only the last assistant message from the temp file.
+- Forwards Codex exit code.
+
+## Usage Reporting
+- Wrapper parses every captured `Token usage:` line from run output (supports structured and key/value variants).
+- Posted to `POST /usage` as one payload (`usages` array).
+- Each entry may contain: `line`, `total`, `input`, `output`, `cached`, `reasoning`, optional `model`.
+- On `/usage` failure with `line` present, wrapper retries once with `line` stripped.
+- Exit footer reports:
+  - `Run usage`
+  - `Run cost` (uses response `data.cost` when present)
+  - `Sync` (`usage` + `auth` push states)
+
+## Update + Install Behavior
+Codex updates:
+- Target version comes from `/auth` `versions.client_version`.
+- If `client_version_source=locked`, wrapper enforces exact target version (upgrade or downgrade).
+- Update path:
+  - npm global `codex-cli` update when detected, otherwise
+  - GitHub release asset download/install for platform-specific binary.
+- Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
+- macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
+
+Wrapper updates:
+- Target metadata comes from `/auth` versions (`wrapper_version`, `wrapper_sha256`, `wrapper_url`) with `/wrapper/download` fallback URL.
+- Download uses host API key and optional baked CA; respects IPv4 forcing and insecure curl mode.
+- If sha is provided, downloaded script must match.
+- Successful wrapper update triggers one re-exec (`CODEX_WRAPPER_RESTARTED=1`, `CODEX_SKIP_MOTD=1`).
+- Restart-loop detection aborts with error.
+
+## Uninstall Behavior
+`cdx --uninstall`:
+- Calls `DELETE /auth?force=1` (best effort).
+- Removes legacy sync env files:
+  - `/usr/local/etc/codex-sync.env`
+  - `/etc/codex-sync.env`
+  - `~/.codex/sync.env`
+- Removes per-user `~/.codex` (for known host users from `/host/users`; fallback current user if API call fails).
+- Removes wrapper/Codex binaries in `/usr/local/bin` and `~/.local/bin`, plus `/opt/codex`.
+- Removes npm global `codex-cli` when present.
+- Safety stop: if other registered host users exist and wrapper cannot escalate (`root`/`sudo -n`), uninstall aborts.
+
+## HTTP Endpoints Used By cdx
+| Method | Path | Used for |
+| --- | --- | --- |
+| `POST` | `/auth` | Auth retrieve/store, versions/quota/runner metadata |
+| `DELETE` | `/auth?force=1` | Uninstall deregistration |
+| `POST` | `/sync/status` | Startup bundle status diff |
+| `POST` | `/sync/bootstrap` | Startup bundle content fetch when update needed |
+| `GET` | `/slash-commands` | Prompt list |
+| `POST` | `/slash-commands/retrieve` | Prompt content fetch by sha |
+| `POST` | `/slash-commands/store` | Prompt push |
+| `GET` | `/skills` | Skill list |
+| `POST` | `/skills/retrieve` | Skill manifest fetch by sha |
+| `POST` | `/skills/store` | Skill push |
+| `POST` | `/agents/retrieve` | AGENTS pull |
+| `POST` | `/config/retrieve` | Config pull |
+| `POST` | `/host/users` | Host user reporting |
+| `POST` | `/host/lane` | Persist/clear lane preference |
+| `POST` | `/usage` | Token usage ingest |
+| `GET` | `/wrapper/download` | Wrapper self-update download |
+| `GET` | `/versions` | Doctor API reachability probe |
+
+## MCP Surface (Server Contract Relevant to cdx Config)
+- `config/retrieve` injects managed MCP server entry when enabled:
+  - `[mcp_servers.cdx]`
+  - `url = "<base>/mcp"`
+  - `http_headers = { Authorization = "Bearer <host_api_key>" }`
+  - `startup_timeout_sec = 30`
+- `/mcp` JSON-RPC protocol version: `2025-03-26`.
+- Supported MCP methods include:
+  - `initialize`
+  - `tools/list`
+  - `tools/call`
+  - `resources/templates/list`
+  - `resources/list`
+  - `resources/read|create|update|delete`
+- Tool namespaces exposed by `McpServer`:
+  - `memory_*`
+  - `fs_*`
+  - `resource_*`
+- Tool-name dot aliases are accepted (`name.with.dots` normalized to underscores).
+- Host-authenticated REST memory endpoints also exist under `/mcp/memories/*`.
+
+## Unknown / Not Found In Code
+- Legacy helper `migrate-sqlite-to-mysql.php`: Unknown / not found in code.
+- Startup bundle fields beyond prompt/skill/agents/config/auth structures consumed by wrapper: Unknown / not found in wrapper contract (ignored by current parser).
