@@ -20,7 +20,7 @@ final class AuthRunnerProbeSandboxTest extends TestCase
 
     public function testWrapperSupportsDangerousBypassFlagFromConfig(): void
     {
-        $sh = file_get_contents(__DIR__ . '/../bin/cdx.d/05-main.sh');
+        $sh = file_get_contents(__DIR__ . '/../bin/cdx.d/05-main-50-run.sh');
         $this->assertIsString($sh);
 
         $this->assertStringContainsString('--dangerously-bypass-approvals-and-sandbox', $sh);

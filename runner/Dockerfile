@@ -33,6 +33,7 @@ COPY bin/cdx /app/cdx
 RUN chmod +x /app/entrypoint.sh /app/cdx
 
 ENV PYTHONUNBUFFERED=1
+USER nobody
 EXPOSE 8080
 
 ENTRYPOINT ["/app/entrypoint.sh"]

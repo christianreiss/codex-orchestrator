@@ -21,7 +21,10 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 ## Environment variables
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
-- `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — debug mode that writes the incoming payload to `/tmp/last-auth.json` (mode `0600`). Contains secrets.
+- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` requires header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`.
+- `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for writing `/tmp/last-auth.json`.
+- `APP_ENV` (optional) — when `production`, secret dump is always disabled.
 
 ## HTTP API
 
@@ -53,6 +56,7 @@ Example:
 ```bash
 curl -s http://codex-auth-runner:8080/verify \
   -H "Content-Type: application/json" \
+  -H "X-Runner-Auth: $RUNNER_SHARED_SECRET" \
   -d '{ "auth_json": { "tokens": { "access_token": "sk-..." } } }'
 ```
 

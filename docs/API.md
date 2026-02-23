@@ -5,8 +5,9 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 ## Auth & Transport
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
 - **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_ACCESS_MODE=mtls` (default). With `ADMIN_ACCESS_MODE=none`, secure the path via VPN/firewall.
-- **IP binding**: the first successful authenticated host request pins caller IP (`ip4`/`ip6`); later mismatches return `403` unless roaming is enabled (`allow_roaming_ips`), a dual-stack secondary bind is possible, or `DELETE /auth?force=1` is used. When reverse-DNS enforcement is active, `/auth` also requires forward A/AAAA + PTR match for caller IP. Runner subnet bypass is possible when `AUTH_RUNNER_IP_BYPASS=1` and caller IP matches `AUTH_RUNNER_BYPASS_SUBNETS`.
+- **IP binding**: the first successful authenticated host request pins caller IP (`ip4`/`ip6`); later mismatches return `403` unless roaming is enabled (`allow_roaming_ips`), a dual-stack secondary bind is possible, or `DELETE /auth?force=1` is used. When reverse-DNS enforcement is active, `/auth` also requires forward A/AAAA + PTR match for caller IP. Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and `REMOTE_ADDR` matches `TRUSTED_PROXY_CIDRS`. Runner subnet bypass is possible when `AUTH_RUNNER_IP_BYPASS=1` and caller IP matches `AUTH_RUNNER_BYPASS_SUBNETS`.
 - **Host security modes**: hosts default to `secure=true`. Setting `secure=false` marks the host insecure. New insecure hosts get a provisioning window (default 30 minutes, or `/admin/hosts/register` `duration_minutes`). Admins can open/extend a 0–480 minute sliding window with `POST /admin/hosts/{id}/insecure/enable` (default stored window 10). Window checks are enforced for `/auth` retrieve (non-`store`), `/host/lane`, and `/mcp`; `POST /auth` with `command=store` is currently not gated by the insecure window in code. Closed-window requests return `403 Insecure host API access disabled`, or `423 Insecure host approval pending` when insecure approvals are enabled and admin websocket presence is active.
+- **Base URL policy**: in production, keep `PUBLIC_BASE_URL` set (`PUBLIC_BASE_URL_REQUIRED=1`) and optionally enforce host matching with `STRICT_HOST_VALIDATION=1`.
 - **Kill switch**: `POST /admin/api/state` sets persistent `api_disabled`. When enabled, every non-`/admin/api/state` route returns HTTP 503.
 - **Rate limits** (non-admin paths only):
   - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
@@ -79,14 +80,14 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 ### MCP stream endpoint
 - `GET /mcp` — probe endpoint; returns 405 (`Allow: POST`).
 - `POST /mcp` — JSON-RPC 2.0 endpoint (single or batch). Methods include `initialize`, `tools/list`, `tools/call`, `resources/templates/list`, `resources/list`, `resources/read`, `resources/create`, `resources/update`, `resources/delete`, and aliases (`tools.list`, `resources.list`, etc.).
-- Origin checks apply via `MCP_ALLOWED_ORIGINS`/`PUBLIC_BASE_URL`/request host resolution; disallowed origins return 403.
+- Origin checks apply via `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Disallowed origins return 403.
 
 ### Wrapper
 - `GET /wrapper` — metadata for baked `cdx` wrapper for this host (`version`, per-host `sha256`, `size_bytes`, `updated_at`, `url`). Auth required.
 - `GET /wrapper/download` — downloads baked wrapper; includes `X-SHA256` and `ETag` when available. Auth required.
 
 ## Provisioning & Installer
-- `POST /admin/hosts/register` — create/rotate host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; `true` enables sliding 2-hour idle expiry via `expires_at` refresh on authenticated contact), optional `curl_insecure` (boolean; bakes `CODEX_SYNC_ALLOW_INSECURE=1`), optional `reverse_dns_mode` (`global` | `enabled` | `disabled`), optional `duration_minutes` (`0..480`, used when `secure=false` for initial + stored insecure window). Returns host payload (with API key) and single-use installer token/command. If `duration_minutes` omitted for insecure hosts, initial window is 30 minutes with stored extension window 10 minutes. Base URL prefers `PUBLIC_BASE_URL`, else validated forwarded host/proto; unresolved base URL returns 500.
+- `POST /admin/hosts/register` — create/rotate host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; `true` enables sliding 2-hour idle expiry via `expires_at` refresh on authenticated contact), optional `curl_insecure` (boolean; bakes `CODEX_SYNC_ALLOW_INSECURE=1`), optional `reverse_dns_mode` (`global` | `enabled` | `disabled`), optional `duration_minutes` (`0..480`, used when `secure=false` for initial + stored insecure window). Returns host payload (with API key) and single-use installer token/command. If `duration_minutes` omitted for insecure hosts, initial window is 30 minutes with stored extension window 10 minutes. Base URL prefers `PUBLIC_BASE_URL`, else validated trusted forwarded host/proto; unresolved base URL returns 500.
 - `GET /install/{token}` — public single-use installer (TTL `INSTALL_TOKEN_TTL_SECONDS`, default 1800). Marks token used before emit. Script downloads `/wrapper/download`, installs Codex CLI from GitHub releases, and falls back to version `0.63.0` when no cached client version exists. Errors return shell-script output with non-zero exit.
 
 ## Observability
@@ -164,6 +165,7 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 - Scheduled preflight runs on first non-admin request after interval (`AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800), excluding `/versions` and `/mcp`: refreshes cached GitHub client version and runs runner validation when configured.
 - Runner state is recorded in `runner_state` (`ok|fail`) with timestamps (`runner_last_ok`, `runner_last_fail`, `runner_last_check`).
 - Runner failures do not block `/auth` retrieve. Store update candidates are blocked when runner is unavailable/non-OK. Manual `POST /admin/runner/run` bypasses interval guard.
+- Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage
 - Canonical auth payloads live in `auth_payloads`, per-target entries in `auth_entries`; recent host digests in `host_auth_digests` (retained 3 per host); `host_auth_states` tracks last payload served to a host.

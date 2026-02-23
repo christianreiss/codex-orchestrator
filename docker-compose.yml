@@ -1,10 +1,11 @@
-name: codex-coordinator
+name: codex-orchestrator
 
 services:
   api:
     build: .
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8488:80"
     healthcheck:
@@ -14,6 +15,7 @@ services:
       retries: 3
       start_period: 30s
     environment:
+      APP_ENV: ${APP_ENV:-production}
       DB_DRIVER: mysql
       DB_HOST: ${DB_HOST:-mysql}
       DB_PORT: ${DB_PORT:-3306}
@@ -23,23 +25,43 @@ services:
       AUTH_RUNNER_URL: ${AUTH_RUNNER_URL:-http://auth-runner:8080/verify}
       AUTH_RUNNER_CODEX_BASE_URL: ${AUTH_RUNNER_CODEX_BASE_URL:-https://codex-auth.example.com}
       AUTH_RUNNER_TIMEOUT: ${AUTH_RUNNER_TIMEOUT:-8}
-      AUTH_RUNNER_IP_BYPASS: ${AUTH_RUNNER_IP_BYPASS:-1}
+      AUTH_RUNNER_IP_BYPASS: ${AUTH_RUNNER_IP_BYPASS:-0}
       AUTH_RUNNER_BYPASS_SUBNETS: ${AUTH_RUNNER_BYPASS_SUBNETS:-172.28.0.0/16,172.30.0.0/16}
+      AUTH_RUNNER_SHARED_SECRET: ${AUTH_RUNNER_SHARED_SECRET:-}
+      TRUST_X_FORWARDED: ${TRUST_X_FORWARDED:-0}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      MCP_ALLOW_REQUEST_HOST_ORIGIN: ${MCP_ALLOW_REQUEST_HOST_ORIGIN:-0}
+      PUBLIC_BASE_URL_REQUIRED: ${PUBLIC_BASE_URL_REQUIRED:-1}
+      STRICT_HOST_VALIDATION: ${STRICT_HOST_VALIDATION:-1}
+      RUN_MIGRATIONS_ON_BOOT: ${RUN_MIGRATIONS_ON_BOOT:-0}
+      RUN_BACKFILLS_ON_BOOT: ${RUN_BACKFILLS_ON_BOOT:-0}
       ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
     volumes:
       - ${ENV_FILE:-./.env}:/var/www/html/.env
       - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
     networks:
       - codex_auth
+    command: ["bash", "-lc", "php /var/www/html/scripts/migrate.php && exec apache2-foreground"]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/apache2
+      - /var/lock/apache2
+      - /var/log/apache2
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   admin-ws:
     build: .
     depends_on:
-      - mysql
+      api:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8091:8091"
     environment:
+      APP_ENV: ${APP_ENV:-production}
       DB_DRIVER: mysql
       DB_HOST: ${DB_HOST:-mysql}
       DB_PORT: ${DB_PORT:-3306}
@@ -53,13 +75,21 @@ services:
     networks:
       - codex_auth
     command: ["php", "/var/www/html/scripts/admin-ws.php"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   quota-cron:
     build: .
     depends_on:
-      - mysql
+      api:
+        condition: service_healthy
     environment:
+      APP_ENV: ${APP_ENV:-production}
       DB_DRIVER: mysql
       DB_HOST: ${DB_HOST:-mysql}
       DB_PORT: ${DB_PORT:-3306}
@@ -84,11 +114,17 @@ services:
           fi
         done"
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$DB_PASSWORD\" mysqladmin --skip-ssl --protocol=tcp ping -h \"$$DB_HOST\" -u\"$$DB_USERNAME\" --silent"]
+      test: ["CMD-SHELL", "php -r '$$h=getenv(\"DB_HOST\")?:\"mysql\";$$p=(int)(getenv(\"DB_PORT\")?:3306);$$d=getenv(\"DB_DATABASE\")?:\"codex_auth\";$$u=getenv(\"DB_USERNAME\")?:\"codex\";$$pw=getenv(\"DB_PASSWORD\")?:\"\";try{$$pdo=new PDO(\"mysql:host=$$h;port=$$p;dbname=$$d;charset=utf8mb4\",$$u,$$pw);$$pdo->query(\"SELECT 1\");exit(0);}catch(Throwable $$e){exit(1);}';"]
       interval: 60s
       timeout: 5s
       retries: 3
       start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   auth-runner:
@@ -96,10 +132,15 @@ services:
       context: .
       dockerfile: runner/Dockerfile
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     environment:
+      APP_ENV: ${APP_ENV:-production}
       CODEX_SYNC_BASE_URL: ${CODEX_SYNC_BASE_URL:-https://codex-auth.example.com}
       CODEX_DEBUG: ${CODEX_DEBUG:-0}
+      RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET:-}
+      RUNNER_DEBUG_DUMP_AUTH: ${RUNNER_DEBUG_DUMP_AUTH:-0}
+      RUNNER_ALLOW_SECRET_DUMP: ${RUNNER_ALLOW_SECRET_DUMP:-0}
     expose:
       - "8080"
     healthcheck:
@@ -110,6 +151,12 @@ services:
       start_period: 30s
     networks:
       - codex_auth
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   caddy:

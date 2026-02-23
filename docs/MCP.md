@@ -18,7 +18,7 @@ Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts.
 - `GET /mcp` does not authenticate hosts.
 - `/mcp/memories/*` uses normal host IP checks from `AuthService::authenticate` (including `allow_roaming_ips` and insecure-window IP override behavior).
 - `POST /mcp` uses the same `AuthService::authenticate` IP policy, then enforces insecure-host sliding-window access via `enforceInsecureWindow($host, 'mcp')`.
-- Origin allowlist checks apply to `/mcp` `GET` and `POST` only. Allowed origins come from `MCP_ALLOWED_ORIGINS`, `PUBLIC_BASE_URL`, and the current request host/proto. Missing `Origin` is allowed.
+- Origin allowlist checks apply to `/mcp` `GET` and `POST` only. Allowed origins come from `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Missing `Origin` is allowed.
 - Rate limits: global per-IP bucket applies to `/mcp*` (same non-admin bucket; defaults `120` requests per `60` seconds).
 - MCP JSON-RPC requests are logged in `mcp_access_logs`; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
 

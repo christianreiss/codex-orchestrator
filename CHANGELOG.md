@@ -1,3 +1,12 @@
+# 2026-02-23
+- Security/network trust: added explicit forwarded-header trust gating via `TRUST_X_FORWARDED` + `TRUSTED_PROXY_CIDRS`; client IP and base-url/origin resolution now honors `X-Forwarded-*` only from trusted proxy source IPs.
+- Security/host routing: added production-facing `PUBLIC_BASE_URL` policy controls (`PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`) and tightened MCP origin behavior with opt-in request-host auto-allow (`MCP_ALLOW_REQUEST_HOST_ORIGIN`).
+- Runner hardening: added optional API->runner shared-secret authentication (`AUTH_RUNNER_SHARED_SECRET` / `RUNNER_SHARED_SECRET`) and hardened auth debug dumps so they require dual opt-in and are disabled in production.
+- Crypto/key management: added staged key-rotation support for auth secretbox encryption (`AUTH_ENCRYPTION_KEYS`, `AUTH_ENCRYPTION_ACTIVE_KID`) with backward-compatible decrypt support for legacy ciphertext format.
+- Startup/runtime behavior: added `scripts/migrate.php` and boot flags (`RUN_MIGRATIONS_ON_BOOT`, `RUN_BACKFILLS_ON_BOOT`) so schema/backfill work can be moved out of request-path in production.
+- Container/deploy hardening: switched compose project naming to `codex-orchestrator`, reduced runtime image packages/extensions, and added compose hardening defaults (`read_only`, `tmpfs`, `cap_drop: [ALL]`, `no-new-privileges`) for API/runner sidecars.
+- Admin/UI/docs polish: unified visible product naming on admin pages, self-hosted login fonts (no Google Fonts dependency), refreshed security/install/MCP/runner/interface docs, and expanded regression coverage for trusted-proxy IP resolution, runner shared-secret checks, and encryption key rotation.
+
 # 2026-02-22
 - Admin websocket hardening: dashboard live-refresh routing now uses explicit action/domain constants with a codified unknown-action fallback (`overview` + `hosts`), websocket client parsing now validates event envelopes and seeds reconnect cursors from `/admin/ws/info` `last_event_id`, admin dashboard HTML cache-bumped updated `dashboard.js`/`admin-ws.js` assets, and new regression tests now lock script wiring/order plus websocket client/route metadata contracts.
 - Startup sync/API: added `POST /sync/status` and `POST /sync/bootstrap` plus `StartupSyncService` to batch startup pull diffs/payloads for prompts, Skills, AGENTS.md, and config; wrapper now attempts bundled startup pull first and falls back to legacy per-resource sync on older servers; added contract schemas/fixtures/tests for both endpoints; wrapper bumped to `2026.02.22-03`.

@@ -14,7 +14,9 @@ use RuntimeException;
 
 class EncryptionKeyManager
 {
-    private const KEY_ENV = 'AUTH_ENCRYPTION_KEY';
+    private const LEGACY_KEY_ENV = 'AUTH_ENCRYPTION_KEY';
+    private const KEYS_ENV = 'AUTH_ENCRYPTION_KEYS';
+    private const ACTIVE_KID_ENV = 'AUTH_ENCRYPTION_ACTIVE_KID';
 
     public function __construct(private readonly string $rootPath)
     {
@@ -22,13 +24,50 @@ class EncryptionKeyManager
 
     public function getKey(): string
     {
+        $keyring = $this->getKeyring();
+        return $keyring['active_key'];
+    }
+
+    /**
+     * @return array{active_kid:string,active_key:string,keys:array<string,string>}
+     */
+    public function getKeyring(): array
+    {
         if (!extension_loaded('sodium')) {
             throw new RuntimeException('The sodium extension is required for auth encryption');
         }
 
-        $existing = Config::get(self::KEY_ENV);
+        $keysRaw = Config::get(self::KEYS_ENV);
+        if (is_string($keysRaw) && trim($keysRaw) !== '') {
+            $keys = $this->parseKeyList($keysRaw);
+            if ($keys === []) {
+                throw new RuntimeException('AUTH_ENCRYPTION_KEYS must contain at least one key');
+            }
+
+            $activeKidRaw = Config::get(self::ACTIVE_KID_ENV, '');
+            $activeKid = is_string($activeKidRaw) ? trim($activeKidRaw) : '';
+            if ($activeKid === '') {
+                $activeKid = (string) array_key_first($keys);
+            }
+            if (!array_key_exists($activeKid, $keys)) {
+                throw new RuntimeException('AUTH_ENCRYPTION_ACTIVE_KID must reference a key from AUTH_ENCRYPTION_KEYS');
+            }
+
+            return [
+                'active_kid' => $activeKid,
+                'active_key' => $keys[$activeKid],
+                'keys' => $keys,
+            ];
+        }
+
+        $existing = Config::get(self::LEGACY_KEY_ENV);
         if (is_string($existing) && trim($existing) !== '') {
-            return $this->decodeKey($existing);
+            $decoded = $this->decodeKey($existing, self::LEGACY_KEY_ENV);
+            return [
+                'active_kid' => 'legacy',
+                'active_key' => $decoded,
+                'keys' => ['legacy' => $decoded],
+            ];
         }
 
         $generated = sodium_crypto_secretbox_keygen();
@@ -37,19 +76,52 @@ class EncryptionKeyManager
         $this->persistEnvKey($encoded);
         $this->injectProcessEnv($encoded);
 
-        return $generated;
+        return [
+            'active_kid' => 'legacy',
+            'active_key' => $generated,
+            'keys' => ['legacy' => $generated],
+        ];
     }
 
-    private function decodeKey(string $encoded): string
+    /**
+     * @return array<string,string>
+     */
+    private function parseKeyList(string $raw): array
+    {
+        $keys = [];
+        foreach (explode(',', $raw) as $piece) {
+            $entry = trim($piece);
+            if ($entry === '') {
+                continue;
+            }
+            $parts = explode(':', $entry, 2);
+            if (count($parts) !== 2) {
+                throw new RuntimeException('AUTH_ENCRYPTION_KEYS entries must use kid:base64 format');
+            }
+            $kid = trim($parts[0]);
+            $encoded = trim($parts[1]);
+            if ($kid === '' || $encoded === '') {
+                throw new RuntimeException('AUTH_ENCRYPTION_KEYS entries must include non-empty kid and key');
+            }
+            if (array_key_exists($kid, $keys)) {
+                throw new RuntimeException('AUTH_ENCRYPTION_KEYS contains duplicate key id "' . $kid . '"');
+            }
+            $keys[$kid] = $this->decodeKey($encoded, self::KEYS_ENV);
+        }
+
+        return $keys;
+    }
+
+    private function decodeKey(string $encoded, string $sourceEnv): string
     {
         try {
             $binary = sodium_base642bin(trim($encoded), SODIUM_BASE64_VARIANT_ORIGINAL);
         } catch (\Throwable $exception) {
-            throw new RuntimeException('AUTH_ENCRYPTION_KEY must be base64-encoded secretbox key material');
+            throw new RuntimeException($sourceEnv . ' must be base64-encoded secretbox key material');
         }
 
         if (strlen($binary) !== SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
-            throw new RuntimeException('AUTH_ENCRYPTION_KEY must decode to a 32-byte secretbox key');
+            throw new RuntimeException($sourceEnv . ' must decode to a 32-byte secretbox key');
         }
 
         return $binary;
@@ -60,7 +132,7 @@ class EncryptionKeyManager
         $path = rtrim($this->rootPath, '/');
         $envPath = $path . '/.env';
 
-        $line = self::KEY_ENV . '=' . $encoded . PHP_EOL;
+        $line = self::LEGACY_KEY_ENV . '=' . $encoded . PHP_EOL;
 
         if (!file_exists($envPath)) {
             $written = file_put_contents($envPath, $line, LOCK_EX);
@@ -75,7 +147,7 @@ class EncryptionKeyManager
             throw new RuntimeException('Unable to read .env for writing the encryption key');
         }
 
-        if (str_contains($contents, self::KEY_ENV . '=')) {
+        if (str_contains($contents, self::LEGACY_KEY_ENV . '=')) {
             return;
         }
 
@@ -88,8 +160,8 @@ class EncryptionKeyManager
 
     private function injectProcessEnv(string $encoded): void
     {
-        $_ENV[self::KEY_ENV] = $encoded;
-        $_SERVER[self::KEY_ENV] = $encoded;
-        putenv(self::KEY_ENV . '=' . $encoded);
+        $_ENV[self::LEGACY_KEY_ENV] = $encoded;
+        $_SERVER[self::LEGACY_KEY_ENV] = $encoded;
+        putenv(self::LEGACY_KEY_ENV . '=' . $encoded);
     }
 }

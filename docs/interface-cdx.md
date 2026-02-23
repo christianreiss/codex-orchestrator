@@ -57,9 +57,11 @@ Concurrent-run guard behavior (`active cdx run detected`):
 - Offline launch fallback:
   - allowed with fresh auth (`<=24h`), or
   - allowed on secure hosts with recent auth (`<=7d`).
+- Wrapper deny-reason handling includes reverse DNS mismatches and installation ID mismatches.
+- Wrapper blocks launch when API kill-switch denies non-admin routes.
 - Insecure approval flow:
-  - pending approval returns 423 and wrapper polls every 5 seconds.
-  - denied approval blocks launch.
+  - approval pending returns 423 and wrapper polls every 5 seconds.
+  - approval denied blocks launch.
 - Installation ID mismatches block sync.
 
 ## CLI Surface

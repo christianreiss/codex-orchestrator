@@ -16,7 +16,8 @@ class RunnerVerifier
     public function __construct(
         private readonly string $runnerUrl,
         private readonly string $defaultBaseUrl,
-        private readonly float $timeoutSeconds = 8.0
+        private readonly float $timeoutSeconds = 8.0,
+        private readonly string $sharedSecret = ''
     ) {
     }
 
@@ -89,10 +90,14 @@ class RunnerVerifier
     {
         $start = microtime(true);
         try {
+            $headers = '';
+            if (trim($this->sharedSecret) !== '') {
+                $headers .= "X-Runner-Auth: " . trim($this->sharedSecret) . "\r\n";
+            }
             $context = stream_context_create([
                 'http' => [
                     'method' => 'POST',
-                    'header' => "Content-Type: application/json\r\n",
+                    'header' => "Content-Type: application/json\r\n" . $headers,
                     'content' => $body,
                     'timeout' => $timeout,
                     'ignore_errors' => true, // allow reading response bodies on non-200

@@ -6,7 +6,7 @@ This doc walks through setting up the Codex Auth stack with Docker, admin login,
 
 - Docker + docker compose.
 - TLS termination for public deployments:
-  - Preferred: your own reverse proxy/ingress that terminates TLS and forwards accurate `X-Forwarded-For`/`X-Real-IP`.
+  - Preferred: your own reverse proxy/ingress that terminates TLS and forwards accurate `X-Forwarded-*` headers.
   - Alternate: enable the bundled Caddy profile in `docker-compose.yml` (disabled by default) to serve 443 with ACME **or** supplied certs.
 - MySQL 8 (the compose file runs a MySQL sidecar).
 - Host paths for persistent data (default in `docker-compose.yml`):
@@ -36,7 +36,7 @@ What it does
 - Prompts for external URLs used by hosts/runner:
   - `CODEX_SYNC_BASE_URL` (runner container base URL for Codex probes; defaults to the API URL in compose)
   - `AUTH_RUNNER_CODEX_BASE_URL` (runner’s Codex base URL; defaults to the same value)
-  - If you do not rely on forwarded Host/Proto headers, set `PUBLIC_BASE_URL` manually so installers/wrappers bake the correct base URL.
+  - Set `PUBLIC_BASE_URL` for production so installers/wrappers always bake the correct base URL.
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
   - Prompts for app-level admin mode (`ADMIN_ACCESS_MODE=mtls|none`).
   - Bundled Caddy still requires a valid client cert for `/admin*` and forwards `X-MTLS-*` headers.
@@ -97,11 +97,11 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
     - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
     - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
     - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
-    - `ADMIN_PASSWORD_RESET_TTL_SECONDS` (default 3600)
-    - `ADMIN_PASSWORD_RESET_FROM` (required to send reset emails)
-    - `ADMIN_PASSWORD_RESET_FROM_NAME` (optional)
-    - `ADMIN_PASSWORD_RESET_BASE_URL` (optional; overrides the base URL in reset links)
-   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+    - Password-reset endpoints are intentionally disabled (`410 Gone`).
+   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, optional `AUTH_RUNNER_SHARED_SECRET`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+   - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
+   - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
+   - Startup behavior: `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` (default off in production; use `scripts/migrate.php` for explicit schema/backfill runs).
    - Token TTLs: `INSTALL_TOKEN_TTL_SECONDS` (default 1800) and `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
    - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.1 price hints (`GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`).
@@ -118,7 +118,8 @@ docker compose up --build
 - Starts `api`, `admin-ws`, `quota-cron`, `auth-runner`, `mysql`, and `mysql-backup`. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (login-first once admin users exist). With bundled Caddy, client certs are required for `/admin*`.
-- Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable API-side runner checks. The runner writes probe auth to a temporary `~/.codex/auth.json` and runs `codex` for validation; admin seed/admin upload paths skip runner validation. Runner probes can bypass host IP pinning when the IP is in `AUTH_RUNNER_BYPASS_SUBNETS` and `AUTH_RUNNER_IP_BYPASS=1`.
+- Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable API-side runner checks. Admin seed/admin upload paths skip runner validation. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
+- API container startup runs `php /var/www/html/scripts/migrate.php` before serving traffic (schema + encryption/api-key backfills). Runtime request-path migrations are disabled by default in production.
 - A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds).
 - `admin-ws` listens on `127.0.0.1:8091`; `/admin/ws/info` only advertises it when `ADMIN_WS_ENABLED=1`.
 - Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
@@ -152,6 +153,7 @@ docker compose up --build
 
 - Treat `.env`, `storage/`, and MySQL volumes as secrets (contain API/encryption keys and auth payloads).
 - Admin login is the default operator workflow once users exist. If bundled Caddy is enabled, `/admin*` requires valid client certs.
-- IP binding relies on `X-Forwarded-For`/`X-Real-IP`; ensure your proxy sets and sanitizes them.
-- If you keep `AUTH_RUNNER_IP_BYPASS=1`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to internal CIDRs only.
+- Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and caller IP matches `TRUSTED_PROXY_CIDRS`; scope those CIDRs tightly.
+- In production, keep `PUBLIC_BASE_URL` set and `STRICT_HOST_VALIDATION=1`.
+- If you enable `AUTH_RUNNER_IP_BYPASS`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to internal CIDRs only.
 - Global rate limiting is off for admin routes but on for everything else; tune or disable with `RATE_LIMIT_GLOBAL_PER_MINUTE`/`RATE_LIMIT_GLOBAL_WINDOW` if your proxy already rate-limits.

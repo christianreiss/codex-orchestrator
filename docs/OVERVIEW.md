@@ -26,14 +26,14 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 - One `/auth` call decides whether to accept a client upload or return the canonical copy and always includes versions + quota metadata.
 - Per-host API keys are hashed/encrypted at rest, IP-bound on first use, and rotated when a host is re-registered.
-- Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot and legacy plaintext rows are migrated automatically.
+- Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth on scheduled preflight checks (default ~8h) and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (store uploads require a reachable runner; admin uploads bypass).
 - Extras ride the same API: slash-command + Skill distribution, MCP memories (store/retrieve/search), token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and GPT‑5.1 pricing pulls for dashboard costs.
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, migrations, key manager + secretbox, encryption migrator, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/slash/skills/agents/config/MCP/usage/pricing/chatgpt/versions).
+- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/slash/skills/agents/config/MCP/usage/pricing/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`.
@@ -43,11 +43,11 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - **`MemoryService`** — MCP memory storage per host (content, tags, optional metadata) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`) and an admin browser + delete panel.
 - **`ClientConfigService`** — renders/stores canonical `config.toml` from structured settings (sha + TOML body + saved builder payload) for the admin config page and wrapper sync; `/config/retrieve` bakes a per-host copy using that host’s API key for the managed HTTP MCP entry (Authorization header, no npm).
 - **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly), capture both normal and Spark (`additional_rate_limits`) quota lanes, and fetch GPT‑5.1 pricing (HTTP or env fallback) for cost calculations.
-- **`UsageCostService` & `CostHistoryService`** — backfill missing costs in token usage rows/ingests on boot using the latest pricing snapshot, and expose up to 180 days of daily token + cost time series for dashboards.
+- **`UsageCostService` & `CostHistoryService`** — backfill missing costs in token usage rows/ingests (boot-gated by `RUN_BACKFILLS_ON_BOOT`) using the latest pricing snapshot, and expose up to 180 days of daily token + cost time series for dashboards.
 - Admin dashboard charts use local Chart.js assets (with zoom plugin) for inline quota/cost analytics on the main dashboard; history APIs now support richer range/interval filters for those graphs.
 - Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated). Admin users and roles live in the Users panel; password reset endpoints are disabled.
 - Host management now uses dedicated host detail pages at `/admin/hosts/{id}` (Action Items, Features, Stats, Infos) instead of the legacy host detail modal.
-- **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; `AuthEncryptionMigrator` upgrades legacy rows in batches at boot.
+- **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; supports legacy `sbox:v1` plus key-id ciphertext for rotation.
 - **Admin websocket server (optional)** — `scripts/admin-ws.php` streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps `log.created` actions to targeted panel refreshes (overview/hosts/settings/prompts/skills/agents/memories/users/config/profiles) and falls back to overview+hosts for unknown actions.
 
 ## How the flow works

@@ -247,14 +247,14 @@ class AdminAuthService
         $base = rtrim(trim($base), '/');
         $link = $base !== '' ? $base . '/admin/#reset?token=' . $token : '';
 
-        $body = "A password reset was requested for your Codex Coordinator admin account.\n\n";
+        $body = "A password reset was requested for your Codex Orchestrator admin account.\n\n";
         if ($link !== '') {
             $body .= "Reset link: {$link}\n";
         }
         $body .= "Reset token: {$token}\n";
         $body .= "This token expires at {$expiresAt} UTC.\n";
 
-        $sent = $this->mailer->send((string) $user['email'], 'Codex Coordinator password reset', $body, $fromEmail, $fromName);
+        $sent = $this->mailer->send((string) $user['email'], 'Codex Orchestrator password reset', $body, $fromEmail, $fromName);
         if (!$sent) {
             throw new HttpException('Failed to send password recovery email', 500);
         }

@@ -14,6 +14,7 @@ use App\Database;
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Http\Response;
+use App\Http\TrustedProxy;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\AuthSeedTokenRepository;
@@ -116,7 +117,31 @@ $router = new class {
 $installationId = Installation::ensure($root);
 
 $keyManager = new EncryptionKeyManager($root);
-$secretBox = new SecretBox($keyManager->getKey());
+$keyring = $keyManager->getKeyring();
+$secretBox = new SecretBox($keyring['active_key'], $keyring['active_kid'], $keyring['keys']);
+$appEnvRaw = strtolower(trim((string) Config::get('APP_ENV', 'development')));
+$isProductionEnv = in_array($appEnvRaw, ['prod', 'production'], true);
+$envBool = static function (mixed $value, bool $default): bool {
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_int($value)) {
+        return $value !== 0;
+    }
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+            return true;
+        }
+        if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+            return false;
+        }
+    }
+
+    return $default;
+};
+$runMigrationsOnBoot = $envBool(Config::get('RUN_MIGRATIONS_ON_BOOT', $isProductionEnv ? '0' : '1'), !$isProductionEnv);
+$runBackfillsOnBoot = $envBool(Config::get('RUN_BACKFILLS_ON_BOOT', $isProductionEnv ? '0' : '1'), !$isProductionEnv);
 
 $dbConfig = [
     'driver' => Config::get('DB_DRIVER', 'mysql'),
@@ -138,20 +163,24 @@ if (!is_dir($sentinelDir)) {
 }
 $migrateSentinel = $sentinelDir . '/.db_migrated_' . $schemaKey;
 $migrateLockPath = $sentinelDir . '/.db_migrate.lock';
-if (!is_file($migrateSentinel)) {
-    $lock = @fopen($migrateLockPath, 'c+');
-    if (is_resource($lock)) {
-        @flock($lock, LOCK_EX);
-    }
-    // Re-check after acquiring the lock to avoid duplicate work when multiple workers start at once.
+if ($runMigrationsOnBoot) {
     if (!is_file($migrateSentinel)) {
-        $database->migrate();
-        @file_put_contents($migrateSentinel, gmdate(DATE_ATOM) . "\n");
+        $lock = @fopen($migrateLockPath, 'c+');
+        if (is_resource($lock)) {
+            @flock($lock, LOCK_EX);
+        }
+        // Re-check after acquiring the lock to avoid duplicate work when multiple workers start at once.
+        if (!is_file($migrateSentinel)) {
+            $database->migrate();
+            @file_put_contents($migrateSentinel, gmdate(DATE_ATOM) . "\n");
+        }
+        if (is_resource($lock)) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
     }
-    if (is_resource($lock)) {
-        @flock($lock, LOCK_UN);
-        @fclose($lock);
-    }
+} else {
+    error_log('[migrate] skipped schema migration on request path; run scripts/migrate.php before serving traffic.');
 }
 
 $versionRepository = new VersionRepository($database);
@@ -159,7 +188,7 @@ $versionRepository = new VersionRepository($database);
 $encryptionMigrator = new AuthEncryptionMigrator($database, $secretBox);
 // One-time backfill: encrypt legacy auth storage rows with SecretBox.
 // This can be expensive on large datasets; gate behind a durable versions flag.
-if ($versionRepository->get('auth_secretbox_migration_v1') === null) {
+if ($runBackfillsOnBoot && $versionRepository->get('auth_secretbox_migration_v1') === null) {
     try {
         $encryptionMigrator->migrate();
         $versionRepository->set('auth_secretbox_migration_v1', gmdate(DATE_ATOM));
@@ -170,7 +199,7 @@ if ($versionRepository->get('auth_secretbox_migration_v1') === null) {
 
 $hostRepository = new HostRepository($database, $secretBox);
 // One-time backfill: legacy host rows may store api_key without enc/hash columns.
-if ($versionRepository->get('hosts_api_key_encryption_backfill_v1') === null) {
+if ($runBackfillsOnBoot && $versionRepository->get('hosts_api_key_encryption_backfill_v1') === null) {
     try {
         $hostRepository->backfillApiKeyEncryption();
         $versionRepository->set('hosts_api_key_encryption_backfill_v1', gmdate(DATE_ATOM));
@@ -221,7 +250,8 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     $runnerVerifier = new RunnerVerifier(
         $runnerUrl,
         (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api'),
-        (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0)
+        (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0),
+        (string) Config::get('AUTH_RUNNER_SHARED_SECRET', '')
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
@@ -276,7 +306,9 @@ $chatGptUsageService = new ChatGptUsageService(
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
 $wrapperService->ensureSeeded();
-$usageCostService->backfillMissingCosts();
+if ($runBackfillsOnBoot) {
+    $usageCostService->backfillMissingCosts();
+}
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -284,6 +316,8 @@ $normalizedPath = rtrim($path, '/');
 if ($normalizedPath === '') {
     $normalizedPath = '/';
 }
+
+enforcePublicBaseUrlPolicy($normalizedPath);
 
 // First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
 // Avoid doing preflight work on ultra-hot, unauthenticated endpoints (health checks) or latency-sensitive MCP init.
@@ -4082,7 +4116,7 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
                         ],
                     ],
                     'serverInfo' => [
-                        'name' => 'codex-coordinator',
+                        'name' => 'codex-orchestrator',
                         'version' => $service->versionSummary()['wrapper_version'] ?? 'unknown',
                     ],
                 ];
@@ -4375,10 +4409,9 @@ function allowedOrigins(): array
         $origins[] = $baseOrigin;
     }
 
-    $hostHeader = $_SERVER['HTTP_HOST'] ?? '';
-    if ($hostHeader !== '') {
-        $scheme = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http');
-        $requestOrigin = normalizeOrigin($scheme . '://' . $hostHeader);
+    $allowRequestHostOrigin = normalizeBoolean(Config::get('MCP_ALLOW_REQUEST_HOST_ORIGIN', '0')) ?? false;
+    if ($allowRequestHostOrigin) {
+        $requestOrigin = resolveRequestOrigin();
         if ($requestOrigin !== null) {
             $origins[] = $requestOrigin;
         }
@@ -4732,20 +4765,8 @@ function resolveBaseUrl(): string
         $candidates[] = $envBase;
     }
 
-    $forwardedHostHeader = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? '';
-    $hostHeader = $_SERVER['HTTP_HOST'] ?? '';
-    $hostCandidate = $forwardedHostHeader !== '' ? (explode(',', $forwardedHostHeader)[0] ?? '') : $hostHeader;
-    $scheme = 'http';
-
-    $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
-    if ($forwardedProto !== '') {
-        $schemeCandidate = explode(',', $forwardedProto)[0] ?? '';
-        $scheme = strtolower(trim($schemeCandidate)) === 'https' ? 'https' : 'http';
-    } elseif (!empty($_SERVER['REQUEST_SCHEME'])) {
-        $scheme = $_SERVER['REQUEST_SCHEME'];
-    } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
-        $scheme = 'https';
-    }
+    $hostCandidate = resolveRequestHost();
+    $scheme = resolveRequestScheme();
 
     if ($hostCandidate !== '') {
         $candidates[] = sprintf('%s://%s', $scheme, trim($hostCandidate));
@@ -4764,6 +4785,165 @@ function resolveBaseUrl(): string
     }
 
     return '';
+}
+
+function runtimeEnvironment(): string
+{
+    $raw = Config::get('APP_ENV', 'development');
+    if (!is_string($raw)) {
+        return 'development';
+    }
+
+    $normalized = strtolower(trim($raw));
+    if ($normalized === 'prod') {
+        return 'production';
+    }
+
+    return $normalized !== '' ? $normalized : 'development';
+}
+
+function isProductionEnvironment(): bool
+{
+    return runtimeEnvironment() === 'production';
+}
+
+function publicBaseUrlRequired(): bool
+{
+    $default = isProductionEnvironment();
+    $value = normalizeBoolean(Config::get('PUBLIC_BASE_URL_REQUIRED', $default ? '1' : '0'));
+    return $value ?? $default;
+}
+
+function strictHostValidationEnabled(): bool
+{
+    $default = isProductionEnvironment();
+    $value = normalizeBoolean(Config::get('STRICT_HOST_VALIDATION', $default ? '1' : '0'));
+    return $value ?? $default;
+}
+
+function enforcePublicBaseUrlPolicy(string $path): void
+{
+    $publicBase = normalizeBaseUrlCandidate((string) Config::get('PUBLIC_BASE_URL', ''));
+    if (publicBaseUrlRequired() && $publicBase === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'PUBLIC_BASE_URL is required in this environment',
+            'data' => [
+                'app_env' => runtimeEnvironment(),
+                'required' => true,
+            ],
+        ], 503);
+    }
+
+    if (!strictHostValidationEnabled() || $publicBase === '' || isHostValidationBypassPath($path)) {
+        return;
+    }
+
+    if (!requestHostMatchesPublicBaseUrl($publicBase)) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Request host does not match PUBLIC_BASE_URL',
+            'data' => [
+                'expected' => parse_url($publicBase, PHP_URL_HOST),
+                'received' => parse_url('http://' . resolveRequestHost(), PHP_URL_HOST),
+            ],
+        ], 400);
+    }
+}
+
+function isHostValidationBypassPath(string $path): bool
+{
+    if (str_starts_with($path, '/install/')) {
+        return true;
+    }
+    if (str_starts_with($path, '/seed/auth/')) {
+        return true;
+    }
+
+    return false;
+}
+
+function requestHostMatchesPublicBaseUrl(string $publicBase): bool
+{
+    $expectedHost = parse_url($publicBase, PHP_URL_HOST);
+    if (!is_string($expectedHost) || trim($expectedHost) === '') {
+        return true;
+    }
+
+    $expectedPortRaw = parse_url($publicBase, PHP_URL_PORT);
+    $expectedScheme = parse_url($publicBase, PHP_URL_SCHEME);
+    $expectedPort = is_int($expectedPortRaw)
+        ? $expectedPortRaw
+        : (strtolower((string) $expectedScheme) === 'https' ? 443 : 80);
+
+    $requestHost = resolveRequestHost();
+    if ($requestHost === '') {
+        return false;
+    }
+
+    $parsed = parse_url('http://' . $requestHost);
+    if (!is_array($parsed) || !isset($parsed['host'])) {
+        return false;
+    }
+
+    $requestPort = isset($parsed['port']) && is_numeric($parsed['port'])
+        ? (int) $parsed['port']
+        : (resolveRequestScheme() === 'https' ? 443 : 80);
+
+    if (strtolower((string) $parsed['host']) !== strtolower($expectedHost)) {
+        return false;
+    }
+
+    return $requestPort === $expectedPort;
+}
+
+function resolveRequestScheme(): string
+{
+    if (TrustedProxy::forwardedHeadersTrusted($_SERVER)) {
+        $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
+        if (is_string($forwardedProto) && trim($forwardedProto) !== '') {
+            $schemeCandidate = explode(',', $forwardedProto)[0] ?? '';
+            return strtolower(trim((string) $schemeCandidate)) === 'https' ? 'https' : 'http';
+        }
+    }
+
+    if (!empty($_SERVER['REQUEST_SCHEME']) && is_string($_SERVER['REQUEST_SCHEME'])) {
+        return strtolower($_SERVER['REQUEST_SCHEME']) === 'https' ? 'https' : 'http';
+    }
+
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+}
+
+function resolveRequestHost(): string
+{
+    if (TrustedProxy::forwardedHeadersTrusted($_SERVER)) {
+        $forwardedHostHeader = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? '';
+        if (is_string($forwardedHostHeader) && trim($forwardedHostHeader) !== '') {
+            return trim((string) (explode(',', $forwardedHostHeader)[0] ?? ''));
+        }
+    }
+
+    $hostHeader = $_SERVER['HTTP_HOST'] ?? '';
+    if (is_string($hostHeader) && trim($hostHeader) !== '') {
+        return trim($hostHeader);
+    }
+
+    $serverName = $_SERVER['SERVER_NAME'] ?? '';
+    if (is_string($serverName)) {
+        return trim($serverName);
+    }
+
+    return '';
+}
+
+function resolveRequestOrigin(): ?string
+{
+    $host = resolveRequestHost();
+    if ($host === '') {
+        return null;
+    }
+
+    return normalizeOrigin(resolveRequestScheme() . '://' . $host);
 }
 
 function resolveApiKey(): ?string
@@ -4925,11 +5105,7 @@ function isMtlsSatisfied(): bool
 
 function isHttpsRequest(): bool
 {
-    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
-        return true;
-    }
-    $proto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
-    return is_string($proto) && strtolower(trim(explode(',', $proto)[0] ?? '')) === 'https';
+    return resolveRequestScheme() === 'https';
 }
 
 function resolveAdminSessionToken(AdminAuthService $adminAuthService): ?string

@@ -1,18 +1,23 @@
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import tempfile
 import time
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 app = FastAPI()
 
 DEFAULT_TIMEOUT = 8.0
 DEBUG_DUMP_AUTH = os.getenv("RUNNER_DEBUG_DUMP_AUTH") == "1"
+ALLOW_SECRET_DUMP = os.getenv("RUNNER_ALLOW_SECRET_DUMP") == "1"
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+RUNNER_SHARED_SECRET = os.getenv("RUNNER_SHARED_SECRET", "").strip()
+DEBUG_DUMP_ENABLED = DEBUG_DUMP_AUTH and ALLOW_SECRET_DUMP and APP_ENV != "production"
 
 
 @app.get("/health")
@@ -57,7 +62,7 @@ def _codex_version(env: dict) -> str:
 
 
 def _run_probe(payload: VerifyRequest) -> dict:
-    if DEBUG_DUMP_AUTH:
+    if DEBUG_DUMP_ENABLED:
         # Debug helper: persist the incoming auth.json so it can be inspected from the container.
         # WARNING: contains secrets; enable only when debugging runner probes.
         try:
@@ -137,7 +142,12 @@ def _run_probe(payload: VerifyRequest) -> dict:
 
 
 @app.post("/verify")
-def verify(payload: VerifyRequest):
+def verify(payload: VerifyRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
     try:
         return _run_probe(payload)
     except subprocess.TimeoutExpired:
