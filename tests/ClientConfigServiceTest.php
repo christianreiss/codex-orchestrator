@@ -135,6 +135,20 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('web_search', $rendered['settings']['features']);
     }
 
+    public function testLegacyWebSearchCachedMapsToCachedWebSearch(): void
+    {
+        $rendered = $this->service->render([
+            'features' => [
+                'web_search_cached' => true,
+            ],
+        ]);
+
+        $this->assertStringContainsString('web_search = "cached"', $rendered['content']);
+        $this->assertArrayHasKey('web_search', $rendered['settings']);
+        $this->assertSame('cached', $rendered['settings']['web_search']);
+        $this->assertArrayNotHasKey('web_search_cached', $rendered['settings']['features']);
+    }
+
     public function testDeprecatedApprovalPolicyOnFailureMigratesToOnRequest(): void
     {
         $rendered = $this->service->render([
@@ -163,16 +177,28 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('approval_policy = "on-failure"', $rendered['content']);
     }
 
-    public function testSteerDefaultsToTrueAndCanDisable(): void
+    public function testObsoleteFeatureKeysAreIgnoredWhileVoiceTranscriptionPersists(): void
     {
-        $renderedDefault = $this->service->render([]);
-        $this->assertStringContainsString('[features]', $renderedDefault['content']);
-        $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
-        $this->assertStringContainsString('steer = true', $renderedDefault['content']);
+        $rendered = $this->service->render([
+            'features' => [
+                'voice_transcription' => true,
+                'steer' => true,
+                'experimental_windows_sandbox' => true,
+                'enable_experimental_windows_sandbox' => true,
+            ],
+            'steer' => true,
+        ]);
 
-        $renderedDisabled = $this->service->render(['steer' => false]);
-        $this->assertStringContainsString('[features]', $renderedDisabled['content']);
-        $this->assertStringContainsString('steer = false', $renderedDisabled['content']);
+        $this->assertStringContainsString('[features]', $rendered['content']);
+        $this->assertStringContainsString('voice_transcription = true', $rendered['content']);
+        $this->assertStringNotContainsString('steer =', $rendered['content']);
+        $this->assertStringNotContainsString('experimental_windows_sandbox =', $rendered['content']);
+        $this->assertStringNotContainsString('enable_experimental_windows_sandbox =', $rendered['content']);
+        $this->assertArrayHasKey('voice_transcription', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('steer', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('experimental_windows_sandbox', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('enable_experimental_windows_sandbox', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
     public function testMultiAgentDefaultsToTrueAndCanDisable(): void
@@ -202,14 +228,15 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model_reasoning_summary = "auto"', $rendered['content']);
     }
 
-    public function testReasoningSummaryForcedDetailedForGpt51CodexModels(): void
+    public function testReasoningSummaryOmittedForSparkAndForcedDetailedForCodexModels(): void
     {
         $rendered = $this->service->render([
             'model' => 'gpt-5.3-codex-spark',
             'model_reasoning_summary' => 'concise',
         ]);
 
-        $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);
+        $this->assertStringNotContainsString('model_reasoning_summary', $rendered['content']);
+        $this->assertNull($rendered['settings']['model_reasoning_summary']);
 
         $rendered = $this->service->render([
             'model' => 'gpt-5.1-codex-mini',

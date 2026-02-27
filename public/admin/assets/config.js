@@ -18,7 +18,6 @@
   let maxTokensInput;
   let supportsSummariesInput;
   let notifyInput;
-  let steerInput;
 
   let featureStreamShell;
   let featureBackgroundTerminal;
@@ -26,10 +25,10 @@
   let featureRmcpClient;
   let featureWebSearch;
   let featureViewImage;
+  let featureVoiceTranscription;
   let featureMultiAgent;
   let featureSandboxAssessment;
   let featureGhostCommit;
-  let featureExperimentalWindowsSandbox;
   let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
 
@@ -86,31 +85,47 @@
   };
   const SUPPORTED_MODELS = Object.keys(MODEL_REASONING);
 
-  function isGpt51CodexModel(model) {
+  function isSparkCodexModel(model) {
+    const lower = String(model || '').toLowerCase();
+    return lower.includes('codex-spark');
+  }
+
+  function isDetailedOnlyCodexModel(model) {
     const lower = String(model || '').toLowerCase();
     return lower.startsWith('gpt-5.1-codex')
       || lower.startsWith('gpt-5.2-codex')
-      || lower.startsWith('gpt-5.3-codex');
+      || lower === 'gpt-5.3-codex';
   }
 
   function clampReasoningSummaryForModel(model) {
     if (!reasoningSummaryInput) return;
-    const codex = isGpt51CodexModel(model);
+    const spark = isSparkCodexModel(model);
+    const detailedOnly = isDetailedOnlyCodexModel(model);
     const options = Array.from(reasoningSummaryInput.options || []);
     options.forEach((opt) => {
       const value = String(opt.value || '').toLowerCase();
       if (!value) return;
+      if (spark) {
+        opt.disabled = true;
+        return;
+      }
+      if (!detailedOnly) {
+        opt.disabled = false;
+        return;
+      }
       if (value === 'detailed') {
         opt.disabled = false;
         return;
       }
-      if (value === 'auto' || value === 'concise') {
-        opt.disabled = codex;
-      }
+      opt.disabled = value === 'auto' || value === 'concise';
     });
 
     const current = String(reasoningSummaryInput.value || '').trim().toLowerCase();
-    if (codex && current !== '' && current !== 'detailed') {
+    if (spark) {
+      reasoningSummaryInput.value = '';
+      return;
+    }
+    if (detailedOnly && current !== '' && current !== 'detailed') {
       reasoningSummaryInput.value = 'detailed';
     }
   }
@@ -148,17 +163,16 @@
       model_supports_reasoning_summaries: false,
       model_context_window: null,
       model_max_output_tokens: null,
-      steer: true,
       features: {
         streamable_shell: false,
         background_terminal: false,
         unified_exec: false,
         rmcp_client: false,
         view_image_tool: false,
+        voice_transcription: false,
         multi_agent: true,
         experimental_sandbox_command_assessment: false,
         ghost_commit: false,
-        experimental_windows_sandbox: false,
       },
       notice: {
         'hide_gpt5_1_migration_prompt': true,
@@ -425,10 +439,10 @@
       unified_exec: featureUnifiedExec.checked,
       rmcp_client: featureRmcpClient.checked,
       view_image_tool: featureViewImage.checked,
+      voice_transcription: featureVoiceTranscription.checked,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
       experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
       ghost_commit: featureGhostCommit.checked,
-      experimental_windows_sandbox: featureExperimentalWindowsSandbox.checked,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
     Object.assign(features, extraFeatures);
@@ -470,7 +484,6 @@
       model_supports_reasoning_summaries: supportsSummariesInput.checked,
       model_context_window: numberOrNull(contextWindowInput.value),
       model_max_output_tokens: numberOrNull(maxTokensInput.value),
-      steer: steerInput.checked,
       notify: parseArgs(notifyInput.value),
       features,
       notice: base.notice,
@@ -529,7 +542,6 @@
     contextWindowInput.value = cfg.model_context_window ?? '';
     maxTokensInput.value = cfg.model_max_output_tokens ?? '';
     supportsSummariesInput.checked = Boolean(cfg.model_supports_reasoning_summaries);
-    steerInput.checked = Boolean(cfg.steer);
     notifyInput.value = (cfg.notify || []).join('\n');
 
     featureStreamShell.checked = Boolean(cfg.features?.streamable_shell);
@@ -542,14 +554,12 @@
       : (typeof cfg.features?.web_search === 'string' ? cfg.features.web_search : (legacyWebSearch ? 'live' : 'disabled'));
     setSelectValue(featureWebSearch, webSearchValue || 'disabled');
     featureViewImage.checked = cfg.features?.view_image_tool !== false;
+    featureVoiceTranscription.checked = Boolean(cfg.features?.voice_transcription);
     if (featureMultiAgent) {
       featureMultiAgent.checked = cfg.features?.multi_agent !== false;
     }
     featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
     featureGhostCommit.checked = Boolean(cfg.features?.ghost_commit);
-    featureExperimentalWindowsSandbox.checked = Boolean(
-      cfg.features?.experimental_windows_sandbox ?? cfg.features?.enable_experimental_windows_sandbox,
-    );
     const featureExtras = { ...cfg.features };
     delete featureExtras.streamable_shell;
     delete featureExtras.background_terminal;
@@ -558,6 +568,7 @@
     delete featureExtras.web_search_request;
     delete featureExtras.web_search;
     delete featureExtras.view_image_tool;
+    delete featureExtras.voice_transcription;
     delete featureExtras.multi_agent;
     delete featureExtras.experimental_sandbox_command_assessment;
     delete featureExtras.ghost_commit;
@@ -862,7 +873,6 @@
     maxTokensInput = document.getElementById('maxTokensInput');
     supportsSummariesInput = document.getElementById('supportsSummariesInput');
     notifyInput = document.getElementById('notifyInput');
-    steerInput = document.getElementById('steerInput');
 
     featureStreamShell = document.getElementById('featureStreamShell');
     featureBackgroundTerminal = document.getElementById('featureBackgroundTerminal');
@@ -870,10 +880,10 @@
     featureRmcpClient = document.getElementById('featureRmcpClient');
     featureWebSearch = document.getElementById('featureWebSearch');
     featureViewImage = document.getElementById('featureViewImage');
+    featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
     featureMultiAgent = document.getElementById('featureMultiAgent');
     featureSandboxAssessment = document.getElementById('featureSandboxAssessment');
     featureGhostCommit = document.getElementById('featureGhostCommit');
-    featureExperimentalWindowsSandbox = document.getElementById('featureExperimentalWindowsSandbox');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');
 

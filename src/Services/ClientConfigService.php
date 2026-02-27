@@ -39,6 +39,13 @@ class ClientConfigService
     /** @var list<string> */
     public const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
+    /** @var list<string> */
+    private const OBSOLETE_FEATURE_KEYS = [
+        'steer',
+        'experimental_windows_sandbox',
+        'enable_experimental_windows_sandbox',
+    ];
+
     /**
      * Per-request cache for baked configs so multiple calls in one request
      * don't rebuild TOML (keyed by base sha + host + api key hash + base URL).
@@ -454,7 +461,6 @@ class ClientConfigService
             'model_supports_reasoning_summaries' => $normalizeBool($settings['model_supports_reasoning_summaries'] ?? null),
             'model_context_window' => $this->normalizeInt($settings['model_context_window'] ?? null),
             'model_max_output_tokens' => $this->normalizeInt($settings['model_max_output_tokens'] ?? null),
-            'steer' => $normalizeBool($settings['steer'] ?? null, true),
             'notify' => $this->normalizeStringList($settings['notify'] ?? []),
             'orchestrator_mcp_enabled' => $normalizeBool($settings['orchestrator_mcp_enabled'] ?? null, true),
         ];
@@ -515,11 +521,17 @@ class ClientConfigService
             if ($name === null || $name === '') {
                 continue;
             }
-            if ($name === 'web_search' || $name === 'web_search_request') {
+            if ($name === 'web_search' || $name === 'web_search_request' || $name === 'web_search_cached') {
                 $normalized = $this->normalizeWebSearchFeature($value);
+                if ($name === 'web_search_cached' && $normalized === 'live') {
+                    $normalized = 'cached';
+                }
                 if ($normalized !== null && $result['web_search'] === null) {
                     $result['web_search'] = $normalized;
                 }
+                continue;
+            }
+            if (in_array($name, self::OBSOLETE_FEATURE_KEYS, true)) {
                 continue;
             }
             $boolValue = $normalizeBool($value);
@@ -528,13 +540,9 @@ class ClientConfigService
             }
             $features[$name] = $boolValue;
         }
-        if (array_key_exists('steer', $features)) {
-            $result['steer'] = $features['steer'];
-        }
         if (!array_key_exists('multi_agent', $features)) {
             $features['multi_agent'] = true;
         }
-        $features['steer'] = $result['steer'];
         $result['features'] = $features;
 
         $sandboxRaw = is_array($settings['sandbox_workspace_write'] ?? null) ? $settings['sandbox_workspace_write'] : [];
@@ -575,11 +583,17 @@ class ClientConfigService
                 if ($featureName === null || $featureName === '') {
                     continue;
                 }
-                if ($featureName === 'web_search' || $featureName === 'web_search_request') {
+                if ($featureName === 'web_search' || $featureName === 'web_search_request' || $featureName === 'web_search_cached') {
                     $normalized = $this->normalizeWebSearchFeature($value);
+                    if ($featureName === 'web_search_cached' && $normalized === 'live') {
+                        $normalized = 'cached';
+                    }
                     if ($normalized !== null && $profileWebSearch === null) {
                         $profileWebSearch = $normalized;
                     }
+                    continue;
+                }
+                if (in_array($featureName, self::OBSOLETE_FEATURE_KEYS, true)) {
                     continue;
                 }
                 $boolValue = $normalizeBool($value);
@@ -719,12 +733,11 @@ class ClientConfigService
         if (!is_array($features)) {
             $features = [];
         }
-        unset($features['web_search'], $features['web_search_request']);
-        if (array_key_exists('steer', $settings)) {
-            $features['steer'] = $settings['steer'];
+        unset($features['web_search'], $features['web_search_request'], $features['web_search_cached']);
+        foreach (self::OBSOLETE_FEATURE_KEYS as $obsoleteFeature) {
+            unset($features[$obsoleteFeature]);
         }
-        $hasSteer = array_key_exists('steer', $features);
-        if ($this->hasAny($features) || $hasSteer) {
+        if ($this->hasAny($features)) {
             $this->addBlankLine($lines);
             $lines[] = '[features]';
             foreach ($this->sortedAssoc($features) as $key => $value) {
@@ -1063,8 +1076,13 @@ class ClientConfigService
             return null;
         }
 
-        if ($model !== null && $this->isGpt51CodexModel($model)) {
-            // gpt-5.1/5.2/5.3-codex* only support detailed summaries.
+        if ($model !== null && $this->isSparkCodexModel($model)) {
+            // gpt-5.3-codex-spark rejects reasoning summary settings.
+            return null;
+        }
+
+        if ($model !== null && $this->isDetailedOnlyCodexModel($model)) {
+            // gpt-5.1-codex*, gpt-5.2-codex, and gpt-5.3-codex support detailed summaries only.
             return 'detailed';
         }
 
@@ -1081,12 +1099,18 @@ class ClientConfigService
         return self::modelSupportsReasoningEffort($model, $effort) ? $effort : null;
     }
 
-    private function isGpt51CodexModel(string $model): bool
+    private function isSparkCodexModel(string $model): bool
+    {
+        $m = strtolower(trim($model));
+        return str_contains($m, 'codex-spark');
+    }
+
+    private function isDetailedOnlyCodexModel(string $model): bool
     {
         $m = strtolower(trim($model));
         return str_starts_with($m, 'gpt-5.1-codex')
             || str_starts_with($m, 'gpt-5.2-codex')
-            || str_starts_with($m, 'gpt-5.3-codex');
+            || $m === 'gpt-5.3-codex';
     }
 
     /** @return list<string> */

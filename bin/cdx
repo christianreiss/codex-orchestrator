@@ -494,7 +494,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.22-03"
+WRAPPER_VERSION="2026.02.27-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -8301,14 +8301,17 @@ if (( user_selected_profile_or_model )) && (( CODEX_LANE_USER_SET )); then
 fi
 
 injected_model=0
+injected_model_name=""
 if (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_profile" ]]; then
   set -- --profile "$lane_selector_profile" "$@"
 elif (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_model" ]]; then
   set -- --model "$lane_selector_model" "$@"
   injected_model=1
+  injected_model_name="$lane_selector_model"
 elif (( ! user_selected_profile_or_model )) && [[ -n "$CODEX_HOST_MODEL" ]]; then
   set -- --model "$CODEX_HOST_MODEL" "$@"
   injected_model=1
+  injected_model_name="$CODEX_HOST_MODEL"
   if [[ -z "$CODEX_EFFECTIVE_LANE_SELECTOR" ]]; then
     CODEX_EFFECTIVE_LANE_SELECTOR="model:${CODEX_HOST_MODEL}"
   fi
@@ -8316,6 +8319,10 @@ fi
 
 if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
   set -- --config "model_reasoning_effort=${CODEX_HOST_REASONING_EFFORT}" "$@"
+fi
+if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ "$injected_model_name" == *"codex-spark"* ]]; then
+  # gpt-5.3-codex-spark rejects reasoning summary settings unless set to none.
+  set -- --config "model_reasoning_summary=none" "$@"
 fi
 
 CODEX_COMMAND_STARTED=1

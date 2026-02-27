@@ -86,6 +86,7 @@ Lane subcommand:
 - If lane profile is missing, wrapper injects model fallback:
   - `normal` -> `gpt-5.3-codex`
   - `spark` -> `gpt-5.3-codex-spark`
+- When wrapper injects `gpt-5.3-codex-spark`, it also injects `--config model_reasoning_summary=none` because spark rejects summary settings.
 
 Profile shorthand:
 - `cdx <name> [args...]` maps to `--profile <name>` when `[profiles.<name>]` exists.
@@ -125,7 +126,8 @@ Sync details:
   - `gpt-5.1-codex-mini`
 - Supported reasoning effort values: `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
-- Normalization defaults include `steer=true` and `features.multi_agent=true` when unset.
+- Normalization defaults include `features.multi_agent=true` when unset.
+- Legacy config keys `steer`, `experimental_windows_sandbox`, and `enable_experimental_windows_sandbox` are accepted for ingest compatibility but dropped from rendered output.
 - When `home` is provided, server appends trusted project stanza for that path.
 
 ## Quota, Lane, and Summary Rendering

@@ -104,7 +104,7 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="featureRmcpClient"', $html);
         $this->assertStringContainsString('id="featureSandboxAssessment"', $html);
         $this->assertStringContainsString('id="featureGhostCommit"', $html);
-        $this->assertStringContainsString('id="featureExperimentalWindowsSandbox"', $html);
+        $this->assertStringContainsString('id="featureVoiceTranscription"', $html);
     }
 
     public function testAdminConfigBuilderApprovalPolicyOmitsDeprecatedOnFailure(): void

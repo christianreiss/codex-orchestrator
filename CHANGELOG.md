@@ -1,3 +1,10 @@
+# 2026-02-27
+- Codex 0.105/0.106 compatibility: config normalization now maps legacy `features.web_search_cached` to root `web_search="cached"` and continues mapping `features.web_search_request` to `web_search="live"`.
+- Config builder/runtime cleanup: obsolete feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`) are now ingest-compatible but removed from normalized/rendered config output.
+- Admin config UI: removed obsolete Steer and Windows sandbox switches, added `voice_transcription` feature toggle, and cache-bumped `config.js` to `v=2026-02-27-01`.
+- cdx wrapper: when lane/host model injection selects `gpt-5.3-codex-spark`, wrapper now also injects `--config model_reasoning_summary=none` to match current Codex CLI/API behavior; wrapper bumped to `2026.02.27-01`.
+- Tests/docs: updated config/wrapper coverage for spark summary handling + obsolete key dropping and refreshed config/wrapper/overview interface docs to match current behavior.
+
 # 2026-02-23
 - Security/network trust: added explicit forwarded-header trust gating via `TRUST_X_FORWARDED` + `TRUSTED_PROXY_CIDRS`; client IP and base-url/origin resolution now honors `X-Forwarded-*` only from trusted proxy source IPs.
 - Security/host routing: added production-facing `PUBLIC_BASE_URL` policy controls (`PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`) and tightened MCP origin behavior with opt-in request-host auto-allow (`MCP_ALLOW_REQUEST_HOST_ORIGIN`).
