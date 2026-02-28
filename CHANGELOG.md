@@ -1,3 +1,7 @@
+# 2026-02-28
+- cdx wrapper: spark summary safeguard now also applies when users explicitly pass `--model gpt-5.3-codex-spark` (not only lane/host model injection), preventing OpenAI 400 `unsupported_parameter` errors for `reasoning.summary`; wrapper bumped to `2026.02.28-01`.
+- Docs/tests: updated wrapper reasoning-summary coverage and `interface-cdx` model-summary behavior notes for explicit spark model selection.
+
 # 2026-02-27
 - Codex 0.105/0.106 compatibility: config normalization now maps legacy `features.web_search_cached` to root `web_search="cached"` and continues mapping `features.web_search_request` to `web_search="live"`.
 - Config builder/runtime cleanup: obsolete feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`) are now ingest-compatible but removed from normalized/rendered config output.

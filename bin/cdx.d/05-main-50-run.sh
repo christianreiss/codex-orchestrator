@@ -237,6 +237,35 @@ codex_args_include_profile_or_model() {
   return 1
 }
 
+codex_args_explicit_model() {
+  local arg=""
+  local expect_model_value=0
+  local model_value=""
+  for arg in "$@"; do
+    if (( expect_model_value )); then
+      model_value="$arg"
+      expect_model_value=0
+      continue
+    fi
+    case "$arg" in
+      --model)
+        expect_model_value=1
+        ;;
+      --model=*)
+        model_value="${arg#--model=}"
+        ;;
+      --)
+        break
+        ;;
+    esac
+  done
+  if [[ -n "$model_value" ]]; then
+    printf '%s\n' "$model_value"
+    return 0
+  fi
+  return 1
+}
+
 user_selected_profile_or_model=0
 if codex_args_include_profile_or_model "$@"; then
   user_selected_profile_or_model=1
@@ -299,8 +328,15 @@ fi
 if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
   set -- --config "model_reasoning_effort=${CODEX_HOST_REASONING_EFFORT}" "$@"
 fi
-if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ "$injected_model_name" == *"codex-spark"* ]]; then
-  # gpt-5.3-codex-spark rejects reasoning summary settings unless set to none.
+
+effective_model_name=""
+if explicit_model_name="$(codex_args_explicit_model "$@")"; then
+  effective_model_name="$explicit_model_name"
+elif (( injected_model )) && [[ -n "$injected_model_name" ]]; then
+  effective_model_name="$injected_model_name"
+fi
+if [[ -n "$effective_model_name" ]] && [[ "$(lowercase "$effective_model_name")" == *"codex-spark"* ]]; then
+  # gpt-5.3-codex-spark rejects reasoning summary settings.
   set -- --config "model_reasoning_summary=none" "$@"
 fi
 

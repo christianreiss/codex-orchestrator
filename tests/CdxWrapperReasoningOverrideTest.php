@@ -24,21 +24,26 @@ final class CdxWrapperReasoningOverrideTest extends TestCase
         );
     }
 
-    public function testWrapperForcesReasoningSummaryNoneForInjectedSparkModel(): void
+    public function testWrapperForcesReasoningSummaryNoneForSparkModel(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString(
-            'injected_model_name',
+            'codex_args_explicit_model',
             $wrapperSource,
-            'Wrapper should track which model it injected.'
+            'Wrapper should parse explicit --model arguments.'
+        );
+        self::assertStringContainsString(
+            'effective_model_name',
+            $wrapperSource,
+            'Wrapper should derive an effective model before applying spark overrides.'
         );
         self::assertStringContainsString(
             'model_reasoning_summary=none',
             $wrapperSource,
-            'Wrapper should disable reasoning summary when injecting codex-spark.'
+            'Wrapper should disable reasoning summary whenever codex-spark is the effective model.'
         );
     }
 }
