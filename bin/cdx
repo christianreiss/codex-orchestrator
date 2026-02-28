@@ -360,6 +360,7 @@ SYNC_WARNED_NO_PYTHON=0
 CODEX_COMMAND_STARTED=0
 SYNC_PUSH_COMPLETED=0
 ORIGINAL_LAST_REFRESH=""
+ORIGINAL_AUTH_SHA=""
 AUTH_PUSH_RESULT=""
 AUTH_PUSH_REASON=""
 USAGE_PUSH_RESULT=""
@@ -494,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.02.28-01"
+WRAPPER_VERSION="2026.02.28-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2747,14 +2748,16 @@ push_auth_if_changed() {
   local phase="${1:-push}"
   local auth_path="$HOME/.codex/auth.json"
   local refreshed
+  local refreshed_sha
   refreshed="$(get_auth_last_refresh "$auth_path")"
+  refreshed_sha="$(sha256_file "$auth_path" 2>/dev/null || true)"
   # No local auth present
-  if [[ -z "$ORIGINAL_LAST_REFRESH" && -z "$refreshed" ]]; then
+  if [[ -z "$ORIGINAL_LAST_REFRESH" && -z "$ORIGINAL_AUTH_SHA" && -z "$refreshed" && -z "$refreshed_sha" ]]; then
     AUTH_PUSH_RESULT="skipped"
     AUTH_PUSH_REASON="no local auth.json"
     return 0
   fi
-  if [[ "$refreshed" == "$ORIGINAL_LAST_REFRESH" ]]; then
+  if [[ "$refreshed" == "$ORIGINAL_LAST_REFRESH" && "$refreshed_sha" == "$ORIGINAL_AUTH_SHA" ]]; then
     AUTH_PUSH_RESULT="not-needed"
     AUTH_PUSH_REASON="auth.json unchanged"
     return 0
@@ -5189,6 +5192,7 @@ else
   fi
 fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
+ORIGINAL_AUTH_SHA="$(sha256_file "$HOME/.codex/auth.json" 2>/dev/null || true)"
 LOCAL_AUTH_IS_FRESH=0
 if is_last_refresh_recent "$ORIGINAL_LAST_REFRESH" "$MAX_LOCAL_AUTH_AGE_SECONDS"; then
   LOCAL_AUTH_IS_FRESH=1

@@ -43,4 +43,15 @@ final class CdxWrapperConcurrentGuardTest extends TestCase
         self::assertStringContainsString('local auth.json is invalid', $wrapperSource);
     }
 
+    public function testAuthPushChangeDetectionUsesAuthHashAndLastRefresh(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('ORIGINAL_AUTH_SHA="$(sha256_file "$HOME/.codex/auth.json" 2>/dev/null || true)"', $wrapperSource);
+        self::assertStringContainsString('refreshed_sha="$(sha256_file "$auth_path" 2>/dev/null || true)"', $wrapperSource);
+        self::assertStringContainsString('if [[ "$refreshed" == "$ORIGINAL_LAST_REFRESH" && "$refreshed_sha" == "$ORIGINAL_AUTH_SHA" ]]; then', $wrapperSource);
+    }
+
 }

@@ -54,6 +54,7 @@ Concurrent-run guard behavior (`active cdx run detected`):
 - Retrieve statuses handled: `valid`, `outdated`, `upload_required`, `missing`.
 - On `upload_required|missing`, wrapper attempts `store`.
 - If `store` returns `updated|unchanged`, wrapper normalizes local auth status to `valid`.
+- Post-run auth push now detects changes using both `last_refresh` and local `auth.json` SHA-256 content hash (not timestamp alone), so same-timestamp token changes still upload.
 - Offline launch fallback:
   - allowed with fresh auth (`<=24h`), or
   - allowed on secure hosts with recent auth (`<=7d`).
