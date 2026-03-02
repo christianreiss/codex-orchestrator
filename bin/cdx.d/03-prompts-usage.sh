@@ -275,17 +275,13 @@ def load_local(include_content: bool = False):
     skill_dir.mkdir(parents=True, exist_ok=True)
     skills = {}
     for path in skill_dir.iterdir():
-        if path.is_dir():
-            skill_file = path / "SKILL.md"
-            if not skill_file.is_file():
-                continue
-            slug = path.name
-            read_path = skill_file
-        elif path.is_file():
-            slug = path.name
-            read_path = path
-        else:
+        if not path.is_dir():
             continue
+        skill_file = path / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        slug = path.name
+        read_path = skill_file
         try:
             content = read_path.read_text(encoding="utf-8")
         except Exception:  # noqa: BLE001
@@ -984,19 +980,13 @@ def scan_skills():
     skill_dir.mkdir(parents=True, exist_ok=True)
     items = []
     for path in skill_dir.iterdir():
-        read_path = None
-        slug = ""
-        if path.is_dir():
-            skill_file = path / "SKILL.md"
-            if not skill_file.is_file():
-                continue
-            read_path = skill_file
-            slug = path.name
-        elif path.is_file():
-            read_path = path
-            slug = path.name
-        else:
+        if not path.is_dir():
             continue
+        skill_file = path / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        read_path = skill_file
+        slug = path.name
         sha = file_sha(read_path)
         if not sha:
             continue

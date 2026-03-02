@@ -62,7 +62,7 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 - `GET /skills` — list skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required.
 - `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `manifest` when updated).
-- `POST /skills/store` — body: `slug`, `manifest` (or `content`), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
+- `POST /skills/store` — body: `slug`, `manifest` (or `content`; canonical `SKILL.md` markdown), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
 
 ### Agents
 - `POST /agents/retrieve` — retrieve served AGENTS document. Optional `sha256` enables `status:unchanged` without content. Returns `status` (`updated` | `unchanged` | `missing`), `version_id`, `sha256`, `updated_at`, `size_bytes`, and `content` when updated.

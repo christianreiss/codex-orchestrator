@@ -17,5 +17,15 @@ final class CdxWrapperSkillFormatTest extends TestCase
             $wrapperSource,
             'Wrapper should sync skills into <slug>/SKILL.md directories.'
         );
+        self::assertStringContainsString(
+            '$HOME/.agents/skills',
+            $wrapperSource,
+            'Wrapper should sync skills into ~/.agents/skills.'
+        );
+        self::assertStringNotContainsString(
+            '$HOME/.codex/skills',
+            $wrapperSource,
+            'Wrapper should no longer use the legacy ~/.codex/skills path.'
+        );
     }
 }

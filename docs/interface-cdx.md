@@ -98,7 +98,7 @@ Profile shorthand:
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
 | Slash commands | `GET /slash-commands` + `POST /slash-commands/retrieve` | `POST /slash-commands/store` | `~/.codex/prompts/*`, baseline `~/.codex/.prompt-baseline.json` |
-| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | `~/.codex/skills/<slug>/SKILL.md`, baseline `~/.codex/.skill-baseline.json` |
+| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | `~/.agents/skills/<slug>/SKILL.md`, baseline `~/.agents/.skill-baseline.json` |
 | AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
