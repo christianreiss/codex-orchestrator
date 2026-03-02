@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.02-02"
+WRAPPER_VERSION="2026.03.02-04"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -859,7 +859,21 @@ if [[ "${1-}" == "--execute" ]]; then
   tmp_output="$(mktemp -t cdx-exec-XXXXXX)"
   cleanup_tmp() { rm -f "$tmp_output"; }
   trap cleanup_tmp EXIT
-  if codex --model gpt-5.3-codex --sandbox read-only -a untrusted exec --skip-git-repo-check \
+  execute_selector_args=(--model gpt-5.3-codex)
+  if [[ "$CODEX_LANE_TARGET" == "normal" || "$CODEX_LANE_TARGET" == "spark" ]]; then
+    if config_has_profile "$CODEX_LANE_TARGET"; then
+      execute_selector_args=(--profile "$CODEX_LANE_TARGET")
+      if [[ "$CODEX_LANE_TARGET" == "spark" ]]; then
+        execute_selector_args+=(
+          --config "profiles.${CODEX_LANE_TARGET}.model_reasoning_summary=none"
+          --config "model_reasoning_summary=none"
+        )
+      fi
+    elif [[ "$CODEX_LANE_TARGET" == "spark" ]]; then
+      execute_selector_args=(--model gpt-5.3-codex-spark --config "model_reasoning_summary=none")
+    fi
+  fi
+  if codex "${execute_selector_args[@]}" --sandbox read-only -a untrusted exec --skip-git-repo-check \
     --output-last-message "$tmp_output" "$prompt" "$@" >/dev/null 2>&1; then
     [[ -s "$tmp_output" ]] && cat "$tmp_output"
     cleanup_tmp

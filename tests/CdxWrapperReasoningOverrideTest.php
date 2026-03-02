@@ -56,6 +56,11 @@ final class CdxWrapperReasoningOverrideTest extends TestCase
             'Wrapper should map explicit profile names to their configured model.'
         );
         self::assertStringContainsString(
+            'profiles.${effective_profile_name}.model_reasoning_summary=none',
+            $wrapperSource,
+            'Wrapper should also disable profile-level reasoning summaries for spark profiles.'
+        );
+        self::assertStringContainsString(
             'effective_model_name',
             $wrapperSource,
             'Wrapper should derive an effective model before applying spark overrides.'
@@ -64,6 +69,21 @@ final class CdxWrapperReasoningOverrideTest extends TestCase
             'model_reasoning_summary=none',
             $wrapperSource,
             'Wrapper should disable reasoning summary whenever codex-spark is the effective model.'
+        );
+        self::assertStringContainsString(
+            'execute_selector_args=(--model gpt-5.3-codex)',
+            $wrapperSource,
+            'Wrapper execute mode should build selector args dynamically.'
+        );
+        self::assertStringContainsString(
+            'execute_selector_args=(--model gpt-5.3-codex-spark --config "model_reasoning_summary=none")',
+            $wrapperSource,
+            'Wrapper execute mode should select spark model + summary guard for lane spark fallback.'
+        );
+        self::assertStringContainsString(
+            'execute_selector_args+=(',
+            $wrapperSource,
+            'Wrapper execute mode should add profile-level spark summary guards.'
         );
     }
 }

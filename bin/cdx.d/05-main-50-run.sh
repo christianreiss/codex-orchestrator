@@ -401,9 +401,11 @@ if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ -n "$COD
 fi
 
 effective_model_name=""
+effective_profile_name=""
 if explicit_model_name="$(codex_args_explicit_model "$@")"; then
   effective_model_name="$explicit_model_name"
 elif explicit_profile_name="$(codex_args_explicit_profile "$@")"; then
+  effective_profile_name="$explicit_profile_name"
   if profile_model_name="$(config_profile_model "$explicit_profile_name")"; then
     effective_model_name="$profile_model_name"
   fi
@@ -412,6 +414,9 @@ elif (( injected_model )) && [[ -n "$injected_model_name" ]]; then
 fi
 if [[ -n "$effective_model_name" ]] && [[ "$(lowercase "$effective_model_name")" == *"codex-spark"* ]]; then
   # gpt-5.3-codex-spark rejects reasoning summary settings.
+  if [[ "$effective_profile_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    set -- --config "profiles.${effective_profile_name}.model_reasoning_summary=none" "$@"
+  fi
   set -- --config "model_reasoning_summary=none" "$@"
 fi
 

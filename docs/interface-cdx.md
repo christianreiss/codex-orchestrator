@@ -76,7 +76,7 @@ Concurrent-run guard behavior (`active cdx run detected`):
 | `cdx -4` | Force IPv4 for wrapper network calls for this invocation. |
 | `cdx --allow-concurrent-sync` | Bypass active-run lock for this invocation. |
 | `cdx --debug` / `cdx --verbose` | Enable wrapper debug logs. |
-| `cdx --execute "<prompt>" [codex args...]` | Bypass wrapper boot/sync/update path and run direct non-interactive `codex exec` with fixed defaults. |
+| `cdx --execute "<prompt>" [codex args...]` | Bypass wrapper boot/sync/update path and run direct non-interactive `codex exec` with wrapper defaults (`--sandbox read-only`, `-a untrusted`), while honoring `cdx lane normal|spark` selectors when invoked as `cdx lane <lane> -- --execute "<prompt>"`. |
 
 Lane subcommand:
 - `cdx lane` prints effective lane/source/persisted preference and exits.
@@ -87,7 +87,8 @@ Lane subcommand:
 - If lane profile is missing, wrapper injects model fallback:
   - `normal` -> `gpt-5.3-codex`
   - `spark` -> `gpt-5.3-codex-spark`
-- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection, explicit `--model`, or selected `--profile` model), wrapper injects `--config model_reasoning_summary=none` because spark rejects summary settings.
+- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection, explicit `--model`, or selected `--profile` model), wrapper injects `--config model_reasoning_summary=none`; if an explicit profile is active it also injects `--config profiles.<profile>.model_reasoning_summary=none` so legacy profile-level summaries cannot leak through.
+- `cdx lane spark -- --execute "<prompt>"` applies the same spark summary guards in execute mode; if profile `spark` exists it uses `--profile spark` plus both root/profile summary overrides, otherwise it falls back to `--model gpt-5.3-codex-spark`.
 
 Profile shorthand:
 - `cdx <name> [args...]` maps to `--profile <name>` when `[profiles.<name>]` exists.
