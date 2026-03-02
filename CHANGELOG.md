@@ -1,4 +1,5 @@
 # 2026-03-02
+- cdx wrapper: spark summary safeguard is now profile-aware; when `lane spark` (or explicit `--profile`) resolves to a profile whose model is `gpt-5.3-codex-spark`, wrapper injects `--config model_reasoning_summary=none` and avoids OpenAI 400 `unsupported_parameter` (`reasoning.summary`) failures; wrapper bumped to `2026.03.02-02`.
 - cdx wrapper: hard-cut Skill sync local path from `~/.codex/skills` to `~/.agents/skills` (baseline moved from `~/.codex/.skill-baseline.json` to `~/.agents/.skill-baseline.json`), and removed flat-file Skill scanning fallbacks so local Skill discovery is directory-only (`<slug>/SKILL.md`); wrapper bumped to `2026.03.02-01`.
 - Docs/contracts: updated README, usage/API docs, and wrapper interface docs to reflect `~/.agents/skills` storage and clarify that `/skills/store` persists canonical `SKILL.md` markdown content.
 - Tests: expanded wrapper Skill-format assertions to lock `.agents/skills` usage and reject the legacy `.codex/skills` path.

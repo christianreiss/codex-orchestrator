@@ -87,7 +87,7 @@ Lane subcommand:
 - If lane profile is missing, wrapper injects model fallback:
   - `normal` -> `gpt-5.3-codex`
   - `spark` -> `gpt-5.3-codex-spark`
-- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection or explicit `--model`), wrapper injects `--config model_reasoning_summary=none` because spark rejects summary settings.
+- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection, explicit `--model`, or selected `--profile` model), wrapper injects `--config model_reasoning_summary=none` because spark rejects summary settings.
 
 Profile shorthand:
 - `cdx <name> [args...]` maps to `--profile <name>` when `[profiles.<name>]` exists.

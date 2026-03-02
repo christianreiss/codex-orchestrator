@@ -266,6 +266,77 @@ codex_args_explicit_model() {
   return 1
 }
 
+codex_args_explicit_profile() {
+  local arg=""
+  local expect_profile_value=0
+  local profile_value=""
+  for arg in "$@"; do
+    if (( expect_profile_value )); then
+      profile_value="$arg"
+      expect_profile_value=0
+      continue
+    fi
+    case "$arg" in
+      --profile)
+        expect_profile_value=1
+        ;;
+      --profile=*)
+        profile_value="${arg#--profile=}"
+        ;;
+      --)
+        break
+        ;;
+    esac
+  done
+  if [[ -n "$profile_value" ]]; then
+    printf '%s\n' "$profile_value"
+    return 0
+  fi
+  return 1
+}
+
+config_profile_model() {
+  local profile="${1-}"
+  if [[ ! "$profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    return 1
+  fi
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+
+  local profile_model=""
+  profile_model="$(awk -v profile="$profile" '
+    BEGIN { in_profile = 0 }
+    /^[[:space:]]*\[/ {
+      section = $0
+      gsub(/^[[:space:]]*\[/, "", section)
+      gsub(/\][[:space:]]*$/, "", section)
+      in_profile = (section == ("profiles." profile))
+      next
+    }
+    !in_profile { next }
+    /^[[:space:]]*model[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*model[[:space:]]*=[[:space:]]*/, "", line)
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line ~ /^".*"$/) {
+        sub(/^"/, "", line)
+        sub(/"$/, "", line)
+      }
+      if (line != "") {
+        print line
+        exit 0
+      }
+    }
+  ' "$CONFIG_PATH" 2>/dev/null || true)"
+  if [[ -n "$profile_model" ]]; then
+    printf '%s\n' "$profile_model"
+    return 0
+  fi
+  return 1
+}
+
 user_selected_profile_or_model=0
 if codex_args_include_profile_or_model "$@"; then
   user_selected_profile_or_model=1
@@ -332,6 +403,10 @@ fi
 effective_model_name=""
 if explicit_model_name="$(codex_args_explicit_model "$@")"; then
   effective_model_name="$explicit_model_name"
+elif explicit_profile_name="$(codex_args_explicit_profile "$@")"; then
+  if profile_model_name="$(config_profile_model "$explicit_profile_name")"; then
+    effective_model_name="$profile_model_name"
+  fi
 elif (( injected_model )) && [[ -n "$injected_model_name" ]]; then
   effective_model_name="$injected_model_name"
 fi

@@ -36,6 +36,26 @@ final class CdxWrapperReasoningOverrideTest extends TestCase
             'Wrapper should parse explicit --model arguments.'
         );
         self::assertStringContainsString(
+            'codex_args_explicit_profile',
+            $wrapperSource,
+            'Wrapper should parse explicit --profile arguments.'
+        );
+        self::assertStringContainsString(
+            'config_profile_model',
+            $wrapperSource,
+            'Wrapper should resolve profile model values from config.toml.'
+        );
+        self::assertStringContainsString(
+            'elif explicit_profile_name="$(codex_args_explicit_profile "$@")"; then',
+            $wrapperSource,
+            'Wrapper should derive effective model from explicit --profile when present.'
+        );
+        self::assertStringContainsString(
+            'profile_model_name="$(config_profile_model "$explicit_profile_name")"',
+            $wrapperSource,
+            'Wrapper should map explicit profile names to their configured model.'
+        );
+        self::assertStringContainsString(
             'effective_model_name',
             $wrapperSource,
             'Wrapper should derive an effective model before applying spark overrides.'
