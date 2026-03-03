@@ -15,6 +15,8 @@ use RuntimeException;
 
 class WrapperService
 {
+    private bool $seedFallbackWarned = false;
+
     public function __construct(
         private readonly VersionRepository $versions,
         private readonly string $storagePath,
@@ -30,32 +32,22 @@ class WrapperService
 
     public function ensureSeeded(): void
     {
-        if (!is_file($this->seedPath)) {
+        $resolved = $this->resolveTemplatePath();
+        if ($resolved === null) {
             return;
         }
 
-        $needsCopy = !is_file($this->storagePath);
-        if (!$needsCopy) {
-            $seedHash = hash_file('sha256', $this->seedPath) ?: null;
-            $storedHash = hash_file('sha256', $this->storagePath) ?: null;
-            $needsCopy = $seedHash !== null && $storedHash !== null && !hash_equals($seedHash, $storedHash);
-        }
-
-        if ($needsCopy) {
-            @copy($this->seedPath, $this->storagePath);
-            @chmod($this->storagePath, 0644);
-        }
-
         $version = $this->versions->get('wrapper');
-        if ($version === null || $needsCopy) {
-            $detected = $this->computeVersionForPath($this->storagePath);
+        $detected = $this->computeVersionForPath($resolved);
+        if ($version === null || !hash_equals($version, $detected)) {
             $this->versions->set('wrapper', $detected);
         }
     }
 
     public function metadata(): array
     {
-        if (!is_file($this->storagePath)) {
+        $templatePath = $this->resolveTemplatePath();
+        if ($templatePath === null || !is_file($templatePath)) {
             return [
                 'version' => null,
                 'sha256' => null,
@@ -65,12 +57,12 @@ class WrapperService
             ];
         }
 
-        $version = $this->computeVersionForPath($this->storagePath);
+        $version = $this->computeVersionForPath($templatePath);
         $this->versions->set('wrapper', $version);
 
-        $sha = hash_file('sha256', $this->storagePath) ?: null;
-        $size = filesize($this->storagePath) ?: null;
-        $mtime = filemtime($this->storagePath);
+        $sha = hash_file('sha256', $templatePath) ?: null;
+        $size = filesize($templatePath) ?: null;
+        $mtime = filemtime($templatePath);
         $updatedAt = $mtime !== false ? gmdate(DATE_ATOM, $mtime) : null;
 
         return [
@@ -93,12 +85,13 @@ class WrapperService
      */
     public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
     {
+        $templatePath = $this->resolveTemplatePath();
         $meta = $this->metadata();
-        if (!is_file($this->storagePath)) {
+        if ($templatePath === null || !is_file($templatePath)) {
             return array_merge($meta, ['content' => null]);
         }
 
-        $template = file_get_contents($this->storagePath);
+        $template = file_get_contents($templatePath);
         if ($template === false) {
             return array_merge($meta, ['content' => null]);
         }
@@ -233,5 +226,78 @@ class WrapperService
 
         $hash = hash_file('sha256', $path) ?: bin2hex(random_bytes(6));
         return 'auto-' . substr($hash, 0, 12);
+    }
+
+    private function resolveTemplatePath(): ?string
+    {
+        $hasStorage = is_file($this->storagePath);
+        $hasSeed = is_file($this->seedPath);
+
+        if (!$hasStorage && !$hasSeed) {
+            return null;
+        }
+        if (!$hasSeed) {
+            return $hasStorage ? $this->storagePath : null;
+        }
+        if (!$hasStorage) {
+            return $this->seedPath;
+        }
+
+        $seedHash = hash_file('sha256', $this->seedPath) ?: null;
+        $storedHash = hash_file('sha256', $this->storagePath) ?: null;
+        if ($seedHash !== null && $storedHash !== null && hash_equals($seedHash, $storedHash)) {
+            return $this->storagePath;
+        }
+
+        if ($this->copySeedToStorage()) {
+            return $this->storagePath;
+        }
+
+        $this->warnSeedFallback();
+        return $this->seedPath;
+    }
+
+    private function copySeedToStorage(): bool
+    {
+        if (!is_file($this->seedPath)) {
+            return false;
+        }
+
+        $directory = dirname($this->storagePath);
+        if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
+            return false;
+        }
+
+        if (!@copy($this->seedPath, $this->storagePath)) {
+            return false;
+        }
+
+        @chmod($this->storagePath, 0644);
+        return true;
+    }
+
+    private function warnSeedFallback(): void
+    {
+        if ($this->seedFallbackWarned) {
+            return;
+        }
+        $this->seedFallbackWarned = true;
+
+        $now = time();
+        $lastWarnRaw = $this->versions->get('wrapper_seed_fallback_last_warn');
+        $lastWarn = ($lastWarnRaw !== null && ctype_digit($lastWarnRaw)) ? (int) $lastWarnRaw : null;
+        if ($lastWarn !== null && ($now - $lastWarn) < 300) {
+            return;
+        }
+        $this->versions->set('wrapper_seed_fallback_last_warn', (string) $now);
+
+        $storageDir = dirname($this->storagePath);
+        error_log(sprintf(
+            '[wrapper] seed/storage mismatch; copy failed, serving seed wrapper directly (seed=%s storage=%s storage_writable=%s storage_dir_writable=%s)',
+            $this->seedPath,
+            $this->storagePath,
+            is_writable($this->storagePath) ? 'yes' : 'no',
+            is_writable($storageDir) ? 'yes' : 'no'
+        ));
     }
 }

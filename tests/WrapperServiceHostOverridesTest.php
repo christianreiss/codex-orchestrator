@@ -107,4 +107,56 @@ SH;
             $meta['content']
         );
     }
+
+    public function testServiceFallsBackToSeedTemplateWhenStorageCannotBeUpdated(): void
+    {
+        $storagePath = tempnam(sys_get_temp_dir(), 'cdx-storage-');
+        $seedPath = tempnam(sys_get_temp_dir(), 'cdx-seed-');
+        $this->assertNotFalse($storagePath);
+        $this->assertNotFalse($seedPath);
+
+        $storageTemplate = <<<'SH'
+#!/usr/bin/env bash
+WRAPPER_VERSION="old-storage"
+CODEX_SYNC_BASE_URL="__CODEX_SYNC_BASE_URL__"
+SH;
+        $seedTemplate = <<<'SH'
+#!/usr/bin/env bash
+WRAPPER_VERSION="seed-new"
+CODEX_SYNC_BASE_URL="__CODEX_SYNC_BASE_URL__"
+SH;
+
+        $this->assertNotFalse(file_put_contents($storagePath, $storageTemplate));
+        $this->assertNotFalse(file_put_contents($seedPath, $seedTemplate));
+        $this->assertTrue(chmod($storagePath, 0444));
+
+        $versions = new InMemoryVersionRepositoryForWrapper();
+        $service = new WrapperService($versions, $storagePath, $seedPath);
+
+        try {
+            $service->ensureSeeded();
+            $meta = $service->metadata();
+            $this->assertSame('seed-new', $meta['version']);
+            $this->assertSame('seed-new', $versions->get('wrapper'));
+
+            $storedContent = file_get_contents($storagePath);
+            $this->assertIsString($storedContent);
+            $this->assertStringContainsString('WRAPPER_VERSION="old-storage"', $storedContent);
+
+            $host = [
+                'fqdn' => 'host.test',
+                'api_key_plain' => 'api-key-plain',
+                'secure' => 1,
+                'force_ipv4' => 0,
+                'curl_insecure' => 0,
+            ];
+            $baked = $service->bakedForHost($host, 'https://example.test');
+            $this->assertIsString($baked['content']);
+            $this->assertStringContainsString('WRAPPER_VERSION="seed-new"', $baked['content']);
+        } finally {
+            @chmod($storagePath, 0644);
+            @unlink($storagePath);
+            @unlink($seedPath);
+        }
+    }
 }

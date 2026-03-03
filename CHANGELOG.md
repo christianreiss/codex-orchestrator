@@ -1,3 +1,7 @@
+# 2026-03-03
+- Wrapper seeding hardening: `WrapperService` now serves bundled `bin/cdx` as a fallback when `storage/wrapper/cdx` drifts but cannot be overwritten (for example ownership/capability mismatches), and logs an explicit warning instead of silently serving stale wrapper content.
+- Tests/docs: added `WrapperService` coverage for non-writable storage fallback and updated wrapper source semantics in `interface-api`/`OVERVIEW` docs.
+
 # 2026-03-02
 - cdx wrapper: `cdx lane spark -- --execute "<prompt>"` now honors lane selection in execute mode (profile-first, spark-model fallback) instead of hardcoding `gpt-5.3-codex`, and applies both root/profile spark summary guards to avoid `reasoning.summary` 400s; wrapper bumped to `2026.03.02-04`.
 - cdx wrapper: spark summary safeguard now also overrides profile-scoped summary keys (`profiles.<name>.model_reasoning_summary=none`) when a spark model is selected via profile, preventing `reasoning.summary` leaks from legacy profile configs; wrapper bumped to `2026.03.02-03`.
