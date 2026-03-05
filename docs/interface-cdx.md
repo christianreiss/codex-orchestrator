@@ -87,8 +87,9 @@ Lane subcommand:
 - If lane profile is missing, wrapper injects model fallback:
   - `normal` -> `gpt-5.3-codex`
   - `spark` -> `gpt-5.3-codex-spark`
-- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection, explicit `--model`, or selected `--profile` model), wrapper injects `--config model_reasoning_summary=none`; if an explicit profile is active it also injects `--config profiles.<profile>.model_reasoning_summary=none` so legacy profile-level summaries cannot leak through.
+- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection, explicit `--model`, selected `--profile` model, or top-level default `model` in `~/.codex/config.toml`), wrapper injects `--config model_reasoning_summary=none`; if an explicit profile is active it also injects `--config profiles.<profile>.model_reasoning_summary=none` so legacy profile-level summaries cannot leak through.
 - `cdx lane spark -- --execute "<prompt>"` applies the same spark summary guards in execute mode; if profile `spark` exists it uses `--profile spark` plus both root/profile summary overrides, otherwise it falls back to `--model gpt-5.3-codex-spark`.
+- Execute passthrough Spark selectors also force summary guards: `cdx --execute "<prompt>" --model gpt-5.3-codex-spark` injects `--config model_reasoning_summary=none`, and `--profile <name>` does the same when that profile resolves to Spark (including profiles that inherit a Spark root default model); profile-scoped summary keys are overridden via `profiles.<name>.model_reasoning_summary=none`.
 
 Profile shorthand:
 - `cdx <name> [args...]` maps to `--profile <name>` when `[profiles.<name>]` exists.

@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.02-04"
+WRAPPER_VERSION="2026.03.05-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -718,6 +718,83 @@ config_has_profile() {
   grep -qE "^[[:space:]]*\\[profiles\\.${profile}\\][[:space:]]*$" "$CONFIG_PATH"
 }
 
+config_profile_model() {
+  local profile="${1-}"
+  if [[ ! "$profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    return 1
+  fi
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+
+  local profile_model=""
+  profile_model="$(awk -v profile="$profile" '
+    BEGIN { in_profile = 0 }
+    /^[[:space:]]*\[/ {
+      section = $0
+      gsub(/^[[:space:]]*\[/, "", section)
+      gsub(/\][[:space:]]*$/, "", section)
+      in_profile = (section == ("profiles." profile))
+      next
+    }
+    !in_profile { next }
+    /^[[:space:]]*model[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*model[[:space:]]*=[[:space:]]*/, "", line)
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line ~ /^".*"$/) {
+        sub(/^"/, "", line)
+        sub(/"$/, "", line)
+      }
+      if (line != "") {
+        print line
+        exit 0
+      }
+    }
+  ' "$CONFIG_PATH" 2>/dev/null || true)"
+  if [[ -n "$profile_model" ]]; then
+    printf '%s\n' "$profile_model"
+    return 0
+  fi
+  return 1
+}
+
+config_default_model() {
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+
+  local default_model=""
+  default_model="$(awk '
+    BEGIN { in_root = 1 }
+    /^[[:space:]]*\[/ {
+      in_root = 0
+      next
+    }
+    !in_root { next }
+    /^[[:space:]]*model[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*model[[:space:]]*=[[:space:]]*/, "", line)
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line ~ /^".*"$/) {
+        sub(/^"/, "", line)
+        sub(/"$/, "", line)
+      }
+      if (line != "") {
+        print line
+        exit 0
+      }
+    }
+  ' "$CONFIG_PATH" 2>/dev/null || true)"
+  if [[ -n "$default_model" ]]; then
+    printf '%s\n' "$default_model"
+    return 0
+  fi
+  return 1
+}
+
 # Wrapper flags (strip before handing args to Codex)
 if (( $# > 0 )); then
   parsed_args=()
@@ -873,6 +950,60 @@ if [[ "${1-}" == "--execute" ]]; then
       execute_selector_args=(--model gpt-5.3-codex-spark --config "model_reasoning_summary=none")
     fi
   fi
+
+  execute_explicit_model=""
+  execute_explicit_profile=""
+  execute_expect_model_value=0
+  execute_expect_profile_value=0
+  for execute_arg in "$@"; do
+    if (( execute_expect_model_value )); then
+      execute_explicit_model="$execute_arg"
+      execute_expect_model_value=0
+      continue
+    fi
+    if (( execute_expect_profile_value )); then
+      execute_explicit_profile="$execute_arg"
+      execute_expect_profile_value=0
+      continue
+    fi
+    case "$execute_arg" in
+      --model)
+        execute_expect_model_value=1
+        ;;
+      --model=*)
+        execute_explicit_model="${execute_arg#--model=}"
+        ;;
+      --profile)
+        execute_expect_profile_value=1
+        ;;
+      --profile=*)
+        execute_explicit_profile="${execute_arg#--profile=}"
+        ;;
+      --)
+        break
+        ;;
+    esac
+  done
+
+  execute_effective_model=""
+  execute_effective_profile=""
+  if [[ -n "$execute_explicit_model" ]]; then
+    execute_effective_model="$execute_explicit_model"
+  elif [[ -n "$execute_explicit_profile" ]]; then
+    execute_effective_profile="$execute_explicit_profile"
+    if execute_profile_model="$(config_profile_model "$execute_explicit_profile")"; then
+      execute_effective_model="$execute_profile_model"
+    elif execute_default_model="$(config_default_model)"; then
+      execute_effective_model="$execute_default_model"
+    fi
+  fi
+  if [[ -n "$execute_effective_model" ]] && [[ "$(lowercase "$execute_effective_model")" == *"codex-spark"* ]]; then
+    if [[ "$execute_effective_profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      execute_selector_args+=(--config "profiles.${execute_effective_profile}.model_reasoning_summary=none")
+    fi
+    execute_selector_args+=(--config "model_reasoning_summary=none")
+  fi
+
   if codex "${execute_selector_args[@]}" --sandbox read-only -a untrusted exec --skip-git-repo-check \
     --output-last-message "$tmp_output" "$prompt" "$@" >/dev/null 2>&1; then
     [[ -s "$tmp_output" ]] && cat "$tmp_output"
@@ -8324,48 +8455,6 @@ codex_args_explicit_profile() {
   return 1
 }
 
-config_profile_model() {
-  local profile="${1-}"
-  if [[ ! "$profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
-    return 1
-  fi
-  if [[ ! -f "$CONFIG_PATH" ]]; then
-    return 1
-  fi
-
-  local profile_model=""
-  profile_model="$(awk -v profile="$profile" '
-    BEGIN { in_profile = 0 }
-    /^[[:space:]]*\[/ {
-      section = $0
-      gsub(/^[[:space:]]*\[/, "", section)
-      gsub(/\][[:space:]]*$/, "", section)
-      in_profile = (section == ("profiles." profile))
-      next
-    }
-    !in_profile { next }
-    /^[[:space:]]*model[[:space:]]*=/ {
-      line = $0
-      sub(/^[[:space:]]*model[[:space:]]*=[[:space:]]*/, "", line)
-      sub(/[[:space:]]*#.*/, "", line)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-      if (line ~ /^".*"$/) {
-        sub(/^"/, "", line)
-        sub(/"$/, "", line)
-      }
-      if (line != "") {
-        print line
-        exit 0
-      }
-    }
-  ' "$CONFIG_PATH" 2>/dev/null || true)"
-  if [[ -n "$profile_model" ]]; then
-    printf '%s\n' "$profile_model"
-    return 0
-  fi
-  return 1
-}
-
 user_selected_profile_or_model=0
 if codex_args_include_profile_or_model "$@"; then
   user_selected_profile_or_model=1
@@ -8437,9 +8526,13 @@ elif explicit_profile_name="$(codex_args_explicit_profile "$@")"; then
   effective_profile_name="$explicit_profile_name"
   if profile_model_name="$(config_profile_model "$explicit_profile_name")"; then
     effective_model_name="$profile_model_name"
+  elif default_model_name="$(config_default_model)"; then
+    effective_model_name="$default_model_name"
   fi
 elif (( injected_model )) && [[ -n "$injected_model_name" ]]; then
   effective_model_name="$injected_model_name"
+elif default_model_name="$(config_default_model)"; then
+  effective_model_name="$default_model_name"
 fi
 if [[ -n "$effective_model_name" ]] && [[ "$(lowercase "$effective_model_name")" == *"codex-spark"* ]]; then
   # gpt-5.3-codex-spark rejects reasoning summary settings.
