@@ -20,6 +20,7 @@ use App\Repositories\HostUserRepository;
 use App\Repositories\InsecureAuthRequestRepository;
 use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\McpSessionTokenRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
@@ -82,7 +83,8 @@ class AuthService
         private readonly ?RateLimiter $rateLimiter = null,
         private readonly ?string $installationId = null,
         ?int $runnerPreflightIntervalSeconds = null,
-        private readonly ?InsecureDomainAllowRepository $insecureDomainAllows = null
+        private readonly ?InsecureDomainAllowRepository $insecureDomainAllows = null,
+        private readonly ?McpSessionTokenRepository $mcpSessionTokens = null
     ) {
         $configuredInterval = $runnerPreflightIntervalSeconds ?? (int) Config::get('AUTH_RUNNER_PREFLIGHT_SECONDS', self::RUNNER_PREFLIGHT_INTERVAL_SECONDS);
         $this->runnerPreflightIntervalSeconds = $configuredInterval > 0 ? $configuredInterval : self::RUNNER_PREFLIGHT_INTERVAL_SECONDS;
@@ -304,6 +306,85 @@ class AuthService
         }
 
         $host = $this->refreshTemporaryHostExpiry($hostId, $host);
+
+        return $host;
+    }
+
+    public function authenticateMcpCredential(?string $credential, ?string $ip = null): array
+    {
+        $this->pruneInactiveHosts();
+
+        if ($credential === null || $credential === '') {
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'missing_mcp_credential',
+                'ip' => $ip,
+            ]);
+            throw new HttpException('MCP credential missing', 401);
+        }
+
+        if (!str_starts_with($credential, 'mcp_')) {
+            return $this->authenticate($credential, $ip, false);
+        }
+
+        if ($this->mcpSessionTokens === null) {
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'mcp_token_unsupported',
+                'ip' => $ip,
+            ]);
+            throw new HttpException('MCP credential invalid', 401, [
+                'code' => 'invalid_mcp_token',
+            ]);
+        }
+
+        $this->mcpSessionTokens->deleteExpired(gmdate(DATE_ATOM));
+        $tokenRow = $this->mcpSessionTokens->findByToken($credential);
+        if ($tokenRow === null) {
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'invalid_mcp_token',
+                'ip' => $ip,
+            ]);
+            throw new HttpException('MCP credential invalid', 401, [
+                'code' => 'invalid_mcp_token',
+            ]);
+        }
+
+        $expiresAt = is_string($tokenRow['expires_at'] ?? null) ? $tokenRow['expires_at'] : null;
+        if ($expiresAt === null || Timestamp::compare($expiresAt, gmdate(DATE_ATOM)) < 0) {
+            $this->logs->log(isset($tokenRow['host_id']) ? (int) $tokenRow['host_id'] : null, 'auth.denied', [
+                'reason' => 'expired_mcp_token',
+                'ip' => $ip,
+                'expires_at' => $expiresAt,
+            ]);
+            throw new HttpException('MCP credential expired', 401, [
+                'code' => 'expired_mcp_token',
+            ]);
+        }
+
+        $hostId = isset($tokenRow['host_id']) ? (int) $tokenRow['host_id'] : 0;
+        $host = $hostId > 0 ? $this->hosts->findById($hostId) : null;
+        if ($host === null) {
+            $this->logs->log($hostId > 0 ? $hostId : null, 'auth.denied', [
+                'reason' => 'invalid_mcp_token_host',
+                'ip' => $ip,
+            ]);
+            throw new HttpException('MCP credential invalid', 401, [
+                'code' => 'invalid_mcp_token',
+            ]);
+        }
+
+        if (($host['status'] ?? '') !== 'active') {
+            $this->logs->log($hostId, 'auth.denied', [
+                'reason' => 'host_disabled',
+                'fqdn' => $host['fqdn'] ?? null,
+                'status' => $host['status'] ?? null,
+                'ip' => $ip,
+            ]);
+            throw new HttpException('Host is disabled', 403);
+        }
+
+        if (isset($tokenRow['id']) && is_numeric($tokenRow['id'])) {
+            $this->mcpSessionTokens->touch((int) $tokenRow['id']);
+        }
 
         return $host;
     }

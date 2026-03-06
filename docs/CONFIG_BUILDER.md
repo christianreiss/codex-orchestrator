@@ -13,7 +13,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 2. Server normalizes and renders TOML, stores both the rendered file and the normalized `settings`, and returns `sha256` + size.
 3. Hosts call `/config/retrieve` with their API key. The server:
    - Applies any per-host `model_override` + `reasoning_effort_override` to the effective settings.
-   - Injects that host’s API key into the managed HTTP MCP entry (when orchestrator MCP is enabled).
+   - Injects managed HTTP MCP auth for the host: the host API key on secure hosts, or a short-lived MCP bearer on insecure hosts (when orchestrator MCP is enabled).
    - Appends a trusted projects stanza when `username`/`home` identify a valid home path.
    - Returns baked `sha256` plus `base_sha256` (the stored template hash). When hashes match, `status:unchanged` omits the body.
    - Returns `status:missing` when no config is stored; clients should delete `~/.codex/config.toml`.

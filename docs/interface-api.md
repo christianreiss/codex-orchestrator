@@ -24,7 +24,7 @@
 - `POST /skills/retrieve` — body: `slug` (required; accepts legacy `filename`) and optional `sha256`. Returns `status` (`missing` | `deleted` | `unchanged` | `updated`), metadata, and `manifest` when the stored content differs.
 - `POST /skills/store` — body: `slug`, `manifest` (required string; canonical Skill `SKILL.md` markdown content), optional `display_name`/`description`, optional `sha256` (validated against `manifest`). Stores/updates canonical skill specs, logs `skill.store`, and returns `status` (`created` | `updated` | `unchanged`) with canonical `sha256`.
 - `POST /agents/retrieve` — pull the served AGENTS.md edition. Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), `version_id`, `sha256`, `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/AGENTS.md`. Per-host overrides (`agents_document_id_override`) take precedence over the fleet setting when present.
-- `POST /config/retrieve` — pulls the canonical config template and bakes a per-host `config.toml` using the authenticated host API key. Optional body fields `username` and `home` allow the server to append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) to silence Codex trust warnings for the calling user. Managed MCP entry now uses the native HTTP MCP transport (no npm):  
+- `POST /config/retrieve` — pulls the canonical config template and bakes a per-host `config.toml` using the authenticated host context. Optional body fields `username` and `home` allow the server to append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) to silence Codex trust warnings for the calling user. Managed MCP entry now uses the native HTTP MCP transport (no npm):  
   ```toml
   [mcp_servers.cdx]
   url = "{base_url}/mcp"
@@ -32,9 +32,9 @@
   startup_timeout_sec = 30
   ```  
   The baked config may include top-level `model_provider` and `local_provider` keys when set in the admin config builder.
-  When `hosts.model_override` / `hosts.reasoning_effort_override` are set, the baked config also overrides `model` and `model_reasoning_effort` so `~/.codex/config.toml` matches the host’s effective defaults.
+  Secure hosts receive the managed MCP `Authorization` header backed by the host API key. Insecure hosts instead receive a short-lived MCP bearer token so `~/.codex/config.toml` does not persist a reusable host credential between runs. When `hosts.model_override` / `hosts.reasoning_effort_override` are set, the baked config also overrides `model` and `model_reasoning_effort` so `~/.codex/config.toml` matches the host’s effective defaults.
   Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256` (template sha), `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, clients should delete their local `~/.codex/config.toml`.
-- MCP memories (host API key auth, same rate limits):
+- MCP memories (host API key auth, or short-lived insecure-host MCP bearer auth, same rate limits):
   - `POST /mcp/memories/store` — body: `content` (required string, ≤32k chars), optional `id`/`memory_id`/`key` (slug/UUID; generated when omitted), optional `metadata` (object), optional `tags` (up to 32 strings, ≤64 chars each). Status: `created` | `updated` | `unchanged`; echoes `memory` (`id`, `content`, `metadata`, `tags`, `created_at`, `updated_at`).
   - `POST /mcp/memories/retrieve` — body: `id`|`memory_id`|`key` (required). Returns `status:found|missing` plus `memory` when present.
   - `POST /mcp/memories/search` — body: `query`/`q` (string; empty lists recent), optional `limit` (1–100, default 20), optional `tags` (filter requires all provided tags). Matches are ranked by MySQL full‑text score when `query` is set; response includes `matches` with `score` (nullable) and full `memory` payloads.

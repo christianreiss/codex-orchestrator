@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.06-02"
+WRAPPER_VERSION="2026.03.06-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -3208,7 +3208,7 @@ skill_sync_python() {
   local cafile="$5"
   local baseline_file="$6"
   CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, sys
+import hashlib, json, os, pathlib, shutil, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
@@ -5211,8 +5211,12 @@ payload = {
     "version": name,
     "tag": data.get("tag_name") or "",
     "asset_name": asset.get("name", ""),
-    "download_url": asset.get("browser_download_url", "")
+    "download_url": asset.get("browser_download_url", ""),
+    "sha256": ""
 }
+digest = asset.get("digest")
+if isinstance(digest, str) and digest.startswith("sha256:"):
+    payload["sha256"] = digest.split(":", 1)[1].strip()
 json.dump(payload, sys.stdout, separators=(",", ":"))
 PY
 }
@@ -5228,6 +5232,7 @@ print(data.get('download_url', ''))
 print(data.get('asset_name', ''))
 print(data.get('timestamp', 0))
 print(data.get('tag', ''))
+print(data.get('sha256', ''))
 PY
 }
 
@@ -5237,9 +5242,14 @@ perform_update() (
   local url="$2"
   local asset_name="$3"
   local new_version="$4"
+  local expected_sha="$5"
   local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
+  if [[ -z "$expected_sha" ]]; then
+    log_error "Missing trusted checksum for Codex ${new_version}"
+    exit 1
+  fi
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
   local curl_args=(-fsSL)
@@ -5248,6 +5258,12 @@ perform_update() (
   fi
   if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
     log_error "Download failed from $url"
+    exit 1
+  fi
+  local downloaded_sha=""
+  downloaded_sha="$(sha256_file "$asset_file" 2>/dev/null || true)"
+  if [[ -z "$downloaded_sha" || "$downloaded_sha" != "$expected_sha" ]]; then
+    log_error "Checksum mismatch for Codex ${new_version} (expected ${expected_sha}, got ${downloaded_sha:-missing})"
     exit 1
   fi
   local extracted="$asset_file"
@@ -5523,6 +5539,7 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
         remote_asset="${fresh_fields[2]}"
         remote_timestamp="${fresh_fields[3]}"
         remote_tag="${fresh_fields[4]}"
+        remote_sha256="${fresh_fields[5]:-}"
         fetch_success=1
         break
       fi
@@ -5563,7 +5580,12 @@ elif (( need_update )) && [[ -n "$remote_url" ]]; then
     codex_updated=1
     codex_status_label="Updated"
     codex_status_note="npm codex-cli @${norm_remote}"
-  elif perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote"; then
+  elif [[ -z "${remote_sha256:-}" ]]; then
+    codex_update_failed=1
+    codex_status_label="Update skipped"
+    codex_status_note="checksum missing"
+    log_warn "Codex update skipped: missing trusted checksum for ${norm_remote}"
+  elif perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote" "$remote_sha256"; then
     hash -r
     CODEX_REAL_BIN="$(resolve_real_codex)"
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"

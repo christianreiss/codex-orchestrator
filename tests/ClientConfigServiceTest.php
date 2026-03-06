@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\McpSessionTokenRepository;
 use App\Exceptions\ValidationException;
 use App\Services\ClientConfigService;
 use PHPUnit\Framework\TestCase;
@@ -57,6 +58,36 @@ final class NullLogRepositoryConfig extends LogRepository
             'action' => $action,
             'details' => $details,
         ];
+    }
+}
+
+final class SpyMcpSessionTokenRepository extends McpSessionTokenRepository
+{
+    public array $issued = [];
+
+    public function __construct()
+    {
+    }
+
+    public function create(string $token, int $hostId, string $expiresAt): array
+    {
+        $this->issued[] = [
+            'token' => $token,
+            'host_id' => $hostId,
+            'expires_at' => $expiresAt,
+        ];
+
+        return [
+            'id' => count($this->issued),
+            'token' => $token,
+            'host_id' => $hostId,
+            'expires_at' => $expiresAt,
+        ];
+    }
+
+    public function deleteExpired(string $cutoff): void
+    {
+        // no-op for tests
     }
 }
 
@@ -484,6 +515,32 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('startup_timeout_sec = 30', $content);
         $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
         $this->assertStringNotContainsString('mcp_servers.codex-memory', $content);
+    }
+
+    public function testRenderForInsecureHostUsesEphemeralManagedMcpToken(): void
+    {
+        $tokens = new SpyMcpSessionTokenRepository();
+        $service = new ClientConfigService($this->repository, $this->logs, null, $tokens);
+
+        $rendered = $service->renderForHost(
+            [
+                'mcp_servers' => [
+                    ['name' => 'user-custom', 'command' => '/bin/echo'],
+                ],
+            ],
+            ['id' => 12, 'secure' => 0],
+            'https://coord.example',
+            'abc123'
+        );
+
+        $content = $rendered['content'];
+        $this->assertNotEmpty($tokens->issued);
+        $token = $tokens->issued[0]['token'] ?? '';
+        $this->assertIsString($token);
+        $this->assertStringStartsWith('mcp_', $token);
+        $this->assertStringContainsString('Authorization = "Bearer ' . $token . '"', $content);
+        $this->assertStringNotContainsString('Authorization = "Bearer abc123"', $content);
+        $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
     }
 
     public function testRenderRendersProfilesWithFeaturesAndSandboxOverrides(): void

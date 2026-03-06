@@ -125,6 +125,8 @@ Sync details:
 - `content` is returned only when status is `updated`.
 - When status is `missing`, wrapper deletes local `~/.codex/config.toml`.
 - Server applies host model overrides before baking config.
+- Managed MCP auth stays as the host API key on secure hosts.
+- Managed MCP auth is replaced with a short-lived bearer on insecure hosts, so `config.toml` does not keep a reusable coordinator credential on disk after the run.
 - Supported override models:
   - `gpt-5.4`
   - `gpt-5.3-codex`
@@ -202,6 +204,7 @@ Codex updates:
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.
+- GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
 

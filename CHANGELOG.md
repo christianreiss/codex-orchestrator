@@ -1,4 +1,8 @@
 # 2026-03-06
+- Security/wrapper: insecure-host baked `config.toml` no longer persists a reusable managed MCP host API key; secure hosts still use the host API key, while insecure hosts now receive a short-lived MCP bearer token backed by the new `mcp_session_tokens` store.
+- cdx wrapper: hardened GitHub release-asset Codex updates by requiring a trusted SHA-256 digest from release metadata before install; missing or mismatched digests now skip the binary update instead of installing unchecked content. Wrapper bumped to `2026.03.06-03`.
+- cdx wrapper: fixed deleted-skill startup sync by importing `shutil` in the embedded Python used by `skill_sync_python()`.
+- Docs/tests: updated API/config/db/wrapper docs plus regression coverage for insecure-host managed MCP baking, MCP bearer auth wiring, checksum-enforced Codex updates, the new MCP token table, and deleted-skill sync imports.
 - Admin dashboard: fixed `/admin/overview` crashing with `HTTP 500 {"status":"error","message":"Unexpected error"}` by restoring the `$pricingModel` closure capture before pricing lookup; added regression coverage for the route signature.
 - cdx wrapper: fixed concurrent/read-only quota hydration parsing so missing `chatgpt_usage` payloads no longer break metadata refresh and numeric-string quota fields are accepted, restoring quota bar rendering when usage metadata is returned as strings; wrapper bumped to `2026.03.06-02`.
 - Model support: added `gpt-5.4` to the config builder and per-host override allowlists across the API, admin UI, and validation logic, with full `low|medium|high|xhigh` reasoning-effort support.

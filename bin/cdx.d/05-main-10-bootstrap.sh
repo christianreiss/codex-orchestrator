@@ -229,6 +229,7 @@ if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
         remote_asset="${fresh_fields[2]}"
         remote_timestamp="${fresh_fields[3]}"
         remote_tag="${fresh_fields[4]}"
+        remote_sha256="${fresh_fields[5]:-}"
         fetch_success=1
         break
       fi
@@ -269,7 +270,12 @@ elif (( need_update )) && [[ -n "$remote_url" ]]; then
     codex_updated=1
     codex_status_label="Updated"
     codex_status_note="npm codex-cli @${norm_remote}"
-  elif perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote"; then
+  elif [[ -z "${remote_sha256:-}" ]]; then
+    codex_update_failed=1
+    codex_status_label="Update skipped"
+    codex_status_note="checksum missing"
+    log_warn "Codex update skipped: missing trusted checksum for ${norm_remote}"
+  elif perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote" "$remote_sha256"; then
     hash -r
     CODEX_REAL_BIN="$(resolve_real_codex)"
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"

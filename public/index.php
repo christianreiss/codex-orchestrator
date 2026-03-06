@@ -42,6 +42,7 @@ use App\Repositories\SkillRepository;
 use App\Repositories\MemoryRepository;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\McpAccessLogRepository;
+use App\Repositories\McpSessionTokenRepository;
 use App\Services\AuthService;
 use App\Services\AdminAuthService;
 use App\Services\AdminUserService;
@@ -229,6 +230,7 @@ $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
 $clientConfigRepository = new ClientConfigRepository($database);
 $mcpAccessLogRepository = new McpAccessLogRepository($database);
+$mcpSessionTokenRepository = new McpSessionTokenRepository($database, $secretBox);
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
@@ -272,7 +274,8 @@ $service = new AuthService(
     $rateLimiter,
     $installationId,
     null,
-    $insecureDomainAllowRepository
+    $insecureDomainAllowRepository,
+    $mcpSessionTokenRepository
 );
 $adminAuthService = new AdminAuthService(
     $adminUserRepository,
@@ -294,7 +297,7 @@ $skillService = new SkillService($skillRepository, $logRepository);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
 $mcpServer = new McpServer($memoryService, $root);
-$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository);
+$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
 $startupSyncService = new StartupSyncService($slashCommandService, $skillService, $agentsService, $clientConfigService);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
@@ -4064,7 +4067,7 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
         ], 403);
     }
 
-    $host = $service->authenticate($apiKey, $clientIp, false);
+    $host = $service->authenticateMcpCredential($apiKey, $clientIp);
 
     // Enforce insecure-host window the same way /auth does (extends window on access, denies when closed).
     $host = $service->enforceInsecureWindow($host, 'mcp');

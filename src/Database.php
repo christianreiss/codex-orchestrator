@@ -379,6 +379,24 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS mcp_session_tokens (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                token CHAR(64) NOT NULL UNIQUE,
+                token_enc LONGTEXT NULL,
+                host_id BIGINT UNSIGNED NOT NULL,
+                expires_at VARCHAR(100) NOT NULL,
+                last_used_at VARCHAR(100) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                INDEX idx_mcp_session_tokens_host (host_id),
+                INDEX idx_mcp_session_tokens_expires_at (expires_at),
+                CONSTRAINT fk_mcp_session_tokens_host FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS ip_rate_limits (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 ip VARCHAR(64) NOT NULL,

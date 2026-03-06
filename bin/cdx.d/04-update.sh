@@ -43,8 +43,12 @@ payload = {
     "version": name,
     "tag": data.get("tag_name") or "",
     "asset_name": asset.get("name", ""),
-    "download_url": asset.get("browser_download_url", "")
+    "download_url": asset.get("browser_download_url", ""),
+    "sha256": ""
 }
+digest = asset.get("digest")
+if isinstance(digest, str) and digest.startswith("sha256:"):
+    payload["sha256"] = digest.split(":", 1)[1].strip()
 json.dump(payload, sys.stdout, separators=(",", ":"))
 PY
 }
@@ -60,6 +64,7 @@ print(data.get('download_url', ''))
 print(data.get('asset_name', ''))
 print(data.get('timestamp', 0))
 print(data.get('tag', ''))
+print(data.get('sha256', ''))
 PY
 }
 
@@ -69,9 +74,14 @@ perform_update() (
   local url="$2"
   local asset_name="$3"
   local new_version="$4"
+  local expected_sha="$5"
   local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
+  if [[ -z "$expected_sha" ]]; then
+    log_error "Missing trusted checksum for Codex ${new_version}"
+    exit 1
+  fi
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
   local curl_args=(-fsSL)
@@ -80,6 +90,12 @@ perform_update() (
   fi
   if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
     log_error "Download failed from $url"
+    exit 1
+  fi
+  local downloaded_sha=""
+  downloaded_sha="$(sha256_file "$asset_file" 2>/dev/null || true)"
+  if [[ -z "$downloaded_sha" || "$downloaded_sha" != "$expected_sha" ]]; then
+    log_error "Checksum mismatch for Codex ${new_version} (expected ${expected_sha}, got ${downloaded_sha:-missing})"
     exit 1
   fi
   local extracted="$asset_file"

@@ -9,9 +9,11 @@
 
 namespace App\Services;
 
+use App\Config;
 use App\Exceptions\ValidationException;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\McpSessionTokenRepository;
 use App\Repositories\VersionRepository;
 
 class ClientConfigService
@@ -59,7 +61,8 @@ class ClientConfigService
     public function __construct(
         private readonly ClientConfigRepository $configs,
         private readonly LogRepository $logs,
-        private readonly ?VersionRepository $versions = null
+        private readonly ?VersionRepository $versions = null,
+        private readonly ?McpSessionTokenRepository $mcpSessionTokens = null
     ) {
     }
 
@@ -105,7 +108,7 @@ class ClientConfigService
     {
         $settings = $this->applyHostModelOverrides($settings, $host);
         $normalized = $this->normalizeSettings($settings);
-        $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey);
+        $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey, $host);
         $content = $this->buildToml($withManaged);
         $sha = hash('sha256', $content);
 
@@ -391,14 +394,25 @@ class ClientConfigService
         return '"' . $escaped . '"';
     }
 
-    private function injectManagedMcp(array $settings, ?string $baseUrl, ?string $apiKey): array
+    private function injectManagedMcp(array $settings, ?string $baseUrl, ?string $apiKey, ?array $host = null): array
     {
         $enabled = $settings['orchestrator_mcp_enabled'] ?? true;
         $normalizedBase = $this->normalizeString($baseUrl);
         $key = $this->normalizeString($apiKey);
+        $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
+        $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
 
         if ($enabled === false || $normalizedBase === null || $normalizedBase === '' || $key === null || $key === '') {
             return $settings;
+        }
+
+        $bearer = 'Bearer ' . $key;
+        if (!$hostSecure) {
+            $ephemeral = $this->issueManagedMcpToken($hostId);
+            if ($ephemeral === null) {
+                return $settings;
+            }
+            $bearer = 'Bearer ' . $ephemeral;
         }
 
         // Streamable HTTP MCP (no npm dependency). Codex will call our API directly.
@@ -407,7 +421,7 @@ class ClientConfigService
             'url' => rtrim($normalizedBase, '/') . '/mcp',
             // Codex streamable_http supports static headers; embed Authorization header.
             'http_headers' => [
-                'Authorization' => 'Bearer ' . $key,
+                'Authorization' => $bearer,
             ],
             // Codex may block startup while validating MCP servers; give the HTTP endpoint a bit more room.
             'startup_timeout_sec' => 30,
@@ -427,6 +441,35 @@ class ClientConfigService
         $settings['mcp_servers'] = $filtered;
 
         return $settings;
+    }
+
+    private function issueManagedMcpToken(?int $hostId): ?string
+    {
+        if ($hostId === null || $hostId <= 0 || $this->mcpSessionTokens === null) {
+            return null;
+        }
+
+        $ttl = $this->managedMcpTokenTtlSeconds();
+        $token = 'mcp_' . bin2hex(random_bytes(24));
+        $expiresAt = gmdate(DATE_ATOM, time() + $ttl);
+        $this->mcpSessionTokens->deleteExpired(gmdate(DATE_ATOM));
+        $created = $this->mcpSessionTokens->create($token, $hostId, $expiresAt);
+
+        return is_string($created['token'] ?? null) ? $created['token'] : $token;
+    }
+
+    private function managedMcpTokenTtlSeconds(): int
+    {
+        $raw = Config::get('MCP_EPHEMERAL_TOKEN_TTL_SECONDS', 900);
+        $ttl = is_numeric($raw) ? (int) $raw : 900;
+        if ($ttl < 60) {
+            return 60;
+        }
+        if ($ttl > 3600) {
+            return 3600;
+        }
+
+        return $ttl;
     }
 
     private function hostId(?array $host): ?int

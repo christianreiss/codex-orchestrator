@@ -249,7 +249,7 @@ skill_sync_python() {
   local cafile="$5"
   local baseline_file="$6"
   CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, sys
+import hashlib, json, os, pathlib, shutil, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
