@@ -43,6 +43,18 @@ final class CdxWrapperConcurrentGuardTest extends TestCase
         self::assertStringContainsString('local auth.json is invalid', $wrapperSource);
     }
 
+    public function testReadOnlyQuotaParserHandlesMissingUsageAndNumericStrings(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('chatgpt_usage_raw = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}', $wrapperSource);
+        self::assertStringContainsString('chatgpt_usage = chatgpt_usage_raw if isinstance(chatgpt_usage_raw, dict) else {}', $wrapperSource);
+        self::assertStringContainsString('import json, os, re, sys', $wrapperSource);
+        self::assertStringContainsString('if re.fullmatch(r"-?\\d+(?:\\.\\d+)?", normalized):', $wrapperSource);
+    }
+
     public function testAuthPushChangeDetectionUsesAuthHashAndLastRefresh(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';

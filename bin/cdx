@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.06-01"
+WRAPPER_VERSION="2026.03.06-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2077,7 +2077,8 @@ status = (payload_data or {}).get("status")
 versions_block = payload_data.get("versions") if isinstance(payload_data, dict) else {}
 canonical_digest = payload_data.get("canonical_digest") or payload_data.get("digest")
 auth_to_write = None
-chatgpt_usage = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}
+chatgpt_usage_raw = payload_data.get("chatgpt_usage") if isinstance(payload_data, dict) else {}
+chatgpt_usage = chatgpt_usage_raw if isinstance(chatgpt_usage_raw, dict) else {}
 host_info = payload_data.get("host") if isinstance(payload_data, dict) else {}
 host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
 host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else None
@@ -2301,7 +2302,7 @@ PY
       if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
         local parsed
         parsed="$(VJSON="$versions_json" python3 - <<'PY'
-import json, os, sys
+import json, os, re, sys
 data = os.environ.get("VJSON", "")
 try:
     parsed = json.loads(data)
@@ -2352,8 +2353,17 @@ amsg = parsed.get("auth_message")
 if isinstance(amsg, str) and amsg.strip():
     print(f"am={amsg.strip()}")
 def _emit_int(key, prefix):
+    if isinstance(key, bool):
+        return
     if isinstance(key, (int, float)):
         print(f"{prefix}={int(key)}")
+        return
+    if isinstance(key, str):
+        normalized = key.strip()
+        if not normalized:
+            return
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
+            print(f"{prefix}={int(float(normalized))}")
 hv = parsed.get("host_vip")
 if isinstance(hv, bool):
     print("hv=1" if hv else "hv=0")
@@ -2806,7 +2816,6 @@ PY
   esac
   return 1
 }
-
 
 get_auth_last_refresh() {
   local path="$1"
