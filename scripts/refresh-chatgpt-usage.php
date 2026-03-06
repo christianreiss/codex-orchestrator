@@ -76,7 +76,7 @@ try {
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);
     $pricingSnapshotRepository = new PricingSnapshotRepository($database);
-    $pricingModel = 'gpt-5.1';
+    $pricingModel = 'gpt-5.4';
     $pricingService = new PricingService(
         $pricingSnapshotRepository,
         $logRepository,

@@ -213,11 +213,12 @@
     let pendingAgentsDeleteId = null;
     let pendingAgentsDeleteHosts = [];
     const HOST_MODEL_REASONING = {
+      'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.2-codex': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.1-codex-max': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.2': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.1-codex-max': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.1-codex-mini': ['medium', 'high'],
     };
     const HOST_REASONING_DEFAULTS = ['low', 'medium', 'high', 'xhigh'];
@@ -2307,11 +2308,12 @@
               <label for="hostModelOverrideSelect">Model</label>
               <select id="hostModelOverrideSelect">
                 <option value="">Standard (global)</option>
+                <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.3-codex">gpt-5.3-codex</option>
                 <option value="gpt-5.3-codex-spark">gpt-5.3-codex-spark</option>
                 <option value="gpt-5.2-codex">gpt-5.2-codex</option>
-                <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
                 <option value="gpt-5.2">gpt-5.2</option>
+                <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
                 <option value="gpt-5.1-codex-mini">gpt-5.1-codex-mini</option>
               </select>
             </div>

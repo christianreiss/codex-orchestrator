@@ -233,7 +233,7 @@ $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
-$pricingModel = 'gpt-5.1';
+$pricingModel = 'gpt-5.4';
 $pricingService = new PricingService(
     $pricingSnapshotRepository,
     $logRepository,
@@ -2488,7 +2488,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $tokensDay = $tokenUsageRepository->totalsForRange($dayStart, $dayEnd);
     $tokensMonth = $tokenUsageRepository->totalsForRange($monthStart, $monthEnd);
     $tokensWeek = $tokenUsageRepository->totalsForRange($weekStart, $weekEnd);
-    $pricing = $pricingService->latestPricing('gpt-5.1', false);
+    $pricing = $pricingService->latestPricing($pricingModel, false);
     $dailyCost = $pricingService->calculateCost($pricing, $tokensDay);
     $monthlyCost = $pricingService->calculateCost($pricing, $tokensMonth);
     $weeklyCost = $pricingService->calculateCost($pricing, $tokensWeek);

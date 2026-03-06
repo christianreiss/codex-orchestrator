@@ -121,13 +121,15 @@ Sync details:
 - When status is `missing`, wrapper deletes local `~/.codex/config.toml`.
 - Server applies host model overrides before baking config.
 - Supported override models:
+  - `gpt-5.4`
   - `gpt-5.3-codex`
   - `gpt-5.3-codex-spark`
   - `gpt-5.2-codex`
-  - `gpt-5.1-codex-max`
   - `gpt-5.2`
+  - `gpt-5.1-codex-max`
   - `gpt-5.1-codex-mini`
 - Supported reasoning effort values: `low|medium|high|xhigh`.
+- `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Normalization defaults include `features.multi_agent=true` when unset.
 - Legacy config keys `steer`, `experimental_windows_sandbox`, and `enable_experimental_windows_sandbox` are accepted for ingest compatibility but dropped from rendered output.

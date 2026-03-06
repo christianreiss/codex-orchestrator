@@ -221,11 +221,22 @@ final class ClientConfigServiceTest extends TestCase
     public function testReasoningSummaryAutoPassesThrough(): void
     {
         $rendered = $this->service->render([
-            'model' => 'gpt-5.2',
+            'model' => 'gpt-5.4',
             'model_reasoning_summary' => 'auto',
         ]);
 
         $this->assertStringContainsString('model_reasoning_summary = "auto"', $rendered['content']);
+    }
+
+    public function testGpt54SupportsFullReasoningEffortRange(): void
+    {
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.4',
+            'model_reasoning_effort' => 'xhigh',
+        ]);
+
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "xhigh"', $rendered['content']);
     }
 
     public function testReasoningSummaryOmittedForSparkAndForcedDetailedForCodexModels(): void
@@ -304,10 +315,15 @@ final class ClientConfigServiceTest extends TestCase
     public function testStaticModelValidationHelpersUseSupportedAllowlist(): void
     {
         $this->assertSame(
+            'gpt-5.4',
+            ClientConfigService::normalizeSupportedModel('gpt-5.4')
+        );
+        $this->assertSame(
             'gpt-5.3-codex-spark',
             ClientConfigService::normalizeSupportedModel('gpt-5.3-codex-spark')
         );
         $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.1'));
+        $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4', 'xhigh'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.3-codex-spark', 'xhigh'));
         $this->assertFalse(ClientConfigService::modelSupportsReasoningEffort('gpt-5.1-codex-mini', 'low'));
     }

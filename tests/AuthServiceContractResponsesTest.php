@@ -272,7 +272,7 @@ final class ContractPricingService extends PricingService
 
     public function defaultModel(): string
     {
-        return 'gpt-5.1';
+        return 'gpt-5.4';
     }
 
     public function latestPricing(string $model, bool $force = false): array

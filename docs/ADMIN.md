@@ -138,4 +138,4 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - WebSocket presence is fresh (`admin_ws_connections` heartbeat window).
 - Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
 - Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).
-- Pricing fallback path when remote pricing is unavailable: `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K`, `GPT51_CACHED_PER_1K`, `PRICING_CURRENCY`.
+- Pricing fallback path when remote pricing is unavailable: prefer `GPT54_INPUT_PER_1K`, `GPT54_OUTPUT_PER_1K`, `GPT54_CACHED_PER_1K`, `PRICING_CURRENCY`; legacy `GPT51_*` vars are still accepted when the new ones are unset.

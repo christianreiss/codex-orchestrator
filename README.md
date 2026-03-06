@@ -32,7 +32,7 @@ If you only use Codex on one laptop, this is probably overkill.
 - Host installer and wrapper: per-host API keys baked into the `cdx` script; secure hosts can launch from cached auth during API outages (fresh window: 24h, secure fallback: 7d); insecure hosts purge auth after each run and require an open insecure window.
 - Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
 - Prompt and Skill distribution: slash commands (prompts) and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.agents/skills/`; AGENTS.md is canonical too.
-- Usage, cost, and quotas: `/usage` ingest with GPT-5.1 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
+- Usage, cost, and quotas: `/usage` ingest with GPT-5.4 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from the server-managed wrapper artifact (`/wrapper/download`).
 - Dashboards and API: admin API defaults to mTLS access (`ADMIN_ACCESS_MODE=mtls`) and supports userless bootstrap until the first active admin user; HTTP API for automation.
 - MCP server: native HTTP MCP endpoint (`/mcp`) with memory/resource/file tools; baked into managed `config.toml` entries.

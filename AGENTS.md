@@ -18,7 +18,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
 - Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
-- Pricing snapshots are for model `gpt-5.1` with 24h refresh (`PRICING_URL` when set, otherwise `GPT51_*` + `PRICING_CURRENCY` env fallbacks). `UsageCostService` backfills missing token usage + ingest costs once on boot.
+- Pricing snapshots are for model `gpt-5.4` with 24h refresh (`PRICING_URL` when set, otherwise preferred `GPT54_*` + `PRICING_CURRENCY` env fallbacks with legacy `GPT51_*` compatibility). `UsageCostService` backfills missing token usage + ingest costs once on boot.
 - When AGENTS/cdx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
 
 ## Repo Snapshot

@@ -20,7 +20,7 @@ class PricingService
     public function __construct(
         private readonly PricingSnapshotRepository $repository,
         private readonly LogRepository $logs,
-        private readonly string $defaultModel = 'gpt-5.1',
+        private readonly string $defaultModel = 'gpt-5.4',
         private readonly string $pricingUrl = '',
         private readonly mixed $httpClient = null
     ) {
@@ -99,7 +99,7 @@ class PricingService
 
     private function parsePricingJson(array $json, string $model): ?array
     {
-        // Expected shape: { "gpt-5.1": { "currency": "USD", "input_per_1k": 0.010, "output_per_1k": 0.030, "cached_per_1k": 0.003 } }
+        // Expected shape: { "gpt-5.4": { "currency": "USD", "input_per_1k": 0.0025, "output_per_1k": 0.015, "cached_per_1k": 0.00025 } }
         $entry = $json[$model] ?? null;
         if (!is_array($entry)) {
             return null;
@@ -125,12 +125,12 @@ class PricingService
 
     private function fallbackPricing(string $model): array
     {
-        $defaultInput = 0.00125;
-        $defaultOutput = 0.01;
-        $defaultCached = 0.000125;
-        $input = $this->asFloat(Config::get('GPT51_INPUT_PER_1K', $defaultInput)) ?? $defaultInput;
-        $output = $this->asFloat(Config::get('GPT51_OUTPUT_PER_1K', $defaultOutput)) ?? $defaultOutput;
-        $cached = $this->asFloat(Config::get('GPT51_CACHED_PER_1K', $defaultCached)) ?? $defaultCached;
+        $defaultInput = 0.0025;
+        $defaultOutput = 0.015;
+        $defaultCached = 0.00025;
+        $input = $this->fallbackEnvFloat('GPT54_INPUT_PER_1K', 'GPT51_INPUT_PER_1K', $defaultInput);
+        $output = $this->fallbackEnvFloat('GPT54_OUTPUT_PER_1K', 'GPT51_OUTPUT_PER_1K', $defaultOutput);
+        $cached = $this->fallbackEnvFloat('GPT54_CACHED_PER_1K', 'GPT51_CACHED_PER_1K', $defaultCached);
         $currency = is_string(Config::get('PRICING_CURRENCY', 'USD')) ? (string) Config::get('PRICING_CURRENCY', 'USD') : 'USD';
 
         return [
@@ -191,5 +191,15 @@ class PricingService
         }
 
         return null;
+    }
+
+    private function fallbackEnvFloat(string $preferredKey, string $legacyKey, float $default): float
+    {
+        $preferred = $this->asFloat(Config::get($preferredKey, null));
+        if ($preferred !== null) {
+            return $preferred;
+        }
+
+        return $this->asFloat(Config::get($legacyKey, $default)) ?? $default;
     }
 }

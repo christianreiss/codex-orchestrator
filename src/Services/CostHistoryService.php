@@ -22,7 +22,7 @@ class CostHistoryService
     public function __construct(
         private readonly TokenUsageRepository $tokenUsageRepository,
         private readonly PricingService $pricingService,
-        private readonly string $model = 'gpt-5.1'
+        private readonly string $model = 'gpt-5.4'
     ) {
     }
 

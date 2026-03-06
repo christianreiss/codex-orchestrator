@@ -22,7 +22,7 @@ class UsageCostService
         private readonly TokenUsageIngestRepository $tokenUsageIngestRepository,
         private readonly PricingService $pricingService,
         private readonly VersionRepository $versions,
-        private readonly string $model = 'gpt-5.1'
+        private readonly string $model = 'gpt-5.4'
     ) {
     }
 

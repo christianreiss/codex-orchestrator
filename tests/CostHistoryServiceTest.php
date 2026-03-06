@@ -37,7 +37,7 @@ final class CostHistoryServiceTest extends TestCase
             'cached_price_per_1k' => 0.005,
         ]);
 
-        $service = new CostHistoryService($tokenUsageRepository, $pricingService, 'gpt-5.1');
+        $service = new CostHistoryService($tokenUsageRepository, $pricingService, 'gpt-5.4');
         $history = $service->historyAdvanced(
             30,
             '2026-01-01T00:00:00Z',

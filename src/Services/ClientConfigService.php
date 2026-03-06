@@ -18,21 +18,23 @@ class ClientConfigService
 {
     /** @var list<string> */
     public const SUPPORTED_MODELS = [
+        'gpt-5.4',
         'gpt-5.3-codex',
         'gpt-5.3-codex-spark',
         'gpt-5.2-codex',
-        'gpt-5.1-codex-max',
         'gpt-5.2',
+        'gpt-5.1-codex-max',
         'gpt-5.1-codex-mini',
     ];
 
     /** @var array<string, list<string>> */
     public const MODEL_REASONING_EFFORTS = [
+        'gpt-5.4' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.3-codex' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.3-codex-spark' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.2-codex' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.1-codex-max' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.2' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.1-codex-max' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.1-codex-mini' => ['medium', 'high'],
     ];
 

@@ -45,7 +45,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 Deregisters the calling host; IP binding enforced unless `?force=1`. Logs `host.delete` and removes host + digests.
 
 ### `POST /usage`
-Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas/underscores/whitespace separators and must be non-negative. `line` is sanitized (ANSI/escape/control stripped, backslashes collapsed, non-ASCII removed, length capped). Each request writes `token_usage_ingests` (aggregates + normalized payload + optional client IP) and `token_usages` rows linked by `ingest_id`. Per-entry and aggregate `cost` use latest pricing (`PRICING_URL` or `GPT51_*` + `PRICING_CURRENCY` fallback). Response includes `recorded`, per-entry echoes, `host_id`, ingest `cost`, and `ingest_id`. Internal ingestion failures return HTTP 200 with `recorded:false`.
+Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas/underscores/whitespace separators and must be non-negative. `line` is sanitized (ANSI/escape/control stripped, backslashes collapsed, non-ASCII removed, length capped). Each request writes `token_usage_ingests` (aggregates + normalized payload + optional client IP) and `token_usages` rows linked by `ingest_id`. Per-entry and aggregate `cost` use latest pricing (`PRICING_URL` or preferred `GPT54_*` + `PRICING_CURRENCY` fallback, with legacy `GPT51_*` still accepted when the new vars are unset). Response includes `recorded`, per-entry echoes, `host_id`, ingest `cost`, and `ingest_id`. Internal ingestion failures return HTTP 200 with `recorded:false`.
 
 ### `POST /host/users`
 Records `username` and optional `hostname` for the calling host, returning known users with `first_seen`/`last_seen`. Auth + IP binding required.
@@ -120,7 +120,7 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 - `POST /admin/hosts/{id}/ipv4` — toggle IPv4-only wrapper behavior (`force` boolean; clears stored IPs).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle sync TLS verification bypass (`allow` boolean).
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS mode (`mode`: `global` | `enabled` | `disabled`).
-- `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears). Supported models: `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.2`, `gpt-5.1-codex-mini`; effort must be valid for selected model.
+- `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears). Supported models: `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`; effort must be valid for selected model.
 - `POST /admin/hosts/{id}/codex-version` — set per-host Codex version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`).
 - `POST /admin/hosts/{id}/agents-version` — set per-host AGENTS document override (`selection: "global"|"fleet"|"default"|<version_id>`).
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends window. Optional `duration_minutes` (`0..480`); if omitted uses stored/default 10.
