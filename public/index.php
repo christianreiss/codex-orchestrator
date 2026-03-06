@@ -2431,7 +2431,7 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/agents-version$#', function ($hostId
     ]);
 });
 
-$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository) {
+$router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $logRepository, $service, $tokenUsageRepository, $chatGptUsageService, $pricingService, $versionRepository, $pricingModel) {
     requireAdminAccess();
     $service->pruneStaleHosts();
 
