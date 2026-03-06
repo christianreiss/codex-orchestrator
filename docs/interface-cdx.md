@@ -27,17 +27,18 @@ Guardrails:
 
 ## Startup Sequence
 1. Resolve real `codex` binary (`/usr/local/bin/codex`, `/opt/codex/bin/codex`, or `PATH`); abort if none found.
-2. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
-3. Sync auth via `POST /auth`.
-4. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
-5. If bundle pull fails, fallback pulls run: slash commands, skills, AGENTS, config.
-6. Compute local auth freshness:
+2. Help-only Codex invocations are passed straight through to the real binary before any wrapper sync/update/MOTD/footer work. Supported passthrough forms are top-level `--help`, top-level `-h`, top-level `help`, and Codex subcommand help where a reserved Codex command is followed by `--help` or `-h`.
+3. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
+4. Sync auth via `POST /auth`.
+5. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
+6. If bundle pull fails, fallback pulls run: slash commands, skills, AGENTS, config.
+7. Compute local auth freshness:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
-7. Check/update Codex + wrapper.
-8. Render boot summary and enforce launch gates.
-9. Launch Codex (unless status/doctor/lane-only path exits first).
-10. Cleanup trap: prompt/skill push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
+8. Check/update Codex + wrapper.
+9. Render boot summary and enforce launch gates.
+10. Launch Codex (unless status/doctor/lane-only path exits first).
+11. Cleanup trap: prompt/skill push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
 
 Concurrent-run guard behavior (`active cdx run detected`):
 - Skips pre-run mutating sync/update operations.
@@ -66,6 +67,10 @@ Concurrent-run guard behavior (`active cdx run detected`):
 - Installation ID mismatches block sync.
 
 ## CLI Surface
+Help passthrough:
+- `cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help invocations (for example `cdx exec --help`) are passed directly to the real Codex binary and print only upstream help text.
+- In that path the wrapper skips run-lock acquisition, auth/config sync, update checks, MOTD/summary rendering, and the post-run footer.
+
 | Command | Behavior |
 | --- | --- |
 | `cdx --wrapper-version` / `cdx -W` | Print wrapper version and exit. |

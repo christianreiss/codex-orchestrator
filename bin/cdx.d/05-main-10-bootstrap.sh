@@ -8,6 +8,11 @@ if [[ -z "$CODEX_REAL_BIN" ]]; then
   exit 1
 fi
 
+# Help invocations should behave exactly like upstream Codex help output.
+if (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) && (( ! CODEX_DO_UNINSTALL )) && (( ! CODEX_LANE_COMMAND )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && is_codex_help_passthrough_invocation "$@"; then
+  exec "$CODEX_REAL_BIN" "$@"
+fi
+
 platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
 

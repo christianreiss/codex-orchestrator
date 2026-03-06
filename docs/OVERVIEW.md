@@ -68,6 +68,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 4) **Wrapper distribution**
    - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
+   - Help-only invocations (`cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help such as `cdx exec --help`) bypass wrapper startup noise and print only upstream Codex help text; the wrapper skips lock/sync/update/MOTD/footer work in that path.
    - Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (prompts/Skills/AGENTS/config in one flow). Older servers automatically fall back to legacy per-resource pull endpoints.
    - `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: if auth is `missing`/`upload_required` and `auth_candidate` is provided, the server attempts an inline store and reports `auth_stored` (or `auth_*` reasons).
    - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` auto-checks/installs `curl`, `unzip`, and `script` (util-linux) before update/sync work using `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` (RHEL-family prefers `dnf` with `yum` fallback for legacy CentOS 7/8/9 compatibility). On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.

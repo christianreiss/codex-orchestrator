@@ -3,6 +3,10 @@
 - Pricing defaults: cost snapshots/backfills/overview calculations now target `gpt-5.4` by default and prefer `GPT54_*` env fallbacks while still honoring legacy `GPT51_*` values for backward compatibility.
 - Docs/tests: refreshed interface/install/admin/README notes for the new model and pricing defaults, and added coverage for `gpt-5.4` config validation plus pricing fallback precedence.
 
+# 2026-03-06
+- cdx wrapper: help-only invocations now bypass wrapper MOTD/sync/quota/footer noise and pass straight through to the real Codex CLI, so `cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help (for example `cdx exec --help`) print only upstream help text; wrapper bumped to `2026.03.06-01`.
+- Docs/tests: updated wrapper interface/overview docs and added regression coverage for the early help passthrough path.
+
 # 2026-03-05
 - cdx wrapper: spark reasoning-summary guard now resolves the effective model from top-level `config.toml` defaults (including explicit profiles that inherit the root model), and execute-mode passthrough selectors (`--model` or `--profile`) now resolve Spark models the same way and inject root/profile `model_reasoning_summary=none` overrides; this closes remaining `reasoning.summary` leaks on both normal and execute paths; wrapper bumped to `2026.03.05-01`.
 

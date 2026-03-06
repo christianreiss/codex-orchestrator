@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.05-01"
+WRAPPER_VERSION="2026.03.06-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -839,6 +839,36 @@ is_reserved_codex_command() {
       return 0
       ;;
   esac
+  return 1
+}
+
+is_help_flag() {
+  local candidate="${1-}"
+  [[ "$candidate" == "--help" || "$candidate" == "-h" ]]
+}
+
+is_codex_help_passthrough_invocation() {
+  (( $# > 0 )) || return 1
+
+  local first="${1-}"
+  case "$first" in
+    --help|-h|help)
+      return 0
+      ;;
+  esac
+
+  if ! is_reserved_codex_command "$first"; then
+    return 1
+  fi
+
+  local arg
+  for arg in "${@:2}"; do
+    [[ "$arg" == "--" ]] && break
+    if is_help_flag "$arg"; then
+      return 0
+    fi
+  done
+
   return 1
 }
 
@@ -5261,6 +5291,11 @@ CODEX_REAL_BIN="$(resolve_real_codex)"
 if [[ -z "$CODEX_REAL_BIN" ]]; then
   log_error "Unable to find the real Codex binary on PATH"
   exit 1
+fi
+
+# Help invocations should behave exactly like upstream Codex help output.
+if (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) && (( ! CODEX_DO_UNINSTALL )) && (( ! CODEX_LANE_COMMAND )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && is_codex_help_passthrough_invocation "$@"; then
+  exec "$CODEX_REAL_BIN" "$@"
 fi
 
 platform_os="$(uname -s 2>/dev/null || echo unknown)"
