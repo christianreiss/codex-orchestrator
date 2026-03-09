@@ -120,6 +120,7 @@ final class ClientConfigServiceTest extends TestCase
                 'hide_gpt5_1_migration_prompt' => true,
                 'model_migrations' => [
                     'gpt-5.2-codex' => 'gpt-5.3-codex',
+                    'gpt-5.3-codex' => 'gpt-5.4',
                 ],
             ],
             'features' => [
@@ -137,7 +138,10 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[security]', $rendered['content']);
         $this->assertStringContainsString('dangerously_bypass_approvals_and_sandbox = true', $rendered['content']);
         $this->assertStringContainsString('hide_gpt5_1_migration_prompt = true', $rendered['content']);
-        $this->assertStringContainsString('model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex" }', $rendered['content']);
+        $this->assertStringContainsString(
+            'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
+            $rendered['content']
+        );
         $this->assertEquals(64, strlen($rendered['sha256']));
     }
 
@@ -149,6 +153,16 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('model_reasoning_summary', $rendered['content']);
+    }
+
+    public function testDefaultNoticeModelMigrationsIncludeGpt54UpgradePath(): void
+    {
+        $rendered = $this->service->render([]);
+
+        $this->assertStringContainsString(
+            'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
+            $rendered['content']
+        );
     }
 
     public function testLegacyWebSearchRequestMapsToWebSearch(): void

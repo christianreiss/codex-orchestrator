@@ -139,6 +139,7 @@ Sync details:
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Normalization defaults include `features.multi_agent=true` when unset.
+- Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.
 - Legacy config keys `steer`, `experimental_windows_sandbox`, and `enable_experimental_windows_sandbox` are accepted for ingest compatibility but dropped from rendered output.
 - When `home` is provided, server appends trusted project stanza for that path.
 

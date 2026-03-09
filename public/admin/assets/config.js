@@ -181,6 +181,7 @@
         'hide_rate_limit_model_nudge': true,
         'model_migrations': {
           'gpt-5.2-codex': 'gpt-5.3-codex',
+          'gpt-5.3-codex': 'gpt-5.4',
         },
       },
       sandbox_workspace_write: {

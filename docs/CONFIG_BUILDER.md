@@ -19,6 +19,9 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
    - Returns `status:missing` when no config is stored; clients should delete `~/.codex/config.toml`.
 4. `cdx` writes the baked file to `~/.codex/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
 
+Default notice mappings:
+- Builder defaults include `notice.model_migrations` entries for `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4` so Codex upgrade prompts can be auto-resolved from fleet-managed config.
+
 ## Managed MCP entry
 
 - Native HTTP MCP transport; no node shim.
