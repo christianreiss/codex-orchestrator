@@ -165,6 +165,23 @@ final class ClientConfigServiceTest extends TestCase
         );
     }
 
+    public function testNoticeModelMigrationsBackfillsDefaultsForLegacySavedMap(): void
+    {
+        $rendered = $this->service->render([
+            'notice' => [
+                'model_migrations' => [
+                    'gpt-5.2-codex' => 'gpt-5.3-codex',
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString(
+            'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
+            $rendered['content']
+        );
+        $this->assertSame('gpt-5.4', $rendered['settings']['notice']['model_migrations']['gpt-5.3-codex']);
+    }
+
     public function testLegacyWebSearchRequestMapsToWebSearch(): void
     {
         $rendered = $this->service->render([

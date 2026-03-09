@@ -1,4 +1,5 @@
 # 2026-03-09
+- Config retrieve/render fix: `notice.model_migrations` now merges saved maps with default migrations, so legacy stored configs that only had `gpt-5.2-codex -> gpt-5.3-codex` also receive `gpt-5.3-codex -> gpt-5.4` and stop surfacing the interactive GPT-5.4 upgrade chooser.
 - Config builder/template defaults: added `notice.model_migrations` mapping `gpt-5.3-codex -> gpt-5.4` (alongside `gpt-5.2-codex -> gpt-5.3-codex`) so Codex `0.112.0+` upgrade prompts are auto-resolved from fleet-managed `config.toml`.
 - Admin UI/docs/tests: updated config-builder defaults, cache-bumped `config.js`, refreshed config/interface docs, and expanded `ClientConfigService` assertions for the new migration mapping.
 - Codex `0.112.0` compatibility audit: feature normalization now drops removed/unknown `features.*` keys and keeps only currently supported Codex feature flags (while still mapping deprecated `web_search_request`/`web_search_cached` into root `web_search`).

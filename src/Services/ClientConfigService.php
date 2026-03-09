@@ -575,25 +575,23 @@ class ClientConfigService
         foreach ($noticeDefaults as $key => $default) {
             $candidate = array_key_exists($key, $noticeRaw) ? $noticeRaw[$key] : $default;
             if ($key === 'model_migrations') {
-                $notice[$key] = $this->normalizeStringMap(is_array($candidate) ? $candidate : []);
+                $notice[$key] = $this->normalizeStringMap(is_array($default) ? $default : []);
                 continue;
             }
             $notice[$key] = $normalizeBool($candidate, $default) ?? $default;
         }
         foreach ($noticeRaw as $key => $value) {
+            if ($key === 'model_migrations') {
+                $defaultMigrations = is_array($notice[$key] ?? null) ? $notice[$key] : [];
+                $customMigrations = $this->normalizeStringMap(is_array($value) ? $value : []);
+                $notice[$key] = array_replace($defaultMigrations, $customMigrations);
+                continue;
+            }
             if (array_key_exists($key, $notice)) {
-                if ($key === 'model_migrations') {
-                    $notice[$key] = $this->normalizeStringMap(is_array($value) ? $value : []);
-                    continue;
-                }
                 $override = $normalizeBool($value, $notice[$key]);
                 if ($override !== null) {
                     $notice[$key] = $override;
                 }
-                continue;
-            }
-            if ($key === 'model_migrations') {
-                $notice[$key] = $this->normalizeStringMap(is_array($value) ? $value : []);
                 continue;
             }
             $boolValue = $normalizeBool($value);
