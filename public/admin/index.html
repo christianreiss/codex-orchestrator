@@ -1192,31 +1192,17 @@
                   </div>
                   <div class="feature-list">
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureStreamShell" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featureFastMode" style="width:auto; accent-color: var(--accent);" checked>
                       <div>
-                        <div class="feature-title">Stream shell output</div>
-                        <div class="feature-desc">Show long-running command output live instead of in one big dump.</div>
-                      </div>
-                    </label>
-                    <label class="feature-toggle">
-                      <input type="checkbox" id="featureBackgroundTerminal" style="width:auto; accent-color: var(--accent);">
-                      <div>
-                        <div class="feature-title">Background terminal (experimental)</div>
-                        <div class="feature-desc">Run long-running terminal commands in the background.</div>
+                        <div class="feature-title">Fast mode</div>
+                        <div class="feature-desc">Use Codex fast-mode defaults for lower-latency responses where available.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
                       <input type="checkbox" id="featureUnifiedExec" style="width:auto; accent-color: var(--accent);">
                       <div>
-                        <div class="feature-title">Unified exec tool (experimental)</div>
+                        <div class="feature-title">Unified exec tool</div>
                         <div class="feature-desc">Use the unified PTY-backed exec tool.</div>
-                      </div>
-                    </label>
-                    <label class="feature-toggle">
-                      <input type="checkbox" id="featureRmcpClient" style="width:auto; accent-color: var(--accent);">
-                      <div>
-                        <div class="feature-title">RMCP client OAuth (experimental)</div>
-                        <div class="feature-desc">Enable OAuth support for streamable HTTP MCP servers.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
@@ -1231,13 +1217,6 @@
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureViewImage" style="width:auto; accent-color: var(--accent);" checked>
-                      <div>
-                        <div class="feature-title">Allow image viewer</div>
-                        <div class="feature-desc">Preview images directly in the conversation instead of downloading them.</div>
-                      </div>
-                    </label>
-                    <label class="feature-toggle">
                       <input type="checkbox" id="featureVoiceTranscription" style="width:auto; accent-color: var(--accent);">
                       <div>
                         <div class="feature-title">Enable voice transcription</div>
@@ -1249,20 +1228,6 @@
                       <div>
                         <div class="feature-title">Multi-agents</div>
                         <div class="feature-desc">Ask Codex to spawn multiple agents to parallelize the work and win in efficiency.</div>
-                      </div>
-                    </label>
-                    <label class="feature-toggle">
-                      <input type="checkbox" id="featureSandboxAssessment" style="width:auto; accent-color: var(--accent);">
-                      <div>
-                        <div class="feature-title">Sandbox risk assessment (experimental)</div>
-                        <div class="feature-desc">Enable model-based sandbox risk assessment.</div>
-                      </div>
-                    </label>
-                    <label class="feature-toggle">
-                      <input type="checkbox" id="featureGhostCommit" style="width:auto; accent-color: var(--accent);">
-                      <div>
-                        <div class="feature-title">Ghost commit each turn (experimental)</div>
-                        <div class="feature-desc">Create a ghost commit on each turn.</div>
                       </div>
                     </label>
                   </div>
@@ -1530,7 +1495,7 @@
   <script src="/admin/assets/dashboard.js?v=2026-02-22-02"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
-  <script src="/admin/assets/config.js?v=2026-03-09-01"></script>
+  <script src="/admin/assets/config.js?v=2026-03-09-02"></script>
   <script src="/admin/assets/profiles.js?v=2026-02-19-02"></script>
 </body>
 </html>

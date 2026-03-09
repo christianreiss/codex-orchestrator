@@ -29,24 +29,19 @@ Default notice mappings:
 - For each host, the server injects a managed entry ahead of any user-configured MCP servers and filters out reserved orchestrator aliases (`codex-memory`, `codex-orchestrator`, `cdx`, `codex-coordinator`) from the UI-configurable list.
 - Keys are injected at bake time only; the server never stores host API keys inside the template. The exact TOML shape is derived from the internal settings and may change; treat it as implementation-defined rather than a user-editable block.
 
-## Experimental feature switches
+## Feature switches
 
-The config builder exposes the currently supported experimental feature flags under **Security & Features**. These map to `[features]` in the rendered `config.toml`:
+The config builder exposes current Codex feature flags under **Security & Features**. These map to `[features]` in rendered `config.toml`:
 
-- `streamable_shell` — stream shell output live.
-- `background_terminal` — run long-running terminal commands in the background.
+- `fast_mode` — prefer lower-latency fast mode (enabled by default).
 - `unified_exec` — use the unified PTY-backed exec tool.
-- `rmcp_client` — enable OAuth for streamable HTTP MCP servers.
-- `view_image_tool` — enable image input tooling for supported clients.
 - `voice_transcription` — enable voice-to-text input tooling for supported clients.
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
-- `experimental_sandbox_command_assessment` — model-based sandbox risk assessment.
-- `ghost_commit` — create a ghost commit on each turn.
-- Additional feature flags may be passed through from the UI `extraFeatures` textarea; these are written verbatim under `[features]` when set.
+- Additional feature flags may be passed through from the UI `extraFeatures` textarea, but only currently supported Codex feature flags are kept in normalized/rendered output.
 
 Legacy compatibility:
 - `features.web_search_request` and `features.web_search_cached` are normalized into root `web_search`.
-- Obsolete feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`) are accepted for ingest compatibility but dropped from normalized/rendered output.
+- Removed feature keys (`steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_rule`, `search_tool`) are accepted for ingest compatibility but dropped from normalized/rendered output.
 
 ## Security toggles
 

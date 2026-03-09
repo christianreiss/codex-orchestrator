@@ -19,16 +19,11 @@
   let supportsSummariesInput;
   let notifyInput;
 
-  let featureStreamShell;
-  let featureBackgroundTerminal;
+  let featureFastMode;
   let featureUnifiedExec;
-  let featureRmcpClient;
   let featureWebSearch;
-  let featureViewImage;
   let featureVoiceTranscription;
   let featureMultiAgent;
-  let featureSandboxAssessment;
-  let featureGhostCommit;
   let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
 
@@ -165,15 +160,10 @@
       model_context_window: null,
       model_max_output_tokens: null,
       features: {
-        streamable_shell: false,
-        background_terminal: false,
+        fast_mode: true,
         unified_exec: false,
-        rmcp_client: false,
-        view_image_tool: false,
         voice_transcription: false,
         multi_agent: true,
-        experimental_sandbox_command_assessment: false,
-        ghost_commit: false,
       },
       notice: {
         'hide_gpt5_1_migration_prompt': true,
@@ -436,15 +426,10 @@
     if (!modelInput) return defaultSettings();
     const base = defaultSettings();
     const features = {
-      streamable_shell: featureStreamShell.checked,
-      background_terminal: featureBackgroundTerminal.checked,
+      fast_mode: featureFastMode.checked,
       unified_exec: featureUnifiedExec.checked,
-      rmcp_client: featureRmcpClient.checked,
-      view_image_tool: featureViewImage.checked,
       voice_transcription: featureVoiceTranscription.checked,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
-      experimental_sandbox_command_assessment: featureSandboxAssessment.checked,
-      ghost_commit: featureGhostCommit.checked,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
     Object.assign(features, extraFeatures);
@@ -546,36 +531,31 @@
     supportsSummariesInput.checked = Boolean(cfg.model_supports_reasoning_summaries);
     notifyInput.value = (cfg.notify || []).join('\n');
 
-    featureStreamShell.checked = Boolean(cfg.features?.streamable_shell);
-    featureBackgroundTerminal.checked = Boolean(cfg.features?.background_terminal);
+    featureFastMode.checked = cfg.features?.fast_mode !== false;
     featureUnifiedExec.checked = Boolean(cfg.features?.unified_exec);
-    featureRmcpClient.checked = Boolean(cfg.features?.rmcp_client);
     const legacyWebSearch = cfg.features?.web_search_request;
     const webSearchValue = typeof cfg.web_search === 'string'
       ? cfg.web_search
       : (typeof cfg.features?.web_search === 'string' ? cfg.features.web_search : (legacyWebSearch ? 'live' : 'disabled'));
     setSelectValue(featureWebSearch, webSearchValue || 'disabled');
-    featureViewImage.checked = cfg.features?.view_image_tool !== false;
     featureVoiceTranscription.checked = Boolean(cfg.features?.voice_transcription);
     if (featureMultiAgent) {
       featureMultiAgent.checked = cfg.features?.multi_agent !== false;
     }
-    featureSandboxAssessment.checked = Boolean(cfg.features?.experimental_sandbox_command_assessment);
-    featureGhostCommit.checked = Boolean(cfg.features?.ghost_commit);
     const featureExtras = { ...cfg.features };
-    delete featureExtras.streamable_shell;
-    delete featureExtras.background_terminal;
+    delete featureExtras.fast_mode;
     delete featureExtras.unified_exec;
-    delete featureExtras.rmcp_client;
     delete featureExtras.web_search_request;
     delete featureExtras.web_search;
-    delete featureExtras.view_image_tool;
     delete featureExtras.voice_transcription;
     delete featureExtras.multi_agent;
-    delete featureExtras.experimental_sandbox_command_assessment;
-    delete featureExtras.ghost_commit;
     delete featureExtras.experimental_windows_sandbox;
+    delete featureExtras.elevated_windows_sandbox;
     delete featureExtras.enable_experimental_windows_sandbox;
+    delete featureExtras.collaboration_modes;
+    delete featureExtras.remote_models;
+    delete featureExtras.request_rule;
+    delete featureExtras.search_tool;
     delete featureExtras.steer;
     extraFeaturesInput.value = mapToText(featureExtras);
 
@@ -876,16 +856,11 @@
     supportsSummariesInput = document.getElementById('supportsSummariesInput');
     notifyInput = document.getElementById('notifyInput');
 
-    featureStreamShell = document.getElementById('featureStreamShell');
-    featureBackgroundTerminal = document.getElementById('featureBackgroundTerminal');
+    featureFastMode = document.getElementById('featureFastMode');
     featureUnifiedExec = document.getElementById('featureUnifiedExec');
-    featureRmcpClient = document.getElementById('featureRmcpClient');
     featureWebSearch = document.getElementById('featureWebSearch');
-    featureViewImage = document.getElementById('featureViewImage');
     featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
     featureMultiAgent = document.getElementById('featureMultiAgent');
-    featureSandboxAssessment = document.getElementById('featureSandboxAssessment');
-    featureGhostCommit = document.getElementById('featureGhostCommit');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');
 

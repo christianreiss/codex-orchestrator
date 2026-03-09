@@ -1,6 +1,8 @@
 # 2026-03-09
 - Config builder/template defaults: added `notice.model_migrations` mapping `gpt-5.3-codex -> gpt-5.4` (alongside `gpt-5.2-codex -> gpt-5.3-codex`) so Codex `0.112.0+` upgrade prompts are auto-resolved from fleet-managed `config.toml`.
 - Admin UI/docs/tests: updated config-builder defaults, cache-bumped `config.js`, refreshed config/interface docs, and expanded `ClientConfigService` assertions for the new migration mapping.
+- Codex `0.112.0` compatibility audit: feature normalization now drops removed/unknown `features.*` keys and keeps only currently supported Codex feature flags (while still mapping deprecated `web_search_request`/`web_search_cached` into root `web_search`).
+- Admin config UI/docs: replaced stale feature toggles with current valid defaults (`fast_mode`, `unified_exec`, `voice_transcription`, `multi_agent`) and updated feature docs/contracts accordingly.
 
 # 2026-03-06
 - Security/wrapper: insecure-host baked `config.toml` no longer persists a reusable managed MCP host API key; secure hosts still use the host API key, while insecure hosts now receive a short-lived MCP bearer token backed by the new `mcp_session_tokens` store.

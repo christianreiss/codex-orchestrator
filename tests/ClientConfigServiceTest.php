@@ -222,27 +222,48 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('approval_policy = "on-failure"', $rendered['content']);
     }
 
-    public function testObsoleteFeatureKeysAreIgnoredWhileVoiceTranscriptionPersists(): void
+    public function testRemovedAndUnknownFeatureKeysAreIgnoredWhileKnownFlagsPersist(): void
     {
         $rendered = $this->service->render([
             'features' => [
+                'fast_mode' => true,
                 'voice_transcription' => true,
+                'collaboration_modes' => true,
+                'elevated_windows_sandbox' => true,
+                'remote_models' => true,
+                'request_rule' => true,
+                'search_tool' => true,
                 'steer' => true,
                 'experimental_windows_sandbox' => true,
                 'enable_experimental_windows_sandbox' => true,
+                'ghost_commit' => true,
             ],
             'steer' => true,
         ]);
 
         $this->assertStringContainsString('[features]', $rendered['content']);
+        $this->assertStringContainsString('fast_mode = true', $rendered['content']);
         $this->assertStringContainsString('voice_transcription = true', $rendered['content']);
+        $this->assertStringNotContainsString('collaboration_modes =', $rendered['content']);
+        $this->assertStringNotContainsString('elevated_windows_sandbox =', $rendered['content']);
+        $this->assertStringNotContainsString('remote_models =', $rendered['content']);
+        $this->assertStringNotContainsString('request_rule =', $rendered['content']);
+        $this->assertStringNotContainsString('search_tool =', $rendered['content']);
         $this->assertStringNotContainsString('steer =', $rendered['content']);
         $this->assertStringNotContainsString('experimental_windows_sandbox =', $rendered['content']);
         $this->assertStringNotContainsString('enable_experimental_windows_sandbox =', $rendered['content']);
+        $this->assertStringNotContainsString('ghost_commit =', $rendered['content']);
+        $this->assertArrayHasKey('fast_mode', $rendered['settings']['features']);
         $this->assertArrayHasKey('voice_transcription', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('collaboration_modes', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('elevated_windows_sandbox', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('remote_models', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('request_rule', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('search_tool', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('steer', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('experimental_windows_sandbox', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('enable_experimental_windows_sandbox', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('ghost_commit', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
@@ -571,9 +592,9 @@ final class ClientConfigServiceTest extends TestCase
                     'sandbox_mode' => 'workspace-write',
                     'model_reasoning_effort' => 'xhigh',
                     'features' => [
-                        'streamable_shell' => true,
+                        'fast_mode' => true,
                         'web_search' => 'cached',
-                        'view_image_tool' => true,
+                        'unified_exec' => true,
                     ],
                     'sandbox_workspace_write' => [
                         'network_access' => true,
@@ -587,8 +608,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model = "gpt-5.1-codex-max"', $content);
         $this->assertStringContainsString('web_search = "cached"', $content);
         $this->assertStringContainsString('[profiles.ultra.features]', $content);
-        $this->assertStringContainsString('streamable_shell = true', $content);
-        $this->assertStringContainsString('view_image_tool = true', $content);
+        $this->assertStringContainsString('fast_mode = true', $content);
+        $this->assertStringContainsString('unified_exec = true', $content);
         $this->assertStringContainsString('[profiles.ultra.sandbox_workspace_write]', $content);
         $this->assertStringContainsString('network_access = true', $content);
 
@@ -596,7 +617,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertIsArray($settings);
         $this->assertIsArray($settings['profiles']);
         $this->assertSame('ultra', $settings['profiles'][0]['name']);
-        $this->assertSame(true, $settings['profiles'][0]['features']['streamable_shell']);
+        $this->assertSame(true, $settings['profiles'][0]['features']['fast_mode']);
         $this->assertSame('cached', $settings['profiles'][0]['web_search']);
         $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);
     }

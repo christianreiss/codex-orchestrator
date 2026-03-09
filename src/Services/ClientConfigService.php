@@ -44,10 +44,53 @@ class ClientConfigService
     public const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
     /** @var list<string> */
-    private const OBSOLETE_FEATURE_KEYS = [
+    private const DROPPED_FEATURE_KEYS = [
         'steer',
+        'collaboration_modes',
+        'elevated_windows_sandbox',
         'experimental_windows_sandbox',
         'enable_experimental_windows_sandbox',
+        'remote_models',
+        'request_rule',
+        'search_tool',
+    ];
+
+    /** @var list<string> */
+    private const SUPPORTED_FEATURE_KEYS = [
+        'apply_patch_freeform',
+        'apps',
+        'apps_mcp_gateway',
+        'artifact',
+        'child_agents_md',
+        'codex_git_commit',
+        'default_mode_request_user_input',
+        'enable_request_compression',
+        'fast_mode',
+        'image_detail_original',
+        'image_generation',
+        'js_repl',
+        'js_repl_tools_only',
+        'memories',
+        'multi_agent',
+        'personality',
+        'plugins',
+        'powershell_utf8',
+        'prevent_idle_sleep',
+        'realtime_conversation',
+        'request_permissions',
+        'responses_websockets',
+        'responses_websockets_v2',
+        'runtime_metrics',
+        'shell_snapshot',
+        'shell_tool',
+        'shell_zsh_fork',
+        'skill_env_var_dependency_prompt',
+        'skill_mcp_dependency_install',
+        'sqlite',
+        'undo',
+        'unified_exec',
+        'use_linux_sandbox_bwrap',
+        'voice_transcription',
     ];
 
     /**
@@ -577,7 +620,10 @@ class ClientConfigService
                 }
                 continue;
             }
-            if (in_array($name, self::OBSOLETE_FEATURE_KEYS, true)) {
+            if (in_array($name, self::DROPPED_FEATURE_KEYS, true)) {
+                continue;
+            }
+            if (!in_array($name, self::SUPPORTED_FEATURE_KEYS, true)) {
                 continue;
             }
             $boolValue = $normalizeBool($value);
@@ -639,7 +685,10 @@ class ClientConfigService
                     }
                     continue;
                 }
-                if (in_array($featureName, self::OBSOLETE_FEATURE_KEYS, true)) {
+                if (in_array($featureName, self::DROPPED_FEATURE_KEYS, true)) {
+                    continue;
+                }
+                if (!in_array($featureName, self::SUPPORTED_FEATURE_KEYS, true)) {
                     continue;
                 }
                 $boolValue = $normalizeBool($value);
@@ -780,7 +829,7 @@ class ClientConfigService
             $features = [];
         }
         unset($features['web_search'], $features['web_search_request'], $features['web_search_cached']);
-        foreach (self::OBSOLETE_FEATURE_KEYS as $obsoleteFeature) {
+        foreach (self::DROPPED_FEATURE_KEYS as $obsoleteFeature) {
             unset($features[$obsoleteFeature]);
         }
         if ($this->hasAny($features)) {

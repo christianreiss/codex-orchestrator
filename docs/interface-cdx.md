@@ -140,7 +140,8 @@ Sync details:
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Normalization defaults include `features.multi_agent=true` when unset.
 - Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.
-- Legacy config keys `steer`, `experimental_windows_sandbox`, and `enable_experimental_windows_sandbox` are accepted for ingest compatibility but dropped from rendered output.
+- Feature flags are normalized against the current Codex feature registry; unknown/removed flags are dropped from rendered output.
+- Removed legacy keys `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_rule`, and `search_tool` are accepted for ingest compatibility but dropped from rendered output.
 - When `home` is provided, server appends trusted project stanza for that path.
 
 ## Quota, Lane, and Summary Rendering
