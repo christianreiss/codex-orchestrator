@@ -180,7 +180,7 @@ Summary layout:
   - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
   - Python `pty` fallback
   - direct execution fallback
-- Interactive SSH compatibility bridge: when stdin/stdout are TTYs, SSH is interactive, and `python3` is available, wrapper launches Codex through a Python PTY bridge that strips Codex kitty keyboard protocol enable/disable sequences and rewrites CSI-u Enter/Ctrl keys back to plain TTY bytes before Codex sees them.
+- Interactive SSH compatibility bridge: when stdin/stdout are TTYs, SSH is interactive, and `python3` is available, wrapper launches Codex through a Python PTY bridge that reads user input from `/dev/tty`, strips Codex kitty keyboard protocol enable/disable sequences, rewrites CSI-u Enter/Ctrl keys back to plain TTY bytes before Codex sees them, and keeps draining child output if wrapper stdin goes idle.
 - `CODEX_NO_PTY=1` disables PTY capture.
 - The interactive SSH compatibility bridge takes precedence over `CODEX_NO_PTY=1` and `~/.codex/.cdx_no_pty`; it is a launch-compatibility fix, not just an output-capture path.
 - PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.

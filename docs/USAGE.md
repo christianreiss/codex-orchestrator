@@ -191,7 +191,7 @@ If you see failures about an insecure window being closed, that’s not somethin
 cdx --update
 ```
 
-If plain SSH launches accept text but `Enter` does nothing, run `cdx doctor`. The wrapper now reports SSH terminal hints and, when `python3` is available, enables an interactive SSH keyboard-compatibility bridge that strips Codex kitty keyboard sequences and normalizes CSI-u Enter/Ctrl keys before launch.
+If plain SSH launches accept text but `Enter` does nothing, run `cdx doctor`. The wrapper now reports SSH terminal hints and, when `python3` is available, enables an interactive SSH keyboard-compatibility bridge that reads from `/dev/tty`, strips Codex kitty keyboard sequences, normalizes CSI-u Enter/Ctrl keys before launch, and keeps draining Codex output if wrapper stdin goes idle.
 
 ### Rotate canonical auth (operator)
 

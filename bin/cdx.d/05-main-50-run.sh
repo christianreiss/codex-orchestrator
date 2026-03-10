@@ -221,7 +221,10 @@ run_codex_command_via_python_pty_bridge() {
   local log_path="$1"
   local keyboard_filter_active="$2"
   shift 2
-  python3 - "$log_path" "$keyboard_filter_active" "$@" <<'PY'
+  local bridge_script=""
+  bridge_script="$(mktemp)"
+  # Run the bridge from a temp file so stdin stays attached to the user's tty.
+  cat > "$bridge_script" <<'PY'
 import os
 import pty
 import re
@@ -233,7 +236,6 @@ import tty
 log_path = sys.argv[1]
 keyboard_filter_active = sys.argv[2] == "1"
 cmd = sys.argv[3:]
-stdin_fd = sys.stdin.fileno()
 stdout_fd = sys.stdout.fileno()
 tail_len = 64
 
@@ -314,18 +316,24 @@ def write_stdout_and_log(handle, data):
     handle.flush()
 
 
+tty_fd = os.open("/dev/tty", os.O_RDWR)
+stdin_fd = tty_fd
 pid, child_fd = pty.fork()
 if pid == 0:
     os.execvp(cmd[0], cmd)
 
 stdin_attrs = termios.tcgetattr(stdin_fd)
+stdin_open = True
 try:
     tty.setraw(stdin_fd)
     pending_input = b""
     pending_output = b""
     with open(log_path, "wb") as handle:
         while True:
-            ready, _, _ = select.select([stdin_fd, child_fd], [], [])
+            read_fds = [child_fd]
+            if stdin_open:
+                read_fds.append(stdin_fd)
+            ready, _, _ = select.select(read_fds, [], [])
 
             if child_fd in ready:
                 try:
@@ -347,7 +355,8 @@ try:
                 except OSError:
                     stdin_data = b""
                 if not stdin_data:
-                    break
+                    stdin_open = False
+                    continue
                 if keyboard_filter_active:
                     pending_input += stdin_data
                     emit, pending_input = rewrite_input_buffer(pending_input, final=False)
@@ -368,7 +377,19 @@ finally:
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, stdin_attrs)
     except Exception:
         pass
+    try:
+        os.close(tty_fd)
+    except Exception:
+        pass
 PY
+  local bridge_status=0
+  if python3 "$bridge_script" "$log_path" "$keyboard_filter_active" "$@"; then
+    bridge_status=0
+  else
+    bridge_status=$?
+  fi
+  rm -f "$bridge_script"
+  return "$bridge_status"
 }
 
 run_codex_command() {

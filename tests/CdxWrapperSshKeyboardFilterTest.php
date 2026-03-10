@@ -17,9 +17,16 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('CODEX_SSH_KEYBOARD_FILTER_ACTIVE=0', $wrapperSource);
         self::assertStringContainsString('run_codex_command_via_python_pty_bridge()', $wrapperSource);
         self::assertStringContainsString("output_filter_re = re.compile(br'\\x1b\\[(?:>[0-9;:]*u|<1?u)')", $wrapperSource);
+        self::assertStringContainsString('bridge_script="$(mktemp)"', $wrapperSource);
+        self::assertStringContainsString('python3 "$bridge_script" "$log_path" "$keyboard_filter_active" "$@"', $wrapperSource);
+        self::assertStringContainsString('tty_fd = os.open("/dev/tty", os.O_RDWR)', $wrapperSource);
+        self::assertStringContainsString('stdin_open = True', $wrapperSource);
+        self::assertStringContainsString('read_fds = [child_fd]', $wrapperSource);
         self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
         self::assertStringContainsString('SSH compatibility bridge active: filtering Codex keyboard-protocol escape sequences so Enter works in plain SSH terminals.', $wrapperSource);
         self::assertStringContainsString('Interactive SSH terminals can send kitty keyboard CSI-u sequences that Codex ignores.', $wrapperSource);
+        self::assertStringNotContainsString('stdin_fd = sys.stdin.fileno()', $wrapperSource);
+        self::assertStringNotContainsString('python3 - "$log_path" "$keyboard_filter_active" "$@" <<\'PY\'', $wrapperSource);
         self::assertStringNotContainsString('codex_ssh_regression_fallback_version()', $wrapperSource);
         self::assertStringNotContainsString('codex_status_label="Blocked on SSH"', $wrapperSource);
     }
