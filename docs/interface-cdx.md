@@ -223,6 +223,7 @@ Wrapper updates:
 - Target metadata comes from `/auth` versions (`wrapper_version`, `wrapper_sha256`, `wrapper_url`) with `/wrapper/download` fallback URL.
 - Download uses host API key and optional baked CA; respects IPv4 forcing and insecure curl mode.
 - If sha is provided, downloaded script must match.
+- When a wrapper version update is pending and the run will self-restart, Codex binary update is deferred to the restarted pass so one invocation does not install two different Codex versions back-to-back.
 - Successful wrapper update triggers one re-exec (`CODEX_WRAPPER_RESTARTED=1`, `CODEX_SKIP_MOTD=1`).
 - Restart-loop detection aborts with error.
 

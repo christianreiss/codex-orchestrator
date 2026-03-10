@@ -604,7 +604,7 @@ result_label="$(human_join "${result_parts[@]}")"
 
   codex_tone="green"
   case "$(lowercase "$codex_status_label")" in
-    update\ available|check\ skipped|update\ skipped)
+    update\ available|check\ skipped|update\ skipped|deferred)
       codex_tone="yellow"
       ;;
     blocked\ on\ ssh)

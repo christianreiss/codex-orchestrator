@@ -228,12 +228,30 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
   fi
 fi
 
+defer_codex_update_for_wrapper=0
+if (( need_update )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) \
+  && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
+  precheck_target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
+  precheck_target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
+  if [[ -z "$precheck_target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
+    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
+  if [[ -n "$precheck_target_wrapper_url" && "$precheck_target_wrapper_url" != http* ]]; then
+    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${precheck_target_wrapper_url}"
+  fi
+  if [[ -n "$precheck_target_wrapper" && "$precheck_target_wrapper" != "$WRAPPER_VERSION" \
+    && -n "$precheck_target_wrapper_url" && -n "$CODEX_SYNC_API_KEY" ]]; then
+    defer_codex_update_for_wrapper=1
+    log_info "Wrapper update to ${precheck_target_wrapper} pending; deferring Codex update until wrapper restart."
+  fi
+fi
+
 if (( need_update )) && is_codex_installed_via_npm; then
   prefer_npm_update=1
 fi
 
 # If an update is needed but we don't yet have a download URL (e.g., version came from the API), fetch release metadata now.
-if (( need_update )) && [[ -z "$remote_url" ]] && require_python; then
+if (( need_update )) && (( defer_codex_update_for_wrapper == 0 )) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
   candidate_tags=()
@@ -287,6 +305,10 @@ if (( skip_update_check )); then
   else
     codex_status_note="not permitted to manage Codex (need root)"
   fi
+elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
+  codex_target_label="${norm_remote:-${remote_version:-unknown}}"
+  codex_status_label="Deferred"
+  codex_status_note="waiting for wrapper restart"
 elif (( need_update )) && [[ -n "$remote_url" ]]; then
   display_local="${LOCAL_VERSION:-unknown}"
   codex_target_label="$norm_remote"
