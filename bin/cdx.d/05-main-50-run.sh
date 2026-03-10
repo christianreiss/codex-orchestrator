@@ -229,9 +229,11 @@ import os
 import pty
 import re
 import select
+import signal
 import sys
 import termios
 import tty
+import fcntl
 
 log_path = sys.argv[1]
 keyboard_filter_active = sys.argv[2] == "1"
@@ -316,15 +318,33 @@ def write_stdout_and_log(handle, data):
     handle.flush()
 
 
+def copy_winsize(from_fd, to_fd):
+    try:
+        winsize = fcntl.ioctl(from_fd, termios.TIOCGWINSZ, b"\0" * 8)
+    except OSError:
+        return
+    try:
+        fcntl.ioctl(to_fd, termios.TIOCSWINSZ, winsize)
+    except OSError:
+        pass
+
+
 tty_fd = os.open("/dev/tty", os.O_RDWR)
 stdin_fd = tty_fd
 pid, child_fd = pty.fork()
 if pid == 0:
     os.execvp(cmd[0], cmd)
 
+copy_winsize(stdin_fd, child_fd)
 stdin_attrs = termios.tcgetattr(stdin_fd)
 stdin_open = True
+previous_winch_handler = signal.getsignal(signal.SIGWINCH)
+
+def forward_winch(_signum, _frame):
+    copy_winsize(stdin_fd, child_fd)
+
 try:
+    signal.signal(signal.SIGWINCH, forward_winch)
     tty.setraw(stdin_fd)
     pending_input = b""
     pending_output = b""
@@ -373,6 +393,10 @@ try:
     _, status = os.waitpid(pid, 0)
     sys.exit(os.WEXITSTATUS(status))
 finally:
+    try:
+        signal.signal(signal.SIGWINCH, previous_winch_handler)
+    except Exception:
+        pass
     try:
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, stdin_attrs)
     except Exception:
@@ -442,13 +466,45 @@ run_codex_command() {
         # Fallback PTY using Python's pty module when script is unavailable.
         status=0
         python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
-import os, sys, pty
+import fcntl
+import os
+import pty
+import signal
+import sys
+import termios
 log_path = sys.argv[1]
 cmd = sys.argv[2:]
+
+def copy_winsize(from_fd, to_fd):
+    try:
+        winsize = fcntl.ioctl(from_fd, termios.TIOCGWINSZ, b"\0" * 8)
+    except OSError:
+        return
+    try:
+        fcntl.ioctl(to_fd, termios.TIOCSWINSZ, winsize)
+    except OSError:
+        pass
+
+stdout_fd = sys.stdout.fileno()
+winsize_source_fd = stdout_fd if os.isatty(stdout_fd) else None
+opened_tty_fd = None
+if winsize_source_fd is None:
+    try:
+        opened_tty_fd = os.open("/dev/tty", os.O_RDONLY)
+        winsize_source_fd = opened_tty_fd
+    except OSError:
+        winsize_source_fd = None
 with open(log_path, "wb") as log:
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(cmd[0], cmd)
+    if winsize_source_fd is not None:
+        copy_winsize(winsize_source_fd, fd)
+    previous_winch_handler = signal.getsignal(signal.SIGWINCH)
+    if winsize_source_fd is not None:
+        def forward_winch(_signum, _frame):
+            copy_winsize(winsize_source_fd, fd)
+        signal.signal(signal.SIGWINCH, forward_winch)
     try:
         while True:
             try:
@@ -462,6 +518,16 @@ with open(log_path, "wb") as log:
             log.flush()
     except KeyboardInterrupt:
         pass
+    finally:
+        try:
+            signal.signal(signal.SIGWINCH, previous_winch_handler)
+        except Exception:
+            pass
+        if opened_tty_fd is not None:
+            try:
+                os.close(opened_tty_fd)
+            except OSError:
+                pass
     _, status = os.waitpid(pid, 0)
     sys.exit(os.WEXITSTATUS(status))
 PY

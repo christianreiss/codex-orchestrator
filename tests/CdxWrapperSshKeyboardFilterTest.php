@@ -20,6 +20,10 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('bridge_script="$(mktemp)"', $wrapperSource);
         self::assertStringContainsString('python3 "$bridge_script" "$log_path" "$keyboard_filter_active" "$@"', $wrapperSource);
         self::assertStringContainsString('tty_fd = os.open("/dev/tty", os.O_RDWR)', $wrapperSource);
+        self::assertStringContainsString('termios.TIOCGWINSZ', $wrapperSource);
+        self::assertStringContainsString('termios.TIOCSWINSZ', $wrapperSource);
+        self::assertStringContainsString('signal.SIGWINCH', $wrapperSource);
+        self::assertStringContainsString('copy_winsize(stdin_fd, child_fd)', $wrapperSource);
         self::assertStringContainsString('stdin_open = True', $wrapperSource);
         self::assertStringContainsString('read_fds = [child_fd]', $wrapperSource);
         self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
