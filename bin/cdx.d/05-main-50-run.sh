@@ -108,6 +108,160 @@ detect_script_flags() {
   fi
 }
 
+run_codex_command_via_python_pty_bridge() {
+  local log_path="$1"
+  local keyboard_filter_active="$2"
+  shift 2
+  python3 - "$log_path" "$keyboard_filter_active" "$@" <<'PY'
+import os
+import pty
+import re
+import select
+import sys
+import termios
+import tty
+
+log_path = sys.argv[1]
+keyboard_filter_active = sys.argv[2] == "1"
+cmd = sys.argv[3:]
+stdin_fd = sys.stdin.fileno()
+stdout_fd = sys.stdout.fileno()
+tail_len = 64
+
+output_filter_re = re.compile(br'\x1b\[(?:>[0-9;:]*u|<1?u)')
+csi_u_re = re.compile(br'^\x1b\[(\d+)(?::(\d+))?(?:;(\d+)(?::(\d+))?)?u$')
+
+
+def translate_csi_u(sequence):
+    match = csi_u_re.match(sequence)
+    if match is None:
+        return None
+
+    key_code = int(match.group(1))
+    modifiers = int(match.group(3) or b"1")
+    ctrl_pressed = ((modifiers - 1) & 4) != 0
+
+    if key_code == 13:
+        return b"\r"
+
+    if ctrl_pressed:
+        if 65 <= key_code <= 90:
+            return bytes([key_code - 64])
+        if 97 <= key_code <= 122:
+            return bytes([key_code - 96])
+
+    return None
+
+
+def rewrite_input_buffer(buffer, final):
+    rewritten = bytearray()
+    index = 0
+    length = len(buffer)
+    max_sequence_len = 32
+
+    while index < length:
+        if buffer[index:index + 2] != b"\x1b[":
+            rewritten.append(buffer[index])
+            index += 1
+            continue
+
+        cursor = index + 2
+        matched = False
+        while cursor < length and (cursor - index) <= max_sequence_len:
+            if buffer[cursor] == 0x75:
+                sequence = buffer[index:cursor + 1]
+                translated = translate_csi_u(sequence)
+                rewritten.extend(sequence if translated is None else translated)
+                index = cursor + 1
+                matched = True
+                break
+            cursor += 1
+
+        if matched:
+            continue
+
+        if final:
+            rewritten.extend(buffer[index:])
+            index = length
+        break
+
+    return bytes(rewritten), buffer[index:]
+
+
+def rewrite_output_buffer(buffer, final):
+    if final:
+        return output_filter_re.sub(b"", buffer), b""
+    if len(buffer) <= tail_len:
+        return b"", buffer
+    chunk = buffer[:-tail_len]
+    return output_filter_re.sub(b"", chunk), buffer[-tail_len:]
+
+
+def write_stdout_and_log(handle, data):
+    if not data:
+        return
+    os.write(stdout_fd, data)
+    handle.write(data)
+    handle.flush()
+
+
+pid, child_fd = pty.fork()
+if pid == 0:
+    os.execvp(cmd[0], cmd)
+
+stdin_attrs = termios.tcgetattr(stdin_fd)
+try:
+    tty.setraw(stdin_fd)
+    pending_input = b""
+    pending_output = b""
+    with open(log_path, "wb") as handle:
+        while True:
+            ready, _, _ = select.select([stdin_fd, child_fd], [], [])
+
+            if child_fd in ready:
+                try:
+                    child_data = os.read(child_fd, 4096)
+                except OSError:
+                    child_data = b""
+                if child_data:
+                    pending_output += child_data
+                    emit, pending_output = rewrite_output_buffer(pending_output, final=False)
+                    write_stdout_and_log(handle, emit)
+                else:
+                    emit, pending_output = rewrite_output_buffer(pending_output, final=True)
+                    write_stdout_and_log(handle, emit)
+                    break
+
+            if stdin_fd in ready:
+                try:
+                    stdin_data = os.read(stdin_fd, 4096)
+                except OSError:
+                    stdin_data = b""
+                if not stdin_data:
+                    break
+                if keyboard_filter_active:
+                    pending_input += stdin_data
+                    emit, pending_input = rewrite_input_buffer(pending_input, final=False)
+                    if emit:
+                        os.write(child_fd, emit)
+                else:
+                    os.write(child_fd, stdin_data)
+
+        if keyboard_filter_active and pending_input:
+            emit, pending_input = rewrite_input_buffer(pending_input, final=True)
+            if emit:
+                os.write(child_fd, emit)
+
+    _, status = os.waitpid(pid, 0)
+    sys.exit(os.WEXITSTATUS(status))
+finally:
+    try:
+        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, stdin_attrs)
+    except Exception:
+        pass
+PY
+}
+
 run_codex_command() {
   local tmp_output status
   tmp_output="$(mktemp)"
@@ -124,7 +278,13 @@ run_codex_command() {
 
   if [[ -t 0 && -t 1 ]]; then
     local cmd_line=("$CODEX_REAL_BIN" "$@")
-    if [[ "$CODEX_NO_PTY" == "1" ]]; then
+    if (( CODEX_SSH_KEYBOARD_FILTER_ACTIVE )); then
+      # Interactive SSH terminals can send kitty keyboard CSI-u sequences that Codex ignores.
+      # Route launch through a Python PTY bridge so we can strip the enable sequence and
+      # translate Enter/Ctrl keys back to plain TTY bytes before Codex sees them.
+      run_codex_command_via_python_pty_bridge "$tmp_output" "$CODEX_SSH_KEYBOARD_FILTER_ACTIVE" "${cmd_line[@]}"
+      status=$?
+    elif [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
       "${cmd_line[@]}"
       status=$?

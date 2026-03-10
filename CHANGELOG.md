@@ -1,6 +1,8 @@
 # 2026-03-10
-- cdx wrapper: added an interactive-SSH Codex safeguard for the upstream prompt-submit regression in `0.113.0`; SSH launches now target `0.112.0` instead, doctor reports SSH terminal hints plus guard state, and SSH-stuck installs surface a clear blocked/fallback warning. Wrapper bumped to `2026.03.10-01`.
-- Installer/docs/tests: install script now applies the same `0.113.0 -> 0.112.0` SSH fallback, wrapper/interface docs were updated, and regression coverage now locks the new SSH safeguard strings into the built wrapper and installer template.
+- Config builder/personality: added root `personality = "friendly"|"pragmatic"|"none"` support to fleet-managed `config.toml`, defaulted new/existing configs to `friendly`, and added optional profile-level overrides that inherit the root value when unset.
+- Admin/docs/tests: added a dedicated config-builder personality selector, profile override control, cache-bumped `config.js`/`profiles.js`, updated config/interface docs, and expanded `ClientConfigService` coverage for root/profile personality rendering.
+- cdx wrapper: replaced the earlier SSH version pin with an interactive-SSH keyboard compatibility bridge that strips Codex kitty keyboard enable/disable sequences and normalizes CSI-u Enter/Ctrl keys before launch, so prompts submit again over SSH without changing the installed Codex version. `cdx doctor` now reports SSH terminal hints plus bridge state. Wrapper bumped to `2026.03.10-02`.
+- Installer/docs/tests: installer no longer downgrades Codex on SSH; wrapper/interface docs were updated for the SSH keyboard bridge, and regression coverage now locks the bridge/doctor strings into the built wrapper and installer template.
 
 # 2026-03-09
 - Config retrieve/render fix: `notice.model_migrations` now merges saved maps with default migrations, so legacy stored configs that only had `gpt-5.2-codex -> gpt-5.3-codex` also receive `gpt-5.3-codex -> gpt-5.4` and stop surfacing the interactive GPT-5.4 upgrade chooser.

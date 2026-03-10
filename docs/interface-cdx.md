@@ -138,6 +138,7 @@ Sync details:
 - Supported reasoning effort values: `low|medium|high|xhigh`.
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
+- Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
 - Normalization defaults include `features.multi_agent=true` when unset.
 - Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.
 - Feature flags are normalized against the current Codex feature registry; unknown/removed flags are dropped from rendered output.
@@ -178,9 +179,12 @@ Summary layout:
   - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
   - Python `pty` fallback
   - direct execution fallback
+- Interactive SSH compatibility bridge: when stdin/stdout are TTYs, SSH is interactive, and `python3` is available, wrapper launches Codex through a Python PTY bridge that strips Codex kitty keyboard protocol enable/disable sequences and rewrites CSI-u Enter/Ctrl keys back to plain TTY bytes before Codex sees them.
 - `CODEX_NO_PTY=1` disables PTY capture.
+- The interactive SSH compatibility bridge takes precedence over `CODEX_NO_PTY=1` and `~/.codex/.cdx_no_pty`; it is a launch-compatibility fix, not just an output-capture path.
 - PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
 - `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
+- `CODEX_SSH_KEYBOARD_FILTER=0` disables the interactive SSH compatibility bridge explicitly.
 - Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues.
 
 `--execute` behavior:
@@ -203,18 +207,17 @@ Summary layout:
 Codex updates:
 - Target version comes from `/auth` `versions.client_version`.
 - If `client_version_source=locked`, wrapper enforces exact target version (upgrade or downgrade).
-- Interactive SSH safeguard: when the SSH session is interactive and the target/local Codex version is blocklisted for plain SSH terminals, wrapper rewrites the target to the baked fallback before launch/update. Current blocklist: `0.113.0 -> 0.112.0`.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
-- `cdx doctor` reports SSH session/terminal env hints and whether the current Codex version is blocked, pending fallback, or clear for SSH launches.
+- `cdx doctor` reports SSH session/terminal env hints plus the interactive SSH keyboard-filter state (`active`, `disabled`, `unavailable`, `n/a`).
 
 Installer behavior:
 - Installer script downloads the server-targeted Codex version by default.
-- When the installer itself is run over SSH and the requested Codex version is blocklisted for SSH launches, it installs the fallback version instead (`0.113.0 -> 0.112.0`) and prints a safeguard notice.
+- SSH compatibility is handled at wrapper runtime; the installer does not pin or rewrite the requested Codex version.
 
 Wrapper updates:
 - Target metadata comes from `/auth` versions (`wrapper_version`, `wrapper_sha256`, `wrapper_url`) with `/wrapper/download` fallback URL.

@@ -41,14 +41,14 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('glibc_version', $script);
     }
 
-    public function testTemplateIncludesSshCodexFallbackGuard(): void
+    public function testTemplateKeepsRequestedCodexVersionOnSsh(): void
     {
         $script = $this->buildScript([], '0.113.0');
 
-        $this->assertStringContainsString('codex_ssh_regression_fallback_version()', $script);
-        $this->assertStringContainsString('SSH safeguard: Codex ${CODEX_VERSION} is blocked for interactive SSH sessions; installing ${ssh_fallback} instead.', $script);
-        $this->assertStringContainsString('EFFECTIVE_CODEX_VERSION="$CODEX_VERSION"', $script);
-        $this->assertStringContainsString('rust-v${EFFECTIVE_CODEX_VERSION}/${asset}', $script);
+        $this->assertStringNotContainsString('codex_ssh_regression_fallback_version()', $script);
+        $this->assertStringNotContainsString('SSH safeguard: Codex ${CODEX_VERSION} is blocked for interactive SSH sessions', $script);
+        $this->assertStringContainsString('echo "Target Codex: ${CODEX_VERSION}"', $script);
+        $this->assertStringContainsString('rust-v${CODEX_VERSION}/${asset}', $script);
     }
 
     public function testTemplateDoesNotAutoRunCdxAfterInstall(): void

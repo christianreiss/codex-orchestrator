@@ -96,34 +96,7 @@ if command -v codex >/dev/null 2>&1; then
   fi
 fi
 
-normalize_version() {
-  local value="$1"
-  value="${value#codex-cli }"
-  value="${value#codex }"
-  value="${value#rust-}"
-  value="${value#v}"
-  printf '%s' "$value"
-}
-
-codex_ssh_regression_fallback_version() {
-  local version
-  version="$(normalize_version "${1:-}")"
-  case "$version" in
-    0.113.0)
-      printf '0.112.0'
-      ;;
-  esac
-}
-
-EFFECTIVE_CODEX_VERSION="$CODEX_VERSION"
-if [[ -n "${SSH_TTY:-}" || -n "${SSH_CONNECTION:-}" ]]; then
-  ssh_fallback="$(codex_ssh_regression_fallback_version "$CODEX_VERSION")"
-  if [[ -n "$ssh_fallback" ]]; then
-    echo "SSH safeguard: Codex ${CODEX_VERSION} is blocked for interactive SSH sessions; installing ${ssh_fallback} instead."
-    EFFECTIVE_CODEX_VERSION="$ssh_fallback"
-  fi
-fi
-echo "Target Codex: ${EFFECTIVE_CODEX_VERSION}"
+echo "Target Codex: ${CODEX_VERSION}"
 
 curl_fetch -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
@@ -215,7 +188,7 @@ case "$os" in
   *) echo "Unsupported OS: $os" >&2; exit 1 ;;
 esac
 
-curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${EFFECTIVE_CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
+curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
 tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
 codex_bin="$(find "$tmpdir" -type f ! -name "*.tar.gz" \( -name "codex" -o -name "codex-*" \) | head -n1)"
 if [ -z "$codex_bin" ]; then

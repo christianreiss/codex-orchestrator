@@ -47,10 +47,27 @@ if is_ssh_session; then
     CODEX_SSH_INTERACTIVE=1
   fi
 fi
-CODEX_SSH_GUARD_STATE="clear"
-CODEX_SSH_GUARD_BLOCKED_VERSION=""
-CODEX_SSH_GUARD_FALLBACK_VERSION=""
-CODEX_SSH_GUARD_REASON=""
+CODEX_SSH_KEYBOARD_FILTER_ACTIVE=0
+CODEX_SSH_KEYBOARD_FILTER_STATE="inactive"
+CODEX_SSH_KEYBOARD_FILTER_REASON=""
+if (( CODEX_SSH_INTERACTIVE )); then
+  case "${CODEX_SSH_KEYBOARD_FILTER:-auto}" in
+    0|false|FALSE|False|no|NO|No)
+      CODEX_SSH_KEYBOARD_FILTER_STATE="disabled"
+      CODEX_SSH_KEYBOARD_FILTER_REASON="disabled by CODEX_SSH_KEYBOARD_FILTER"
+      ;;
+    *)
+      if command -v python3 >/dev/null 2>&1; then
+        CODEX_SSH_KEYBOARD_FILTER_ACTIVE=1
+        CODEX_SSH_KEYBOARD_FILTER_STATE="active"
+        CODEX_SSH_KEYBOARD_FILTER_REASON="filter Codex kitty keyboard protocol so Enter and Ctrl keys stay plain over SSH"
+      else
+        CODEX_SSH_KEYBOARD_FILTER_STATE="unavailable"
+        CODEX_SSH_KEYBOARD_FILTER_REASON="python3 is required for the SSH keyboard compatibility bridge"
+      fi
+      ;;
+  esac
+fi
 
 # Guard mutating sync/update work when another cdx run is already active.
 if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
@@ -193,30 +210,6 @@ if (( ! skip_update_check )); then
   fi
 fi
 
-if (( CODEX_SSH_INTERACTIVE )) && [[ -n "$remote_version" ]]; then
-  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$remote_version")"
-  if [[ -n "$ssh_guard_fallback" ]]; then
-    CODEX_SSH_GUARD_STATE="target-blocked"
-    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$remote_version")"
-    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
-    CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$remote_version")"
-    remote_version="$ssh_guard_fallback"
-    remote_tag="$ssh_guard_fallback"
-    remote_timestamp="$(date +%s)"
-    log_warn "SSH safeguard: Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION} is blocked for interactive SSH sessions (${CODEX_SSH_GUARD_REASON}); targeting ${ssh_guard_fallback} instead."
-  fi
-fi
-
-if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" == "clear" ]]; then
-  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$LOCAL_VERSION")"
-  if [[ -n "$ssh_guard_fallback" ]]; then
-    CODEX_SSH_GUARD_STATE="local-blocked"
-    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$LOCAL_VERSION")"
-    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
-    CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$LOCAL_VERSION")"
-  fi
-fi
-
 need_update=0
 norm_remote=""
 if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
@@ -226,9 +219,7 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
   else
     norm_local="$(normalize_version "$LOCAL_VERSION")"
     if [[ "$norm_remote" != "$norm_local" ]]; then
-      if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" != "clear" ]]; then
-        need_update=1
-      elif (( enforce_exact_codex_version )); then
+      if (( enforce_exact_codex_version )); then
         need_update=1
       elif version_lt "$norm_local" "$norm_remote"; then
         need_update=1
@@ -348,28 +339,24 @@ else
   fi
 fi
 
-if (( CODEX_SSH_INTERACTIVE )); then
-  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$LOCAL_VERSION")"
-  if [[ -n "$ssh_guard_fallback" ]]; then
-    CODEX_SSH_GUARD_STATE="local-blocked"
-    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$LOCAL_VERSION")"
-    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
-    [[ -n "$CODEX_SSH_GUARD_REASON" ]] || CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$LOCAL_VERSION")"
-    log_warn "SSH safeguard: local Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION} is still blocked for interactive SSH sessions; fallback target is ${CODEX_SSH_GUARD_FALLBACK_VERSION}. Run cdx --update as a user who can manage Codex, or pin fleet Codex to ${CODEX_SSH_GUARD_FALLBACK_VERSION}."
-  elif [[ "$CODEX_SSH_GUARD_STATE" == "target-blocked" ]]; then
-    CODEX_SSH_GUARD_STATE="applied"
-  fi
-fi
-
 if [[ -z "$codex_status_label" ]]; then
   codex_status_label="Current"
 fi
-if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" == "local-blocked" ]]; then
-  codex_target_label="${CODEX_SSH_GUARD_FALLBACK_VERSION:-$codex_target_label}"
-  codex_status_label="Blocked on SSH"
-  codex_status_note="${CODEX_SSH_GUARD_BLOCKED_VERSION}→${CODEX_SSH_GUARD_FALLBACK_VERSION} safeguard"
-fi
 codex_installed_label="${LOCAL_VERSION:-unknown}"
+
+if (( CODEX_SSH_INTERACTIVE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) && (( ! CODEX_DO_UNINSTALL )) && (( ! CODEX_LANE_COMMAND )); then
+  case "$CODEX_SSH_KEYBOARD_FILTER_STATE" in
+    active)
+      log_info "SSH compatibility bridge active: filtering Codex keyboard-protocol escape sequences so Enter works in plain SSH terminals."
+      ;;
+    unavailable)
+      log_warn "SSH compatibility bridge unavailable: ${CODEX_SSH_KEYBOARD_FILTER_REASON}. Install python3 or set CODEX_SSH_KEYBOARD_FILTER=0 to suppress this warning."
+      ;;
+    disabled)
+      log_warn "SSH compatibility bridge disabled via CODEX_SSH_KEYBOARD_FILTER; plain Codex may ignore Enter on terminals that send kitty keyboard sequences."
+      ;;
+  esac
+fi
 
 WRAPPER_VERSION_INITIAL="$WRAPPER_VERSION"
 wrapper_update_attempted=0

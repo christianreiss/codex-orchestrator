@@ -112,23 +112,24 @@ print_doctor_report() {
   local ssh_env_label
   ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 
-  local codex_guard_label="clear"
-  case "${CODEX_SSH_GUARD_STATE:-clear}" in
-    applied)
-      codex_guard_label="$(colorize "applied" "green") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+  local ssh_filter_label="inactive"
+  case "${CODEX_SSH_KEYBOARD_FILTER_STATE:-inactive}" in
+    active)
+      ssh_filter_label="$(colorize "active" "green")"
+      hints+=("Interactive SSH compatibility filter is active; wrapper strips Codex keyboard-protocol enable sequences and normalizes CSI-u Enter/Ctrl keys before launch.")
       ;;
-    target-blocked)
-      codex_guard_label="$(colorize "pending fallback" "yellow") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
-      hints+=("Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION:-unknown} is blocklisted on interactive SSH sessions; wrapper is targeting ${CODEX_SSH_GUARD_FALLBACK_VERSION:-unknown}.")
-      ;;
-    local-blocked)
-      codex_guard_label="$(colorize "blocked" "red") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+    unavailable)
+      ssh_filter_label="$(colorize "unavailable" "red")"
       failures=$(( failures + 1 ))
-      hints+=("Interactive SSH sessions are blocked on Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION:-unknown}; update/downgrade to ${CODEX_SSH_GUARD_FALLBACK_VERSION:-unknown} or pin the fleet version.")
+      hints+=("Interactive SSH session detected, but ${CODEX_SSH_KEYBOARD_FILTER_REASON:-python3 is missing}; install python3 or disable the bridge explicitly with CODEX_SSH_KEYBOARD_FILTER=0.")
+      ;;
+    disabled)
+      ssh_filter_label="$(colorize "disabled" "yellow")"
+      hints+=("Interactive SSH compatibility filter is disabled; plain Codex may ignore Enter on terminals that send kitty keyboard CSI-u sequences.")
       ;;
     *)
       if (( ! CODEX_SSH_SESSION_ACTIVE )); then
-        codex_guard_label="n/a (not SSH)"
+        ssh_filter_label="n/a (not SSH)"
       fi
       ;;
   esac
@@ -167,7 +168,7 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
-  log_info "$(format_simple_row "Doctor cli" "version=${LOCAL_VERSION:-unknown}; ssh-guard=${codex_guard_label}")"
+  log_info "$(format_simple_row "Doctor cli" "version=${LOCAL_VERSION:-unknown}; ssh-filter=${ssh_filter_label}")"
 
   if (( ${#hints[@]} )); then
     local hint
