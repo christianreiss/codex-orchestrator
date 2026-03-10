@@ -41,6 +41,16 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('glibc_version', $script);
     }
 
+    public function testTemplateIncludesSshCodexFallbackGuard(): void
+    {
+        $script = $this->buildScript([], '0.113.0');
+
+        $this->assertStringContainsString('codex_ssh_regression_fallback_version()', $script);
+        $this->assertStringContainsString('SSH safeguard: Codex ${CODEX_VERSION} is blocked for interactive SSH sessions; installing ${ssh_fallback} instead.', $script);
+        $this->assertStringContainsString('EFFECTIVE_CODEX_VERSION="$CODEX_VERSION"', $script);
+        $this->assertStringContainsString('rust-v${EFFECTIVE_CODEX_VERSION}/${asset}', $script);
+    }
+
     public function testTemplateDoesNotAutoRunCdxAfterInstall(): void
     {
         $script = $this->buildScript();
@@ -56,7 +66,7 @@ final class InstallerScriptBuilderTest extends TestCase
     /**
      * @param array<string, mixed> $hostOverrides
      */
-    private function buildScript(array $hostOverrides = []): string
+    private function buildScript(array $hostOverrides = [], string $clientVersion = '1.2.3'): string
     {
         $host = array_merge([
             'fqdn' => 'host.test',
@@ -72,7 +82,7 @@ final class InstallerScriptBuilderTest extends TestCase
             $host,
             $token,
             'https://codex.test',
-            ['client_version' => '1.2.3']
+            ['client_version' => $clientVersion]
         );
     }
 }

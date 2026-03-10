@@ -296,6 +296,30 @@ PY
   return 1
 }
 
+is_ssh_session() {
+  [[ -n "${SSH_TTY:-}" || -n "${SSH_CONNECTION:-}" ]]
+}
+
+codex_ssh_regression_fallback_version() {
+  local version
+  version="$(normalize_version "${1-}")"
+  case "$version" in
+    0.113.0)
+      printf '0.112.0'
+      ;;
+  esac
+}
+
+codex_ssh_regression_reason() {
+  local version
+  version="$(normalize_version "${1-}")"
+  case "$version" in
+    0.113.0)
+      printf 'prompt submission can hang in plain SSH terminals'
+      ;;
+  esac
+}
+
 probe_latest_version_tag() {
   local url="${1:-https://github.com/openai/codex/releases/latest}"
   if ! command -v curl >/dev/null 2>&1; then

@@ -607,6 +607,9 @@ result_label="$(human_join "${result_parts[@]}")"
     update\ available|check\ skipped|update\ skipped)
       codex_tone="yellow"
       ;;
+    blocked\ on\ ssh)
+      codex_tone="red"
+      ;;
   update\ failed|api\ unavailable)
     codex_tone="red"
     ;;
@@ -639,6 +642,8 @@ elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
   else
     result_tone="red"
   fi
+elif [[ "$(lowercase "$codex_status_label")" == "blocked on ssh" ]]; then
+  result_tone="red"
 elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
 elif [[ "$(lowercase "$codex_status_label")" == "update available" ]] || [[ "$(lowercase "$wrapper_status_label")" == "update available" ]]; then
@@ -1459,4 +1464,3 @@ if (( CODEX_LANE_WANTS_RUN == 0 )); then
   release_run_lock_if_held || true
   exit 0
 fi
-

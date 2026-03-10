@@ -75,7 +75,7 @@ Help passthrough:
 | --- | --- |
 | `cdx --wrapper-version` / `cdx -W` | Print wrapper version and exit. |
 | `cdx status` / `cdx --status` | Run sync/update checks + summary, do not launch Codex. Exit `0` unless red/error state (`1`). |
-| `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, PTY state). Exit non-zero on critical failures/red state. |
+| `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, PTY state, SSH terminal hints, and Codex SSH-compatibility guard state). Exit non-zero on critical failures/red state. |
 | `cdx --update` / `cdx -U` | Force wrapper update attempt from server and exit immediately after the attempt. |
 | `cdx --uninstall` | Deregister host auth and remove Codex/wrapper artifacts. |
 | `cdx -4` | Force IPv4 for wrapper network calls for this invocation. |
@@ -203,12 +203,18 @@ Summary layout:
 Codex updates:
 - Target version comes from `/auth` `versions.client_version`.
 - If `client_version_source=locked`, wrapper enforces exact target version (upgrade or downgrade).
+- Interactive SSH safeguard: when the SSH session is interactive and the target/local Codex version is blocklisted for plain SSH terminals, wrapper rewrites the target to the baked fallback before launch/update. Current blocklist: `0.113.0 -> 0.112.0`.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
+- `cdx doctor` reports SSH session/terminal env hints and whether the current Codex version is blocked, pending fallback, or clear for SSH launches.
+
+Installer behavior:
+- Installer script downloads the server-targeted Codex version by default.
+- When the installer itself is run over SSH and the requested Codex version is blocklisted for SSH launches, it installs the fallback version instead (`0.113.0 -> 0.112.0`) and prints a safeguard notice.
 
 Wrapper updates:
 - Target metadata comes from `/auth` versions (`wrapper_version`, `wrapper_sha256`, `wrapper_url`) with `/wrapper/download` fallback URL.

@@ -191,6 +191,8 @@ If you see failures about an insecure window being closed, that’s not somethin
 cdx --update
 ```
 
+If plain SSH launches accept text but `Enter` does nothing, run `cdx doctor`. The wrapper now reports SSH terminal hints and treats Codex `0.113.0` as blocked on interactive SSH sessions, targeting `0.112.0` instead.
+
 ### Rotate canonical auth (operator)
 
 1. Refresh/sign in on a trusted machine so `~/.codex/auth.json` is updated.

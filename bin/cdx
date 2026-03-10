@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.06-03"
+WRAPPER_VERSION="2026.03.10-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -1810,6 +1810,30 @@ PY
     return 0
   fi
   return 1
+}
+
+is_ssh_session() {
+  [[ -n "${SSH_TTY:-}" || -n "${SSH_CONNECTION:-}" ]]
+}
+
+codex_ssh_regression_fallback_version() {
+  local version
+  version="$(normalize_version "${1-}")"
+  case "$version" in
+    0.113.0)
+      printf '0.112.0'
+      ;;
+  esac
+}
+
+codex_ssh_regression_reason() {
+  local version
+  version="$(normalize_version "${1-}")"
+  case "$version" in
+    0.113.0)
+      printf 'prompt submission can hang in plain SSH terminals'
+      ;;
+  esac
 }
 
 probe_latest_version_tag() {
@@ -5349,6 +5373,19 @@ if [[ -z "$LOCAL_VERSION" ]]; then
   log_warn "Could not determine local Codex version; attempting to refresh Codex before launch."
 fi
 
+CODEX_SSH_SESSION_ACTIVE=0
+CODEX_SSH_INTERACTIVE=0
+if is_ssh_session; then
+  CODEX_SSH_SESSION_ACTIVE=1
+  if [[ -t 0 && -t 1 ]]; then
+    CODEX_SSH_INTERACTIVE=1
+  fi
+fi
+CODEX_SSH_GUARD_STATE="clear"
+CODEX_SSH_GUARD_BLOCKED_VERSION=""
+CODEX_SSH_GUARD_FALLBACK_VERSION=""
+CODEX_SSH_GUARD_REASON=""
+
 # Guard mutating sync/update work when another cdx run is already active.
 if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
   acquire_run_lock_or_mark_concurrent || true
@@ -5490,6 +5527,30 @@ if (( ! skip_update_check )); then
   fi
 fi
 
+if (( CODEX_SSH_INTERACTIVE )) && [[ -n "$remote_version" ]]; then
+  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$remote_version")"
+  if [[ -n "$ssh_guard_fallback" ]]; then
+    CODEX_SSH_GUARD_STATE="target-blocked"
+    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$remote_version")"
+    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
+    CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$remote_version")"
+    remote_version="$ssh_guard_fallback"
+    remote_tag="$ssh_guard_fallback"
+    remote_timestamp="$(date +%s)"
+    log_warn "SSH safeguard: Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION} is blocked for interactive SSH sessions (${CODEX_SSH_GUARD_REASON}); targeting ${ssh_guard_fallback} instead."
+  fi
+fi
+
+if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" == "clear" ]]; then
+  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$LOCAL_VERSION")"
+  if [[ -n "$ssh_guard_fallback" ]]; then
+    CODEX_SSH_GUARD_STATE="local-blocked"
+    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$LOCAL_VERSION")"
+    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
+    CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$LOCAL_VERSION")"
+  fi
+fi
+
 need_update=0
 norm_remote=""
 if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
@@ -5499,7 +5560,9 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
   else
     norm_local="$(normalize_version "$LOCAL_VERSION")"
     if [[ "$norm_remote" != "$norm_local" ]]; then
-      if (( enforce_exact_codex_version )); then
+      if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" != "clear" ]]; then
+        need_update=1
+      elif (( enforce_exact_codex_version )); then
         need_update=1
       elif version_lt "$norm_local" "$norm_remote"; then
         need_update=1
@@ -5619,8 +5682,26 @@ else
   fi
 fi
 
+if (( CODEX_SSH_INTERACTIVE )); then
+  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$LOCAL_VERSION")"
+  if [[ -n "$ssh_guard_fallback" ]]; then
+    CODEX_SSH_GUARD_STATE="local-blocked"
+    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$LOCAL_VERSION")"
+    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
+    [[ -n "$CODEX_SSH_GUARD_REASON" ]] || CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$LOCAL_VERSION")"
+    log_warn "SSH safeguard: local Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION} is still blocked for interactive SSH sessions; fallback target is ${CODEX_SSH_GUARD_FALLBACK_VERSION}. Run cdx --update as a user who can manage Codex, or pin fleet Codex to ${CODEX_SSH_GUARD_FALLBACK_VERSION}."
+  elif [[ "$CODEX_SSH_GUARD_STATE" == "target-blocked" ]]; then
+    CODEX_SSH_GUARD_STATE="applied"
+  fi
+fi
+
 if [[ -z "$codex_status_label" ]]; then
   codex_status_label="Current"
+fi
+if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" == "local-blocked" ]]; then
+  codex_target_label="${CODEX_SSH_GUARD_FALLBACK_VERSION:-$codex_target_label}"
+  codex_status_label="Blocked on SSH"
+  codex_status_note="${CODEX_SSH_GUARD_BLOCKED_VERSION}→${CODEX_SSH_GUARD_FALLBACK_VERSION} safeguard"
 fi
 codex_installed_label="${LOCAL_VERSION:-unknown}"
 
@@ -6716,6 +6797,49 @@ print_doctor_report() {
     hints+=("PTY capture is auto-disabled on this host; remove ${pty_file} or set CODEX_FORCE_PTY=1 to retest.")
   fi
 
+  local ssh_session_label="local"
+  if (( CODEX_SSH_SESSION_ACTIVE )); then
+    ssh_session_label="ssh"
+    if (( CODEX_SSH_INTERACTIVE )); then
+      ssh_session_label+=" interactive"
+    else
+      ssh_session_label+=" non-interactive"
+    fi
+  fi
+  local ssh_bits=(
+    "session=${ssh_session_label}"
+    "TERM=${TERM:-unknown}"
+    "TERM_PROGRAM=${TERM_PROGRAM:-n/a}"
+    "KONSOLE_VERSION=${KONSOLE_VERSION:-n/a}"
+    "VTE_VERSION=${VTE_VERSION:-n/a}"
+    "KITTY_WINDOW_ID=${KITTY_WINDOW_ID:+set}"
+    "WEZTERM_VERSION=${WEZTERM_VERSION:-n/a}"
+    "WT_SESSION=${WT_SESSION:+set}"
+  )
+  local ssh_env_label
+  ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
+
+  local codex_guard_label="clear"
+  case "${CODEX_SSH_GUARD_STATE:-clear}" in
+    applied)
+      codex_guard_label="$(colorize "applied" "green") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+      ;;
+    target-blocked)
+      codex_guard_label="$(colorize "pending fallback" "yellow") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+      hints+=("Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION:-unknown} is blocklisted on interactive SSH sessions; wrapper is targeting ${CODEX_SSH_GUARD_FALLBACK_VERSION:-unknown}.")
+      ;;
+    local-blocked)
+      codex_guard_label="$(colorize "blocked" "red") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+      failures=$(( failures + 1 ))
+      hints+=("Interactive SSH sessions are blocked on Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION:-unknown}; update/downgrade to ${CODEX_SSH_GUARD_FALLBACK_VERSION:-unknown} or pin the fleet version.")
+      ;;
+    *)
+      if (( ! CODEX_SSH_SESSION_ACTIVE )); then
+        codex_guard_label="n/a (not SSH)"
+      fi
+      ;;
+  esac
+
   local sync_label="auth=${AUTH_PULL_STATUS:-unknown} prompts=${PROMPT_SYNC_STATUS:-unknown} skills=${SKILL_SYNC_STATUS:-unknown} agents=${AGENTS_SYNC_STATUS:-unknown} config=${CONFIG_SYNC_STATUS:-unknown}"
   case "$AUTH_PULL_STATUS" in
     invalid)
@@ -6749,6 +6873,8 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}")"
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
+  log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
+  log_info "$(format_simple_row "Doctor cli" "version=${LOCAL_VERSION:-unknown}; ssh-guard=${codex_guard_label}")"
 
   if (( ${#hints[@]} )); then
     local hint
@@ -6759,7 +6885,6 @@ print_doctor_report() {
 
   DOCTOR_FAILURES=$failures
 }
-
 
 codex_target_label="${codex_target_label:-${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}}"
 wrapper_target_label="${wrapper_target_label:-${WRAPPER_VERSION}}"
@@ -7370,6 +7495,9 @@ result_label="$(human_join "${result_parts[@]}")"
     update\ available|check\ skipped|update\ skipped)
       codex_tone="yellow"
       ;;
+    blocked\ on\ ssh)
+      codex_tone="red"
+      ;;
   update\ failed|api\ unavailable)
     codex_tone="red"
     ;;
@@ -7402,6 +7530,8 @@ elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
   else
     result_tone="red"
   fi
+elif [[ "$(lowercase "$codex_status_label")" == "blocked on ssh" ]]; then
+  result_tone="red"
 elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
 elif [[ "$(lowercase "$codex_status_label")" == "update available" ]] || [[ "$(lowercase "$wrapper_status_label")" == "update available" ]]; then
@@ -8222,7 +8352,6 @@ if (( CODEX_LANE_WANTS_RUN == 0 )); then
   release_run_lock_if_held || true
   exit 0
 fi
-
 
 cleanup() {
   local exit_status=$?

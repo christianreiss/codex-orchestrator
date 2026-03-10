@@ -39,6 +39,19 @@ if [[ -z "$LOCAL_VERSION" ]]; then
   log_warn "Could not determine local Codex version; attempting to refresh Codex before launch."
 fi
 
+CODEX_SSH_SESSION_ACTIVE=0
+CODEX_SSH_INTERACTIVE=0
+if is_ssh_session; then
+  CODEX_SSH_SESSION_ACTIVE=1
+  if [[ -t 0 && -t 1 ]]; then
+    CODEX_SSH_INTERACTIVE=1
+  fi
+fi
+CODEX_SSH_GUARD_STATE="clear"
+CODEX_SSH_GUARD_BLOCKED_VERSION=""
+CODEX_SSH_GUARD_FALLBACK_VERSION=""
+CODEX_SSH_GUARD_REASON=""
+
 # Guard mutating sync/update work when another cdx run is already active.
 if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
   acquire_run_lock_or_mark_concurrent || true
@@ -180,6 +193,30 @@ if (( ! skip_update_check )); then
   fi
 fi
 
+if (( CODEX_SSH_INTERACTIVE )) && [[ -n "$remote_version" ]]; then
+  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$remote_version")"
+  if [[ -n "$ssh_guard_fallback" ]]; then
+    CODEX_SSH_GUARD_STATE="target-blocked"
+    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$remote_version")"
+    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
+    CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$remote_version")"
+    remote_version="$ssh_guard_fallback"
+    remote_tag="$ssh_guard_fallback"
+    remote_timestamp="$(date +%s)"
+    log_warn "SSH safeguard: Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION} is blocked for interactive SSH sessions (${CODEX_SSH_GUARD_REASON}); targeting ${ssh_guard_fallback} instead."
+  fi
+fi
+
+if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" == "clear" ]]; then
+  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$LOCAL_VERSION")"
+  if [[ -n "$ssh_guard_fallback" ]]; then
+    CODEX_SSH_GUARD_STATE="local-blocked"
+    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$LOCAL_VERSION")"
+    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
+    CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$LOCAL_VERSION")"
+  fi
+fi
+
 need_update=0
 norm_remote=""
 if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
@@ -189,7 +226,9 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
   else
     norm_local="$(normalize_version "$LOCAL_VERSION")"
     if [[ "$norm_remote" != "$norm_local" ]]; then
-      if (( enforce_exact_codex_version )); then
+      if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" != "clear" ]]; then
+        need_update=1
+      elif (( enforce_exact_codex_version )); then
         need_update=1
       elif version_lt "$norm_local" "$norm_remote"; then
         need_update=1
@@ -309,8 +348,26 @@ else
   fi
 fi
 
+if (( CODEX_SSH_INTERACTIVE )); then
+  ssh_guard_fallback="$(codex_ssh_regression_fallback_version "$LOCAL_VERSION")"
+  if [[ -n "$ssh_guard_fallback" ]]; then
+    CODEX_SSH_GUARD_STATE="local-blocked"
+    CODEX_SSH_GUARD_BLOCKED_VERSION="$(normalize_version "$LOCAL_VERSION")"
+    CODEX_SSH_GUARD_FALLBACK_VERSION="$ssh_guard_fallback"
+    [[ -n "$CODEX_SSH_GUARD_REASON" ]] || CODEX_SSH_GUARD_REASON="$(codex_ssh_regression_reason "$LOCAL_VERSION")"
+    log_warn "SSH safeguard: local Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION} is still blocked for interactive SSH sessions; fallback target is ${CODEX_SSH_GUARD_FALLBACK_VERSION}. Run cdx --update as a user who can manage Codex, or pin fleet Codex to ${CODEX_SSH_GUARD_FALLBACK_VERSION}."
+  elif [[ "$CODEX_SSH_GUARD_STATE" == "target-blocked" ]]; then
+    CODEX_SSH_GUARD_STATE="applied"
+  fi
+fi
+
 if [[ -z "$codex_status_label" ]]; then
   codex_status_label="Current"
+fi
+if (( CODEX_SSH_INTERACTIVE )) && [[ "$CODEX_SSH_GUARD_STATE" == "local-blocked" ]]; then
+  codex_target_label="${CODEX_SSH_GUARD_FALLBACK_VERSION:-$codex_target_label}"
+  codex_status_label="Blocked on SSH"
+  codex_status_note="${CODEX_SSH_GUARD_BLOCKED_VERSION}→${CODEX_SSH_GUARD_FALLBACK_VERSION} safeguard"
 fi
 codex_installed_label="${LOCAL_VERSION:-unknown}"
 

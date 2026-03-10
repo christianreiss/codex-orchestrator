@@ -1,3 +1,7 @@
+# 2026-03-10
+- cdx wrapper: added an interactive-SSH Codex safeguard for the upstream prompt-submit regression in `0.113.0`; SSH launches now target `0.112.0` instead, doctor reports SSH terminal hints plus guard state, and SSH-stuck installs surface a clear blocked/fallback warning. Wrapper bumped to `2026.03.10-01`.
+- Installer/docs/tests: install script now applies the same `0.113.0 -> 0.112.0` SSH fallback, wrapper/interface docs were updated, and regression coverage now locks the new SSH safeguard strings into the built wrapper and installer template.
+
 # 2026-03-09
 - Config retrieve/render fix: `notice.model_migrations` now merges saved maps with default migrations, so legacy stored configs that only had `gpt-5.2-codex -> gpt-5.3-codex` also receive `gpt-5.3-codex -> gpt-5.4` and stop surfacing the interactive GPT-5.4 upgrade chooser.
 - Config builder/template defaults: added `notice.model_migrations` mapping `gpt-5.3-codex -> gpt-5.4` (alongside `gpt-5.2-codex -> gpt-5.3-codex`) so Codex `0.112.0+` upgrade prompts are auto-resolved from fleet-managed `config.toml`.

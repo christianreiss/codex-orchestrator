@@ -90,6 +90,49 @@ print_doctor_report() {
     hints+=("PTY capture is auto-disabled on this host; remove ${pty_file} or set CODEX_FORCE_PTY=1 to retest.")
   fi
 
+  local ssh_session_label="local"
+  if (( CODEX_SSH_SESSION_ACTIVE )); then
+    ssh_session_label="ssh"
+    if (( CODEX_SSH_INTERACTIVE )); then
+      ssh_session_label+=" interactive"
+    else
+      ssh_session_label+=" non-interactive"
+    fi
+  fi
+  local ssh_bits=(
+    "session=${ssh_session_label}"
+    "TERM=${TERM:-unknown}"
+    "TERM_PROGRAM=${TERM_PROGRAM:-n/a}"
+    "KONSOLE_VERSION=${KONSOLE_VERSION:-n/a}"
+    "VTE_VERSION=${VTE_VERSION:-n/a}"
+    "KITTY_WINDOW_ID=${KITTY_WINDOW_ID:+set}"
+    "WEZTERM_VERSION=${WEZTERM_VERSION:-n/a}"
+    "WT_SESSION=${WT_SESSION:+set}"
+  )
+  local ssh_env_label
+  ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
+
+  local codex_guard_label="clear"
+  case "${CODEX_SSH_GUARD_STATE:-clear}" in
+    applied)
+      codex_guard_label="$(colorize "applied" "green") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+      ;;
+    target-blocked)
+      codex_guard_label="$(colorize "pending fallback" "yellow") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+      hints+=("Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION:-unknown} is blocklisted on interactive SSH sessions; wrapper is targeting ${CODEX_SSH_GUARD_FALLBACK_VERSION:-unknown}.")
+      ;;
+    local-blocked)
+      codex_guard_label="$(colorize "blocked" "red") (${CODEX_SSH_GUARD_BLOCKED_VERSION:-n/a}->${CODEX_SSH_GUARD_FALLBACK_VERSION:-n/a})"
+      failures=$(( failures + 1 ))
+      hints+=("Interactive SSH sessions are blocked on Codex ${CODEX_SSH_GUARD_BLOCKED_VERSION:-unknown}; update/downgrade to ${CODEX_SSH_GUARD_FALLBACK_VERSION:-unknown} or pin the fleet version.")
+      ;;
+    *)
+      if (( ! CODEX_SSH_SESSION_ACTIVE )); then
+        codex_guard_label="n/a (not SSH)"
+      fi
+      ;;
+  esac
+
   local sync_label="auth=${AUTH_PULL_STATUS:-unknown} prompts=${PROMPT_SYNC_STATUS:-unknown} skills=${SKILL_SYNC_STATUS:-unknown} agents=${AGENTS_SYNC_STATUS:-unknown} config=${CONFIG_SYNC_STATUS:-unknown}"
   case "$AUTH_PULL_STATUS" in
     invalid)
@@ -123,6 +166,8 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}")"
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
+  log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
+  log_info "$(format_simple_row "Doctor cli" "version=${LOCAL_VERSION:-unknown}; ssh-guard=${codex_guard_label}")"
 
   if (( ${#hints[@]} )); then
     local hint
@@ -133,4 +178,3 @@ print_doctor_report() {
 
   DOCTOR_FAILURES=$failures
 }
-
