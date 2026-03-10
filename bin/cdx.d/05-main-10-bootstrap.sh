@@ -47,27 +47,6 @@ if is_ssh_session; then
     CODEX_SSH_INTERACTIVE=1
   fi
 fi
-CODEX_SSH_KEYBOARD_FILTER_ACTIVE=0
-CODEX_SSH_KEYBOARD_FILTER_STATE="inactive"
-CODEX_SSH_KEYBOARD_FILTER_REASON=""
-if (( CODEX_SSH_INTERACTIVE )); then
-  case "${CODEX_SSH_KEYBOARD_FILTER:-auto}" in
-    0|false|FALSE|False|no|NO|No)
-      CODEX_SSH_KEYBOARD_FILTER_STATE="disabled"
-      CODEX_SSH_KEYBOARD_FILTER_REASON="disabled by CODEX_SSH_KEYBOARD_FILTER"
-      ;;
-    *)
-      if command -v python3 >/dev/null 2>&1; then
-        CODEX_SSH_KEYBOARD_FILTER_ACTIVE=1
-        CODEX_SSH_KEYBOARD_FILTER_STATE="active"
-        CODEX_SSH_KEYBOARD_FILTER_REASON="filter Codex kitty keyboard protocol so Enter and Ctrl keys stay plain over SSH"
-      else
-        CODEX_SSH_KEYBOARD_FILTER_STATE="unavailable"
-        CODEX_SSH_KEYBOARD_FILTER_REASON="python3 is required for the SSH keyboard compatibility bridge"
-      fi
-      ;;
-  esac
-fi
 
 # Guard mutating sync/update work when another cdx run is already active.
 if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
@@ -365,20 +344,6 @@ if [[ -z "$codex_status_label" ]]; then
   codex_status_label="Current"
 fi
 codex_installed_label="${LOCAL_VERSION:-unknown}"
-
-if (( CODEX_SSH_INTERACTIVE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) && (( ! CODEX_DO_UNINSTALL )) && (( ! CODEX_LANE_COMMAND )); then
-  case "$CODEX_SSH_KEYBOARD_FILTER_STATE" in
-    active)
-      log_info "SSH compatibility bridge active: filtering Codex keyboard-protocol escape sequences so Enter works in plain SSH terminals."
-      ;;
-    unavailable)
-      log_warn "SSH compatibility bridge unavailable: ${CODEX_SSH_KEYBOARD_FILTER_REASON}. Install python3 or set CODEX_SSH_KEYBOARD_FILTER=0 to suppress this warning."
-      ;;
-    disabled)
-      log_warn "SSH compatibility bridge disabled via CODEX_SSH_KEYBOARD_FILTER; plain Codex may ignore Enter on terminals that send kitty keyboard sequences."
-      ;;
-  esac
-fi
 
 WRAPPER_VERSION_INITIAL="$WRAPPER_VERSION"
 wrapper_update_attempted=0

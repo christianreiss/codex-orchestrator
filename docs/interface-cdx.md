@@ -180,14 +180,10 @@ Summary layout:
   - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
   - Python `pty` fallback
   - direct execution fallback
-- Interactive SSH compatibility bridge: when stdin/stdout are TTYs, SSH is interactive, and `python3` is available, wrapper launches Codex through a Python PTY bridge that reads user input from `/dev/tty`, strips Codex kitty keyboard protocol enable/disable sequences, rewrites CSI-u Enter/Ctrl keys back to plain TTY bytes before Codex sees them, and keeps draining child output if wrapper stdin goes idle.
-- The SSH bridge also normalizes plain LF Enter bytes to CR and passes through non-CSI-u escape sequences unchanged, so prompt submission and common cursor/paste escape traffic do not get stuck in the bridge buffer.
 - Both Python PTY paths copy the current terminal window size into the child PTY before launch and forward `SIGWINCH`, so full-screen Codex UIs keep the correct geometry over SSH and other Python-PTY fallbacks.
 - `CODEX_NO_PTY=1` disables PTY capture.
-- The interactive SSH compatibility bridge takes precedence over `CODEX_NO_PTY=1` and `~/.codex/.cdx_no_pty`; it is a launch-compatibility fix, not just an output-capture path.
 - PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
 - `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
-- `CODEX_SSH_KEYBOARD_FILTER=0` disables the interactive SSH compatibility bridge explicitly.
 - Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues.
 
 `--execute` behavior:
@@ -217,7 +213,7 @@ Codex updates:
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
-- `cdx doctor` reports SSH session/terminal env hints plus the interactive SSH keyboard-filter state (`active`, `disabled`, `unavailable`, `n/a`).
+- `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version.
 
 Installer behavior:
 - Installer script downloads the server-targeted Codex version by default.
