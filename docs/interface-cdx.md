@@ -176,6 +176,7 @@ Summary layout:
 
 ## PTY + Execution Behavior
 - PTY capture is used only when stdin/stdout are TTYs.
+- Interactive SSH sessions bypass wrapper PTY capture and launch Codex directly unless `CODEX_FORCE_PTY=1`, favoring TUI correctness over wrapper-side output capture on those runs.
 - PTY backends:
   - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
   - Python `pty` fallback
@@ -184,7 +185,7 @@ Summary layout:
 - `CODEX_NO_PTY=1` disables PTY capture.
 - PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
 - `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
-- Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues.
+- Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues on non-TTY launches and wrapper-managed PTY capture paths; interactive SSH direct-launch does not force it.
 
 `--execute` behavior:
 - `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.
@@ -195,6 +196,7 @@ Summary layout:
 
 ## Usage Reporting
 - Wrapper parses every captured `Token usage:` line from run output (supports structured and key/value variants).
+- Interactive SSH direct-launch runs may not produce a wrapper-captured output log, so `Run usage`/`Run cost` can be unavailable for those sessions.
 - Posted to `POST /usage` as one payload (`usages` array).
 - Each entry may contain: `line`, `total`, `input`, `output`, `cached`, `reasoning`, optional `model`.
 - On `/usage` failure with `line` present, wrapper retries once with `line` stripped.
@@ -213,7 +215,7 @@ Codex updates:
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
-- `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version.
+- `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and whether interactive SSH will launch direct TTY or forced PTY.
 
 Installer behavior:
 - Installer script downloads the server-targeted Codex version by default.

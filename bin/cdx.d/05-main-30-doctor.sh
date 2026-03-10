@@ -138,6 +138,17 @@ print_doctor_report() {
       ;;
   esac
 
+  local cli_bits=(
+    "version=${LOCAL_VERSION:-unknown}"
+  )
+  if (( CODEX_SSH_INTERACTIVE )); then
+    if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
+      cli_bits+=("ssh-launch=pty-forced")
+    else
+      cli_bits+=("ssh-launch=direct-tty")
+    fi
+  fi
+
   log_info "$(format_simple_row "Doctor deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
   log_info "$(format_simple_row "Doctor paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
   log_info "$(format_simple_row "Doctor auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
@@ -146,7 +157,7 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
-  log_info "$(format_simple_row "Doctor cli" "version=${LOCAL_VERSION:-unknown}")"
+  log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"
 
   if (( ${#hints[@]} )); then
     local hint

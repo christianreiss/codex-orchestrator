@@ -8,13 +8,15 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 final class CdxWrapperSshKeyboardFilterTest extends TestCase
 {
-    public function testWrapperDoesNotIncludeInteractiveSshKeyboardFilter(): void
+    public function testWrapperUsesDirectTtyForInteractiveSshWithoutKeyboardFilter(): void
     {
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
 
         self::assertStringContainsString('is_ssh_session()', $wrapperSource);
         self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
+        self::assertStringContainsString('if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then', $wrapperSource);
+        self::assertStringContainsString('Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.', $wrapperSource);
         self::assertStringContainsString('if [[ "$CODEX_NO_PTY" == "1" ]]; then', $wrapperSource);
         self::assertStringContainsString('script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"', $wrapperSource);
         self::assertStringContainsString('python3 - "$tmp_output" "${cmd_line[@]}" <<\'PY\'', $wrapperSource);
@@ -31,7 +33,7 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringNotContainsString('codex_status_label="Blocked on SSH"', $wrapperSource);
     }
 
-    public function testDoctorReportsSshHintsWithoutKeyboardFilterState(): void
+    public function testDoctorReportsInteractiveSshDirectLaunchMode(): void
     {
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
@@ -41,6 +43,8 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('session=${ssh_session_label}', $wrapperSource);
         self::assertStringContainsString('TERM=${TERM:-unknown}', $wrapperSource);
         self::assertStringContainsString('version=${LOCAL_VERSION:-unknown}', $wrapperSource);
+        self::assertStringContainsString('ssh-launch=direct-tty', $wrapperSource);
+        self::assertStringContainsString('ssh-launch=pty-forced', $wrapperSource);
         self::assertStringNotContainsString('ssh-filter=${ssh_filter_label}', $wrapperSource);
         self::assertStringNotContainsString('Interactive SSH compatibility filter is active; wrapper strips Codex keyboard-protocol enable sequences', $wrapperSource);
         self::assertStringNotContainsString('Interactive SSH session detected, but ${CODEX_SSH_KEYBOARD_FILTER_REASON:-python3 is missing}', $wrapperSource);

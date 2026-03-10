@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.10-09"
+WRAPPER_VERSION="2026.03.10-10"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -6722,6 +6722,17 @@ print_doctor_report() {
       ;;
   esac
 
+  local cli_bits=(
+    "version=${LOCAL_VERSION:-unknown}"
+  )
+  if (( CODEX_SSH_INTERACTIVE )); then
+    if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
+      cli_bits+=("ssh-launch=pty-forced")
+    else
+      cli_bits+=("ssh-launch=direct-tty")
+    fi
+  fi
+
   log_info "$(format_simple_row "Doctor deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
   log_info "$(format_simple_row "Doctor paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
   log_info "$(format_simple_row "Doctor auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
@@ -6730,7 +6741,7 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
-  log_info "$(format_simple_row "Doctor cli" "version=${LOCAL_VERSION:-unknown}")"
+  log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"
 
   if (( ${#hints[@]} )); then
     local hint
@@ -8444,7 +8455,12 @@ run_codex_command() {
 
   if [[ -t 0 && -t 1 ]]; then
     local cmd_line=("$CODEX_REAL_BIN" "$@")
-    if [[ "$CODEX_NO_PTY" == "1" ]]; then
+    if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
+      # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
+      # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
+      "${cmd_line[@]}"
+      status=$?
+    elif [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
       "${cmd_line[@]}"
       status=$?

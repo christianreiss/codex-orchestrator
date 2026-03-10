@@ -233,7 +233,12 @@ run_codex_command() {
 
   if [[ -t 0 && -t 1 ]]; then
     local cmd_line=("$CODEX_REAL_BIN" "$@")
-    if [[ "$CODEX_NO_PTY" == "1" ]]; then
+    if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
+      # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
+      # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
+      "${cmd_line[@]}"
+      status=$?
+    elif [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
       "${cmd_line[@]}"
       status=$?
