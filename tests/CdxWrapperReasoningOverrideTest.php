@@ -86,49 +86,24 @@ final class CdxWrapperReasoningOverrideTest extends TestCase
             'Wrapper should treat top-level default model as the effective model when no explicit or injected model is set.'
         );
         self::assertStringContainsString(
+            'set -- "$@" --sandbox read-only -a untrusted exec --skip-git-repo-check "$prompt"',
+            $wrapperSource,
+            'Wrapper execute mode should defer one-shot launch into the authenticated run path.'
+        );
+        self::assertStringContainsString(
+            'Defer one-shot execution to the normal run path so auth/config sync still runs',
+            $wrapperSource,
+            'Wrapper execute mode should document why execute mode must run after sync.'
+        );
+        self::assertStringNotContainsString(
             'execute_selector_args=(--model gpt-5.3-codex)',
             $wrapperSource,
-            'Wrapper execute mode should build selector args dynamically.'
+            'Wrapper execute mode should no longer bypass sync with its own early selector path.'
         );
-        self::assertStringContainsString(
-            'execute_selector_args=(--model gpt-5.3-codex-spark --config "model_reasoning_summary=none")',
+        self::assertStringNotContainsString(
+            '--output-last-message "$tmp_output"',
             $wrapperSource,
-            'Wrapper execute mode should select spark model + summary guard for lane spark fallback.'
-        );
-        self::assertStringContainsString(
-            'execute_selector_args+=(',
-            $wrapperSource,
-            'Wrapper execute mode should add profile-level spark summary guards.'
-        );
-        self::assertStringContainsString(
-            'execute_explicit_model',
-            $wrapperSource,
-            'Wrapper execute mode should inspect passthrough --model overrides.'
-        );
-        self::assertStringContainsString(
-            'execute_explicit_profile',
-            $wrapperSource,
-            'Wrapper execute mode should inspect passthrough --profile overrides.'
-        );
-        self::assertStringContainsString(
-            'execute_profile_model="$(config_profile_model "$execute_explicit_profile")"',
-            $wrapperSource,
-            'Wrapper execute mode should resolve profile models before applying spark summary guards.'
-        );
-        self::assertStringContainsString(
-            'execute_default_model="$(config_default_model)"',
-            $wrapperSource,
-            'Wrapper execute mode should fall back to root config model when profile model is omitted.'
-        );
-        self::assertStringContainsString(
-            'execute_selector_args+=(--config "model_reasoning_summary=none")',
-            $wrapperSource,
-            'Wrapper execute mode should disable reasoning summary when passthrough --model selects codex-spark.'
-        );
-        self::assertStringContainsString(
-            'profiles.${execute_effective_profile}.model_reasoning_summary=none',
-            $wrapperSource,
-            'Wrapper execute mode should also disable profile-level reasoning summaries for spark profiles.'
+            'Wrapper execute mode should no longer short-circuit into a pre-sync direct codex invocation.'
         );
     }
 }

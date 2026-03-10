@@ -81,7 +81,7 @@ Help passthrough:
 | `cdx -4` | Force IPv4 for wrapper network calls for this invocation. |
 | `cdx --allow-concurrent-sync` | Bypass active-run lock for this invocation. |
 | `cdx --debug` / `cdx --verbose` | Enable wrapper debug logs. |
-| `cdx --execute "<prompt>" [codex args...]` | Bypass wrapper boot/sync/update path and run direct non-interactive `codex exec` with wrapper defaults (`--sandbox read-only`, `-a untrusted`), while honoring `cdx lane normal|spark` selectors when invoked as `cdx lane <lane> -- --execute "<prompt>"`. |
+| `cdx --execute "<prompt>" [codex args...]` | Run a one-shot non-interactive `codex exec` after the normal wrapper boot/sync/auth/update gates, with wrapper defaults (`--sandbox read-only`, `-a untrusted`) and normal lane/profile/model selector behavior. |
 
 Lane subcommand:
 - `cdx lane` prints effective lane/source/persisted preference and exits.
@@ -189,9 +189,10 @@ Summary layout:
 - Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues.
 
 `--execute` behavior:
+- `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.
 - Runs:
-  - `codex --model gpt-5.3-codex --sandbox read-only -a untrusted exec --skip-git-repo-check --output-last-message <tmpfile> "<prompt>" ...`
-- Prints only the last assistant message from the temp file.
+  - `codex [lane/profile/model selectors + passthrough args] --sandbox read-only -a untrusted exec --skip-git-repo-check "<prompt>"`
+- Streams normal Codex output (plus wrapper summary/footer behavior for that run).
 - Forwards Codex exit code.
 
 ## Usage Reporting

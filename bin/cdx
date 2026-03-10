@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.10-04"
+WRAPPER_VERSION="2026.03.10-05"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -963,87 +963,10 @@ if [[ "${1-}" == "--execute" ]]; then
   fi
   prompt="$1"
   shift
-  tmp_output="$(mktemp -t cdx-exec-XXXXXX)"
-  cleanup_tmp() { rm -f "$tmp_output"; }
-  trap cleanup_tmp EXIT
-  execute_selector_args=(--model gpt-5.3-codex)
-  if [[ "$CODEX_LANE_TARGET" == "normal" || "$CODEX_LANE_TARGET" == "spark" ]]; then
-    if config_has_profile "$CODEX_LANE_TARGET"; then
-      execute_selector_args=(--profile "$CODEX_LANE_TARGET")
-      if [[ "$CODEX_LANE_TARGET" == "spark" ]]; then
-        execute_selector_args+=(
-          --config "profiles.${CODEX_LANE_TARGET}.model_reasoning_summary=none"
-          --config "model_reasoning_summary=none"
-        )
-      fi
-    elif [[ "$CODEX_LANE_TARGET" == "spark" ]]; then
-      execute_selector_args=(--model gpt-5.3-codex-spark --config "model_reasoning_summary=none")
-    fi
-  fi
-
-  execute_explicit_model=""
-  execute_explicit_profile=""
-  execute_expect_model_value=0
-  execute_expect_profile_value=0
-  for execute_arg in "$@"; do
-    if (( execute_expect_model_value )); then
-      execute_explicit_model="$execute_arg"
-      execute_expect_model_value=0
-      continue
-    fi
-    if (( execute_expect_profile_value )); then
-      execute_explicit_profile="$execute_arg"
-      execute_expect_profile_value=0
-      continue
-    fi
-    case "$execute_arg" in
-      --model)
-        execute_expect_model_value=1
-        ;;
-      --model=*)
-        execute_explicit_model="${execute_arg#--model=}"
-        ;;
-      --profile)
-        execute_expect_profile_value=1
-        ;;
-      --profile=*)
-        execute_explicit_profile="${execute_arg#--profile=}"
-        ;;
-      --)
-        break
-        ;;
-    esac
-  done
-
-  execute_effective_model=""
-  execute_effective_profile=""
-  if [[ -n "$execute_explicit_model" ]]; then
-    execute_effective_model="$execute_explicit_model"
-  elif [[ -n "$execute_explicit_profile" ]]; then
-    execute_effective_profile="$execute_explicit_profile"
-    if execute_profile_model="$(config_profile_model "$execute_explicit_profile")"; then
-      execute_effective_model="$execute_profile_model"
-    elif execute_default_model="$(config_default_model)"; then
-      execute_effective_model="$execute_default_model"
-    fi
-  fi
-  if [[ -n "$execute_effective_model" ]] && [[ "$(lowercase "$execute_effective_model")" == *"codex-spark"* ]]; then
-    if [[ "$execute_effective_profile" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      execute_selector_args+=(--config "profiles.${execute_effective_profile}.model_reasoning_summary=none")
-    fi
-    execute_selector_args+=(--config "model_reasoning_summary=none")
-  fi
-
-  if codex "${execute_selector_args[@]}" --sandbox read-only -a untrusted exec --skip-git-repo-check \
-    --output-last-message "$tmp_output" "$prompt" "$@" >/dev/null 2>&1; then
-    [[ -s "$tmp_output" ]] && cat "$tmp_output"
-    cleanup_tmp
-    exit 0
-  else
-    status=$?
-    cleanup_tmp
-    exit "$status"
-  fi
+  # Defer one-shot execution to the normal run path so auth/config sync still runs
+  # (required for insecure hosts where auth.json is purged after each invocation).
+  # Keep passthrough args first so explicit --model/--profile still win.
+  set -- "$@" --sandbox read-only -a untrusted exec --skip-git-repo-check "$prompt"
 fi
 
 # Early one-shot commands
