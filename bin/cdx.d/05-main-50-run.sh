@@ -266,6 +266,13 @@ def translate_csi_u(sequence):
     return None
 
 
+def normalize_plain_input_byte(value):
+    # Some SSH/PTY combinations surface Enter as LF even in raw mode; Codex expects CR.
+    if value == 0x0A:
+        return 0x0D
+    return value
+
+
 def rewrite_input_buffer(buffer, final):
     rewritten = bytearray()
     index = 0
@@ -274,23 +281,32 @@ def rewrite_input_buffer(buffer, final):
 
     while index < length:
         if buffer[index:index + 2] != b"\x1b[":
-            rewritten.append(buffer[index])
+            rewritten.append(normalize_plain_input_byte(buffer[index]))
             index += 1
             continue
 
         cursor = index + 2
         matched = False
         while cursor < length and (cursor - index) <= max_sequence_len:
-            if buffer[cursor] == 0x75:
+            final_byte = buffer[cursor]
+            if 0x40 <= final_byte <= 0x7E:
                 sequence = buffer[index:cursor + 1]
-                translated = translate_csi_u(sequence)
-                rewritten.extend(sequence if translated is None else translated)
+                if final_byte == 0x75:
+                    translated = translate_csi_u(sequence)
+                    rewritten.extend(sequence if translated is None else translated)
+                else:
+                    rewritten.extend(sequence)
                 index = cursor + 1
                 matched = True
                 break
             cursor += 1
 
         if matched:
+            continue
+
+        if (cursor - index) > max_sequence_len:
+            rewritten.extend(buffer[index:cursor])
+            index = cursor
             continue
 
         if final:

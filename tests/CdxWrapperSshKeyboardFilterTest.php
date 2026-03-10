@@ -24,6 +24,9 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('termios.TIOCSWINSZ', $wrapperSource);
         self::assertStringContainsString('signal.SIGWINCH', $wrapperSource);
         self::assertStringContainsString('copy_winsize(stdin_fd, child_fd)', $wrapperSource);
+        self::assertStringContainsString('normalize_plain_input_byte', $wrapperSource);
+        self::assertStringContainsString('if value == 0x0A:', $wrapperSource);
+        self::assertStringContainsString('if 0x40 <= final_byte <= 0x7E:', $wrapperSource);
         self::assertStringContainsString('stdin_open = True', $wrapperSource);
         self::assertStringContainsString('read_fds = [child_fd]', $wrapperSource);
         self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
