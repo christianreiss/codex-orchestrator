@@ -4,7 +4,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 
 ## Surfaces
 
-- Web UI: `/admin/` (Config tab in the admin SPA served for `/admin/*`) — full-form builder for fleet `config.toml` (model defaults, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
+- Web UI: `/admin/` (Config tab in the admin SPA served for `/admin/*`) — full-form builder for fleet `config.toml` (model defaults, personality, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
 - API: `/admin/config` (GET metadata + `content` + `settings`), `/admin/config/render` (preview without saving, rendered for a placeholder host API key), `/admin/config/store` (persist from normalized `settings`), `/config/retrieve` (host-facing baked download).
 
 ## Flow
@@ -107,3 +107,12 @@ The builder can also set:
 
 - Whenever you change models/providers, approval policy, sandbox defaults, notices, MCP servers, OTEL, or custom blocks.
 - After rotating host API keys if you rely on the managed MCP entry (baked hash will change automatically).
+
+## Communication style
+
+`personality` is rendered at the root of `config.toml` and controls the default Codex communication style exposed by `/personality`.
+
+- Allowed values: `friendly`, `pragmatic`, `none`.
+- The builder defaults to `friendly`.
+- Profiles may optionally override `personality`; leaving the profile field blank inherits the root value.
+- The separate `features.personality` gate remains available through the advanced feature textarea for hosts that need to disable the chooser while keeping a root default in place.

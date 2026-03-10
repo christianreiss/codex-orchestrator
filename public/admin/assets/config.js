@@ -9,6 +9,7 @@
   let modelInput;
   let modelProviderInput;
   let localProviderInput;
+  let personalityInput;
   let approvalPolicyInput;
   let sandboxModeInput;
   let reasoningEffortInput;
@@ -147,6 +148,7 @@
       model: 'gpt-5.3-codex',
       model_provider: '',
       local_provider: '',
+      personality: 'friendly',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       security: {
@@ -454,6 +456,7 @@
       model: modelInput.value.trim() || base.model,
       model_provider: modelProviderInput?.value.trim() || base.model_provider,
       local_provider: localProviderInput?.value.trim() || base.local_provider,
+      personality: personalityInput?.value.trim() || base.personality,
       approval_policy: approvalPolicyInput.value.trim() || base.approval_policy,
       sandbox_mode: sandboxModeInput.value.trim() || base.sandbox_mode,
       security: {
@@ -515,6 +518,7 @@
     }
     setSelectValue(modelProviderInput, cfg.model_provider || '');
     setSelectValue(localProviderInput, cfg.local_provider || '');
+    setSelectValue(personalityInput, cfg.personality || defaultSettings().personality, { allowUnknown: false });
     setSelectValue(approvalPolicyInput, cfg.approval_policy || '');
     setSelectValue(sandboxModeInput, cfg.sandbox_mode || '');
     if (dangerousBypassApprovalsSandbox) {
@@ -846,6 +850,7 @@
     modelInput = document.getElementById('modelInput');
     modelProviderInput = document.getElementById('modelProviderInput');
     localProviderInput = document.getElementById('localProviderInput');
+    personalityInput = document.getElementById('personalityInput');
     approvalPolicyInput = document.getElementById('approvalPolicyInput');
     sandboxModeInput = document.getElementById('sandboxModeInput');
     reasoningEffortInput = document.getElementById('reasoningEffortInput');

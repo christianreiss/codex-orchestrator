@@ -94,17 +94,17 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('/admin/assets/config.js?v=', $html);
     }
 
-    public function testAdminConfigBuilderIncludesExperimentalFeatureSwitches(): void
+    public function testAdminConfigBuilderIncludesCurrentFeatureSwitches(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
 
-        $this->assertStringContainsString('id="featureBackgroundTerminal"', $html);
+        $this->assertStringContainsString('id="personalityInput"', $html);
+        $this->assertStringContainsString('id="featureFastMode"', $html);
         $this->assertStringContainsString('id="featureUnifiedExec"', $html);
-        $this->assertStringContainsString('id="featureRmcpClient"', $html);
-        $this->assertStringContainsString('id="featureSandboxAssessment"', $html);
-        $this->assertStringContainsString('id="featureGhostCommit"', $html);
+        $this->assertStringContainsString('id="featureWebSearch"', $html);
         $this->assertStringContainsString('id="featureVoiceTranscription"', $html);
+        $this->assertStringContainsString('id="featureMultiAgent"', $html);
     }
 
     public function testAdminConfigBuilderApprovalPolicyOmitsDeprecatedOnFailure(): void

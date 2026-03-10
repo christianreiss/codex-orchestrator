@@ -44,6 +44,9 @@ class ClientConfigService
     public const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
     /** @var list<string> */
+    public const PERSONALITIES = ['friendly', 'pragmatic', 'none'];
+
+    /** @var list<string> */
     private const DROPPED_FEATURE_KEYS = [
         'steer',
         'collaboration_modes',
@@ -532,6 +535,7 @@ class ClientConfigService
             'model_provider' => $normalizeString($settings['model_provider'] ?? null),
             'local_provider' => $normalizeString($settings['local_provider'] ?? null),
             'profile' => $normalizeString($settings['profile'] ?? null),
+            'personality' => $this->normalizePersonality($settings['personality'] ?? null) ?? 'friendly',
             'approval_policy' => $this->normalizeApprovalPolicy($settings['approval_policy'] ?? null),
             'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
             'security' => [
@@ -702,6 +706,7 @@ class ClientConfigService
                 'model' => $profileModel,
                 'approval_policy' => $this->normalizeApprovalPolicy($entry['approval_policy'] ?? null),
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
+                'personality' => $this->normalizePersonality($entry['personality'] ?? null),
                 'web_search' => $profileWebSearch,
                 'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
                     $entry['model_reasoning_effort'] ?? null,
@@ -799,6 +804,7 @@ class ClientConfigService
             'model_provider',
             'local_provider',
             'profile',
+            'personality',
             'approval_policy',
             'sandbox_mode',
             'web_search',
@@ -887,6 +893,7 @@ class ClientConfigService
                 $this->addKeyValue($lines, 'model', $profile['model'] ?? null);
                 $this->addKeyValue($lines, 'approval_policy', $profile['approval_policy'] ?? null);
                 $this->addKeyValue($lines, 'sandbox_mode', $profile['sandbox_mode'] ?? null);
+                $this->addKeyValue($lines, 'personality', $profile['personality'] ?? null);
                 $this->addKeyValue($lines, 'web_search', $profile['web_search'] ?? null);
                 $this->addKeyValue($lines, 'model_reasoning_effort', $profile['model_reasoning_effort'] ?? null);
                 $this->addKeyValue($lines, 'model_reasoning_summary', $profile['model_reasoning_summary'] ?? null);
@@ -1150,6 +1157,21 @@ class ClientConfigService
         }
 
         return $normalized;
+    }
+
+    private function normalizePersonality(mixed $value): ?string
+    {
+        $normalized = $this->normalizeString($value);
+        if ($normalized === null) {
+            return null;
+        }
+
+        $lower = strtolower($normalized);
+        if (!in_array($lower, self::PERSONALITIES, true)) {
+            return null;
+        }
+
+        return $lower;
     }
 
     private function normalizeReasoningSummary(mixed $value, ?string $model = null): ?string

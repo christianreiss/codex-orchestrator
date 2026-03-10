@@ -153,6 +153,11 @@
             <label>Sandbox mode</label>
             <select class="profile-sandbox"></select>
           </div>
+          <div class="field">
+            <label>Personality</label>
+            <select class="profile-personality"></select>
+            <div class="muted-note">Leave blank to inherit the root setting.</div>
+          </div>
         </div>
         <div class="feature-list">
           <label class="feature-toggle">
@@ -199,6 +204,7 @@
     const effortSelect = row.querySelector('.profile-effort');
     const approvalSelect = row.querySelector('.profile-approval');
     const sandboxSelect = row.querySelector('.profile-sandbox');
+    const personalitySelect = row.querySelector('.profile-personality');
     const streamToggle = row.querySelector('.profile-stream');
     const searchToggle = row.querySelector('.profile-search');
     const imageToggle = row.querySelector('.profile-image');
@@ -207,10 +213,15 @@
     const modelSource = document.getElementById('modelInput');
     const approvalSource = document.getElementById('approvalPolicyInput');
     const sandboxSource = document.getElementById('sandboxModeInput');
+    const personalitySource = document.getElementById('personalityInput');
 
     cloneSelectOptions(modelSource, modelSelect);
     cloneSelectOptions(approvalSource, approvalSelect, { includeBlank: true });
     cloneSelectOptions(sandboxSource, sandboxSelect, { includeBlank: true });
+    cloneSelectOptions(personalitySource, personalitySelect, {
+      includeBlank: true,
+      blankLabel: `inherit (${(defaults.personality || 'friendly').trim() || 'friendly'})`,
+    });
 
     const modelVal = (data.model || defaults.model || '').trim();
     modelSelect.value = Array.from(modelSelect.options).some((o) => o.value === modelVal)
@@ -224,6 +235,9 @@
 
     const sandboxVal = (data.sandbox_mode || defaults.sandbox_mode || '').trim();
     sandboxSelect.value = Array.from(sandboxSelect.options).some((o) => o.value === sandboxVal) ? sandboxVal : '';
+
+    const personalityVal = (data.personality || '').trim();
+    personalitySelect.value = Array.from(personalitySelect.options).some((o) => o.value === personalityVal) ? personalityVal : '';
 
     nameInput.value = (data.name || '').trim();
     nameInput.setAttribute('pattern', '^[A-Za-z0-9_-]+$');
@@ -264,6 +278,8 @@
       bits.push(`approval=${approval || 'default'}`);
       const sandbox = (sandboxSelect?.value || '').trim();
       bits.push(`sandbox=${sandbox || 'default'}`);
+      const personality = (personalitySelect?.value || '').trim();
+      if (personality) bits.push(`tone=${personality}`);
 
       const flags = [];
       if (streamToggle?.checked) flags.push('stream');
@@ -325,6 +341,7 @@
       const effort = (row.querySelector('.profile-effort')?.value || '').trim();
       const approval = (row.querySelector('.profile-approval')?.value || '').trim();
       const sandbox = (row.querySelector('.profile-sandbox')?.value || '').trim();
+      const personality = (row.querySelector('.profile-personality')?.value || '').trim();
       const streamableShell = Boolean(row.querySelector('.profile-stream')?.checked);
       const webSearch = (row.querySelector('.profile-search')?.value || 'disabled').trim().toLowerCase();
       const viewImage = Boolean(row.querySelector('.profile-image')?.checked);
@@ -336,6 +353,7 @@
         model: model || '',
         approval_policy: approval || '',
         sandbox_mode: sandbox || '',
+        personality: personality || '',
         web_search: ['live', 'cached', 'disabled'].includes(webSearch) ? webSearch : 'disabled',
         model_reasoning_effort: effort || '',
         features: {
@@ -356,6 +374,7 @@
   function defaultSettings() {
     return {
       model: 'gpt-5.3-codex',
+      personality: 'friendly',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
       model_reasoning_effort: 'medium',
@@ -384,6 +403,7 @@
       const cfg = loadedSettings || defaultSettings();
       const defaults = {
         model: cfg.model || 'gpt-5.3-codex',
+        personality: cfg.personality || 'friendly',
         model_reasoning_effort: cfg.model_reasoning_effort || '',
         approval_policy: cfg.approval_policy || '',
         sandbox_mode: cfg.sandbox_mode || '',

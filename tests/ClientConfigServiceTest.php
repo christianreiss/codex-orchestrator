@@ -159,10 +159,32 @@ final class ClientConfigServiceTest extends TestCase
     {
         $rendered = $this->service->render([]);
 
+        $this->assertStringContainsString('personality = "friendly"', $rendered['content']);
+        $this->assertSame('friendly', $rendered['settings']['personality']);
         $this->assertStringContainsString(
             'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
             $rendered['content']
         );
+    }
+
+    public function testExplicitPersonalityRendersAtRoot(): void
+    {
+        $rendered = $this->service->render([
+            'personality' => 'pragmatic',
+        ]);
+
+        $this->assertStringContainsString('personality = "pragmatic"', $rendered['content']);
+        $this->assertSame('pragmatic', $rendered['settings']['personality']);
+    }
+
+    public function testExplicitPersonalityAllowsNone(): void
+    {
+        $rendered = $this->service->render([
+            'personality' => 'none',
+        ]);
+
+        $this->assertStringContainsString('personality = "none"', $rendered['content']);
+        $this->assertSame('none', $rendered['settings']['personality']);
     }
 
     public function testNoticeModelMigrationsBackfillsDefaultsForLegacySavedMap(): void
@@ -253,11 +275,13 @@ final class ClientConfigServiceTest extends TestCase
                 'steer' => true,
                 'experimental_windows_sandbox' => true,
                 'enable_experimental_windows_sandbox' => true,
+                'personality' => true,
                 'ghost_commit' => true,
             ],
             'steer' => true,
         ]);
 
+        $this->assertStringContainsString('personality = "friendly"', $rendered['content']);
         $this->assertStringContainsString('[features]', $rendered['content']);
         $this->assertStringContainsString('fast_mode = true', $rendered['content']);
         $this->assertStringContainsString('voice_transcription = true', $rendered['content']);
@@ -269,8 +293,11 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('steer =', $rendered['content']);
         $this->assertStringNotContainsString('experimental_windows_sandbox =', $rendered['content']);
         $this->assertStringNotContainsString('enable_experimental_windows_sandbox =', $rendered['content']);
+        $this->assertStringContainsString('personality = true', $rendered['content']);
         $this->assertStringNotContainsString('ghost_commit =', $rendered['content']);
         $this->assertArrayHasKey('fast_mode', $rendered['settings']['features']);
+        $this->assertArrayHasKey('personality', $rendered['settings']['features']);
+        $this->assertSame(true, $rendered['settings']['features']['personality']);
         $this->assertArrayHasKey('voice_transcription', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('collaboration_modes', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('elevated_windows_sandbox', $rendered['settings']['features']);
@@ -607,6 +634,7 @@ final class ClientConfigServiceTest extends TestCase
                     'model' => 'gpt-5.1-codex-max',
                     'approval_policy' => 'on-request',
                     'sandbox_mode' => 'workspace-write',
+                    'personality' => 'pragmatic',
                     'model_reasoning_effort' => 'xhigh',
                     'features' => [
                         'fast_mode' => true,
@@ -623,6 +651,7 @@ final class ClientConfigServiceTest extends TestCase
         $content = $rendered['content'];
         $this->assertStringContainsString('[profiles.ultra]', $content);
         $this->assertStringContainsString('model = "gpt-5.1-codex-max"', $content);
+        $this->assertStringContainsString('personality = "pragmatic"', $content);
         $this->assertStringContainsString('web_search = "cached"', $content);
         $this->assertStringContainsString('[profiles.ultra.features]', $content);
         $this->assertStringContainsString('fast_mode = true', $content);
@@ -634,6 +663,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertIsArray($settings);
         $this->assertIsArray($settings['profiles']);
         $this->assertSame('ultra', $settings['profiles'][0]['name']);
+        $this->assertSame('pragmatic', $settings['profiles'][0]['personality']);
         $this->assertSame(true, $settings['profiles'][0]['features']['fast_mode']);
         $this->assertSame('cached', $settings['profiles'][0]['web_search']);
         $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);

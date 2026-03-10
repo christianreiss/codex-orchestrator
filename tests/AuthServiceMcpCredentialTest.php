@@ -109,6 +109,7 @@ final class AuthServiceMcpCredentialTest extends TestCase
             null,
             null,
             null,
+            null,
             $this->tokens
         );
     }
@@ -134,7 +135,7 @@ final class AuthServiceMcpCredentialTest extends TestCase
         $this->tokens->create($token, (int) $host['id'], $expiresAt);
 
         $this->expectException(HttpException::class);
-        $this->expectExceptionMessage('MCP credential expired');
+        $this->expectExceptionMessage('MCP credential invalid');
 
         $this->service->authenticateMcpCredential($token, '203.0.113.7');
     }

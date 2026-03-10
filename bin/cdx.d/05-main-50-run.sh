@@ -92,6 +92,115 @@ apply_codex_cli_toggles_from_config() {
 
 apply_codex_cli_toggles_from_config
 
+ensure_project_path_trusted_in_config() {
+  local project_path="${1-}"
+  if [[ -z "$project_path" ]]; then
+    return 0
+  fi
+  if [[ "$project_path" != /* ]]; then
+    return 0
+  fi
+  if [[ "$project_path" == *$'\n'* || "$project_path" == *$'\r'* ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  CODEX_TRUST_PATH="$project_path" python3 - "$CONFIG_PATH" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+project_path = os.environ.get("CODEX_TRUST_PATH", "").strip()
+if not project_path or not project_path.startswith("/"):
+    raise SystemExit(0)
+if any(ord(ch) < 32 or ord(ch) == 127 for ch in project_path):
+    raise SystemExit(0)
+
+table = '[projects."' + project_path.replace("\\", "\\\\").replace('"', '\\"') + '"]'
+trust_line = 'trust_level = "trusted"'
+
+try:
+    original = config_path.read_text(encoding="utf-8")
+except FileNotFoundError:
+    original = ""
+except Exception:
+    raise SystemExit(0)
+
+lines = original.splitlines()
+changed = False
+
+
+def is_header(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("[") and stripped.endswith("]")
+
+
+table_index = None
+for idx, line in enumerate(lines):
+    if line.strip() == table:
+        table_index = idx
+        break
+
+if table_index is None:
+    if lines and lines[-1].strip() != "":
+        lines.append("")
+    lines.append(table)
+    lines.append(trust_line)
+    changed = True
+else:
+    section_end = len(lines)
+    for idx in range(table_index + 1, len(lines)):
+        if is_header(lines[idx]):
+            section_end = idx
+            break
+
+    trust_index = None
+    for idx in range(table_index + 1, section_end):
+        if re.match(r'^\s*trust_level\s*=', lines[idx]):
+            trust_index = idx
+            break
+
+    if trust_index is None:
+        lines.insert(table_index + 1, trust_line)
+        changed = True
+    elif not re.match(r'^\s*trust_level\s*=\s*"trusted"\s*(#.*)?$', lines[trust_index]):
+        indent = re.match(r'^(\s*)', lines[trust_index]).group(1)
+        lines[trust_index] = f'{indent}{trust_line}'
+        changed = True
+
+if not changed:
+    raise SystemExit(0)
+
+content = "\n".join(lines)
+if content != "":
+    content += "\n"
+
+try:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(content, encoding="utf-8")
+except Exception:
+    raise SystemExit(0)
+PY
+}
+
+ensure_current_project_trusted_in_config() {
+  local cwd_logical="${PWD:-}"
+  if [[ -z "$cwd_logical" ]]; then
+    return 0
+  fi
+
+  ensure_project_path_trusted_in_config "$cwd_logical"
+
+  local cwd_physical=""
+  cwd_physical="$(pwd -P 2>/dev/null || true)"
+  if [[ -n "$cwd_physical" && "$cwd_physical" != "$cwd_logical" ]]; then
+    ensure_project_path_trusted_in_config "$cwd_physical"
+  fi
+}
+
 detect_script_flags() {
   local help_output
   SCRIPT_SUPPORTS_C=0
@@ -541,6 +650,8 @@ if [[ -n "$effective_model_name" ]] && [[ "$(lowercase "$effective_model_name")"
   fi
   set -- --config "model_reasoning_summary=none" "$@"
 fi
+
+ensure_current_project_trusted_in_config
 
 CODEX_COMMAND_STARTED=1
 if run_codex_command "$@"; then

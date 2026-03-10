@@ -117,6 +117,7 @@ Sync details:
 - Prompt store reads frontmatter keys `description` and `argument-hint`.
 - Skill store reads frontmatter keys `name` and `description`.
 - Wrapper includes `username` + `home` when retrieving config so server can bake per-user trusted project settings.
+- Before launching Codex, wrapper also force-marks the current working directory (and `pwd -P` path when different) as `trust_level = "trusted"` in local `~/.codex/config.toml` to suppress interactive trust prompts.
 - Atomic writes (temp + `fsync` + replace) are used for auth, baselines, AGENTS, and config files.
 
 ## Config Bake Rules (`/config/retrieve`)
