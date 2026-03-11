@@ -142,8 +142,9 @@ Sync details:
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
-- Normalization defaults include `features.apps=true`, `features.js_repl=true`, and `features.multi_agent=true` when unset.
+- Normalization defaults include `features.apps=true`, `features.js_repl=true`, `features.multi_agent=true`, and `features.use_linux_sandbox_bwrap=true` when unset.
 - `features.js_repl` enables the persistent Node-backed JavaScript REPL and requires Node `>= v22.22.0` on the host.
+- `features.use_linux_sandbox_bwrap` enables the new Linux sandbox based on bubblewrap.
 - Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.
 - Feature flags are normalized against the current Codex feature registry; unknown/removed flags are dropped from rendered output.
 - Removed legacy keys `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_rule`, and `search_tool` are accepted for ingest compatibility but dropped from rendered output.

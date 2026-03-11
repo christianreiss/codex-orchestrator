@@ -311,7 +311,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
-    public function testAppsJsReplAndMultiAgentDefaultToTrueAndCanDisable(): void
+    public function testAppsJsReplBwrapAndMultiAgentDefaultToTrueAndCanDisable(): void
     {
         $renderedDefault = $this->service->render([]);
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
@@ -319,6 +319,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
         $this->assertStringContainsString('js_repl = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['js_repl']);
+        $this->assertStringContainsString('use_linux_sandbox_bwrap = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['use_linux_sandbox_bwrap']);
         $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
 
@@ -326,6 +328,7 @@ final class ClientConfigServiceTest extends TestCase
             'features' => [
                 'apps' => false,
                 'js_repl' => false,
+                'use_linux_sandbox_bwrap' => false,
                 'multi_agent' => false,
             ],
         ]);
@@ -334,6 +337,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame(false, $renderedDisabled['settings']['features']['apps']);
         $this->assertStringContainsString('js_repl = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['js_repl']);
+        $this->assertStringContainsString('use_linux_sandbox_bwrap = false', $renderedDisabled['content']);
+        $this->assertSame(false, $renderedDisabled['settings']['features']['use_linux_sandbox_bwrap']);
         $this->assertStringContainsString('multi_agent = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['multi_agent']);
     }

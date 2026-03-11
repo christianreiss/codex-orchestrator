@@ -26,6 +26,7 @@
   let featureVoiceTranscription;
   let featureApps;
   let featureJsRepl;
+  let featureBubblewrapSandbox;
   let featureMultiAgent;
   let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
@@ -169,6 +170,7 @@
         voice_transcription: false,
         apps: true,
         js_repl: true,
+        use_linux_sandbox_bwrap: true,
         multi_agent: true,
       },
       notice: {
@@ -437,6 +439,7 @@
       voice_transcription: featureVoiceTranscription.checked,
       apps: featureApps ? featureApps.checked : true,
       js_repl: featureJsRepl ? featureJsRepl.checked : true,
+      use_linux_sandbox_bwrap: featureBubblewrapSandbox ? featureBubblewrapSandbox.checked : true,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
@@ -555,6 +558,9 @@
     if (featureJsRepl) {
       featureJsRepl.checked = cfg.features?.js_repl !== false;
     }
+    if (featureBubblewrapSandbox) {
+      featureBubblewrapSandbox.checked = cfg.features?.use_linux_sandbox_bwrap !== false;
+    }
     if (featureMultiAgent) {
       featureMultiAgent.checked = cfg.features?.multi_agent !== false;
     }
@@ -566,6 +572,7 @@
     delete featureExtras.voice_transcription;
     delete featureExtras.apps;
     delete featureExtras.js_repl;
+    delete featureExtras.use_linux_sandbox_bwrap;
     delete featureExtras.multi_agent;
     delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.elevated_windows_sandbox;
@@ -881,6 +888,7 @@
     featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
     featureApps = document.getElementById('featureApps');
     featureJsRepl = document.getElementById('featureJsRepl');
+    featureBubblewrapSandbox = document.getElementById('featureBubblewrapSandbox');
     featureMultiAgent = document.getElementById('featureMultiAgent');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');
