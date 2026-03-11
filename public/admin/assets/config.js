@@ -25,6 +25,7 @@
   let featureWebSearch;
   let featureVoiceTranscription;
   let featureApps;
+  let featureJsRepl;
   let featureMultiAgent;
   let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
@@ -167,6 +168,7 @@
         unified_exec: false,
         voice_transcription: false,
         apps: true,
+        js_repl: true,
         multi_agent: true,
       },
       notice: {
@@ -434,6 +436,7 @@
       unified_exec: featureUnifiedExec.checked,
       voice_transcription: featureVoiceTranscription.checked,
       apps: featureApps ? featureApps.checked : true,
+      js_repl: featureJsRepl ? featureJsRepl.checked : true,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
@@ -549,6 +552,9 @@
     if (featureApps) {
       featureApps.checked = cfg.features?.apps !== false;
     }
+    if (featureJsRepl) {
+      featureJsRepl.checked = cfg.features?.js_repl !== false;
+    }
     if (featureMultiAgent) {
       featureMultiAgent.checked = cfg.features?.multi_agent !== false;
     }
@@ -559,6 +565,7 @@
     delete featureExtras.web_search;
     delete featureExtras.voice_transcription;
     delete featureExtras.apps;
+    delete featureExtras.js_repl;
     delete featureExtras.multi_agent;
     delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.elevated_windows_sandbox;
@@ -873,6 +880,7 @@
     featureWebSearch = document.getElementById('featureWebSearch');
     featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
     featureApps = document.getElementById('featureApps');
+    featureJsRepl = document.getElementById('featureJsRepl');
     featureMultiAgent = document.getElementById('featureMultiAgent');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');

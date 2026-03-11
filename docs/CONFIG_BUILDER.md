@@ -37,6 +37,7 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `unified_exec` — use the unified PTY-backed exec tool.
 - `voice_transcription` — enable voice-to-text input tooling for supported clients.
 - `apps` — enable connected ChatGPT Apps, including `$` App invocations after `/apps` install + restart (enabled by default).
+- `js_repl` — enable the persistent Node-backed JavaScript REPL for inline website debugging and JavaScript execution (enabled by default; requires Node `>= v22.22.0` on the host).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
 - Additional feature flags may be passed through from the UI `extraFeatures` textarea, but only currently supported Codex feature flags are kept in normalized/rendered output.
 

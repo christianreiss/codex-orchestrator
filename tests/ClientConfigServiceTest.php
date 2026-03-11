@@ -311,24 +311,29 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
-    public function testAppsAndMultiAgentDefaultToTrueAndCanDisable(): void
+    public function testAppsJsReplAndMultiAgentDefaultToTrueAndCanDisable(): void
     {
         $renderedDefault = $this->service->render([]);
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
         $this->assertStringContainsString('apps = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
+        $this->assertStringContainsString('js_repl = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['js_repl']);
         $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
 
         $renderedDisabled = $this->service->render([
             'features' => [
                 'apps' => false,
+                'js_repl' => false,
                 'multi_agent' => false,
             ],
         ]);
         $this->assertStringContainsString('[features]', $renderedDisabled['content']);
         $this->assertStringContainsString('apps = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['apps']);
+        $this->assertStringContainsString('js_repl = false', $renderedDisabled['content']);
+        $this->assertSame(false, $renderedDisabled['settings']['features']['js_repl']);
         $this->assertStringContainsString('multi_agent = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['multi_agent']);
     }
