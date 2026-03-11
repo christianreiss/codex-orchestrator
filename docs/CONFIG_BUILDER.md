@@ -37,10 +37,10 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `unified_exec` — use the unified PTY-backed exec tool.
 - `voice_transcription` — enable voice-to-text input tooling for supported clients.
 - `apps` — enable connected ChatGPT Apps, including `$` App invocations after `/apps` install + restart (enabled by default).
-- `guardian_approval` — dispatch `on-request` approval prompts such as sandbox escapes or blocked network access to a carefully-prompted security reviewer subagent instead of blocking on direct user input (enabled by default).
-- `js_repl` — enable the persistent Node-backed JavaScript REPL for inline website debugging and JavaScript execution (enabled by default; requires Node `>= v22.22.0` on the host).
-- `use_linux_sandbox_bwrap` — try the new Linux sandbox based on bubblewrap (enabled by default).
-- `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (enabled by default).
+- `guardian_approval` — dispatch `on-request` approval prompts such as sandbox escapes or blocked network access to a carefully-prompted security reviewer subagent instead of blocking on direct user input (disabled by default).
+- `js_repl` — enable the persistent Node-backed JavaScript REPL for inline website debugging and JavaScript execution (disabled by default; requires Node `>= v22.22.0` on the host).
+- `use_linux_sandbox_bwrap` — try the new Linux sandbox based on bubblewrap (disabled by default).
+- `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
 - Additional feature flags may be passed through from the UI `extraFeatures` textarea, but only currently supported Codex feature flags are kept in normalized/rendered output.
 

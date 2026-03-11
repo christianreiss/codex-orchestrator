@@ -311,46 +311,42 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
-    public function testAppsGuardianApprovalJsReplBwrapPreventSleepAndMultiAgentDefaultToTrueAndCanDisable(): void
+    public function testFeatureDefaultsMatchBuilderPolicy(): void
     {
         $renderedDefault = $this->service->render([]);
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
         $this->assertStringContainsString('apps = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
-        $this->assertStringContainsString('guardian_approval = true', $renderedDefault['content']);
-        $this->assertSame(true, $renderedDefault['settings']['features']['guardian_approval']);
-        $this->assertStringContainsString('js_repl = true', $renderedDefault['content']);
-        $this->assertSame(true, $renderedDefault['settings']['features']['js_repl']);
-        $this->assertStringContainsString('use_linux_sandbox_bwrap = true', $renderedDefault['content']);
-        $this->assertSame(true, $renderedDefault['settings']['features']['use_linux_sandbox_bwrap']);
-        $this->assertStringContainsString('prevent_idle_sleep = true', $renderedDefault['content']);
-        $this->assertSame(true, $renderedDefault['settings']['features']['prevent_idle_sleep']);
         $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
+        $this->assertArrayNotHasKey('guardian_approval', $renderedDefault['settings']['features']);
+        $this->assertArrayNotHasKey('js_repl', $renderedDefault['settings']['features']);
+        $this->assertArrayNotHasKey('use_linux_sandbox_bwrap', $renderedDefault['settings']['features']);
+        $this->assertArrayNotHasKey('prevent_idle_sleep', $renderedDefault['settings']['features']);
 
-        $renderedDisabled = $this->service->render([
+        $renderedCustom = $this->service->render([
             'features' => [
-                'apps' => false,
+                'apps' => true,
                 'guardian_approval' => false,
                 'js_repl' => false,
                 'use_linux_sandbox_bwrap' => false,
                 'prevent_idle_sleep' => false,
-                'multi_agent' => false,
+                'multi_agent' => true,
             ],
         ]);
-        $this->assertStringContainsString('[features]', $renderedDisabled['content']);
-        $this->assertStringContainsString('apps = false', $renderedDisabled['content']);
-        $this->assertSame(false, $renderedDisabled['settings']['features']['apps']);
-        $this->assertStringContainsString('guardian_approval = false', $renderedDisabled['content']);
-        $this->assertSame(false, $renderedDisabled['settings']['features']['guardian_approval']);
-        $this->assertStringContainsString('js_repl = false', $renderedDisabled['content']);
-        $this->assertSame(false, $renderedDisabled['settings']['features']['js_repl']);
-        $this->assertStringContainsString('use_linux_sandbox_bwrap = false', $renderedDisabled['content']);
-        $this->assertSame(false, $renderedDisabled['settings']['features']['use_linux_sandbox_bwrap']);
-        $this->assertStringContainsString('prevent_idle_sleep = false', $renderedDisabled['content']);
-        $this->assertSame(false, $renderedDisabled['settings']['features']['prevent_idle_sleep']);
-        $this->assertStringContainsString('multi_agent = false', $renderedDisabled['content']);
-        $this->assertSame(false, $renderedDisabled['settings']['features']['multi_agent']);
+        $this->assertStringContainsString('[features]', $renderedCustom['content']);
+        $this->assertStringContainsString('apps = true', $renderedCustom['content']);
+        $this->assertSame(true, $renderedCustom['settings']['features']['apps']);
+        $this->assertStringContainsString('guardian_approval = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['guardian_approval']);
+        $this->assertStringContainsString('js_repl = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['js_repl']);
+        $this->assertStringContainsString('use_linux_sandbox_bwrap = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['use_linux_sandbox_bwrap']);
+        $this->assertStringContainsString('prevent_idle_sleep = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['prevent_idle_sleep']);
+        $this->assertStringContainsString('multi_agent = true', $renderedCustom['content']);
+        $this->assertSame(true, $renderedCustom['settings']['features']['multi_agent']);
     }
 
     public function testReasoningSummaryAutoPassesThrough(): void
