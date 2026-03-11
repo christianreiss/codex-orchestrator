@@ -228,7 +228,7 @@ Wrapper updates:
 - Download uses host API key and optional baked CA; respects IPv4 forcing and insecure curl mode.
 - If sha is provided, downloaded script must match.
 - When a wrapper version update is pending and the run will self-restart, Codex binary update is deferred to the restarted pass so one invocation does not install two different Codex versions back-to-back.
-- Successful wrapper update triggers one re-exec (`CODEX_WRAPPER_RESTARTED=1`, `CODEX_SKIP_MOTD=1`).
+- Successful wrapper update triggers one re-exec (`CODEX_WRAPPER_RESTARTED=1`, `CODEX_SKIP_MOTD=1`) using the startup-snapshotted original argv/argc, with a no-arg fallback so Bash 4.2 / CentOS 7 `set -u` shells do not trip on empty-array expansion.
 - Restart-loop detection aborts with error.
 
 ## Uninstall Behavior

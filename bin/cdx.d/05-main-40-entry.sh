@@ -1333,11 +1333,14 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS
     exit 1
   fi
   log_warn "Wrapper updated; restarting cdx to load the new wrapper."
+  if ! declare -p CODEX_ORIGINAL_ARGC >/dev/null 2>&1 || [[ ! "${CODEX_ORIGINAL_ARGC:-}" =~ ^[0-9]+$ ]]; then
+    CODEX_ORIGINAL_ARGC=0
+  fi
   if ! declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
     CODEX_ORIGINAL_ARGS=()
   fi
   release_run_lock_if_held || true
-  if (( ${#CODEX_ORIGINAL_ARGS[@]} > 0 )); then
+  if (( CODEX_ORIGINAL_ARGC > 0 )); then
     CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
   fi
   CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL"

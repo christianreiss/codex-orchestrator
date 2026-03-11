@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.11-01"
+WRAPPER_VERSION="2026.03.11-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -528,6 +528,7 @@ HOST_USERS_CACHE=()
 HOST_USERS_FETCHED=0
 
 CODEX_ORIGINAL_ARGS=("$@")
+CODEX_ORIGINAL_ARGC=$#
 
 sanitize_lock_token() {
   local token="${1-}"
@@ -602,7 +603,10 @@ write_run_lock_metadata() {
   local started_at
   started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)"
   local argv_text=""
-  if declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1 && (( ${#CODEX_ORIGINAL_ARGS[@]} > 0 )); then
+  if ! declare -p CODEX_ORIGINAL_ARGC >/dev/null 2>&1 || [[ ! "${CODEX_ORIGINAL_ARGC:-}" =~ ^[0-9]+$ ]]; then
+    CODEX_ORIGINAL_ARGC=0
+  fi
+  if (( CODEX_ORIGINAL_ARGC > 0 )) && declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
     argv_text="$(printf '%q ' "${CODEX_ORIGINAL_ARGS[@]}")"
     argv_text="${argv_text% }"
   fi
@@ -8094,11 +8098,14 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS
     exit 1
   fi
   log_warn "Wrapper updated; restarting cdx to load the new wrapper."
+  if ! declare -p CODEX_ORIGINAL_ARGC >/dev/null 2>&1 || [[ ! "${CODEX_ORIGINAL_ARGC:-}" =~ ^[0-9]+$ ]]; then
+    CODEX_ORIGINAL_ARGC=0
+  fi
   if ! declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
     CODEX_ORIGINAL_ARGS=()
   fi
   release_run_lock_if_held || true
-  if (( ${#CODEX_ORIGINAL_ARGS[@]} > 0 )); then
+  if (( CODEX_ORIGINAL_ARGC > 0 )); then
     CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
   fi
   CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL"
