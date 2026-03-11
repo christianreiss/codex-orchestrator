@@ -28,6 +28,7 @@
   let featureGuardianApproval;
   let featureJsRepl;
   let featureBubblewrapSandbox;
+  let featurePreventIdleSleep;
   let featureMultiAgent;
   let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
@@ -173,6 +174,7 @@
         guardian_approval: true,
         js_repl: true,
         use_linux_sandbox_bwrap: true,
+        prevent_idle_sleep: true,
         multi_agent: true,
       },
       notice: {
@@ -443,6 +445,7 @@
       guardian_approval: featureGuardianApproval ? featureGuardianApproval.checked : true,
       js_repl: featureJsRepl ? featureJsRepl.checked : true,
       use_linux_sandbox_bwrap: featureBubblewrapSandbox ? featureBubblewrapSandbox.checked : true,
+      prevent_idle_sleep: featurePreventIdleSleep ? featurePreventIdleSleep.checked : true,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
@@ -567,6 +570,9 @@
     if (featureBubblewrapSandbox) {
       featureBubblewrapSandbox.checked = cfg.features?.use_linux_sandbox_bwrap !== false;
     }
+    if (featurePreventIdleSleep) {
+      featurePreventIdleSleep.checked = cfg.features?.prevent_idle_sleep !== false;
+    }
     if (featureMultiAgent) {
       featureMultiAgent.checked = cfg.features?.multi_agent !== false;
     }
@@ -580,6 +586,7 @@
     delete featureExtras.guardian_approval;
     delete featureExtras.js_repl;
     delete featureExtras.use_linux_sandbox_bwrap;
+    delete featureExtras.prevent_idle_sleep;
     delete featureExtras.multi_agent;
     delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.elevated_windows_sandbox;
@@ -897,6 +904,7 @@
     featureGuardianApproval = document.getElementById('featureGuardianApproval');
     featureJsRepl = document.getElementById('featureJsRepl');
     featureBubblewrapSandbox = document.getElementById('featureBubblewrapSandbox');
+    featurePreventIdleSleep = document.getElementById('featurePreventIdleSleep');
     featureMultiAgent = document.getElementById('featureMultiAgent');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');

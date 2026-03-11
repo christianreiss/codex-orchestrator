@@ -635,7 +635,7 @@ class ClientConfigService
             }
             $features[$name] = $boolValue;
         }
-        foreach (['apps', 'guardian_approval', 'js_repl', 'multi_agent', 'use_linux_sandbox_bwrap'] as $defaultEnabledFeature) {
+        foreach (['apps', 'guardian_approval', 'js_repl', 'multi_agent', 'prevent_idle_sleep', 'use_linux_sandbox_bwrap'] as $defaultEnabledFeature) {
             if (!array_key_exists($defaultEnabledFeature, $features)) {
                 $features[$defaultEnabledFeature] = true;
             }
