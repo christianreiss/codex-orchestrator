@@ -138,6 +138,9 @@ cdx lane
 # One-shot lane switch for this run (maps to profile/model automatically)
 cdx lane spark
 
+# Shortcut for spark lane
+cdx ls
+
 # Persist lane preference on this host for future runs
 cdx lane normal --persist
 

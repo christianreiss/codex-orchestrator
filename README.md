@@ -71,6 +71,7 @@ Secure hosts keep `~/.codex/auth.json` on disk; insecure hosts delete it after e
 cdx status
 cdx doctor
 cdx lane
+cdx ls
 cdx lane spark --persist
 cdx --update
 cdx --uninstall

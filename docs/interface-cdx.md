@@ -82,10 +82,12 @@ Help passthrough:
 | `cdx --allow-concurrent-sync` | Bypass active-run lock for this invocation. |
 | `cdx --debug` / `cdx --verbose` | Enable wrapper debug logs. |
 | `cdx --execute "<prompt>" [codex args...]` | Run a one-shot non-interactive `codex exec` after the normal wrapper boot/sync/auth/update gates, with wrapper defaults (`--sandbox read-only`, `-a untrusted`) and normal lane/profile/model selector behavior. |
+| `cdx ls [--persist] [-- <codex args...>]` | Shorthand for `cdx lane spark`; supports the same persistence and passthrough behavior. |
 
 Lane subcommand:
 - `cdx lane` prints effective lane/source/persisted preference and exits.
 - `cdx lane normal|spark [--persist] [-- <codex args...>]` sets one-shot lane and launches Codex.
+- `cdx ls [--persist] [-- <codex args...>]` is shorthand for `cdx lane spark`.
 - `cdx lane clear --persist` clears persisted lane and exits (no passthrough args allowed).
 - `--persist` writes lane preference through `POST /host/lane`.
 - If lane profile exists in config (`[profiles.normal]`/`[profiles.spark]`), wrapper injects `--profile`.

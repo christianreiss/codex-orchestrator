@@ -495,7 +495,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.10-10"
+WRAPPER_VERSION="2026.03.11-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -820,6 +820,12 @@ if (( $# > 0 )); then
     parsed_args+=("$arg")
   done
   set -- "${parsed_args[@]}"
+fi
+
+# Convenience alias: `cdx ls` maps to the spark lane launcher.
+if [[ "${1-}" == "ls" ]]; then
+  shift
+  set -- lane spark "$@"
 fi
 
 print_lane_usage() {

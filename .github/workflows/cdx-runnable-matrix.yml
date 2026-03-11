@@ -72,6 +72,7 @@ jobs:
       - name: Run wrapper coverage tests
         run: |
           vendor/bin/phpunit \
+            tests/CdxWrapperLaneSparkAliasTest.php \
             tests/CdxWrapperScriptDependencyTest.php \
             tests/CdxWrapperPackageManagerSupportTest.php \
             tests/CdxWrapperPythonCompatibilityTest.php \

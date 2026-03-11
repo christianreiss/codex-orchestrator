@@ -1,3 +1,6 @@
+# 2026-03-11
+- cdx wrapper: added `cdx ls` as shorthand for `cdx lane spark` (including `--persist` and passthrough args) so hosts can jump into the Spark lane with a shorter command. Wrapper bumped to `2026.03.11-01`.
+
 # 2026-03-10
 - cdx wrapper: interactive SSH sessions now bypass wrapper PTY capture and launch Codex directly unless `CODEX_FORCE_PTY=1`, avoiding stacked-PTY rendering/input issues on hosts like `lims`; `cdx doctor` now reports `ssh-launch=direct-tty|pty-forced`, and wrapper-side usage capture may be unavailable for those SSH runs. Wrapper bumped to `2026.03.10-10`.
 - cdx wrapper: removed the interactive SSH keyboard compatibility bridge and the `CODEX_SSH_KEYBOARD_FILTER` toggle, returning SSH launches to the standard PTY/direct execution paths after the bridge caused more trouble than it solved. Wrapper bumped to `2026.03.10-09`.
