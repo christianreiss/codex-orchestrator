@@ -69,6 +69,7 @@ class ClientConfigService
         'default_mode_request_user_input',
         'enable_request_compression',
         'fast_mode',
+        'guardian_approval',
         'image_detail_original',
         'image_generation',
         'js_repl',
@@ -634,7 +635,7 @@ class ClientConfigService
             }
             $features[$name] = $boolValue;
         }
-        foreach (['apps', 'js_repl', 'multi_agent', 'use_linux_sandbox_bwrap'] as $defaultEnabledFeature) {
+        foreach (['apps', 'guardian_approval', 'js_repl', 'multi_agent', 'use_linux_sandbox_bwrap'] as $defaultEnabledFeature) {
             if (!array_key_exists($defaultEnabledFeature, $features)) {
                 $features[$defaultEnabledFeature] = true;
             }

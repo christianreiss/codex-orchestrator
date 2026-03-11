@@ -1240,6 +1240,13 @@
                       </div>
                     </label>
                     <label class="feature-toggle">
+                      <input type="checkbox" id="featureGuardianApproval" style="width:auto; accent-color: var(--accent);" checked>
+                      <div>
+                        <div class="feature-title">Automatic approval review</div>
+                        <div class="feature-desc">Dispatch <code>on-request</code> approval prompts, for example sandbox escapes or blocked network access, to a carefully-prompted security reviewer subagent instead of blocking on your input.</div>
+                      </div>
+                    </label>
+                    <label class="feature-toggle">
                       <input type="checkbox" id="featureJsRepl" style="width:auto; accent-color: var(--accent);" checked>
                       <div>
                         <div class="feature-title">JavaScript REPL</div>
@@ -1525,7 +1532,7 @@
   <script src="/admin/assets/dashboard.js?v=2026-02-22-02"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
-  <script src="/admin/assets/config.js?v=2026-03-11-05"></script>
+  <script src="/admin/assets/config.js?v=2026-03-11-06"></script>
   <script src="/admin/assets/profiles.js?v=2026-03-10-01"></script>
 </body>
 </html>

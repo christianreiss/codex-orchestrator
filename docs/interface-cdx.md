@@ -142,7 +142,8 @@ Sync details:
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
-- Normalization defaults include `features.apps=true`, `features.js_repl=true`, `features.multi_agent=true`, and `features.use_linux_sandbox_bwrap=true` when unset.
+- Normalization defaults include `features.apps=true`, `features.guardian_approval=true`, `features.js_repl=true`, `features.multi_agent=true`, and `features.use_linux_sandbox_bwrap=true` when unset.
+- `features.guardian_approval` enables automatic review of `on-request` approval prompts by a security reviewer subagent instead of blocking on direct user input.
 - `features.js_repl` enables the persistent Node-backed JavaScript REPL and requires Node `>= v22.22.0` on the host.
 - `features.use_linux_sandbox_bwrap` enables the new Linux sandbox based on bubblewrap.
 - Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.

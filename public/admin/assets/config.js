@@ -25,6 +25,7 @@
   let featureWebSearch;
   let featureVoiceTranscription;
   let featureApps;
+  let featureGuardianApproval;
   let featureJsRepl;
   let featureBubblewrapSandbox;
   let featureMultiAgent;
@@ -169,6 +170,7 @@
         unified_exec: false,
         voice_transcription: false,
         apps: true,
+        guardian_approval: true,
         js_repl: true,
         use_linux_sandbox_bwrap: true,
         multi_agent: true,
@@ -438,6 +440,7 @@
       unified_exec: featureUnifiedExec.checked,
       voice_transcription: featureVoiceTranscription.checked,
       apps: featureApps ? featureApps.checked : true,
+      guardian_approval: featureGuardianApproval ? featureGuardianApproval.checked : true,
       js_repl: featureJsRepl ? featureJsRepl.checked : true,
       use_linux_sandbox_bwrap: featureBubblewrapSandbox ? featureBubblewrapSandbox.checked : true,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
@@ -555,6 +558,9 @@
     if (featureApps) {
       featureApps.checked = cfg.features?.apps !== false;
     }
+    if (featureGuardianApproval) {
+      featureGuardianApproval.checked = cfg.features?.guardian_approval !== false;
+    }
     if (featureJsRepl) {
       featureJsRepl.checked = cfg.features?.js_repl !== false;
     }
@@ -571,6 +577,7 @@
     delete featureExtras.web_search;
     delete featureExtras.voice_transcription;
     delete featureExtras.apps;
+    delete featureExtras.guardian_approval;
     delete featureExtras.js_repl;
     delete featureExtras.use_linux_sandbox_bwrap;
     delete featureExtras.multi_agent;
@@ -887,6 +894,7 @@
     featureWebSearch = document.getElementById('featureWebSearch');
     featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
     featureApps = document.getElementById('featureApps');
+    featureGuardianApproval = document.getElementById('featureGuardianApproval');
     featureJsRepl = document.getElementById('featureJsRepl');
     featureBubblewrapSandbox = document.getElementById('featureBubblewrapSandbox');
     featureMultiAgent = document.getElementById('featureMultiAgent');

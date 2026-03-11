@@ -311,12 +311,14 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
-    public function testAppsJsReplBwrapAndMultiAgentDefaultToTrueAndCanDisable(): void
+    public function testAppsGuardianApprovalJsReplBwrapAndMultiAgentDefaultToTrueAndCanDisable(): void
     {
         $renderedDefault = $this->service->render([]);
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
         $this->assertStringContainsString('apps = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
+        $this->assertStringContainsString('guardian_approval = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['guardian_approval']);
         $this->assertStringContainsString('js_repl = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['js_repl']);
         $this->assertStringContainsString('use_linux_sandbox_bwrap = true', $renderedDefault['content']);
@@ -327,6 +329,7 @@ final class ClientConfigServiceTest extends TestCase
         $renderedDisabled = $this->service->render([
             'features' => [
                 'apps' => false,
+                'guardian_approval' => false,
                 'js_repl' => false,
                 'use_linux_sandbox_bwrap' => false,
                 'multi_agent' => false,
@@ -335,6 +338,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[features]', $renderedDisabled['content']);
         $this->assertStringContainsString('apps = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['apps']);
+        $this->assertStringContainsString('guardian_approval = false', $renderedDisabled['content']);
+        $this->assertSame(false, $renderedDisabled['settings']['features']['guardian_approval']);
         $this->assertStringContainsString('js_repl = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['js_repl']);
         $this->assertStringContainsString('use_linux_sandbox_bwrap = false', $renderedDisabled['content']);
