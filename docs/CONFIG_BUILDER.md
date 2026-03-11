@@ -21,6 +21,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 
 Default notice mappings:
 - Builder defaults include `notice.model_migrations` entries for `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4` so Codex upgrade prompts can be auto-resolved from fleet-managed config.
+- New top-level config drafts and new profile drafts default to model `gpt-5.4`.
 
 ## Managed MCP entry
 
@@ -92,7 +93,7 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
   ```bash
   curl -s "$BASE/admin/config/render" \
     -H "Content-Type: application/json" \
-    -d '{"settings":{"model":"gpt-5.3-codex","approval_policy":"on-request"}}' | jq .
+    -d '{"settings":{"model":"gpt-5.4","approval_policy":"on-request"}}' | jq .
   ```
 - Fetch baked config for a host:
   ```bash

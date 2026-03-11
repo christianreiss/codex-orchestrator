@@ -150,7 +150,7 @@
 
   function defaultSettings() {
     return {
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.4',
       model_provider: '',
       local_provider: '',
       personality: 'friendly',

@@ -373,7 +373,7 @@
 
   function defaultSettings() {
     return {
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.4',
       personality: 'friendly',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
@@ -402,7 +402,7 @@
 
       const cfg = loadedSettings || defaultSettings();
       const defaults = {
-        model: cfg.model || 'gpt-5.3-codex',
+        model: cfg.model || 'gpt-5.4',
         personality: cfg.personality || 'friendly',
         model_reasoning_effort: cfg.model_reasoning_effort || '',
         approval_policy: cfg.approval_policy || '',
