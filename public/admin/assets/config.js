@@ -24,6 +24,7 @@
   let featureUnifiedExec;
   let featureWebSearch;
   let featureVoiceTranscription;
+  let featureApps;
   let featureMultiAgent;
   let dangerousBypassApprovalsSandbox;
   let extraFeaturesInput;
@@ -165,6 +166,7 @@
         fast_mode: true,
         unified_exec: false,
         voice_transcription: false,
+        apps: true,
         multi_agent: true,
       },
       notice: {
@@ -431,6 +433,7 @@
       fast_mode: featureFastMode.checked,
       unified_exec: featureUnifiedExec.checked,
       voice_transcription: featureVoiceTranscription.checked,
+      apps: featureApps ? featureApps.checked : true,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
@@ -543,6 +546,9 @@
       : (typeof cfg.features?.web_search === 'string' ? cfg.features.web_search : (legacyWebSearch ? 'live' : 'disabled'));
     setSelectValue(featureWebSearch, webSearchValue || 'disabled');
     featureVoiceTranscription.checked = Boolean(cfg.features?.voice_transcription);
+    if (featureApps) {
+      featureApps.checked = cfg.features?.apps !== false;
+    }
     if (featureMultiAgent) {
       featureMultiAgent.checked = cfg.features?.multi_agent !== false;
     }
@@ -552,6 +558,7 @@
     delete featureExtras.web_search_request;
     delete featureExtras.web_search;
     delete featureExtras.voice_transcription;
+    delete featureExtras.apps;
     delete featureExtras.multi_agent;
     delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.elevated_windows_sandbox;
@@ -865,6 +872,7 @@
     featureUnifiedExec = document.getElementById('featureUnifiedExec');
     featureWebSearch = document.getElementById('featureWebSearch');
     featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
+    featureApps = document.getElementById('featureApps');
     featureMultiAgent = document.getElementById('featureMultiAgent');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');
     extraFeaturesInput = document.getElementById('extraFeaturesInput');

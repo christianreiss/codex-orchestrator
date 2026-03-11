@@ -104,6 +104,7 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="featureUnifiedExec"', $html);
         $this->assertStringContainsString('id="featureWebSearch"', $html);
         $this->assertStringContainsString('id="featureVoiceTranscription"', $html);
+        $this->assertStringContainsString('id="featureApps"', $html);
         $this->assertStringContainsString('id="featureMultiAgent"', $html);
     }
 

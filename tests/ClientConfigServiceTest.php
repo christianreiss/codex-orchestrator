@@ -311,19 +311,24 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
 
-    public function testMultiAgentDefaultsToTrueAndCanDisable(): void
+    public function testAppsAndMultiAgentDefaultToTrueAndCanDisable(): void
     {
         $renderedDefault = $this->service->render([]);
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
+        $this->assertStringContainsString('apps = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
         $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
 
         $renderedDisabled = $this->service->render([
             'features' => [
+                'apps' => false,
                 'multi_agent' => false,
             ],
         ]);
         $this->assertStringContainsString('[features]', $renderedDisabled['content']);
+        $this->assertStringContainsString('apps = false', $renderedDisabled['content']);
+        $this->assertSame(false, $renderedDisabled['settings']['features']['apps']);
         $this->assertStringContainsString('multi_agent = false', $renderedDisabled['content']);
         $this->assertSame(false, $renderedDisabled['settings']['features']['multi_agent']);
     }

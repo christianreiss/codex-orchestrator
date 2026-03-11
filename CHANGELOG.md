@@ -1,4 +1,5 @@
 # 2026-03-11
+- Config builder/apps: added a first-class ChatGPT Apps toggle and defaulted `[features].apps = true` in normalized/rendered `config.toml`, so `$` App usage is enabled fleet-wide unless explicitly disabled; cache-bumped the admin config builder asset and refreshed docs/tests.
 - cdx wrapper: fixed self-update restart on CentOS 7 / XCP-NG Bash 4.2 by snapshotting the original argc separately from argv, so no-arg wrapper re-execs and lock metadata formatting no longer trip `set -u` on empty-array expansion; wrapper bumped to `2026.03.11-02`.
 - cdx wrapper: added `cdx ls` as shorthand for `cdx lane spark` (including `--persist` and passthrough args) so hosts can jump into the Spark lane with a shorter command. Wrapper bumped to `2026.03.11-01`.
 

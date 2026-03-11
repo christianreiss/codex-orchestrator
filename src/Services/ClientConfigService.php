@@ -634,8 +634,10 @@ class ClientConfigService
             }
             $features[$name] = $boolValue;
         }
-        if (!array_key_exists('multi_agent', $features)) {
-            $features['multi_agent'] = true;
+        foreach (['apps', 'multi_agent'] as $defaultEnabledFeature) {
+            if (!array_key_exists($defaultEnabledFeature, $features)) {
+                $features[$defaultEnabledFeature] = true;
+            }
         }
         $result['features'] = $features;
 
