@@ -51,4 +51,27 @@ final class CdxWrapperSkillFormatTest extends TestCase
             'Managed skill baseline entries should keep both sha and managed metadata.'
         );
     }
+
+    public function testWrapperPrunesManagedSkillsThatDisappearFromRemoteListings(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString(
+            'Managed skills that disappear from the remote list should be pruned locally on the next sync.',
+            $wrapperSource,
+            'Managed project skills should be deleted locally when the server stops advertising them.'
+        );
+        self::assertStringContainsString(
+            'if slug in listed_slugs:',
+            $wrapperSource,
+            'Managed skill pruning should skip remote slugs that are still advertised.'
+        );
+        self::assertStringContainsString(
+            'if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):',
+            $wrapperSource,
+            'Only managed baseline entries should be auto-pruned.'
+        );
+    }
 }

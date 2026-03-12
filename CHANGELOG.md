@@ -1,4 +1,6 @@
 # 2026-03-12
+- Projects/CoCo module: the managed `coco` skill now embeds the native CoCo toolkit/help directly, and project bootstrap payloads now point agents to that skill instead of a separate help page.
+- cdx wrapper: managed skills that disappear from the remote list are now pruned locally on sync, so disabling the Projects module removes the auto-managed `coco` skill from clients on their next pull. Wrapper bumped to `2026.03.12-02`.
 - Projects/CoCo module: added a native shared-project coordination module with admin + host REST routes under `/admin/projects*` and `/projects*`, covering project creation, about/roster updates, shared notes, todos, files, feedback, and append-only activity history.
 - MCP + client rollout: `/mcp` now exposes project-aware tools/resources (`project_*`, `project://{slug}`) when the module is enabled, and enabling the module auto-publishes a managed `coco` skill to Codex clients through the normal Skills sync path.
 - cdx wrapper: managed project skills now keep `managed` metadata in the Skill baseline and are skipped during wrapper-side `/skills/store` pushback, so the auto-deployed `coco` skill stays read-only on clients without generating noisy sync errors. Wrapper bumped to `2026.03.12-01`.

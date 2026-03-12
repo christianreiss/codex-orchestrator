@@ -375,10 +375,17 @@ if mode == "pull":
     if isinstance(list_resp, dict):
         data = list_resp.get("data") or {}
         skills = data.get("skills") or []
+    try:
+        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8")) if baseline_file.exists() else {}
+    except Exception:  # noqa: BLE001
+        baseline_data = {}
+    if not isinstance(baseline_data, dict):
+        baseline_data = {}
     downloaded = 0
     errors = 0
     removed = 0
     local = load_local()
+    listed_slugs = set()
 
     for skill in skills:
         if not isinstance(skill, dict):
@@ -388,6 +395,7 @@ if mode == "pull":
         deleted = bool(skill.get("deleted_at"))
         if not slug:
             continue
+        listed_slugs.add(slug)
         target_path = skill_dir / slug
         if deleted:
             try:
@@ -439,6 +447,24 @@ if mode == "pull":
             target_file.write_text(manifest, encoding="utf-8")
             downloaded += 1
         except Exception:  # noqa: BLE001
+            errors += 1
+
+    # Managed skills that disappear from the remote list should be pruned locally on the next sync.
+    for slug, baseline_entry in baseline_data.items():
+        if not isinstance(slug, str) or slug.strip() == "":
+            continue
+        if slug in listed_slugs:
+            continue
+        if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):
+            continue
+        target_path = skill_dir / slug
+        try:
+            if target_path.is_dir():
+                shutil.rmtree(target_path, ignore_errors=True)
+            else:
+                target_path.unlink(missing_ok=True)
+            removed += 1
+        except Exception:
             errors += 1
 
     updated_local = load_local()
@@ -1143,6 +1169,7 @@ def apply_skill_changes(block):
     updated = 0
     removed = 0
     errors = 0
+    listed_slugs = set()
 
     if isinstance(changed, list):
         for entry in changed:
@@ -1178,6 +1205,40 @@ def apply_skill_changes(block):
                 updated += 1
             except Exception:
                 errors += 1
+
+    if isinstance(remote, list):
+        for entry in remote:
+            if not isinstance(entry, dict):
+                continue
+            slug = entry.get("slug")
+            if not isinstance(slug, str) or slug.strip() == "":
+                continue
+            listed_slugs.add(slug)
+
+    try:
+        baseline_data = json.loads(skill_baseline.read_text(encoding="utf-8")) if skill_baseline.exists() else {}
+    except Exception:
+        baseline_data = {}
+    if not isinstance(baseline_data, dict):
+        baseline_data = {}
+
+    # Managed skills that disappear from the remote list should be pruned locally on the next sync.
+    for slug, baseline_entry in baseline_data.items():
+        if not isinstance(slug, str) or slug.strip() == "":
+            continue
+        if slug in listed_slugs:
+            continue
+        if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):
+            continue
+        target_dir = skill_dir / slug
+        try:
+            if target_dir.exists() and target_dir.is_file():
+                target_dir.unlink(missing_ok=True)
+            elif target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            removed += 1
+        except Exception:
+            errors += 1
 
     write_skill_baseline(remote if isinstance(remote, list) else [])
     local_count = len(scan_skills())

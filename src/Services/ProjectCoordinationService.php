@@ -133,6 +133,10 @@ class ProjectCoordinationService
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
         $detail = $this->projectDetail($slug, $host);
+        $encodedSlug = rawurlencode($project['slug']);
+        $detailRoute = '/projects/' . $encodedSlug;
+        $bootstrapRoute = $detailRoute . '/bootstrap';
+        $changesRoute = $detailRoute . '/changes';
 
         return [
             'project' => $project['slug'],
@@ -144,9 +148,17 @@ class ProjectCoordinationService
             'recent_todos' => array_slice($detail['todos'], 0, 6),
             'recent_files' => array_slice($detail['files'], 0, 5),
             'recent_changes' => array_slice($detail['recent_changes'], -10),
+            'skill' => $this->module->bootstrapSkill(),
+            'instructions' => $this->module->bootstrapInstructions((string) $project['slug']),
+            'quickstart' => $this->module->bootstrapQuickstart((string) $project['slug']),
             'routes' => [
-                'detail' => '/projects/' . rawurlencode($project['slug']),
-                'changes' => '/projects/' . rawurlencode($project['slug']) . '/changes',
+                'detail' => $detailRoute,
+                'bootstrap' => $bootstrapRoute,
+                'notes' => $detailRoute . '/notes',
+                'todos' => $detailRoute . '/todos',
+                'files' => $detailRoute . '/files',
+                'feedback' => $detailRoute . '/feedback',
+                'changes' => $changesRoute,
             ],
         ];
     }

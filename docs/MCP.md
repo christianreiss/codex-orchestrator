@@ -1,6 +1,6 @@
 # MCP Server
 
-Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill.
+Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
 
 ## Endpoints
 
@@ -88,6 +88,6 @@ curl -s "$BASE/mcp/memories/search" \
 ## Client hints
 
 - `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"`, static `Authorization` header, and `startup_timeout_sec = 30`.
-- When the Projects module is enabled, the normal Skills sync also ships a managed `coco` skill that assumes these `project_*` MCP tools/resources are available; no extra wrapper-side project sync path is needed.
+- When the Projects module is enabled, the normal Skills sync also ships a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

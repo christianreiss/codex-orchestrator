@@ -115,7 +115,8 @@ Sync details:
 - Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts/skills/AGENTS/config in one pass.
 - Wrapper falls back to legacy per-resource pulls if bundle path fails or endpoints are missing.
 - Deleted/retired remote prompts and skills are removed locally.
-- When the Projects module is enabled, the managed `coco` skill is included in the normal Skills sync flow and lands at `~/.agents/skills/coco/SKILL.md`.
+- When the Projects module is enabled, the managed `coco` skill is included in the normal Skills sync flow, lands at `~/.agents/skills/coco/SKILL.md`, and carries the CoCo toolkit/help inline.
+- When the Projects module is later disabled, previously managed `coco` skill copies are pruned on the next sync if the server no longer advertises them.
 - Wrapper preserves `managed` metadata for synced Skills and skips pushing those managed entries back to `/skills/store`, so project-owned Skills stay read-only on the fleet side.
 - `status:missing` from AGENTS/config retrieval deletes local file.
 - Prompt store reads frontmatter keys `description` and `argument-hint`.

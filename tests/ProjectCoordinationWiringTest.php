@@ -23,6 +23,7 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString("#^/projects/([^/]+)/todos$#", $source);
         $this->assertStringContainsString("#^/projects/([^/]+)/files$#", $source);
         $this->assertStringContainsString("#^/projects/([^/]+)/feedback$#", $source);
+        $this->assertStringNotContainsString("#^/help$#", $source);
     }
 
     public function testAdminHtmlIncludesProjectsSettingsTabAndAsset(): void

@@ -75,7 +75,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /projects` — list projects with summary fields (`slug`, `title`, `name`, `description`, `about`, `latest_seq`, `created_at`, `updated_at`).
 - `POST /projects` — body: `slug` (required), optional `about` object, optional `roster_markdown` or `agents_markdown`. Returns the full project detail payload.
 - `GET /projects/{slug}` — full project state: `project`, `notes`, `todos`, `files`, `feedback`, and `recent_changes`.
-- `GET /projects/{slug}/bootstrap` — compact context payload with `about`, `roster_markdown`, `latest_seq`, `counts`, recent notes/todos/files/changes, and canonical project routes.
+- `GET /projects/{slug}/bootstrap` — compact context payload with `about`, `roster_markdown`, `latest_seq`, `counts`, recent notes/todos/files/changes, native `instructions`, `quickstart`, managed `skill` metadata, and canonical project routes.
 - `POST /projects/{slug}/about` — body `{ about: {...} }` (or a raw object) updates the project metadata block.
 - `POST /projects/{slug}/roster` — body `{ roster_markdown }` or `{ markdown }` updates the shared roster/brief markdown.
 - `GET /projects/{slug}/changes` — optional `since` query/body value; returns `{ project, since, latest_seq, changes[] }`.
@@ -94,7 +94,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 ### MCP stream endpoint
 - `GET /mcp` — probe endpoint; returns 405 (`Allow: POST`).
 - `POST /mcp` — JSON-RPC 2.0 endpoint (single or batch). Methods include `initialize`, `tools/list`, `tools/call`, `resources/templates/list`, `resources/list`, `resources/read`, `resources/create`, `resources/update`, `resources/delete`, and aliases (`tools.list`, `resources.list`, etc.).
-- When the Projects module is enabled, `tools/list` also advertises `project_list`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, and `project_feedback_create`; resources add `project://{slug}` templates plus concrete project resources.
+- When the Projects module is enabled, `tools/list` also advertises `project_list`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, and `project_feedback_create`; resources add `project://{slug}` templates plus concrete project resources, and the managed `coco` skill carries the human-readable toolkit/help text directly.
 - Origin checks apply via `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Disallowed origins return 403.
 
 ### Wrapper

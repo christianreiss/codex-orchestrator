@@ -10,6 +10,7 @@ class ProjectModuleService
 {
     public const ENABLED_FLAG = 'projects_module_enabled';
     public const MANAGED_SKILL_SLUG = 'coco';
+    public const MANAGED_SKILL_PATH = '~/.agents/skills/coco/SKILL.md';
 
     public function __construct(private readonly VersionRepository $versions)
     {
@@ -27,11 +28,7 @@ class ProjectModuleService
         return [
             'enabled' => $this->isEnabled(),
             'updated_at' => $meta['updated_at'] ?? null,
-            'managed_skill' => [
-                'slug' => self::MANAGED_SKILL_SLUG,
-                'display_name' => 'CoCo Projects',
-                'description' => 'Native project coordination workflow for codex-orchestrator.',
-            ],
+            'managed_skill' => $this->managedSkillMetadata(),
         ];
     }
 
@@ -51,13 +48,14 @@ class ProjectModuleService
         $manifest = $this->managedSkillManifest();
         $sha = hash('sha256', $manifest);
         $meta = $this->versions->getWithMetadata(self::ENABLED_FLAG);
+        $skill = $this->managedSkillMetadata();
 
         return [
             'id' => null,
-            'slug' => self::MANAGED_SKILL_SLUG,
+            'slug' => $skill['slug'],
             'sha256' => $sha,
-            'display_name' => 'CoCo Projects',
-            'description' => 'Coordinate work through the orchestrator project module.',
+            'display_name' => $skill['display_name'],
+            'description' => $skill['description'],
             'manifest' => $manifest,
             'updated_at' => $meta['updated_at'] ?? null,
             'deleted_at' => null,
@@ -65,35 +63,154 @@ class ProjectModuleService
         ];
     }
 
+    public function bootstrapSkill(): array
+    {
+        return $this->managedSkillMetadata();
+    }
+
+    public function bootstrapInstructions(string $slug): array
+    {
+        $encodedSlug = rawurlencode($slug);
+        $base = '/projects/' . $encodedSlug;
+
+        return [
+            'Read the managed `coco` skill at ' . self::MANAGED_SKILL_PATH . ' for the full native toolkit, workflow, and troubleshooting notes.',
+            "Fetch the shared snapshot with GET {$base}/bootstrap or the MCP tool project_bootstrap.",
+            "Inspect durable project context with GET {$base} or the MCP tool project_detail.",
+            "Review open work with GET {$base}/todos and recent notes with GET {$base}/notes before making changes.",
+            "Capture only durable state: notes for decisions, todos for actions, files for artifacts, feedback for blockers and feature requests.",
+            "Replay incremental updates with GET {$base}/changes?since=<last-seq> or the MCP tool project_changes before overwriting shared data.",
+        ];
+    }
+
+    public function bootstrapQuickstart(string $slug): array
+    {
+        $escapedSlug = addslashes($slug);
+
+        return [
+            'project_list',
+            'project_bootstrap {"slug":"' . $escapedSlug . '"}',
+            'project_changes {"slug":"' . $escapedSlug . '","since":0}',
+            'project_note_upsert {"slug":"' . $escapedSlug . '","header":"Sync status","body":"..."}',
+            'project_todo_create {"slug":"' . $escapedSlug . '","title":"Next action","detail":"..."}',
+            'project_file_upsert {"slug":"' . $escapedSlug . '","stored_name":"notes/rollout.md","content":"..."}',
+        ];
+    }
+
     private function managedSkillManifest(): string
     {
-        return <<<'MARKDOWN'
+        return $this->toolkitMarkdown(true);
+    }
+
+    /**
+     * @return array{slug:string,display_name:string,description:string,path:string}
+     */
+    private function managedSkillMetadata(): array
+    {
+        return [
+            'slug' => self::MANAGED_SKILL_SLUG,
+            'display_name' => 'CoCo Projects',
+            'description' => 'Native project coordination workflow for codex-orchestrator, with the toolkit embedded in the skill itself.',
+            'path' => self::MANAGED_SKILL_PATH,
+        ];
+    }
+
+    private function toolkitMarkdown(bool $includeFrontMatter): string
+    {
+        $prefix = $includeFrontMatter ? <<<'MARKDOWN'
 ---
 name: "CoCo Projects"
-description: "Coordinate shared project state through the orchestrator's native project module."
+description: "Coordinate shared project state through the orchestrator's native project module. This skill also carries the CoCo toolkit/help."
 ---
 
-# What this skill does
-Use the built-in project coordination tools from the orchestrator MCP server to share notes, todos, files, feedback, and project context across agents.
+MARKDOWN
+            : '';
+        $body = <<<'MARKDOWN'
+# CoCo Toolkit (Codex Orchestrator Projects)
 
-## When to use
-- The user asks to coordinate work across multiple agents.
-- The user references a project slug or wants a shared project brief/status area.
-- You need durable notes, todos, or files that should survive across sessions.
+CoCo is the native shared-project coordination layer inside codex-orchestrator. Use it when work needs durable shared notes, todos, files, feedback, or resumable handoffs across agents instead of ad-hoc scratchpads or chat-only context.
 
-## Workflow
-1. Identify the project slug. If none is given, inspect the available projects first.
-2. Pull the current context with `project_list` or `project_bootstrap`.
-3. Record durable decisions with `project_note_upsert`.
-4. Track actionable work with `project_todo_create`, `project_todo_update`, and the done/undone tools.
-5. Store reusable artifacts with `project_file_upsert`.
-6. Check `project_changes` before overwriting shared state if other agents may be working in parallel.
+This skill is the toolkit/help document. When the Projects module is enabled, codex-orchestrator auto-deploys it to `~/.agents/skills/coco/SKILL.md`; when the module is disabled, the managed skill is withdrawn on the next client sync.
 
-## Rules
-- Keep updates small and factual.
-- Prefer updating existing shared state over creating duplicates.
-- Use feedback entries for bugs/feature requests that should be triaged later.
-- Do not paste huge bootstrap payloads into context when a short summary is enough.
+## When to use it
+- The user explicitly asks for `#coco`, shared coordination, or a project slug.
+- Multiple agents or sessions need to share state.
+- Decisions, action items, or artifacts should survive beyond the current chat.
+
+## Primary interface: MCP
+Inside Codex, prefer the built-in MCP tools over raw HTTP:
+- `project_list` - discover available shared projects.
+- `project_bootstrap` - pull the one-shot project snapshot you should read first.
+- `project_detail` - inspect the full project state.
+- `project_changes` - replay only new activity since the last known sequence.
+- `project_note_upsert` - create or update durable decision notes.
+- `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone` - manage the shared action queue.
+- `project_file_upsert` - store or refresh shared artifacts.
+- `project_feedback_create` - log bugs, blockers, or feature requests for later triage.
+
+## Native REST surface
+These host-authenticated routes back the same coordination flow:
+- `GET /projects` - discover project slugs and summaries.
+- `POST /projects` - create a shared project.
+- `GET /projects/{slug}` - full shared state.
+- `GET /projects/{slug}/bootstrap` - compact onboarding snapshot with instructions, quickstart, skill metadata, and recent state.
+- `POST /projects/{slug}/about` - update metadata.
+- `POST /projects/{slug}/roster` - update the shared roster/brief.
+- `GET /projects/{slug}/changes` - fetch change log entries (`?since=` supported).
+- `GET/POST/DELETE` note, todo, file, and feedback subroutes under `/projects/{slug}/*`.
+
+## Project lifecycle
+1. Identify the project slug. If none is given, call `project_list`.
+2. Create the project first if it does not exist yet.
+3. Call `project_bootstrap` immediately after landing.
+4. Capture `latest_seq` and revisit `project_changes` before overwriting shared state.
+5. Record decisions as notes, actionable work as todos, reusable artifacts as files, and blockers as feedback.
+
+## Quickstart
+MCP-first examples:
+
+```json
+{"name":"project_list","arguments":{}}
+{"name":"project_bootstrap","arguments":{"slug":"apollo"}}
+{"name":"project_changes","arguments":{"slug":"apollo","since":0}}
+{"name":"project_note_upsert","arguments":{"slug":"apollo","header":"Sync status","body":"Imported backlog and aligned the next steps."}}
+{"name":"project_todo_create","arguments":{"slug":"apollo","title":"Next action","detail":"Describe the next meaningful step."}}
+{"name":"project_file_upsert","arguments":{"slug":"apollo","stored_name":"notes/rollout.md","content":"# Rollout notes"}}
+```
+
+REST fallback:
+
+```bash
+curl -s -H "Authorization: Bearer $HOST_API_KEY" "$COORDINATOR_BASE_URL/projects/apollo/bootstrap"
+curl -s -H "Authorization: Bearer $HOST_API_KEY" "$COORDINATOR_BASE_URL/projects/apollo/changes?since=0"
+```
+
+## Coordination patterns
+- Bootstrap first. Read the snapshot before creating or updating project state.
+- Use notes for durable decisions and findings. Put one decision per note when possible.
+- Use todos for actionable work. Keep them small, specific, and easy to mark done.
+- Use files for artifacts that should be reused later: runbooks, snippets, checklists, outputs.
+- Use feedback for blockers and infrastructure gaps that need later follow-up.
+- Keep updates factual and incremental; prefer updating existing shared state over creating duplicates.
+
+## Automation tips
+- Slug rule: `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`.
+- Project-scoped writes require an existing slug. Create the project first and wait for success before writing notes, todos, files, or feedback.
+- Compare `updated_at` and `latest_seq` before overwriting shared state touched by another agent.
+- The bootstrap payload already includes `instructions`, `quickstart`, `skill`, and canonical routes. Reuse it instead of inventing a fresh onboarding checklist.
+- REST calls require the normal host API key and IP-bound auth rules; MCP calls inherit that auth through the baked client config.
+- Do not paste huge bootstrap payloads back into the conversation when a short summary will do.
+
+## Troubleshooting
+- `404 Project coordination disabled` means the module is off.
+- `404 Project not found` usually means the slug was never created or was mistyped.
+- `422` indicates validation failure; inspect the returned field errors.
+- `401/403` on REST usually means missing host auth, IP binding problems, or installation mismatch.
+- If coordination primitives are missing or insufficient, create a feedback item instead of branching into side-channel tracking.
+
+Stay within these primitives for predictable collaboration and let higher-level playbooks build on top.
 MARKDOWN;
+
+        return $prefix . $body;
     }
 }

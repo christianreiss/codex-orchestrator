@@ -87,7 +87,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).
   - Reverse DNS global flag: `GET/POST /admin/reverse-dns` (`settings.manage` for POST).
   - Insecure-approval global flag: `GET/POST /admin/insecure-approval` (`settings.manage` for POST).
-  - Projects module: `GET/POST /admin/projects/state` (`settings.manage` for POST). Enabling it also publishes the managed `coco` skill to hosts through the normal Skills sync.
+  - Projects module: `GET/POST /admin/projects/state` (`settings.manage` for POST). Enabling it also publishes the managed `coco` skill with embedded toolkit/help to hosts through the normal Skills sync; disabling it withdraws that managed skill on the next client sync.
   - Quota mode: `GET/POST /admin/quota-mode` (`settings.manage` for POST).
     - `hard_fail` boolean.
     - `limit_percent` normalized to `50..100` (default `100`).
@@ -140,7 +140,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - Insecure approval queue is only offered when both conditions are true:
   - `insecure_approval_enabled` flag is on.
   - WebSocket presence is fresh (`admin_ws_connections` heartbeat window).
-- The Projects module is deliberately native to codex-orchestrator: Settings → Projects is now a compact index plus module toggle, while each project opens on its own `#project-detail/<slug>` workspace page. The managed `coco` skill is derived from module state instead of being edited like a normal Skill row.
+- The Projects module is deliberately native to codex-orchestrator: Settings → Projects is now a compact index plus module toggle, while each project opens on its own `#project-detail/<slug>` workspace page. The managed `coco` skill is derived from module state instead of being edited like a normal Skill row, and it doubles as the operator-facing CoCo toolkit/help document.
 - Project creation remains API-driven for now; the admin UI intentionally focuses on browsing, opening, and deleting existing projects.
 - Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
 - Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).
