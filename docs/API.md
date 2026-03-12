@@ -60,15 +60,29 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 - `GET /slash-commands` — list commands (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`, optional `deleted_at`). Auth required.
 - `POST /slash-commands/retrieve` — body: `filename` (required), optional `sha256`. Returns `status` `missing` | `unchanged` | `updated` (with `prompt` when updated).
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
-- `GET /skills` — list skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required.
+- `GET /skills` — list skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required. When the Projects module is enabled, the list also includes a managed `coco` skill that syncs to clients through the normal Skills path.
 - `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `manifest` when updated).
-- `POST /skills/store` — body: `slug`, `manifest` (or `content`; canonical `SKILL.md` markdown), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
+- `POST /skills/store` — body: `slug`, `manifest` (or `content`; canonical `SKILL.md` markdown), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`. The reserved slug `coco` is rejected while the Projects module is enabled.
 
 ### Agents
 - `POST /agents/retrieve` — retrieve served AGENTS document. Optional `sha256` enables `status:unchanged` without content. Returns `status` (`updated` | `unchanged` | `missing`), `version_id`, `sha256`, `updated_at`, `size_bytes`, and `content` when updated.
 
 ### Config
 - `POST /config/retrieve` — optional `sha256` (64-hex) plus optional `username`/`home` to append trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) in baked config. Response: `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256`, `updated_at`, `size_bytes`, and `content` when updated. Host model overrides (`model_override`, `reasoning_effort_override`) are applied to baked `model` / `model_reasoning_effort`. The baked config also injects managed MCP server config pointing to `/mcp`; secure hosts get the host API key, insecure hosts get a short-lived MCP bearer. `status:missing` means client should delete local `~/.codex/config.toml`.
+
+### Projects module
+All `/projects*` routes require normal host API-key auth + IP binding and return HTTP `404 Project coordination disabled` while the module is off.
+- `GET /projects` — list projects with summary fields (`slug`, `title`, `name`, `description`, `about`, `latest_seq`, `created_at`, `updated_at`).
+- `POST /projects` — body: `slug` (required), optional `about` object, optional `roster_markdown` or `agents_markdown`. Returns the full project detail payload.
+- `GET /projects/{slug}` — full project state: `project`, `notes`, `todos`, `files`, `feedback`, and `recent_changes`.
+- `GET /projects/{slug}/bootstrap` — compact context payload with `about`, `roster_markdown`, `latest_seq`, `counts`, recent notes/todos/files/changes, and canonical project routes.
+- `POST /projects/{slug}/about` — body `{ about: {...} }` (or a raw object) updates the project metadata block.
+- `POST /projects/{slug}/roster` — body `{ roster_markdown }` or `{ markdown }` updates the shared roster/brief markdown.
+- `GET /projects/{slug}/changes` — optional `since` query/body value; returns `{ project, since, latest_seq, changes[] }`.
+- Notes: `GET /projects/{slug}/notes`, `POST /projects/{slug}/notes`, `POST /projects/{slug}/notes/{id}`, `DELETE /projects/{slug}/notes/{id}`. Create/update bodies require `header` and `body`.
+- Todos: `GET /projects/{slug}/todos`, `POST /projects/{slug}/todos`, `POST /projects/{slug}/todos/{id}`, `POST /projects/{slug}/todos/{id}/done`, `POST /projects/{slug}/todos/{id}/undone`, `DELETE /projects/{slug}/todos/{id}`. Create/update bodies require `title`; todo payloads include `done` and `done_at`.
+- Files: `GET /projects/{slug}/files`, `POST /projects/{slug}/files`, `DELETE /projects/{slug}/files/{id}`. Upsert bodies require `stored_name` (or `name`) and `content`; optional `description` and `mime_type`. Responses include `content`, `content_sha256`, `size_bytes`, and timestamps.
+- Feedback: `GET /projects/{slug}/feedback`, `POST /projects/{slug}/feedback`. Create bodies require `type` (`bug|feature|note`), `title`, and `body`; new entries start with `status:"open"`.
 
 ### MCP memories
 - `POST /mcp/memories/store` — body: `content` (or `text`) required (`<=32000` chars), optional `id`/`memory_id`/`key`, optional `metadata` object, optional `tags` (max 32, each `<=64` chars). Returns `status` `created` | `updated` | `unchanged` and `memory` payload.
@@ -80,6 +94,7 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 ### MCP stream endpoint
 - `GET /mcp` — probe endpoint; returns 405 (`Allow: POST`).
 - `POST /mcp` — JSON-RPC 2.0 endpoint (single or batch). Methods include `initialize`, `tools/list`, `tools/call`, `resources/templates/list`, `resources/list`, `resources/read`, `resources/create`, `resources/update`, `resources/delete`, and aliases (`tools.list`, `resources.list`, etc.).
+- When the Projects module is enabled, `tools/list` also advertises `project_list`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, and `project_feedback_create`; resources add `project://{slug}` templates plus concrete project resources.
 - Origin checks apply via `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Disallowed origins return 403.
 
 ### Wrapper
@@ -156,7 +171,8 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
   - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
   - `POST /admin/chatgpt/usage/refresh`
 - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
-- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
+- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. When the Projects module is enabled, the list includes the managed `coco` skill and direct store/delete attempts against that slug are rejected.
+- Projects module: `GET /admin/projects/state`, `POST /admin/projects/state`, `GET /admin/projects/feedback`, `GET /admin/projects`, `POST /admin/projects`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes mirroring the host `/projects` surface.
 - Agents: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
 - MCP memories: `GET /admin/mcp/memories`, `DELETE /admin/mcp/memories/{id}` (numeric record id).
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.

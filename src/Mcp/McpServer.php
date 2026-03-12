@@ -5,16 +5,31 @@ declare(strict_types=1);
 namespace App\Mcp;
 
 use App\Services\MemoryService;
+use App\Services\ProjectCoordinationService;
 use InvalidArgumentException;
 
 class McpServer
 {
     public const TOOL_NAME_PATTERN = '/^[a-zA-Z0-9_-]+$/';
 
+    private readonly MemoryService $memories;
+    private readonly ?ProjectCoordinationService $projects;
+    private readonly ?string $root;
+
     public function __construct(
-        private readonly MemoryService $memories,
-        private readonly ?string $root = null
+        MemoryService $memories,
+        ProjectCoordinationService|string|null $projectsOrRoot = null,
+        ?string $root = null
     ) {
+        $this->memories = $memories;
+        if (is_string($projectsOrRoot) && $root === null) {
+            $this->projects = null;
+            $this->root = $projectsOrRoot;
+            return;
+        }
+
+        $this->projects = $projectsOrRoot instanceof ProjectCoordinationService ? $projectsOrRoot : null;
+        $this->root = $root;
     }
 
     /**
@@ -67,6 +82,9 @@ class McpServer
                 'memory_append' => ['resource_id' => $scalar, 'text' => ''],
                 'memory_query' => ['resource_id' => $scalar, 'query' => ''],
                 'memory_list' => ['resource_id' => $scalar],
+                'project_detail' => ['slug' => $scalar],
+                'project_bootstrap' => ['slug' => $scalar],
+                'project_changes' => ['slug' => $scalar],
                 'resource_read' => ['uri' => $scalar],
                 'resource_create' => ['uri' => $scalar],
                 'resource_update' => ['uri' => $scalar],
@@ -89,6 +107,17 @@ class McpServer
             'memory_append' => $this->memoryAppend($args, $host),
             'memory_query' => $this->memoryQuery($args, $host),
             'memory_list' => $this->memoryList($args, $host),
+            'project_list' => $this->projectList($host),
+            'project_detail' => $this->projectDetailTool($args, $host),
+            'project_bootstrap' => $this->projectBootstrapTool($args, $host),
+            'project_changes' => $this->projectChangesTool($args, $host),
+            'project_note_upsert' => $this->projectNoteUpsertTool($args, $host),
+            'project_todo_create' => $this->projectTodoCreateTool($args, $host),
+            'project_todo_update' => $this->projectTodoUpdateTool($args, $host),
+            'project_todo_done' => $this->projectTodoDoneTool($args, $host, true),
+            'project_todo_undone' => $this->projectTodoDoneTool($args, $host, false),
+            'project_file_upsert' => $this->projectFileUpsertTool($args, $host),
+            'project_feedback_create' => $this->projectFeedbackCreateTool($args, $host),
             'resource_read' => $this->readResourceTool($args, $host),
             'resource_create' => $this->createResourceTool($args, $host),
             'resource_update' => $this->updateResourceTool($args, $host),
@@ -97,7 +126,12 @@ class McpServer
             default => throw new McpToolNotFoundException($name),
         };
 
-        if (str_starts_with($normalized, 'memory_') || str_starts_with($normalized, 'fs_') || str_starts_with($normalized, 'resource_')) {
+        if (
+            str_starts_with($normalized, 'memory_')
+            || str_starts_with($normalized, 'fs_')
+            || str_starts_with($normalized, 'resource_')
+            || str_starts_with($normalized, 'project_')
+        ) {
             return $this->wrapContent($result);
         }
 
@@ -126,7 +160,7 @@ class McpServer
      */
     private function definitions(): array
     {
-        return [
+        $definitions = [
             'memory_store' => [
                 'description' => 'Store MCP memory content with optional tags and metadata',
                 'inputSchema' => [
@@ -315,6 +349,136 @@ class McpServer
                 ],
             ],
         ];
+
+        if ($this->projectsEnabled()) {
+            $definitions['project_list'] = [
+                'description' => 'List available shared projects',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => new \stdClass(),
+                ],
+            ];
+            $definitions['project_detail'] = [
+                'description' => 'Read full shared project state',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug'],
+                ],
+            ];
+            $definitions['project_bootstrap'] = [
+                'description' => 'Read compact shared project bootstrap context',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug'],
+                ],
+            ];
+            $definitions['project_changes'] = [
+                'description' => 'List project changes since a sequence number',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'since' => ['type' => 'integer'],
+                    ],
+                    'required' => ['slug'],
+                ],
+            ];
+            $definitions['project_note_upsert'] = [
+                'description' => 'Create or update a project note',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'id' => ['type' => 'integer'],
+                        'header' => ['type' => 'string'],
+                        'body' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug', 'header', 'body'],
+                ],
+            ];
+            $definitions['project_todo_create'] = [
+                'description' => 'Create a project todo item',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'title' => ['type' => 'string'],
+                        'detail' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug', 'title'],
+                ],
+            ];
+            $definitions['project_todo_update'] = [
+                'description' => 'Update a project todo item',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'id' => ['type' => 'integer'],
+                        'title' => ['type' => 'string'],
+                        'detail' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug', 'id', 'title'],
+                ],
+            ];
+            $definitions['project_todo_done'] = [
+                'description' => 'Mark a project todo as done',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'id' => ['type' => 'integer'],
+                    ],
+                    'required' => ['slug', 'id'],
+                ],
+            ];
+            $definitions['project_todo_undone'] = [
+                'description' => 'Mark a project todo as not done',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'id' => ['type' => 'integer'],
+                    ],
+                    'required' => ['slug', 'id'],
+                ],
+            ];
+            $definitions['project_file_upsert'] = [
+                'description' => 'Create or update a shared project file/artifact',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'stored_name' => ['type' => 'string'],
+                        'description' => ['type' => 'string'],
+                        'content' => ['type' => 'string'],
+                        'mime_type' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug', 'stored_name', 'content'],
+                ],
+            ];
+            $definitions['project_feedback_create'] = [
+                'description' => 'Create a project feedback entry for later triage',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'type' => ['type' => 'string'],
+                        'title' => ['type' => 'string'],
+                        'body' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug', 'type', 'title', 'body'],
+                ],
+            ];
+        }
+
+        return $definitions;
     }
 
     /**
@@ -324,7 +488,7 @@ class McpServer
      */
     public function listResourceTemplates(): array
     {
-        return [
+        $templates = [
             [
                 'name' => 'memory_by_id',
                 'description' => 'Read a stored memory by id/key',
@@ -356,6 +520,24 @@ class McpServer
                 ],
             ],
         ];
+
+        if ($this->projectsEnabled()) {
+            $templates[] = [
+                'name' => 'project_bootstrap',
+                'description' => 'Read compact shared project bootstrap context',
+                'uriTemplate' => 'project://{slug}',
+                'mimeType' => 'application/json',
+                'arguments' => [
+                    [
+                        'name' => 'slug',
+                        'description' => 'Project slug',
+                        'required' => true,
+                    ],
+                ],
+            ];
+        }
+
+        return $templates;
     }
 
     /**
@@ -380,6 +562,12 @@ class McpServer
                 'description' => $this->truncateDescription($row['content'] ?? ''),
                 'mimeType' => 'text/plain',
             ];
+        }
+
+        if ($this->projectsEnabled()) {
+            foreach ($this->projects?->projectResourceList($host) ?? [] as $resource) {
+                $resources[] = $resource;
+            }
         }
 
         return $resources;
@@ -485,6 +673,17 @@ class McpServer
      */
     public function readResource(string $uri, array $host): array
     {
+        $projectSlug = $this->parseProjectUri($uri);
+        if ($projectSlug !== null) {
+            if (!$this->projectsEnabled()) {
+                throw new InvalidArgumentException('Project coordination is disabled');
+            }
+
+            return $this->projects?->projectResourceRead($projectSlug, $host) ?? [
+                'contents' => [],
+            ];
+        }
+
         $id = $this->parseMemoryUri($uri);
         if ($id === null) {
             throw new InvalidArgumentException('Unsupported resource URI: ' . $uri);
@@ -516,6 +715,11 @@ class McpServer
         return 'memory://' . rawurlencode($id);
     }
 
+    private function projectUri(string $slug): string
+    {
+        return 'project://' . rawurlencode($slug);
+    }
+
     private function parseMemoryUri(string $uri): ?string
     {
         $prefix = 'memory://';
@@ -526,6 +730,17 @@ class McpServer
         $id = substr($uri, strlen($prefix));
         $decoded = rawurldecode($id);
         return $decoded === '' ? null : $decoded;
+    }
+
+    private function parseProjectUri(string $uri): ?string
+    {
+        $prefix = 'project://';
+        if (!str_starts_with($uri, $prefix)) {
+            return null;
+        }
+
+        $slug = rawurldecode(substr($uri, strlen($prefix)));
+        return $slug === '' ? null : $slug;
     }
 
     private function extractTextContent(array $params): ?string
@@ -1066,6 +1281,103 @@ class McpServer
 
         return $result;
     }
+
+    private function projectList(array $host): array
+    {
+        if (!$this->projectsEnabled()) {
+            throw new InvalidArgumentException('Project coordination is disabled');
+        }
+
+        return $this->projects?->listProjects($host) ?? ['projects' => []];
+    }
+
+    private function projectDetailTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        return $this->projects?->projectDetail($slug, $host) ?? [];
+    }
+
+    private function projectBootstrapTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        return $this->projects?->bootstrap($slug, $host) ?? [];
+    }
+
+    private function projectChangesTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        $since = isset($params['since']) && is_numeric($params['since']) ? max(0, (int) $params['since']) : 0;
+
+        return $this->projects?->listChanges($slug, $since, $host) ?? [];
+    }
+
+    private function projectNoteUpsertTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        $id = isset($params['id']) && is_numeric($params['id']) ? (int) $params['id'] : null;
+
+        return $this->projects?->upsertNote($slug, $id, $params, $host) ?? [];
+    }
+
+    private function projectTodoCreateTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        return $this->projects?->createTodo($slug, $params, $host) ?? [];
+    }
+
+    private function projectTodoUpdateTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        $id = isset($params['id']) && is_numeric($params['id']) ? (int) $params['id'] : 0;
+        if ($id <= 0) {
+            throw new InvalidArgumentException('id is required');
+        }
+
+        return $this->projects?->updateTodo($slug, $id, $params, $host) ?? [];
+    }
+
+    private function projectTodoDoneTool(array $params, array $host, bool $done): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        $id = isset($params['id']) && is_numeric($params['id']) ? (int) $params['id'] : 0;
+        if ($id <= 0) {
+            throw new InvalidArgumentException('id is required');
+        }
+
+        return $this->projects?->setTodoDone($slug, $id, $done, $host) ?? [];
+    }
+
+    private function projectFileUpsertTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        return $this->projects?->upsertFile($slug, $params, $host) ?? [];
+    }
+
+    private function projectFeedbackCreateTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+        return $this->projects?->createFeedback($slug, $params, $host) ?? [];
+    }
+
+    private function requireProjectSlug(array $params): string
+    {
+        $slug = $this->normalizeString($params['slug'] ?? ($params['project'] ?? null));
+        if ($slug === null) {
+            throw new InvalidArgumentException('slug is required');
+        }
+
+        if (!$this->projectsEnabled()) {
+            throw new InvalidArgumentException('Project coordination is disabled');
+        }
+
+        return $slug;
+    }
+
+    private function projectsEnabled(): bool
+    {
+        return $this->projects !== null && (($this->projects->adminState()['enabled'] ?? false) === true);
+    }
+
     private function normalizeString(mixed $value): ?string
     {
         if (!is_string($value)) {

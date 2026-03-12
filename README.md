@@ -32,10 +32,12 @@ If you only use Codex on one laptop, this is probably overkill.
 - Host installer and wrapper: per-host API keys baked into the `cdx` script; secure hosts can launch from cached auth during API outages (fresh window: 24h, secure fallback: 7d); insecure hosts purge auth after each run and require an open insecure window.
 - Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
 - Prompt and Skill distribution: slash commands (prompts) and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.agents/skills/`; AGENTS.md is canonical too.
+- Native project coordination: optional Projects module adds shared notes, todos, files, feedback, and append-only change history for cross-agent work.
+- Managed CoCo skill rollout: enabling the Projects module auto-publishes a managed `coco` skill to Codex clients through the normal Skill sync flow.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.4 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from the server-managed wrapper artifact (`/wrapper/download`).
 - Dashboards and API: admin API defaults to mTLS access (`ADMIN_ACCESS_MODE=mtls`) and supports userless bootstrap until the first active admin user; HTTP API for automation.
-- MCP server: native HTTP MCP endpoint (`/mcp`) with memory/resource/file tools; baked into managed `config.toml` entries.
+- MCP server: native HTTP MCP endpoint (`/mcp`) with memory/resource/file tools plus project tools/resources when the Projects module is enabled; baked into managed `config.toml` entries.
 
 ## See it in action
 ![Admin dashboard overview](docs/img/dashboard_1.png)
@@ -83,6 +85,7 @@ cdx --uninstall
 - Wrapper metadata/download: `GET /wrapper`, `GET /wrapper/download`
 - Startup bundled sync: `POST /sync/status`, `POST /sync/bootstrap`
 - Sync endpoints (legacy/fallback + push): `GET /slash-commands`, `POST /slash-commands/retrieve`, `POST /slash-commands/store`, `GET /skills`, `POST /skills/retrieve`, `POST /skills/store`, `POST /agents/retrieve`, `POST /config/retrieve`
+- Projects coordination (when enabled): `GET /projects`, `POST /projects`, `GET /projects/{slug}`, `GET /projects/{slug}/bootstrap`, `GET /projects/{slug}/changes`, plus note/todo/file/feedback subroutes
 - Telemetry + host state: `POST /usage`, `POST /host/users`, `GET /host/lane`, `POST /host/lane`
 - MCP: `GET /mcp`, `POST /mcp`, plus `/mcp/memories/*` helpers
 - Version snapshot: `GET /versions` (unauthenticated while API kill switch is off)

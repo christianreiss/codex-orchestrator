@@ -7,6 +7,7 @@ use App\Mcp\McpToolNotFoundException;
 use App\Repositories\LogRepository;
 use App\Repositories\MemoryRepository;
 use App\Services\MemoryService;
+use App\Services\ProjectCoordinationService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -103,6 +104,137 @@ final class SpyMemoryService extends MemoryService
         }
 
         return ['status' => 'deleted', 'id' => $payload['id'] ?? null];
+    }
+}
+
+final class SpyProjectCoordinationService extends ProjectCoordinationService
+{
+    public string $lastMethod = '';
+    public array $lastArgs = [];
+
+    public function __construct()
+    {
+    }
+
+    public function adminState(): array
+    {
+        return ['enabled' => true];
+    }
+
+    public function listProjects(?array $host = null): array
+    {
+        $this->lastMethod = 'listProjects';
+        $this->lastArgs = [$host];
+
+        return [
+            'projects' => [
+                ['slug' => 'apollo', 'title' => 'Apollo', 'description' => 'Moonshot'],
+            ],
+        ];
+    }
+
+    public function projectDetail(string $slug, ?array $host = null): array
+    {
+        $this->lastMethod = 'projectDetail';
+        $this->lastArgs = [$slug, $host];
+
+        return ['project' => ['slug' => $slug]];
+    }
+
+    public function bootstrap(string $slug, ?array $host = null): array
+    {
+        $this->lastMethod = 'bootstrap';
+        $this->lastArgs = [$slug, $host];
+
+        return ['project' => $slug, 'latest_seq' => 4];
+    }
+
+    public function listChanges(string $slug, int $since = 0, ?array $host = null): array
+    {
+        $this->lastMethod = 'listChanges';
+        $this->lastArgs = [$slug, $since, $host];
+
+        return ['project' => $slug, 'since' => $since, 'changes' => []];
+    }
+
+    public function upsertNote(string $slug, ?int $id, array $payload, ?array $host = null): array
+    {
+        $this->lastMethod = 'upsertNote';
+        $this->lastArgs = [$slug, $id, $payload, $host];
+
+        return ['project' => $slug, 'note' => ['id' => $id ?? 1] + $payload];
+    }
+
+    public function createTodo(string $slug, array $payload, ?array $host = null): array
+    {
+        $this->lastMethod = 'createTodo';
+        $this->lastArgs = [$slug, $payload, $host];
+
+        return ['project' => $slug, 'todo' => ['id' => 1] + $payload];
+    }
+
+    public function updateTodo(string $slug, int $id, array $payload, ?array $host = null): array
+    {
+        $this->lastMethod = 'updateTodo';
+        $this->lastArgs = [$slug, $id, $payload, $host];
+
+        return ['project' => $slug, 'todo' => ['id' => $id] + $payload];
+    }
+
+    public function setTodoDone(string $slug, int $id, bool $done, ?array $host = null): array
+    {
+        $this->lastMethod = 'setTodoDone';
+        $this->lastArgs = [$slug, $id, $done, $host];
+
+        return ['project' => $slug, 'todo' => ['id' => $id, 'done' => $done]];
+    }
+
+    public function upsertFile(string $slug, array $payload, ?array $host = null): array
+    {
+        $this->lastMethod = 'upsertFile';
+        $this->lastArgs = [$slug, $payload, $host];
+
+        return ['project' => $slug, 'file' => ['id' => 1] + $payload];
+    }
+
+    public function createFeedback(string $slug, array $payload, ?array $host = null): array
+    {
+        $this->lastMethod = 'createFeedback';
+        $this->lastArgs = [$slug, $payload, $host];
+
+        return ['project' => $slug, 'feedback' => ['id' => 1] + $payload];
+    }
+
+    public function projectResourceList(?array $host = null): array
+    {
+        $this->lastMethod = 'projectResourceList';
+        $this->lastArgs = [$host];
+
+        return [
+            [
+                'uri' => 'project://apollo',
+                'name' => 'Apollo',
+                'description' => 'Moonshot',
+                'mimeType' => 'application/json',
+            ],
+        ];
+    }
+
+    public function projectResourceRead(string $slug, ?array $host = null): array
+    {
+        $this->lastMethod = 'projectResourceRead';
+        $this->lastArgs = [$slug, $host];
+
+        return [
+            'contents' => [
+                [
+                    'uri' => 'project://' . $slug,
+                    'name' => $slug,
+                    'mimeType' => 'application/json',
+                    'text' => json_encode(['project' => $slug], JSON_THROW_ON_ERROR),
+                ],
+            ],
+        ];
     }
 }
 
@@ -478,5 +610,42 @@ final class McpServerTest extends TestCase
         $list = $server->dispatch('resource_list', [], ['id' => 1]);
         $decoded = json_decode($list['content'][0]['text'] ?? '[]', true, flags: JSON_THROW_ON_ERROR);
         $this->assertCount(1, $decoded);
+    }
+
+    public function testListToolsIncludesProjectToolsWhenModuleEnabled(): void
+    {
+        $server = new McpServer(new SpyMemoryService(), new SpyProjectCoordinationService());
+
+        $tools = $server->listTools();
+        $names = array_map(static fn (array $tool): string => $tool['name'], $tools);
+
+        $this->assertContains('project_list', $names);
+        $this->assertContains('project_bootstrap', $names);
+        $this->assertContains('project_note_upsert', $names);
+    }
+
+    public function testDispatchProjectBootstrapUsesProjectService(): void
+    {
+        $projects = new SpyProjectCoordinationService();
+        $server = new McpServer(new SpyMemoryService(), $projects);
+
+        $result = $server->dispatch('project_bootstrap', ['slug' => 'apollo'], ['id' => 5]);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('bootstrap', $projects->lastMethod);
+        $this->assertSame(['apollo', ['id' => 5]], $projects->lastArgs);
+        $this->assertSame('apollo', $decoded['project']);
+    }
+
+    public function testReadResourceSupportsProjectUri(): void
+    {
+        $projects = new SpyProjectCoordinationService();
+        $server = new McpServer(new SpyMemoryService(), $projects);
+
+        $result = $server->readResource('project://apollo', ['id' => 7]);
+
+        $this->assertSame('projectResourceRead', $projects->lastMethod);
+        $this->assertSame(['apollo', ['id' => 7]], $projects->lastArgs);
+        $this->assertSame('project://apollo', $result['contents'][0]['uri']);
     }
 }

@@ -3065,14 +3065,16 @@
 
       skillsTbody.innerHTML = currentSkills.map((skill) => {
         const retired = skill.deleted_at ? '<span class="muted">(retired)</span>' : '';
+        const managed = skill.managed ? '<span class="muted">(managed)</span>' : '';
+        const managedDisabled = skill.managed ? 'disabled title="Managed by the Projects module"' : '';
         return `<tr>
-          <td data-label="Slug"><code>${skill.slug}</code> ${retired}</td>
+          <td data-label="Slug"><code>${skill.slug}</code> ${retired} ${managed}</td>
           <td data-label="Display name">${(skill.display_name || '—').replace(/</g, '&lt;')}</td>
           <td data-label="Description">${(skill.description || '—').replace(/</g, '&lt;')}</td>
           <td data-label="Actions">
             <div class="table-actions">
-              <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}">Edit</button>
-              <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : ''}>Delete</button>
+              <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}" ${managedDisabled}>Edit</button>
+              <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : managedDisabled}>Delete</button>
             </div>
           </td>
         </tr>`;
@@ -3128,7 +3130,7 @@
       if (skillModalSubtitle) {
         skillModalSubtitle.textContent = isEdit
           ? `Updating ${slugLabel || 'this skill'} for every host in the fleet.`
-          : 'One manifest syncs across ~/.codex/skills on every host.';
+          : 'One manifest syncs across ~/.agents/skills on every host.';
       }
       if (skillSave) {
         skillSave.textContent = isEdit ? 'Save changes' : 'Save';
@@ -3146,7 +3148,7 @@
       if (skillSlugNote) {
         skillSlugNote.innerHTML = isEdit
           ? 'Slug is locked during edit. Use <strong>New</strong> to create a separate skill.'
-          : 'Becomes <code>~/.codex/skills/&lt;slug&gt;/SKILL.md</code>.';
+          : 'Becomes <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code>.';
       }
     }
 
@@ -3664,6 +3666,7 @@
       'settings-general',
       'prompts',
       'skills',
+      'projects',
       'agents',
       'memories',
     ]);
@@ -3692,6 +3695,7 @@
     ]);
     const PROMPT_LIVE_ACTIONS = new Set(['slash.store', 'slash.delete']);
     const SKILL_LIVE_ACTIONS = new Set(['skill.store', 'skill.delete']);
+    const PROJECT_LIVE_PREFIXES = ['project.', 'admin.project.'];
     const AGENTS_LIVE_ACTIONS = new Set(['agents.store', 'agents.delete']);
     const MEMORY_LIVE_ACTIONS = new Set([
       'memory.store',
@@ -3721,6 +3725,10 @@
 
       if (SKILL_LIVE_ACTIONS.has(normalized)) {
         domains.add('skills');
+      }
+
+      if (PROJECT_LIVE_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+        domains.add('projects');
       }
 
       if (AGENTS_LIVE_ACTIONS.has(normalized) || normalized === 'admin.host.agents_version_override') {
@@ -7866,6 +7874,7 @@
           panelEl.hidden = tab !== settingsTab;
         });
         if (settingsTab === 'profiles' && window.__initProfiles) window.__initProfiles();
+        if (settingsTab === 'projects' && window.__initProjects) window.__initProjects();
         if (settingsTab === 'skills') {
           renderSkills(currentSkills);
         }

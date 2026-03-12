@@ -1,6 +1,6 @@
 # MCP Server
 
-Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts.
+Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill.
 
 ## Endpoints
 
@@ -33,9 +33,11 @@ Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts.
 - Memory: `memory_store`, `memory_retrieve`, `memory_search`, `memory_append`, `memory_query`, `memory_list`.
 - Filesystem (app root sandbox): `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`.
 - Resource tools: `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
+- Projects module enabled: `project_list`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, `project_feedback_create`.
 - Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
-- `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`).
+- `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
 - Memory/FS/resource tool responses are wrapped in `CallToolResult.content` blocks.
+- `resources/list` always includes recent `memory://...` resources for the caller; when the Projects module is enabled it also includes concrete `project://{slug}` resources for each active shared project.
 
 ## Example JSON-RPC call
 
@@ -48,6 +50,20 @@ curl -s "$BASE/mcp" \
     "id":1,
     "method":"tools/call",
     "params":{"name":"memory_store","arguments":{"content":"note from mcp doc"}}
+  }' | jq .
+```
+
+Project bootstrap example when the module is enabled:
+
+```bash
+curl -s "$BASE/mcp" \
+  -H "Authorization: Bearer $HOST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":2,
+    "method":"tools/call",
+    "params":{"name":"project_bootstrap","arguments":{"slug":"apollo"}}
   }' | jq .
 ```
 
@@ -72,5 +88,6 @@ curl -s "$BASE/mcp/memories/search" \
 ## Client hints
 
 - `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"`, static `Authorization` header, and `startup_timeout_sec = 30`.
+- When the Projects module is enabled, the normal Skills sync also ships a managed `coco` skill that assumes these `project_*` MCP tools/resources are available; no extra wrapper-side project sync path is needed.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

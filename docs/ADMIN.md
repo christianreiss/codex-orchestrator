@@ -87,6 +87,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).
   - Reverse DNS global flag: `GET/POST /admin/reverse-dns` (`settings.manage` for POST).
   - Insecure-approval global flag: `GET/POST /admin/insecure-approval` (`settings.manage` for POST).
+  - Projects module: `GET/POST /admin/projects/state` (`settings.manage` for POST). Enabling it also publishes the managed `coco` skill to hosts through the normal Skills sync.
   - Quota mode: `GET/POST /admin/quota-mode` (`settings.manage` for POST).
     - `hard_fail` boolean.
     - `limit_percent` normalized to `50..100` (default `100`).
@@ -109,7 +110,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - MCP logs: `GET /admin/mcp/logs` (`limit`, repository clamps to `1..500`).
 - **Content Sync Surfaces**:
   - Slash commands: `GET /admin/slash-commands`, `GET /admin/slash-commands/{filename}`, `POST /admin/slash-commands/store`, `DELETE /admin/slash-commands/{filename}`.
-  - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`.
+  - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. When Projects is enabled, the managed `coco` skill appears here as read-only and cannot be overwritten/deleted directly.
+  - Projects: `GET /admin/projects`, `POST /admin/projects`, `GET /admin/projects/feedback`, `GET/POST /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes, and `GET/POST /admin/projects/state`.
   - AGENTS docs: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
   - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
   - MCP memories: `GET /admin/mcp/memories` (`limit` clamped `1..200`), `DELETE /admin/mcp/memories/{id}`.
@@ -123,6 +125,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - **Onboard host**: `POST /admin/hosts/register` -> run returned installer command.
 - **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
 - **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` -> execute generated `curl | bash`.
+- **Enable shared project coordination**: `POST /admin/projects/state` with `{"enabled":true}`.
+- **Create a shared project**: `POST /admin/projects` with `slug`, optional `about`, and optional `roster_markdown`.
 - **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.
 - **Force runner validation now**: `POST /admin/runner/run`.
 - **Freeze/unfreeze fleet codex version**: `POST /admin/codex-version` with `selection` (`latest` or pinned semver).
@@ -136,6 +140,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - Insecure approval queue is only offered when both conditions are true:
   - `insecure_approval_enabled` flag is on.
   - WebSocket presence is fresh (`admin_ws_connections` heartbeat window).
+- The Projects module is deliberately native to codex-orchestrator: its admin surface lives under Settings → Projects, and the managed `coco` skill is derived from module state instead of being edited like a normal Skill row.
 - Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
 - Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).
 - Pricing fallback path when remote pricing is unavailable: prefer `GPT54_INPUT_PER_1K`, `GPT54_OUTPUT_PER_1K`, `GPT54_CACHED_PER_1K`, `PRICING_CURRENCY`; legacy `GPT51_*` vars are still accepted when the new ones are unset.

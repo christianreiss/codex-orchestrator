@@ -28,4 +28,27 @@ final class CdxWrapperSkillFormatTest extends TestCase
             'Wrapper should no longer use the legacy ~/.codex/skills path.'
         );
     }
+
+    public function testWrapperKeepsManagedSkillsReadOnlyDuringPushSync(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString(
+            'if skill.get("managed"):',
+            $wrapperSource,
+            'Managed skill metadata should be preserved in the skill baseline.'
+        );
+        self::assertStringContainsString(
+            'if baseline_managed(baseline_entry):',
+            $wrapperSource,
+            'Managed skills should be skipped during wrapper-side skill push.'
+        );
+        self::assertStringContainsString(
+            '{"sha": sha, "managed": True}',
+            $wrapperSource,
+            'Managed skill baseline entries should keep both sha and managed metadata.'
+        );
+    }
 }

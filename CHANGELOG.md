@@ -1,3 +1,9 @@
+# 2026-03-12
+- Projects/CoCo module: added a native shared-project coordination module with admin + host REST routes under `/admin/projects*` and `/projects*`, covering project creation, about/roster updates, shared notes, todos, files, feedback, and append-only activity history.
+- MCP + client rollout: `/mcp` now exposes project-aware tools/resources (`project_*`, `project://{slug}`) when the module is enabled, and enabling the module auto-publishes a managed `coco` skill to Codex clients through the normal Skills sync path.
+- cdx wrapper: managed project skills now keep `managed` metadata in the Skill baseline and are skipped during wrapper-side `/skills/store` pushback, so the auto-deployed `coco` skill stays read-only on clients without generating noisy sync errors. Wrapper bumped to `2026.03.12-01`.
+- Admin/UI/docs/tests: added a Projects settings panel with module toggle and project editors, marked the managed `coco` skill read-only in the Skills UI, corrected Skill sync copy to `~/.agents/skills/<slug>/SKILL.md`, and refreshed API/admin/MCP/interface docs plus regression coverage.
+
 # 2026-03-11
 - Config builder/model default: switched new top-level config drafts and new profile drafts from `gpt-5.3-codex` to `gpt-5.4`, cache-bumped both admin builder assets, and refreshed the config-builder docs/example payloads.
 - Config builder/default matrix: changed the fleet config defaults so only `apps` and `multi_agent` stay on by default, while `guardian_approval`, `js_repl`, `use_linux_sandbox_bwrap`, and `prevent_idle_sleep` now start off until explicitly enabled; cache-bumped the admin config builder asset and refreshed docs/tests.

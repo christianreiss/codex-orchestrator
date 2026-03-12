@@ -311,6 +311,17 @@ def save_baseline(skills: dict):
         pass
 
 
+def normalize_sha(value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    if len(value) != 64:
+        return None
+    if any(ch not in "0123456789abcdef" for ch in value):
+        return None
+    return value
+
+
 def extract_metadata(content: str):
     display_name = None
     description = None
@@ -431,9 +442,23 @@ if mode == "pull":
             errors += 1
 
     updated_local = load_local()
-    baseline = {name: entry["sha"] for name, entry in updated_local.items()}
-    remote_names = {skill["slug"] for skill in skills if isinstance(skill, dict) and skill.get("slug") and not skill.get("deleted_at")}
-    filtered_baseline = {name: sha for name, sha in baseline.items() if name in remote_names}
+    filtered_baseline = {}
+    for skill in skills:
+        if not isinstance(skill, dict):
+            continue
+        slug = skill.get("slug")
+        if not isinstance(slug, str) or slug.strip() == "" or skill.get("deleted_at"):
+            continue
+        local_entry = updated_local.get(slug)
+        if not isinstance(local_entry, dict):
+            continue
+        sha = normalize_sha(local_entry.get("sha"))
+        if sha is None:
+            continue
+        if skill.get("managed"):
+            filtered_baseline[slug] = {"sha": sha, "managed": True}
+        else:
+            filtered_baseline[slug] = sha
     save_baseline(filtered_baseline)
     print(
         "ok "
@@ -456,10 +481,23 @@ if mode == "push":
     if not isinstance(baseline_data, dict):
         baseline_data = {}
 
+    def baseline_sha(entry):
+        if isinstance(entry, str):
+            return normalize_sha(entry)
+        if isinstance(entry, dict):
+            return normalize_sha(entry.get("sha") or entry.get("sha256"))
+        return None
+
+    def baseline_managed(entry):
+        return isinstance(entry, dict) and bool(entry.get("managed"))
+
     current = load_local(include_content=True)
     changes = []
     for slug, entry in current.items():
-        if baseline_data.get(slug) != entry.get("sha"):
+        baseline_entry = baseline_data.get(slug)
+        if baseline_managed(baseline_entry):
+            continue
+        if baseline_sha(baseline_entry) != entry.get("sha"):
             changes.append(entry)
 
     if not changes:
@@ -497,7 +535,13 @@ if mode == "push":
             errors += 1
 
     if errors == 0:
-        latest_baseline = {name: entry["sha"] for name, entry in current.items()}
+        latest_baseline = {}
+        for name, entry in current.items():
+            baseline_entry = baseline_data.get(name)
+            if baseline_managed(baseline_entry):
+                latest_baseline[name] = {"sha": entry["sha"], "managed": True}
+            else:
+                latest_baseline[name] = entry["sha"]
         save_baseline(latest_baseline)
 
     print(
@@ -1033,7 +1077,10 @@ def write_skill_baseline(remote):
                 continue
             if sha is None:
                 continue
-            data[slug] = sha
+            if entry.get("managed"):
+                data[slug] = {"sha": sha, "managed": True}
+            else:
+                data[slug] = sha
     try:
         skill_baseline.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(skill_baseline, json.dumps(data, indent=2) + "\n")

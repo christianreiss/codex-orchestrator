@@ -17,13 +17,23 @@ class SkillService
 {
     public function __construct(
         private readonly SkillRepository $skills,
-        private readonly LogRepository $logs
+        private readonly LogRepository $logs,
+        private readonly ?ProjectModuleService $projectModule = null
     ) {
     }
 
     public function listSkills(?array $host = null, bool $includeDeleted = false): array
     {
         $rows = $this->skills->all($includeDeleted);
+        $managed = $this->managedSkill();
+        if ($managed !== null) {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => (string) ($row['slug'] ?? '') !== ProjectModuleService::MANAGED_SKILL_SLUG
+            ));
+            $rows[] = $managed;
+            usort($rows, static fn (array $a, array $b): int => strcmp((string) ($a['slug'] ?? ''), (string) ($b['slug'] ?? '')));
+        }
         $this->logs->log($this->hostId($host), 'skill.list', ['count' => count($rows)]);
 
         return $rows;
@@ -34,7 +44,7 @@ class SkillService
         $normalized = $this->normalizeSlug($slug);
         $this->assertSha256($sha256, true);
 
-        $row = $this->skills->findBySlug($normalized);
+        $row = $this->resolveSkill($normalized);
         $hostId = $this->hostId($host);
 
         if ($row === null) {
@@ -92,7 +102,7 @@ class SkillService
     public function find(string $slug): ?array
     {
         $normalized = $this->normalizeSlug($slug);
-        $row = $this->skills->findBySlug($normalized);
+        $row = $this->resolveSkill($normalized);
         if ($row === null) {
             return null;
         }
@@ -131,6 +141,9 @@ class SkillService
 
         $displayName = $displayNameRaw !== null ? trim((string) $displayNameRaw) : null;
         $description = $descriptionRaw !== null ? trim((string) $descriptionRaw) : null;
+        if ($this->isManagedSlug($slug)) {
+            throw new ValidationException(['slug' => ['slug is reserved for the managed project coordination skill']]);
+        }
 
         $sha = hash('sha256', $manifest);
         if ($providedSha !== null && !hash_equals($sha, (string) $providedSha)) {
@@ -170,6 +183,9 @@ class SkillService
     public function delete(string $slug, ?array $host = null): bool
     {
         $normalized = $this->normalizeSlug($slug);
+        if ($this->isManagedSlug($normalized)) {
+            throw new ValidationException(['slug' => ['managed project coordination skill cannot be deleted directly']]);
+        }
         $deleted = $this->skills->delete($normalized);
         $this->logs->log($this->hostId($host), 'skill.delete', [
             'slug' => $normalized,
@@ -224,5 +240,24 @@ class SkillService
     private function hostId(?array $host): ?int
     {
         return isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
+    }
+
+    private function resolveSkill(string $slug): ?array
+    {
+        if ($this->isManagedSlug($slug)) {
+            return $this->managedSkill();
+        }
+
+        return $this->skills->findBySlug($slug);
+    }
+
+    private function managedSkill(): ?array
+    {
+        return $this->projectModule?->managedSkill();
+    }
+
+    private function isManagedSlug(string $slug): bool
+    {
+        return $slug === ProjectModuleService::MANAGED_SKILL_SLUG && $this->managedSkill() !== null;
     }
 }

@@ -118,7 +118,7 @@ The installer does not run `cdx` automatically; run it here to sync/auth or to r
 The wrapper is the supported entrypoint because it:
 
 - Pulls/pushes canonical `auth.json` via `/auth`.
-- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.agents/skills/`) via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints).
+- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.agents/skills/`) via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Managed Skills such as the project-module `coco` skill stay read-only and are not pushed back to the server from the client.
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
 - Reports token usage back to `/usage` by parsing Codex stdout `Token usage` lines and POSTing single or batched entries; unparseable lines are sent as raw `line` only.
@@ -170,7 +170,7 @@ Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server
 - `~/.codex/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`).
 - `~/.codex/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
 - `~/.codex/prompts/` — slash commands synced from server startup sync (fallback `/slash-commands`); local edits push on exit when a baseline exists.
-- `~/.agents/skills/` — Skill manifests synced from server startup sync (fallback `/skills`); local edits push on exit when a baseline exists.
+- `~/.agents/skills/` — Skill manifests synced from server startup sync (fallback `/skills`); local edits push on exit when a baseline exists, except managed Skills such as the project-module `coco` skill.
 
 ## Secure vs insecure hosts (and why it matters)
 

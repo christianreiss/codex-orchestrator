@@ -2,7 +2,7 @@
 
 ## What it is
 
-Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships slash commands, Skills, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
+Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships slash commands, Skills, shared project coordination, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
 
 ## Primary use cases
 
@@ -29,18 +29,20 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth on scheduled preflight checks (default ~8h) and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (store uploads require a reachable runner; admin uploads bypass).
-- Extras ride the same API: slash-command + Skill distribution, MCP memories (store/retrieve/search), token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and GPT‑5.1 pricing pulls for dashboard costs.
+- Extras ride the same API: slash-command + Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and pricing pulls for dashboard costs.
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/slash/skills/agents/config/MCP/usage/pricing/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
+- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/slash/skills/projects/agents/config/MCP/usage/pricing/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`. If storage drift is detected but `storage/wrapper/cdx` is not writable, it serves bundled `bin/cdx` directly and logs a warning so stale wrappers are not served.
 - **`SlashCommandService`** — CRUD for prompts stored in MySQL, hashed by sha256, with delete markers for retirements.
+- **`ProjectModuleService`** — tracks whether native shared-project coordination is enabled and derives the managed `coco` skill manifest that ships to clients through the ordinary Skills sync surface.
+- **`ProjectCoordinationService`** — owns `/projects*` and `/admin/projects*`: project creation, about/roster edits, shared notes/todos/files/feedback, project resource exports for MCP, and append-only event history.
 - **`StartupSyncService`** — computes combined startup diffs/payloads for prompts, Skills, AGENTS.md, and config (`/sync/status`, `/sync/bootstrap`) so wrappers can reduce pre-run API fan-out.
 - **`AgentsService`** — stores versioned AGENTS.md editions, serves either the latest/pinned fleet version or a per-host pin, and feeds the admin editor + host sync.
-- **`MemoryService`** — MCP memory storage per host (content, tags, optional metadata) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`) and an admin browser + delete panel.
+- **`MemoryService` + `McpServer`** — MCP memory storage per host (content, tags, optional metadata) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`), filesystem/resource helpers, and optional project-aware MCP tools/resources (`project_*`, `project://{slug}`) when the Projects module is enabled.
 - **`ClientConfigService`** — renders/stores canonical `config.toml` from structured settings (sha + TOML body + saved builder payload) for the admin config page and wrapper sync; `/config/retrieve` bakes a per-host copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry.
 - **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly), capture both normal and Spark (`additional_rate_limits`) quota lanes, and fetch GPT‑5.1 pricing (HTTP or env fallback) for cost calculations.
 - **`UsageCostService` & `CostHistoryService`** — backfill missing costs in token usage rows/ingests (boot-gated by `RUN_BACKFILLS_ON_BOOT`) using the latest pricing snapshot, and expose up to 180 days of daily token + cost time series for dashboards.
@@ -48,7 +50,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated). Admin users and roles live in the Users panel; password reset endpoints are disabled.
 - Host management now uses dedicated host detail pages at `/admin/hosts/{id}` (Action Items, Features, Stats, Infos) instead of the legacy host detail modal.
 - **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; supports legacy `sbox:v1` plus key-id ciphertext for rotation.
-- **Admin websocket server (optional)** — `scripts/admin-ws.php` streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps `log.created` actions to targeted panel refreshes (overview/hosts/settings/prompts/skills/agents/memories/users/config/profiles) and falls back to overview+hosts for unknown actions.
+- **Admin websocket server (optional)** — `scripts/admin-ws.php` streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps `log.created` actions to targeted panel refreshes (overview/hosts/settings/prompts/skills/projects/agents/memories/users/config/profiles) and falls back to overview+hosts for unknown actions.
 
 ## How the flow works
 
@@ -71,6 +73,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - The wrapper exposes a short Spark-lane alias: `cdx ls` rewrites to `cdx lane spark` before normal lane/profile parsing, so it supports the same `--persist` and passthrough argument handling.
    - Help-only invocations (`cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help such as `cdx exec --help`) bypass wrapper startup noise and print only upstream Codex help text; the wrapper skips lock/sync/update/MOTD/footer work in that path.
    - Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (prompts/Skills/AGENTS/config in one flow). Older servers automatically fall back to legacy per-resource pull endpoints.
+   - When the Projects module is enabled, the managed `coco` skill is injected into that normal Skills sync flow; there is no separate wrapper-side project bootstrap pass.
    - `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: if auth is `missing`/`upload_required` and `auth_candidate` is provided, the server attempts an inline store and reports `auth_stored` (or `auth_*` reasons).
    - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` auto-checks/installs `curl`, `unzip`, and `script` (util-linux) before update/sync work using `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` (RHEL-family prefers `dnf` with `yum` fallback for legacy CentOS 7/8/9 compatibility). On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.
    - SSH terminals now use the same standard wrapper launch paths as local terminals (`script` PTY when available, Python `pty` fallback, then direct execution); `cdx doctor` reports SSH env hints, PTY state, and local Codex version for troubleshooting.
@@ -87,7 +90,8 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/host/lane` exposes/stores host lane preference (`normal|spark|null`) so wrappers can persist lane steering without admin login.
    - Host sync uses `/slash-commands` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync.
-   - Host sync uses `/skills` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync.
+   - Host sync uses `/skills` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync. When project coordination is enabled, this same path auto-ships the managed `coco` skill to clients.
+   - Shared project state itself is served live through `/projects*` and project-aware MCP tools/resources rather than through startup sync payloads.
 
 6) **Quotas and pricing**
    - ChatGPT quota snapshots are pulled from `/wham/usage` using canonical tokens (cooldown 5m, also usable via the `quota-cron` sidecar). Results are cached and surfaced on `/auth` responses and admin dashboards with dual-lane metadata: normal + Spark windows and active-lane hints.
@@ -106,7 +110,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 - Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). `host_auth_states` tracks what each host last saw; `host_auth_digests` caches up to 3 recent digests per host.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
-- Logs, token usages, slash commands, Skills, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
+- Logs, token usages, slash commands, Skills, project coordination tables, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
 
 ## Fleet workflow at a glance
 
@@ -115,6 +119,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - For each host: `New Host` → copy `curl …/install/{token} | bash` → run on the host. The wrapper bakes API key/FQDN/base URL and pulls canonical auth.
 - Host-side usage (how to run Codex via `cdx`, what files it manages, troubleshooting): see `docs/USAGE.md`.
 - Build/edit `config.toml` from `/admin/config.html`; saved output is synced by `cdx` to `~/.codex/config.toml` baked per host (managed HTTP MCP entry; secure hosts use the host API key, insecure hosts get a short-lived bearer). New builder drafts default to model `gpt-5.4`, `personality = "friendly"`, `[features].apps = true`, and `[features].multi_agent = true`; the admin builder keeps `guardian_approval`, `js_repl`, `prevent_idle_sleep`, and `use_linux_sandbox_bwrap` off until explicitly enabled. `status:missing` deletes the local copy. Legacy feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`) remain ingest-compatible but are dropped from rendered output.
+- Enable shared project coordination from Settings → Projects when you want multi-agent notes/todos/files/feedback; that toggle also auto-publishes the managed `coco` skill to `~/.agents/skills/coco/SKILL.md` on syncing clients.
 - Rotate tokens by updating the trusted machine’s `auth.json` and pushing again (dashboard upload or `/auth` store from any host with the new digest).
 - Decommission with dashboard delete or `cdx --uninstall` (calls `DELETE /auth`).
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Repositories\SkillRepository;
 use App\Repositories\LogRepository;
+use App\Services\ProjectModuleService;
 use App\Services\SkillService;
 use PHPUnit\Framework\TestCase;
 
@@ -92,6 +93,61 @@ final class NullLogRepositorySkill extends LogRepository
     }
 }
 
+final class FakeProjectModuleService extends ProjectModuleService
+{
+    public bool $enabled = true;
+
+    public function __construct()
+    {
+    }
+
+    public function isEnabled(): bool
+    {
+        return $this->enabled;
+    }
+
+    public function adminState(): array
+    {
+        return [
+            'enabled' => $this->enabled,
+            'updated_at' => '2026-03-12T10:00:00Z',
+            'managed_skill' => [
+                'slug' => self::MANAGED_SKILL_SLUG,
+                'display_name' => 'CoCo Projects',
+                'description' => 'Managed project coordination skill',
+            ],
+        ];
+    }
+
+    public function setEnabled(bool $enabled): array
+    {
+        $this->enabled = $enabled;
+
+        return $this->adminState();
+    }
+
+    public function managedSkill(): ?array
+    {
+        if (!$this->enabled) {
+            return null;
+        }
+
+        $manifest = "# Managed CoCo\n";
+
+        return [
+            'id' => null,
+            'slug' => self::MANAGED_SKILL_SLUG,
+            'sha256' => hash('sha256', $manifest),
+            'display_name' => 'CoCo Projects',
+            'description' => 'Managed project coordination skill',
+            'manifest' => $manifest,
+            'updated_at' => '2026-03-12T10:00:00Z',
+            'deleted_at' => null,
+            'managed' => true,
+        ];
+    }
+}
+
 final class SkillServiceTest extends TestCase
 {
     private InMemorySkillRepository $repository;
@@ -163,5 +219,29 @@ final class SkillServiceTest extends TestCase
         $this->assertTrue($deleted);
         $row = $this->repository->findBySlug('cleanup');
         $this->assertNotNull($row['deleted_at']);
+    }
+
+    public function testListSkillsIncludesManagedCocoSkillWhenProjectModuleEnabled(): void
+    {
+        $service = new SkillService($this->repository, $this->logs, new FakeProjectModuleService());
+
+        $skills = $service->listSkills();
+
+        $this->assertCount(1, $skills);
+        $this->assertSame('coco', $skills[0]['slug']);
+        $this->assertSame('CoCo Projects', $skills[0]['display_name']);
+        $this->assertArrayHasKey('managed', $skills[0]);
+    }
+
+    public function testStoreRejectsManagedCocoSkillSlugWhileProjectModuleEnabled(): void
+    {
+        $service = new SkillService($this->repository, $this->logs, new FakeProjectModuleService());
+
+        $this->expectException(\App\Exceptions\ValidationException::class);
+
+        $service->store([
+            'slug' => 'coco',
+            'manifest' => '# custom',
+        ], null);
     }
 }

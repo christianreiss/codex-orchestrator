@@ -36,6 +36,12 @@ use App\Repositories\TokenUsageRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\VersionRepository;
 use App\Repositories\PricingSnapshotRepository;
+use App\Repositories\ProjectEventRepository;
+use App\Repositories\ProjectFeedbackRepository;
+use App\Repositories\ProjectFileRepository;
+use App\Repositories\ProjectNoteRepository;
+use App\Repositories\ProjectRepository;
+use App\Repositories\ProjectTodoRepository;
 use App\Repositories\SlashCommandRepository;
 use App\Repositories\AgentsRepository;
 use App\Repositories\SkillRepository;
@@ -51,6 +57,8 @@ use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
 use App\Services\CostHistoryService;
+use App\Services\ProjectCoordinationService;
+use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
 use App\Services\SlashCommandService;
 use App\Services\AgentsService;
@@ -228,6 +236,12 @@ $slashCommandRepository = new SlashCommandRepository($database);
 $skillRepository = new SkillRepository($database);
 $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
+$projectRepository = new ProjectRepository($database);
+$projectNoteRepository = new ProjectNoteRepository($database);
+$projectTodoRepository = new ProjectTodoRepository($database);
+$projectFileRepository = new ProjectFileRepository($database);
+$projectFeedbackRepository = new ProjectFeedbackRepository($database);
+$projectEventRepository = new ProjectEventRepository($database);
 $clientConfigRepository = new ClientConfigRepository($database);
 $mcpAccessLogRepository = new McpAccessLogRepository($database);
 $mcpSessionTokenRepository = new McpSessionTokenRepository($database, $secretBox);
@@ -293,10 +307,21 @@ $adminUserService = new AdminUserService(
 );
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
-$skillService = new SkillService($skillRepository, $logRepository);
+$projectModuleService = new ProjectModuleService($versionRepository);
+$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
-$mcpServer = new McpServer($memoryService, $root);
+$projectCoordinationService = new ProjectCoordinationService(
+    $projectRepository,
+    $projectNoteRepository,
+    $projectTodoRepository,
+    $projectFileRepository,
+    $projectFeedbackRepository,
+    $projectEventRepository,
+    $projectModuleService,
+    $logRepository
+);
+$mcpServer = new McpServer($memoryService, $projectCoordinationService, $root);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
 $startupSyncService = new StartupSyncService($slashCommandService, $skillService, $agentsService, $clientConfigService);
 $chatGptUsageService = new ChatGptUsageService(
@@ -357,6 +382,28 @@ if ($apiDisabled && !$apiDisableBypass) {
 
 $clientIp = resolveClientIp();
 enforceGlobalRateLimit($rateLimiter, $clientIp, $method, $normalizedPath);
+
+$respondProjectAction = static function (callable $callback): void {
+    try {
+        $result = $callback();
+    } catch (ValidationException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    } catch (HttpException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
+    }
+
+    Response::json([
+        'status' => 'ok',
+        'data' => $result,
+    ]);
+};
 
 $router->add('GET', '#^/versions$#', function () use ($service) {
     $versions = $service->versionSummary();
@@ -3466,10 +3513,10 @@ $router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', function ($filename)
     ]);
 });
 
-$router->add('GET', '#^/admin/skills$#', function () use ($skillRepository) {
+$router->add('GET', '#^/admin/skills$#', function () use ($skillService) {
     requireAdminAccess();
 
-    $skills = $skillRepository->all();
+    $skills = $skillService->listSkills(null, true);
 
     Response::json([
         'status' => 'ok',
@@ -3550,6 +3597,195 @@ $router->add('DELETE', '#^/admin/skills/([^/]+)$#', function ($slug) use ($skill
             'deleted' => $slug,
         ],
     ]);
+});
+
+$router->add('GET', '#^/admin/projects/state$#', function () use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($projectCoordinationService) {
+        return $projectCoordinationService->adminState();
+    });
+});
+
+$router->add('POST', '#^/admin/projects/state$#', function () use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($payload, $projectCoordinationService) {
+        $enabled = normalizeBoolean(is_array($payload) ? ($payload['enabled'] ?? null) : null);
+        if ($enabled === null) {
+            throw new ValidationException(['enabled' => ['enabled must be true or false']]);
+        }
+
+        return $projectCoordinationService->setEnabled($enabled);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/feedback$#', function () use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($projectCoordinationService) {
+        return $projectCoordinationService->listFeedback(null, null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects$#', function () use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($projectCoordinationService) {
+        return $projectCoordinationService->listProjects(null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects$#', function () use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($payload, $projectCoordinationService) {
+        return $projectCoordinationService->createProject(is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/([^/]+)$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        return $projectCoordinationService->projectDetail(urldecode($slug), null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/about$#', function ($slug) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->updateAbout(urldecode($slug), is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/roster$#', function ($slug) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->updateRoster(urldecode($slug), is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/([^/]+)/changes$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        $since = resolveIntQuery('since') ?? 0;
+        return $projectCoordinationService->listChanges(urldecode($slug), max(0, $since), null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/([^/]+)/notes$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        return $projectCoordinationService->listNotes(urldecode($slug), null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/notes$#', function ($slug) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->upsertNote(urldecode($slug), null, is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/notes/(\\d+)$#', function ($slug, $id) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->upsertNote(urldecode($slug), (int) $id, is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('DELETE', '#^/admin/projects/([^/]+)/notes/(\\d+)$#', function ($slug, $id) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService) {
+        return $projectCoordinationService->deleteNote(urldecode($slug), (int) $id, null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/([^/]+)/todos$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        return $projectCoordinationService->listTodos(urldecode($slug), null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/todos$#', function ($slug) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->createTodo(urldecode($slug), is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/todos/(\\d+)$#', function ($slug, $id) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->updateTodo(urldecode($slug), (int) $id, is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/todos/(\\d+)/done$#', function ($slug, $id) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService) {
+        return $projectCoordinationService->setTodoDone(urldecode($slug), (int) $id, true, null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/todos/(\\d+)/undone$#', function ($slug, $id) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService) {
+        return $projectCoordinationService->setTodoDone(urldecode($slug), (int) $id, false, null);
+    });
+});
+
+$router->add('DELETE', '#^/admin/projects/([^/]+)/todos/(\\d+)$#', function ($slug, $id) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService) {
+        return $projectCoordinationService->deleteTodo(urldecode($slug), (int) $id, null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/([^/]+)/files$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        return $projectCoordinationService->listFiles(urldecode($slug), null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/files$#', function ($slug) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->upsertFile(urldecode($slug), is_array($payload) ? $payload : [], null);
+    });
+});
+
+$router->add('DELETE', '#^/admin/projects/([^/]+)/files/(\\d+)$#', function ($slug, $id) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService) {
+        return $projectCoordinationService->deleteFile(urldecode($slug), (int) $id, null);
+    });
+});
+
+$router->add('GET', '#^/admin/projects/([^/]+)/feedback$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        return $projectCoordinationService->listFeedback(urldecode($slug), null);
+    });
+});
+
+$router->add('POST', '#^/admin/projects/([^/]+)/feedback$#', function ($slug) use ($payload, $projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService) {
+        return $projectCoordinationService->createFeedback(urldecode($slug), is_array($payload) ? $payload : [], null);
+    });
 });
 
 $router->add('GET', '#^/admin/tokens$#', function () use ($tokenUsageRepository) {
@@ -3762,6 +3998,227 @@ $router->add('POST', '#^/config/retrieve$#', function () use ($payload, $service
         'status' => 'ok',
         'data' => $result,
     ]);
+});
+
+$router->add('GET', '#^/projects$#', function () use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($projectCoordinationService, $host) {
+        return $projectCoordinationService->listProjects($host);
+    });
+});
+
+$router->add('POST', '#^/projects$#', function () use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->createProject(is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)/bootstrap$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->bootstrap(urldecode($slug), $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->projectDetail(urldecode($slug), $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/about$#', function ($slug) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->updateAbout(urldecode($slug), is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/roster$#', function ($slug) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->updateRoster(urldecode($slug), is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)/changes$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        $since = resolveIntQuery('since') ?? 0;
+        return $projectCoordinationService->listChanges(urldecode($slug), max(0, $since), $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)/notes$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listNotes(urldecode($slug), $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/notes$#', function ($slug) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->upsertNote(urldecode($slug), null, is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/notes/(\\d+)$#', function ($slug, $id) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->upsertNote(urldecode($slug), (int) $id, is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('DELETE', '#^/projects/([^/]+)/notes/(\\d+)$#', function ($slug, $id) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService, $host) {
+        return $projectCoordinationService->deleteNote(urldecode($slug), (int) $id, $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)/todos$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listTodos(urldecode($slug), $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/todos$#', function ($slug) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->createTodo(urldecode($slug), is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/todos/(\\d+)$#', function ($slug, $id) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->updateTodo(urldecode($slug), (int) $id, is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/todos/(\\d+)/done$#', function ($slug, $id) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService, $host) {
+        return $projectCoordinationService->setTodoDone(urldecode($slug), (int) $id, true, $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/todos/(\\d+)/undone$#', function ($slug, $id) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService, $host) {
+        return $projectCoordinationService->setTodoDone(urldecode($slug), (int) $id, false, $host);
+    });
+});
+
+$router->add('DELETE', '#^/projects/([^/]+)/todos/(\\d+)$#', function ($slug, $id) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService, $host) {
+        return $projectCoordinationService->deleteTodo(urldecode($slug), (int) $id, $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)/files$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listFiles(urldecode($slug), $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/files$#', function ($slug) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->upsertFile(urldecode($slug), is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('DELETE', '#^/projects/([^/]+)/files/(\\d+)$#', function ($slug, $id) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $id, $projectCoordinationService, $host) {
+        return $projectCoordinationService->deleteFile(urldecode($slug), (int) $id, $host);
+    });
+});
+
+$router->add('GET', '#^/projects/([^/]+)/feedback$#', function ($slug) use ($service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listFeedback(urldecode($slug), $host);
+    });
+});
+
+$router->add('POST', '#^/projects/([^/]+)/feedback$#', function ($slug) use ($payload, $service, $projectCoordinationService, $respondProjectAction) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticate($apiKey, $clientIp);
+
+    $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
+        return $projectCoordinationService->createFeedback(urldecode($slug), is_array($payload) ? $payload : [], $host);
+    });
 });
 
 $router->add('POST', '#^/mcp/memories/store$#', function () use ($payload, $service, $memoryService) {

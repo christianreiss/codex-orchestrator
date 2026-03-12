@@ -175,6 +175,7 @@ class StartupSyncService
                 'slug' => $slug,
                 'sha256' => $remoteSha,
                 'deleted_at' => $deletedAt,
+                'managed' => !empty($row['managed']),
             ];
 
             if ($isDeleted) {
@@ -205,6 +206,7 @@ class StartupSyncService
                 'slug' => $slug,
                 'status' => 'updated',
                 'sha256' => $remoteSha,
+                'managed' => !empty($row['managed']),
                 'display_name' => isset($row['display_name']) ? (string) $row['display_name'] : null,
                 'description' => isset($row['description']) ? (string) $row['description'] : null,
                 'updated_at' => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
