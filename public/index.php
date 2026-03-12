@@ -3641,6 +3641,14 @@ $router->add('POST', '#^/admin/projects$#', function () use ($payload, $projectC
     });
 });
 
+$router->add('DELETE', '#^/admin/projects/([^/]+)$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
+        return $projectCoordinationService->deleteProject(urldecode($slug), null);
+    });
+});
+
 $router->add('GET', '#^/admin/projects/([^/]+)$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
     requireAdminAccess();
     $respondProjectAction(static function () use ($slug, $projectCoordinationService) {

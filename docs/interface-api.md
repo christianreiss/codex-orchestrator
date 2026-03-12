@@ -149,6 +149,7 @@ Scheduled preflight: on the first non-admin request after the configured interva
   - `POST /admin/projects/state` — body `{ enabled: bool }`; persists module state under `versions.projects_module_enabled`.
   - `GET /admin/projects/feedback` — list feedback across all projects as `{ project:null, feedback:[...] }`.
   - `GET /admin/projects` / `POST /admin/projects` / `GET /admin/projects/{slug}` mirror the host project list/create/detail surface.
+  - `DELETE /admin/projects/{slug}` — hard-deletes the project and all dependent notes/todos/files/feedback/events via FK cascade; returns `{ deleted: slug }`.
   - `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes mirror the host `/projects/{slug}/*` surface.
 - Pricing: auto-fetches GPT-5.4 pricing (daily) from `PRICING_URL` or env fallback (prefer `GPT54_*`, fall back to legacy `GPT51_*`) and surfaces `tokens_day` (UTC day), `tokens_week` (aligned to the ChatGPT weekly window when available, else trailing 7 days), `tokens_month` (month to date), `pricing`, `pricing_day_cost`, `pricing_week_cost`, and `pricing_month_cost` in `/admin/overview` for dashboard cost calculations. `subscription_plans` is sourced from `CHATGPT_PLUS_PLAN_COST` / `CHATGPT_PRO_PLAN_COST` (currency follows `PRICING_CURRENCY`). Daily cost history for dashboard charts is available via `/admin/usage/cost-history`.
 

@@ -347,10 +347,10 @@
     const hash = (window.location.hash || (pathHostId ? `#host-detail/${pathHostId}` : '#dashboard')).replace(/^#/, '');
     const [panelFromHashRaw, subFromHashRaw] = hash.split('/');
     const panelFromHash = (panelFromHashRaw || '').toLowerCase();
-    const subFromHash = (subFromHashRaw || '').toLowerCase();
+    const subFromHash = subFromHashRaw || '';
     const bodyView = (document.body?.dataset?.viewMode || '').toLowerCase();
     const viewMode = (panelFromHash || (pathHostId ? 'host-detail' : bodyView) || urlParams.get('view') || 'dashboard').toLowerCase();
-    const subView = (subFromHash || (pathHostId ? String(pathHostId) : '')).toLowerCase();
+    const subView = subFromHash || (pathHostId ? String(pathHostId) : '');
     // Legacy redirect guard: in SPA we keep everything inline, so no redirects needed.
     const initialHostParam = (urlParams.get('host') || 'insecure').toLowerCase();
     if (initialHostParam) {
@@ -507,6 +507,12 @@
         copy: 'Action items, features, stats, and technical context for one host.',
         show: ['hostDetailPanel'],
       },
+      'project-detail': {
+        eyebrow: 'Project Details',
+        title: 'Project workspace',
+        copy: 'Shared context, artifacts, and triage for one coordination space.',
+        show: ['projectDetailPanel'],
+      },
       users: {
         eyebrow: 'Users',
         title: 'User management',
@@ -549,7 +555,7 @@
       // Use the live body dataset view to reflect navigation without reloads.
       const activeView = (document.body?.dataset?.viewMode || viewMode || 'dashboard').toLowerCase();
       const config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'hostDetailPanel', 'users-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -7765,7 +7771,7 @@
       const hash = (window.location.hash || '').replace(/^#/, '');
       const [panelRaw, subRaw] = hash.split('/');
       let panel = (panelRaw || '').toLowerCase();
-      let sub = (subRaw || '').toLowerCase();
+      let sub = subRaw || '';
 
       if (!panel && pathHostId) {
         panel = 'host-detail';
@@ -7800,6 +7806,11 @@
       } else if (document.body?.dataset?.hostId) {
         delete document.body.dataset.hostId;
       }
+      if (panel === 'project-detail' && sub) {
+        document.body.dataset.projectSlug = decodeURIComponent(sub);
+      } else if (document.body?.dataset?.projectSlug) {
+        delete document.body.dataset.projectSlug;
+      }
 
       // Clean up host/status query params when leaving hosts, so dashboard links
       // don't carry stale ?host=unprovisioned into other views.
@@ -7811,7 +7822,7 @@
       }
 
       if (panel === 'hosts') {
-        hostStatusFilter = sub || '';
+        hostStatusFilter = (sub || '').toLowerCase();
         setHostStatusFilter(hostStatusFilter);
         setActiveLinks('.host-tab', hostStatusFilter);
         ensureHostsLoaded();
@@ -7841,9 +7852,10 @@
       }
 
       if (panel === 'logs') {
-        const logTab = sub === 'mcp'
+        const normalizedLogTab = (sub || '').toLowerCase();
+        const logTab = normalizedLogTab === 'mcp'
           ? 'mcp'
-          : (sub === 'events' ? 'events' : 'client');
+          : (normalizedLogTab === 'events' ? 'events' : 'client');
         setActiveLinks('.log-tab', logTab);
         const clientPanel = document.getElementById('client-logs-panel');
         const mcpPanel = document.getElementById('mcp-logs-panel');
@@ -7866,8 +7878,12 @@
         }
       }
 
+      if (panel === 'project-detail' && window.__loadProjectDetailByRoute) {
+        window.__loadProjectDetailByRoute(sub);
+      }
+
       if (panel === 'settings') {
-        const settingsTab = sub || 'general';
+        const settingsTab = (sub || 'general').toLowerCase();
         setActiveLinks('.settings-tab', settingsTab);
         document.querySelectorAll('[data-settings-panel]').forEach((panelEl) => {
           const tab = (panelEl.dataset.settingsPanel || '').toLowerCase();

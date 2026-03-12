@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-02-19-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-12-03">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-19-02">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
@@ -191,6 +191,16 @@
             <div class="actions">
               <button class="ghost" id="cancelDeleteHost">Cancel</button>
               <button class="danger" id="confirmDeleteHost">Remove</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="projectDeleteModal">
+          <div class="modal">
+            <h3>Delete project</h3>
+            <p id="projectDeleteText" class="muted">This removes the project and all of its shared notes, todos, files, feedback, and history.</p>
+            <div class="actions">
+              <button class="ghost" id="cancelProjectDelete">Cancel</button>
+              <button class="danger" id="confirmProjectDelete">Delete</button>
             </div>
           </div>
         </div>
@@ -495,6 +505,172 @@
                   <h3>Host controls</h3>
                 </div>
                 <div class="host-detail-actions" id="hostDetailActions"></div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel-set" data-panel="project-detail" hidden>
+          <section class="card panel project-detail-page" id="projectDetailPanel">
+            <div class="project-detail-head">
+              <div>
+                <p class="muted overline">Project Workspace</p>
+                <h2 id="projectDetailTitle">Loading…</h2>
+                <p class="muted" id="projectDetailMeta" style="margin:4px 0 0;">Fetching shared project state.</p>
+              </div>
+              <div class="project-detail-head-actions">
+                <a class="ghost tiny-btn" id="projectDetailBack" href="/admin/#settings/projects">Back to projects</a>
+              </div>
+            </div>
+            <div class="project-detail-empty" id="projectDetailEmptyState" hidden>
+              <h3 id="projectDetailEmptyTitle">Loading project…</h3>
+              <p class="muted" id="projectDetailEmptyBody">Fetching project details.</p>
+            </div>
+            <div class="project-detail-layout" id="projectDetailLayout" hidden>
+              <section class="project-detail-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">About</p>
+                  <h3>Project identity</h3>
+                </div>
+                <div class="inline-group">
+                  <div class="field">
+                    <label for="projectAboutTitle">Title</label>
+                    <input id="projectAboutTitle" type="text" placeholder="Human-readable title">
+                  </div>
+                  <div class="field">
+                    <label for="projectAboutName">Name</label>
+                    <input id="projectAboutName" type="text" placeholder="Short internal name">
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="projectAboutDescription">Description</label>
+                  <textarea id="projectAboutDescription" rows="4" placeholder="What this project is doing and why."></textarea>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <button class="ghost" id="projectAboutSave">Save About</button>
+                </div>
+                <div class="muted" id="projectAboutStatus" style="margin-top:8px;">No project loaded.</div>
+              </section>
+              <section class="project-detail-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Roster</p>
+                  <h3>Coordination notes</h3>
+                </div>
+                <div class="field">
+                  <label for="projectRosterMarkdown">Roster / Coordination Notes</label>
+                  <textarea id="projectRosterMarkdown" rows="9" spellcheck="false" placeholder="Ownership, handoff notes, and operating rules."></textarea>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <button class="ghost" id="projectRosterSave">Save Roster</button>
+                </div>
+                <div class="muted" id="projectRosterStatus" style="margin-top:8px;">No project loaded.</div>
+              </section>
+              <section class="project-detail-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Notes</p>
+                  <h3>Durable decisions</h3>
+                </div>
+                <input id="projectNoteId" type="hidden">
+                <div class="field">
+                  <label for="projectNoteHeader">Header</label>
+                  <input id="projectNoteHeader" type="text" placeholder="Decision: keep importer queue-backed">
+                </div>
+                <div class="field">
+                  <label for="projectNoteBody">Body</label>
+                  <textarea id="projectNoteBody" rows="5" placeholder="Short, useful, and future-proof."></textarea>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <button class="ghost" id="projectNoteReset">Reset</button>
+                  <button class="primary" id="projectNoteSave">Save Note</button>
+                </div>
+                <div class="muted" id="projectNoteStatus" style="margin-top:8px;">No project loaded.</div>
+                <div id="projectNotesList" class="list-rows" style="margin-top:14px;"></div>
+              </section>
+              <section class="project-detail-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Todos</p>
+                  <h3>Execution queue</h3>
+                </div>
+                <input id="projectTodoId" type="hidden">
+                <div class="field">
+                  <label for="projectTodoTitle">Title</label>
+                  <input id="projectTodoTitle" type="text" placeholder="Add stale-lock cleanup">
+                </div>
+                <div class="field">
+                  <label for="projectTodoDetail">Detail</label>
+                  <textarea id="projectTodoDetail" rows="4" placeholder="Acceptance hints, edge cases, and dependencies."></textarea>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <button class="ghost" id="projectTodoReset">Reset</button>
+                  <button class="primary" id="projectTodoSave">Save Todo</button>
+                </div>
+                <div class="muted" id="projectTodoStatus" style="margin-top:8px;">No project loaded.</div>
+                <div id="projectTodosList" class="list-rows" style="margin-top:14px;"></div>
+              </section>
+              <section class="project-detail-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Files</p>
+                  <h3>Artifacts</h3>
+                </div>
+                <div class="inline-group">
+                  <div class="field">
+                    <label for="projectFileName">Stored name</label>
+                    <input id="projectFileName" type="text" placeholder="runbook.md">
+                  </div>
+                  <div class="field">
+                    <label for="projectFileMime">MIME type</label>
+                    <input id="projectFileMime" type="text" placeholder="text/markdown">
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="projectFileDescription">Description</label>
+                  <input id="projectFileDescription" type="text" placeholder="What this file is for.">
+                </div>
+                <div class="field">
+                  <label for="projectFileContent">Content</label>
+                  <textarea id="projectFileContent" rows="8" spellcheck="false" placeholder="Store canonical snippets, checklists, or rollout notes."></textarea>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <button class="primary" id="projectFileSave">Save File</button>
+                </div>
+                <div class="muted" id="projectFileStatus" style="margin-top:8px;">No project loaded.</div>
+                <div id="projectFilesList" class="list-rows" style="margin-top:14px;"></div>
+              </section>
+              <section class="project-detail-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Feedback</p>
+                  <h3>Triage inbox</h3>
+                </div>
+                <div class="inline-group">
+                  <div class="field">
+                    <label for="projectFeedbackType">Type</label>
+                    <select id="projectFeedbackType">
+                      <option value="feature">Feature</option>
+                      <option value="bug">Bug</option>
+                      <option value="note">Note</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="projectFeedbackTitle">Title</label>
+                    <input id="projectFeedbackTitle" type="text" placeholder="Need import dry-run mode">
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="projectFeedbackBody">Body</label>
+                  <textarea id="projectFeedbackBody" rows="5" placeholder="Operator feedback, issue reports, and follow-up asks."></textarea>
+                </div>
+                <div class="panel-actions" style="margin-top:12px;">
+                  <button class="primary" id="projectFeedbackSave">Save Feedback</button>
+                </div>
+                <div class="muted" id="projectFeedbackStatus" style="margin-top:8px;">No project loaded.</div>
+                <div id="projectFeedbackList" class="list-rows" style="margin-top:14px;"></div>
+              </section>
+              <section class="project-detail-section project-detail-wide">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Activity</p>
+                  <h3>Recent changes</h3>
+                </div>
+                <div id="projectChangesList" class="list-rows"></div>
               </section>
             </div>
           </section>
@@ -998,7 +1174,7 @@
               <div>
                 <p class="eyebrow">Projects</p>
                 <h2>Native CoCo Module</h2>
-                <p class="muted">Shared project briefs, notes, todos, files, and feedback for multi-agent work.</p>
+                <p class="muted">Compact control room for shared project workspaces and the managed <code>coco</code> skill.</p>
               </div>
             </div>
             <div class="settings-grid">
@@ -1020,188 +1196,26 @@
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
-                    <h3>Create Project</h3>
-                    <p class="muted" style="margin:2px 0 0;">Spin up a shared coordination room without leaving the dashboard.</p>
-                  </div>
-                </div>
-                <div class="inline-group">
-                  <div class="field">
-                    <label for="projectCreateSlug">Slug</label>
-                    <input id="projectCreateSlug" type="text" placeholder="billing-migration">
-                  </div>
-                  <div class="field">
-                    <label for="projectCreateTitle">Title</label>
-                    <input id="projectCreateTitle" type="text" placeholder="Billing Migration">
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="projectCreateDescription">Description</label>
-                  <textarea id="projectCreateDescription" rows="3" placeholder="Mission, boundaries, and current focus."></textarea>
-                </div>
-                <div class="panel-actions" style="margin-top:12px;">
-                  <button class="primary" id="projectCreateBtn">Create Project</button>
-                </div>
-                <div class="muted" id="projectsCreateStatus" style="margin-top:8px;">Idle</div>
-              </div>
-            </div>
-            <div class="settings-grid" style="margin-top:16px;">
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
                     <h3>Project Index</h3>
-                    <p class="muted" style="margin:2px 0 0;">Pick a project to load its full shared state.</p>
+                    <p class="muted" id="projectsIndexMeta" style="margin:2px 0 0;">Known projects only. Open one for the full workspace.</p>
                   </div>
                 </div>
-                <div id="projectsList" class="list-rows"></div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3 id="projectDetailTitle">No project selected</h3>
-                    <p class="muted" id="projectDetailMeta" style="margin:2px 0 0;">Select a project to edit its shared context.</p>
-                  </div>
+                <p class="muted-note" style="margin-top:12px;">Creation stays API-driven for now. This page is intentionally compressed to list, open, and delete existing projects.</p>
+                <div class="table-wrap" id="projectsTableWrap" style="margin-top:14px;" hidden>
+                  <table id="projectsTable">
+                    <thead>
+                      <tr>
+                        <th>Project</th>
+                        <th>Summary</th>
+                        <th>Updated</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="projectsTableBody"></tbody>
+                  </table>
                 </div>
-                <div class="inline-group">
-                  <div class="field">
-                    <label for="projectAboutTitle">Title</label>
-                    <input id="projectAboutTitle" type="text" placeholder="Human-readable title">
-                  </div>
-                  <div class="field">
-                    <label for="projectAboutName">Name</label>
-                    <input id="projectAboutName" type="text" placeholder="Short internal name">
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="projectAboutDescription">Description</label>
-                  <textarea id="projectAboutDescription" rows="3" placeholder="What this project is doing and why."></textarea>
-                </div>
-                <div class="panel-actions" style="margin-top:12px;">
-                  <button class="ghost" id="projectAboutSave">Save About</button>
-                </div>
-                <div class="muted" id="projectAboutStatus" style="margin-top:8px;">No project loaded.</div>
-
-                <div class="field" style="margin-top:18px;">
-                  <label for="projectRosterMarkdown">Roster / Coordination Notes</label>
-                  <textarea id="projectRosterMarkdown" rows="7" spellcheck="false" placeholder="Ownership, handoff notes, and operating rules."></textarea>
-                </div>
-                <div class="panel-actions" style="margin-top:12px;">
-                  <button class="ghost" id="projectRosterSave">Save Roster</button>
-                </div>
-                <div class="muted" id="projectRosterStatus" style="margin-top:8px;">No project loaded.</div>
-
-                <div class="settings-grid" style="margin-top:20px;">
-                  <div class="setting-block">
-                    <div class="setting-head">
-                      <div>
-                        <h3>Notes</h3>
-                        <p class="muted" style="margin:2px 0 0;">Decisions, findings, and durable context.</p>
-                      </div>
-                    </div>
-                    <input id="projectNoteId" type="hidden">
-                    <div class="field">
-                      <label for="projectNoteHeader">Header</label>
-                      <input id="projectNoteHeader" type="text" placeholder="Decision: keep importer queue-backed">
-                    </div>
-                    <div class="field">
-                      <label for="projectNoteBody">Body</label>
-                      <textarea id="projectNoteBody" rows="5" placeholder="Short, useful, and future-proof."></textarea>
-                    </div>
-                    <div class="panel-actions" style="margin-top:12px;">
-                      <button class="ghost" id="projectNoteReset">Reset</button>
-                      <button class="primary" id="projectNoteSave">Save Note</button>
-                    </div>
-                    <div class="muted" id="projectNoteStatus" style="margin-top:8px;">No project loaded.</div>
-                    <div id="projectNotesList" class="list-rows" style="margin-top:14px;"></div>
-                  </div>
-                  <div class="setting-block">
-                    <div class="setting-head">
-                      <div>
-                        <h3>Todos</h3>
-                        <p class="muted" style="margin:2px 0 0;">Track work items without losing the why.</p>
-                      </div>
-                    </div>
-                    <input id="projectTodoId" type="hidden">
-                    <div class="field">
-                      <label for="projectTodoTitle">Title</label>
-                      <input id="projectTodoTitle" type="text" placeholder="Add stale-lock cleanup">
-                    </div>
-                    <div class="field">
-                      <label for="projectTodoDetail">Detail</label>
-                      <textarea id="projectTodoDetail" rows="4" placeholder="Acceptance hints, edge cases, and dependencies."></textarea>
-                    </div>
-                    <div class="panel-actions" style="margin-top:12px;">
-                      <button class="ghost" id="projectTodoReset">Reset</button>
-                      <button class="primary" id="projectTodoSave">Save Todo</button>
-                    </div>
-                    <div class="muted" id="projectTodoStatus" style="margin-top:8px;">No project loaded.</div>
-                    <div id="projectTodosList" class="list-rows" style="margin-top:14px;"></div>
-                  </div>
-                </div>
-
-                <div class="settings-grid" style="margin-top:20px;">
-                  <div class="setting-block">
-                    <div class="setting-head">
-                      <div>
-                        <h3>Files</h3>
-                        <p class="muted" style="margin:2px 0 0;">Shared artifacts, specs, and helper snippets.</p>
-                      </div>
-                    </div>
-                    <div class="inline-group">
-                      <div class="field">
-                        <label for="projectFileName">Stored name</label>
-                        <input id="projectFileName" type="text" placeholder="docs/rollout.md">
-                      </div>
-                      <div class="field">
-                        <label for="projectFileMime">MIME type</label>
-                        <input id="projectFileMime" type="text" placeholder="text/markdown">
-                      </div>
-                    </div>
-                    <div class="field">
-                      <label for="projectFileDescription">Description</label>
-                      <input id="projectFileDescription" type="text" placeholder="Short description">
-                    </div>
-                    <div class="field">
-                      <label for="projectFileContent">Content</label>
-                      <textarea id="projectFileContent" rows="8" spellcheck="false" placeholder="Artifact contents"></textarea>
-                    </div>
-                    <div class="panel-actions" style="margin-top:12px;">
-                      <button class="primary" id="projectFileSave">Save File</button>
-                    </div>
-                    <div class="muted" id="projectFileStatus" style="margin-top:8px;">No project loaded.</div>
-                    <div id="projectFilesList" class="list-rows" style="margin-top:14px;"></div>
-                  </div>
-                  <div class="setting-block">
-                    <div class="setting-head">
-                      <div>
-                        <h3>Feedback & Timeline</h3>
-                        <p class="muted" style="margin:2px 0 0;">Capture future asks and inspect recent shared changes.</p>
-                      </div>
-                    </div>
-                    <div class="inline-group">
-                      <div class="field">
-                        <label for="projectFeedbackType">Type</label>
-                        <select id="projectFeedbackType">
-                          <option value="feature">Feature</option>
-                          <option value="bug">Bug</option>
-                          <option value="note">Note</option>
-                        </select>
-                      </div>
-                      <div class="field">
-                        <label for="projectFeedbackTitle">Title</label>
-                        <input id="projectFeedbackTitle" type="text" placeholder="Add rollout checklist card">
-                      </div>
-                    </div>
-                    <div class="field">
-                      <label for="projectFeedbackBody">Body</label>
-                      <textarea id="projectFeedbackBody" rows="4" placeholder="What should happen next or what is missing."></textarea>
-                    </div>
-                    <div class="panel-actions" style="margin-top:12px;">
-                      <button class="primary" id="projectFeedbackSave">Save Feedback</button>
-                    </div>
-                    <div class="muted" id="projectFeedbackStatus" style="margin-top:8px;">No project loaded.</div>
-                    <div id="projectFeedbackList" class="list-rows" style="margin-top:14px;"></div>
-                    <div id="projectChangesList" class="list-rows" style="margin-top:14px;"></div>
-                  </div>
+                <div id="projectsListEmptyState" class="empty-state-box" style="margin-top:14px;" hidden>
+                  <div class="empty-state-title">No projects yet</div>
                 </div>
               </div>
             </div>
@@ -1733,12 +1747,19 @@
         }
         if ((panel === 'host-detail' || (!panel && hostId)) && (sub || hostId)) {
           document.body.dataset.hostId = sub || hostId;
+        } else if (document.body.dataset.hostId) {
+          delete document.body.dataset.hostId;
         }
         if (panel === 'logs') {
           document.body.dataset.logTab = sub || 'client';
         }
         if (panel === 'settings') {
           document.body.dataset.settingsTab = sub || 'general';
+        }
+        if (panel === 'project-detail' && sub) {
+          document.body.dataset.projectSlug = decodeURIComponent(sub);
+        } else if (document.body.dataset.projectSlug) {
+          delete document.body.dataset.projectSlug;
         }
       }
       applyFromHash();
@@ -1751,10 +1772,10 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-12-02"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-12-03"></script>
   <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
-  <script src="/admin/assets/projects.js?v=2026-03-12-01"></script>
+  <script src="/admin/assets/projects.js?v=2026-03-12-02"></script>
   <script src="/admin/assets/config.js?v=2026-03-11-09"></script>
   <script src="/admin/assets/profiles.js?v=2026-03-11-02"></script>
 </body>

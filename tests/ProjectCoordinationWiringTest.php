@@ -15,6 +15,7 @@ final class ProjectCoordinationWiringTest extends TestCase
 
         $this->assertStringContainsString("#^/admin/projects/state$#", $source);
         $this->assertStringContainsString("#^/admin/projects$#", $source);
+        $this->assertStringContainsString("#^/admin/projects/([^/]+)$#", $source);
         $this->assertStringContainsString("#^/admin/projects/([^/]+)/changes$#", $source);
         $this->assertStringContainsString("#^/projects$#", $source);
         $this->assertStringContainsString("#^/projects/([^/]+)/bootstrap$#", $source);
@@ -32,18 +33,38 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString('data-settings-tab="projects"', $html);
         $this->assertStringContainsString('data-settings-panel="projects"', $html);
         $this->assertStringContainsString('id="projectsEnabledToggle"', $html);
-        $this->assertStringContainsString('id="projectsList"', $html);
+        $this->assertStringContainsString('id="projectsTableBody"', $html);
+        $this->assertStringContainsString('id="projectsListEmptyState"', $html);
+        $this->assertStringContainsString('data-panel="project-detail"', $html);
+        $this->assertStringContainsString('id="projectDetailPanel"', $html);
+        $this->assertStringContainsString('id="projectDetailBack"', $html);
+        $this->assertStringContainsString('id="projectDeleteModal"', $html);
         $this->assertStringContainsString('id="projectChangesList"', $html);
+        $this->assertStringNotContainsString('id="projectCreateBtn"', $html);
         $this->assertStringContainsString('/admin/assets/projects.js?v=', $html);
     }
 
-    public function testDashboardJsInitializesProjectsSettingsTab(): void
+    public function testDashboardJsInitializesProjectsSettingsTabAndDetailRoute(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
 
         $this->assertStringContainsString("if (settingsTab === 'projects' && window.__initProjects) window.__initProjects();", $js);
+        $this->assertStringContainsString("if (panel === 'project-detail' && window.__loadProjectDetailByRoute) {", $js);
+        $this->assertStringContainsString("document.body.dataset.projectSlug = decodeURIComponent(sub);", $js);
+        $this->assertStringContainsString("show: ['projectDetailPanel']", $js);
         $this->assertStringContainsString("domains.add('projects');", $js);
+    }
+
+    public function testProjectsJsUsesDedicatedProjectDetailRouteAndDeleteModal(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/projects.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('window.location.hash = `#project-detail/${encodeURIComponent(String(slug))}`;', $js);
+        $this->assertStringContainsString("projectDeleteModal?.classList.add('show');", $js);
+        $this->assertStringContainsString("window.location.hash = '#settings/projects';", $js);
+        $this->assertStringContainsString('await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: \'DELETE\' });', $js);
     }
 
     public function testStartupSyncCarriesManagedSkillMetadata(): void

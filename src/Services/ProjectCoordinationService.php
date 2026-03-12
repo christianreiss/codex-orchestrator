@@ -75,6 +75,22 @@ class ProjectCoordinationService
         return $this->projectDetail($slug, $host);
     }
 
+    public function deleteProject(string $slug, ?array $host = null): array
+    {
+        $this->ensureEnabled();
+        $project = $this->requireProject($slug);
+        $deleted = $this->projects->delete((int) $project['id']);
+        if (!$deleted) {
+            throw new HttpException('Project not found', 404);
+        }
+
+        $this->logs->log($this->hostId($host), 'project.delete', ['slug' => $project['slug']]);
+
+        return [
+            'deleted' => $project['slug'],
+        ];
+    }
+
     public function projectDetail(string $slug, ?array $host = null): array
     {
         $this->ensureEnabled();

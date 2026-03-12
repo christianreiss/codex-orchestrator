@@ -5,19 +5,29 @@
   let currentProjects = [];
   let currentDetail = null;
   let moduleEnabled = false;
+  let pendingDeleteSlug = '';
+  let reloadQueued = false;
+  let queuedLoadSlug = '';
 
   let projectsEnabledToggle;
   let projectsEnabledLabel;
   let projectsModuleStatus;
   let projectsManagedSkill;
-  let projectCreateSlug;
-  let projectCreateTitle;
-  let projectCreateDescription;
-  let projectCreateBtn;
-  let projectsCreateStatus;
-  let projectsList;
+  let projectsIndexMeta;
+  let projectsTableWrap;
+  let projectsTableBody;
+  let projectsListEmptyState;
+  let projectDeleteModal;
+  let projectDeleteText;
+  let cancelProjectDelete;
+  let confirmProjectDelete;
+  let projectDetailPanel;
   let projectDetailTitle;
   let projectDetailMeta;
+  let projectDetailEmptyState;
+  let projectDetailEmptyTitle;
+  let projectDetailEmptyBody;
+  let projectDetailLayout;
   let projectAboutTitle;
   let projectAboutName;
   let projectAboutDescription;
@@ -60,14 +70,21 @@
     projectsEnabledLabel = document.getElementById('projectsEnabledLabel');
     projectsModuleStatus = document.getElementById('projectsModuleStatus');
     projectsManagedSkill = document.getElementById('projectsManagedSkill');
-    projectCreateSlug = document.getElementById('projectCreateSlug');
-    projectCreateTitle = document.getElementById('projectCreateTitle');
-    projectCreateDescription = document.getElementById('projectCreateDescription');
-    projectCreateBtn = document.getElementById('projectCreateBtn');
-    projectsCreateStatus = document.getElementById('projectsCreateStatus');
-    projectsList = document.getElementById('projectsList');
+    projectsIndexMeta = document.getElementById('projectsIndexMeta');
+    projectsTableWrap = document.getElementById('projectsTableWrap');
+    projectsTableBody = document.getElementById('projectsTableBody');
+    projectsListEmptyState = document.getElementById('projectsListEmptyState');
+    projectDeleteModal = document.getElementById('projectDeleteModal');
+    projectDeleteText = document.getElementById('projectDeleteText');
+    cancelProjectDelete = document.getElementById('cancelProjectDelete');
+    confirmProjectDelete = document.getElementById('confirmProjectDelete');
+    projectDetailPanel = document.getElementById('projectDetailPanel');
     projectDetailTitle = document.getElementById('projectDetailTitle');
     projectDetailMeta = document.getElementById('projectDetailMeta');
+    projectDetailEmptyState = document.getElementById('projectDetailEmptyState');
+    projectDetailEmptyTitle = document.getElementById('projectDetailEmptyTitle');
+    projectDetailEmptyBody = document.getElementById('projectDetailEmptyBody');
+    projectDetailLayout = document.getElementById('projectDetailLayout');
     projectAboutTitle = document.getElementById('projectAboutTitle');
     projectAboutName = document.getElementById('projectAboutName');
     projectAboutDescription = document.getElementById('projectAboutDescription');
@@ -122,13 +139,40 @@
     let payload = {};
     try {
       payload = text ? JSON.parse(text) : {};
-    } catch (err) {
+    } catch (_) {
       throw new Error(`Invalid JSON from ${path}`);
     }
     if (!res.ok || payload.status === 'error') {
       throw new Error(payload.message || `Request failed (${res.status})`);
     }
     return payload;
+  }
+
+  function decodeHashValue(value) {
+    try {
+      return decodeURIComponent(String(value || ''));
+    } catch (_) {
+      return String(value || '');
+    }
+  }
+
+  function currentRoute() {
+    const hash = (window.location.hash || '').replace(/^#/, '');
+    const [panelRaw, subRaw] = hash.split('/');
+    return {
+      panel: (panelRaw || '').toLowerCase(),
+      sub: decodeHashValue(subRaw || ''),
+    };
+  }
+
+  function detailRouteSlug() {
+    const route = currentRoute();
+    return route.panel === 'project-detail' ? route.sub : '';
+  }
+
+  function navigateToProjectDetail(slug) {
+    if (!slug) return;
+    window.location.hash = `#project-detail/${encodeURIComponent(String(slug))}`;
   }
 
   function formatTimestamp(value) {
@@ -142,6 +186,23 @@
     const hh = String(date.getHours()).padStart(2, '0');
     const min = String(date.getMinutes()).padStart(2, '0');
     return `${dd}.${mm}.${yy}, ${hh}:${min}`;
+  }
+
+  function formatBytes(value) {
+    const size = Number(value || 0);
+    if (!Number.isFinite(size) || size <= 0) return '0 B';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function clearChildren(node) {
@@ -166,10 +227,6 @@
         : `Managed skill: ${slug} stays withheld until the module is enabled.`;
       projectsManagedSkill.innerHTML = copy.replace(slug, `<code>${slug}</code>`);
     }
-  }
-
-  function selectedProjectSummary() {
-    return currentProjects.find((project) => String(project.slug) === String(currentSlug)) || null;
   }
 
   function resetNoteForm() {
@@ -199,6 +256,20 @@
     if (projectFeedbackTitle) projectFeedbackTitle.value = '';
     if (projectFeedbackBody) projectFeedbackBody.value = '';
     if (projectFeedbackStatus) projectFeedbackStatus.textContent = currentSlug ? 'Ready for a new feedback item.' : 'No project loaded.';
+  }
+
+  function resetTransientForms() {
+    resetNoteForm();
+    resetTodoForm();
+    resetFileForm();
+    resetFeedbackForm();
+  }
+
+  function clearDetailFields() {
+    if (projectAboutTitle) projectAboutTitle.value = '';
+    if (projectAboutName) projectAboutName.value = '';
+    if (projectAboutDescription) projectAboutDescription.value = '';
+    if (projectRosterMarkdown) projectRosterMarkdown.value = '';
   }
 
   function disableDetailInputs(disabled) {
@@ -231,49 +302,78 @@
     });
   }
 
-  function renderProjectList() {
-    clearChildren(projectsList);
-    if (!projectsList) return;
+  function setProjectsEmptyState(title, body) {
+    if (projectsTableWrap) projectsTableWrap.hidden = true;
+    if (!projectsListEmptyState) return;
+    projectsListEmptyState.hidden = false;
+    projectsListEmptyState.innerHTML = `
+      <div class="empty-state-title">${escapeHtml(title)}</div>
+      <div class="muted" style="margin-top:6px;">${escapeHtml(body)}</div>
+    `;
+  }
+
+  function renderProjectTable() {
+    clearChildren(projectsTableBody);
 
     if (!moduleEnabled) {
-      const empty = document.createElement('div');
-      empty.className = 'row-card';
-      empty.innerHTML = '<strong>Module disabled</strong><div class="muted-note">Enable the module to create and browse projects.</div>';
-      projectsList.appendChild(empty);
+      if (projectsIndexMeta) projectsIndexMeta.textContent = 'Module disabled. Enable it to browse known projects.';
+      setProjectsEmptyState('Module disabled', 'Enable the module to browse or manage shared projects.');
       return;
     }
 
     if (!currentProjects.length) {
-      const empty = document.createElement('div');
-      empty.className = 'row-card';
-      empty.innerHTML = '<strong>No projects yet</strong><div class="muted-note">Create one on the right and it will appear here.</div>';
-      projectsList.appendChild(empty);
+      if (projectsIndexMeta) projectsIndexMeta.textContent = 'No shared projects registered yet.';
+      setProjectsEmptyState('No projects yet', 'Project creation is API-driven for now. Existing projects will appear here automatically.');
       return;
     }
 
+    if (projectsIndexMeta) {
+      const count = currentProjects.length;
+      projectsIndexMeta.textContent = `${count} project${count === 1 ? '' : 's'} known. Open one for the full workspace.`;
+    }
+    if (projectsListEmptyState) projectsListEmptyState.hidden = true;
+    if (projectsTableWrap) projectsTableWrap.hidden = false;
+
     currentProjects.forEach((project) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'row-card';
-      button.style.textAlign = 'left';
-      button.style.width = '100%';
-      button.style.border = String(project.slug) === String(currentSlug)
-        ? '1px solid rgba(93, 228, 199, 0.65)'
-        : '';
-      const updated = project.updated_at ? formatTimestamp(project.updated_at) : 'unknown';
-      button.innerHTML = `
-        <div class="row-head">
-          <strong>${escapeHtml(project.title || project.slug)}</strong>
-          <span class="pill-quiet">${escapeHtml(project.slug)}</span>
-        </div>
-        <div class="muted-note" style="margin-top:6px;">${escapeHtml(project.description || 'No description yet.')}</div>
-        <div class="muted-note" style="margin-top:8px;">Updated ${escapeHtml(updated)}</div>
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="project-list-summary">
+            <div class="project-list-title">${escapeHtml(project.title || project.slug)}</div>
+            <div class="project-list-slug">${escapeHtml(project.slug || '')}</div>
+          </div>
+        </td>
+        <td>
+          <div class="project-list-description">${escapeHtml(project.description || 'No description yet.')}</div>
+        </td>
+        <td>
+          <div class="project-table-updated">${escapeHtml(formatTimestamp(project.updated_at))}</div>
+        </td>
+        <td>
+          <div class="project-table-actions">
+            <button type="button" class="ghost tiny-btn" data-action="open">Open</button>
+            <button type="button" class="danger tiny-btn" data-action="delete">Delete</button>
+          </div>
+        </td>
       `;
-      button.addEventListener('click', () => {
-        loadDetail(project.slug);
-      });
-      projectsList.appendChild(button);
+      const openBtn = row.querySelector('button[data-action="open"]');
+      const deleteBtn = row.querySelector('button[data-action="delete"]');
+      openBtn?.addEventListener('click', () => navigateToProjectDetail(project.slug));
+      deleteBtn?.addEventListener('click', () => openProjectDeleteModal(project.slug));
+      projectsTableBody?.appendChild(row);
     });
+  }
+
+  function showProjectDetailEmpty(title, body) {
+    if (projectDetailLayout) projectDetailLayout.hidden = true;
+    if (projectDetailEmptyState) projectDetailEmptyState.hidden = false;
+    if (projectDetailEmptyTitle) projectDetailEmptyTitle.textContent = title;
+    if (projectDetailEmptyBody) projectDetailEmptyBody.textContent = body;
+  }
+
+  function showProjectDetailLayout() {
+    if (projectDetailEmptyState) projectDetailEmptyState.hidden = true;
+    if (projectDetailLayout) projectDetailLayout.hidden = false;
   }
 
   function renderNotes(notes) {
@@ -453,11 +553,6 @@
   function renderChanges(changes) {
     clearChildren(projectChangesList);
     if (!projectChangesList) return;
-    const heading = document.createElement('div');
-    heading.className = 'muted-note';
-    heading.textContent = 'Recent changes';
-    projectChangesList.appendChild(heading);
-
     if (!changes.length) {
       const empty = document.createElement('div');
       empty.className = 'row-card';
@@ -483,43 +578,56 @@
   }
 
   function renderDetail() {
-    const summary = selectedProjectSummary();
-    if (!summary || !currentDetail) {
-      if (projectDetailTitle) projectDetailTitle.textContent = moduleEnabled ? 'No project selected' : 'Module disabled';
-      if (projectDetailMeta) projectDetailMeta.textContent = moduleEnabled
-        ? 'Pick a project from the list to edit shared state.'
-        : 'Enable the module to unlock the project workspace.';
+    if (!moduleEnabled) {
+      currentDetail = null;
       disableDetailInputs(true);
-      resetNoteForm();
-      resetTodoForm();
-      resetFileForm();
-      resetFeedbackForm();
+      clearDetailFields();
+      resetTransientForms();
       renderNotes([]);
       renderTodos([]);
       renderFiles([]);
       renderFeedback([]);
       renderChanges([]);
-      if (projectAboutTitle) projectAboutTitle.value = '';
-      if (projectAboutName) projectAboutName.value = '';
-      if (projectAboutDescription) projectAboutDescription.value = '';
-      if (projectRosterMarkdown) projectRosterMarkdown.value = '';
+      if (projectDetailTitle) projectDetailTitle.textContent = 'Project coordination disabled';
+      if (projectDetailMeta) projectDetailMeta.textContent = 'Enable the module from Settings to unlock project workspaces.';
+      showProjectDetailEmpty('Project coordination disabled', 'Enable the module from Settings → Projects to browse shared workspaces.');
       return;
     }
 
-    disableDetailInputs(false);
-    if (projectDetailTitle) projectDetailTitle.textContent = summary.title || summary.slug;
-    if (projectDetailMeta) {
-      const counts = currentDetail.project?.counts || {};
-      projectDetailMeta.textContent = `${summary.slug} · ${counts.notes || 0} notes · ${counts.open_todos || 0} open todos · ${counts.files || 0} files`;
+    if (!currentDetail || !currentSlug) {
+      disableDetailInputs(true);
+      clearDetailFields();
+      resetTransientForms();
+      renderNotes([]);
+      renderTodos([]);
+      renderFiles([]);
+      renderFeedback([]);
+      renderChanges([]);
+      if (projectDetailTitle) projectDetailTitle.textContent = 'Unknown project';
+      if (projectDetailMeta) projectDetailMeta.textContent = 'The requested project could not be loaded.';
+      showProjectDetailEmpty('Project not found', 'The requested project does not exist or is no longer available.');
+      return;
     }
 
-    const about = currentDetail.project?.about || {};
+    const project = currentDetail.project || {};
+    const about = project.about || {};
+    const counts = project.counts || {};
+    const title = about.title || currentSlug;
+
+    disableDetailInputs(false);
+    showProjectDetailLayout();
+
+    if (projectDetailTitle) projectDetailTitle.textContent = title;
+    if (projectDetailMeta) {
+      projectDetailMeta.textContent = `${currentSlug} · ${counts.notes || 0} notes · ${counts.open_todos || 0} open todos · ${counts.files || 0} files · Updated ${formatTimestamp(project.updated_at)}`;
+    }
+
     if (projectAboutTitle) projectAboutTitle.value = about.title || '';
     if (projectAboutName) projectAboutName.value = about.name || '';
     if (projectAboutDescription) projectAboutDescription.value = about.description || '';
-    if (projectRosterMarkdown) projectRosterMarkdown.value = currentDetail.project?.roster_markdown || '';
-    if (projectAboutStatus) projectAboutStatus.textContent = `Loaded ${summary.slug}`;
-    if (projectRosterStatus) projectRosterStatus.textContent = `Loaded ${summary.slug}`;
+    if (projectRosterMarkdown) projectRosterMarkdown.value = project.roster_markdown || '';
+    if (projectAboutStatus) projectAboutStatus.textContent = `Loaded ${currentSlug}`;
+    if (projectRosterStatus) projectRosterStatus.textContent = `Loaded ${currentSlug}`;
 
     renderNotes(Array.isArray(currentDetail.notes) ? currentDetail.notes : []);
     renderTodos(Array.isArray(currentDetail.todos) ? currentDetail.todos : []);
@@ -533,65 +641,93 @@
     setModuleState(resp.data || {});
   }
 
-  async function loadProjects(preferredSlug = '') {
+  async function loadProjectsList() {
     if (!moduleEnabled) {
       currentProjects = [];
-      currentSlug = '';
-      currentDetail = null;
-      renderProjectList();
-      renderDetail();
+      renderProjectTable();
       return;
     }
 
     const resp = await api('/admin/projects');
     currentProjects = Array.isArray(resp?.data?.projects) ? resp.data.projects : [];
-    if (preferredSlug) {
-      currentSlug = preferredSlug;
-    } else if (!currentSlug && currentProjects[0]) {
-      currentSlug = currentProjects[0].slug || '';
-    } else if (currentSlug && !currentProjects.some((p) => String(p.slug) === String(currentSlug))) {
-      currentSlug = currentProjects[0]?.slug || '';
-    }
-    renderProjectList();
-    if (currentSlug) {
-      await loadDetail(currentSlug, { skipListRefresh: true });
-    } else {
-      currentDetail = null;
-      renderDetail();
-    }
+    renderProjectTable();
   }
 
-  async function loadDetail(slug, options = {}) {
-    if (!slug || !moduleEnabled) {
-      currentSlug = '';
+  async function loadProjectDetail(slug) {
+    if (!moduleEnabled || !slug) {
+      currentSlug = String(slug || '');
       currentDetail = null;
-      renderProjectList();
       renderDetail();
       return;
     }
+
     currentSlug = String(slug);
     const resp = await api(`/admin/projects/${encodeURIComponent(currentSlug)}`);
     currentDetail = resp.data || null;
-    renderProjectList();
     renderDetail();
-    if (!options.skipListRefresh) {
-      // keep sidebar metadata fresh after mutations from another client
-      const listResp = await api('/admin/projects');
-      currentProjects = Array.isArray(listResp?.data?.projects) ? listResp.data.projects : currentProjects;
-      renderProjectList();
+  }
+
+  async function loadSettingsView() {
+    await loadState();
+    await loadProjectsList();
+  }
+
+  async function loadProjectDetailView(slug) {
+    const normalizedSlug = String(slug || '').trim();
+    if (normalizedSlug !== currentSlug) {
+      currentSlug = normalizedSlug;
+      currentDetail = null;
+      resetTransientForms();
+    }
+
+    await loadState();
+    if (!moduleEnabled || !currentSlug) {
+      renderDetail();
+      return;
+    }
+
+    try {
+      await loadProjectDetail(currentSlug);
+    } catch (err) {
+      currentDetail = null;
+      disableDetailInputs(true);
+      clearDetailFields();
+      resetTransientForms();
+      renderNotes([]);
+      renderTodos([]);
+      renderFiles([]);
+      renderFeedback([]);
+      renderChanges([]);
+      if (projectDetailTitle) projectDetailTitle.textContent = currentSlug || 'Project load failed';
+      if (projectDetailMeta) projectDetailMeta.textContent = err.message || 'Unable to load project details.';
+      showProjectDetailEmpty('Project load failed', err.message || 'Unable to load project details.');
     }
   }
 
   async function loadAll(preferredSlug = '') {
-    if (loading) return;
+    if (loading) {
+      reloadQueued = true;
+      queuedLoadSlug = preferredSlug || detailRouteSlug() || currentSlug;
+      return;
+    }
     loading = true;
     try {
-      await loadState();
-      await loadProjects(preferredSlug);
+      const route = currentRoute();
+      if (route.panel === 'project-detail') {
+        await loadProjectDetailView(preferredSlug || route.sub || currentSlug);
+      } else {
+        await loadSettingsView();
+      }
     } catch (err) {
       if (projectsModuleStatus) projectsModuleStatus.textContent = `Load failed: ${err.message}`;
     } finally {
       loading = false;
+      if (reloadQueued) {
+        const nextSlug = queuedLoadSlug;
+        reloadQueued = false;
+        queuedLoadSlug = '';
+        loadAll(nextSlug);
+      }
     }
   }
 
@@ -602,38 +738,10 @@
         json: { enabled },
       });
       setModuleState(resp.data || {});
-      await loadProjects();
+      await loadAll(currentSlug);
     } catch (err) {
       if (projectsModuleStatus) projectsModuleStatus.textContent = `Update failed: ${err.message}`;
       if (projectsEnabledToggle) projectsEnabledToggle.checked = moduleEnabled;
-    }
-  }
-
-  async function createProject() {
-    if (!projectCreateSlug || !projectCreateTitle || !projectCreateDescription) return;
-    projectsCreateStatus.textContent = 'Creating…';
-    try {
-      const slug = projectCreateSlug.value.trim();
-      const title = projectCreateTitle.value.trim();
-      const description = projectCreateDescription.value.trim();
-      await api('/admin/projects', {
-        method: 'POST',
-        json: {
-          slug,
-          about: {
-            title,
-            name: title,
-            description,
-          },
-        },
-      });
-      projectsCreateStatus.textContent = 'Created';
-      projectCreateSlug.value = '';
-      projectCreateTitle.value = '';
-      projectCreateDescription.value = '';
-      await loadAll(slug);
-    } catch (err) {
-      projectsCreateStatus.textContent = `Create failed: ${err.message}`;
     }
   }
 
@@ -652,7 +760,7 @@
         },
       });
       if (projectAboutStatus) projectAboutStatus.textContent = 'Saved';
-      await loadAll(currentSlug);
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectAboutStatus) projectAboutStatus.textContent = `Save failed: ${err.message}`;
     }
@@ -669,7 +777,7 @@
         },
       });
       if (projectRosterStatus) projectRosterStatus.textContent = 'Saved';
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectRosterStatus) projectRosterStatus.textContent = `Save failed: ${err.message}`;
     }
@@ -691,7 +799,7 @@
         },
       });
       resetNoteForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectNoteStatus) projectNoteStatus.textContent = `Save failed: ${err.message}`;
     }
@@ -704,7 +812,7 @@
     try {
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/notes/${id}`, { method: 'DELETE' });
       resetNoteForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectNoteStatus) projectNoteStatus.textContent = `Delete failed: ${err.message}`;
     }
@@ -726,7 +834,7 @@
         },
       });
       resetTodoForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectTodoStatus) projectTodoStatus.textContent = `Save failed: ${err.message}`;
     }
@@ -738,7 +846,7 @@
     try {
       const suffix = done ? 'done' : 'undone';
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/todos/${id}/${suffix}`, { method: 'POST' });
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectTodoStatus) projectTodoStatus.textContent = `Update failed: ${err.message}`;
     }
@@ -751,7 +859,7 @@
     try {
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/todos/${id}`, { method: 'DELETE' });
       resetTodoForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectTodoStatus) projectTodoStatus.textContent = `Delete failed: ${err.message}`;
     }
@@ -771,7 +879,7 @@
         },
       });
       resetFileForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectFileStatus) projectFileStatus.textContent = `Save failed: ${err.message}`;
     }
@@ -784,7 +892,7 @@
     try {
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/files/${id}`, { method: 'DELETE' });
       resetFileForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectFileStatus) projectFileStatus.textContent = `Delete failed: ${err.message}`;
     }
@@ -803,38 +911,56 @@
         },
       });
       resetFeedbackForm();
-      await loadDetail(currentSlug, { skipListRefresh: true });
+      await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectFeedbackStatus) projectFeedbackStatus.textContent = `Save failed: ${err.message}`;
     }
   }
 
-  function formatBytes(value) {
-    const size = Number(value || 0);
-    if (!Number.isFinite(size) || size <= 0) return '0 B';
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
-    return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+  function openProjectDeleteModal(slug) {
+    pendingDeleteSlug = String(slug || '').trim();
+    const project = currentProjects.find((entry) => String(entry.slug) === pendingDeleteSlug);
+    const label = project?.title || pendingDeleteSlug || 'this project';
+    if (projectDeleteText) {
+      projectDeleteText.textContent = `Delete ${label}? This removes the project and all shared notes, todos, files, feedback, and history.`;
+    }
+    projectDeleteModal?.classList.add('show');
   }
 
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  function closeProjectDeleteModal() {
+    projectDeleteModal?.classList.remove('show');
+    pendingDeleteSlug = '';
+  }
+
+  async function confirmDeleteProjectAction() {
+    if (!pendingDeleteSlug) return;
+    if (confirmProjectDelete) {
+      confirmProjectDelete.disabled = true;
+      confirmProjectDelete.textContent = 'Deleting…';
+    }
+    try {
+      const deletedSlug = pendingDeleteSlug;
+      await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: 'DELETE' });
+      closeProjectDeleteModal();
+      if (detailRouteSlug() === deletedSlug) {
+        window.location.hash = '#settings/projects';
+        return;
+      }
+      await loadSettingsView();
+    } catch (err) {
+      alert(`Delete failed: ${err.message}`);
+    } finally {
+      if (confirmProjectDelete) {
+        confirmProjectDelete.disabled = false;
+        confirmProjectDelete.textContent = 'Delete';
+      }
+    }
   }
 
   function wireEvents() {
     if (projectsEnabledToggle) {
       projectsEnabledToggle.addEventListener('change', () => {
         saveModuleEnabled(projectsEnabledToggle.checked);
-      });
-    }
-    if (projectCreateBtn) {
-      projectCreateBtn.addEventListener('click', (event) => {
-        event.preventDefault();
-        createProject();
       });
     }
     if (projectAboutSave) {
@@ -885,28 +1011,50 @@
         saveFeedback();
       });
     }
+    if (projectDeleteModal) {
+      projectDeleteModal.addEventListener('click', (event) => {
+        if (event.target === projectDeleteModal) closeProjectDeleteModal();
+      });
+    }
+    if (cancelProjectDelete) {
+      cancelProjectDelete.addEventListener('click', closeProjectDeleteModal);
+    }
+    if (confirmProjectDelete) {
+      confirmProjectDelete.addEventListener('click', confirmDeleteProjectAction);
+    }
   }
 
   function init() {
     bindDom();
-    if (!projectsList) return;
+    if (!projectsEnabledToggle && !projectsTableBody && !projectDetailPanel) return;
+
     if (!initialized) {
       initialized = true;
       wireEvents();
-      resetNoteForm();
-      resetTodoForm();
-      resetFileForm();
-      resetFeedbackForm();
+      resetTransientForms();
     }
+
     loadAll();
   }
 
   window.__initProjects = init;
+  window.__loadProjectDetailByRoute = (slug = '') => {
+    init();
+    loadAll(decodeHashValue(slug));
+  };
 
   window.addEventListener('admin-data-dirty', (event) => {
+    if (!initialized) return;
     const domains = Array.isArray(event?.detail?.domains) ? event.detail.domains : [];
     if (!domains.includes('projects')) return;
-    if (!initialized) return;
-    loadAll(currentSlug);
+
+    const route = currentRoute();
+    if (route.panel === 'project-detail') {
+      loadAll(route.sub || currentSlug);
+      return;
+    }
+    if (route.panel === 'settings' && route.sub.toLowerCase() === 'projects') {
+      loadAll();
+    }
   });
 })();

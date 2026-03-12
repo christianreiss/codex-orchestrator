@@ -123,6 +123,16 @@ class ProjectRepository
         ]);
     }
 
+    public function delete(int $projectId): bool
+    {
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM coord_projects WHERE id = :id'
+        );
+        $statement->execute(['id' => $projectId]);
+
+        return $statement->rowCount() > 0;
+    }
+
     public function nextEventSeq(int $projectId): int
     {
         $pdo = $this->database->connection();
