@@ -2,6 +2,11 @@
 - cdx wrapper: restored usage capture for Codex `0.114.0+` by resolving the emitted `session id` to `~/.codex/sessions/.../*.jsonl` and reading structured `token_count` usage rows, with fallback to the new `tokens used` footer and the older `Token usage:` line format. Wrapper bumped to `2026.03.13-01`.
 - Usage API/docs/tests: `/usage` now leaves `cost=null` when clients only report total tokens without billable input/output/cached splits, preventing misleading `0.00$` run-cost displays while still recording usage totals.
 
+# 2026-03-13
+- Projects/CoCo cross-server guardrails: CoCo shared handoffs are now explicitly project-only in the managed `coco` skill, bootstrap payloads, API/admin copy, and MCP docs; host-scoped `memory://...` resources are no longer described as a valid fallback for shared CoCo state.
+- MCP memories: reserved keys matching `^coco(?:$|[._:-])` are now rejected with a validation error so cross-host CoCo handoffs cannot be mis-modeled in `mcp_memories`, which remain host-scoped by design.
+- cdx wrapper: skill pull sync now removes stale legacy managed copies under `~/.codex/skills/<slug>` so an old pre-project `coco` skill cannot shadow the managed `~/.agents/skills/coco/SKILL.md` rollout on upgraded clients. Wrapper bumped to `2026.03.13-02`.
+
 # 2026-03-12
 - Projects/CoCo module: the managed `coco` skill now embeds the native CoCo toolkit/help directly, and project bootstrap payloads now point agents to that skill instead of a separate help page.
 - cdx wrapper: managed skills that disappear from the remote list are now pruned locally on sync, so disabling the Projects module removes the auto-managed `coco` skill from clients on their next pull. Wrapper bumped to `2026.03.12-02`.

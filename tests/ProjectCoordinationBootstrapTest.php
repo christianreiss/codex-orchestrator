@@ -98,6 +98,8 @@ final class ProjectCoordinationBootstrapTest extends TestCase
         $this->assertSame('coco', $bootstrap['skill']['slug']);
         $this->assertSame('~/.agents/skills/coco/SKILL.md', $bootstrap['skill']['path']);
         $this->assertStringContainsString('~/.agents/skills/coco/SKILL.md', $bootstrap['instructions'][0]);
+        $this->assertStringContainsString('project-only', implode("\n", $bootstrap['instructions']));
+        $this->assertStringContainsString('memory://', implode("\n", $bootstrap['instructions']));
         $this->assertContains('project_bootstrap {"slug":"apollo"}', $bootstrap['quickstart']);
         $this->assertSame('/projects/apollo/bootstrap', $bootstrap['routes']['bootstrap']);
         $this->assertSame('/projects/apollo/changes', $bootstrap['routes']['changes']);

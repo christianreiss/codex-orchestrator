@@ -2,14 +2,16 @@
 
 Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
 
+For CoCo specifically, shared state is project-only. `memory://...` resources remain host-scoped and are not a cross-server fallback.
+
 ## Endpoints
 
 - `POST /mcp` — JSON-RPC 2.0 streamable HTTP endpoint (`protocolVersion: 2025-03-26`). Accepts single or batch requests.
 - `GET /mcp` — probe endpoint. Checks `Origin`; when allowed, returns HTTP 405 with `Allow: POST`.
-- `POST /mcp/memories/store` — REST helper for memory store.
-- `POST /mcp/memories/retrieve` — REST helper for memory retrieve.
+- `POST /mcp/memories/store` — REST helper for memory store. Reserved keys matching `^coco(?:$|[._:-])` are rejected so CoCo shared handoffs go through Projects instead.
+- `POST /mcp/memories/retrieve` — REST helper for memory retrieve. Reserved `coco*` keys are rejected for the same reason.
 - `POST /mcp/memories/search` — REST helper for memory search.
-- `POST /mcp/memories/delete` — REST helper for memory delete.
+- `POST /mcp/memories/delete` — REST helper for memory delete. Reserved `coco*` keys are rejected.
 - `DELETE /mcp/memories/{id}` — delete by memory key (URL decoded).
 
 ## Auth & safety
@@ -38,6 +40,7 @@ Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts. Wh
 - `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
 - Memory/FS/resource tool responses are wrapped in `CallToolResult.content` blocks.
 - `resources/list` always includes recent `memory://...` resources for the caller; when the Projects module is enabled it also includes concrete `project://{slug}` resources for each active shared project.
+- The managed `coco` skill uses the `project_*` / `project://{slug}` side of that surface for shared handoffs; it does not treat `memory://...` as cross-host shared state.
 
 ## Example JSON-RPC call
 
@@ -88,6 +91,6 @@ curl -s "$BASE/mcp/memories/search" \
 ## Client hints
 
 - `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"`, static `Authorization` header, and `startup_timeout_sec = 30`.
-- When the Projects module is enabled, the normal Skills sync also ships a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed.
+- When the Projects module is enabled, the normal Skills sync also ships a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill now explicitly tells operators that CoCo shared handoffs are project-only and blocks reserved `coco*` memory ids.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

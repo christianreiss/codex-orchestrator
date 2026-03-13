@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Exceptions\ValidationException;
 use App\Repositories\LogRepository;
 use App\Repositories\MemoryRepository;
 use App\Services\MemoryService;
@@ -186,5 +187,42 @@ final class MemoryServiceTest extends TestCase
         $this->assertSame('note-del', $deleted['id']);
         $this->assertNull($this->repository->findByKey($this->host['id'], 'note-del'));
         $this->assertSame('memory.delete', $this->logs->records[array_key_last($this->logs->records)]['action']);
+    }
+
+    public function testStoreRejectsReservedCocoKeys(): void
+    {
+        try {
+            $this->service->store(['id' => 'coco.blade_hotspot_detector_handoff', 'content' => 'shared state'], $this->host);
+            $this->fail('Expected reserved CoCo key validation to fail.');
+        } catch (ValidationException $exception) {
+            $errors = $exception->getErrors();
+            $this->assertArrayHasKey('id', $errors);
+            $this->assertStringContainsString('reserved for CoCo shared handoffs', implode(' ', $errors['id']));
+            $this->assertStringContainsString('project_*', implode(' ', $errors['id']));
+        }
+    }
+
+    public function testRetrieveRejectsReservedCocoKeys(): void
+    {
+        try {
+            $this->service->retrieve(['id' => 'coco:apollo'], $this->host);
+            $this->fail('Expected reserved CoCo key validation to fail.');
+        } catch (ValidationException $exception) {
+            $errors = $exception->getErrors();
+            $this->assertArrayHasKey('id', $errors);
+            $this->assertStringContainsString('host-scoped MCP memory', implode(' ', $errors['id']));
+        }
+    }
+
+    public function testDeleteRejectsReservedCocoKeys(): void
+    {
+        try {
+            $this->service->delete(['id' => 'coco_apollo'], $this->host);
+            $this->fail('Expected reserved CoCo key validation to fail.');
+        } catch (ValidationException $exception) {
+            $errors = $exception->getErrors();
+            $this->assertArrayHasKey('id', $errors);
+            $this->assertStringContainsString('shared projects', implode(' ', $errors['id']));
+        }
     }
 }

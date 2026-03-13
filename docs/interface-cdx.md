@@ -115,8 +115,9 @@ Sync details:
 - Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts/skills/AGENTS/config in one pass.
 - Wrapper falls back to legacy per-resource pulls if bundle path fails or endpoints are missing.
 - Deleted/retired remote prompts and skills are removed locally.
-- When the Projects module is enabled, the managed `coco` skill is included in the normal Skills sync flow, lands at `~/.agents/skills/coco/SKILL.md`, and carries the CoCo toolkit/help inline.
+- When the Projects module is enabled, the managed `coco` skill is included in the normal Skills sync flow, lands at `~/.agents/skills/coco/SKILL.md`, and carries the CoCo toolkit/help inline. Its guidance is project-only for shared CoCo handoffs; host-scoped MCP memory is not treated as a cross-host fallback.
 - When the Projects module is later disabled, previously managed `coco` skill copies are pruned on the next sync if the server no longer advertises them.
+- Skill pull sync also removes stale legacy managed copies under `~/.codex/skills/<slug>` so an old pre-project `coco` skill cannot shadow the managed `~/.agents/skills/coco/SKILL.md` copy on upgraded clients.
 - Wrapper preserves `managed` metadata for synced Skills and skips pushing those managed entries back to `/skills/store`, so project-owned Skills stay read-only on the fleet side.
 - `status:missing` from AGENTS/config retrieval deletes local file.
 - Prompt store reads frontmatter keys `description` and `argument-hint`.
@@ -292,7 +293,7 @@ Wrapper updates:
   - `resource_*`
 - When the Projects module is enabled, `McpServer` also exposes `project_*` tools plus the `project://{slug}` resource template/resource family used by the managed `coco` skill.
 - Tool-name dot aliases are accepted (`name.with.dots` normalized to underscores).
-- Host-authenticated REST memory endpoints also exist under `/mcp/memories/*`.
+- Host-authenticated REST memory endpoints also exist under `/mcp/memories/*`, but those memories remain host-scoped and reserved `coco*` ids are rejected so cross-server CoCo handoffs stay project-only.
 - The wrapper does not have a separate project-state startup sync path; shared project context is fetched live through `/mcp` or `/projects*` when agents actually need it.
 
 ## Unknown / Not Found In Code

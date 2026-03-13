@@ -18,6 +18,8 @@ class MemoryService
     private const MAX_CONTENT_LENGTH = 32000;
     private const MAX_TAGS = 32;
     private const MAX_TAG_LENGTH = 64;
+    private const RESERVED_COCO_KEY_PATTERN = '/^coco(?:$|[._:-])/i';
+    private const RESERVED_COCO_KEY_ERROR = 'ids beginning with coco are reserved for CoCo shared handoffs; use shared projects (`/projects` or `project_*`) instead of host-scoped MCP memory';
 
     public function __construct(
         private readonly MemoryRepository $memories,
@@ -287,7 +289,16 @@ class MemoryService
             $errors['id'][] = 'id may only contain letters, numbers, dots, underscores, hyphens, and colons';
         }
 
+        if ($this->isReservedCoCoKey($normalized)) {
+            $errors['id'][] = self::RESERVED_COCO_KEY_ERROR;
+        }
+
         return $normalized;
+    }
+
+    private function isReservedCoCoKey(string $value): bool
+    {
+        return preg_match(self::RESERVED_COCO_KEY_PATTERN, $value) === 1;
     }
 
     private function normalizeMetadata(mixed $value, array &$errors): ?array

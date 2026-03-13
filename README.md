@@ -33,7 +33,7 @@ If you only use Codex on one laptop, this is probably overkill.
 - Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
 - Prompt and Skill distribution: slash commands (prompts) and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.agents/skills/`; AGENTS.md is canonical too.
 - Native project coordination: optional Projects module adds shared notes, todos, files, feedback, and append-only change history for cross-agent work.
-- Managed CoCo skill rollout: enabling the Projects module auto-publishes a managed `coco` skill to Codex clients through the normal Skill sync flow.
+- Managed CoCo skill rollout: enabling the Projects module auto-publishes a managed `coco` skill to Codex clients through the normal Skill sync flow, and that skill now documents CoCo as project-only shared state instead of a cross-host memory fallback.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.4 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from the server-managed wrapper artifact (`/wrapper/download`).
 - Dashboards and API: admin API defaults to mTLS access (`ADMIN_ACCESS_MODE=mtls`) and supports userless bootstrap until the first active admin user; HTTP API for automation.

@@ -74,4 +74,27 @@ final class CdxWrapperSkillFormatTest extends TestCase
             'Only managed baseline entries should be auto-pruned.'
         );
     }
+
+    public function testWrapperAlsoPrunesLegacyManagedSkillCopies(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString(
+            'legacy_skill_dir = pathlib.Path.home() / ".codex" / "skills"',
+            $wrapperSource,
+            'Wrapper should know where legacy per-user skill copies live so stale managed skills can be removed.'
+        );
+        self::assertStringContainsString(
+            'Legacy managed-skill copies under ~/.codex/skills should not shadow synced skills.',
+            $wrapperSource,
+            'Managed project skills should remove stale legacy copies during pull sync.'
+        );
+        self::assertStringContainsString(
+            'removed += prune_legacy_skill_copy(slug)',
+            $wrapperSource,
+            'Managed-skill pull sync should prune stale legacy copies when present.'
+        );
+    }
 }
