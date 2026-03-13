@@ -205,14 +205,14 @@ Summary layout:
 - Forwards Codex exit code.
 
 ## Usage Reporting
-- Wrapper parses every captured `Token usage:` line from run output (supports structured and key/value variants).
+- Wrapper first resolves the captured Codex `session id` and reads `~/.codex/sessions/.../*.jsonl` `token_count` events for structured usage (`total`, `input`, `output`, `cached`, `reasoning`); older CLIs still fall back to the legacy `Token usage:` line format, and the current plain-text `tokens used` footer degrades to total-only usage when no session log can be resolved.
 - Interactive SSH direct-launch runs may not produce a wrapper-captured output log, so `Run usage`/`Run cost` can be unavailable for those sessions.
 - Posted to `POST /usage` as one payload (`usages` array).
 - Each entry may contain: `line`, `total`, `input`, `output`, `cached`, `reasoning`, optional `model`.
 - On `/usage` failure with `line` present, wrapper retries once with `line` stripped.
 - Exit footer reports:
   - `Run usage`
-  - `Run cost` (uses response `data.cost` when present)
+  - `Run cost` (uses response `data.cost` when present; remains unavailable when the client only reported total tokens without input/output/cached breakdown)
   - `Sync` (`usage` + `auth` push states)
 
 ## Update + Install Behavior

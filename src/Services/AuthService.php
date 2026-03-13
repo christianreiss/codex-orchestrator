@@ -1629,6 +1629,18 @@ class AuthService
 
     private function normalizeUsageCost(array $usage, array $pricing): ?float
     {
+        $hasBillableBreakdown = false;
+        foreach (['input', 'output', 'cached'] as $field) {
+            if (array_key_exists($field, $usage) && $usage[$field] !== null) {
+                $hasBillableBreakdown = true;
+                break;
+            }
+        }
+
+        if (!$hasBillableBreakdown) {
+            return null;
+        }
+
         $cost = $this->pricingService->calculateCost($pricing, [
             'input' => $usage['input'] ?? 0,
             'output' => $usage['output'] ?? 0,

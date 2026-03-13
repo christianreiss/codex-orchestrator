@@ -121,7 +121,7 @@ The wrapper is the supported entrypoint because it:
 - Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills (`~/.agents/skills/`) via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Managed Skills such as the project-module `coco` skill stay read-only and are not pushed back to the server from the client.
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
-- Reports token usage back to `/usage` by parsing Codex stdout `Token usage` lines and POSTing single or batched entries; unparseable lines are sent as raw `line` only.
+- Reports token usage back to `/usage` by resolving the captured Codex `session id` to `~/.codex/sessions/.../*.jsonl` and reading structured `token_count` events. Older CLIs still fall back to parsing legacy `Token usage:` lines, and the current `tokens used` footer degrades to total-only usage when no session log can be resolved.
 
 Common commands:
 

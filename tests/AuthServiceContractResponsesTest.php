@@ -486,6 +486,25 @@ final class AuthServiceContractResponsesTest extends TestCase
         $this->assertSame([], $errors, implode("\n", $errors));
     }
 
+    public function testUsageCostIsNullWhenOnlyTotalTokensAreKnown(): void
+    {
+        [$service, $hostRepo] = $this->buildService(null);
+        $data = $service->recordTokenUsage(
+            $hostRepo->host,
+            [
+                'line' => 'tokens used: total=13,841',
+                'total' => 13841,
+            ],
+            '203.0.113.10'
+        );
+
+        $this->assertNull($data['cost'] ?? null);
+        $this->assertSame(13841, $data['total'] ?? null);
+        $this->assertCount(1, $data['usages'] ?? []);
+        $this->assertNull($data['usages'][0]['cost'] ?? null);
+        $this->assertSame(13841, $data['usages'][0]['total'] ?? null);
+    }
+
     /**
      * @return array{0:AuthService, 1:ContractHostRepository}
      */
