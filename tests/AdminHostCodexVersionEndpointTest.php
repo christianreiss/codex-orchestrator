@@ -23,5 +23,13 @@ final class AdminHostCodexVersionEndpointTest extends TestCase
 
         self::assertStringContainsString("'client_version_override'", $routerSource);
     }
-}
 
+    public function testEndpointUsesSharedCodexVersionPolicyHelper(): void
+    {
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        self::assertIsString($routerSource);
+
+        self::assertStringContainsString('CodexVersionPolicy::isSemanticVersion', $routerSource);
+        self::assertStringContainsString('CodexVersionPolicy::resolveEffective', $routerSource);
+    }
+}

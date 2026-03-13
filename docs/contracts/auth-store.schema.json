@@ -249,6 +249,7 @@
             "client_version",
             "client_version_checked_at",
             "client_version_source",
+            "client_version_enforce_exact",
             "wrapper_version",
             "wrapper_sha256",
             "wrapper_url",
@@ -282,6 +283,9 @@
                 "string",
                 "null"
               ]
+            },
+            "client_version_enforce_exact": {
+              "type": "boolean"
             },
             "wrapper_version": {
               "type": [

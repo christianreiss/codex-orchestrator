@@ -20,7 +20,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 final class AuthServiceHostClientVersionOverrideTest extends TestCase
 {
-    public function testHostOverrideForcesLockedClientVersionInAuthResponse(): void
+    public function testHostOverrideRaisesLowVersionToMinimumFloor(): void
     {
         $host = [
             'id' => 1,
@@ -29,7 +29,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             'secure' => 1,
             'vip' => 0,
             'api_calls' => 0,
-            'client_version_override' => '0.61.0',
+            'client_version_override' => '0.101.0',
         ];
 
         $hosts = new class($host) extends HostRepository {
@@ -350,8 +350,301 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
 
         $snapshot = $response['versions'] ?? null;
         $this->assertIsArray($snapshot);
-        $this->assertSame('0.61.0', $snapshot['client_version'] ?? null);
+        $this->assertSame('0.114.0', $snapshot['client_version'] ?? null);
         $this->assertSame('locked', $snapshot['client_version_source'] ?? null);
         $this->assertNull($snapshot['client_version_checked_at'] ?? null);
+        $this->assertFalse($snapshot['client_version_enforce_exact'] ?? true);
+    }
+
+    public function testHostOverrideKeepsHigherVersionExact(): void
+    {
+        $host = [
+            'id' => 1,
+            'fqdn' => 'host.test',
+            'status' => 'active',
+            'secure' => 1,
+            'vip' => 0,
+            'api_calls' => 0,
+            'client_version_override' => '0.120.0',
+        ];
+
+        $hosts = new class($host) extends HostRepository {
+            public array $host;
+
+            public function __construct(array $host)
+            {
+                $this->host = $host;
+            }
+
+            public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
+            {
+                $this->host['client_version'] = $clientVersion;
+                $this->host['wrapper_version'] = $wrapperVersion;
+            }
+
+            public function incrementApiCalls(int $hostId, int $by = 1): void
+            {
+                $this->host['api_calls'] = ($this->host['api_calls'] ?? 0) + $by;
+            }
+
+            public function findById(int $id): ?array
+            {
+                return $this->host;
+            }
+
+            public function updateSyncState(int $hostId, string $lastRefresh, string $authDigest): void
+            {
+                $this->host['last_refresh'] = $lastRefresh;
+                $this->host['auth_digest'] = $authDigest;
+            }
+
+            public function all(): array
+            {
+                return [$this->host];
+            }
+        };
+
+        $payloads = new class() extends AuthPayloadRepository {
+            public function __construct()
+            {
+            }
+
+            public function findByIdWithEntries(int $id): ?array
+            {
+                return null;
+            }
+
+            public function latest(): ?array
+            {
+                return null;
+            }
+        };
+
+        $hostStates = new class() extends HostAuthStateRepository {
+            public function __construct()
+            {
+            }
+
+            public function upsert(int $hostId, int $payloadId, string $digest): void
+            {
+            }
+        };
+
+        $digests = new class() extends HostAuthDigestRepository {
+            public function __construct()
+            {
+            }
+
+            public function recentDigests(int $hostId, int $limit = 3): array
+            {
+                return [];
+            }
+
+            public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+            {
+            }
+        };
+
+        $hostUsers = new class() extends HostUserRepository {
+            public function __construct()
+            {
+            }
+
+            public function record(int $hostId, string $username, ?string $hostname = null): void
+            {
+            }
+
+            public function listByHost(int $hostId): array
+            {
+                return [];
+            }
+
+            public function deleteByHostId(int $hostId): void
+            {
+            }
+        };
+
+        $logs = new class() extends LogRepository {
+            public function __construct()
+            {
+            }
+
+            public function log(?int $hostId, string $action, array $details = []): void
+            {
+            }
+        };
+
+        $tokenUsages = new class() extends TokenUsageRepository {
+            public function __construct()
+            {
+            }
+
+            public function totals(?int $hostId = null): array
+            {
+                return [
+                    'total' => 0,
+                    'input' => 0,
+                    'output' => 0,
+                    'cached' => 0,
+                    'reasoning' => 0,
+                    'cost' => 0.0,
+                    'events' => 0,
+                ];
+            }
+
+            public function totalsForRange(string $startIso, string $endIso): array
+            {
+                return $this->totals();
+            }
+
+            public function totalsForHostRange(int $hostId, string $startIso, string $endIso): array
+            {
+                return $this->totals();
+            }
+
+            public function totalsByHost(): array
+            {
+                return [];
+            }
+
+            public function record(
+                ?int $hostId,
+                ?int $total,
+                ?int $input,
+                ?int $output,
+                ?int $cached,
+                ?int $reasoning,
+                ?float $cost,
+                ?string $model,
+                ?string $line,
+                ?int $ingestId = null
+            ): void {
+            }
+
+            public function latestForHost(int $hostId): ?array
+            {
+                return null;
+            }
+
+            public function recent(int $limit = 50): array
+            {
+                return [];
+            }
+
+            public function topHost(): ?array
+            {
+                return null;
+            }
+
+            public function dailyTotalsSince(string $startIso): array
+            {
+                return [];
+            }
+        };
+
+        $tokenUsageIngests = new class() extends TokenUsageIngestRepository {
+            public function __construct()
+            {
+            }
+        };
+
+        $pricing = $this->createMock(PricingService::class);
+        $versions = $this->createMock(VersionRepository::class);
+        $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
+            if ($name === 'client_available') {
+                return ['version' => '0.114.0', 'updated_at' => '2025-11-22T00:00:00Z'];
+            }
+
+            return null;
+        });
+        $versions->method('get')->willReturnCallback(static function (string $name): ?string {
+            return match ($name) {
+                'canonical_payload_id' => null,
+                'quota_limit_percent' => '100',
+                'quota_week_partition' => '0',
+                default => null,
+            };
+        });
+        $versions->method('getFlag')->willReturnCallback(static function (string $name, bool $default = false): bool {
+            return $default;
+        });
+
+        $wrapper = new class() extends WrapperService {
+            public function __construct()
+            {
+            }
+
+            public function metadata(): array
+            {
+                return [
+                    'version' => null,
+                    'sha256' => null,
+                    'size_bytes' => null,
+                    'updated_at' => null,
+                    'url' => '/wrapper/download',
+                ];
+            }
+
+            public function updateContent(string $content): array
+            {
+                return [];
+            }
+
+            public function replaceFromUpload(string $tmpPath, string $version, ?string $expectedSha, bool $isUploadedFile = false): array
+            {
+                return [];
+            }
+
+            public function contentPath(): string
+            {
+                return '';
+            }
+
+            public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
+            {
+                return [
+                    'version' => null,
+                    'sha256' => null,
+                    'size_bytes' => null,
+                    'updated_at' => null,
+                    'url' => '/wrapper/download',
+                    'content' => null,
+                ];
+            }
+        };
+
+        $service = new AuthService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $digests,
+            $hostUsers,
+            $logs,
+            $tokenUsages,
+            $tokenUsageIngests,
+            $pricing,
+            $versions,
+            $wrapper,
+            null
+        );
+
+        $response = $service->handleAuth(
+            [
+                'command' => 'retrieve',
+                'last_refresh' => '2025-11-21T00:00:00Z',
+                'digest' => str_repeat('b', 64),
+            ],
+            $host,
+            '1.0.0',
+            '2025.11.22-6',
+            'http://api'
+        );
+
+        $snapshot = $response['versions'] ?? null;
+        $this->assertIsArray($snapshot);
+        $this->assertSame('0.120.0', $snapshot['client_version'] ?? null);
+        $this->assertSame('locked', $snapshot['client_version_source'] ?? null);
+        $this->assertNull($snapshot['client_version_checked_at'] ?? null);
+        $this->assertTrue($snapshot['client_version_enforce_exact'] ?? false);
     }
 }

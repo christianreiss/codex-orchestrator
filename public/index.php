@@ -72,6 +72,7 @@ use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthEncryptionMigrator;
 use App\Security\RateLimiter;
+use App\Support\CodexVersionPolicy;
 use App\Support\Installation;
 use App\Support\InstallerScriptBuilder;
 use App\Support\Mailer;
@@ -1374,7 +1375,7 @@ $router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $ver
     if (!is_string($selectionRaw) || trim($selectionRaw) === '') {
         Response::json([
             'status' => 'error',
-            'message' => 'selection must be one of: latest, or a version like 0.63.0',
+            'message' => 'selection must be one of: latest, or a version like 0.114.0',
         ], 422);
     }
 
@@ -1386,17 +1387,16 @@ $router->add('POST', '#^/admin/codex-version$#', function () use ($payload, $ver
         // Opportunistically refresh the cached GitHub latest value so dashboards update quickly.
         $service->availableClientVersion(true);
     } else {
-        $normalized = trim($selection);
-        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
-        $normalized = ltrim($normalized, 'vV');
-        if ($normalized === '' || !preg_match('/^\d+\.\d+\.\d+$/', $normalized)) {
+        $normalized = CodexVersionPolicy::normalize($selection);
+        if (!CodexVersionPolicy::isSemanticVersion($normalized)) {
             Response::json([
                 'status' => 'error',
-                'message' => 'selection must be a semantic version like 0.63.0',
+                'message' => 'selection must be a semantic version like 0.114.0',
             ], 422);
         }
-        $versionRepository->set('client_version_lock', $normalized);
-        $logSelection = $normalized;
+        $effective = CodexVersionPolicy::resolveEffective($normalized, true)['version'];
+        $versionRepository->set('client_version_lock', $effective);
+        $logSelection = $effective;
     }
 
     $lock = $versionRepository->getWithMetadata('client_version_lock');
@@ -2380,7 +2380,7 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($hostId)
     if ($selectionRaw !== null && !is_string($selectionRaw)) {
         Response::json([
             'status' => 'error',
-            'message' => 'selection must be one of: global, or a version like 0.63.0',
+            'message' => 'selection must be one of: global, or a version like 0.114.0',
         ], 422);
     }
 
@@ -2389,16 +2389,15 @@ $router->add('POST', '#^/admin/hosts/(\\d+)/codex-version$#', function ($hostId)
     if ($selectionLower === '' || $selectionLower === 'global' || $selectionLower === 'fleet' || $selectionLower === 'default') {
         $hostRepository->updateClientVersionOverride($hostId, null);
     } else {
-        $normalized = trim($selection);
-        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
-        $normalized = ltrim($normalized, 'vV');
-        if ($normalized === '' || !preg_match('/^\\d+\\.\\d+\\.\\d+$/', $normalized)) {
+        $normalized = CodexVersionPolicy::normalize($selection);
+        if (!CodexVersionPolicy::isSemanticVersion($normalized)) {
             Response::json([
                 'status' => 'error',
-                'message' => 'selection must be a semantic version like 0.63.0',
+                'message' => 'selection must be a semantic version like 0.114.0',
             ], 422);
         }
-        $hostRepository->updateClientVersionOverride($hostId, $normalized);
+        $effective = CodexVersionPolicy::resolveEffective($normalized, true)['version'];
+        $hostRepository->updateClientVersionOverride($hostId, $effective);
     }
 
     $updated = $hostRepository->findById($hostId);

@@ -24,6 +24,7 @@ use App\Repositories\McpSessionTokenRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
+use App\Support\CodexVersionPolicy;
 use App\Support\Timestamp;
 use App\Security\RateLimiter;
 use DateTimeImmutable;
@@ -1669,8 +1670,12 @@ class AuthService
         $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata();
         $reported = $this->latestReportedVersions();
 
-        // Client version comes from either an admin lock or GitHub (cached for 3h). If unavailable, client_version will be null.
-        $clientVersion = $this->canonicalVersion($available['version'] ?? null);
+        // Client version comes from either an admin lock or GitHub (cached for 3h), with an internal minimum floor.
+        $clientPolicy = CodexVersionPolicy::resolveEffective(
+            $available['version'] ?? null,
+            $lockedVersion !== null
+        );
+        $clientVersion = $clientPolicy['version'];
         $clientCheckedAt = $available['updated_at'] ?? null;
         $clientSource = $available['source'] ?? null;
 
@@ -1681,6 +1686,7 @@ class AuthService
             'client_version' => $clientVersion,
             'client_version_checked_at' => $clientCheckedAt,
             'client_version_source' => $clientSource,
+            'client_version_enforce_exact' => $clientPolicy['enforce_exact'],
             'wrapper_version' => $wrapperVersion,
             'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
             'wrapper_url' => $wrapperMeta['url'] ?? null,
@@ -2447,11 +2453,12 @@ class AuthService
             return $versions;
         }
 
-        $normalized = $this->canonicalVersion($override) ?? $override;
+        $policy = CodexVersionPolicy::resolveEffective($override, true);
 
-        $versions['client_version'] = $normalized;
+        $versions['client_version'] = $policy['version'];
         $versions['client_version_source'] = 'locked';
         $versions['client_version_checked_at'] = null;
+        $versions['client_version_enforce_exact'] = $policy['enforce_exact'];
 
         return $versions;
     }
@@ -2973,22 +2980,12 @@ class AuthService
 
     private function normalizeVersionString(string $value): string
     {
-        $normalized = trim($value);
-        $normalized = preg_replace('/^(codex-cli|codex|rust-)/i', '', $normalized) ?? $normalized;
-        $normalized = ltrim($normalized, 'vV');
-
-        return $normalized;
+        return CodexVersionPolicy::normalize($value) ?? '';
     }
 
     private function canonicalVersion(?string $value): ?string
     {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $normalized = $this->normalizeVersionString($value);
-
-        return $normalized === '' ? null : $normalized;
+        return CodexVersionPolicy::normalize($value);
     }
 
     private function normalizeDigest(mixed $value): ?string

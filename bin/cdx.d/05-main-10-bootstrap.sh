@@ -171,9 +171,19 @@ remote_timestamp=0
 prefer_npm_update=0
 enforce_exact_codex_version=0
 
-if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
-  enforce_exact_codex_version=1
-fi
+case "$(lowercase "${SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT:-}")" in
+  1|true|yes)
+    enforce_exact_codex_version=1
+    ;;
+  0|false|no)
+    enforce_exact_codex_version=0
+    ;;
+  *)
+    if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
+      enforce_exact_codex_version=1
+    fi
+    ;;
+esac
 
 if (( ! skip_update_check )); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then

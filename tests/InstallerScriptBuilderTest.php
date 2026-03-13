@@ -43,12 +43,19 @@ final class InstallerScriptBuilderTest extends TestCase
 
     public function testTemplateKeepsRequestedCodexVersionOnSsh(): void
     {
-        $script = $this->buildScript([], '0.113.0');
+        $script = $this->buildScript([], '0.120.0');
 
         $this->assertStringNotContainsString('codex_ssh_regression_fallback_version()', $script);
         $this->assertStringNotContainsString('SSH safeguard: Codex ${CODEX_VERSION} is blocked for interactive SSH sessions', $script);
         $this->assertStringContainsString('echo "Target Codex: ${CODEX_VERSION}"', $script);
         $this->assertStringContainsString('rust-v${CODEX_VERSION}/${asset}', $script);
+    }
+
+    public function testTemplateRaisesLowRequestedCodexVersionToMinimumFloor(): void
+    {
+        $script = $this->buildScript([], '0.101.0');
+
+        $this->assertStringContainsString("CODEX_VERSION='0.114.0'", $script);
     }
 
     public function testTemplateDoesNotAutoRunCdxAfterInstall(): void

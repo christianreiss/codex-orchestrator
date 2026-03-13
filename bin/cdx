@@ -373,6 +373,7 @@ AUTH_ACTION=""
 AUTH_MESSAGE=""
 SYNC_REMOTE_CLIENT_VERSION=""
 SYNC_REMOTE_CLIENT_VERSION_SOURCE=""
+SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
@@ -495,7 +496,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.13-02"
+WRAPPER_VERSION="2026.03.13-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2037,6 +2038,9 @@ def record_versions(vblock):
         cvs = vblock.get("client_version_source")
         if isinstance(cvs, str) and cvs.strip():
             out["client_version_source"] = cvs.strip()
+        cvx = vblock.get("client_version_enforce_exact")
+        if isinstance(cvx, bool):
+            out["client_version_enforce_exact"] = cvx
         wv = vblock.get("wrapper_version")
         if isinstance(wv, str) and wv.strip():
             out["wrapper_version"] = wv.strip()
@@ -2252,6 +2256,7 @@ if not isinstance(versions, dict):
     sys.exit(0)
 cv = versions.get("client_version")
 cvs = versions.get("client_version_source")
+cvx = versions.get("client_version_enforce_exact")
 wv = versions.get("wrapper_version")
 ws = versions.get("wrapper_sha256")
 wu = versions.get("wrapper_url")
@@ -2259,6 +2264,8 @@ if isinstance(cv, str) and cv.strip():
     print(f"cv={cv.strip()}")
 if isinstance(cvs, str) and cvs.strip():
     print(f"cvs={cvs.strip()}")
+if isinstance(cvx, bool):
+    print("cvx=1" if cvx else "cvx=0")
 if isinstance(wv, str) and wv.strip():
     print(f"wv={wv.strip()}")
 if isinstance(ws, str) and ws.strip():
@@ -2423,6 +2430,9 @@ PY
                 ;;
               cvs=*)
                 SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
+                ;;
+              cvx=*)
+                SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
                 ;;
               wv=*)
                 SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
@@ -5739,9 +5749,19 @@ remote_timestamp=0
 prefer_npm_update=0
 enforce_exact_codex_version=0
 
-if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
-  enforce_exact_codex_version=1
-fi
+case "$(lowercase "${SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT:-}")" in
+  1|true|yes)
+    enforce_exact_codex_version=1
+    ;;
+  0|false|no)
+    enforce_exact_codex_version=0
+    ;;
+  *)
+    if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
+      enforce_exact_codex_version=1
+    fi
+    ;;
+esac
 
 if (( ! skip_update_check )); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then

@@ -20,7 +20,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 final class AuthServiceClientVersionLockTest extends TestCase
 {
-    public function testVersionSummaryUsesLockedClientVersion(): void
+    public function testVersionSummaryRaisesLockedClientVersionToMinimumFloor(): void
     {
         $hosts = $this->createMock(HostRepository::class);
         $hosts->method('all')->willReturn([]);
@@ -37,7 +37,7 @@ final class AuthServiceClientVersionLockTest extends TestCase
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
             if ($name === 'client_version_lock') {
-                return ['version' => 'rust-v0.61.0', 'updated_at' => '2025-12-13T00:00:00Z'];
+                return ['version' => 'rust-v0.101.0', 'updated_at' => '2025-12-13T00:00:00Z'];
             }
             return null;
         });
@@ -70,8 +70,65 @@ final class AuthServiceClientVersionLockTest extends TestCase
 
         $summary = $service->versionSummary();
 
-        $this->assertSame('0.61.0', $summary['client_version']);
+        $this->assertSame('0.114.0', $summary['client_version']);
         $this->assertSame('locked', $summary['client_version_source']);
         $this->assertSame('2025-12-13T00:00:00Z', $summary['client_version_checked_at']);
+        $this->assertFalse($summary['client_version_enforce_exact']);
+    }
+
+    public function testVersionSummaryKeepsHigherLockedClientVersionExact(): void
+    {
+        $hosts = $this->createMock(HostRepository::class);
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->createMock(AuthPayloadRepository::class);
+        $hostStates = $this->createMock(HostAuthStateRepository::class);
+        $digests = $this->createMock(HostAuthDigestRepository::class);
+        $hostUsers = $this->createMock(HostUserRepository::class);
+        $logs = $this->createMock(LogRepository::class);
+        $tokenUsages = $this->createMock(TokenUsageRepository::class);
+        $tokenUsageIngests = $this->createMock(TokenUsageIngestRepository::class);
+        $pricingService = $this->createMock(PricingService::class);
+
+        $versions = $this->createMock(VersionRepository::class);
+        $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
+            if ($name === 'client_version_lock') {
+                return ['version' => 'rust-v0.120.0', 'updated_at' => '2025-12-13T00:00:00Z'];
+            }
+            return null;
+        });
+        $versions->method('getFlag')->willReturnCallback(static function (string $name, bool $default = false): bool {
+            return $default;
+        });
+        $versions->method('get')->willReturn(null);
+
+        $wrapperService = $this->createMock(WrapperService::class);
+        $wrapperService->method('metadata')->willReturn([
+            'version' => '2025.12.13-02',
+            'sha256' => null,
+            'url' => null,
+        ]);
+
+        $service = new AuthService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $digests,
+            $hostUsers,
+            $logs,
+            $tokenUsages,
+            $tokenUsageIngests,
+            $pricingService,
+            $versions,
+            $wrapperService,
+            null
+        );
+
+        $summary = $service->versionSummary();
+
+        $this->assertSame('0.120.0', $summary['client_version']);
+        $this->assertSame('locked', $summary['client_version_source']);
+        $this->assertSame('2025-12-13T00:00:00Z', $summary['client_version_checked_at']);
+        $this->assertTrue($summary['client_version_enforce_exact']);
     }
 }

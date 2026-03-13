@@ -15,8 +15,6 @@ use InvalidArgumentException;
 
 final class InstallerScriptBuilder
 {
-    private const DEFAULT_CODEX_VERSION = '0.63.0';
-
     /**
      * @param array<string, mixed> $host
      * @param array<string, mixed> $tokenRow
@@ -32,10 +30,8 @@ final class InstallerScriptBuilder
             throw new InvalidArgumentException('Installer metadata missing (fqdn/base/api key)');
         }
 
-        $codexVersion = $versions['client_version'] ?? null;
-        if ($codexVersion === null || $codexVersion === '') {
-            $codexVersion = self::DEFAULT_CODEX_VERSION;
-        }
+        $clientVersion = is_string($versions['client_version'] ?? null) ? $versions['client_version'] : null;
+        $codexVersion = CodexVersionPolicy::resolveEffective($clientVersion, false)['version'];
 
         $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
         $curl4 = $forceIpv4 ? '-4' : '';

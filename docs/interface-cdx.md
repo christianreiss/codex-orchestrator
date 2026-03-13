@@ -219,7 +219,8 @@ Summary layout:
 ## Update + Install Behavior
 Codex updates:
 - Target version comes from `/auth` `versions.client_version`.
-- If `client_version_source=locked`, wrapper enforces exact target version (upgrade or downgrade).
+- If `/auth` returns `client_version_enforce_exact=true`, wrapper enforces the exact target version (upgrade or downgrade).
+- If `client_version_enforce_exact=false`, wrapper treats `versions.client_version` as an upgrade floor only and never downgrades to meet it.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.

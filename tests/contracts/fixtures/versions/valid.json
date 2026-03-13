@@ -1,9 +1,10 @@
 {
   "status": "ok",
   "data": {
-    "client_version": "0.101.0",
+    "client_version": "0.114.0",
     "client_version_checked_at": "2026-02-22T10:00:00Z",
     "client_version_source": "api",
+    "client_version_enforce_exact": false,
     "wrapper_version": "2026.02.22-01",
     "wrapper_sha256": "a4dfab14ed740bb7f4f3f3f040f8a337d66a5934a5ff7ce5f0a7e7f1f12ec401",
     "wrapper_url": "/wrapper/download",

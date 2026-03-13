@@ -243,6 +243,9 @@ def record_versions(vblock):
         cvs = vblock.get("client_version_source")
         if isinstance(cvs, str) and cvs.strip():
             out["client_version_source"] = cvs.strip()
+        cvx = vblock.get("client_version_enforce_exact")
+        if isinstance(cvx, bool):
+            out["client_version_enforce_exact"] = cvx
         wv = vblock.get("wrapper_version")
         if isinstance(wv, str) and wv.strip():
             out["wrapper_version"] = wv.strip()
@@ -458,6 +461,7 @@ if not isinstance(versions, dict):
     sys.exit(0)
 cv = versions.get("client_version")
 cvs = versions.get("client_version_source")
+cvx = versions.get("client_version_enforce_exact")
 wv = versions.get("wrapper_version")
 ws = versions.get("wrapper_sha256")
 wu = versions.get("wrapper_url")
@@ -465,6 +469,8 @@ if isinstance(cv, str) and cv.strip():
     print(f"cv={cv.strip()}")
 if isinstance(cvs, str) and cvs.strip():
     print(f"cvs={cvs.strip()}")
+if isinstance(cvx, bool):
+    print("cvx=1" if cvx else "cvx=0")
 if isinstance(wv, str) and wv.strip():
     print(f"wv={wv.strip()}")
 if isinstance(ws, str) and ws.strip():
@@ -629,6 +635,9 @@ PY
                 ;;
               cvs=*)
                 SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
+                ;;
+              cvx=*)
+                SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
                 ;;
               wv=*)
                 SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"

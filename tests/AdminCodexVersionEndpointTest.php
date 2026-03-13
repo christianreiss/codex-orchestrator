@@ -24,5 +24,13 @@ final class AdminCodexVersionEndpointTest extends TestCase
         self::assertStringContainsString("'client_version_lock'", $routerSource);
         self::assertStringContainsString("'client_version_lock_updated_at'", $routerSource);
     }
-}
 
+    public function testEndpointUsesSharedCodexVersionPolicyHelper(): void
+    {
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        self::assertIsString($routerSource);
+
+        self::assertStringContainsString('CodexVersionPolicy::isSemanticVersion', $routerSource);
+        self::assertStringContainsString('CodexVersionPolicy::resolveEffective', $routerSource);
+    }
+}
