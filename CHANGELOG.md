@@ -1,3 +1,6 @@
+# 2026-03-14
+- ChatGPT usage refresh: fixed `scripts/refresh-chatgpt-usage.php` to match the current `AuthService` wiring so the `quota-cron` worker boots cleanly after the Codex version-floor changes and can keep refreshing usage snapshots.
+
 # 2026-03-13
 - Codex version policy: added an internal minimum Codex CLI floor at `0.114.0`; fleet and host pins below that are coerced upward, `/auth` and `/versions` now expose `client_version_enforce_exact`, and `cdx` only downgrades when that flag is true for an above-floor exact pin. Wrapper bumped to `2026.03.13-03`.
 - cdx wrapper: restored usage capture for Codex `0.114.0+` by resolving the emitted `session id` to `~/.codex/sessions/.../*.jsonl` and reading structured `token_count` usage rows, with fallback to the new `tokens used` footer and the older `Token usage:` line format. Wrapper bumped to `2026.03.13-01`.

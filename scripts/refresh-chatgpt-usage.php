@@ -90,7 +90,7 @@ try {
 
     $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
     $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId);
+    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox);
     $wrapperService->ensureSeeded();
 
     $runnerVerifier = null;
@@ -99,7 +99,8 @@ try {
         $runnerVerifier = new RunnerVerifier(
             $runnerUrl,
             (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api'),
-            (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0)
+            (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0),
+            (string) Config::get('AUTH_RUNNER_SHARED_SECRET', '')
         );
     }
 
@@ -115,6 +116,7 @@ try {
         $pricingService,
         $versionRepository,
         $wrapperService,
+        null,
         $runnerVerifier,
         null,
         $installationId
