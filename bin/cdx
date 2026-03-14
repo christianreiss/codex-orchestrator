@@ -496,7 +496,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.13-03"
+WRAPPER_VERSION="2026.03.14-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -963,7 +963,11 @@ if [[ "${1-}" == "lane" ]]; then
     CODEX_LANE_WANTS_RUN=1
   fi
 
-  set -- "${lane_passthrough[@]}"
+  if (( ${#lane_passthrough[@]} > 0 )); then
+    set -- "${lane_passthrough[@]}"
+  else
+    set --
+  fi
 fi
 
 if [[ "${1-}" == "--execute" ]]; then

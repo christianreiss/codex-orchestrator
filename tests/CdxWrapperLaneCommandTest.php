@@ -28,5 +28,15 @@ final class CdxWrapperLaneCommandTest extends TestCase
         self::assertStringContainsString('gpt-5.3-codex-spark', $wrapperSource);
         self::assertStringContainsString('gpt-5.3-codex', $wrapperSource);
     }
-}
 
+    public function testWrapperGuardsEmptyLanePassthroughBeforeResettingArgv(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('if (( ${#lane_passthrough[@]} > 0 )); then', $wrapperSource);
+        self::assertStringContainsString('set -- "${lane_passthrough[@]}"', $wrapperSource);
+        self::assertStringContainsString("else\n    set --\n  fi", $wrapperSource);
+    }
+}
