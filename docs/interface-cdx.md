@@ -78,7 +78,7 @@ Help passthrough:
 | `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, PTY state, SSH terminal hints, and Codex SSH-compatibility guard state). Exit non-zero on critical failures/red state. |
 | `cdx --update` / `cdx -U` | Force wrapper update attempt from server and exit immediately after the attempt. |
 | `cdx --uninstall` | Deregister host auth and remove Codex/wrapper artifacts. |
-| `cdx -4` | Force IPv4 for wrapper network calls for this invocation. |
+| `cdx -4` | Force IPv4 for wrapper-managed network calls and Codex child outbound traffic for this invocation. |
 | `cdx --allow-concurrent-sync` | Bypass active-run lock for this invocation. |
 | `cdx --debug` / `cdx --verbose` | Enable wrapper debug logs. |
 | `cdx --execute "<prompt>" [codex args...]` | Run a one-shot non-interactive `codex exec` after the normal wrapper boot/sync/auth/update gates, with wrapper defaults (`--sandbox read-only`, `-a untrusted`) and normal lane/profile/model selector behavior. |
@@ -197,6 +197,7 @@ Summary layout:
 - PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
 - `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
 - Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues on non-TTY launches and wrapper-managed PTY capture paths; interactive SSH direct-launch does not force it.
+- When `CODEX_FORCE_IPV4=1`, the wrapper starts a short-lived loopback HTTP proxy and injects it only into the spawned Codex process (`HTTP[S]_PROXY`, `ALL_PROXY`, and `-c network.proxy_url=...`) so Codex traffic, including `chatgpt.com`, resolves/connects over IPv4 without changing the parent shell environment.
 
 `--execute` behavior:
 - `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.

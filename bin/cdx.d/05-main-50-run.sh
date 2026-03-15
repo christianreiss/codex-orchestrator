@@ -1,6 +1,68 @@
+stop_codex_ipv4_proxy() {
+  local proxy_pid="${CODEX_IPV4_PROXY_PID:-}"
+  if [[ -n "$proxy_pid" ]]; then
+    kill "$proxy_pid" >/dev/null 2>&1 || true
+    wait "$proxy_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${CODEX_IPV4_PROXY_DIR:-}" ]] && [[ -d "$CODEX_IPV4_PROXY_DIR" ]]; then
+    rm -rf "$CODEX_IPV4_PROXY_DIR" >/dev/null 2>&1 || true
+  fi
+  CODEX_IPV4_PROXY_PID=""
+  CODEX_IPV4_PROXY_DIR=""
+  CODEX_IPV4_PROXY_URL=""
+}
+
+start_codex_ipv4_proxy() {
+  if [[ "$CODEX_FORCE_IPV4" != "1" ]]; then
+    return 1
+  fi
+  if [[ -n "${CODEX_IPV4_PROXY_URL:-}" ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_warn "python3 is unavailable; Codex child traffic cannot be forced through the local IPv4 proxy."
+    return 1
+  fi
+
+  local state_dir port_file port=""
+  state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cdx-ipv4-proxy.XXXXXX")"
+  port_file="$state_dir/port"
+  CODEX_IPV4_PROXY_DIR="$state_dir"
+
+  CODEX_IPV4_PROXY_DIR="$state_dir" python3 -u - <<'PY' >/dev/null 2>&1 &
+import os
+namespace = {}
+exec(os.environ["CODEX_PY_IPV4_PROXY_UTIL"], namespace)
+raise SystemExit(namespace["main"]())
+PY
+  CODEX_IPV4_PROXY_PID="$!"
+
+  local _i=0
+  for ((_i=0; _i<50; _i++)); do
+    if [[ -f "$port_file" ]]; then
+      port="$(tr -d '[:space:]' < "$port_file")"
+      break
+    fi
+    if ! kill -0 "$CODEX_IPV4_PROXY_PID" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    log_warn "failed to start the local IPv4 proxy; continuing without forcing Codex child traffic to IPv4."
+    stop_codex_ipv4_proxy
+    return 1
+  fi
+
+  CODEX_IPV4_PROXY_URL="http://127.0.0.1:${port}"
+  return 0
+}
+
 cleanup() {
   local exit_status=$?
   trap - EXIT
+  stop_codex_ipv4_proxy || true
   if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     push_slash_commands_if_changed || true
     push_skills_if_changed || true
@@ -219,7 +281,21 @@ detect_script_flags() {
 
 run_codex_command() {
   local tmp_output status
+  local -a proxy_args=()
+  local -a cmd_prefix=()
   tmp_output="$(mktemp)"
+  if start_codex_ipv4_proxy; then
+    proxy_args=(
+      -c "network.proxy_url=\"$CODEX_IPV4_PROXY_URL\""
+      -c "network.allow_upstream_proxy=true"
+    )
+    cmd_prefix=(
+      env
+      HTTPS_PROXY="$CODEX_IPV4_PROXY_URL" https_proxy="$CODEX_IPV4_PROXY_URL"
+      HTTP_PROXY="$CODEX_IPV4_PROXY_URL" http_proxy="$CODEX_IPV4_PROXY_URL"
+      ALL_PROXY="$CODEX_IPV4_PROXY_URL" all_proxy="$CODEX_IPV4_PROXY_URL"
+    )
+  fi
   set +e
   local prompt_toolkit_no_cpr_added=0
   local pty_auto_disable_file="$HOME/.codex/.cdx_no_pty"
@@ -232,19 +308,19 @@ run_codex_command() {
   fi
 
   if [[ -t 0 && -t 1 ]]; then
-    local cmd_line=("$CODEX_REAL_BIN" "$@")
+    local cmd_line=("$CODEX_REAL_BIN" "${proxy_args[@]}" "$@")
     if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
       # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
       # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
-      "${cmd_line[@]}"
+      "${cmd_prefix[@]}" "${cmd_line[@]}"
       status=$?
     elif [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
-      "${cmd_line[@]}"
+      "${cmd_prefix[@]}" "${cmd_line[@]}"
       status=$?
     elif [[ "${CODEX_FORCE_PTY:-0}" != "1" && -f "$pty_auto_disable_file" ]]; then
       # Auto-detected incompatible PTY host; run direct unless explicitly overridden.
-      "${cmd_line[@]}"
+      "${cmd_prefix[@]}" "${cmd_line[@]}"
       status=$?
     else
       if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
@@ -254,18 +330,18 @@ run_codex_command() {
       if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
         # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
         local cmd_str
-        cmd_str="$(printf '%q ' "${cmd_line[@]}")"
+        cmd_str="$(printf '%q ' "${cmd_prefix[@]}" "${cmd_line[@]}")"
         detect_script_flags
         if (( SCRIPT_SUPPORTS_C )); then
           script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"
         else
-          script $SCRIPT_FLAGS "$tmp_output" "${cmd_line[@]}"
+          script $SCRIPT_FLAGS "$tmp_output" "${cmd_prefix[@]}" "${cmd_line[@]}"
         fi
         status=$?
       elif command -v python3 >/dev/null 2>&1; then
         # Fallback PTY using Python's pty module when script is unavailable.
         status=0
-        python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
+        "${cmd_prefix[@]}" python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
 import fcntl
 import os
 import pty
@@ -334,7 +410,7 @@ PY
         status=$?
       else
         # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
-        "${cmd_line[@]}"
+        "${cmd_prefix[@]}" "${cmd_line[@]}"
         status=$?
       fi
 
@@ -349,7 +425,7 @@ PY
           printf 'wrapper_version=%s\n' "${WRAPPER_VERSION:-unknown}"
         } > "$pty_auto_disable_file" 2>/dev/null || true
         log_warn "PTY capture looks incompatible on this host; auto-disabling PTY capture. Remove $pty_auto_disable_file or set CODEX_FORCE_PTY=1 to retry."
-        "${cmd_line[@]}"
+        "${cmd_prefix[@]}" "${cmd_line[@]}"
         status=$?
       fi
     fi
@@ -362,14 +438,15 @@ PY
         log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
         status=1
       else
-        "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
+        "${cmd_prefix[@]}" "$CODEX_REAL_BIN" "${proxy_args[@]}" "$@" 2>&1 | tee "$tmp_output"
         status=${PIPESTATUS[0]}
       fi
     else
-      "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
+      "${cmd_prefix[@]}" "$CODEX_REAL_BIN" "${proxy_args[@]}" "$@" 2>&1 | tee "$tmp_output"
       status=${PIPESTATUS[0]}
     fi
   fi
+  stop_codex_ipv4_proxy || true
   if (( prompt_toolkit_no_cpr_added )); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi

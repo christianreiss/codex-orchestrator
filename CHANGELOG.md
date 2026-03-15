@@ -4,6 +4,9 @@
 - Skills cleanup: the server now auto-retires the old stored `skills.slug = "coco"` / `CoCo Toolkit` database document by signature, leaving the managed project-native `coco` skill as the only active CoCo skill surface.
 - Docs/tests: removed the temporary legacy CoCo alias docs again and flipped the router coverage so the new project-native surface stays the only supported path.
 
+# 2026-03-15
+- cdx wrapper: extended `force_ipv4` / `cdx -4` so the wrapper now launches Codex behind a short-lived local IPv4-only proxy, making Codex-side `chatgpt.com` traffic honor IPv4-only hosts in addition to the wrapper’s own sync/update calls. Wrapper bumped to `2026.03.15-01`.
+
 # 2026-03-14
 - cdx wrapper: fixed `cdx ls` / `cdx lane` on macOS Bash 3.2 by avoiding empty-array argv reset under `set -u`, which previously crashed with `lane_passthrough[@]: unbound variable` before Codex launched. Wrapper bumped to `2026.03.14-01`.
 - ChatGPT usage refresh: fixed `scripts/refresh-chatgpt-usage.php` to match the current `AuthService` wiring so the `quota-cron` worker boots cleanly after the Codex version-floor changes and can keep refreshing usage snapshots.
