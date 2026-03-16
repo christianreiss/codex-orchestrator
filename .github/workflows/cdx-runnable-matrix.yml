@@ -76,6 +76,7 @@ jobs:
             tests/CdxWrapperScriptDependencyTest.php \
             tests/CdxWrapperPackageManagerSupportTest.php \
             tests/CdxWrapperPythonCompatibilityTest.php \
+            tests/CdxWrapperIpv4ProxyTest.php \
             tests/CdxWrapperNonTtyDispatchTest.php
 
   linux-runnable-smoke:

@@ -281,11 +281,13 @@ detect_script_flags() {
 
 run_codex_command() {
   local tmp_output status
-  local -a proxy_args=()
+  local use_cmd_prefix=0
   local -a cmd_prefix=()
+  local -a cmd_line=("$CODEX_REAL_BIN")
   tmp_output="$(mktemp)"
   if start_codex_ipv4_proxy; then
-    proxy_args=(
+    use_cmd_prefix=1
+    cmd_line+=(
       -c "network.proxy_url=\"$CODEX_IPV4_PROXY_URL\""
       -c "network.allow_upstream_proxy=true"
     )
@@ -295,6 +297,11 @@ run_codex_command() {
       HTTP_PROXY="$CODEX_IPV4_PROXY_URL" http_proxy="$CODEX_IPV4_PROXY_URL"
       ALL_PROXY="$CODEX_IPV4_PROXY_URL" all_proxy="$CODEX_IPV4_PROXY_URL"
     )
+  fi
+  cmd_line+=("$@")
+  local -a exec_cmd=("${cmd_line[@]}")
+  if (( use_cmd_prefix )); then
+    exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
   fi
   set +e
   local prompt_toolkit_no_cpr_added=0
@@ -308,19 +315,18 @@ run_codex_command() {
   fi
 
   if [[ -t 0 && -t 1 ]]; then
-    local cmd_line=("$CODEX_REAL_BIN" "${proxy_args[@]}" "$@")
     if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
       # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
       # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
-      "${cmd_prefix[@]}" "${cmd_line[@]}"
+      "${exec_cmd[@]}"
       status=$?
     elif [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
-      "${cmd_prefix[@]}" "${cmd_line[@]}"
+      "${exec_cmd[@]}"
       status=$?
     elif [[ "${CODEX_FORCE_PTY:-0}" != "1" && -f "$pty_auto_disable_file" ]]; then
       # Auto-detected incompatible PTY host; run direct unless explicitly overridden.
-      "${cmd_prefix[@]}" "${cmd_line[@]}"
+      "${exec_cmd[@]}"
       status=$?
     else
       if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
@@ -330,18 +336,22 @@ run_codex_command() {
       if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
         # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
         local cmd_str
-        cmd_str="$(printf '%q ' "${cmd_prefix[@]}" "${cmd_line[@]}")"
+        cmd_str="$(printf '%q ' "${exec_cmd[@]}")"
         detect_script_flags
         if (( SCRIPT_SUPPORTS_C )); then
           script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"
         else
-          script $SCRIPT_FLAGS "$tmp_output" "${cmd_prefix[@]}" "${cmd_line[@]}"
+          script $SCRIPT_FLAGS "$tmp_output" "${exec_cmd[@]}"
         fi
         status=$?
       elif command -v python3 >/dev/null 2>&1; then
         # Fallback PTY using Python's pty module when script is unavailable.
+        local -a pty_cmd=(python3 - "$tmp_output" "${cmd_line[@]}")
+        if (( use_cmd_prefix )); then
+          pty_cmd=("${cmd_prefix[@]}" "${pty_cmd[@]}")
+        fi
         status=0
-        "${cmd_prefix[@]}" python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
+        "${pty_cmd[@]}" <<'PY'
 import fcntl
 import os
 import pty
@@ -410,7 +420,7 @@ PY
         status=$?
       else
         # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
-        "${cmd_prefix[@]}" "${cmd_line[@]}"
+        "${exec_cmd[@]}"
         status=$?
       fi
 
@@ -425,7 +435,7 @@ PY
           printf 'wrapper_version=%s\n' "${WRAPPER_VERSION:-unknown}"
         } > "$pty_auto_disable_file" 2>/dev/null || true
         log_warn "PTY capture looks incompatible on this host; auto-disabling PTY capture. Remove $pty_auto_disable_file or set CODEX_FORCE_PTY=1 to retry."
-        "${cmd_prefix[@]}" "${cmd_line[@]}"
+        "${exec_cmd[@]}"
         status=$?
       fi
     fi
@@ -438,11 +448,11 @@ PY
         log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
         status=1
       else
-        "${cmd_prefix[@]}" "$CODEX_REAL_BIN" "${proxy_args[@]}" "$@" 2>&1 | tee "$tmp_output"
+        "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
         status=${PIPESTATUS[0]}
       fi
     else
-      "${cmd_prefix[@]}" "$CODEX_REAL_BIN" "${proxy_args[@]}" "$@" 2>&1 | tee "$tmp_output"
+      "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
       status=${PIPESTATUS[0]}
     fi
   fi

@@ -30,4 +30,21 @@ final class CdxWrapperIpv4ProxyTest extends TestCase
         self::assertStringContainsString('stop_codex_ipv4_proxy()', $wrapperSource);
         self::assertStringContainsString('stop_codex_ipv4_proxy || true', $wrapperSource);
     }
+
+    public function testWrapperGuardsOptionalProxyArraysOnLegacyBash(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('local use_cmd_prefix=0', $wrapperSource);
+        self::assertStringContainsString('local -a cmd_line=("$CODEX_REAL_BIN")', $wrapperSource);
+        self::assertStringContainsString('local -a exec_cmd=("${cmd_line[@]}")', $wrapperSource);
+        self::assertStringNotContainsString('${proxy_args[@]}', $wrapperSource);
+        self::assertMatchesRegularExpression(
+            '/local -a exec_cmd=\\("\\$\\{cmd_line\\[@\\]\\}"\\)\\s+if \\(\\( use_cmd_prefix \\)\\); then\\s+exec_cmd=\\("\\$\\{cmd_prefix\\[@\\]\\}" "\\$\\{exec_cmd\\[@\\]\\}"\\)/',
+            $wrapperSource,
+            'Legacy macOS Bash 3.2 must not expand empty proxy/prefix arrays under `set -u`.'
+        );
+    }
 }
