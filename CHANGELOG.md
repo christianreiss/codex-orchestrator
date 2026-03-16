@@ -1,6 +1,7 @@
 # 2026-03-16
-- Projects/CoCo compatibility: restored the legacy `#coco` REST aliases (`/project/bootstrap`, `/bootstrap`, `/b/{slug}`, `/p/{slug}`, and the older `/project/{agents,notes,todo,files,changes}` surface) so older CoCo/toolkit flows reach the native Projects module instead of failing with `Route not found`.
-- Docs/tests: documented the restored CoCo compatibility aliases in the source-of-truth API docs and added router coverage so the backward-compatible surface stays wired.
+- Projects/CoCo cleanup: removed the temporary legacy `/project/*`, `/bootstrap`, `/b/{slug}`, and `/p/{slug}` compatibility routes again so CoCo is once more strictly project-native on `/projects/*`.
+- Skills cleanup: the server now auto-retires the old stored `skills.slug = "coco"` / `CoCo Toolkit` database document by signature, leaving the managed project-native `coco` skill as the only active CoCo skill surface.
+- Docs/tests: removed the temporary legacy CoCo alias docs again and flipped the router coverage so the new project-native surface stays the only supported path.
 
 # 2026-03-14
 - cdx wrapper: fixed `cdx ls` / `cdx lane` on macOS Bash 3.2 by avoiding empty-array argv reset under `set -u`, which previously crashed with `lane_passthrough[@]: unbound variable` before Codex launched. Wrapper bumped to `2026.03.14-01`.

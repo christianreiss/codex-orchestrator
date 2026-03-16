@@ -97,4 +97,29 @@ class SkillRepository
 
         return $statement->rowCount() > 0;
     }
+
+    public function retireLegacyCocoToolkit(): bool
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE skills
+             SET deleted_at = :deleted_at
+             WHERE slug = :slug
+               AND deleted_at IS NULL
+               AND (
+                   display_name = :display_name
+                   OR description LIKE :description_like
+                   OR manifest LIKE :manifest_like
+               )'
+        );
+
+        $statement->execute([
+            'deleted_at' => gmdate(DATE_ATOM),
+            'slug' => 'coco',
+            'display_name' => 'CoCo Toolkit',
+            'description_like' => 'Project-agnostic coordination via codex.uggs.io%',
+            'manifest_like' => "%name: \"CoCo Toolkit\"%",
+        ]);
+
+        return $statement->rowCount() > 0;
+    }
 }
