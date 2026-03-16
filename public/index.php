@@ -309,10 +309,6 @@ $adminUserService = new AdminUserService(
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $projectModuleService = new ProjectModuleService($versionRepository);
-$retiredLegacyCocoSkill = $skillRepository->retireLegacyCocoToolkit();
-if ($retiredLegacyCocoSkill) {
-    $logRepository->log(null, 'skill.legacy_coco.retired', ['slug' => 'coco']);
-}
 $skillService = new SkillService($skillRepository, $logRepository, $projectModuleService);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
 $memoryService = new MemoryService($memoryRepository, $logRepository);

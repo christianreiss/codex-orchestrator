@@ -1,4 +1,5 @@
 # 2026-03-16
+- CoCo cleanup: removed the temporary server-side retirement hook for the old `CoCo Toolkit` record and deleted the already-retired legacy DB row, leaving only the managed project-native `coco` skill in code and storage.
 - Projects/CoCo cleanup: removed the temporary legacy `/project/*`, `/bootstrap`, `/b/{slug}`, and `/p/{slug}` compatibility routes again so CoCo is once more strictly project-native on `/projects/*`.
 - Skills cleanup: the server now auto-retires the old stored `skills.slug = "coco"` / `CoCo Toolkit` database document by signature, leaving the managed project-native `coco` skill as the only active CoCo skill surface.
 - Docs/tests: removed the temporary legacy CoCo alias docs again and flipped the router coverage so the new project-native surface stays the only supported path.
