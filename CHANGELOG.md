@@ -1,3 +1,7 @@
+# 2026-03-16
+- Projects/CoCo compatibility: restored the legacy `#coco` REST aliases (`/project/bootstrap`, `/bootstrap`, `/b/{slug}`, `/p/{slug}`, and the older `/project/{agents,notes,todo,files,changes}` surface) so older CoCo/toolkit flows reach the native Projects module instead of failing with `Route not found`.
+- Docs/tests: documented the restored CoCo compatibility aliases in the source-of-truth API docs and added router coverage so the backward-compatible surface stays wired.
+
 # 2026-03-14
 - cdx wrapper: fixed `cdx ls` / `cdx lane` on macOS Bash 3.2 by avoiding empty-array argv reset under `set -u`, which previously crashed with `lane_passthrough[@]: unbound variable` before Codex launched. Wrapper bumped to `2026.03.14-01`.
 - ChatGPT usage refresh: fixed `scripts/refresh-chatgpt-usage.php` to match the current `AuthService` wiring so the `quota-cron` worker boots cleanly after the Codex version-floor changes and can keep refreshing usage snapshots.

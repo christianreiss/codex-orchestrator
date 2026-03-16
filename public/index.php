@@ -4007,6 +4007,29 @@ $router->add('POST', '#^/config/retrieve$#', function () use ($payload, $service
     ]);
 });
 
+$authenticateProjectHost = static function () use ($service): array {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+
+    return $service->authenticate($apiKey, $clientIp);
+};
+
+$requireLegacyProjectSlug = static function (mixed $payload = null): string {
+    $candidate = resolveStringQuery('project');
+    if ($candidate === null && is_array($payload)) {
+        $raw = $payload['project'] ?? ($payload['slug'] ?? null);
+        if (is_string($raw)) {
+            $candidate = trim($raw);
+        }
+    }
+
+    if ($candidate === null || $candidate === '') {
+        throw new ValidationException(['project' => ['project is required']]);
+    }
+
+    return $candidate;
+};
+
 $router->add('GET', '#^/projects$#', function () use ($service, $projectCoordinationService, $respondProjectAction) {
     $apiKey = resolveApiKey();
     $clientIp = resolveClientIp();
@@ -4225,6 +4248,178 @@ $router->add('POST', '#^/projects/([^/]+)/feedback$#', function ($slug) use ($pa
 
     $respondProjectAction(static function () use ($slug, $payload, $projectCoordinationService, $host) {
         return $projectCoordinationService->createFeedback(urldecode($slug), is_array($payload) ? $payload : [], $host);
+    });
+});
+
+$router->add('GET', '#^/project/bootstrap$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->bootstrap($requireLegacyProjectSlug(), $host);
+    });
+});
+
+$router->add('GET', '#^/bootstrap$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->bootstrap($requireLegacyProjectSlug(), $host);
+    });
+});
+
+$router->add('GET', '#^/b/([^/]+)$#', function ($slug) use ($authenticateProjectHost, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->bootstrap(urldecode($slug), $host);
+    });
+});
+
+$router->add('GET', '#^/p/([^/]+)$#', function ($slug) use ($authenticateProjectHost, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($slug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->bootstrap(urldecode($slug), $host);
+    });
+});
+
+$router->add('GET', '#^/project/changes$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $since = resolveIntQuery('since') ?? 0;
+        return $projectCoordinationService->listChanges($requireLegacyProjectSlug(), max(0, $since), $host);
+    });
+});
+
+$router->add('GET', '#^/project/agents$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $detail = $projectCoordinationService->projectDetail($requireLegacyProjectSlug(), $host);
+
+        return [
+            'project' => $detail['project']['slug'] ?? null,
+            'roster_markdown' => $detail['project']['roster_markdown'] ?? '',
+        ];
+    });
+});
+
+$router->add('POST', '#^/project/agents$#', function () use ($payload, $authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($payload, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $body = is_array($payload) ? $payload : [];
+        return $projectCoordinationService->updateRoster($requireLegacyProjectSlug($body), $body, $host);
+    });
+});
+
+$router->add('GET', '#^/project/notes$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listNotes($requireLegacyProjectSlug(), $host);
+    });
+});
+
+$router->add('POST', '#^/project/notes$#', function () use ($payload, $authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($payload, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $body = is_array($payload) ? $payload : [];
+        return $projectCoordinationService->upsertNote($requireLegacyProjectSlug($body), null, $body, $host);
+    });
+});
+
+$router->add('POST', '#^/project/notes/(\\d+)$#', function ($id) use ($payload, $authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $payload, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $body = is_array($payload) ? $payload : [];
+        return $projectCoordinationService->upsertNote($requireLegacyProjectSlug($body), (int) $id, $body, $host);
+    });
+});
+
+$router->add('DELETE', '#^/project/notes/(\\d+)$#', function ($id) use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->deleteNote($requireLegacyProjectSlug(), (int) $id, $host);
+    });
+});
+
+$router->add('GET', '#^/project/todo$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listTodos($requireLegacyProjectSlug(), $host);
+    });
+});
+
+$router->add('POST', '#^/project/todo$#', function () use ($payload, $authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($payload, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $body = is_array($payload) ? $payload : [];
+        return $projectCoordinationService->createTodo($requireLegacyProjectSlug($body), $body, $host);
+    });
+});
+
+$router->add('POST', '#^/project/todo/(\\d+)$#', function ($id) use ($payload, $authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $payload, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $body = is_array($payload) ? $payload : [];
+        return $projectCoordinationService->updateTodo($requireLegacyProjectSlug($body), (int) $id, $body, $host);
+    });
+});
+
+$router->add('POST', '#^/project/todo/(\\d+)/done$#', function ($id) use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->setTodoDone($requireLegacyProjectSlug(), (int) $id, true, $host);
+    });
+});
+
+$router->add('POST', '#^/project/todo/(\\d+)/undone$#', function ($id) use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->setTodoDone($requireLegacyProjectSlug(), (int) $id, false, $host);
+    });
+});
+
+$router->add('DELETE', '#^/project/todo/(\\d+)$#', function ($id) use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->deleteTodo($requireLegacyProjectSlug(), (int) $id, $host);
+    });
+});
+
+$router->add('GET', '#^/project/files$#', function () use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->listFiles($requireLegacyProjectSlug(), $host);
+    });
+});
+
+$router->add('POST', '#^/project/files$#', function () use ($payload, $authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($payload, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        $body = is_array($payload) ? $payload : [];
+        return $projectCoordinationService->upsertFile($requireLegacyProjectSlug($body), $body, $host);
+    });
+});
+
+$router->add('DELETE', '#^/project/files/(\\d+)$#', function ($id) use ($authenticateProjectHost, $requireLegacyProjectSlug, $projectCoordinationService, $respondProjectAction) {
+    $host = $authenticateProjectHost();
+
+    $respondProjectAction(static function () use ($id, $requireLegacyProjectSlug, $projectCoordinationService, $host) {
+        return $projectCoordinationService->deleteFile($requireLegacyProjectSlug(), (int) $id, $host);
     });
 });
 

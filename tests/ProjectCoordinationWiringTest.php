@@ -23,6 +23,15 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString("#^/projects/([^/]+)/todos$#", $source);
         $this->assertStringContainsString("#^/projects/([^/]+)/files$#", $source);
         $this->assertStringContainsString("#^/projects/([^/]+)/feedback$#", $source);
+        $this->assertStringContainsString("#^/project/bootstrap$#", $source);
+        $this->assertStringContainsString("#^/bootstrap$#", $source);
+        $this->assertStringContainsString("#^/b/([^/]+)$#", $source);
+        $this->assertStringContainsString("#^/p/([^/]+)$#", $source);
+        $this->assertStringContainsString("#^/project/changes$#", $source);
+        $this->assertStringContainsString("#^/project/agents$#", $source);
+        $this->assertStringContainsString("#^/project/notes$#", $source);
+        $this->assertStringContainsString("#^/project/todo$#", $source);
+        $this->assertStringContainsString("#^/project/files$#", $source);
         $this->assertStringNotContainsString("#^/help$#", $source);
     }
 

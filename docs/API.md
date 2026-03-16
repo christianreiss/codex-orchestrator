@@ -83,6 +83,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Todos: `GET /projects/{slug}/todos`, `POST /projects/{slug}/todos`, `POST /projects/{slug}/todos/{id}`, `POST /projects/{slug}/todos/{id}/done`, `POST /projects/{slug}/todos/{id}/undone`, `DELETE /projects/{slug}/todos/{id}`. Create/update bodies require `title`; todo payloads include `done` and `done_at`.
 - Files: `GET /projects/{slug}/files`, `POST /projects/{slug}/files`, `DELETE /projects/{slug}/files/{id}`. Upsert bodies require `stored_name` (or `name`) and `content`; optional `description` and `mime_type`. Responses include `content`, `content_sha256`, `size_bytes`, and timestamps.
 - Feedback: `GET /projects/{slug}/feedback`, `POST /projects/{slug}/feedback`. Create bodies require `type` (`bug|feature|note`), `title`, and `body`; new entries start with `status:"open"`.
+- Legacy CoCo compatibility aliases are also accepted for older `#coco` flows: `GET /project/bootstrap?project={slug}`, `GET /bootstrap?project={slug}`, `GET /b/{slug}`, `GET /p/{slug}`, `GET /project/changes?project={slug}&since=...`, `GET/POST /project/agents?project={slug}`, `GET/POST/DELETE /project/notes*`, `GET/POST/DELETE /project/todo*`, and `GET/POST/DELETE /project/files*`. These map to the canonical `/projects/{slug}/*` handlers and exist for backward compatibility.
 
 ### MCP memories
 - MCP memories remain host-scoped scratch storage. They are not shared across hosts and are not a valid CoCo cross-server handoff substrate.
