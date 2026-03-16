@@ -1,4 +1,5 @@
 # 2026-03-16
+- Projects/CoCo: fixed project coordination error handling so missing/disabled project paths return proper HTTP 404/500 responses instead of crashing on reversed `HttpException` arguments, and added MCP `project_create` so `#coco` can bootstrap fresh shared slugs without raw REST fallback.
 - MCP skills: `/mcp` now exposes read-only `skill://{slug}` resources for synced Skill manifests, so remote Codex clients can read managed skills like `coco` without assuming a local `~/.agents/...` path.
 - cdx wrapper: fixed macOS Bash 3.2 launch paths after the IPv4-proxy wrapper update by avoiding empty `cmd_prefix` / proxy argv array expansion under `set -u`, which previously crashed `cdx ls` and other Codex launches with `unbound variable` before Codex started. Wrapper bumped to `2026.03.16-01`.
 - CoCo cleanup: removed the temporary server-side retirement hook for the old `CoCo Toolkit` record and deleted the already-retired legacy DB row, leaving only the managed project-native `coco` skill in code and storage.

@@ -134,6 +134,24 @@ final class SpyProjectCoordinationService extends ProjectCoordinationService
         ];
     }
 
+    public function createProject(array $payload, ?array $host = null): array
+    {
+        $this->lastMethod = 'createProject';
+        $this->lastArgs = [$payload, $host];
+
+        return [
+            'project' => [
+                'slug' => $payload['slug'] ?? 'apollo',
+                'about' => $payload['about'] ?? null,
+            ],
+            'notes' => [],
+            'todos' => [],
+            'files' => [],
+            'feedback' => [],
+            'recent_changes' => [],
+        ];
+    }
+
     public function projectDetail(string $slug, ?array $host = null): array
     {
         $this->lastMethod = 'projectDetail';
@@ -652,8 +670,22 @@ final class McpServerTest extends TestCase
         $names = array_map(static fn (array $tool): string => $tool['name'], $tools);
 
         $this->assertContains('project_list', $names);
+        $this->assertContains('project_create', $names);
         $this->assertContains('project_bootstrap', $names);
         $this->assertContains('project_note_upsert', $names);
+    }
+
+    public function testDispatchProjectCreateUsesProjectService(): void
+    {
+        $projects = new SpyProjectCoordinationService();
+        $server = new McpServer(new SpyMemoryService(), $projects);
+
+        $result = $server->dispatch('project_create', ['slug' => 'apollo'], ['id' => 5]);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('createProject', $projects->lastMethod);
+        $this->assertSame([['slug' => 'apollo'], ['id' => 5]], $projects->lastArgs);
+        $this->assertSame('apollo', $decoded['project']['slug']);
     }
 
     public function testDispatchProjectBootstrapUsesProjectService(): void

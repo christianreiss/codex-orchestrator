@@ -87,6 +87,7 @@ class McpServer
                 'memory_append' => ['resource_id' => $scalar, 'text' => ''],
                 'memory_query' => ['resource_id' => $scalar, 'query' => ''],
                 'memory_list' => ['resource_id' => $scalar],
+                'project_create' => ['slug' => $scalar],
                 'project_detail' => ['slug' => $scalar],
                 'project_bootstrap' => ['slug' => $scalar],
                 'project_changes' => ['slug' => $scalar],
@@ -113,6 +114,7 @@ class McpServer
             'memory_query' => $this->memoryQuery($args, $host),
             'memory_list' => $this->memoryList($args, $host),
             'project_list' => $this->projectList($host),
+            'project_create' => $this->projectCreateTool($args, $host),
             'project_detail' => $this->projectDetailTool($args, $host),
             'project_bootstrap' => $this->projectBootstrapTool($args, $host),
             'project_changes' => $this->projectChangesTool($args, $host),
@@ -361,6 +363,19 @@ class McpServer
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => new \stdClass(),
+                ],
+            ];
+            $definitions['project_create'] = [
+                'description' => 'Create a shared project',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'slug' => ['type' => 'string'],
+                        'about' => ['type' => 'object'],
+                        'roster_markdown' => ['type' => 'string'],
+                        'agents_markdown' => ['type' => 'string'],
+                    ],
+                    'required' => ['slug'],
                 ],
             ];
             $definitions['project_detail'] = [
@@ -1375,6 +1390,13 @@ class McpServer
         }
 
         return $this->projects?->listProjects($host) ?? ['projects' => []];
+    }
+
+    private function projectCreateTool(array $params, array $host): array
+    {
+        $slug = $this->requireProjectSlug($params);
+
+        return $this->projects?->createProject($params + ['slug' => $slug], $host) ?? [];
     }
 
     private function projectDetailTool(array $params, array $host): array

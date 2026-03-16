@@ -63,6 +63,7 @@ final class ProjectModuleServiceTest extends TestCase
         $this->assertStringContainsString('Cross-server CoCo is project-only.', $skill['manifest']);
         $this->assertStringContainsString('Do not use `memory://...` resources', $skill['manifest']);
         $this->assertStringContainsString('`project_bootstrap`', $skill['manifest']);
+        $this->assertStringContainsString('`project_create`', $skill['manifest']);
         $this->assertStringContainsString('`project_changes`', $skill['manifest']);
         $this->assertStringNotContainsString('GET /help', $skill['manifest']);
         $this->assertStringNotContainsString('`project_help`', $skill['manifest']);
@@ -88,12 +89,14 @@ final class ProjectModuleServiceTest extends TestCase
         $this->assertNotEmpty($instructions);
         $this->assertStringContainsString('skill://coco', $instructions[0]);
         $this->assertStringContainsString('~/.agents/skills/coco/SKILL.md', $instructions[0]);
+        $this->assertStringContainsString('project_create', implode("\n", $instructions));
         $this->assertStringContainsString('project-only', implode("\n", $instructions));
         $this->assertStringContainsString('memory://', implode("\n", $instructions));
         $this->assertStringNotContainsString('/help', $instructions[0]);
         $this->assertSame('coco', $skill['slug']);
         $this->assertSame('~/.agents/skills/coco/SKILL.md', $skill['path']);
         $this->assertContains('project_list', $quickstart);
+        $this->assertContains('project_create {"slug":"apollo"}', $quickstart);
         $this->assertContains('project_bootstrap {"slug":"apollo"}', $quickstart);
         $this->assertNotContains('project_help', $quickstart);
     }

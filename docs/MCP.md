@@ -35,7 +35,7 @@ For CoCo specifically, shared state is project-only. `memory://...` resources re
 - Memory: `memory_store`, `memory_retrieve`, `memory_search`, `memory_append`, `memory_query`, `memory_list`.
 - Filesystem (app root sandbox): `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`.
 - Resource tools: `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
-- Projects module enabled: `project_list`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, `project_feedback_create`.
+- Projects module enabled: `project_list`, `project_create`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, `project_feedback_create`.
 - Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
 - `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
 - Memory/FS/resource tool responses are wrapped in `CallToolResult.content` blocks.

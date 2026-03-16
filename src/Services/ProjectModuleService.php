@@ -75,6 +75,7 @@ class ProjectModuleService
 
         return [
             'Read the managed `coco` skill via MCP `resource_read` on `skill://coco` first; use ' . self::MANAGED_SKILL_PATH . ' only as the local fallback copy.',
+            "Create the shared project first with POST /projects or the MCP tool project_create when the slug does not exist yet.",
             "Fetch the shared snapshot with GET {$base}/bootstrap or the MCP tool project_bootstrap.",
             "Inspect durable project context with GET {$base} or the MCP tool project_detail.",
             'Cross-server CoCo is project-only: do not use `memory://...` resources or `coco*` MCP memory ids for shared handoffs; those remain host-scoped.',
@@ -90,6 +91,7 @@ class ProjectModuleService
 
         return [
             'project_list',
+            'project_create {"slug":"' . $escapedSlug . '"}',
             'project_bootstrap {"slug":"' . $escapedSlug . '"}',
             'project_changes {"slug":"' . $escapedSlug . '","since":0}',
             'project_note_upsert {"slug":"' . $escapedSlug . '","header":"Sync status","body":"..."}',
@@ -143,6 +145,7 @@ This skill is the toolkit/help document. When the Projects module is enabled, co
 ## Primary interface: MCP
 Inside Codex, prefer the built-in MCP tools over raw HTTP:
 - `project_list` - discover available shared projects.
+- `project_create` - create a shared project before the first project-scoped write.
 - `project_bootstrap` - pull the one-shot project snapshot you should read first.
 - `project_detail` - inspect the full project state.
 - `project_changes` - replay only new activity since the last known sequence.
@@ -179,6 +182,7 @@ MCP-first examples:
 
 ```json
 {"name":"project_list","arguments":{}}
+{"name":"project_create","arguments":{"slug":"apollo"}}
 {"name":"project_bootstrap","arguments":{"slug":"apollo"}}
 {"name":"project_changes","arguments":{"slug":"apollo","since":0}}
 {"name":"project_note_upsert","arguments":{"slug":"apollo","header":"Sync status","body":"Imported backlog and aligned the next steps."}}
@@ -203,7 +207,7 @@ curl -s -H "Authorization: Bearer $HOST_API_KEY" "$COORDINATOR_BASE_URL/projects
 
 ## Automation tips
 - Slug rule: `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`.
-- Project-scoped writes require an existing slug. Create the project first and wait for success before writing notes, todos, files, or feedback.
+- Project-scoped writes require an existing slug. Create it first with `project_create` or `POST /projects`, then wait for success before writing notes, todos, files, or feedback.
 - Compare `updated_at` and `latest_seq` before overwriting shared state touched by another agent.
 - The bootstrap payload already includes `instructions`, `quickstart`, `skill`, and canonical routes. Reuse it instead of inventing a fresh onboarding checklist.
 - CoCo handoffs are shared only through projects. MCP memories stay host-scoped and are intentionally blocked for reserved `coco*` ids.

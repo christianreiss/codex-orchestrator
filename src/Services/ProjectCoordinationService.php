@@ -241,7 +241,7 @@ class ProjectCoordinationService
             $eventAction = 'create';
         } else {
             if ($this->notes->find((int) $project['id'], $id) === null) {
-                throw new HttpException(404, 'Note not found');
+                throw new HttpException('Note not found', 404);
             }
             $saved = $this->notes->update((int) $project['id'], $id, $header, $body, $hostId);
             $eventAction = 'update';
@@ -264,11 +264,11 @@ class ProjectCoordinationService
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
         if ($this->notes->find((int) $project['id'], $id) === null) {
-            throw new HttpException(404, 'Note not found');
+            throw new HttpException('Note not found', 404);
         }
         $deleted = $this->notes->delete((int) $project['id'], $id);
         if (!$deleted) {
-            throw new HttpException(404, 'Note not found');
+            throw new HttpException('Note not found', 404);
         }
 
         $this->recordEvent($project, 'note', 'delete', 'note', $id, ['id' => $id], $this->hostId($host));
@@ -313,7 +313,7 @@ class ProjectCoordinationService
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
         if ($this->todos->find((int) $project['id'], $id) === null) {
-            throw new HttpException(404, 'Todo not found');
+            throw new HttpException('Todo not found', 404);
         }
 
         [$title, $detail] = $this->normalizeTodoPayload($payload);
@@ -332,7 +332,7 @@ class ProjectCoordinationService
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
         if ($this->todos->find((int) $project['id'], $id) === null) {
-            throw new HttpException(404, 'Todo not found');
+            throw new HttpException('Todo not found', 404);
         }
 
         $saved = $this->hydrateTodo($this->todos->setDone((int) $project['id'], $id, $done, $this->hostId($host)));
@@ -350,11 +350,11 @@ class ProjectCoordinationService
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
         if ($this->todos->find((int) $project['id'], $id) === null) {
-            throw new HttpException(404, 'Todo not found');
+            throw new HttpException('Todo not found', 404);
         }
         $deleted = $this->todos->delete((int) $project['id'], $id);
         if (!$deleted) {
-            throw new HttpException(404, 'Todo not found');
+            throw new HttpException('Todo not found', 404);
         }
 
         $this->recordEvent($project, 'todo', 'delete', 'todo', $id, ['id' => $id], $this->hostId($host));
@@ -411,11 +411,11 @@ class ProjectCoordinationService
         $project = $this->requireProject($slug);
         $existing = $this->files->find((int) $project['id'], $id);
         if ($existing === null) {
-            throw new HttpException(404, 'Project file not found');
+            throw new HttpException('Project file not found', 404);
         }
         $deleted = $this->files->delete((int) $project['id'], $id);
         if (!$deleted) {
-            throw new HttpException(404, 'Project file not found');
+            throw new HttpException('Project file not found', 404);
         }
 
         $this->recordEvent($project, 'file', 'delete', 'file', $id, [
@@ -532,7 +532,7 @@ class ProjectCoordinationService
     ): array {
         $projectId = isset($project['id']) && is_numeric($project['id']) ? (int) $project['id'] : 0;
         if ($projectId <= 0) {
-            throw new HttpException(500, 'Project event requires a stored project');
+            throw new HttpException('Project event requires a stored project', 500);
         }
 
         $seq = $this->projects->nextEventSeq($projectId);
@@ -544,7 +544,7 @@ class ProjectCoordinationService
         $normalizedSlug = $this->normalizeSlug($slug);
         $project = $this->projects->findBySlug($normalizedSlug);
         if ($project === null) {
-            throw new HttpException(404, 'Project not found');
+            throw new HttpException('Project not found', 404);
         }
 
         return $project;
@@ -553,7 +553,7 @@ class ProjectCoordinationService
     private function ensureEnabled(): void
     {
         if (!$this->module->isEnabled()) {
-            throw new HttpException(404, 'Project coordination disabled');
+            throw new HttpException('Project coordination disabled', 404);
         }
     }
 
