@@ -322,7 +322,7 @@ $projectCoordinationService = new ProjectCoordinationService(
     $projectModuleService,
     $logRepository
 );
-$mcpServer = new McpServer($memoryService, $projectCoordinationService, $root);
+$mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
 $startupSyncService = new StartupSyncService($slashCommandService, $skillService, $agentsService, $clientConfigService);
 $chatGptUsageService = new ChatGptUsageService(

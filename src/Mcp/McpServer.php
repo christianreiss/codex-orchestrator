@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Mcp;
 
+use App\Services\SkillService;
 use App\Services\MemoryService;
 use App\Services\ProjectCoordinationService;
 use InvalidArgumentException;
@@ -14,22 +15,26 @@ class McpServer
 
     private readonly MemoryService $memories;
     private readonly ?ProjectCoordinationService $projects;
+    private readonly ?SkillService $skills;
     private readonly ?string $root;
 
     public function __construct(
         MemoryService $memories,
         ProjectCoordinationService|string|null $projectsOrRoot = null,
+        SkillService|string|null $skillsOrRoot = null,
         ?string $root = null
     ) {
         $this->memories = $memories;
-        if (is_string($projectsOrRoot) && $root === null) {
+        if (is_string($projectsOrRoot) && $skillsOrRoot === null && $root === null) {
             $this->projects = null;
+            $this->skills = null;
             $this->root = $projectsOrRoot;
             return;
         }
 
         $this->projects = $projectsOrRoot instanceof ProjectCoordinationService ? $projectsOrRoot : null;
-        $this->root = $root;
+        $this->skills = $skillsOrRoot instanceof SkillService ? $skillsOrRoot : null;
+        $this->root = is_string($skillsOrRoot) && $root === null ? $skillsOrRoot : $root;
     }
 
     /**
@@ -263,7 +268,7 @@ class McpServer
                 ],
             ],
             'resource_read' => [
-                'description' => 'Read a resource URI (memory://*)',
+                'description' => 'Read a resource URI (memory://*, skill://*, project://*)',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
@@ -519,6 +524,19 @@ class McpServer
                     'required' => ['scope', 'name'],
                 ],
             ],
+            [
+                'name' => 'skill_manifest',
+                'description' => 'Read a synced skill manifest by slug',
+                'uriTemplate' => 'skill://{slug}',
+                'mimeType' => 'text/markdown',
+                'arguments' => [
+                    [
+                        'name' => 'slug',
+                        'description' => 'Skill slug',
+                        'required' => true,
+                    ],
+                ],
+            ],
         ];
 
         if ($this->projectsEnabled()) {
@@ -562,6 +580,10 @@ class McpServer
                 'description' => $this->truncateDescription($row['content'] ?? ''),
                 'mimeType' => 'text/plain',
             ];
+        }
+
+        foreach ($this->skillResourceList($host) as $resource) {
+            $resources[] = $resource;
         }
 
         if ($this->projectsEnabled()) {
@@ -684,6 +706,26 @@ class McpServer
             ];
         }
 
+        $skillSlug = $this->parseSkillUri($uri);
+        if ($skillSlug !== null) {
+            $skill = $this->skills?->find($skillSlug);
+            if ($skill === null) {
+                throw new InvalidArgumentException('Resource not found: ' . $uri);
+            }
+
+            return [
+                'contents' => [
+                    [
+                        'uri' => $this->skillUri($skillSlug),
+                        'name' => (string) ($skill['display_name'] ?? $skillSlug),
+                        'description' => (string) ($skill['description'] ?? 'Stored skill manifest'),
+                        'mimeType' => 'text/markdown',
+                        'text' => (string) ($skill['manifest'] ?? ''),
+                    ],
+                ],
+            ];
+        }
+
         $id = $this->parseMemoryUri($uri);
         if ($id === null) {
             throw new InvalidArgumentException('Unsupported resource URI: ' . $uri);
@@ -720,6 +762,11 @@ class McpServer
         return 'project://' . rawurlencode($slug);
     }
 
+    private function skillUri(string $slug): string
+    {
+        return 'skill://' . rawurlencode($slug);
+    }
+
     private function parseMemoryUri(string $uri): ?string
     {
         $prefix = 'memory://';
@@ -741,6 +788,45 @@ class McpServer
 
         $slug = rawurldecode(substr($uri, strlen($prefix)));
         return $slug === '' ? null : $slug;
+    }
+
+    private function parseSkillUri(string $uri): ?string
+    {
+        $prefix = 'skill://';
+        if (!str_starts_with($uri, $prefix)) {
+            return null;
+        }
+
+        $slug = rawurldecode(substr($uri, strlen($prefix)));
+        return $slug === '' ? null : $slug;
+    }
+
+    /**
+     * @param array<string,mixed> $host
+     * @return array<int, array<string,mixed>>
+     */
+    private function skillResourceList(array $host): array
+    {
+        if ($this->skills === null) {
+            return [];
+        }
+
+        $resources = [];
+        foreach ($this->skills->listSkills($host, false) as $skill) {
+            $slug = trim((string) ($skill['slug'] ?? ''));
+            if ($slug === '') {
+                continue;
+            }
+
+            $resources[] = [
+                'uri' => $this->skillUri($slug),
+                'name' => (string) ($skill['display_name'] ?? $slug),
+                'description' => (string) ($skill['description'] ?? 'Skill manifest'),
+                'mimeType' => 'text/markdown',
+            ];
+        }
+
+        return $resources;
     }
 
     private function extractTextContent(array $params): ?string

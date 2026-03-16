@@ -95,6 +95,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 ### MCP stream endpoint
 - `GET /mcp` — probe endpoint; returns 405 (`Allow: POST`).
 - `POST /mcp` — JSON-RPC 2.0 endpoint (single or batch). Methods include `initialize`, `tools/list`, `tools/call`, `resources/templates/list`, `resources/list`, `resources/read`, `resources/create`, `resources/update`, `resources/delete`, and aliases (`tools.list`, `resources.list`, etc.).
+- MCP resources include host-scoped memories (`memory://{id}`), read-only synced Skill manifests (`skill://{slug}`), and, when the Projects module is enabled, shared project bootstrap resources (`project://{slug}`). Managed CoCo clients should prefer `skill://coco` when they need the skill text remotely; shared CoCo state still belongs only in project resources.
 - When the Projects module is enabled, `tools/list` also advertises `project_list`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, and `project_feedback_create`; resources add `project://{slug}` templates plus concrete project resources, and the managed `coco` skill carries the human-readable toolkit/help text directly.
 - Origin checks apply via `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Disallowed origins return 403.
 

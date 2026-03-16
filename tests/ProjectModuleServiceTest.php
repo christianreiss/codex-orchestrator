@@ -59,6 +59,7 @@ final class ProjectModuleServiceTest extends TestCase
         $this->assertTrue($skill['managed']);
         $this->assertStringContainsString('# CoCo Toolkit (Codex Orchestrator Projects)', $skill['manifest']);
         $this->assertStringContainsString('`~/.agents/skills/coco/SKILL.md`', $skill['manifest']);
+        $this->assertStringContainsString('`skill://coco`', $skill['manifest']);
         $this->assertStringContainsString('Cross-server CoCo is project-only.', $skill['manifest']);
         $this->assertStringContainsString('Do not use `memory://...` resources', $skill['manifest']);
         $this->assertStringContainsString('`project_bootstrap`', $skill['manifest']);
@@ -85,6 +86,7 @@ final class ProjectModuleServiceTest extends TestCase
         $skill = $service->bootstrapSkill();
 
         $this->assertNotEmpty($instructions);
+        $this->assertStringContainsString('skill://coco', $instructions[0]);
         $this->assertStringContainsString('~/.agents/skills/coco/SKILL.md', $instructions[0]);
         $this->assertStringContainsString('project-only', implode("\n", $instructions));
         $this->assertStringContainsString('memory://', implode("\n", $instructions));

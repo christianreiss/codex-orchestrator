@@ -8,6 +8,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\MemoryRepository;
 use App\Services\MemoryService;
 use App\Services\ProjectCoordinationService;
+use App\Services\SkillService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -238,6 +239,35 @@ final class SpyProjectCoordinationService extends ProjectCoordinationService
     }
 }
 
+final class SpySkillService extends SkillService
+{
+    /** @var array<int, array<string,mixed>> */
+    public array $skills = [];
+
+    public function __construct()
+    {
+    }
+
+    public function listSkills(?array $host = null, bool $includeDeleted = false): array
+    {
+        return array_values(array_filter(
+            $this->skills,
+            static fn (array $skill): bool => $includeDeleted || empty($skill['deleted_at'])
+        ));
+    }
+
+    public function find(string $slug): ?array
+    {
+        foreach ($this->skills as $skill) {
+            if (($skill['slug'] ?? null) === $slug && empty($skill['deleted_at'])) {
+                return $skill;
+            }
+        }
+
+        return null;
+    }
+}
+
 final class McpServerTest extends TestCase
 {
     public function testToolNamesMatchRequiredPattern(): void
@@ -310,6 +340,8 @@ final class McpServerTest extends TestCase
         $store = $templates[array_search('memory_store', $names, true)];
         $this->assertSame('memory://{scope}:{name}', $store['uriTemplate']);
         $this->assertSame(['project', 'host', 'global'], $store['inputSchema']['properties']['scope']['enum']);
+        $skill = $templates[array_search('skill_manifest', $names, true)];
+        $this->assertSame('skill://{slug}', $skill['uriTemplate']);
     }
 
     public function testDispatchAcceptsStringPayloadForRetrieve(): void
@@ -647,5 +679,56 @@ final class McpServerTest extends TestCase
         $this->assertSame('projectResourceRead', $projects->lastMethod);
         $this->assertSame(['apollo', ['id' => 7]], $projects->lastArgs);
         $this->assertSame('project://apollo', $result['contents'][0]['uri']);
+    }
+
+    public function testListResourcesIncludesSkills(): void
+    {
+        $spy = new SpyMemoryService();
+        $skills = new SpySkillService();
+        $skills->skills = [
+            [
+                'slug' => 'coco',
+                'display_name' => 'CoCo Projects',
+                'description' => 'Shared project coordination',
+                'manifest' => "# CoCo\n",
+            ],
+        ];
+        $server = new McpServer($spy, null, $skills);
+
+        $resources = $server->listResources(['id' => 1]);
+
+        $this->assertCount(1, $resources);
+        $this->assertSame('skill://coco', $resources[0]['uri']);
+        $this->assertSame('CoCo Projects', $resources[0]['name']);
+        $this->assertSame('text/markdown', $resources[0]['mimeType']);
+    }
+
+    public function testReadResourceSupportsSkillUri(): void
+    {
+        $skills = new SpySkillService();
+        $skills->skills = [
+            [
+                'slug' => 'coco',
+                'display_name' => 'CoCo Projects',
+                'description' => 'Shared project coordination',
+                'manifest' => "# CoCo Toolkit\n",
+            ],
+        ];
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $result = $server->readResource('skill://coco', ['id' => 7]);
+
+        $this->assertSame('skill://coco', $result['contents'][0]['uri']);
+        $this->assertSame('CoCo Projects', $result['contents'][0]['name']);
+        $this->assertSame('text/markdown', $result['contents'][0]['mimeType']);
+        $this->assertSame("# CoCo Toolkit\n", $result['contents'][0]['text']);
+    }
+
+    public function testReadResourceRejectsMissingSkillUri(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $server = new McpServer(new SpyMemoryService(), null, new SpySkillService());
+        $server->readResource('skill://missing', ['id' => 1]);
     }
 }
