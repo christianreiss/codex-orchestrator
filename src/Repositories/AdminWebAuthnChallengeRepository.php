@@ -50,25 +50,61 @@ class AdminWebAuthnChallengeRepository
      */
     public function consume(string $challenge, string $now): ?array
     {
-        $statement = $this->database->connection()->prepare(
-            'SELECT id, challenge, user_id, type, expires_at, created_at
-             FROM admin_webauthn_challenges
-             WHERE challenge = :challenge AND expires_at > :now
-             LIMIT 1'
-        );
-        $statement->execute(['challenge' => $challenge, 'now' => $now]);
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        $connection = $this->database->connection();
+        $driver = strtolower((string) $connection->getAttribute(PDO::ATTR_DRIVER_NAME));
+        $startedTransaction = false;
 
-        if (!$row) {
-            return null;
+        try {
+            if ($driver === 'sqlite') {
+                $connection->exec('BEGIN IMMEDIATE TRANSACTION');
+                $startedTransaction = true;
+            } elseif (!$connection->inTransaction()) {
+                $connection->beginTransaction();
+                $startedTransaction = true;
+            }
+
+            $sql = 'SELECT id, challenge, user_id, type, expires_at, created_at
+                    FROM admin_webauthn_challenges
+                    WHERE challenge = :challenge AND expires_at > :now
+                    LIMIT 1';
+            if ($driver === 'mysql') {
+                $sql .= ' FOR UPDATE';
+            }
+
+            $statement = $connection->prepare($sql);
+            $statement->execute(['challenge' => $challenge, 'now' => $now]);
+            $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row) {
+                if ($startedTransaction) {
+                    $connection->commit();
+                }
+                return null;
+            }
+
+            $del = $connection->prepare(
+                'DELETE FROM admin_webauthn_challenges WHERE id = :id'
+            );
+            $del->execute(['id' => $row['id']]);
+
+            if ($del->rowCount() !== 1) {
+                if ($startedTransaction) {
+                    $connection->rollBack();
+                }
+                return null;
+            }
+
+            if ($startedTransaction) {
+                $connection->commit();
+            }
+
+            return $row;
+        } catch (\Throwable $exception) {
+            if ($startedTransaction && $connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
         }
-
-        $del = $this->database->connection()->prepare(
-            'DELETE FROM admin_webauthn_challenges WHERE id = :id'
-        );
-        $del->execute(['id' => $row['id']]);
-
-        return $row;
     }
 
     public function purgeExpired(string $now): int

@@ -5,6 +5,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 ## Auth & Transport
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
 - **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_ACCESS_MODE=mtls` (default). With `ADMIN_ACCESS_MODE=none`, secure the path via VPN/firewall.
+  - Admin passkey login exists, but in the default `mtls` mode it still sits behind the client-certificate boundary.
 - **IP binding**: the first successful authenticated host request pins caller IP (`ip4`/`ip6`); later mismatches return `403` unless roaming is enabled (`allow_roaming_ips`), a dual-stack secondary bind is possible, or `DELETE /auth?force=1` is used. When reverse-DNS enforcement is active, `/auth` also requires forward A/AAAA + PTR match for caller IP. Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and `REMOTE_ADDR` matches `TRUSTED_PROXY_CIDRS`. Runner subnet bypass is possible when `AUTH_RUNNER_IP_BYPASS=1` and caller IP matches `AUTH_RUNNER_BYPASS_SUBNETS`.
 - **Host security modes**: hosts default to `secure=true`. Setting `secure=false` marks the host insecure. New insecure hosts get a provisioning window (default 30 minutes, or `/admin/hosts/register` `duration_minutes`). Admins can open/extend a 0–480 minute sliding window with `POST /admin/hosts/{id}/insecure/enable` (default stored window 10). Window checks are enforced for `/auth` retrieve (non-`store`), `/host/lane`, and `/mcp`; `POST /auth` with `command=store` is currently not gated by the insecure window in code. Closed-window requests return `403 Insecure host API access disabled`, or `423 Insecure host approval pending` when insecure approvals are enabled and admin websocket presence is active.
 - **Base URL policy**: in production, keep `PUBLIC_BASE_URL` set (`PUBLIC_BASE_URL_REQUIRED=1`) and optionally enforce host matching with `STRICT_HOST_VALIDATION=1`.
@@ -119,9 +120,13 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
   - `POST /admin/auth/login` — `{username, password}`; sets HTTP-only session cookie.
   - `POST /admin/auth/logout` — clears session.
+  - `POST /admin/auth/passkey/login/options` — `{username}`; returns passkey login options for that user.
+  - `POST /admin/auth/passkey/login` — completes passkey login and sets the admin session cookie.
+  - `POST /admin/auth/passkey/register/options` / `POST /admin/auth/passkey/register` — register a passkey for the authenticated admin user.
   - `GET /admin/login` — admin login HTML.
   - `POST /admin/auth/password/request` — disabled (`410 Gone`).
   - `POST /admin/auth/password/reset` — disabled (`410 Gone`).
+  - `GET /admin/passkeys` / `POST /admin/passkeys/{id}/name` / `DELETE /admin/passkeys/{id}` — list, rename, and delete the authenticated admin user’s passkeys.
   - `GET /admin/users` — list admin users.
   - `POST /admin/users` — create admin user (first user must be admin).
   - `POST /admin/users/{id}` — update admin user.

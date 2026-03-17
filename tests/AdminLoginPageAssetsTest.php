@@ -14,6 +14,7 @@ final class AdminLoginPageAssetsTest extends TestCase
         $this->assertIsString($html);
         $this->assertStringContainsString('/admin/assets/login.css?v=', $html);
         $this->assertStringContainsString('/admin/assets/login.js?v=', $html);
+        $this->assertStringContainsString('/admin/assets/passkey-login.js?v=', $html);
         $this->assertStringContainsString('id="adminLoginError"', $html);
     }
 }

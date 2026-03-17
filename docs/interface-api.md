@@ -68,13 +68,20 @@ Scheduled preflight: on the first non-admin request after the configured interva
 - `GET /admin/ws/info` — websocket bootstrap for admin live updates. Returns `enabled`, `url`, `last_event_id`, `heartbeat_seconds`, and `backlog_limit`. When enabled, clients connect to the provided `ws/wss` URL and receive event messages of the form `{ kind: "event", event: { id, type, host_id, payload, created_at } }` (currently `type=log.created` and `type=toast`).
   - Admin clients route `log.created.payload.action` into targeted refresh domains (`overview`, `hosts`, `settings`, `prompts`, `skills`, `projects`, `agents`, `memories`, `users`, `config`, `profiles`) instead of full-page reloads. Unknown actions fall back to an overview+hosts refresh.
   - Settings mutations now emit explicit log actions for push fanout: `admin.api.state`, `admin.cdx_silent`, `admin.reverse_dns`, `admin.insecure_approval`, `admin.codex_version`, `admin.quota_mode`, and `admin.prune_policy`.
-- `GET /admin/auth/status` — admin auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, and role labels).
+- `GET /admin/auth/status` — admin auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, role labels, `passkeys_registered`, and `passkey_login_available`).
 - `POST /admin/auth/login` — login with `{username, password}`; issues an HTTP-only session cookie.
 - `POST /admin/auth/logout` — clears the session cookie.
+- `POST /admin/auth/passkey/login/options` — begin username-bound passkey login. Body `{username}`; returns WebAuthn `challenge`, `rpId`, `timeout`, `userVerification:"required"`, and `allowCredentials` for that active user only. Fails when the user is unknown/inactive or has no registered passkeys.
+- `POST /admin/auth/passkey/login` — completes passkey login. Validates RP ID, exact origin, `UP`, `UV`, signature, challenge single-use, and credential ownership before issuing the normal admin session cookie. Sign-counter regressions log `admin.auth.passkey.sign_count_regression` and do not reduce the stored counter.
+- `POST /admin/auth/passkey/register/options` — begin passkey registration for the authenticated admin session. Returns WebAuthn registration options with `residentKey:"discouraged"`, `userVerification:"required"`, and exclude-credentials built from that user’s existing passkeys.
+- `POST /admin/auth/passkey/register` — completes passkey registration. Validates RP ID, exact origin, challenge single-use, `UP`, `UV`, `AT`, and supported COSE algorithms before storing the public key and metadata.
 - `GET /admin/login` — dedicated admin login page (HTML; served by `public/admin/index.php` dispatch through `/admin/.htaccess`).
 - `GET /admin/hosts/{id}` — dedicated admin host detail page (HTML shell). Uses the same dashboard assets but resolves the active host from the path instead of opening an in-page modal.
 - `POST /admin/auth/password/request` — disabled; always returns `410 Gone`.
 - `POST /admin/auth/password/reset` — disabled; always returns `410 Gone`.
+- `GET /admin/passkeys` — list the authenticated admin user’s registered passkeys (`id`, `name`, `transports`, `created_at`, `last_used_at`).
+- `POST /admin/passkeys/{id}/name` — rename one of the authenticated admin user’s passkeys. Body `{name}`.
+- `DELETE /admin/passkeys/{id}` — delete one of the authenticated admin user’s passkeys.
 - `GET /admin/users` — list admin users (id, name, username, email, access_level, active, last_login_at, timestamps).
 - `POST /admin/users` — create user `{name, username, email, access_level, password, active?}`. First user must be `admin`.
 - `POST /admin/users/{id}` — update user fields (name/username/email/access_level/active/password).
@@ -168,7 +175,11 @@ Scheduled preflight: on the first non-admin request after the configured interva
 - Admin routes are exempt; when no client IP can be resolved the request proceeds without throttling. Tune the env vars above to tighten or disable the windows (zero/negative disables the guard).
 ## Admin access control
 
-- Admin routes are protected by mTLS (client certificates) when `ADMIN_ACCESS_MODE=mtls` (default). Passkey/WebAuthn endpoints are not implemented.
+- Admin routes are protected by mTLS (client certificates) when `ADMIN_ACCESS_MODE=mtls` (default). Passkey/WebAuthn login is implemented, but it still sits inside that mTLS gate in the default setup.
+- WebAuthn config:
+  - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID.
+  - `ADMIN_WEBAUTHN_RP_NAME` overrides RP display name.
+  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact expected origin; otherwise origin is derived from the trusted request scheme/host.
 - Userless bootstrap: when no active admin users exist, the admin UI behaves as it does today (no login enforcement). Creating the first active admin enables login + role checks.
 - Roles and privileges:
   - `admin`: full access, including user management and wipe.

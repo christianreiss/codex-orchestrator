@@ -10,13 +10,18 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - If login is enforced:
   - `/admin/` redirects to `/admin/login` when no valid session.
   - `/admin/login` redirects to `/admin/` when already authenticated.
-  - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`.
+  - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`, `/admin/auth/passkey/login/options`, and `/admin/auth/passkey/login`.
 - If login is not enforced (fresh/userless install), auth/capability checks are bypassed so first admin can be created.
+- Passkey login is implemented, but with `ADMIN_ACCESS_MODE=mtls` (default) it still sits behind the client-certificate gate.
 - Session cookie:
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
   - TTL: `ADMIN_SESSION_TTL_SECONDS` (default `28800`, clamped to `300..604800`).
   - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when request is HTTPS.
 - Password reset endpoints are hard-disabled: `POST /admin/auth/password/request` and `POST /admin/auth/password/reset` always return `410`.
+- WebAuthn settings:
+  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID.
+  - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name.
+  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app derives it from the trusted request scheme/host.
 
 ## Roles & Capabilities
 - Roles: `admin`, `fleet_operator`, `trusted_user`, `user`.
@@ -79,6 +84,11 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - List/create/update/delete: `/admin/users`, `/admin/users/{id}`.
   - Wipe all users: `POST /admin/users/wipe` with `{"confirm":"WIPE"}`.
   - `users.manage` required once any users exist.
+- **Passkeys**:
+  - Username-bound login endpoints: `POST /admin/auth/passkey/login/options` with `{username}` and `POST /admin/auth/passkey/login`.
+  - Registration endpoints (session required): `POST /admin/auth/passkey/register/options` and `POST /admin/auth/passkey/register`.
+  - Management endpoints (session required): `GET /admin/passkeys`, `POST /admin/passkeys/{id}/name`, `DELETE /admin/passkeys/{id}`.
+  - Login requires WebAuthn user verification and uses the entered username to scope `allowCredentials`; it is not username-less.
 - **Auth Upload & Seed**:
   - Upload canonical auth (runner skipped): `POST /admin/auth/upload` (`settings.manage`).
   - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`).
@@ -125,6 +135,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - **Onboard host**: `POST /admin/hosts/register` -> run returned installer command.
 - **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
 - **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` -> execute generated `curl | bash`.
+- **Recover a locked-out admin who lost all passkeys**: `docker compose exec api php /var/www/html/scripts/admin-passkeys.php delete-user --username <admin> [--force]`.
 - **Enable shared project coordination**: `POST /admin/projects/state` with `{"enabled":true}`.
 - **Create a shared project**: `POST /admin/projects` with `slug`, optional `about`, and optional `roster_markdown`.
 - **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.

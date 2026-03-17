@@ -97,6 +97,17 @@ class AdminPasskeyRepository
         ]);
     }
 
+    public function touchLastUsed(int $id, string $lastUsedAt): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE admin_passkeys SET last_used_at = :last_used_at WHERE id = :id'
+        );
+        $statement->execute([
+            'last_used_at' => $lastUsedAt,
+            'id' => $id,
+        ]);
+    }
+
     public function updateName(int $id, string $name): void
     {
         $statement = $this->database->connection()->prepare(
@@ -114,10 +125,11 @@ class AdminPasskeyRepository
         $statement->execute(['id' => $id]);
     }
 
-    public function deleteAllForUser(int $userId): void
+    public function deleteAllForUser(int $userId): int
     {
         $statement = $this->database->connection()->prepare('DELETE FROM admin_passkeys WHERE user_id = :user_id');
         $statement->execute(['user_id' => $userId]);
+        return $statement->rowCount();
     }
 
     public function countForUser(int $userId): int

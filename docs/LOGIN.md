@@ -5,6 +5,8 @@
 - Login/session enforcement starts when at least one **active** admin user exists (`access_level=admin`, `active=1`).
 - When no active admins exist, admin routes run in bootstrap mode (no login/session enforcement).
 - Login uses an HTTP-only session cookie with a configurable TTL.
+- Admin passkey login is implemented and is username-bound: the login page uses the entered username before prompting for a passkey.
+- With `ADMIN_ACCESS_MODE=mtls` (default), passkey login still sits inside the mTLS gate; it does not replace the outer client-cert boundary.
 - Password reset is disabled (UI and API).
 - Roles control which admin features each user can access.
 
@@ -23,12 +25,32 @@
   - `mtls` (default): mTLS is required for `/admin/*` and login sits behind that TLS gate.
   - `none`: mTLS headers are optional; protect `/admin/` using another control (VPN/firewall) and rely on admin login for user-level access.
   - Any value other than `none` is treated as `mtls`.
+- WebAuthn/passkey settings:
+  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID.
+  - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name (default `Codex Orchestrator`).
+  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact origin used for ceremony validation; when unset, origin is derived from the trusted request scheme/host.
 - Admin API endpoints:
   - `GET /admin/auth/status` — returns `has_users`, `admin_count` (active admins), `enforced`, `authenticated`, `user`, and role labels.
   - `POST /admin/auth/login` — `{username, password}`; on success issues an HTTP-only session cookie and returns the sanitized user plus `expires_at`.
   - `POST /admin/auth/logout` — clears the current session and expires the cookie.
+  - `POST /admin/auth/passkey/login/options` — `{username}`; returns WebAuthn request options for that user’s registered passkeys only.
+  - `POST /admin/auth/passkey/login` — completes passkey login and issues the same admin session cookie as password login.
   - `POST /admin/auth/password/request` — disabled (`410 Gone`).
   - `POST /admin/auth/password/reset` — disabled (`410 Gone`).
+
+## Passkeys
+- Registration is available to authenticated admins through the dashboard and stores multiple passkeys per user.
+- Registration requires WebAuthn user verification (`UV`) and does not force platform-only authenticators.
+- Login also requires WebAuthn user verification and is not username-less: the entered username determines the `allowCredentials` list returned by the server.
+- Passkey management endpoints:
+  - `POST /admin/auth/passkey/register/options`
+  - `POST /admin/auth/passkey/register`
+  - `GET /admin/passkeys`
+  - `POST /admin/passkeys/{id}/name`
+  - `DELETE /admin/passkeys/{id}`
+- Recovery for lost passkeys is operator-driven in Docker deployments:
+  - `docker compose exec api php /var/www/html/scripts/admin-passkeys.php delete-user --username <admin> [--force]`
+  - This deletes all stored passkeys for the named active admin user and logs `admin.passkey.recovery.delete`.
 
 ## Sessions
 - Cookie name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
@@ -83,9 +105,10 @@
 - Dedicated login page:
   - `/admin/login` serves a standalone login page.
   - Failed login attempts surface a generic error: `Login failed. Check your credentials.`
+  - Passkey login reuses the username field and surfaces API errors such as “No passkeys registered for user.”
 - Header user display:
   - When authenticated, the top nav shows the current user and a logout button.
 
 ## Unknown / Not Found in Code
 - Public admin user self-signup flows (e.g., invite links) — Unknown / not found in code.
-- Multi-factor authentication (TOTP, WebAuthn/passkeys) for admin login — Unknown / not found in code.
+- TOTP or other non-WebAuthn MFA for admin login — Unknown / not found in code.

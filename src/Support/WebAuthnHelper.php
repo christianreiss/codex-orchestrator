@@ -188,8 +188,8 @@ class WebAuthnHelper
 
     private static function ec2KeyToPem(array $coseKey): string
     {
-        $kty = $coseKey[1] ?? null;
-        $crv = $coseKey[-1] ?? null;
+        $kty = self::normalizeCoseInt($coseKey[1] ?? null);
+        $crv = self::normalizeCoseInt($coseKey[-1] ?? null);
         $x = $coseKey[-2] ?? null;
         $y = $coseKey[-3] ?? null;
 
@@ -225,7 +225,7 @@ class WebAuthnHelper
 
     private static function rsaKeyToPem(array $coseKey): string
     {
-        $kty = $coseKey[1] ?? null;
+        $kty = self::normalizeCoseInt($coseKey[1] ?? null);
         $n = $coseKey[-1] ?? null;
         $e = $coseKey[-2] ?? null;
 
@@ -321,5 +321,17 @@ class WebAuthnHelper
         }
 
         return "\x82" . pack('n', $len);
+    }
+
+    private static function normalizeCoseInt(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^-?\d+$/', $value) === 1) {
+            return (int) $value;
+        }
+
+        return null;
     }
 }

@@ -643,10 +643,11 @@ $router->add('POST', '#^/admin/auth/password/reset$#', function () {
 
 // --- Passkey login (unauthenticated) ---
 
-$router->add('POST', '#^/admin/auth/passkey/login/options$#', function () use ($adminPasskeyService) {
+$router->add('POST', '#^/admin/auth/passkey/login/options$#', function () use ($payload, $adminPasskeyService) {
     requireAdminAccess();
+    $username = is_array($payload) ? (string) ($payload['username'] ?? '') : '';
     $rpId = adminWebAuthnRpId();
-    $options = $adminPasskeyService->beginAuthentication($rpId);
+    $options = $adminPasskeyService->beginAuthentication($username, $rpId);
     Response::json(['status' => 'ok', 'data' => $options]);
 });
 
@@ -6041,10 +6042,23 @@ function adminWebAuthnRpName(): string
 
 function adminWebAuthnOrigin(): string
 {
+    $configured = Config::get('ADMIN_WEBAUTHN_ORIGIN', '');
+    if (is_string($configured) && trim($configured) !== '') {
+        $normalized = normalizeOrigin($configured);
+        if ($normalized !== null) {
+            return $normalized;
+        }
+    }
+
+    $origin = resolveRequestOrigin();
+    if ($origin !== null) {
+        return $origin;
+    }
+
     $scheme = resolveRequestScheme();
     $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
-    if (!is_string($host)) {
+    if (!is_string($host) || trim($host) === '') {
         $host = 'localhost';
     }
-    return $scheme . '://' . $host;
+    return normalizeOrigin($scheme . '://' . trim($host)) ?? ($scheme . '://' . trim($host));
 }

@@ -33,7 +33,7 @@ class AdminPasskeyService
     public function beginRegistration(array $user, string $rpId, string $rpName): array
     {
         $userId = (int) ($user['id'] ?? 0);
-        $username = (string) ($user['username'] ?? '');
+        $username = $this->normalizeUsername((string) ($user['username'] ?? ''));
         $displayName = (string) ($user['name'] ?? $username);
 
         if ($userId === 0 || $username === '') {
@@ -51,19 +51,10 @@ class AdminPasskeyService
         $expiresAt = gmdate(DATE_ATOM, time() + self::CHALLENGE_TTL_SECONDS);
         $this->challenges->create($challenge, $userId, 'registration', $expiresAt);
 
-        // Build excludeCredentials from existing passkeys.
-        $existing = $this->passkeys->findAllForUser($userId);
-        $excludeCredentials = [];
-        foreach ($existing as $cred) {
-            $entry = [
-                'type' => 'public-key',
-                'id' => WebAuthnHelper::base64urlEncode((string) $cred['credential_id']),
-            ];
-            if (!empty($cred['transports'])) {
-                $entry['transports'] = explode(',', (string) $cred['transports']);
-            }
-            $excludeCredentials[] = $entry;
-        }
+        $excludeCredentials = $this->buildCredentialDescriptors(
+            $this->passkeys->findAllForUser($userId),
+            true
+        );
 
         // User handle: 4-byte big-endian packed user ID.
         $userHandle = WebAuthnHelper::base64urlEncode(pack('N', $userId));
@@ -86,9 +77,8 @@ class AdminPasskeyService
             'timeout' => 300000,
             'attestation' => 'none',
             'authenticatorSelection' => [
-                'authenticatorAttachment' => 'platform',
-                'residentKey' => 'preferred',
-                'userVerification' => 'preferred',
+                'residentKey' => 'discouraged',
+                'userVerification' => 'required',
             ],
             'excludeCredentials' => $excludeCredentials,
         ];
@@ -162,6 +152,9 @@ class AdminPasskeyService
         if (!$authData['flagsDetail']['AT']) {
             throw new HttpException('Attested credential data flag not set', 400);
         }
+        if (!$authData['flagsDetail']['UV']) {
+            throw new HttpException('User verification flag not set', 400);
+        }
 
         // Extract credential.
         $credentialId = $authData['credentialId'];
@@ -232,21 +225,39 @@ class AdminPasskeyService
         return $this->sanitizePasskey($passkey);
     }
 
-    public function beginAuthentication(string $rpId): array
+    public function beginAuthentication(string $username, string $rpId): array
     {
+        $username = $this->normalizeUsername($username);
+        if ($username === '') {
+            throw new ValidationException(['username' => 'Username is required']);
+        }
+
+        $user = $this->users->findByUsername($username);
+        if ($user === null || empty($user['active'])) {
+            throw new HttpException('Unknown or inactive user', 404);
+        }
+
+        $allowCredentials = $this->buildCredentialDescriptors(
+            $this->passkeys->findAllForUser((int) $user['id']),
+            false
+        );
+        if ($allowCredentials === []) {
+            throw new HttpException('No passkeys registered for user', 400);
+        }
+
         // Purge stale challenges opportunistically.
         $this->challenges->purgeExpired(gmdate(DATE_ATOM));
 
         $challenge = bin2hex(random_bytes(32));
         $expiresAt = gmdate(DATE_ATOM, time() + self::CHALLENGE_TTL_SECONDS);
-        $this->challenges->create($challenge, null, 'authentication', $expiresAt);
+        $this->challenges->create($challenge, (int) $user['id'], 'authentication', $expiresAt);
 
         return [
             'challenge' => $challenge,
             'rpId' => $rpId,
             'timeout' => 300000,
-            'userVerification' => 'preferred',
-            'allowCredentials' => [],
+            'userVerification' => 'required',
+            'allowCredentials' => $allowCredentials,
         ];
     }
 
@@ -302,6 +313,9 @@ class AdminPasskeyService
         if ($credential === null) {
             throw new HttpException('Unknown credential', 401);
         }
+        if ((int) ($challengeRow['user_id'] ?? 0) !== (int) ($credential['user_id'] ?? 0)) {
+            throw new HttpException('Challenge user mismatch', 400);
+        }
 
         // Parse authenticator data.
         $authData = WebAuthnHelper::parseAuthData($authenticatorData);
@@ -315,6 +329,9 @@ class AdminPasskeyService
         // Verify user presence.
         if (!$authData['flagsDetail']['UP']) {
             throw new HttpException('User presence flag not set', 400);
+        }
+        if (!$authData['flagsDetail']['UV']) {
+            throw new HttpException('User verification flag not set', 400);
         }
 
         // Verify signature.
@@ -330,19 +347,27 @@ class AdminPasskeyService
             throw new HttpException('Invalid signature', 401);
         }
 
-        // Verify sign count (warn but don't hard-fail).
         $storedCount = (int) ($credential['sign_count'] ?? 0);
         $newCount = $authData['signCount'];
+        $lastUsedAt = gmdate(DATE_ATOM);
         if ($storedCount > 0 && $newCount <= $storedCount) {
-            error_log('[passkey] Sign count did not increase for credential ' . ($credential['id'] ?? '?') . ': stored=' . $storedCount . ' new=' . $newCount);
+            $this->logs->log(null, 'admin.auth.passkey.sign_count_regression', [
+                'user_id' => (int) ($credential['user_id'] ?? 0),
+                'passkey_id' => (int) ($credential['id'] ?? 0),
+                'stored_sign_count' => $storedCount,
+                'observed_sign_count' => $newCount,
+            ]);
         }
 
-        // Update sign count and last used.
-        $this->passkeys->updateSignCount(
-            (int) $credential['id'],
-            $newCount,
-            gmdate(DATE_ATOM)
-        );
+        if ($newCount > $storedCount) {
+            $this->passkeys->updateSignCount(
+                (int) $credential['id'],
+                $newCount,
+                $lastUsedAt
+            );
+        } else {
+            $this->passkeys->touchLastUsed((int) $credential['id'], $lastUsedAt);
+        }
 
         // Verify user handle if provided (must match the stored user).
         if ($userHandle !== null && $userHandle !== '') {
@@ -420,6 +445,35 @@ class AdminPasskeyService
             'created_at' => $row['created_at'] ?? null,
             'last_used_at' => $row['last_used_at'] ?? null,
         ];
+    }
+
+    private function buildCredentialDescriptors(array $credentials, bool $base64urlIds): array
+    {
+        $descriptors = [];
+        foreach ($credentials as $cred) {
+            $credentialId = (string) ($cred['credential_id'] ?? '');
+            if ($credentialId === '') {
+                continue;
+            }
+
+            $entry = [
+                'type' => 'public-key',
+                'id' => $base64urlIds
+                    ? WebAuthnHelper::base64urlEncode($credentialId)
+                    : bin2hex($credentialId),
+            ];
+            if (!empty($cred['transports'])) {
+                $entry['transports'] = explode(',', (string) $cred['transports']);
+            }
+            $descriptors[] = $entry;
+        }
+
+        return $descriptors;
+    }
+
+    private function normalizeUsername(string $username): string
+    {
+        return strtolower(trim($username));
     }
 
     private function requireBase64url(array $payload, string $key): string

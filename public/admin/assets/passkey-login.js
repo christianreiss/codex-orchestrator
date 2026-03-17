@@ -2,8 +2,9 @@
   const passkeyBtn = document.getElementById('passkeyLoginBtn');
   const passkeyDivider = document.getElementById('passkeyDivider');
   const errorEl = document.getElementById('adminLoginError');
+  const usernameInput = document.getElementById('adminLoginUsername');
 
-  if (!passkeyBtn || !window.PublicKeyCredential || !window.isSecureContext) return;
+  if (!passkeyBtn || !usernameInput || !window.PublicKeyCredential || !window.isSecureContext) return;
 
   function api(path, opts = {}) {
     const headers = { Accept: 'application/json', ...(opts.headers || {}) };
@@ -13,8 +14,20 @@
       headers['Content-Type'] = 'application/json';
     }
     return fetch(path, init).then(async (res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-      return res.json();
+      const text = await res.text();
+      let body = null;
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch (_) {
+          body = null;
+        }
+      }
+      if (!res.ok) {
+        const message = body?.message || `HTTP ${res.status}`;
+        throw new Error(message);
+      }
+      return body;
     });
   }
 
@@ -51,11 +64,22 @@
 
   passkeyBtn.addEventListener('click', async () => {
     setError('');
+    const username = usernameInput.value.trim();
+    if (!username) {
+      setError('Enter your username to use passkey login.');
+      usernameInput.focus();
+      return;
+    }
+
     passkeyBtn.disabled = true;
     passkeyBtn.textContent = 'Authenticating\u2026';
+    usernameInput.disabled = true;
 
     try {
-      const optRes = await api('/admin/auth/passkey/login/options', { method: 'POST' });
+      const optRes = await api('/admin/auth/passkey/login/options', {
+        method: 'POST',
+        json: { username },
+      });
       const options = optRes.data;
 
       const publicKey = {
@@ -90,8 +114,9 @@
     } catch (err) {
       passkeyBtn.disabled = false;
       passkeyBtn.textContent = 'Sign in with passkey';
+      usernameInput.disabled = false;
       if (err.name === 'NotAllowedError') return;
-      setError('Passkey login failed.');
+      setError(err.message || 'Passkey login failed.');
     }
   });
 })();
