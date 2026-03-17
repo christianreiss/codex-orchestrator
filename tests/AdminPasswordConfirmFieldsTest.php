@@ -17,5 +17,6 @@ final class AdminPasswordConfirmFieldsTest extends TestCase
         $login = file_get_contents(__DIR__ . '/../public/admin/login.html');
         $this->assertIsString($login);
         $this->assertStringContainsString('id="adminLoginPassword"', $login);
+        $this->assertStringContainsString('id="adminLoginPasswordField" hidden', $login);
     }
 }

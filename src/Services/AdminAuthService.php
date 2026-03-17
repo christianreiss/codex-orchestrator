@@ -12,6 +12,7 @@ namespace App\Services;
 use App\Config;
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
+use App\Repositories\AdminPasskeyRepository;
 use App\Repositories\AdminPasswordResetRepository;
 use App\Repositories\AdminSessionRepository;
 use App\Repositories\AdminUserRepository;
@@ -42,7 +43,8 @@ class AdminAuthService
         private readonly AdminSessionRepository $sessions,
         private readonly AdminPasswordResetRepository $resets,
         private readonly LogRepository $logs,
-        private readonly Mailer $mailer
+        private readonly Mailer $mailer,
+        private readonly ?AdminPasskeyRepository $passkeys = null
     ) {
     }
 
@@ -102,14 +104,13 @@ class AdminAuthService
 
     public function login(string $username, string $password, ?string $ip, ?string $userAgent): array
     {
-        $username = trim($username);
-        if ($username === '' || $password === '') {
+        if (trim($password) === '') {
             throw new HttpException('Invalid credentials', 401);
         }
 
-        $user = $this->users->findByUsername(strtolower($username));
-        if ($user === null || empty($user['active'])) {
-            throw new HttpException('Invalid credentials', 401);
+        $user = $this->resolveLoginUser($username);
+        if ($this->requiresPasskey($user)) {
+            throw new HttpException('Passkey login required for this user', 403);
         }
 
         $hash = (string) ($user['password_hash'] ?? '');
@@ -123,6 +124,12 @@ class AdminAuthService
         }
 
         return $this->createSessionForUser($user, $ip, $userAgent, 'admin.auth.login');
+    }
+
+    public function resolveLoginMethod(string $username): string
+    {
+        $user = $this->resolveLoginUser($username);
+        return $this->requiresPasskey($user) ? 'passkey' : 'password';
     }
 
     public function createSessionForUser(array $user, ?string $ip, ?string $userAgent, string $logEvent = 'admin.auth.login'): array
@@ -317,5 +324,29 @@ class AdminAuthService
             'created_at' => $user['created_at'] ?? null,
             'updated_at' => $user['updated_at'] ?? null,
         ];
+    }
+
+    private function resolveLoginUser(string $username): array
+    {
+        $username = trim($username);
+        if ($username === '') {
+            throw new HttpException('Invalid credentials', 401);
+        }
+
+        $user = $this->users->findByUsername(strtolower($username));
+        if ($user === null || empty($user['active'])) {
+            throw new HttpException('Invalid credentials', 401);
+        }
+
+        return $user;
+    }
+
+    private function requiresPasskey(array $user): bool
+    {
+        if (!$this->passkeys instanceof AdminPasskeyRepository) {
+            return false;
+        }
+
+        return $this->passkeys->countForUser((int) ($user['id'] ?? 0)) > 0;
     }
 }

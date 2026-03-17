@@ -27,6 +27,8 @@ final class AdminLoginRouteDispatchTest extends TestCase
 
         $this->assertStringContainsString("\$router->add('GET', '#^/admin/?\$#', function (): void {", $source);
         $this->assertStringContainsString("\$router->add('GET', '#^/admin/login\$#', function (): void {", $source);
+        $this->assertStringContainsString("\$router->add('POST', '#^/admin/auth/login/method\$#', function () use (\$payload, \$adminAuthService) {", $source);
+        $this->assertStringContainsString("'/admin/auth/login/method'", $source);
         $this->assertStringContainsString("require __DIR__ . '/admin/index.php';", $source);
     }
 }

@@ -10,9 +10,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - If login is enforced:
   - `/admin/` redirects to `/admin/login` when no valid session.
   - `/admin/login` redirects to `/admin/` when already authenticated.
-  - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`, `/admin/auth/passkey/login/options`, and `/admin/auth/passkey/login`.
+  - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/login/method`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`, `/admin/auth/passkey/login/options`, and `/admin/auth/passkey/login`.
 - If login is not enforced (fresh/userless install), auth/capability checks are bypassed so first admin can be created.
-- Passkey login is implemented, but with `ADMIN_ACCESS_MODE=mtls` (default) it still sits behind the client-certificate gate.
+- Passkey login is implemented, but with `ADMIN_ACCESS_MODE=mtls` (default) it still sits behind the client-certificate gate. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
 - Session cookie:
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
   - TTL: `ADMIN_SESSION_TTL_SECONDS` (default `28800`, clamped to `300..604800`).

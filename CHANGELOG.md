@@ -1,4 +1,5 @@
 # 2026-03-17
+- Admin login: switched `/admin/login` to a username-first single-button flow, added `/admin/auth/login/method`, and now require passkey-enabled admins to use passkeys instead of falling back to password login.
 - Admin passkeys: hardened passkey login/registration error handling so malformed WebAuthn payloads now return explicit 4xx errors instead of falling through as HTTP 500 `Unexpected error` on the login page.
 - Admin hosts: fixed `/admin/hosts` so it returns each host’s `auto_update_override`, which keeps the Cron auto-update toggle from snapping back to the fleet-default visual state right after a save.
 - Ops: added `scripts/export_ai_bundle.sh` to export repo-scoped AI debugging bundles for the app, wrapper, and runner surfaces, with canonical docs/tests included and secrets/runtime noise excluded.

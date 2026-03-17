@@ -9,6 +9,7 @@
 
 use App\Config;
 use App\Database;
+use App\Repositories\AdminPasskeyRepository;
 use App\Repositories\AdminPasswordResetRepository;
 use App\Repositories\AdminSessionRepository;
 use App\Repositories\AdminUserRepository;
@@ -105,7 +106,8 @@ try {
         new AdminSessionRepository($database),
         new AdminPasswordResetRepository($database),
         new LogRepository($database),
-        new Mailer()
+        new Mailer(),
+        new AdminPasskeyRepository($database)
     );
 } catch (\Throwable $exception) {
     error_log('[admin] auth bootstrap failed: ' . $exception->getMessage());

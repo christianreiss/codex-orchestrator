@@ -24,5 +24,6 @@ final class AdminAuthResetUiTest extends TestCase
         $this->assertStringContainsString('id="adminLoginForm"', $html);
         $this->assertStringContainsString('id="adminLoginUsername"', $html);
         $this->assertStringContainsString('id="adminLoginPassword"', $html);
+        $this->assertStringContainsString('Enter your username to continue.', $html);
     }
 }

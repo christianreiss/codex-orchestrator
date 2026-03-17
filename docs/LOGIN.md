@@ -5,7 +5,7 @@
 - Login/session enforcement starts when at least one **active** admin user exists (`access_level=admin`, `active=1`).
 - When no active admins exist, admin routes run in bootstrap mode (no login/session enforcement).
 - Login uses an HTTP-only session cookie with a configurable TTL.
-- Admin passkey login is implemented and is username-bound: the login page uses the entered username before prompting for a passkey.
+- Admin login is username-first: the login page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry.
 - With `ADMIN_ACCESS_MODE=mtls` (default), passkey login still sits inside the mTLS gate; it does not replace the outer client-cert boundary.
 - Password reset is disabled (UI and API).
 - Roles control which admin features each user can access.
@@ -31,7 +31,8 @@
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact origin used for ceremony validation; when unset, origin is derived from the trusted request scheme/host.
 - Admin API endpoints:
   - `GET /admin/auth/status` — returns `has_users`, `admin_count` (active admins), `enforced`, `authenticated`, `user`, and role labels.
-  - `POST /admin/auth/login` — `{username, password}`; on success issues an HTTP-only session cookie and returns the sanitized user plus `expires_at`.
+  - `POST /admin/auth/login/method` — `{username}`; returns the required next step for that active user (`passkey` or `password`).
+  - `POST /admin/auth/login` — `{username, password}`; on success issues an HTTP-only session cookie and returns the sanitized user plus `expires_at`. Users with registered passkeys are rejected and must use passkey login.
   - `POST /admin/auth/logout` — clears the current session and expires the cookie.
   - `POST /admin/auth/passkey/login/options` — `{username}`; returns WebAuthn request options for that user’s registered passkeys only.
   - `POST /admin/auth/passkey/login` — completes passkey login and issues the same admin session cookie as password login.
@@ -41,7 +42,7 @@
 ## Passkeys
 - Registration is available to authenticated admins through the dashboard and stores multiple passkeys per user.
 - Registration requires WebAuthn user verification (`UV`) and does not force platform-only authenticators.
-- Login also requires WebAuthn user verification and is not username-less: the entered username determines the `allowCredentials` list returned by the server.
+- Login also requires WebAuthn user verification and is not username-less: the entered username determines the `allowCredentials` list returned by the server. If that user has a registered passkey, passkey becomes the only allowed login method.
 - Passkey management endpoints:
   - `POST /admin/auth/passkey/register/options`
   - `POST /admin/auth/passkey/register`
@@ -104,8 +105,11 @@
 ## UI Behavior
 - Dedicated login page:
   - `/admin/login` serves a standalone login page.
+  - The page starts with username only and a single `Login` button.
+  - Submitting a known username with no passkeys reveals the password field.
+  - Submitting a known username with passkeys starts the passkey ceremony; password is not offered.
   - Failed login attempts surface a generic error: `Login failed. Check your credentials.`
-  - Passkey login reuses the username field and surfaces API errors such as “No passkeys registered for user.”
+  - Passkey login uses the same username field and single-button flow.
 - Header user display:
   - When authenticated, the top nav shows the current user and a logout button.
 

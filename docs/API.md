@@ -118,7 +118,8 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/ws/info` — websocket bootstrap (`enabled`, `url`, `last_event_id`, `heartbeat_seconds`, `backlog_limit`).
 - Admin auth + users:
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
-  - `POST /admin/auth/login` — `{username, password}`; sets HTTP-only session cookie.
+  - `POST /admin/auth/login/method` — `{username}`; returns `{method:"passkey"|"password"}` for known active users.
+  - `POST /admin/auth/login` — `{username, password}`; sets HTTP-only session cookie. Passkey-enabled users are rejected and must use WebAuthn instead.
   - `POST /admin/auth/logout` — clears session.
   - `POST /admin/auth/passkey/login/options` — `{username}`; returns passkey login options for that user.
   - `POST /admin/auth/passkey/login` — completes passkey login and sets the admin session cookie.

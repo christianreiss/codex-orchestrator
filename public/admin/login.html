@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator &mdash; Login</title>
-  <link rel="stylesheet" href="/admin/assets/login.css?v=2026-03-17-01">
+  <link rel="stylesheet" href="/admin/assets/login.css?v=2026-03-17-02">
 </head>
 <body data-theme="auto">
   <main class="login-shell" aria-labelledby="loginTitle">
@@ -14,6 +14,7 @@
       </div>
 
       <h1 id="loginTitle" class="login-title">Codex Orchestrator</h1>
+      <p class="login-copy" id="adminLoginCopy">Enter your username to continue.</p>
 
       <form id="adminLoginForm" class="login-form" novalidate>
         <label class="field" for="adminLoginUsername">
@@ -21,23 +22,19 @@
           <input type="text" id="adminLoginUsername" autocomplete="username" required placeholder="admin">
         </label>
 
-        <label class="field" for="adminLoginPassword">
+        <label class="field" for="adminLoginPassword" id="adminLoginPasswordField" hidden>
           <span>Password</span>
-          <input type="password" id="adminLoginPassword" autocomplete="current-password" required>
+          <input type="password" id="adminLoginPassword" autocomplete="current-password">
         </label>
 
         <div class="login-error" id="adminLoginError" role="alert"></div>
         <button type="submit" class="login-submit" id="adminLoginSubmit">
-          <span class="btn-label">Sign in</span>
+          <span class="btn-label">Login</span>
           <kbd class="kbd-hint" aria-hidden="true">Enter &#x21B5;</kbd>
         </button>
       </form>
-
-      <div class="passkey-divider" id="passkeyDivider" style="display:none;"><span>or</span></div>
-      <button type="button" class="passkey-login-btn" id="passkeyLoginBtn" style="display:none;">Sign in with passkey</button>
     </div>
   </main>
-  <script src="/admin/assets/login.js?v=2026-03-17-01"></script>
-  <script src="/admin/assets/passkey-login.js?v=2026-03-17-02"></script>
+  <script src="/admin/assets/login.js?v=2026-03-17-02"></script>
 </body>
 </html>

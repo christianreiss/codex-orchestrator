@@ -295,12 +295,14 @@ $service = new AuthService(
     $insecureDomainAllowRepository,
     $mcpSessionTokenRepository
 );
+$adminPasskeyRepository = new AdminPasskeyRepository($database);
 $adminAuthService = new AdminAuthService(
     $adminUserRepository,
     $adminSessionRepository,
     $adminPasswordResetRepository,
     $logRepository,
-    $mailer
+    $mailer,
+    $adminPasskeyRepository
 );
 $adminUserService = new AdminUserService(
     $adminUserRepository,
@@ -309,7 +311,6 @@ $adminUserService = new AdminUserService(
     $logRepository,
     $adminAuthService
 );
-$adminPasskeyRepository = new AdminPasskeyRepository($database);
 $adminWebAuthnChallengeRepository = new AdminWebAuthnChallengeRepository($database);
 $adminPasskeyService = new AdminPasskeyService(
     $adminPasskeyRepository,
@@ -603,6 +604,18 @@ $router->add('POST', '#^/admin/auth/login$#', function () use ($payload, $adminA
         'data' => [
             'user' => $result['user'],
             'expires_at' => $result['expires_at'],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/login/method$#', function () use ($payload, $adminAuthService) {
+    requireAdminAccess();
+    $username = is_array($payload) ? (string) ($payload['username'] ?? '') : '';
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'method' => $adminAuthService->resolveLoginMethod($username),
         ],
     ]);
 });
@@ -5945,6 +5958,7 @@ function requireAdminAccess(): void
     $bypass = [
         '/admin/auth/status',
         '/admin/auth/login',
+        '/admin/auth/login/method',
         '/admin/auth/logout',
         '/admin/auth/password/request',
         '/admin/auth/password/reset',

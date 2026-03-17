@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Database;
 use App\Exceptions\HttpException;
+use App\Repositories\AdminPasskeyRepository;
 use App\Repositories\AdminPasswordResetRepository;
 use App\Repositories\AdminSessionRepository;
 use App\Repositories\AdminUserRepository;
@@ -19,6 +20,7 @@ final class AdminAuthServiceLoginTest extends TestCase
     private PDO $pdo;
     private AdminAuthService $service;
     private AdminUserRepository $users;
+    private AdminPasskeyRepository $passkeys;
 
     protected function setUp(): void
     {
@@ -61,14 +63,31 @@ final class AdminAuthServiceLoginTest extends TestCase
                 created_at TEXT NOT NULL
             )'
         );
+        $this->pdo->exec(
+            'CREATE TABLE admin_passkeys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                credential_id BLOB NOT NULL,
+                credential_id_hash TEXT NOT NULL UNIQUE,
+                public_key_pem TEXT NOT NULL,
+                cose_alg INTEGER NOT NULL,
+                sign_count INTEGER NOT NULL DEFAULT 0,
+                name TEXT NOT NULL DEFAULT \'\',
+                transports TEXT NULL,
+                aaguid TEXT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT NULL
+            )'
+        );
 
         $database = $this->fakeDatabase($this->pdo);
         $this->users = new AdminUserRepository($database);
+        $this->passkeys = new AdminPasskeyRepository($database);
         $sessions = new AdminSessionRepository($database);
         $resets = new AdminPasswordResetRepository($database);
         $logs = new AdminAuthServiceLogRepository();
 
-        $this->service = new AdminAuthService($this->users, $sessions, $resets, $logs, new Mailer());
+        $this->service = new AdminAuthService($this->users, $sessions, $resets, $logs, new Mailer(), $this->passkeys);
 
         $this->users->create([
             'name' => 'Admin',
@@ -95,6 +114,41 @@ final class AdminAuthServiceLoginTest extends TestCase
     {
         $this->expectException(HttpException::class);
         $this->service->login('admin', 'wrong', null, null);
+    }
+
+    public function testResolveLoginMethodReturnsPasswordWhenNoPasskeyExists(): void
+    {
+        self::assertSame('password', $this->service->resolveLoginMethod('admin'));
+    }
+
+    public function testResolveLoginMethodReturnsPasskeyWhenUserHasPasskeys(): void
+    {
+        $this->registerPasskeyForUser(1);
+        self::assertSame('passkey', $this->service->resolveLoginMethod('admin'));
+    }
+
+    public function testResolveLoginMethodRejectsUnknownUser(): void
+    {
+        try {
+            $this->service->resolveLoginMethod('ghost');
+            self::fail('Expected login method lookup to reject unknown user.');
+        } catch (HttpException $exception) {
+            self::assertSame(401, $exception->getStatusCode());
+            self::assertSame('Invalid credentials', $exception->getMessage());
+        }
+    }
+
+    public function testLoginRejectsPasswordWhenUserHasPasskey(): void
+    {
+        $this->registerPasskeyForUser(1);
+
+        try {
+            $this->service->login('admin', 'passwordpassword', null, null);
+            self::fail('Expected password login to be rejected for passkey-enabled users.');
+        } catch (HttpException $exception) {
+            self::assertSame(403, $exception->getStatusCode());
+            self::assertSame('Passkey login required for this user', $exception->getMessage());
+        }
     }
 
     public function testCapabilityRequiresSessionWhenEnforced(): void
@@ -224,6 +278,22 @@ final class AdminAuthServiceLoginTest extends TestCase
         $nameProperty->setValue($database, 'sqlite');
 
         return $database;
+    }
+
+    private function registerPasskeyForUser(int $userId): void
+    {
+        $credentialId = random_bytes(32);
+        $this->passkeys->create(
+            $userId,
+            $credentialId,
+            hash('sha256', $credentialId),
+            'dummy-pem',
+            -7,
+            0,
+            'Test Key',
+            'internal',
+            null
+        );
     }
 }
 

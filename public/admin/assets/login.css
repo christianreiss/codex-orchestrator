@@ -256,6 +256,13 @@ body::before {
   text-align: center;
 }
 
+.login-copy {
+  margin: -8px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* ── Form ──────────────────────────────────────────────────────────── */
 
 .login-form {
@@ -269,6 +276,10 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.field[hidden] {
+  display: none;
 }
 
 .field span {
@@ -411,70 +422,6 @@ body::before {
   40%      { transform: translateX(6px); }
   60%      { transform: translateX(-4px); }
   80%      { transform: translateX(4px); }
-}
-
-/* ── Passkey ───────────────────────────────────────────────────────── */
-
-.passkey-divider {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.passkey-divider::before,
-.passkey-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-.passkey-login-btn {
-  width: 100%;
-  padding: 13px 20px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  transition:
-    border-color 200ms ease,
-    background-color 200ms ease,
-    transform 180ms ease,
-    box-shadow 180ms ease;
-}
-
-.passkey-login-btn:hover {
-  border-color: rgba(var(--accent-rgb), 0.4);
-  background: rgba(var(--accent-rgb), 0.06);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.10);
-}
-
-.passkey-login-btn:active {
-  transform: translateY(0);
-}
-
-.passkey-login-btn:focus-visible {
-  outline: none;
-  border-color: rgba(var(--accent-rgb), 0.6);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
-}
-
-.passkey-login-btn[disabled] {
-  cursor: wait;
-  opacity: 0.6;
-  transform: none;
-  box-shadow: none;
 }
 
 /* ── Responsive ────────────────────────────────────────────────────── */

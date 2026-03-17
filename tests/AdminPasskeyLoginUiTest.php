@@ -8,21 +8,24 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 final class AdminPasskeyLoginUiTest extends TestCase
 {
-    public function testPasskeyLoginUsesUsernameBoundOptionsRequest(): void
+    public function testLoginPageUsesUsernameStageBeforePasskeyOrPassword(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/passkey-login.js');
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/login.js');
         $this->assertIsString($js);
+        $auth = file_get_contents(__DIR__ . '/../src/Services/AdminAuthService.php');
+        $this->assertIsString($auth);
 
-        $this->assertStringContainsString("document.getElementById('adminLoginUsername')", $js);
-        $this->assertStringContainsString("Enter your username to use passkey login.", $js);
+        $this->assertStringContainsString("/admin/auth/login/method", $js);
+        $this->assertStringContainsString("Enter your username to continue.", $js);
         $this->assertStringContainsString("json: { username }", $js);
         $this->assertStringContainsString("/admin/auth/passkey/login/options", $js);
+        $this->assertStringContainsString('Passkey login required for this user', $auth);
     }
 
-    public function testPasskeyPanelCopyReflectsUsernameBoundLogin(): void
+    public function testPasskeyPanelCopyReflectsPasskeyOnlyLoginForPasskeyUsers(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
-        $this->assertStringContainsString('login page uses your username before prompting for the passkey', $html);
+        $this->assertStringContainsString('users with a registered passkey must sign in with that passkey', $html);
     }
 }
