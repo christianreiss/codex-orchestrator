@@ -6039,6 +6039,15 @@ function adminWebAuthnRpId(): string
     if (is_string($configured) && trim($configured) !== '') {
         return trim($configured);
     }
+
+    $publicBase = normalizeBaseUrlCandidate((string) Config::get('PUBLIC_BASE_URL', ''));
+    if ($publicBase !== '') {
+        $host = parse_url($publicBase, PHP_URL_HOST);
+        if (is_string($host) && trim($host) !== '') {
+            return trim($host);
+        }
+    }
+
     $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
     if (!is_string($host)) {
         return 'localhost';
@@ -6062,6 +6071,14 @@ function adminWebAuthnOrigin(): string
         $normalized = normalizeOrigin($configured);
         if ($normalized !== null) {
             return $normalized;
+        }
+    }
+
+    $publicBase = normalizeBaseUrlCandidate((string) Config::get('PUBLIC_BASE_URL', ''));
+    if ($publicBase !== '') {
+        $publicOrigin = normalizeOrigin($publicBase);
+        if ($publicOrigin !== null) {
+            return $publicOrigin;
         }
     }
 

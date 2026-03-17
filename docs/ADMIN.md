@@ -19,9 +19,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when request is HTTPS.
 - Password reset endpoints are hard-disabled: `POST /admin/auth/password/request` and `POST /admin/auth/password/reset` always return `410`.
 - WebAuthn settings:
-  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID.
+  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name.
-  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app derives it from the trusted request scheme/host.
+  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving it from the trusted request scheme/host.
 
 ## Roles & Capabilities
 - Roles: `admin`, `fleet_operator`, `trusted_user`, `user`.

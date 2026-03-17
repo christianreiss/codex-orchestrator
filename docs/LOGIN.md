@@ -26,9 +26,9 @@
   - `none`: mTLS headers are optional; protect `/admin/` using another control (VPN/firewall) and rely on admin login for user-level access.
   - Any value other than `none` is treated as `mtls`.
 - WebAuthn/passkey settings:
-  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID.
+  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name (default `Codex Orchestrator`).
-  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact origin used for ceremony validation; when unset, origin is derived from the trusted request scheme/host.
+  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact origin used for ceremony validation; when unset, the app prefers `PUBLIC_BASE_URL` before deriving origin from the trusted request scheme/host.
 - Admin API endpoints:
   - `GET /admin/auth/status` — returns `has_users`, `admin_count` (active admins), `enforced`, `authenticated`, `user`, and role labels.
   - `POST /admin/auth/login/method` — `{username}`; returns the required next step for that active user (`passkey` or `password`).

@@ -178,9 +178,9 @@ Scheduled preflight: on the first non-admin request after the configured interva
 
 - Admin routes are protected by mTLS (client certificates) when `ADMIN_ACCESS_MODE=mtls` (default). Passkey/WebAuthn login is implemented, but it still sits inside that mTLS gate in the default setup.
 - WebAuthn config:
-  - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID.
+  - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides RP display name.
-  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact expected origin; otherwise origin is derived from the trusted request scheme/host.
+  - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact expected origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving origin from the trusted request scheme/host.
 - Userless bootstrap: when no active admin users exist, the admin UI behaves as it does today (no login enforcement). Creating the first active admin enables login + role checks.
 - Roles and privileges:
   - `admin`: full access, including user management and wipe.

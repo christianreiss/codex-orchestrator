@@ -1,4 +1,5 @@
 # 2026-03-17
+- Admin passkeys: fixed WebAuthn RP ID/origin fallback so admin login now prefers the canonical `PUBLIC_BASE_URL` host/origin when explicit `ADMIN_WEBAUTHN_*` overrides are unset, avoiding request-host drift behind proxies after restarts.
 - Admin UI: unified the login page, dashboard shell, and admin access/error screens behind one shared theme layer with local fonts, matching glass surfaces, and themed HTML responses for mTLS/UI load failures.
 - Skills/docs/admin: switched fleet guidance to a `cdx`-first model so Skills are now documented as canonical via MCP `skill://{slug}`, with synced `~/.agents/skills/<slug>/SKILL.md` copies treated as fallback-only compatibility files.
 - Admin login: switched `/admin/login` to a username-first single-button flow, added `/admin/auth/login/method`, and now require passkey-enabled admins to use passkeys instead of falling back to password login.
