@@ -131,6 +131,19 @@ try {
         (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0)
     );
 
+    // Keep the Codex client version cache warm so cron auto-update hosts (0–4 AM)
+    // always find a fresh version when they check in.
+    $hour = (int) gmdate('G');
+    if ($hour >= 0 && $hour <= 4) {
+        $ver = $authService->availableClientVersion(true);
+        logLine(sprintf(
+            'codex_version refresh=%s version=%s source=%s',
+            ($ver['version'] ?? 'n/a'),
+            ($ver['version'] ?? 'n/a'),
+            ($ver['source'] ?? 'unknown')
+        ));
+    }
+
     $result = $chatGptUsageService->fetchLatest(false);
     $snapshot = $result['snapshot'] ?? [];
 
