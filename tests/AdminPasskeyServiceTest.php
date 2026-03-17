@@ -300,6 +300,52 @@ final class AdminPasskeyServiceTest extends TestCase
         self::assertSame('admin.auth.passkey.login', $this->logs->entries[1]['action'] ?? null);
     }
 
+    public function testCompleteAuthenticationRejectsInvalidBase64urlPayloadAsHttpException(): void
+    {
+        $user = $this->adminUser();
+        $credential = $this->createStoredCredentialForUser((int) $user['id'], 'My Key', 1);
+        $options = $this->service->beginAuthentication('admin', 'example.com');
+        $payload = $this->buildAuthenticationPayload(
+            $options['challenge'],
+            'https://example.com',
+            'example.com',
+            $credential['credential_id'],
+            $credential['private_key'],
+            2,
+            null,
+            true
+        );
+
+        $payload['response']['signature'] = '%%%not-base64url%%%';
+
+        $this->expectException(HttpException::class);
+        $this->expectExceptionMessage('Invalid response.signature');
+        $this->service->completeAuthentication($payload, 'example.com', 'https://example.com');
+    }
+
+    public function testCompleteAuthenticationRejectsMalformedAuthenticatorDataAsHttpException(): void
+    {
+        $user = $this->adminUser();
+        $credential = $this->createStoredCredentialForUser((int) $user['id'], 'My Key', 1);
+        $options = $this->service->beginAuthentication('admin', 'example.com');
+        $payload = $this->buildAuthenticationPayload(
+            $options['challenge'],
+            'https://example.com',
+            'example.com',
+            $credential['credential_id'],
+            $credential['private_key'],
+            2,
+            null,
+            true
+        );
+
+        $payload['response']['authenticatorData'] = WebAuthnHelper::base64urlEncode('short');
+
+        $this->expectException(HttpException::class);
+        $this->expectExceptionMessage('Authenticator data too short');
+        $this->service->completeAuthentication($payload, 'example.com', 'https://example.com');
+    }
+
     public function testListForUserEmpty(): void
     {
         $list = $this->service->listForUser((int) $this->adminUser()['id']);

@@ -97,8 +97,8 @@ class AdminPasskeyService
             throw new ValidationException(['response' => 'Missing attestation response']);
         }
 
-        $clientDataJSON = WebAuthnHelper::base64urlDecode((string) ($response['clientDataJSON'] ?? ''));
-        $attestationObjectBytes = WebAuthnHelper::base64urlDecode((string) ($response['attestationObject'] ?? ''));
+        $clientDataJSON = $this->decodeBase64urlField((string) ($response['clientDataJSON'] ?? ''), 'response.clientDataJSON');
+        $attestationObjectBytes = $this->decodeBase64urlField((string) ($response['attestationObject'] ?? ''), 'response.attestationObject');
         $transports = $response['transports'] ?? null;
 
         if ($clientDataJSON === '' || $attestationObjectBytes === '') {
@@ -136,8 +136,12 @@ class AdminPasskeyService
         }
 
         // Parse attestation object.
-        $attestation = WebAuthnHelper::parseAttestationObject($attestationObjectBytes);
-        $authData = WebAuthnHelper::parseAuthData($attestation['authData']);
+        try {
+            $attestation = WebAuthnHelper::parseAttestationObject($attestationObjectBytes);
+            $authData = WebAuthnHelper::parseAuthData($attestation['authData']);
+        } catch (\RuntimeException $exception) {
+            throw new HttpException($exception->getMessage(), 400);
+        }
 
         // Verify RP ID hash.
         $expectedRpIdHash = hash('sha256', $rpId, true);
@@ -180,7 +184,11 @@ class AdminPasskeyService
         }
 
         // Convert COSE key to PEM.
-        $publicKeyPem = WebAuthnHelper::coseKeyToPem($coseKey, $coseAlg);
+        try {
+            $publicKeyPem = WebAuthnHelper::coseKeyToPem($coseKey, $coseAlg);
+        } catch (\RuntimeException $exception) {
+            throw new HttpException($exception->getMessage(), 400);
+        }
 
         // Check for duplicate credential.
         $credentialIdHash = hash('sha256', $credentialId);
@@ -269,11 +277,11 @@ class AdminPasskeyService
             throw new HttpException('Missing assertion response', 400);
         }
 
-        $authenticatorData = WebAuthnHelper::base64urlDecode((string) ($response['authenticatorData'] ?? ''));
-        $clientDataJSON = WebAuthnHelper::base64urlDecode((string) ($response['clientDataJSON'] ?? ''));
-        $signature = WebAuthnHelper::base64urlDecode((string) ($response['signature'] ?? ''));
+        $authenticatorData = $this->decodeBase64urlField((string) ($response['authenticatorData'] ?? ''), 'response.authenticatorData');
+        $clientDataJSON = $this->decodeBase64urlField((string) ($response['clientDataJSON'] ?? ''), 'response.clientDataJSON');
+        $signature = $this->decodeBase64urlField((string) ($response['signature'] ?? ''), 'response.signature');
         $userHandle = isset($response['userHandle']) && $response['userHandle'] !== null
-            ? WebAuthnHelper::base64urlDecode((string) $response['userHandle'])
+            ? $this->decodeBase64urlField((string) $response['userHandle'], 'response.userHandle')
             : null;
 
         if ($authenticatorData === '' || $clientDataJSON === '' || $signature === '') {
@@ -318,7 +326,11 @@ class AdminPasskeyService
         }
 
         // Parse authenticator data.
-        $authData = WebAuthnHelper::parseAuthData($authenticatorData);
+        try {
+            $authData = WebAuthnHelper::parseAuthData($authenticatorData);
+        } catch (\RuntimeException $exception) {
+            throw new HttpException($exception->getMessage(), 400);
+        }
 
         // Verify RP ID hash.
         $expectedRpIdHash = hash('sha256', $rpId, true);
@@ -335,13 +347,17 @@ class AdminPasskeyService
         }
 
         // Verify signature.
-        $valid = WebAuthnHelper::verifySignature(
-            $authenticatorData,
-            $clientDataJSON,
-            $signature,
-            (string) $credential['public_key_pem'],
-            (int) $credential['cose_alg']
-        );
+        try {
+            $valid = WebAuthnHelper::verifySignature(
+                $authenticatorData,
+                $clientDataJSON,
+                $signature,
+                (string) $credential['public_key_pem'],
+                (int) $credential['cose_alg']
+            );
+        } catch (\RuntimeException $exception) {
+            throw new HttpException($exception->getMessage(), 400);
+        }
 
         if (!$valid) {
             throw new HttpException('Invalid signature', 401);
@@ -482,6 +498,18 @@ class AdminPasskeyService
         if ($value === '') {
             throw new ValidationException([$key => 'Required']);
         }
-        return WebAuthnHelper::base64urlDecode($value);
+        return $this->decodeBase64urlField($value, $key, true);
+    }
+
+    private function decodeBase64urlField(string $value, string $field, bool $validationError = false): string
+    {
+        try {
+            return WebAuthnHelper::base64urlDecode($value);
+        } catch (\Throwable) {
+            if ($validationError) {
+                throw new ValidationException([$field => 'Invalid base64url value']);
+            }
+            throw new HttpException('Invalid ' . $field, 400);
+        }
     }
 }
