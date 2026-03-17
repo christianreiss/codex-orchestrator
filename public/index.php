@@ -3130,6 +3130,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
             'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
+            'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
             'canonical_digest' => $host['auth_digest'] ?? null,
             'recent_digests' => array_values(array_unique($hostDigests)),
             'authed' => ($host['auth_digest'] ?? '') !== '',
