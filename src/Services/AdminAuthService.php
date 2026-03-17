@@ -122,12 +122,17 @@ class AdminAuthService
             $user['password_hash'] = $rehash;
         }
 
+        return $this->createSessionForUser($user, $ip, $userAgent, 'admin.auth.login');
+    }
+
+    public function createSessionForUser(array $user, ?string $ip, ?string $userAgent, string $logEvent = 'admin.auth.login'): array
+    {
         $token = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $token);
         $expiresAt = gmdate(DATE_ATOM, time() + $this->sessionTtlSeconds());
         $this->sessions->create((int) $user['id'], $tokenHash, $expiresAt, $ip, $userAgent);
         $this->users->updateLastLogin((int) $user['id'], gmdate(DATE_ATOM));
-        $this->logs->log(null, 'admin.auth.login', ['user_id' => $user['id'], 'username' => $user['username']]);
+        $this->logs->log(null, $logEvent, ['user_id' => $user['id'], 'username' => $user['username'] ?? '']);
 
         return [
             'token' => $token,

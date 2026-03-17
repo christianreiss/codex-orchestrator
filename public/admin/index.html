@@ -707,6 +707,32 @@
             </div>
             <div class="muted" id="usersEmptyState" style="padding:16px; display:none;">No users yet. Create the first admin to enable login.</div>
           </section>
+
+          <section class="card panel" id="passkeys-panel" style="display:none;">
+            <div class="panel-head">
+              <div>
+                <h2>Your Passkeys</h2>
+                <p class="muted" style="margin:4px 0 0;">Register WebAuthn passkeys for passwordless login.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost tiny-btn" id="passkeysRegisterBtn">+ Register passkey</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table id="passkeys-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Created</th>
+                    <th>Last used</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="muted" id="passkeysEmptyState" style="padding:16px; display:none;">No passkeys registered.</div>
+          </section>
         </section>
 
         <!-- Logs -->
@@ -1783,6 +1809,7 @@
   <script src="/admin/assets/nav.js?v=2026-02-20-01"></script>
   <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
   <script src="/admin/assets/users.js?v=2026-02-19-02"></script>
+  <script src="/admin/assets/passkeys.js?v=2026-03-17-01"></script>
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>

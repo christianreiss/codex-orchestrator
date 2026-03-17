@@ -19,9 +19,11 @@ use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\AuthSeedTokenRepository;
 use App\Repositories\AdminEventRepository;
+use App\Repositories\AdminPasskeyRepository;
 use App\Repositories\AdminPasswordResetRepository;
 use App\Repositories\AdminSessionRepository;
 use App\Repositories\AdminUserRepository;
+use App\Repositories\AdminWebAuthnChallengeRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
@@ -51,6 +53,7 @@ use App\Repositories\McpAccessLogRepository;
 use App\Repositories\McpSessionTokenRepository;
 use App\Services\AuthService;
 use App\Services\AdminAuthService;
+use App\Services\AdminPasskeyService;
 use App\Services\AdminUserService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
@@ -306,6 +309,14 @@ $adminUserService = new AdminUserService(
     $logRepository,
     $adminAuthService
 );
+$adminPasskeyRepository = new AdminPasskeyRepository($database);
+$adminWebAuthnChallengeRepository = new AdminWebAuthnChallengeRepository($database);
+$adminPasskeyService = new AdminPasskeyService(
+    $adminPasskeyRepository,
+    $adminWebAuthnChallengeRepository,
+    $adminUserRepository,
+    $logRepository
+);
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $projectModuleService = new ProjectModuleService($versionRepository);
@@ -549,9 +560,11 @@ $router->add('POST', '#^/admin/versions/check$#', function () use ($service) {
     ]);
 });
 
-$router->add('GET', '#^/admin/auth/status$#', function () use ($adminAuthService, $adminUserRepository) {
+$router->add('GET', '#^/admin/auth/status$#', function () use ($adminAuthService, $adminUserRepository, $adminPasskeyRepository) {
     requireAdminAccess();
     $session = resolveAdminSession($adminAuthService);
+    $userId = $session['user']['id'] ?? null;
+    $passkeyCount = ($userId !== null) ? $adminPasskeyRepository->countForUser((int) $userId) : 0;
     Response::json([
         'status' => 'ok',
         'data' => [
@@ -561,6 +574,8 @@ $router->add('GET', '#^/admin/auth/status$#', function () use ($adminAuthService
             'authenticated' => $session !== null,
             'user' => $session['user'] ?? null,
             'roles' => $adminAuthService->roleLabels(),
+            'passkeys_registered' => $passkeyCount,
+            'passkey_login_available' => $adminPasskeyRepository->countAll() > 0,
         ],
     ]);
 });
@@ -624,6 +639,118 @@ $router->add('POST', '#^/admin/auth/password/reset$#', function () {
         'status' => 'error',
         'message' => 'Password reset is disabled',
     ], 410);
+});
+
+// --- Passkey login (unauthenticated) ---
+
+$router->add('POST', '#^/admin/auth/passkey/login/options$#', function () use ($adminPasskeyService) {
+    requireAdminAccess();
+    $rpId = adminWebAuthnRpId();
+    $options = $adminPasskeyService->beginAuthentication($rpId);
+    Response::json(['status' => 'ok', 'data' => $options]);
+});
+
+$router->add('POST', '#^/admin/auth/passkey/login$#', function () use ($payload, $adminPasskeyService, $adminAuthService) {
+    requireAdminAccess();
+    $rpId = adminWebAuthnRpId();
+    $origin = adminWebAuthnOrigin();
+    $user = $adminPasskeyService->completeAuthentication(
+        is_array($payload) ? $payload : [],
+        $rpId,
+        $origin
+    );
+
+    $result = $adminAuthService->createSessionForUser(
+        $user,
+        resolveClientIp(),
+        is_string($_SERVER['HTTP_USER_AGENT'] ?? null) ? $_SERVER['HTTP_USER_AGENT'] : null,
+        'admin.auth.passkey.login'
+    );
+
+    $cookieName = $adminAuthService->sessionCookieName();
+    $expires = strtotime((string) ($result['expires_at'] ?? '')) ?: (time() + $adminAuthService->sessionTtlSeconds());
+    setcookie($cookieName, $result['token'], [
+        'expires' => $expires,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Strict',
+        'secure' => isHttpsRequest(),
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'user' => $result['user'],
+            'expires_at' => $result['expires_at'],
+        ],
+    ]);
+});
+
+// --- Passkey registration (authenticated) ---
+
+$router->add('POST', '#^/admin/auth/passkey/register/options$#', function () use ($adminPasskeyService, $adminAuthService) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json(['status' => 'error', 'message' => 'Authentication required'], 401);
+    }
+    $rpId = adminWebAuthnRpId();
+    $rpName = adminWebAuthnRpName();
+    $options = $adminPasskeyService->beginRegistration($session['user'], $rpId, $rpName);
+    Response::json(['status' => 'ok', 'data' => $options]);
+});
+
+$router->add('POST', '#^/admin/auth/passkey/register$#', function () use ($payload, $adminPasskeyService, $adminAuthService) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json(['status' => 'error', 'message' => 'Authentication required'], 401);
+    }
+    $rpId = adminWebAuthnRpId();
+    $origin = adminWebAuthnOrigin();
+    $passkey = $adminPasskeyService->completeRegistration(
+        $session['user'],
+        is_array($payload) ? $payload : [],
+        $rpId,
+        $origin
+    );
+    Response::json(['status' => 'ok', 'data' => ['passkey' => $passkey]]);
+});
+
+// --- Passkey management (authenticated) ---
+
+$router->add('GET', '#^/admin/passkeys$#', function () use ($adminPasskeyService, $adminAuthService) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json(['status' => 'error', 'message' => 'Authentication required'], 401);
+    }
+    $passkeys = $adminPasskeyService->listForUser((int) $session['user']['id']);
+    Response::json(['status' => 'ok', 'data' => ['passkeys' => $passkeys]]);
+});
+
+$router->add('POST', '#^/admin/passkeys/(\d+)/name$#', function ($id) use ($payload, $adminPasskeyService, $adminAuthService) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json(['status' => 'error', 'message' => 'Authentication required'], 401);
+    }
+    $name = is_array($payload) ? trim((string) ($payload['name'] ?? '')) : '';
+    if ($name === '') {
+        Response::json(['status' => 'error', 'message' => 'Name is required'], 422);
+    }
+    $adminPasskeyService->updatePasskeyName((int) $id, (int) $session['user']['id'], $name);
+    Response::json(['status' => 'ok']);
+});
+
+$router->add('DELETE', '#^/admin/passkeys/(\d+)$#', function ($id) use ($adminPasskeyService, $adminAuthService) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user'])) {
+        Response::json(['status' => 'error', 'message' => 'Authentication required'], 401);
+    }
+    $adminPasskeyService->deletePasskey((int) $id, (int) $session['user']['id']);
+    Response::json(['status' => 'ok']);
 });
 
 $router->add('GET', '#^/admin/users$#', function () use ($adminUserService, $adminUserRepository) {
@@ -5819,6 +5946,8 @@ function requireAdminAccess(): void
         '/admin/auth/logout',
         '/admin/auth/password/request',
         '/admin/auth/password/reset',
+        '/admin/auth/passkey/login/options',
+        '/admin/auth/passkey/login',
     ];
     if (in_array($path, $bypass, true)) {
         return;
@@ -5886,4 +6015,36 @@ function resolveStringQuery(string $key): ?string
 
     $value = trim((string) $_GET[$key]);
     return $value === '' ? null : $value;
+}
+
+function adminWebAuthnRpId(): string
+{
+    $configured = Config::get('ADMIN_WEBAUTHN_RP_ID', '');
+    if (is_string($configured) && trim($configured) !== '') {
+        return trim($configured);
+    }
+    $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
+    if (!is_string($host)) {
+        return 'localhost';
+    }
+    return preg_replace('/:\d+$/', '', $host);
+}
+
+function adminWebAuthnRpName(): string
+{
+    $configured = Config::get('ADMIN_WEBAUTHN_RP_NAME', '');
+    if (is_string($configured) && trim($configured) !== '') {
+        return trim($configured);
+    }
+    return 'Codex Orchestrator';
+}
+
+function adminWebAuthnOrigin(): string
+{
+    $scheme = resolveRequestScheme();
+    $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
+    if (!is_string($host)) {
+        $host = 'localhost';
+    }
+    return $scheme . '://' . $host;
 }

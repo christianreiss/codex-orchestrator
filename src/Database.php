@@ -444,6 +444,41 @@ class Database
 
         $this->pdo->exec(
             <<<SQL
+            CREATE TABLE IF NOT EXISTS admin_passkeys (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NOT NULL,
+                credential_id VARBINARY(1024) NOT NULL,
+                credential_id_hash CHAR(64) NOT NULL UNIQUE,
+                public_key_pem TEXT NOT NULL,
+                cose_alg INT NOT NULL,
+                sign_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                name VARCHAR(255) NOT NULL DEFAULT '',
+                transports VARCHAR(255) NULL,
+                aaguid CHAR(36) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                last_used_at VARCHAR(100) NULL,
+                INDEX idx_admin_passkeys_user (user_id),
+                CONSTRAINT fk_admin_passkeys_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS admin_webauthn_challenges (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                challenge CHAR(64) NOT NULL UNIQUE,
+                user_id BIGINT UNSIGNED NULL,
+                type VARCHAR(16) NOT NULL,
+                expires_at VARCHAR(100) NOT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                INDEX idx_admin_webauthn_challenges_expires (expires_at)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $this->pdo->exec(
+            <<<SQL
             CREATE TABLE IF NOT EXISTS insecure_auth_requests (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 host_id BIGINT UNSIGNED NOT NULL,
@@ -780,7 +815,6 @@ class Database
         $this->ensureForeignKeyExists('token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
 
         // Clean up deprecated/removed tables.
-        $this->dropTableIfExists('admin_passkeys');
 
         // Legacy inline auth storage was removed in the initial MySQL migration.
         // This column cleanup is intentionally skipped on modern deployments to avoid
