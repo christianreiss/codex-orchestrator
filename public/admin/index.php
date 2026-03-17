@@ -47,6 +47,51 @@ function redirectTo(string $path): void
     exit;
 }
 
+function renderAdminErrorPage(int $status, string $title, string $message, ?string $details = null): void
+{
+    $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $detailMarkup = '';
+    if ($details !== null && $details !== '') {
+        $detailMarkup = '<p class="admin-error-meta">' . $escape($details) . '</p>';
+    }
+
+    http_response_code($status);
+    header('Content-Type: text/html; charset=utf-8');
+    header('X-Admin-Page: error');
+
+    echo '<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Orchestrator &mdash; Admin access</title>
+  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
+</head>
+<body class="admin-error-body" data-theme="auto">
+  <main class="admin-error-shell" aria-labelledby="adminErrorTitle">
+    <section class="admin-error-card">
+      <div class="admin-error-header">
+        <div class="admin-error-mark">
+          <img class="admin-error-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
+        </div>
+        <div>
+          <span class="admin-error-eyebrow">HTTP ' . $status . '</span>
+          <h1 id="adminErrorTitle" class="admin-error-title">' . $escape($title) . '</h1>
+        </div>
+      </div>
+      <p class="admin-error-copy">' . $escape($message) . '</p>
+      ' . $detailMarkup . '
+      <div class="admin-error-actions">
+        <a class="admin-error-link" href="/admin/">Retry admin access</a>
+        <a class="admin-error-link ghost" href="/admin/login">Open login</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>';
+    exit;
+}
+
 function isMobileUserAgent(string $userAgent): bool
 {
     return preg_match('/android|iphone|ipad|ipod|mobile|blackberry|phone|opera mini|windows phone/i', $userAgent) === 1;
@@ -58,9 +103,12 @@ $hasValidFingerprint = is_string($fp) && strlen($fp) >= 64 && preg_match('/^[A-F
 
 // Require mTLS when configured.
 if ($mtlsRequired && !$hasValidFingerprint) {
-    header('Content-Type: text/plain; charset=utf-8', true, 403);
-    echo 'Client certificate required for admin access.';
-    exit;
+    renderAdminErrorPage(
+        403,
+        'Client certificate required',
+        'Admin access is locked behind mTLS on this instance, so the browser request needs a valid client certificate before the login page or dashboard can load.',
+        'Provide a trusted client certificate or switch ADMIN_ACCESS_MODE to none if another boundary is handling access.'
+    );
 }
 
 $root = dirname(__DIR__, 2);
@@ -153,9 +201,14 @@ if ($isLoginRoute && (!$loginEnforced || $isAuthenticated)) {
 
 $html = $isLoginRoute ? __DIR__ . '/login.html' : __DIR__ . '/index.html';
 if (!is_file($html)) {
-    header('Content-Type: text/plain; charset=utf-8', true, 500);
-    echo $isLoginRoute ? 'Admin login UI missing' : 'Admin UI missing';
-    exit;
+    renderAdminErrorPage(
+        500,
+        'Admin UI missing',
+        $isLoginRoute
+            ? 'The standalone admin login page could not be found on disk.'
+            : 'The admin dashboard shell could not be found on disk.',
+        $html
+    );
 }
 
 $shouldServeMobile = false;
@@ -172,9 +225,14 @@ if (!$isLoginRoute) {
 
 $content = file_get_contents($html);
 if ($content === false) {
-    header('Content-Type: text/plain; charset=utf-8', true, 500);
-    echo $isLoginRoute ? 'Unable to load admin login UI' : 'Unable to load admin UI';
-    exit;
+    renderAdminErrorPage(
+        500,
+        'Admin UI unreadable',
+        $isLoginRoute
+            ? 'The admin login page exists, but PHP could not read it.'
+            : 'The admin dashboard shell exists, but PHP could not read it.',
+        $html
+    );
 }
 
 if (!$isLoginRoute && $shouldServeMobile) {

@@ -18,6 +18,9 @@ final class AdminLoginRouteDispatchTest extends TestCase
         $this->assertStringContainsString("redirectTo('/admin/')", $source);
         $this->assertStringContainsString("__DIR__ . '/login.html'", $source);
         $this->assertStringContainsString("X-Admin-Page", $source);
+        $this->assertStringContainsString('renderAdminErrorPage(', $source);
+        $this->assertStringContainsString('Client certificate required', $source);
+        $this->assertStringContainsString('/admin/assets/theme.css?v=', $source);
     }
 
     public function testApiFrontControllerDispatchesAdminLoginAndAdminRoot(): void

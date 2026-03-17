@@ -12,9 +12,19 @@ final class AdminLoginPageAssetsTest extends TestCase
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/login.html');
         $this->assertIsString($html);
+        $this->assertStringContainsString('/admin/assets/theme.css?v=', $html);
         $this->assertStringContainsString('/admin/assets/login.css?v=', $html);
         $this->assertStringContainsString('/admin/assets/login.js?v=', $html);
         $this->assertStringNotContainsString('/admin/assets/passkey-login.js?v=', $html);
         $this->assertStringContainsString('id="adminLoginError"', $html);
+    }
+
+    public function testDashboardLoadsSharedThemeAssetWithoutRemoteFonts(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+        $this->assertStringContainsString('/admin/assets/theme.css?v=', $html);
+        $this->assertStringNotContainsString('fonts.googleapis.com', $html);
+        $this->assertStringNotContainsString('fonts.gstatic.com', $html);
     }
 }
