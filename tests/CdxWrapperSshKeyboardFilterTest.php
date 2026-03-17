@@ -19,7 +19,7 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.', $wrapperSource);
         self::assertStringContainsString('if [[ "$CODEX_NO_PTY" == "1" ]]; then', $wrapperSource);
         self::assertStringContainsString('script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"', $wrapperSource);
-        self::assertStringContainsString('python3 - "$tmp_output" "${cmd_line[@]}" <<\'PY\'', $wrapperSource);
+        self::assertStringContainsString('local -a pty_cmd=(python3 - "$tmp_output" "${cmd_line[@]}")', $wrapperSource);
         self::assertStringNotContainsString('CODEX_SSH_KEYBOARD_FILTER_ACTIVE=0', $wrapperSource);
         self::assertStringNotContainsString('run_codex_command_via_python_pty_bridge()', $wrapperSource);
         self::assertStringNotContainsString("output_filter_re = re.compile(br'\\x1b\\[(?:>[0-9;:]*u|<1?u)')", $wrapperSource);
