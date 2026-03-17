@@ -138,6 +138,30 @@ final class WebAuthnHelperTest extends TestCase
         self::assertFalse($result2);
     }
 
+    public function testVerifySignatureEs256AcceptsDerSignature(): void
+    {
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $details = openssl_pkey_get_details($key);
+
+        $x = str_pad(substr($details['ec']['x'], -32), 32, "\x00", STR_PAD_LEFT);
+        $y = str_pad(substr($details['ec']['y'], -32), 32, "\x00", STR_PAD_LEFT);
+
+        $coseKey = [1 => 2, 3 => -7, -1 => 1, -2 => $x, -3 => $y];
+        $pem = WebAuthnHelper::coseKeyToPem($coseKey, WebAuthnHelper::COSE_ALG_ES256);
+
+        $rpIdHash = hash('sha256', 'example.com', true);
+        $authData = $rpIdHash . chr(0x01) . pack('N', 1);
+        $clientDataJSON = '{"type":"webauthn.get","challenge":"test","origin":"https://example.com"}';
+
+        $signedData = $authData . hash('sha256', $clientDataJSON, true);
+        $derSignature = '';
+        openssl_sign($signedData, $derSignature, $key, OPENSSL_ALGO_SHA256);
+
+        self::assertTrue(
+            WebAuthnHelper::verifySignature($authData, $clientDataJSON, $derSignature, $pem, WebAuthnHelper::COSE_ALG_ES256)
+        );
+    }
+
     public function testVerifySignatureRs256(): void
     {
         // Generate RSA key pair.

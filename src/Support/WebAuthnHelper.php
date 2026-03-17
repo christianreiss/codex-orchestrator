@@ -141,7 +141,9 @@ class WebAuthnHelper
         $signedData = $authData . $clientDataHash;
 
         if ($coseAlg === self::COSE_ALG_ES256) {
-            $derSignature = self::ecSignatureToDer($signature);
+            $derSignature = self::looksLikeDerSignature($signature)
+                ? $signature
+                : self::ecSignatureToDer($signature);
             $result = openssl_verify($signedData, $derSignature, $publicKeyPem, OPENSSL_ALGO_SHA256);
         } elseif ($coseAlg === self::COSE_ALG_RS256) {
             $result = openssl_verify($signedData, $signature, $publicKeyPem, OPENSSL_ALGO_SHA256);
@@ -291,6 +293,29 @@ class WebAuthnHelper
         $inner = $rDer . $sDer;
 
         return "\x30" . self::derLength(strlen($inner)) . $inner;
+    }
+
+    private static function looksLikeDerSignature(string $signature): bool
+    {
+        if (strlen($signature) < 8 || $signature[0] !== "\x30") {
+            return false;
+        }
+
+        $lengthByte = ord($signature[1]);
+        if ($lengthByte < 0x80) {
+            return strlen($signature) === $lengthByte + 2;
+        }
+
+        if ($lengthByte === 0x81 && isset($signature[2])) {
+            return strlen($signature) === ord($signature[2]) + 3;
+        }
+
+        if ($lengthByte === 0x82 && isset($signature[2], $signature[3])) {
+            $bodyLength = (ord($signature[2]) << 8) | ord($signature[3]);
+            return strlen($signature) === $bodyLength + 4;
+        }
+
+        return false;
     }
 
     private static function derInteger(string $bytes): string

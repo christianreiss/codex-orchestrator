@@ -252,6 +252,32 @@ final class AdminPasskeyServiceTest extends TestCase
         self::assertSame('admin.auth.passkey.login', $this->logs->entries[0]['action'] ?? null);
     }
 
+    public function testCompleteAuthenticationAcceptsDerEncodedBrowserAssertionSignature(): void
+    {
+        $user = $this->adminUser();
+        $credential = $this->createStoredCredentialForUser((int) $user['id'], 'My Key', 1);
+        $options = $this->service->beginAuthentication('admin', 'example.com');
+        $payload = $this->buildAuthenticationPayload(
+            $options['challenge'],
+            'https://example.com',
+            'example.com',
+            $credential['credential_id'],
+            $credential['private_key'],
+            5,
+            pack('N', (int) $user['id']),
+            true,
+            false
+        );
+
+        $result = $this->service->completeAuthentication($payload, 'example.com', 'https://example.com');
+
+        self::assertSame('admin', $result['username']);
+        $stored = $this->passkeys->findByCredentialIdHash(hash('sha256', $credential['credential_id']));
+        self::assertNotNull($stored);
+        self::assertSame(5, (int) $stored['sign_count']);
+        self::assertNotNull($stored['last_used_at']);
+    }
+
     public function testCompleteAuthenticationRejectsMissingUvFlag(): void
     {
         $user = $this->adminUser();
@@ -572,7 +598,8 @@ final class AdminPasskeyServiceTest extends TestCase
         mixed $privateKey,
         int $signCount,
         ?string $userHandle,
-        bool $includeUv
+        bool $includeUv,
+        bool $convertDerToP1363 = true
     ): array {
         $flags = 0x01;
         if ($includeUv) {
@@ -600,7 +627,9 @@ final class AdminPasskeyServiceTest extends TestCase
             'response' => [
                 'authenticatorData' => WebAuthnHelper::base64urlEncode($authenticatorData),
                 'clientDataJSON' => WebAuthnHelper::base64urlEncode($clientDataJSON),
-                'signature' => WebAuthnHelper::base64urlEncode(self::derToP1363($derSignature, 32)),
+                'signature' => WebAuthnHelper::base64urlEncode(
+                    $convertDerToP1363 ? self::derToP1363($derSignature, 32) : $derSignature
+                ),
                 'userHandle' => $userHandle !== null ? WebAuthnHelper::base64urlEncode($userHandle) : null,
             ],
         ];
