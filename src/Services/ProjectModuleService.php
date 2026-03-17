@@ -74,7 +74,7 @@ class ProjectModuleService
         $base = '/projects/' . $encodedSlug;
 
         return [
-            'Read the managed `coco` skill via MCP `resource_read` on `skill://coco` first; use ' . self::MANAGED_SKILL_PATH . ' only as the local fallback copy.',
+            'Use cdx MCP `resource_read` on `skill://coco` as the primary source for the managed `coco` skill; use ' . self::MANAGED_SKILL_PATH . ' only as the synced local fallback copy.',
             "Create the shared project first with POST /projects or the MCP tool project_create when the slug does not exist yet.",
             "Fetch the shared snapshot with GET {$base}/bootstrap or the MCP tool project_bootstrap.",
             "Inspect durable project context with GET {$base} or the MCP tool project_detail.",
@@ -135,7 +135,7 @@ CoCo is the native shared-project coordination layer inside codex-orchestrator. 
 
 Cross-server CoCo is project-only. Shared handoffs must live in a real project slug via `/projects/*`, `project_*` MCP tools, and `project://{slug}` resources. MCP `memory://...` resources remain host-scoped scratch space and are not a cross-host fallback.
 
-This skill is the toolkit/help document. When the Projects module is enabled, codex-orchestrator auto-deploys it to `~/.agents/skills/coco/SKILL.md`, and the same manifest is readable remotely via MCP `resource_read` on `skill://coco`; when the module is disabled, the managed skill is withdrawn on the next client sync.
+This skill is the toolkit/help document. Use cdx MCP `resource_read` on `skill://coco` as the primary source. When the Projects module is enabled, codex-orchestrator also syncs a compatibility copy to `~/.agents/skills/coco/SKILL.md`; when the module is disabled, the managed skill is withdrawn on the next client sync.
 
 ## When to use it
 - The user explicitly asks for `#coco`, shared coordination, or a project slug.

@@ -58,6 +58,7 @@ final class ProjectModuleServiceTest extends TestCase
         $this->assertSame('coco', $skill['slug']);
         $this->assertTrue($skill['managed']);
         $this->assertStringContainsString('# CoCo Toolkit (Codex Orchestrator Projects)', $skill['manifest']);
+        $this->assertStringContainsString('Use cdx MCP `resource_read` on `skill://coco` as the primary source.', $skill['manifest']);
         $this->assertStringContainsString('`~/.agents/skills/coco/SKILL.md`', $skill['manifest']);
         $this->assertStringContainsString('`skill://coco`', $skill['manifest']);
         $this->assertStringContainsString('Cross-server CoCo is project-only.', $skill['manifest']);
@@ -87,6 +88,7 @@ final class ProjectModuleServiceTest extends TestCase
         $skill = $service->bootstrapSkill();
 
         $this->assertNotEmpty($instructions);
+        $this->assertStringContainsString('primary source', $instructions[0]);
         $this->assertStringContainsString('skill://coco', $instructions[0]);
         $this->assertStringContainsString('~/.agents/skills/coco/SKILL.md', $instructions[0]);
         $this->assertStringContainsString('project_create', implode("\n", $instructions));

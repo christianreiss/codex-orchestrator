@@ -3193,8 +3193,8 @@
       }
       if (skillModalSubtitle) {
         skillModalSubtitle.textContent = isEdit
-          ? `Updating ${slugLabel || 'this skill'} for every host in the fleet.`
-          : 'One manifest syncs across ~/.agents/skills on every host.';
+          ? `Updating ${slugLabel || 'this skill'} in cdx and refreshing the synced fallback copy on every host.`
+          : 'cdx is the primary skill source; hosts also get a synced ~/.agents/skills fallback copy.';
       }
       if (skillSave) {
         skillSave.textContent = isEdit ? 'Save changes' : 'Save';
@@ -3212,7 +3212,7 @@
       if (skillSlugNote) {
         skillSlugNote.innerHTML = isEdit
           ? 'Slug is locked during edit. Use <strong>New</strong> to create a separate skill.'
-          : 'Becomes <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code>.';
+          : 'cdx serves this skill canonically; hosts also sync <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code> as the fallback copy.';
       }
     }
 

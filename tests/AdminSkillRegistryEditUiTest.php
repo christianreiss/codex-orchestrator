@@ -53,8 +53,8 @@ final class AdminSkillRegistryEditUiTest extends TestCase
         $this->assertStringContainsString('deleteSkill(slug, { fromModal: true });', $js);
         $this->assertStringContainsString('Delete skill "${slug}"? Hosts remove it on next sync.', $js);
         $this->assertStringContainsString('Managed by the Projects module', $js);
-        $this->assertStringContainsString('One manifest syncs across ~/.agents/skills on every host.', $js);
-        $this->assertStringContainsString('Becomes <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code>.', $js);
+        $this->assertStringContainsString('cdx is the primary skill source; hosts also get a synced ~/.agents/skills fallback copy.', $js);
+        $this->assertStringContainsString('cdx serves this skill canonically; hosts also sync <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code> as the fallback copy.', $js);
         $this->assertStringContainsString("const managed = skill.managed ? '<span class=\"muted\">(managed)</span>' : '';", $js);
     }
 }

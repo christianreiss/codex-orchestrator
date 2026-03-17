@@ -916,7 +916,7 @@ class McpServer
             throw new InvalidArgumentException('path is required');
         }
 
-        // Intercept skill filesystem paths and resolve from the DB instead.
+        // Treat synced SKILL.md paths as compatibility aliases for the canonical DB-backed skill resource.
         $skillSlug = $this->extractSkillSlugFromPath($path);
         if ($skillSlug !== null && $this->skills !== null) {
             $skill = $this->skills->find($skillSlug);
@@ -1059,7 +1059,7 @@ class McpServer
             throw new InvalidArgumentException('path is required');
         }
 
-        // Intercept skill filesystem paths and resolve from the DB.
+        // Treat synced SKILL.md paths as compatibility aliases for the canonical DB-backed skill resource.
         $skillSlug = $this->extractSkillSlugFromPath($pathRaw);
         if ($skillSlug !== null && $this->skills !== null) {
             $skill = $this->skills->find($skillSlug);
