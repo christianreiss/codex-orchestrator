@@ -1,4 +1,5 @@
 # 2026-03-17
+- Ops: added `scripts/export_ai_bundle.sh` to export repo-scoped AI debugging bundles for the app, wrapper, and runner surfaces, with canonical docs/tests included and secrets/runtime noise excluded.
 - Admin passkeys: hardened WebAuthn policy so registration/login now require user verification (`UV`), login is username-bound via `allowCredentials` instead of username-less discoverable credentials, and registration no longer forces platform-only authenticators.
 - Admin passkeys: fixed sign-counter handling so regressions log `admin.auth.passkey.sign_count_regression`, never reduce the stored counter, and still update `last_used_at`.
 - Admin passkeys: made WebAuthn challenge consumption transactional/atomic, added explicit `ADMIN_WEBAUTHN_ORIGIN` support, and refreshed admin/API/login/interface docs to match the implemented passkey surface and default mTLS boundary.
