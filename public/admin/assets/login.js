@@ -1,4 +1,12 @@
 (() => {
+  // Respect dashboard theme preference
+  try {
+    const stored = localStorage.getItem('adminTheme');
+    if (stored && ['auto', 'light', 'dark'].includes(stored)) {
+      document.body.dataset.theme = stored;
+    }
+  } catch (_) {}
+
   const form = document.getElementById('adminLoginForm');
   const usernameInput = document.getElementById('adminLoginUsername');
   const passwordInput = document.getElementById('adminLoginPassword');
@@ -32,12 +40,22 @@
   }
 
   function setError(message) {
-    errorEl.textContent = message || '';
+    errorEl.textContent = '';
+    if (message) {
+      requestAnimationFrame(() => {
+        errorEl.textContent = message;
+      });
+    }
   }
 
   function setBusy(isBusy) {
     submitBtn.disabled = isBusy;
-    submitBtn.textContent = isBusy ? 'Signing in...' : 'Sign in';
+    const label = submitBtn.querySelector('.btn-label');
+    if (label) {
+      label.textContent = isBusy ? 'Signing in\u2026' : 'Sign in';
+    } else {
+      submitBtn.textContent = isBusy ? 'Signing in\u2026' : 'Sign in';
+    }
     usernameInput.disabled = isBusy;
     passwordInput.disabled = isBusy;
   }

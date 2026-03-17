@@ -3,35 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codex Orchestrator Admin Login</title>
-  <link rel="stylesheet" href="/admin/assets/login.css?v=2026-02-23-01">
+  <title>Codex Orchestrator &mdash; Login</title>
+  <link rel="stylesheet" href="/admin/assets/login.css?v=2026-03-17-01">
 </head>
-<body>
+<body data-theme="auto">
   <main class="login-shell" aria-labelledby="loginTitle">
-    <section class="login-hero">
-      <p class="eyebrow">Codex Orchestrator</p>
-      <h1 id="loginTitle">Admin access designed for fast operators</h1>
-      <p class="hero-copy">Sign in to manage hosts, policy, usage, and fleet behavior from one control surface.</p>
-      <div class="hero-chips" aria-hidden="true">
-        <span class="chip">Fleet policy</span>
-        <span class="chip">Usage telemetry</span>
-        <span class="chip">Version control</span>
-      </div>
-    </section>
-
-    <section class="login-pane" role="region" aria-label="Admin login form">
-      <div class="brand-row">
+    <div class="login-card">
+      <div class="brand-mark">
         <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
-        <span class="brand-name">Codex Orchestrator</span>
       </div>
 
-      <h2>Admin login</h2>
-      <p class="pane-copy" id="adminLoginNotice">Sign in with your admin credentials.</p>
+      <h1 id="loginTitle" class="login-title">Codex Orchestrator</h1>
 
       <form id="adminLoginForm" class="login-form" novalidate>
         <label class="field" for="adminLoginUsername">
           <span>Username</span>
-          <input type="text" id="adminLoginUsername" autocomplete="username" required>
+          <input type="text" id="adminLoginUsername" autocomplete="username" required placeholder="admin">
         </label>
 
         <label class="field" for="adminLoginPassword">
@@ -40,12 +27,13 @@
         </label>
 
         <div class="login-error" id="adminLoginError" role="alert"></div>
-        <button type="submit" class="login-submit" id="adminLoginSubmit">Sign in</button>
+        <button type="submit" class="login-submit" id="adminLoginSubmit">
+          <span class="btn-label">Sign in</span>
+          <kbd class="kbd-hint" aria-hidden="true">Enter &#x21B5;</kbd>
+        </button>
       </form>
-
-      <p class="pane-footnote">mTLS stays active when `ADMIN_ACCESS_MODE=mtls`.</p>
-    </section>
+    </div>
   </main>
-  <script src="/admin/assets/login.js?v=2026-02-23-01"></script>
+  <script src="/admin/assets/login.js?v=2026-03-17-01"></script>
 </body>
 </html>

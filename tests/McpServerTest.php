@@ -763,4 +763,124 @@ final class McpServerTest extends TestCase
         $server = new McpServer(new SpyMemoryService(), null, new SpySkillService());
         $server->readResource('skill://missing', ['id' => 1]);
     }
+
+    // --- Skill path interception tests ---
+
+    public function testFsReadFileInterceptsAgentsSkillPath(): void
+    {
+        $skills = new SpySkillService();
+        $skills->skills = [
+            ['slug' => 'noop', 'manifest' => "# Noop\nDo nothing.", 'updated_at' => '2026-01-01T00:00:00+00:00'],
+        ];
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $result = $server->dispatch('fs_read_file', ['path' => '/home/user/.agents/skills/noop/SKILL.md'], []);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('skill://noop', $decoded['path']);
+        $this->assertSame('text/markdown', $decoded['mimeType']);
+        $this->assertSame("# Noop\nDo nothing.", $decoded['content']);
+    }
+
+    public function testFsReadFileInterceptsCodexSkillPath(): void
+    {
+        $skills = new SpySkillService();
+        $skills->skills = [
+            ['slug' => 'noop', 'manifest' => '# Noop'],
+        ];
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $result = $server->dispatch('fs_read_file', ['path' => '/home/user/.codex/skills/noop/SKILL.md'], []);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('skill://noop', $decoded['path']);
+        $this->assertSame('# Noop', $decoded['content']);
+    }
+
+    public function testFsReadFileInterceptsRelativeSkillPath(): void
+    {
+        $skills = new SpySkillService();
+        $skills->skills = [
+            ['slug' => 'my-tool', 'manifest' => '# Tool'],
+        ];
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $result = $server->dispatch('fs_read_file', ['path' => '~/.agents/skills/my-tool/SKILL.md'], []);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('skill://my-tool', $decoded['path']);
+    }
+
+    public function testFsReadFileFallsThroughWhenSkillNotInDb(): void
+    {
+        $skills = new SpySkillService();
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $this->expectException(InvalidArgumentException::class);
+        $server->dispatch('fs_read_file', ['path' => '/home/user/.agents/skills/missing/SKILL.md'], []);
+    }
+
+    public function testFsFileExistsInterceptsSkillPath(): void
+    {
+        $skills = new SpySkillService();
+        $skills->skills = [
+            ['slug' => 'noop', 'manifest' => '# Noop', 'updated_at' => '2026-01-01T00:00:00+00:00'],
+        ];
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $result = $server->dispatch('fs_file_exists', ['path' => '/home/user/.agents/skills/noop/SKILL.md'], []);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertTrue($decoded['exists']);
+        $this->assertSame('skill://noop', $decoded['path']);
+        $this->assertSame('file', $decoded['type']);
+    }
+
+    public function testFsListDirInterceptsSkillsDirectory(): void
+    {
+        $skills = new SpySkillService();
+        $skills->skills = [
+            ['slug' => 'alpha', 'manifest' => '# A', 'updated_at' => '2026-01-01T00:00:00+00:00'],
+            ['slug' => 'beta', 'manifest' => '# B', 'updated_at' => '2026-02-01T00:00:00+00:00'],
+        ];
+        $server = new McpServer(new SpyMemoryService(), null, $skills);
+
+        $result = $server->dispatch('fs_list_dir', ['path' => '/home/user/.agents/skills'], []);
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $names = array_column($decoded['entries'], 'name');
+        $this->assertContains('alpha', $names);
+        $this->assertContains('beta', $names);
+        $this->assertSame('dir', $decoded['entries'][0]['type']);
+    }
+
+    public function testFsReadFileNonSkillPathUnchanged(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/mcp_skill_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/readme.txt', 'hello');
+
+        try {
+            $skills = new SpySkillService();
+            $server = new McpServer(new SpyMemoryService(), null, $skills, $tmpDir);
+
+            $result = $server->dispatch('fs_read_file', ['path' => 'readme.txt'], []);
+            $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+            $this->assertSame('readme.txt', $decoded['path']);
+            $this->assertSame('hello', $decoded['content']);
+        } finally {
+            @unlink($tmpDir . '/readme.txt');
+            @rmdir($tmpDir);
+        }
+    }
+
+    public function testFsReadFileNoSkillServiceFallsThrough(): void
+    {
+        $server = new McpServer(new SpyMemoryService());
+
+        // Without SkillService, skill paths fall through to filesystem resolution (which will fail).
+        $this->expectException(InvalidArgumentException::class);
+        $server->dispatch('fs_read_file', ['path' => '/home/user/.agents/skills/noop/SKILL.md'], []);
+    }
 }

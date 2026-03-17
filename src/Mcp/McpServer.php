@@ -203,7 +203,7 @@ class McpServer
                 ],
             ],
             'fs_read_file' => [
-                'description' => 'Read a text file from the coordinator filesystem (paths are rooted to the app directory)',
+                'description' => 'Read a text file from the coordinator filesystem. For skill manifests, prefer resource_read with skill://{slug} URIs.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
@@ -871,6 +871,33 @@ class McpServer
     }
 
     /**
+     * Extract a skill slug from a filesystem path matching skill directory conventions.
+     *
+     * Recognises both the current ~/.agents/skills/<slug>/SKILL.md and the
+     * legacy ~/.codex/skills/<slug>/SKILL.md layout, with or without an
+     * absolute home-directory prefix.
+     */
+    private function extractSkillSlugFromPath(string $path): ?string
+    {
+        if (preg_match('#(?:\.agents|\.codex)/skills/([A-Za-z0-9._-]+)/SKILL\.md$#', $path, $m)) {
+            return $m[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Return true when $path points at a skills directory root
+     * (e.g. ~/.agents/skills or ~/.codex/skills).
+     */
+    private function isSkillsDirectory(string $path): bool
+    {
+        $normalized = rtrim($path, '/');
+
+        return (bool) preg_match('#(?:\.agents|\.codex)/skills$#', $normalized);
+    }
+
+    /**
      * Read a file within the allowed root and return its text content + metadata.
      *
      * @param array{path?:mixed} $args
@@ -887,6 +914,23 @@ class McpServer
         $path = trim($pathRaw);
         if ($path === '') {
             throw new InvalidArgumentException('path is required');
+        }
+
+        // Intercept skill filesystem paths and resolve from the DB instead.
+        $skillSlug = $this->extractSkillSlugFromPath($path);
+        if ($skillSlug !== null && $this->skills !== null) {
+            $skill = $this->skills->find($skillSlug);
+            if ($skill !== null) {
+                $manifest = (string) ($skill['manifest'] ?? '');
+
+                return [
+                    'path' => 'skill://' . $skillSlug,
+                    'size_bytes' => strlen($manifest),
+                    'modified_at' => $skill['updated_at'] ?? null,
+                    'mimeType' => 'text/markdown',
+                    'content' => $manifest,
+                ];
+            }
         }
 
         // Resolve path against root and block traversal outside it.
@@ -935,6 +979,29 @@ class McpServer
         $glob = isset($args['glob']) && is_string($args['glob']) ? $args['glob'] : null;
         if (!is_string($pathRaw) || trim($pathRaw) === '') {
             throw new InvalidArgumentException('path is required');
+        }
+
+        // Virtual directory listing for skill directories.
+        if ($this->isSkillsDirectory($pathRaw) && $this->skills !== null) {
+            $entries = [];
+            foreach ($this->skills->listSkills() as $skill) {
+                $slug = (string) ($skill['slug'] ?? '');
+                if ($slug === '') {
+                    continue;
+                }
+                if ($glob !== null && !fnmatch($glob, $slug, FNM_PATHNAME)) {
+                    continue;
+                }
+                $entries[] = [
+                    'name' => $slug,
+                    'path' => 'skill://' . $slug,
+                    'type' => 'dir',
+                    'size_bytes' => null,
+                    'modified_at' => $skill['updated_at'] ?? null,
+                ];
+            }
+
+            return ['entries' => $entries];
         }
 
         $root = $this->root ?? dirname(__DIR__, 2);
@@ -990,6 +1057,34 @@ class McpServer
         $pathRaw = $args['path'] ?? null;
         if (!is_string($pathRaw) || trim($pathRaw) === '') {
             throw new InvalidArgumentException('path is required');
+        }
+
+        // Intercept skill filesystem paths and resolve from the DB.
+        $skillSlug = $this->extractSkillSlugFromPath($pathRaw);
+        if ($skillSlug !== null && $this->skills !== null) {
+            $skill = $this->skills->find($skillSlug);
+            if ($skill !== null) {
+                $manifest = (string) ($skill['manifest'] ?? '');
+
+                return [
+                    'exists' => true,
+                    'path' => 'skill://' . $skillSlug,
+                    'type' => 'file',
+                    'size_bytes' => strlen($manifest),
+                    'modified_at' => $skill['updated_at'] ?? null,
+                ];
+            }
+        }
+
+        // Intercept skill directory listings.
+        if ($this->isSkillsDirectory($pathRaw) && $this->skills !== null) {
+            return [
+                'exists' => true,
+                'path' => rtrim($pathRaw, '/'),
+                'type' => 'dir',
+                'size_bytes' => null,
+                'modified_at' => null,
+            ];
         }
 
         $root = $this->root ?? dirname(__DIR__, 2);
