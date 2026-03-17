@@ -350,7 +350,7 @@ enforcePublicBaseUrlPolicy($normalizedPath);
 
 // First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
 // Avoid doing preflight work on ultra-hot, unauthenticated endpoints (health checks) or latency-sensitive MCP init.
-if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp')) {
+if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp') && !str_starts_with($normalizedPath, '/cron')) {
     try {
         $service->runDailyPreflight();
     } catch (\Throwable $exception) {
@@ -405,6 +405,112 @@ $respondProjectAction = static function (callable $callback): void {
         'data' => $result,
     ]);
 };
+
+// --- Cron auto-update endpoints (host-facing, lighter auth that works for disabled hosts) ---
+
+$router->add('POST', '#^/cron/check$#', function () use ($service, $hostRepository, $versionRepository, $logRepository, $payload) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticateForCron($apiKey, $clientIp);
+    $hostId = (int) $host['id'];
+
+    $hostRepository->touchLastCronCheck($hostId);
+
+    // Resolve effective auto-update setting: per-host override wins, then fleet default.
+    $override = $host['auto_update_override'] ?? null;
+    if ($override !== null) {
+        $autoUpdateEnabled = (bool) (int) $override;
+    } else {
+        $autoUpdateEnabled = $versionRepository->getFlag('auto_update_enabled', false);
+    }
+
+    if (!$autoUpdateEnabled) {
+        Response::json([
+            'status' => 'ok',
+            'data' => ['action' => 'disable'],
+        ]);
+    }
+
+    // Resolve effective target version for this host.
+    $versions = $service->versionSummary();
+    $versions = $service->applyClientVersionOverrideForHost($versions, $host);
+
+    $targetVersion = CodexVersionPolicy::normalize($versions['client_version'] ?? null);
+    $enforceExact = $versions['client_version_enforce_exact'] ?? false;
+    $submittedVersion = CodexVersionPolicy::normalize($payload['client_version'] ?? null);
+
+    $needUpdate = false;
+    if ($targetVersion !== null && $submittedVersion !== null) {
+        if ($enforceExact) {
+            $needUpdate = ($submittedVersion !== $targetVersion);
+        } else {
+            $needUpdate = version_compare($submittedVersion, $targetVersion, '<');
+        }
+    } elseif ($targetVersion !== null && $submittedVersion === null) {
+        $needUpdate = true;
+    }
+
+    if (!$needUpdate) {
+        Response::json([
+            'status' => 'ok',
+            'data' => ['action' => 'no_update'],
+        ]);
+    }
+
+    // Determine the release tag candidates for the client to resolve from GitHub.
+    $tag = $targetVersion;
+
+    $logRepository->log($hostId, 'cron.update_available', [
+        'current' => $submittedVersion,
+        'target' => $targetVersion,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'action' => 'update',
+            'target_version' => $targetVersion,
+            'tag' => $tag,
+            'enforce_exact' => $enforceExact,
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/cron/report$#', function () use ($service, $hostRepository, $logRepository, $payload) {
+    $apiKey = resolveApiKey();
+    $clientIp = resolveClientIp();
+    $host = $service->authenticateForCron($apiKey, $clientIp);
+    $hostId = (int) $host['id'];
+
+    $clientVersion = $payload['client_version'] ?? null;
+    if (!is_string($clientVersion) || trim($clientVersion) === '') {
+        Response::json([
+            'status' => 'error',
+            'message' => 'client_version is required',
+        ], 422);
+    }
+
+    $normalized = CodexVersionPolicy::normalize($clientVersion);
+    if ($normalized === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Invalid client_version',
+        ], 422);
+    }
+
+    $hostRepository->updateClientVersions($hostId, $normalized, $host['wrapper_version'] ?? null);
+
+    $logRepository->log($hostId, 'cron.update_reported', [
+        'client_version' => $normalized,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['recorded' => true],
+    ]);
+});
+
+// --- End cron auto-update endpoints ---
 
 $router->add('GET', '#^/versions$#', function () use ($service) {
     $versions = $service->versionSummary();
@@ -1332,6 +1438,41 @@ $router->add('POST', '#^/admin/reverse-dns$#', function () use ($payload, $versi
     ]);
 });
 
+$router->add('GET', '#^/admin/auto-update$#', function () use ($versionRepository) {
+    requireAdminAccess();
+
+    $enabled = $versionRepository->getFlag('auto_update_enabled', false);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['enabled' => $enabled],
+    ]);
+});
+
+$router->add('POST', '#^/admin/auto-update$#', function () use ($payload, $versionRepository, $logRepository) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+    $enabledRaw = $payload['enabled'] ?? null;
+    $enabled = normalizeBoolean($enabledRaw);
+    if ($enabled === null) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'enabled must be boolean',
+        ], 422);
+    }
+
+    $versionRepository->set('auto_update_enabled', $enabled ? '1' : '0');
+    $logRepository->log(null, 'admin.auto_update', [
+        'enabled' => $enabled,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => ['enabled' => $enabled],
+    ]);
+});
+
 $router->add('GET', '#^/admin/insecure-approval$#', function () use ($versionRepository) {
     requireAdminAccess();
 
@@ -1736,6 +1877,49 @@ $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', function ($hostId) use ($host
                 'id' => (int) $host['id'],
                 'fqdn' => $host['fqdn'],
                 'vip' => $vip,
+            ],
+        ],
+    ]);
+});
+
+$router->add('POST', '#^/admin/hosts/(\\d+)/auto-update$#', function ($hostId) use ($hostRepository, $logRepository, $payload) {
+    requireAdminAccess();
+    requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
+    $hostId = (int) $hostId;
+    $host = $hostRepository->findById($hostId);
+    if (!$host) {
+        Response::json([
+            'status' => 'error',
+            'message' => 'Host not found',
+        ], 404);
+    }
+
+    // Accept true, false, or null (null = follow fleet default).
+    $overrideRaw = $payload['override'] ?? null;
+    $override = null;
+    if ($overrideRaw !== null) {
+        $override = normalizeBoolean($overrideRaw);
+        if ($override === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'override must be boolean or null',
+            ], 422);
+        }
+    }
+
+    $hostRepository->updateAutoUpdateOverride($hostId, $override);
+    $logRepository->log($hostId, 'admin.host.auto_update', [
+        'fqdn' => $host['fqdn'],
+        'override' => $override,
+    ]);
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'host' => [
+                'id' => (int) $host['id'],
+                'fqdn' => $host['fqdn'],
+                'auto_update_override' => $override,
             ],
         ],
     ]);
@@ -2571,6 +2755,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
     $cdxSilent = $versionRepository->getFlag('cdx_silent', false);
     $reverseDnsEnabled = $versionRepository->getFlag('reverse_dns_enabled', false);
     $insecureApprovalEnabled = $versionRepository->getFlag('insecure_approval_enabled', false);
+    $autoUpdateEnabled = $versionRepository->getFlag('auto_update_enabled', false);
     $inactivityWindowDays = inactivityWindowDays($versionRepository);
     $clientVersionLock = $versionRepository->getWithMetadata('client_version_lock');
     $chatgptSummary = $chatGptUsageService->latestWindowSummary();
@@ -2614,6 +2799,7 @@ $router->add('GET', '#^/admin/overview$#', function () use ($hostRepository, $lo
             'cdx_silent' => $cdxSilent,
             'reverse_dns_enabled' => $reverseDnsEnabled,
             'insecure_approval_enabled' => $insecureApprovalEnabled,
+            'auto_update_enabled' => $autoUpdateEnabled,
             'inactivity_window_days' => $inactivityWindowDays,
             'client_version_lock' => $clientVersionLock['version'] ?? null,
             'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,

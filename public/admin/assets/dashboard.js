@@ -157,6 +157,8 @@
     const reverseDnsLabel = document.getElementById('reverseDnsLabel');
     const insecureApprovalToggle = document.getElementById('insecureApprovalToggle');
     const insecureApprovalLabel = document.getElementById('insecureApprovalLabel');
+    const autoUpdateToggle = document.getElementById('autoUpdateToggle');
+    const autoUpdateLabel = document.getElementById('autoUpdateLabel');
     const codexVersionSelect = document.getElementById('codexVersionSelect');
     const codexVersionMeta = document.getElementById('codexVersionMeta');
     const accessBlockModal = document.getElementById('accessBlockModal');
@@ -439,6 +441,7 @@
     let cdxSilent = false;
     let reverseDnsEnabled = false;
     let insecureApprovalEnabled = false;
+    let autoUpdateEnabled = false;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
     const chatgptUsageHistoryCache = new Map();
@@ -1025,6 +1028,12 @@
       insecureApprovalToggle.checked = !!insecureApprovalEnabled;
       insecureApprovalLabel.textContent = insecureApprovalEnabled ? 'Enabled' : 'Disabled';
     }
+
+    function renderAutoUpdate() {
+      if (!autoUpdateToggle || !autoUpdateLabel) return;
+      autoUpdateToggle.checked = !!autoUpdateEnabled;
+      autoUpdateLabel.textContent = autoUpdateEnabled ? 'Enabled' : 'Disabled';
+    }
     function showAccessBlock(title, body) {
       if (!accessBlockModal) return;
       if (accessBlockTitle && title) accessBlockTitle.textContent = title;
@@ -1255,6 +1264,17 @@
       }
     }
 
+    async function loadAutoUpdate() {
+      if (!autoUpdateToggle) return;
+      try {
+        const res = await api('/admin/auto-update');
+        autoUpdateEnabled = !!res?.data?.enabled;
+        renderAutoUpdate();
+      } catch (err) {
+        console.warn('auto-update state unavailable', err);
+      }
+    }
+
     async function setCdxSilent(nextValue) {
       if (!cdxSilentToggle) return;
       const previous = cdxSilent;
@@ -1312,6 +1332,26 @@
         renderInsecureApproval();
       } finally {
         insecureApprovalToggle.disabled = false;
+      }
+    }
+
+    async function setAutoUpdate(nextValue) {
+      if (!autoUpdateToggle) return;
+      const previous = autoUpdateEnabled;
+      autoUpdateEnabled = !!nextValue;
+      renderAutoUpdate();
+      autoUpdateToggle.disabled = true;
+      try {
+        await api('/admin/auto-update', {
+          method: 'POST',
+          json: { enabled: !!nextValue },
+        });
+      } catch (err) {
+        toast(`Auto-update setting failed: ${err.message}`, 'error');
+        autoUpdateEnabled = previous;
+        renderAutoUpdate();
+      } finally {
+        autoUpdateToggle.disabled = false;
       }
     }
 
@@ -2250,6 +2290,21 @@
         state: insecureStateLabel,
       }));
 
+      const hostAutoUpdateOverride = host.auto_update_override;
+      const hostAutoUpdateEffective = hostAutoUpdateOverride !== null && hostAutoUpdateOverride !== undefined
+        ? !!hostAutoUpdateOverride
+        : autoUpdateEnabled;
+      let autoUpdateState = 'Following fleet (' + (autoUpdateEnabled ? 'enabled' : 'disabled') + ')';
+      if (hostAutoUpdateOverride === true) autoUpdateState = 'Force enabled (host override)';
+      else if (hostAutoUpdateOverride === false) autoUpdateState = 'Force disabled (host override)';
+      toggles.push(renderHostToggleRow({
+        action: 'auto-update',
+        checked: hostAutoUpdateEffective,
+        disabled: false,
+        title: 'Cron auto-update',
+        state: autoUpdateState,
+      }));
+
       const reverseDnsMode = normalizeReverseDnsMode(host?.reverse_dns_mode);
       const reverseDnsEffective = isReverseDnsEffective(host);
       const reverseDnsGlobalLabel = reverseDnsEnabled ? 'Global (enabled)' : 'Global (disabled)';
@@ -2381,6 +2436,8 @@
               await toggleIpv4(host, null, desired);
             } else if (action === 'insecure') {
               await toggleInsecureApi(host, null, desired);
+            } else if (action === 'auto-update') {
+              await toggleAutoUpdate(host, desired);
             }
           } catch (err) {
             console.error('host toggle failed', { action, err });
@@ -2664,6 +2721,7 @@
         { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: healthDesc },
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
+        { key: 'Last cron check', value: host.last_cron_check ? formatRelativeWithTimestamp(host.last_cron_check) : 'Never', desc: 'Last time the cron auto-update checked in.' },
         {
           key: 'IP binding',
           value: `
@@ -3695,6 +3753,7 @@
       'admin.cdx_silent',
       'admin.reverse_dns',
       'admin.insecure_approval',
+      'admin.auto_update',
       'admin.codex_version',
       'admin.quota_mode',
       'admin.prune_policy',
@@ -3880,6 +3939,10 @@
         if (typeof currentOverview.insecure_approval_enabled !== 'undefined') {
           insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
           renderInsecureApproval();
+        }
+        if (typeof currentOverview.auto_update_enabled !== 'undefined') {
+          autoUpdateEnabled = !!currentOverview.auto_update_enabled;
+          renderAutoUpdate();
         }
       }
 
@@ -6898,6 +6961,10 @@
           insecureApprovalEnabled = !!currentOverview.insecure_approval_enabled;
           renderInsecureApproval();
         }
+        if (typeof currentOverview.auto_update_enabled !== 'undefined') {
+          autoUpdateEnabled = !!currentOverview.auto_update_enabled;
+          renderAutoUpdate();
+        }
         await loadCodexVersionControl();
         evaluateSeedRequirement(currentOverview, hostsList);
       } catch (err) {
@@ -8269,6 +8336,11 @@
         setInsecureApproval(insecureApprovalToggle.checked);
       });
     }
+    if (autoUpdateToggle) {
+      autoUpdateToggle.addEventListener('change', () => {
+        setAutoUpdate(autoUpdateToggle.checked);
+      });
+    }
     if (codexVersionSelect) {
       codexVersionSelect.addEventListener('change', () => {
         setCodexVersionSelection(codexVersionSelect.value);
@@ -8321,6 +8393,7 @@
     loadCdxSilent();
     loadReverseDns();
     loadInsecureApproval();
+    loadAutoUpdate();
 
     function wireNavShortcuts() {
       const navNewHost = document.getElementById('navNewHost');
@@ -8727,6 +8800,28 @@
           button.disabled = false;
           if (original !== null) button.textContent = original;
         }
+      }
+    }
+
+    async function toggleAutoUpdate(host, desiredState = null) {
+      if (!host) return;
+      // Three-state cycle: fleet default (null) -> force on (true) -> force off (false) -> fleet default
+      // When called from a checkbox toggle, desiredState is a boolean.
+      let override = desiredState;
+      // If the host currently has a per-host override, toggling off goes to null (fleet default).
+      if (host.auto_update_override !== null && host.auto_update_override !== undefined) {
+        if (!desiredState) {
+          override = null; // revert to fleet default
+        }
+      }
+      try {
+        await api(`/admin/hosts/${host.id}/auto-update`, {
+          method: 'POST',
+          json: { override: override },
+        });
+        await loadAll();
+      } catch (err) {
+        alert(`Error: ${err.message}`);
       }
     }
 

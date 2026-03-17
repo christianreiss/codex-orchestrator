@@ -744,6 +744,8 @@ class Database
         $this->ensureColumnExists('hosts', 'reasoning_effort_override', 'VARCHAR(32) NULL');
         $this->ensureColumnExists('hosts', 'api_key_hash', 'CHAR(64) NULL');
         $this->ensureColumnExists('hosts', 'api_key_enc', 'LONGTEXT NULL');
+        $this->ensureColumnExists('hosts', 'auto_update_override', 'TINYINT(1) NULL DEFAULT NULL');
+        $this->ensureColumnExists('hosts', 'last_cron_check', 'VARCHAR(100) NULL');
         $this->ensureColumnExists('auth_payloads', 'body', 'LONGTEXT NULL');
         $this->ensureColumnExists('install_tokens', 'base_url', 'VARCHAR(255) NULL');
         $this->ensureColumnExists('install_tokens', 'token_enc', 'LONGTEXT NULL');

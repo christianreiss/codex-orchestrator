@@ -1025,6 +1025,20 @@
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
+                    <h3>Cron Auto-Update</h3>
+                    <p class="muted" style="margin:2px 0 0;">Fleet-wide Codex binary auto-update via cron.</p>
+                  </div>
+                  <label class="toggle" for="autoUpdateToggle">
+                    <input type="checkbox" id="autoUpdateToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="toggle-text" id="autoUpdateLabel">Disabled</span>
+                  </label>
+                </div>
+                <p class="muted" style="margin:8px 0 0;">When enabled, hosts with <code>cdx --cron</code> installed will automatically update the Codex binary once daily (0–4 AM, randomized per host). Per-host overrides available in host details. Default: off.</p>
+              </div>
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
                     <h3>Host Pruning</h3>
                     <p class="muted" style="margin:2px 0 0;">Delete inactive hosts after N days (0 disables pruning).</p>
                   </div>

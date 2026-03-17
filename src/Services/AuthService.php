@@ -311,6 +311,37 @@ class AuthService
         return $host;
     }
 
+    /**
+     * Lightweight authentication for cron auto-update endpoints.
+     * Validates the API key and returns the host record without checking host status,
+     * IP binding, or insecure window rules. The host must exist but need not be active.
+     */
+    public function authenticateForCron(?string $apiKey, ?string $ip = null): array
+    {
+        if ($apiKey === null || $apiKey === '') {
+            $this->throttleAuthFailures($ip, 'missing_api_key');
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'missing_api_key',
+                'ip' => $ip,
+                'context' => 'cron',
+            ]);
+            throw new HttpException('API key missing', 401);
+        }
+
+        $host = $this->hosts->findByApiKey($apiKey);
+        if (!$host) {
+            $this->throttleAuthFailures($ip, 'invalid_api_key');
+            $this->logs->log(null, 'auth.denied', [
+                'reason' => 'invalid_api_key',
+                'ip' => $ip,
+                'context' => 'cron',
+            ]);
+            throw new HttpException('Invalid API key', 401);
+        }
+
+        return $host;
+    }
+
     public function authenticateMcpCredential(?string $credential, ?string $ip = null): array
     {
         $this->pruneInactiveHosts();
@@ -1701,6 +1732,7 @@ class AuthService
             'runner_last_fail' => $this->versions->get('runner_last_fail'),
             'runner_last_check' => $this->versions->get('runner_last_check'),
             'installation_id' => $this->installationId,
+            'auto_update_enabled' => $this->versions->getFlag('auto_update_enabled', false),
         ];
     }
 
@@ -2432,6 +2464,8 @@ class AuthService
             'lane_preference' => self::normalizeQuotaLane($host['lane_preference'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
+            'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
+            'last_cron_check' => $host['last_cron_check'] ?? null,
         ];
 
         if ($includeApiKey) {
@@ -2441,7 +2475,7 @@ class AuthService
         return $payload;
     }
 
-    private function applyClientVersionOverrideForHost(array $versions, array $host): array
+    public function applyClientVersionOverrideForHost(array $versions, array $host): array
     {
         $override = $host['client_version_override'] ?? null;
         if (!is_string($override)) {

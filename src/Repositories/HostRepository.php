@@ -480,6 +480,31 @@ class HostRepository
         ]);
     }
 
+    public function updateAutoUpdateOverride(int $hostId, ?bool $override): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET auto_update_override = :override, updated_at = :updated_at WHERE id = :id'
+        );
+
+        $statement->execute([
+            'override' => $override === null ? null : ($override ? 1 : 0),
+            'updated_at' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
+    public function touchLastCronCheck(int $hostId): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET last_cron_check = :now, updated_at = :now WHERE id = :id'
+        );
+
+        $statement->execute([
+            'now' => gmdate(DATE_ATOM),
+            'id' => $hostId,
+        ]);
+    }
+
     public function updateCurlInsecure(int $hostId, bool $curlInsecure): void
     {
         $statement = $this->database->connection()->prepare(

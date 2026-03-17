@@ -339,6 +339,43 @@ load_sync_config() {
   SYNC_CONFIG_LOADED=1
 }
 
+detect_codex_asset_name() {
+  local os_name arch_name
+  os_name="$(uname -s 2>/dev/null || echo unknown)"
+  arch_name="$(uname -m 2>/dev/null || echo unknown)"
+  case "$os_name" in
+    Linux)
+      case "$arch_name" in
+        x86_64|amd64)
+          local glibc_version
+          glibc_version="$(detect_glibc_version)"
+          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
+            printf "codex-x86_64-unknown-linux-musl.tar.gz"
+          else
+            printf "codex-x86_64-unknown-linux-gnu.tar.gz"
+          fi
+          ;;
+        aarch64|arm64)
+          printf "codex-aarch64-unknown-linux-gnu.tar.gz"
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    Darwin)
+      case "$arch_name" in
+        x86_64|amd64) printf "codex-x86_64-apple-darwin.tar.gz" ;;
+        aarch64|arm64) printf "codex-aarch64-apple-darwin.tar.gz" ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if (( CODEX_DO_UNINSTALL )); then
   cmd_uninstall
 fi

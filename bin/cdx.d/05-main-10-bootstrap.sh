@@ -106,8 +106,6 @@ if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
   print_motd
 fi
 
-os_name="$(uname -s)"
-arch_name="$(uname -m)"
 asset_name=""
 skip_update_check=0
 if (( CDX_ACTIVE_RUN_DETECTED )); then
@@ -115,52 +113,16 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
 elif (( ! can_manage_codex )); then
   skip_update_check=1
 fi
-case "$os_name" in
-  Linux)
-	    case "$arch_name" in
-	      x86_64|amd64)
-	        asset_name="codex-x86_64-unknown-linux-gnu.tar.gz"
-	        glibc_version="$(detect_glibc_version)"
-	        if [[ -z "$glibc_version" ]]; then
-	          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
-	          if [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
-	            log_info "Unable to detect glibc version; using musl Codex build for compatibility."
-	          fi
-	        elif version_lt "$glibc_version" "2.39"; then
-	          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
-	          if [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
-	            log_info "glibc ${glibc_version} detected; using musl Codex build for compatibility."
-	          fi
-	        fi
-	        ;;
-      aarch64|arm64)
-        asset_name="codex-aarch64-unknown-linux-gnu.tar.gz"
-        ;;
-      *)
-        log_warn "Unsupported Linux architecture (${arch_name}); skipping update check."
-        skip_update_check=1
-        ;;
-    esac
-    ;;
-  Darwin)
-    case "$arch_name" in
-      x86_64|amd64)
-        asset_name="codex-x86_64-apple-darwin.tar.gz"
-        ;;
-      aarch64|arm64)
-        asset_name="codex-aarch64-apple-darwin.tar.gz"
-        ;;
-      *)
-        log_warn "Unsupported macOS architecture (${arch_name}); skipping update check."
-        skip_update_check=1
-        ;;
-    esac
-    ;;
-  *)
-    log_warn "Non-Linux operating system (${os_name}) detected; skipping update check."
+
+if (( ! skip_update_check )); then
+  asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
+  if [[ -z "$asset_name" ]]; then
+    os_name="$(uname -s 2>/dev/null || echo unknown)"
+    arch_name="$(uname -m 2>/dev/null || echo unknown)"
+    log_warn "Unsupported platform (${os_name}/${arch_name}); skipping update check."
     skip_update_check=1
-    ;;
-esac
+  fi
+fi
 
 remote_version=""
 remote_url=""
