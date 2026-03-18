@@ -507,6 +507,10 @@ class AuthService
         $versions = $this->versionSnapshot($bakedWrapperMeta);
         if ($trackHost) {
             $versions = $this->applyClientVersionOverrideForHost($versions, $host);
+            $override = $host['auto_update_override'] ?? null;
+            if ($override !== null) {
+                $versions['auto_update_enabled'] = (bool) (int) $override;
+            }
         }
         $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
         if ($hostVip) {
@@ -566,6 +570,10 @@ class AuthService
         $versions = $this->versionSnapshot($bakedWrapperMeta);
         if ($trackHost) {
             $versions = $this->applyClientVersionOverrideForHost($versions, $host);
+            $override = $host['auto_update_override'] ?? null;
+            if ($override !== null) {
+                $versions['auto_update_enabled'] = (bool) (int) $override;
+            }
         }
 
         $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];

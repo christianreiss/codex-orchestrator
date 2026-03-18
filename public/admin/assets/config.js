@@ -991,7 +991,7 @@
     loadConfig().then(renderPreview);
   }
 
-  // Expose to dashboard router for lazy init when #settings/config is shown.
+  // Expose to dashboard router for lazy init when /admin/settings/config is shown.
   window.__initConfigBuilder = init;
 
   window.addEventListener('admin-data-dirty', (event) => {
@@ -1000,9 +1000,9 @@
     scheduleConfigReload(700);
   });
 
-  // Auto-init if the current hash already targets the config tab (deep links / reload).
-  const hash = (window.location.hash || '').toLowerCase();
-  if (hash.startsWith('#settings/config')) {
+  // Auto-init if the current path already targets the config tab (deep links / reload).
+  const pathname = (window.location.pathname || '').toLowerCase();
+  if (pathname === '/admin/settings/config' || pathname === '/admin/settings/config/') {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);
     } else {

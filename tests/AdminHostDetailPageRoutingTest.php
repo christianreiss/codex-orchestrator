@@ -39,7 +39,7 @@ final class AdminHostDetailPageRoutingTest extends TestCase
 
         $this->assertStringContainsString('parseHostIdFromPath', $js);
         $this->assertStringContainsString('window.location.assign(`/admin/hosts/${Math.trunc(numericId)}`);', $js);
-        $this->assertStringContainsString("panel = 'host-detail';", $js);
+        $this->assertStringContainsString("return { panel: 'host-detail', sub: seg2 };", $js);
         $this->assertStringContainsString('renderActiveHostDetail()', $js);
     }
 }

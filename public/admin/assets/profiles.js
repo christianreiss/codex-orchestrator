@@ -547,8 +547,8 @@
     scheduleProfilesReload(700);
   });
 
-  const hash = (window.location.hash || '').toLowerCase();
-  if (hash.startsWith('#settings/profiles')) {
+  const pathname = (window.location.pathname || '').toLowerCase();
+  if (pathname === '/admin/settings/profiles' || pathname === '/admin/settings/profiles/') {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);
     } else {

@@ -260,6 +260,7 @@
             "quota_limit_percent",
             "quota_week_partition",
             "cdx_silent",
+            "auto_update_enabled",
             "runner_enabled",
             "runner_state",
             "runner_last_ok",
@@ -323,6 +324,9 @@
               "type": "integer"
             },
             "cdx_silent": {
+              "type": "boolean"
+            },
+            "auto_update_enabled": {
               "type": "boolean"
             },
             "runner_enabled": {

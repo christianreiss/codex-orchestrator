@@ -270,6 +270,9 @@ def record_versions(vblock):
         re = vblock.get("runner_enabled")
         if isinstance(re, bool):
             out["runner_enabled"] = re
+        aue = vblock.get("auto_update_enabled")
+        if isinstance(aue, bool):
+            out["auto_update_enabled"] = aue
         silent = vblock.get("cdx_silent")
         if isinstance(silent, bool):
             out["cdx_silent"] = silent
@@ -492,6 +495,9 @@ if isinstance(rlc, str) and rlc.strip():
 re = versions.get("runner_enabled")
 if isinstance(re, bool):
     print("re=1" if re else "re=0")
+aue = versions.get("auto_update_enabled")
+if isinstance(aue, bool):
+    print("aue=1" if aue else "aue=0")
 asv = parsed.get("auth_status")
 if isinstance(asv, str) and asv.strip():
     print(f"as={asv.strip()}")
@@ -662,6 +668,9 @@ PY
                 ;;
               re=*)
                 RUNNER_ENABLED="${line#re=}"
+                ;;
+              aue=*)
+                SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
                 ;;
               as=*)
                 AUTH_STATUS="${line#as=}"

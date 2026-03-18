@@ -71,9 +71,10 @@ final class ProjectCoordinationWiringTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/projects.js');
         $this->assertIsString($js);
 
-        $this->assertStringContainsString('window.location.hash = `#project-detail/${encodeURIComponent(String(slug))}`;', $js);
+        $this->assertStringContainsString("history.pushState({}, '', '/admin/projects/' + encodeURIComponent(String(slug)));", $js);
+        $this->assertStringContainsString("if (typeof window.__applyRouting === 'function') window.__applyRouting();", $js);
         $this->assertStringContainsString("projectDeleteModal?.classList.add('show');", $js);
-        $this->assertStringContainsString("window.location.hash = '#settings/projects';", $js);
+        $this->assertStringContainsString("history.pushState({}, '', '/admin/settings/projects');", $js);
         $this->assertStringContainsString('await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: \'DELETE\' });', $js);
     }
 

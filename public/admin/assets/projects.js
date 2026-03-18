@@ -157,12 +157,13 @@
   }
 
   function currentRoute() {
-    const hash = (window.location.hash || '').replace(/^#/, '');
-    const [panelRaw, subRaw] = hash.split('/');
-    return {
-      panel: (panelRaw || '').toLowerCase(),
-      sub: decodeHashValue(subRaw || ''),
-    };
+    const pathname = window.location.pathname;
+    const m = pathname.match(/^\/admin\/([^/]+)(?:\/(.+))?$/);
+    const seg1 = (m?.[1] || '').toLowerCase();
+    const seg2 = decodeURIComponent(m?.[2] || '');
+    if (seg1 === 'projects') return { panel: 'project-detail', sub: seg2 };
+    if (seg1 === 'settings') return { panel: 'settings', sub: seg2 };
+    return { panel: seg1, sub: seg2 };
   }
 
   function detailRouteSlug() {
@@ -172,7 +173,13 @@
 
   function navigateToProjectDetail(slug) {
     if (!slug) return;
-    window.location.hash = `#project-detail/${encodeURIComponent(String(slug))}`;
+    history.pushState({}, '', '/admin/projects/' + encodeURIComponent(String(slug)));
+    if (typeof window.__applyRouting === 'function') window.__applyRouting();
+  }
+
+  function navigateToProjectsSettings() {
+    history.pushState({}, '', '/admin/settings/projects');
+    if (typeof window.__applyRouting === 'function') window.__applyRouting();
   }
 
   function formatTimestamp(value) {
@@ -943,7 +950,7 @@
       await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: 'DELETE' });
       closeProjectDeleteModal();
       if (detailRouteSlug() === deletedSlug) {
-        window.location.hash = '#settings/projects';
+        navigateToProjectsSettings();
         return;
       }
       await loadSettingsView();

@@ -641,14 +641,14 @@
   window.__initMcpLogs = window.__initMcpLogs || initMcpLogs;
   window.__initEventLogs = window.__initEventLogs || initEventLogs;
 
-  // If the page loaded directly on a logs hash before dashboard.js ran the router,
+  // If the page loaded directly on a logs path before dashboard.js ran the router,
   // eagerly initialize the visible tab so the table isn't empty.
-  const currentHash = (window.location.hash || '').replace(/^#/, '');
-  const [panel, sub] = currentHash.split('/');
-  if (panel === 'logs') {
-    const tab = sub === 'mcp'
+  const currentPath = (window.location.pathname || '').toLowerCase();
+  if (currentPath === '/admin/logs' || currentPath === '/admin/logs/' || currentPath.startsWith('/admin/logs/')) {
+    const suffix = currentPath.replace(/^\/admin\/logs\/?/, '');
+    const tab = suffix === 'mcp'
       ? 'mcp'
-      : (sub === 'events' ? 'events' : 'client');
+      : (suffix === 'events' ? 'events' : 'client');
     if (tab === 'client') {
       initClientLogs();
       window.__initClientLogs = null;

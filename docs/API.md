@@ -38,7 +38,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on retrieve paths that require upload.
 - `host`: `fqdn`, `status`, `last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `agents_document_id_override`, `wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `force_ipv4`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`.
 - `api_calls`, `token_usage_month` (month-to-date totals including `cached`/`reasoning`/`cost`/`events`), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
-- `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, runner flags/timestamps, and `installation_id`.
+- `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
 - `runner_applied` boolean plus optional `validation` when runner validation executed.
 - `chatgpt_usage`: latest usage window summary when available (`normal_window`, optional `spark_window`, `active_quota_lane`; legacy `primary_window`/`secondary_window` also present).
 

@@ -110,6 +110,8 @@ asset_name=""
 skip_update_check=0
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   skip_update_check=1
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+  skip_update_check=1
 elif (( ! can_manage_codex )); then
   skip_update_check=1
 fi

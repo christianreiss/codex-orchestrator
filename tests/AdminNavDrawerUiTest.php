@@ -17,7 +17,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('id="navMenuToggle"', $html);
         $this->assertStringContainsString('id="navDrawer"', $html);
         $this->assertStringContainsString('id="navDrawerBackdrop"', $html);
-        $this->assertStringContainsString('href="#dashboard" data-nav="dashboard">Overview</a>', $html);
+        $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
     }
 
     public function testNavControllerWiresDrawerAndActiveSyncBehavior(): void
@@ -30,7 +30,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('navDrawerBackdrop', $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
-        $this->assertStringContainsString("window.addEventListener('hashchange'", $js);
+        $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);
         $this->assertStringContainsString("attributeFilter: ['data-view-mode']", $js);
     }
 

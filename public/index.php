@@ -534,6 +534,11 @@ $router->add('GET', '#^/versions$#', function () use ($service) {
     ]);
 });
 
+function isBrowserRequest(): bool {
+    $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+    return stripos($accept, 'text/html') !== false;
+}
+
 $router->add('GET', '#^/admin/?$#', function (): void {
     require __DIR__ . '/admin/index.php';
 });
@@ -543,6 +548,30 @@ $router->add('GET', '#^/admin/login$#', function (): void {
 });
 
 $router->add('GET', '#^/admin/hosts/(\\d+)$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
+$router->add('GET', '#^/admin/dashboard$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
+$router->add('GET', '#^/admin/settings$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
+$router->add('GET', '#^/admin/settings/(general|agents|prompts|memories|projects|profiles|skills|config)$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
+$router->add('GET', '#^/admin/hosts/secure$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
+$router->add('GET', '#^/admin/hosts/unprovisioned$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
+$router->add('GET', '#^/admin/logs/(mcp|events)$#', function (): void {
     require __DIR__ . '/admin/index.php';
 });
 
@@ -769,6 +798,7 @@ $router->add('DELETE', '#^/admin/passkeys/(\d+)$#', function ($id) use ($adminPa
 });
 
 $router->add('GET', '#^/admin/users$#', function () use ($adminUserService, $adminUserRepository) {
+    if (isBrowserRequest()) { require __DIR__ . '/admin/index.php'; return; }
     requireAdminAccess();
     $hasUsers = $adminUserRepository->countUsers() > 0;
     if ($hasUsers) {
@@ -3077,6 +3107,7 @@ $router->add('POST', '#^/admin/toasts$#', function () use ($payload, $adminEvent
 });
 
 $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $digestRepository, $tokenUsageRepository, $service, $hostUserRepository, $authPayloadRepository, $versionRepository) {
+    if (isBrowserRequest()) { require __DIR__ . '/admin/index.php'; return; }
     requireAdminAccess();
     $service->pruneStaleHosts();
 
@@ -3167,6 +3198,7 @@ $router->add('GET', '#^/admin/hosts$#', function () use ($hostRepository, $diges
 });
 
 $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepository, $insecureDomainAllowRepository, $service) {
+    if (isBrowserRequest()) { require __DIR__ . '/admin/index.php'; return; }
     requireAdminAccess();
     $service->pruneStaleHosts();
 
@@ -3358,6 +3390,7 @@ $router->add('POST', '#^/admin/hosts/insecure/disable-all$#', function () use ($
 });
 
 $router->add('GET', '#^/admin/logs$#', function () use ($logRepository) {
+    if (isBrowserRequest()) { require __DIR__ . '/admin/index.php'; return; }
     requireAdminAccess();
 
     $limit = resolveIntQuery('limit') ?? 50;
@@ -3979,6 +4012,7 @@ $router->add('DELETE', '#^/admin/projects/([^/]+)$#', function ($slug) use ($pro
 });
 
 $router->add('GET', '#^/admin/projects/([^/]+)$#', function ($slug) use ($projectCoordinationService, $respondProjectAction) {
+    if (isBrowserRequest()) { require __DIR__ . '/admin/index.php'; return; }
     requireAdminAccess();
     $respondProjectAction(static function () use ($slug, $projectCoordinationService) {
         return $projectCoordinationService->projectDetail(urldecode($slug), null);

@@ -211,8 +211,13 @@
 
   const inferViewFromPath = (pathname) => {
     if (!pathname) return '';
-    if (/\/admin\/hosts\/\d+\/?$/.test(pathname)) return 'hosts';
-    if (/\/admin\/?$/.test(pathname)) return 'dashboard';
+    if (/\/admin\/hosts\/\d+/.test(pathname)) return 'hosts';
+    if (/\/admin\/hosts/.test(pathname)) return 'hosts';
+    if (/\/admin\/logs/.test(pathname)) return 'logs';
+    if (/\/admin\/settings/.test(pathname)) return 'settings';
+    if (/\/admin\/users/.test(pathname)) return 'users';
+    if (/\/admin\/projects/.test(pathname)) return 'settings';
+    if (/\/admin\/(dashboard)?\/?$/.test(pathname)) return 'dashboard';
     return '';
   };
 
@@ -226,9 +231,6 @@
   function currentViewKey() {
     const bodyView = normalizePanelKey(document.body?.dataset?.viewMode || '');
     if (bodyView) return bodyView;
-
-    const hashView = inferViewFromHash(window.location.hash);
-    if (hashView) return hashView;
 
     const pathView = inferViewFromPath(normalizePath(window.location.pathname));
     return pathView || 'dashboard';
@@ -284,14 +286,11 @@
 
   document.querySelectorAll('a.nav-item, .nav-dropdown a, a.menu-link').forEach((link) => {
     link.addEventListener('click', () => {
-      // Hash-driven routing runs after click; run an immediate sync as feedback.
+      // Routing runs after click (via delegated handler + popstate); run an immediate sync as feedback.
       syncAndCloseForNavigation();
     });
   });
 
-  window.addEventListener('hashchange', () => {
-    syncAndCloseForNavigation();
-  });
   window.addEventListener('popstate', syncActiveLinks);
 
   if (document.body) {

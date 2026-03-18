@@ -344,20 +344,7 @@
       return parseHostIdFromPath(window.location.pathname);
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const pathHostId = currentPathHostId();
-    const hash = (window.location.hash || (pathHostId ? `#host-detail/${pathHostId}` : '#dashboard')).replace(/^#/, '');
-    const [panelFromHashRaw, subFromHashRaw] = hash.split('/');
-    const panelFromHash = (panelFromHashRaw || '').toLowerCase();
-    const subFromHash = subFromHashRaw || '';
-    const bodyView = (document.body?.dataset?.viewMode || '').toLowerCase();
-    const viewMode = (panelFromHash || (pathHostId ? 'host-detail' : bodyView) || urlParams.get('view') || 'dashboard').toLowerCase();
-    const subView = subFromHash || (pathHostId ? String(pathHostId) : '');
-    // Legacy redirect guard: in SPA we keep everything inline, so no redirects needed.
-    const initialHostParam = (urlParams.get('host') || 'insecure').toLowerCase();
-    if (initialHostParam) {
-      hostStatusFilter = initialHostParam;
-    }
+    const { panel: viewMode, sub: _initialSub } = parsePanelFromPath();
     function updateHostQueryParam(value) {
       const url = new URL(window.location.href);
       if (value) {
@@ -2106,7 +2093,6 @@
 
     function setHostStatusFilter(value) {
       hostStatusFilter = (value || '').toLowerCase();
-      updateHostQueryParam(hostStatusFilter);
       syncHostTabs();
       paintHosts();
     }
@@ -2911,7 +2897,7 @@
         hostDetailTitle.textContent = host.fqdn || `Host #${host.id}`;
       }
       if (hostDetailBack) {
-        hostDetailBack.setAttribute('href', '/admin/#hosts');
+        hostDetailBack.setAttribute('href', '/admin/hosts');
       }
       if (hostDetailPills) {
         const pills = [];
@@ -7833,45 +7819,58 @@
       await ensureDataLoaded();
     }
 
-    function applyHashRouting() {
-      const pathHostId = currentPathHostId();
-      const hash = (window.location.hash || '').replace(/^#/, '');
-      const [panelRaw, subRaw] = hash.split('/');
-      let panel = (panelRaw || '').toLowerCase();
-      let sub = subRaw || '';
+    function parsePanelFromPath() {
+      const pathname = window.location.pathname;
+      const m = pathname.match(/^\/admin(?:\/([^/]+))?(?:\/(.+))?$/);
+      const seg1 = (m?.[1] || '').toLowerCase();
+      const seg2 = m?.[2] || '';
+      if (!seg1 || seg1 === 'dashboard') return { panel: 'dashboard', sub: '' };
+      if (seg1 === 'hosts') {
+        const numId = Number(seg2);
+        if (Number.isFinite(numId) && numId > 0) return { panel: 'host-detail', sub: seg2 };
+        return { panel: 'hosts', sub: seg2 };
+      }
+      if (seg1 === 'logs') return { panel: 'logs', sub: seg2 };
+      if (seg1 === 'settings') return { panel: 'settings', sub: seg2 };
+      if (seg1 === 'users') return { panel: 'users', sub: '' };
+      if (seg1 === 'projects') return { panel: 'project-detail', sub: seg2 };
+      return { panel: seg1, sub: seg2 };
+    }
 
-      if (!panel && pathHostId) {
-        panel = 'host-detail';
-        sub = String(pathHostId);
-      }
-      if (!panel) {
-        panel = 'dashboard';
-      }
-
-      if (panel === 'skills') {
-        if (window.location.hash !== '#settings/skills') {
-          window.location.hash = '#settings/skills';
-          return;
-        }
-        panel = 'settings';
-        sub = 'skills';
-      }
-
-      if (pathHostId && panel !== 'host-detail') {
-        const canonicalUrl = new URL(window.location.href);
-        canonicalUrl.pathname = '/admin/';
-        window.history.replaceState({}, '', canonicalUrl.toString());
-      }
+    function applyRouting() {
+      const { panel, sub } = parsePanelFromPath();
+      const hostTab = panel === 'hosts' ? (sub || '').toLowerCase() : '';
+      const logTab = panel === 'logs'
+        ? ((sub || '').toLowerCase() === 'mcp'
+          ? 'mcp'
+          : (((sub || '').toLowerCase() === 'events') ? 'events' : 'client'))
+        : '';
+      const settingsTab = panel === 'settings' ? (sub || 'general').toLowerCase() : '';
 
       document.querySelectorAll('.panel-set').forEach((section) => {
         const p = (section.dataset.panel || '').toLowerCase();
         section.hidden = p !== panel;
       });
       document.body.dataset.viewMode = panel;
+      if (panel === 'hosts') {
+        document.body.dataset.hostTab = hostTab;
+      } else if (document.body?.dataset?.hostTab) {
+        delete document.body.dataset.hostTab;
+      }
       if (panel === 'host-detail' && sub) {
         document.body.dataset.hostId = sub;
       } else if (document.body?.dataset?.hostId) {
         delete document.body.dataset.hostId;
+      }
+      if (panel === 'logs') {
+        document.body.dataset.logTab = logTab;
+      } else if (document.body?.dataset?.logTab) {
+        delete document.body.dataset.logTab;
+      }
+      if (panel === 'settings') {
+        document.body.dataset.settingsTab = settingsTab;
+      } else if (document.body?.dataset?.settingsTab) {
+        delete document.body.dataset.settingsTab;
       }
       if (panel === 'project-detail' && sub) {
         document.body.dataset.projectSlug = decodeURIComponent(sub);
@@ -7889,7 +7888,7 @@
       }
 
       if (panel === 'hosts') {
-        hostStatusFilter = (sub || '').toLowerCase();
+        hostStatusFilter = hostTab;
         setHostStatusFilter(hostStatusFilter);
         setActiveLinks('.host-tab', hostStatusFilter);
         ensureHostsLoaded();
@@ -7919,10 +7918,6 @@
       }
 
       if (panel === 'logs') {
-        const normalizedLogTab = (sub || '').toLowerCase();
-        const logTab = normalizedLogTab === 'mcp'
-          ? 'mcp'
-          : (normalizedLogTab === 'events' ? 'events' : 'client');
         setActiveLinks('.log-tab', logTab);
         const clientPanel = document.getElementById('client-logs-panel');
         const mcpPanel = document.getElementById('mcp-logs-panel');
@@ -7950,7 +7945,6 @@
       }
 
       if (panel === 'settings') {
-        const settingsTab = (sub || 'general').toLowerCase();
         setActiveLinks('.settings-tab', settingsTab);
         document.querySelectorAll('[data-settings-panel]').forEach((panelEl) => {
           const tab = (panelEl.dataset.settingsPanel || '').toLowerCase();
@@ -7971,8 +7965,21 @@
       applyViewMode();
     }
 
-    window.addEventListener('hashchange', applyHashRouting);
-    applyHashRouting();
+    window.__applyRouting = applyRouting;
+    window.addEventListener('popstate', applyRouting);
+    document.addEventListener('click', (event) => {
+      const anchor = event.target.closest('a[href]');
+      if (!anchor) return;
+      const href = anchor.getAttribute('href');
+      if (!href?.startsWith('/admin/')) return;
+      if (anchor.target === '_blank') return;
+      event.preventDefault();
+      const url = new URL(href, window.location.origin);
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      history.pushState({}, '', url.toString());
+      applyRouting();
+    });
+    applyRouting();
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
     }
@@ -7991,13 +7998,6 @@
       });
     }
     if (hostTabLinks.length) {
-      hostTabLinks.forEach((link) => {
-        link.addEventListener('click', (event) => {
-          event.preventDefault();
-          const status = (link.dataset.hostTab || '').toLowerCase();
-          setHostStatusFilter(status);
-        });
-      });
       syncHostTabs();
     }
     document.querySelectorAll('.sort-link[data-sort]').forEach((link) => {
@@ -8435,7 +8435,7 @@
 
     wireNavShortcuts();
     applyQueryParams();
-    applyHashRouting(); // ensure deep links after query param normalization
+    applyRouting(); // ensure deep links after query param normalization
 
     function resetNewHostForm({ focusInput = false } = {}) {
       if (commandField) {

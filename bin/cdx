@@ -605,6 +605,7 @@ SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
+SYNC_REMOTE_AUTO_UPDATE_CRON=""
 RUNNER_STATE=""
 RUNNER_LAST_OK=""
 RUNNER_LAST_FAIL=""
@@ -727,7 +728,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.18-02"
+WRAPPER_VERSION="2026.03.18-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2346,6 +2347,9 @@ def record_versions(vblock):
         re = vblock.get("runner_enabled")
         if isinstance(re, bool):
             out["runner_enabled"] = re
+        aue = vblock.get("auto_update_enabled")
+        if isinstance(aue, bool):
+            out["auto_update_enabled"] = aue
         silent = vblock.get("cdx_silent")
         if isinstance(silent, bool):
             out["cdx_silent"] = silent
@@ -2568,6 +2572,9 @@ if isinstance(rlc, str) and rlc.strip():
 re = versions.get("runner_enabled")
 if isinstance(re, bool):
     print("re=1" if re else "re=0")
+aue = versions.get("auto_update_enabled")
+if isinstance(aue, bool):
+    print("aue=1" if aue else "aue=0")
 asv = parsed.get("auth_status")
 if isinstance(asv, str) and asv.strip():
     print(f"as={asv.strip()}")
@@ -2738,6 +2745,9 @@ PY
                 ;;
               re=*)
                 RUNNER_ENABLED="${line#re=}"
+                ;;
+              aue=*)
+                SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
                 ;;
               as=*)
                 AUTH_STATUS="${line#as=}"
@@ -6354,6 +6364,8 @@ fi
 asset_name=""
 skip_update_check=0
 if (( CDX_ACTIVE_RUN_DETECTED )); then
+  skip_update_check=1
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
   skip_update_check=1
 elif (( ! can_manage_codex )); then
   skip_update_check=1

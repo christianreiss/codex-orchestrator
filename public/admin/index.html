@@ -10,7 +10,7 @@
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="main-nav">
-    <a class="nav-brand" href="#dashboard" aria-label="Codex Orchestrator dashboard">
+    <a class="nav-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
       <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
       <div>
         <div class="brand-title">Codex Orchestrator</div>
@@ -22,11 +22,11 @@
     </button>
     <div class="nav-panel" id="navDrawer" aria-hidden="false">
       <nav class="nav-groups" aria-label="Primary navigation">
-        <a class="nav-item" href="#dashboard" data-nav="dashboard">Overview</a>
-        <a class="nav-item" href="#hosts" data-nav="hosts">Hosts</a>
-        <a class="nav-item" href="#logs" data-nav="logs">Logs</a>
-        <a class="nav-item" href="#settings" data-nav="settings">Settings</a>
-        <a class="nav-item" href="#users" data-nav="users">Users</a>
+        <a class="nav-item" href="/admin/dashboard" data-nav="dashboard">Overview</a>
+        <a class="nav-item" href="/admin/hosts" data-nav="hosts">Hosts</a>
+        <a class="nav-item" href="/admin/logs" data-nav="logs">Logs</a>
+        <a class="nav-item" href="/admin/settings" data-nav="settings">Settings</a>
+        <a class="nav-item" href="/admin/users" data-nav="users">Users</a>
       </nav>
       <div class="nav-actions">
         <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
@@ -48,11 +48,11 @@
   <div class="app">
     <div class="content">
       <nav class="menu-line" aria-label="Top navigation" hidden>
-        <a class="menu-link" href="#dashboard">Overview</a>
-        <a class="menu-link" href="#hosts">Hosts</a>
-        <a class="menu-link" href="#logs">Logs</a>
-        <a class="menu-link" href="#settings">Settings</a>
-        <a class="menu-link" href="#users">Users</a>
+        <a class="menu-link" href="/admin/dashboard">Overview</a>
+        <a class="menu-link" href="/admin/hosts">Hosts</a>
+        <a class="menu-link" href="/admin/logs">Logs</a>
+        <a class="menu-link" href="/admin/settings">Settings</a>
+        <a class="menu-link" href="/admin/users">Users</a>
       </nav>
 
       <main class="main">
@@ -415,18 +415,18 @@
         <!-- Hosts -->
         <section class="panel-set" data-panel="hosts" hidden>
           <nav class="hosts-mobile-nav" aria-label="Hosts tabs">
-            <a class="host-tab hosts-mobile-tab active" data-host-tab="" href="#hosts">All</a>
-            <a class="host-tab hosts-mobile-tab" data-host-tab="secure" href="#hosts/secure">Secure</a>
-            <a class="host-tab hosts-mobile-tab" data-host-tab="insecure" href="#hosts/insecure">Insecure</a>
-            <a class="host-tab hosts-mobile-tab" data-host-tab="unprovisioned" href="#hosts/unprovisioned">Unprovisioned</a>
+            <a class="host-tab hosts-mobile-tab active" data-host-tab="" href="/admin/hosts">All</a>
+            <a class="host-tab hosts-mobile-tab" data-host-tab="secure" href="/admin/hosts/secure">Secure</a>
+            <a class="host-tab hosts-mobile-tab" data-host-tab="insecure" href="/admin/hosts/insecure">Insecure</a>
+            <a class="host-tab hosts-mobile-tab" data-host-tab="unprovisioned" href="/admin/hosts/unprovisioned">Unprovisioned</a>
           </nav>
           <div class="hosts-layout">
             <aside class="hosts-sidebar" aria-label="Host filters">
               <div class="hosts-nav-list">
-                <a class="host-tab hosts-nav-link active" data-host-tab="" href="#hosts">All</a>
-                <a class="host-tab hosts-nav-link" data-host-tab="secure" href="#hosts/secure">Secure</a>
-                <a class="host-tab hosts-nav-link" data-host-tab="insecure" href="#hosts/insecure">Insecure</a>
-                <a class="host-tab hosts-nav-link" data-host-tab="unprovisioned" href="#hosts/unprovisioned">Unprovisioned</a>
+                <a class="host-tab hosts-nav-link active" data-host-tab="" href="/admin/hosts">All</a>
+                <a class="host-tab hosts-nav-link" data-host-tab="secure" href="/admin/hosts/secure">Secure</a>
+                <a class="host-tab hosts-nav-link" data-host-tab="insecure" href="/admin/hosts/insecure">Insecure</a>
+                <a class="host-tab hosts-nav-link" data-host-tab="unprovisioned" href="/admin/hosts/unprovisioned">Unprovisioned</a>
               </div>
             </aside>
             <div class="hosts-content">
@@ -467,7 +467,7 @@
                 <div class="chip-row" id="hostDetailPills"></div>
               </div>
               <div class="host-detail-head-actions">
-                <a class="ghost tiny-btn" id="hostDetailBack" href="/admin/#hosts">Back to hosts</a>
+                <a class="ghost tiny-btn" id="hostDetailBack" href="/admin/hosts">Back to hosts</a>
               </div>
             </div>
             <div class="host-detail-empty" id="hostDetailEmptyState" hidden>
@@ -517,7 +517,7 @@
                 <p class="muted" id="projectDetailMeta" style="margin:4px 0 0;">Fetching shared project state.</p>
               </div>
               <div class="project-detail-head-actions">
-                <a class="ghost tiny-btn" id="projectDetailBack" href="/admin/#settings/projects">Back to projects</a>
+                <a class="ghost tiny-btn" id="projectDetailBack" href="/admin/settings/projects">Back to projects</a>
               </div>
             </div>
             <div class="project-detail-empty" id="projectDetailEmptyState" hidden>
@@ -736,16 +736,16 @@
         <!-- Logs -->
 	        <section class="panel-set" data-panel="logs" hidden>
             <nav class="logs-mobile-nav" aria-label="Logs tabs">
-              <a class="log-tab logs-mobile-tab active" data-log-tab="client" href="#logs/api">API logs</a>
-              <a class="log-tab logs-mobile-tab" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
-              <a class="log-tab logs-mobile-tab" data-log-tab="events" href="#logs/events">Events</a>
+              <a class="log-tab logs-mobile-tab active" data-log-tab="client" href="/admin/logs">API logs</a>
+              <a class="log-tab logs-mobile-tab" data-log-tab="mcp" href="/admin/logs/mcp">MCP logs</a>
+              <a class="log-tab logs-mobile-tab" data-log-tab="events" href="/admin/logs/events">Events</a>
             </nav>
             <div class="logs-layout">
               <aside class="logs-sidebar" aria-label="Log views">
                 <div class="logs-nav-list">
-                  <a class="log-tab logs-nav-link active" data-log-tab="client" href="#logs/api">API logs</a>
-                  <a class="log-tab logs-nav-link" data-log-tab="mcp" href="#logs/mcp">MCP logs</a>
-                  <a class="log-tab logs-nav-link" data-log-tab="events" href="#logs/events">Events</a>
+                  <a class="log-tab logs-nav-link active" data-log-tab="client" href="/admin/logs">API logs</a>
+                  <a class="log-tab logs-nav-link" data-log-tab="mcp" href="/admin/logs/mcp">MCP logs</a>
+                  <a class="log-tab logs-nav-link" data-log-tab="events" href="/admin/logs/events">Events</a>
                 </div>
               </aside>
               <div class="logs-content">
@@ -884,26 +884,26 @@
         <!-- Settings -->
         <section class="panel-set" data-panel="settings" hidden>
           <nav class="settings-mobile-nav" aria-label="Settings tabs">
-            <a class="settings-tab settings-mobile-tab active" data-settings-tab="general" href="#settings/general">General</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="agents" href="#settings/agents">Agents</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="memories" href="#settings/memories">Memories</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="projects" href="#settings/projects">Projects</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="#settings/skills">Skills</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="#settings/config">config.toml</a>
+            <a class="settings-tab settings-mobile-tab active" data-settings-tab="general" href="/admin/settings/general">General</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="agents" href="/admin/settings/agents">Agents</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="prompts" href="/admin/settings/prompts">Slash commands</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="memories" href="/admin/settings/memories">Memories</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
           </nav>
           <div class="settings-layout">
             <aside class="settings-sidebar" aria-label="Settings sections">
               <div class="settings-nav-list">
-                <a class="settings-tab settings-nav-link active" data-settings-tab="general" href="#settings/general">General</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="agents" href="#settings/agents">Agents</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="prompts" href="#settings/prompts">Slash commands</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="memories" href="#settings/memories">Memories</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="projects" href="#settings/projects">Projects</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="profiles" href="#settings/profiles">Profiles</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="#settings/skills">Skills</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="config" href="#settings/config">config.toml</a>
+                <a class="settings-tab settings-nav-link active" data-settings-tab="general" href="/admin/settings/general">General</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="agents" href="/admin/settings/agents">Agents</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="prompts" href="/admin/settings/prompts">Slash commands</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="memories" href="/admin/settings/memories">Memories</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
               </div>
             </aside>
             <div class="settings-content">
@@ -1768,54 +1768,86 @@
   </div>
   <div id="toastDeck" class="toast-deck" aria-live="polite" aria-atomic="false"></div>
   <script>
-    // Basic hash router to set initial view for legacy JS
+    // Seed body datasets from the path router before the heavier admin bundles boot.
     (function() {
-      function pathHostId() {
-        const match = String(window.location.pathname || '').match(/^\/admin\/hosts\/(\d+)\/?$/);
-        return match ? match[1] : '';
-      }
-      function applyFromHash() {
-        const hostId = pathHostId();
-        const fallbackHash = hostId ? `#host-detail/${hostId}` : '#dashboard';
-        const hash = (window.location.hash || fallbackHash).replace(/^#/, '');
-        const [panel, sub] = hash.split('/');
-        document.body.dataset.viewMode = panel || (hostId ? 'host-detail' : 'dashboard');
-        if (panel === 'hosts') {
-          document.body.dataset.hostTab = sub || '';
+      function decodeRouteValue(value) {
+        try {
+          return decodeURIComponent(String(value || ''));
+        } catch (_) {
+          return String(value || '');
         }
-        if ((panel === 'host-detail' || (!panel && hostId)) && (sub || hostId)) {
-          document.body.dataset.hostId = sub || hostId;
+      }
+
+      function parseAdminRoute() {
+        const match = String(window.location.pathname || '').match(/^\/admin(?:\/([^/]+))?(?:\/(.+))?\/?$/);
+        const seg1 = (match?.[1] || '').toLowerCase();
+        const seg2 = match?.[2] || '';
+        if (!seg1 || seg1 === 'dashboard') return { panel: 'dashboard', sub: '' };
+        if (seg1 === 'hosts') {
+          const numericId = Number(seg2);
+          if (Number.isFinite(numericId) && numericId > 0) return { panel: 'host-detail', sub: String(Math.trunc(numericId)) };
+          return { panel: 'hosts', sub: seg2.toLowerCase() };
+        }
+        if (seg1 === 'logs') {
+          return { panel: 'logs', sub: seg2.toLowerCase() };
+        }
+        if (seg1 === 'settings') {
+          return { panel: 'settings', sub: seg2.toLowerCase() };
+        }
+        if (seg1 === 'projects') {
+          return { panel: 'project-detail', sub: decodeRouteValue(seg2) };
+        }
+        if (seg1 === 'users') return { panel: 'users', sub: '' };
+        return { panel: seg1, sub: seg2 };
+      }
+
+      function applyFromPath() {
+        const route = parseAdminRoute();
+        document.body.dataset.viewMode = route.panel || 'dashboard';
+        if (route.panel === 'hosts') {
+          document.body.dataset.hostTab = route.sub || '';
+        } else if (document.body.dataset.hostTab) {
+          delete document.body.dataset.hostTab;
+        }
+        if (route.panel === 'host-detail' && route.sub) {
+          document.body.dataset.hostId = route.sub;
         } else if (document.body.dataset.hostId) {
           delete document.body.dataset.hostId;
         }
-        if (panel === 'logs') {
-          document.body.dataset.logTab = sub || 'client';
+        if (route.panel === 'logs') {
+          document.body.dataset.logTab = route.sub === 'mcp'
+            ? 'mcp'
+            : (route.sub === 'events' ? 'events' : 'client');
+        } else if (document.body.dataset.logTab) {
+          delete document.body.dataset.logTab;
         }
-        if (panel === 'settings') {
-          document.body.dataset.settingsTab = sub || 'general';
+        if (route.panel === 'settings') {
+          document.body.dataset.settingsTab = route.sub || 'general';
+        } else if (document.body.dataset.settingsTab) {
+          delete document.body.dataset.settingsTab;
         }
-        if (panel === 'project-detail' && sub) {
-          document.body.dataset.projectSlug = decodeURIComponent(sub);
+        if (route.panel === 'project-detail' && route.sub) {
+          document.body.dataset.projectSlug = route.sub;
         } else if (document.body.dataset.projectSlug) {
           delete document.body.dataset.projectSlug;
         }
       }
-      applyFromHash();
-      window.addEventListener('hashchange', applyFromHash);
+      applyFromPath();
+      window.addEventListener('popstate', applyFromPath);
     })();
   </script>
-  <script src="/admin/assets/nav.js?v=2026-02-20-01"></script>
+  <script src="/admin/assets/nav.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
   <script src="/admin/assets/users.js?v=2026-02-19-02"></script>
   <script src="/admin/assets/passkeys.js?v=2026-03-17-01"></script>
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-12-03"></script>
-  <script src="/admin/assets/logs.js?v=2025-12-13-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/logs.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
-  <script src="/admin/assets/projects.js?v=2026-03-12-02"></script>
-  <script src="/admin/assets/config.js?v=2026-03-11-09"></script>
-  <script src="/admin/assets/profiles.js?v=2026-03-11-02"></script>
+  <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/config.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/profiles.js?v=2026-03-18-01"></script>
 </body>
 </html>

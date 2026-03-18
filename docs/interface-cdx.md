@@ -160,6 +160,7 @@ Sync details:
 ## Quota, Lane, and Summary Rendering
 Inputs consumed from auth/sync responses:
 - `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`
+- `auto_update_enabled`
 - `chatgpt_usage` windows and `active_quota_lane`
 - Runner telemetry (`runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`)
 - Host usage (`api_calls`, monthly token totals)
@@ -222,6 +223,7 @@ Codex updates:
 - Target version comes from `/auth` `versions.client_version`.
 - If `/auth` returns `client_version_enforce_exact=true`, wrapper enforces the exact target version (upgrade or downgrade).
 - If `client_version_enforce_exact=false`, wrapper treats `versions.client_version` as an upgrade floor only and never downgrades to meet it.
+- If `/auth` returns `auto_update_enabled=true`, wrapper skips the normal per-run Codex update check because cron-managed auto-update is authoritative for that host.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.
