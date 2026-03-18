@@ -157,7 +157,15 @@ final class StartupSyncServiceTest extends TestCase
     {
         $sha = hash('sha256', 'skill manifest');
         $service = $this->createService(
-            skillRows: [['slug' => 'deploy', 'sha256' => $sha, 'deleted_at' => null, 'managed' => false]],
+            skillRows: [[
+                'slug' => 'deploy',
+                'sha256' => $sha,
+                'deleted_at' => null,
+                'managed' => false,
+                'canonical_uri' => 'skill://deploy',
+                'fallback_path' => '~/.agents/skills/deploy/SKILL.md',
+                'legacy_fallback_path' => '~/.codex/skills/deploy/SKILL.md',
+            ]],
         );
 
         $result = $service->collect(
@@ -171,5 +179,8 @@ final class StartupSyncServiceTest extends TestCase
         $this->assertSame(1, $result['skills']['changed_count']);
         $this->assertSame('skill://deploy', $result['skills']['remote'][0]['uri']);
         $this->assertSame('skill://deploy', $result['skills']['changed'][0]['uri']);
+        $this->assertSame('skill://deploy', $result['skills']['remote'][0]['canonical_uri']);
+        $this->assertSame('~/.agents/skills/deploy/SKILL.md', $result['skills']['changed'][0]['fallback_path']);
+        $this->assertSame('~/.codex/skills/deploy/SKILL.md', $result['skills']['changed'][0]['legacy_fallback_path']);
     }
 }

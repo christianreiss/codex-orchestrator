@@ -206,11 +206,32 @@ final class SkillServiceTest extends TestCase
         $this->assertSame('unchanged', $unchanged['status']);
         $this->assertSame('skill://lint', $unchanged['uri']);
         $this->assertArrayNotHasKey('manifest', $unchanged);
+        $this->assertSame('skill://lint', $unchanged['canonical_uri']);
+        $this->assertSame('~/.agents/skills/lint/SKILL.md', $unchanged['fallback_path']);
+        $this->assertSame('~/.codex/skills/lint/SKILL.md', $unchanged['legacy_fallback_path']);
 
         $updated = $this->service->retrieve('lint', null, null);
         $this->assertSame('updated', $updated['status']);
         $this->assertSame('skill://lint', $updated['uri']);
         $this->assertSame($payload['manifest'], $updated['manifest']);
+    }
+
+    public function testListAndFindExposeCanonicalAndFallbackSkillPaths(): void
+    {
+        $this->service->store([
+            'slug' => 'deploy',
+            'manifest' => '# Deploy',
+        ], null);
+
+        $listed = $this->service->listSkills();
+        $found = $this->service->find('deploy');
+
+        $this->assertSame('skill://deploy', $listed[0]['canonical_uri']);
+        $this->assertSame('~/.agents/skills/deploy/SKILL.md', $listed[0]['fallback_path']);
+        $this->assertSame('~/.codex/skills/deploy/SKILL.md', $listed[0]['legacy_fallback_path']);
+        $this->assertSame('skill://deploy', $found['canonical_uri']);
+        $this->assertSame('~/.agents/skills/deploy/SKILL.md', $found['fallback_path']);
+        $this->assertSame('~/.codex/skills/deploy/SKILL.md', $found['legacy_fallback_path']);
     }
 
     public function testDeleteMarksSkill(): void

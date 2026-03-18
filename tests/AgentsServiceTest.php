@@ -299,4 +299,27 @@ final class AgentsServiceTest extends TestCase
         $this->assertSame('updated', $result['status']);
         $this->assertSame('# V1', $result['content']);
     }
+
+    public function testEnsureSeededFromFileCreatesOrUpdatesCanonicalAgentsVersion(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'agents-seed-');
+        $this->assertNotFalse($path);
+        file_put_contents($path, '# Seeded AGENTS');
+
+        try {
+            $created = $this->service->ensureSeededFromFile($path);
+            $this->assertSame('created', $created['status']);
+            $this->assertSame('# Seeded AGENTS', $this->repository->latest()['body']);
+
+            $unchanged = $this->service->ensureSeededFromFile($path);
+            $this->assertSame('unchanged', $unchanged['status']);
+
+            file_put_contents($path, '# Seeded AGENTS v2');
+            $updated = $this->service->ensureSeededFromFile($path);
+            $this->assertSame('updated', $updated['status']);
+            $this->assertSame('# Seeded AGENTS v2', $this->repository->latest()['body']);
+        } finally {
+            @unlink($path);
+        }
+    }
 }

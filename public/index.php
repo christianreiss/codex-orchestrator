@@ -346,6 +346,7 @@ $chatGptUsageService = new ChatGptUsageService(
 );
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
+$agentsService->ensureSeededFromFile($root . '/AGENTS.md');
 $wrapperService->ensureSeeded();
 if ($runBackfillsOnBoot) {
     $usageCostService->backfillMissingCosts();

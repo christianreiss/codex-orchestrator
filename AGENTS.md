@@ -83,6 +83,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - `cdx` workflow:
   - Acquires a run lock (unless `--allow-concurrent-sync`), pulls auth, then syncs slash commands, skills, AGENTS.md, and config before launch.
   - Treat `cdx`/MCP as the primary Skill interface: read Skills through MCP `resource_read` on `skill://{slug}` when possible. Synced `~/.agents/skills/<slug>/SKILL.md` files are compatibility fallback copies, not the preferred source.
+  - If both a `skill://{slug}` URI and a local `SKILL.md` path are visible, use the `skill://{slug}` resource first and treat the local file as fallback-only.
   - Uses local-auth freshness windows of 24h (`MAX_LOCAL_AUTH_AGE_SECONDS`) and secure-host fallback up to 7 days (`MAX_LOCAL_AUTH_RECENT_SECONDS`) during API outages.
   - Reports host users, handles lane preference sync via `/host/lane`, parses Codex token output, and POSTs `/usage`.
   - Honors `/auth` quota controls (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`) and displays ChatGPT usage windows + runner state.

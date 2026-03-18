@@ -55,6 +55,43 @@ class AgentsService
         return $result;
     }
 
+    public function ensureSeededFromFile(string $path): array
+    {
+        $seedPath = trim($path);
+        if ($seedPath === '' || !is_file($seedPath) || !is_readable($seedPath)) {
+            return [
+                'status' => 'missing',
+            ];
+        }
+
+        $body = file_get_contents($seedPath);
+        if ($body === false) {
+            return [
+                'status' => 'missing',
+            ];
+        }
+
+        $sha = hash('sha256', $body);
+        $existing = $this->agents->latest();
+        $existingSha = $existing['sha256'] ?? hash('sha256', (string) ($existing['body'] ?? ''));
+        $status = $existing === null ? 'created' : (hash_equals((string) $existingSha, $sha) ? 'unchanged' : 'updated');
+
+        if ($status !== 'unchanged') {
+            $this->agents->createVersion($body, null, $sha);
+        }
+
+        $this->logs->log(null, 'agents.seed', [
+            'status' => $status,
+            'sha256' => $sha,
+            'path' => $seedPath,
+        ]);
+
+        return [
+            'status' => $status,
+            'sha256' => $sha,
+        ];
+    }
+
     public function adminFetch(): array
     {
         $state = $this->agents->state();

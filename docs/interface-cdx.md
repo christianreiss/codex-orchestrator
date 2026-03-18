@@ -107,8 +107,8 @@ Profile shorthand:
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
 | Slash commands | `GET /slash-commands` + `POST /slash-commands/retrieve` | `POST /slash-commands/store` | `~/.codex/prompts/*`, baseline `~/.codex/.prompt-baseline.json` |
-| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | Primary read path: MCP `skill://{slug}`. Sync payloads now also include canonical `uri` metadata, and the synced fallback copy remains `~/.agents/skills/<slug>/SKILL.md`, baseline `~/.agents/.skill-baseline.json` |
-| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` |
+| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | Primary read path: MCP `skill://{slug}`. API metadata returns backward-compatible `uri` plus `canonical_uri`, `fallback_path`, and `legacy_fallback_path`. Synced fallback copy: `~/.agents/skills/<slug>/SKILL.md`, baseline `~/.agents/.skill-baseline.json` |
+| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot) |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
 Sync details:

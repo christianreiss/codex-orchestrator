@@ -177,6 +177,9 @@ class StartupSyncService
                 'sha256' => $remoteSha,
                 'deleted_at' => $deletedAt,
                 'managed' => !empty($row['managed']),
+                'canonical_uri' => $row['canonical_uri'] ?? null,
+                'fallback_path' => $row['fallback_path'] ?? null,
+                'legacy_fallback_path' => $row['legacy_fallback_path'] ?? null,
             ];
 
             if ($isDeleted) {
@@ -213,6 +216,9 @@ class StartupSyncService
                 'display_name' => isset($row['display_name']) ? (string) $row['display_name'] : null,
                 'description' => isset($row['description']) ? (string) $row['description'] : null,
                 'updated_at' => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
+                'canonical_uri' => $row['canonical_uri'] ?? null,
+                'fallback_path' => $row['fallback_path'] ?? null,
+                'legacy_fallback_path' => $row['legacy_fallback_path'] ?? null,
             ];
 
             if ($includeContent) {
@@ -223,6 +229,9 @@ class StartupSyncService
                     $entry['display_name'] = isset($doc['display_name']) ? (string) $doc['display_name'] : $entry['display_name'];
                     $entry['description'] = isset($doc['description']) ? (string) $doc['description'] : $entry['description'];
                     $entry['updated_at'] = isset($doc['updated_at']) ? (string) $doc['updated_at'] : $entry['updated_at'];
+                    $entry['canonical_uri'] = $doc['canonical_uri'] ?? $entry['canonical_uri'];
+                    $entry['fallback_path'] = $doc['fallback_path'] ?? $entry['fallback_path'];
+                    $entry['legacy_fallback_path'] = $doc['legacy_fallback_path'] ?? $entry['legacy_fallback_path'];
                 }
             }
 

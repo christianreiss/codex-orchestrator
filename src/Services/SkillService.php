@@ -15,6 +15,10 @@ use App\Repositories\SkillRepository;
 
 class SkillService
 {
+    public const CANONICAL_URI_PREFIX = 'skill://';
+    public const FALLBACK_SKILL_ROOT = '~/.agents/skills';
+    public const LEGACY_FALLBACK_SKILL_ROOT = '~/.codex/skills';
+
     public function __construct(
         private readonly SkillRepository $skills,
         private readonly LogRepository $logs,
@@ -37,7 +41,7 @@ class SkillService
         $rows = array_map(fn (array $row): array => $this->addCanonicalUri($row), $rows);
         $this->logs->log($this->hostId($host), 'skill.list', ['count' => count($rows)]);
 
-        return $rows;
+        return array_map(fn (array $row): array => $this->decorateSkillRow($row), $rows);
     }
 
     public function retrieve(string $slug, ?string $sha256, ?array $host = null): array
@@ -54,11 +58,10 @@ class SkillService
                 'status' => 'missing',
             ]);
 
-            return [
+            return $this->decorateSkillPayload($normalized, [
                 'status' => 'missing',
                 'slug' => $normalized,
-                'uri' => $this->skillUri($normalized),
-            ];
+            ]);
         }
 
         if (!empty($row['deleted_at'])) {
@@ -67,12 +70,12 @@ class SkillService
                 'status' => 'deleted',
             ]);
 
-            return [
+            return $this->decorateSkillPayload($normalized, [
                 'status' => 'deleted',
                 'slug' => $normalized,
                 'uri' => $this->skillUri($normalized),
                 'deleted_at' => $row['deleted_at'] ?? gmdate(DATE_ATOM),
-            ];
+            ]);
         }
 
         $canonicalSha = (string) ($row['sha256'] ?? '');
@@ -81,7 +84,7 @@ class SkillService
         }
 
         $status = ($sha256 !== null && hash_equals($canonicalSha, $sha256)) ? 'unchanged' : 'updated';
-        $result = [
+        $result = $this->decorateSkillPayload($normalized, [
             'status' => $status,
             'slug' => $normalized,
             'uri' => $this->skillUri($normalized),
@@ -89,7 +92,8 @@ class SkillService
             'display_name' => $row['display_name'] ?? null,
             'description' => $row['description'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
-        ];
+            'managed' => !empty($row['managed']),
+        ]);
 
         if ($status !== 'unchanged') {
             $result['manifest'] = $row['manifest'] ?? '';
@@ -111,7 +115,7 @@ class SkillService
             return null;
         }
 
-        return [
+        return $this->decorateSkillPayload($normalized, [
             'slug' => $normalized,
             'uri' => $this->skillUri($normalized),
             'sha256' => $row['sha256'] ?? hash('sha256', (string) ($row['manifest'] ?? '')),
@@ -119,7 +123,8 @@ class SkillService
             'description' => $row['description'] ?? null,
             'manifest' => $row['manifest'] ?? '',
             'updated_at' => $row['updated_at'] ?? null,
-        ];
+            'managed' => !empty($row['managed']),
+        ]);
     }
 
     public function store(array $payload, ?array $host = null): array
@@ -177,12 +182,13 @@ class SkillService
             'status' => $status,
         ]);
 
-        return [
+        return $this->decorateSkillPayload($slug, [
             'status' => $status,
             'slug' => $slug,
             'sha256' => $saved['sha256'] ?? $sha,
             'updated_at' => $saved['updated_at'] ?? gmdate(DATE_ATOM),
-        ];
+            'managed' => !empty($saved['managed']),
+        ]);
     }
 
     public function delete(string $slug, ?array $host = null): bool
@@ -261,6 +267,47 @@ class SkillService
         return $this->projectModule?->managedSkill();
     }
 
+    private function decorateSkillRow(array $row): array
+    {
+        $slug = trim((string) ($row['slug'] ?? ''));
+        if ($slug === '') {
+            return $row;
+        }
+
+        return $this->decorateSkillPayload($slug, $row + [
+            'managed' => !empty($row['managed']),
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function decorateSkillPayload(string $slug, array $payload): array
+    {
+        $payload['uri'] = $this->skillUri($slug);
+        $payload['canonical_uri'] = $this->skillUri($slug);
+        $payload['fallback_path'] = $this->fallbackPath($slug);
+        $payload['legacy_fallback_path'] = $this->legacyFallbackPath($slug);
+
+        return $payload;
+    }
+
+    private function skillUri(string $slug): string
+    {
+        return self::CANONICAL_URI_PREFIX . rawurlencode($slug);
+    }
+
+    private function fallbackPath(string $slug): string
+    {
+        return self::FALLBACK_SKILL_ROOT . '/' . $slug . '/SKILL.md';
+    }
+
+    private function legacyFallbackPath(string $slug): string
+    {
+        return self::LEGACY_FALLBACK_SKILL_ROOT . '/' . $slug . '/SKILL.md';
+    }
+
     private function isManagedSlug(string $slug): bool
     {
         return $slug === ProjectModuleService::MANAGED_SKILL_SLUG && $this->managedSkill() !== null;
@@ -276,10 +323,5 @@ class SkillService
         $row['uri'] = $this->skillUri($slug);
 
         return $row;
-    }
-
-    private function skillUri(string $slug): string
-    {
-        return 'skill://' . rawurlencode($slug);
     }
 }
