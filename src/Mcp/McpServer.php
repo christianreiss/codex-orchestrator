@@ -12,6 +12,8 @@ use InvalidArgumentException;
 class McpServer
 {
     public const TOOL_NAME_PATTERN = '/^[a-zA-Z0-9_-]+$/';
+    public const CAPABILITY_HOST = 'host';
+    public const CAPABILITY_OPERATOR = 'operator';
 
     private readonly MemoryService $memories;
     private readonly ?ProjectCoordinationService $projects;
@@ -42,10 +44,12 @@ class McpServer
      *
      * @return array<int, array{name:string,description:string,inputSchema:array}>
      */
-    public function listTools(): array
+    public function listTools(string $capability = self::CAPABILITY_OPERATOR): array
     {
+        $this->assertCapability($capability);
+
         $tools = [];
-        foreach ($this->definitions() as $name => $definition) {
+        foreach ($this->definitions($capability) as $name => $definition) {
             if (!preg_match(self::TOOL_NAME_PATTERN, $name)) {
                 throw new InvalidArgumentException('MCP tool name violates pattern: ' . $name);
             }
@@ -67,9 +71,13 @@ class McpServer
      * @param array<string,mixed> $host
      * @return array<string,mixed>
      */
-    public function dispatch(string $name, mixed $args, array $host): array
+    public function dispatch(string $name, mixed $args, array $host, string $capability = self::CAPABILITY_OPERATOR): array
     {
+        $this->assertCapability($capability);
         $normalized = $this->normalizeName($name);
+        if (!$this->capabilityAllowsTool($capability, $normalized)) {
+            throw new McpToolNotFoundException($name);
+        }
 
         // Allow shorthand string payloads per tool for convenience.
         if (!is_array($args)) {
@@ -165,7 +173,7 @@ class McpServer
     /**
      * @return array<string, array{description:string,inputSchema:array}>
      */
-    private function definitions(): array
+    private function definitions(string $capability = self::CAPABILITY_OPERATOR): array
     {
         $definitions = [
             'memory_store' => [
@@ -498,7 +506,31 @@ class McpServer
             ];
         }
 
+        if ($capability === self::CAPABILITY_HOST) {
+            $definitions = array_filter(
+                $definitions,
+                fn (string $name): bool => $this->capabilityAllowsTool($capability, $name),
+                ARRAY_FILTER_USE_KEY
+            );
+        }
+
         return $definitions;
+    }
+
+    private function assertCapability(string $capability): void
+    {
+        if (!in_array($capability, [self::CAPABILITY_HOST, self::CAPABILITY_OPERATOR], true)) {
+            throw new InvalidArgumentException('Unknown MCP capability: ' . $capability);
+        }
+    }
+
+    private function capabilityAllowsTool(string $capability, string $toolName): bool
+    {
+        if ($capability === self::CAPABILITY_HOST && str_starts_with($toolName, 'fs_')) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

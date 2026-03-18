@@ -16,13 +16,14 @@ For CoCo specifically, shared state is project-only. `memory://...` resources re
 
 ## Auth & safety
 
-- Endpoints that authenticate (`POST /mcp` and `/mcp/memories/*`) accept API keys via `X-API-Key` or `Authorization: Bearer {host_api_key}`.
+- Endpoints that authenticate (`POST /mcp` and `/mcp/memories/*`) accept MCP credentials via `X-API-Key` or `Authorization: Bearer ...`. Secure hosts typically use the host API key; insecure hosts receive a short-lived MCP bearer token in baked config.
 - `GET /mcp` does not authenticate hosts.
 - `/mcp/memories/*` uses normal host IP checks from `AuthService::authenticate` (including `allow_roaming_ips` and insecure-window IP override behavior).
-- `POST /mcp` uses the same `AuthService::authenticate` IP policy, then enforces insecure-host sliding-window access via `enforceInsecureWindow($host, 'mcp')`.
+- `POST /mcp` authenticates through `AuthService::authenticateMcpCredential(...)`, then enforces insecure-host sliding-window access via `enforceInsecureWindow($host, 'mcp')`.
 - Origin allowlist checks apply to `/mcp` `GET` and `POST` only. Allowed origins come from `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Missing `Origin` is allowed.
 - Rate limits: global per-IP bucket applies to `/mcp*` (same non-admin bucket; defaults `120` requests per `60` seconds).
 - MCP JSON-RPC requests are logged in `mcp_access_logs`; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
+- Host-authenticated `/mcp` is intentionally host-scoped: it advertises memory/resource/project tools only. Coordinator filesystem helpers (`fs_*`) are not listed and return “method not found” if called on that route.
 
 ## JSON-RPC methods
 
@@ -32,13 +33,12 @@ For CoCo specifically, shared state is project-only. `memory://...` resources re
 
 ## Tools (names satisfy `^[a-zA-Z0-9_-]+$`)
 
-- Memory: `memory_store`, `memory_retrieve`, `memory_search`, `memory_append`, `memory_query`, `memory_list`.
-- Filesystem (app root sandbox): `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`.
-- Resource tools: `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
+- Host-authenticated tools: `memory_store`, `memory_retrieve`, `memory_search`, `memory_append`, `memory_query`, `memory_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
 - Projects module enabled: `project_list`, `project_create`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, `project_feedback_create`.
+- Operator/internal filesystem helpers still exist in `McpServer` (`fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`) but are not exposed on the public host-authenticated `/mcp` route.
 - Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
 - `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`), `memory_store` (`memory://{scope}:{name}`), and `skill_manifest` (`skill://{slug}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
-- Memory/FS/resource tool responses are wrapped in `CallToolResult.content` blocks.
+- Memory/resource/project tool responses are wrapped in `CallToolResult.content` blocks.
 - `resources/list` always includes recent `memory://...` resources for the caller and synced Skills as `skill://{slug}` read-only markdown resources; when the Projects module is enabled it also includes concrete `project://{slug}` resources for each active shared project.
 - `resources/read` fetches a single memory as `text/plain` when given `uri=memory://{id}`, a Skill manifest as `text/markdown` when given `uri=skill://{slug}`, or a project bootstrap JSON document when given `uri=project://{slug}`. Clients should prefer `skill://{slug}` as the primary Skill read path; synced local `~/.agents/skills/<slug>/SKILL.md` files are compatibility fallback copies.
 - The managed `coco` skill uses the `project_*` / `project://{slug}` side of that surface for shared handoffs; it does not treat `memory://...` as cross-host shared state.

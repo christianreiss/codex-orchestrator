@@ -15,7 +15,7 @@ class RunnerVerifier
 {
     public function __construct(
         private readonly string $runnerUrl,
-        private readonly string $defaultBaseUrl,
+        string $defaultBaseUrl = '',
         private readonly float $timeoutSeconds = 8.0,
         private readonly string $sharedSecret = ''
     ) {
@@ -25,16 +25,7 @@ class RunnerVerifier
     {
         $payload = [
             'auth_json' => $authPayload,
-            'base_url' => $baseUrl ?: $this->defaultBaseUrl,
         ];
-        if ($host !== null) {
-            if (isset($host['api_key']) && is_string($host['api_key'])) {
-                $payload['api_key'] = $host['api_key'];
-            }
-            if (isset($host['fqdn']) && is_string($host['fqdn'])) {
-                $payload['fqdn'] = $host['fqdn'];
-            }
-        }
 
         $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
         $payload['timeout_seconds'] = $timeout;

@@ -302,12 +302,12 @@ Wrapper updates:
   - `resources/read|create|update|delete`
 - Tool namespaces exposed by `McpServer`:
   - `memory_*`
-  - `fs_*`
   - `resource_*`
 - MCP resource families exposed by `McpServer`:
   - `memory://{id}`
   - `skill://{slug}`
 - When the Projects module is enabled, `McpServer` also exposes `project_*` tools plus the `project://{slug}` resource template/resource family used by the managed `coco` skill.
+- Host-authenticated `/mcp` does not expose coordinator filesystem `fs_*` tools; those helpers remain internal/operator-only.
 - Tool-name dot aliases are accepted (`name.with.dots` normalized to underscores).
 - Host-authenticated REST memory endpoints also exist under `/mcp/memories/*`, but those memories remain host-scoped and reserved `coco*` ids are rejected so cross-server CoCo handoffs stay project-only.
 - The wrapper does not have a separate project-state startup sync path; shared project context is fetched live through `/mcp` or `/projects*` when agents actually need it.

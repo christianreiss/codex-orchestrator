@@ -35,7 +35,7 @@ What it does
 - Prompts for `DATA_ROOT` (default `/var/docker_data/codex-auth.example.com`) and creates `store`, `store/sql`, `store/logs`, `mysql_data`, `caddy/tls`, `caddy/mtls`, and `backups` under it.
 - Prompts for external URLs used by hosts/runner:
   - `CODEX_SYNC_BASE_URL` (runner container base URL for Codex probes; defaults to the API URL in compose)
-  - `AUTH_RUNNER_CODEX_BASE_URL` (runner’s Codex base URL; defaults to the same value)
+  - `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility knob; retained in setup/env but no longer sent to the runner verifier payload)
   - Set `PUBLIC_BASE_URL` for production so installers/wrappers always bake the correct base URL.
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
   - Prompts for app-level admin mode (`ADMIN_ACCESS_MODE=mtls|none`).
@@ -56,7 +56,7 @@ Useful flags
 - `--no-build` / `--no-up` — control compose phases separately.
 - `--non-interactive` — never prompt; combine with the flags below to supply values.
 - `--data-root PATH` — set `DATA_ROOT` without prompting.
-- `--codex-url URL` / `--runner-url URL` — set `CODEX_SYNC_BASE_URL` / `AUTH_RUNNER_CODEX_BASE_URL` (runner probes). Set `PUBLIC_BASE_URL` separately if you need an explicit host-facing base URL.
+- `--codex-url URL` / `--runner-url URL` — set `CODEX_SYNC_BASE_URL` / `AUTH_RUNNER_CODEX_BASE_URL` (`--runner-url` is a legacy compatibility setting; `PUBLIC_BASE_URL` still controls host-facing installer/wrapper URLs).
 - `--caddy` or `--no-caddy` — force enable/disable the bundled proxy.
 - `--caddy-domain DOMAIN` — seed `CADDY_DOMAIN`.
 - TLS options: `--tls-mode 1|2|3`, `--acme-email`, `--tls-cert-path`, `--tls-key-path`, `--tls-cert`, `--tls-key`, `--tls-sans`.
@@ -98,7 +98,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
     - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
     - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
     - Password-reset endpoints are intentionally disabled (`410 Gone`).
-   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL`, `AUTH_RUNNER_TIMEOUT`, optional `AUTH_RUNNER_SHARED_SECRET`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, optional `AUTH_RUNNER_SHARED_SECRET`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
    - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
    - Startup behavior: `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` (default off in production; use `scripts/migrate.php` for explicit schema/backfill runs).

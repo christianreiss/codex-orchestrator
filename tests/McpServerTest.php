@@ -675,6 +675,28 @@ final class McpServerTest extends TestCase
         $this->assertContains('project_note_upsert', $names);
     }
 
+    public function testHostCapabilityHidesFilesystemTools(): void
+    {
+        $server = new McpServer(new SpyMemoryService(), new SpyProjectCoordinationService());
+
+        $tools = $server->listTools(McpServer::CAPABILITY_HOST);
+        $names = array_map(static fn (array $tool): string => $tool['name'], $tools);
+
+        $this->assertContains('memory_store', $names);
+        $this->assertContains('resource_read', $names);
+        $this->assertContains('project_list', $names);
+        $this->assertNotContains('fs_read_file', $names);
+        $this->assertNotContains('fs_write_file', $names);
+    }
+
+    public function testHostCapabilityRejectsFilesystemToolDispatch(): void
+    {
+        $server = new McpServer(new SpyMemoryService(), new SpyProjectCoordinationService());
+
+        $this->expectException(McpToolNotFoundException::class);
+        $server->dispatch('fs_write_file', ['path' => 'blocked.txt', 'content' => 'nope'], [], McpServer::CAPABILITY_HOST);
+    }
+
     public function testDispatchProjectCreateUsesProjectService(): void
     {
         $projects = new SpyProjectCoordinationService();

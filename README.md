@@ -37,7 +37,7 @@ If you only use Codex on one laptop, this is probably overkill.
 - Usage, cost, and quotas: `/usage` ingest with GPT-5.4 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
 - Version control: pin Codex version fleet-wide or per host; wrapper self-updates from the server-managed wrapper artifact (`/wrapper/download`).
 - Dashboards and API: admin API defaults to mTLS access (`ADMIN_ACCESS_MODE=mtls`) and supports userless bootstrap until the first active admin user; HTTP API for automation.
-- MCP server: native HTTP MCP endpoint (`/mcp`) with memory/resource/file tools plus project tools/resources when the Projects module is enabled; baked into managed `config.toml` entries.
+- MCP server: native HTTP MCP endpoint (`/mcp`) with host-scoped memory/resource tools plus shared project tools/resources when the Projects module is enabled; coordinator filesystem helpers are no longer exposed on the host-authenticated route.
 
 ## See it in action
 ![Admin dashboard overview](docs/img/dashboard_1.png)

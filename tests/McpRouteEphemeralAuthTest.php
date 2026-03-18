@@ -11,5 +11,7 @@ final class McpRouteEphemeralAuthTest extends TestCase
         $source = file_get_contents(__DIR__ . '/../public/index.php');
         self::assertIsString($source);
         self::assertStringContainsString('$host = $service->authenticateMcpCredential($apiKey, $clientIp);', $source);
+        self::assertStringContainsString("'tools' => \$mcpServer->listTools(McpServer::CAPABILITY_HOST)", $source);
+        self::assertStringContainsString("\$result = \$mcpServer->dispatch(\$name, \$args, \$host, McpServer::CAPABILITY_HOST);", $source);
     }
 }

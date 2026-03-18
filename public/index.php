@@ -4957,7 +4957,7 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
             case 'tools.list':
             case 'list_tools':
                 $result = [
-                    'tools' => $mcpServer->listTools(),
+                    'tools' => $mcpServer->listTools(McpServer::CAPABILITY_HOST),
                 ];
                 break;
 
@@ -5055,7 +5055,7 @@ $router->add('POST', '#^/mcp$#', function () use ($rawBody, $service, $memorySer
                 }
 
                 try {
-                    $result = $mcpServer->dispatch($name, $args, $host);
+                    $result = $mcpServer->dispatch($name, $args, $host, McpServer::CAPABILITY_HOST);
                 } catch (McpToolNotFoundException $exception) {
                     $result = $mcpServer->wrapContent('Method not found: ' . $name, true);
                     $toolError = true;

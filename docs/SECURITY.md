@@ -33,6 +33,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 - **Kill switch**: `api_disabled` flag (set via `/admin/api/state`) returns 503 for every route except exact path `/admin/api/state`.
 - **Forwarded IP trust**: `X-Real-IP`/`X-Forwarded-*` are honored only when `TRUST_X_FORWARDED=1` and `REMOTE_ADDR` matches `TRUSTED_PROXY_CIDRS`; otherwise `REMOTE_ADDR` is authoritative.
 - **MCP origin allowlist**: `/mcp` checks `Origin` against `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`. Optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default off). Empty `Origin` is allowed; non-matching origins are rejected with 403.
+- **MCP privilege boundary**: host-authenticated `POST /mcp` uses dedicated MCP credentials (`authenticateMcpCredential`) and only exposes host-safe memory/resource/project tools. Coordinator filesystem helpers (`fs_*`) are not available on that public route.
 
 ## Data Handling
 
