@@ -182,7 +182,6 @@
     const insecureHostsList = document.getElementById('insecureHostsList');
     const insecureDomainsList = document.getElementById('insecureDomainsList');
     const insecureHostsCloseBtn = document.getElementById('insecureHostsCloseBtn');
-    const insecureHostsExtendAllBtn = document.getElementById('insecureHostsExtendAll');
     const pageHero = document.querySelector('.page-hero');
     const heroEyebrow = pageHero?.querySelector('.eyebrow');
     const heroTitle = pageHero?.querySelector('h1');
@@ -6968,12 +6967,18 @@
       return host && !isHostSecure(host);
     }
 
+    function hostHasActiveInsecureWindow(host) {
+      if (!host || !isInsecureHost(host)) return false;
+      if (typeof host?.active === 'boolean') return host.active;
+      return insecureState(host).enabledActive;
+    }
+
     function renderInsecureHostsQuickButton(hostsList) {
       if (!navInsecureHosts) return;
-      const insecureCount = Array.isArray(hostsList) ? hostsList.filter(isInsecureHost).length : 0;
-      if (insecureCount > 0) {
+      const activeCount = Array.isArray(hostsList) ? hostsList.filter((host) => hostHasActiveInsecureWindow(host)).length : 0;
+      if (activeCount > 0) {
         navInsecureHosts.style.display = '';
-        navInsecureHosts.textContent = `Toggler (${insecureCount})`;
+        navInsecureHosts.textContent = `Active Windows (${activeCount})`;
       } else {
         navInsecureHosts.style.display = 'none';
       }
@@ -7039,48 +7044,42 @@
     function openInsecureHostsModal(insecureHosts, insecureDomains) {
       if (!insecureHostsModal || !insecureHostsList) return;
       const items = Array.isArray(insecureHosts) ? insecureHosts.slice() : [];
-      const hostActive = (host) => {
-        if (typeof host?.active === 'boolean') return host.active;
-        return insecureState(host).enabledActive;
-      };
       const activeFirst = (a, b) => {
-        const aActive = hostActive(a);
-        const bActive = hostActive(b);
+        const aActive = hostHasActiveInsecureWindow(a);
+        const bActive = hostHasActiveInsecureWindow(b);
         if (aActive !== bActive) return aActive ? -1 : 1;
         return String(a?.fqdn || '').localeCompare(String(b?.fqdn || ''), undefined, { sensitivity: 'base' });
       };
       items.sort(activeFirst);
-
-      const activeCount = items.filter((h) => hostActive(h)).length;
-      const bulkVisible = activeCount >= 2;
-      if (insecureHostsExtendAllBtn) {
-        insecureHostsExtendAllBtn.style.display = bulkVisible ? '' : 'none';
-      }
+      const activeHosts = items.filter((host) => hostHasActiveInsecureWindow(host));
+      const activeCount = activeHosts.length;
+      renderInsecureHostsQuickButton(items);
       if (insecureHostsDisableAllBtn) {
-        insecureHostsDisableAllBtn.style.display = bulkVisible ? '' : 'none';
+        insecureHostsDisableAllBtn.style.display = activeCount > 0 ? '' : 'none';
       }
 
-      insecureHostsList.innerHTML = items.map((host) => {
-        const isActive = hostActive(host);
-        const label = isActive ? 'Disable' : 'Enable';
-        const btnClass = isActive ? 'ghost' : '';
-        const onlineFor = isActive ? formatCountdown(host?.insecure_enabled_until) : '';
-        const onlineUntil = isActive ? (host?.insecure_enabled_until || '') : '';
-        const onlineLine = isActive && onlineFor !== '—'
-          ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
-          : '';
-        return `
-          <div class="quick-hosts-row" data-host-id="${host.id}">
-            <div class="quick-hosts-info">
-              <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
-              ${onlineLine}
+      if (!activeHosts.length) {
+        insecureHostsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No active insecure host windows.</div></div></div>';
+      } else {
+        insecureHostsList.innerHTML = activeHosts.map((host) => {
+          const onlineFor = formatCountdown(host?.insecure_enabled_until);
+          const onlineUntil = host?.insecure_enabled_until || '';
+          const onlineLine = onlineFor !== '—'
+            ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
+            : '';
+          return `
+            <div class="quick-hosts-row" data-host-id="${host.id}">
+              <div class="quick-hosts-info">
+                <div class="quick-hosts-fqdn">${escapeHtml(host.fqdn || '')}</div>
+                ${onlineLine}
+              </div>
+              <div class="quick-hosts-actions">
+                <button class="ghost" data-action="disable">Disable</button>
+              </div>
             </div>
-            <div class="quick-hosts-actions">
-              <button class="${btnClass}" data-action="toggle">${label}</button>
-            </div>
-          </div>
-        `;
-      }).join('');
+          `;
+        }).join('');
+      }
 
       if (insecureDomainsList) {
         const domains = Array.isArray(insecureDomains) ? insecureDomains.slice() : [];
@@ -7147,30 +7146,6 @@
       if (insecureHostsCloseBtn) {
         insecureHostsCloseBtn.addEventListener('click', () => closeInsecureHostsModal());
       }
-      if (insecureHostsExtendAllBtn) {
-        insecureHostsExtendAllBtn.addEventListener('click', async () => {
-          insecureHostsExtendAllBtn.disabled = true;
-          const original = insecureHostsExtendAllBtn.textContent;
-          insecureHostsExtendAllBtn.textContent = 'Extending…';
-          try {
-            const extendResp = await api('/admin/hosts/insecure/extend', { method: 'POST' });
-            await loadAll();
-            const resp = await api('/admin/hosts/insecure');
-            openInsecureHostsModal(resp?.data?.hosts || [], resp?.data?.domains || []);
-            const extended = extendResp?.data?.extended;
-            const msg = Number.isFinite(extended)
-              ? `Extended ${extended} insecure host${extended === 1 ? '' : 's'}`
-              : 'Extended all active insecure hosts';
-            toast(msg, 'ok');
-          } catch (err) {
-            console.error('extend all insecure hosts failed', err);
-            toast(`Extend failed: ${err.message}`, 'error');
-          } finally {
-            insecureHostsExtendAllBtn.disabled = false;
-            insecureHostsExtendAllBtn.textContent = original;
-          }
-        });
-      }
       if (insecureHostsDisableAllBtn) {
         insecureHostsDisableAllBtn.addEventListener('click', async () => {
           insecureHostsDisableAllBtn.disabled = true;
@@ -7202,7 +7177,7 @@
       }
       if (insecureHostsList) {
         insecureHostsList.addEventListener('click', async (e) => {
-          const btn = e.target?.closest?.('button[data-action="toggle"]');
+          const btn = e.target?.closest?.('button[data-action="disable"]');
           if (!btn) return;
           const row = btn.closest('.quick-hosts-row');
           const hostIdRaw = row?.getAttribute?.('data-host-id');
@@ -7211,7 +7186,7 @@
 
           btn.disabled = true;
           const originalLabel = btn.textContent;
-          btn.textContent = originalLabel === 'Enable' ? 'Turning on…' : 'Turning off…';
+          btn.textContent = 'Turning off…';
           try {
             const resp = await api('/admin/hosts/insecure');
             const hosts = resp?.data?.hosts || [];
@@ -7219,8 +7194,7 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
-            const enableTarget = !(target?.active === true);
-            await toggleInsecureApi(target, null, enableTarget);
+            await toggleInsecureApi(target, null, false);
             const refreshed = await api('/admin/hosts/insecure');
             openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
           } catch (err) {

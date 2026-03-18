@@ -73,7 +73,7 @@
       </nav>
       <div class="rail-tools">
         <div class="rail-toolset">
-          <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Toggler</button>
+          <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Active Windows</button>
           <button class="rail-action rail-action-accent" id="navNewHost">New Host</button>
           <button class="rail-action rail-action-quiet" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
             Theme <span class="theme-toggle-label">Auto</span>
@@ -210,8 +210,8 @@
         </div>
         <div class="modal-backdrop" id="insecureHostsModal">
           <div class="modal">
-            <h3>Insecure hosts</h3>
-            <p class="muted">Enable or disable the insecure API window. Active windows are listed first.</p>
+            <h3>Active windows</h3>
+            <p class="muted">Currently enabled insecure host windows for quick disabling.</p>
             <div id="insecureHostsList" class="quick-hosts-list"></div>
             <div style="margin-top:16px;">
               <h4 style="margin:0 0 6px;">Allowed domains</h4>
@@ -220,7 +220,6 @@
             </div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
               <button class="ghost" id="insecureHostsDisableAll" style="display:none;">Disable all</button>
-              <button class="ghost" id="insecureHostsExtendAll" style="display:none;">Extend all</button>
               <button class="ghost" id="insecureHostsCloseBtn">Close</button>
             </div>
           </div>
@@ -1886,7 +1885,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-18-02"></script>
   <script src="/admin/assets/logs.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

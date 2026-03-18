@@ -21,6 +21,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('class="rail-frame"', $html);
         $this->assertStringContainsString('data-rail-trigger', $html);
         $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
+        $this->assertStringContainsString('id="navInsecureHosts" style="display:none;">Active Windows</button>', $html);
     }
 
     public function testNavControllerWiresDrawerAndActiveSyncBehavior(): void
