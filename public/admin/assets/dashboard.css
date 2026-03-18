@@ -5111,7 +5111,7 @@ body[data-nav-version="2026"] .rail-frame {
   border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
   border-radius: 18px;
   background: color-mix(in srgb, var(--card) 96%, transparent);
-  box-shadow: 0 10px 26px rgba(2, 6, 23, 0.08);
+  box-shadow: none;
 }
 
 body[data-nav-version="2026"] .rail-primary {
@@ -5189,8 +5189,9 @@ body[data-nav-version="2026"] .rail-link:focus-visible,
 body[data-nav-version="2026"] .rail-disclosure:focus-visible,
 body[data-nav-version="2026"] .rail-action:focus-visible,
 body[data-nav-version="2026"] .rail-account-exit:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+  outline: 2px solid rgba(var(--accent-rgb), 0.42);
+  outline-offset: 3px;
+  box-shadow: none;
   border-radius: 10px;
 }
 
@@ -5218,7 +5219,7 @@ body[data-nav-version="2026"] .rail-panel {
   border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
   border-radius: 18px;
   background: color-mix(in srgb, var(--card) 100%, transparent);
-  box-shadow: 0 18px 30px rgba(2, 6, 23, 0.10);
+  box-shadow: none;
 }
 
 body[data-nav-version="2026"] .rail-group.is-open .rail-panel {
