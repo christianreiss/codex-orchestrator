@@ -5150,6 +5150,11 @@ body[data-nav-version="2026"] .main-nav .nav-item {
   box-shadow: none !important;
 }
 
+body[data-nav-version="2026"] .main-nav .nav-item.has-children {
+  padding: 0 10px !important;
+  border-radius: 0 !important;
+}
+
 body[data-nav-version="2026"] .main-nav .nav-item::after {
   content: '' !important;
   display: block !important;
@@ -5165,11 +5170,22 @@ body[data-nav-version="2026"] .main-nav .nav-item::after {
   transition: opacity 140ms ease, transform 140ms ease, background 140ms ease;
 }
 
+body[data-nav-version="2026"] .main-nav .nav-item.has-children::after {
+  left: 10px;
+  right: 10px;
+}
+
 body[data-nav-version="2026"] .main-nav .nav-item:hover,
 body[data-nav-version="2026"] .main-nav .nav-item:focus-visible {
   color: var(--text) !important;
   background: color-mix(in srgb, var(--frost) 82%, transparent) !important;
   border: none !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-item.has-children:hover,
+body[data-nav-version="2026"] .main-nav .nav-item.has-children:focus-within,
+body[data-nav-version="2026"] .main-nav .nav-item.has-children:focus-visible {
+  background: transparent !important;
 }
 
 body[data-nav-version="2026"] .main-nav .nav-item:focus-visible {
@@ -5198,7 +5214,7 @@ body[data-nav-version="2026"] .main-nav .nav-item.active::after {
 
 body[data-nav-version="2026"] .main-nav .nav-item.has-children.open {
   color: var(--text) !important;
-  background: color-mix(in srgb, var(--frost) 90%, transparent) !important;
+  background: transparent !important;
   border: none !important;
 }
 
@@ -5231,6 +5247,17 @@ body[data-nav-version="2026"] .nav-item .nav-trigger {
   background: transparent;
   color: inherit;
   font: inherit;
+}
+
+body[data-nav-version="2026"] .nav-item.has-children .nav-trigger {
+  padding: 0 4px;
+  border-radius: 0;
+}
+
+body[data-nav-version="2026"] .nav-item.has-children .nav-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 10px;
 }
 
 /* ── Dropdown menus ── */
@@ -5530,6 +5557,11 @@ body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
     padding: 0 12px !important;
   }
 
+  body[data-nav-version="2026"] .main-nav .nav-item.has-children {
+    border-radius: 12px !important;
+    padding: 0 12px !important;
+  }
+
   body[data-nav-version="2026"] .main-nav .nav-item::after {
     display: none !important;
   }
@@ -5537,6 +5569,12 @@ body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
   body[data-nav-version="2026"] .main-nav .nav-item.active {
     background: rgba(var(--accent-rgb), 0.11) !important;
     color: var(--text) !important;
+  }
+
+  body[data-nav-version="2026"] .main-nav .nav-item.has-children:hover,
+  body[data-nav-version="2026"] .main-nav .nav-item.has-children:focus-within,
+  body[data-nav-version="2026"] .main-nav .nav-item.has-children:focus-visible {
+    background: color-mix(in srgb, var(--frost) 82%, transparent) !important;
   }
 
   body[data-nav-version="2026"] .main-nav .nav-item.has-children.open {

@@ -43,6 +43,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('body[data-nav-version="2026"] .main-nav', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-panel', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-utility-cluster', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .main-nav .nav-item.has-children', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-drawer-backdrop', $css);
         $this->assertStringContainsString('@media (max-width: 940px)', $css);
     }
