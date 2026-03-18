@@ -5138,8 +5138,12 @@ body[data-nav-version="2026"] .rail-disclosure {
   align-items: center;
   gap: 10px;
   padding: 0 14px;
-  border: 0;
-  background: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
   color: var(--muted);
   text-decoration: none;
   cursor: pointer;
@@ -5278,8 +5282,8 @@ body[data-nav-version="2026"] .rail-tools {
   align-items: center;
   gap: 18px;
   min-height: 34px;
-  padding-left: 18px;
-  border-left: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  padding-left: 0;
+  border-left: 0;
 }
 
 body[data-nav-version="2026"] .rail-toolset {
@@ -5291,8 +5295,12 @@ body[data-nav-version="2026"] .rail-toolset {
 body[data-nav-version="2026"] .rail-action,
 body[data-nav-version="2026"] .rail-account-exit {
   padding: 0;
-  border: 0;
-  background: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
   color: var(--muted);
   font-family: var(--font-display);
@@ -5334,8 +5342,8 @@ body[data-nav-version="2026"] .rail-account {
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  padding-left: 18px;
-  border-left: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  padding-left: 0;
+  border-left: 0;
 }
 
 body[data-nav-version="2026"] .rail-account-name {
