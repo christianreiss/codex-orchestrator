@@ -14,7 +14,7 @@ final class AdminUsersNavTest extends TestCase
         $this->assertIsString($html);
 
         $this->assertStringContainsString('data-nav="users"', $html);
-        $this->assertStringContainsString('href="#users"', $html);
+        $this->assertStringContainsString('href="/admin/users"', $html);
         $this->assertStringContainsString('>Users<', $html);
     }
 

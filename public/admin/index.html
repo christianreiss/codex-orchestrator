@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-12-03">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-19-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
 </head>
@@ -23,9 +23,38 @@
     <div class="nav-panel" id="navDrawer" aria-hidden="false">
       <nav class="nav-groups" aria-label="Primary navigation">
         <a class="nav-item" href="/admin/dashboard" data-nav="dashboard">Overview</a>
-        <a class="nav-item" href="/admin/hosts" data-nav="hosts">Hosts</a>
-        <a class="nav-item" href="/admin/logs" data-nav="logs">Logs</a>
-        <a class="nav-item" href="/admin/settings" data-nav="settings">Settings</a>
+        <div class="nav-item has-children" data-nav="hosts">
+          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Hosts <span class="caret" aria-hidden="true">▾</span></button>
+          <div class="nav-dropdown" role="menu">
+            <a class="host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="" role="menuitem">All Hosts</a>
+            <a class="host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem">Secure</a>
+            <a class="host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem">Insecure</a>
+            <a class="host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
+          </div>
+        </div>
+        <div class="nav-item has-children" data-nav="logs">
+          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Logs <span class="caret" aria-hidden="true">▾</span></button>
+          <div class="nav-dropdown" role="menu">
+            <a class="log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client" role="menuitem">API Logs</a>
+            <a class="log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp" role="menuitem">MCP Logs</a>
+            <a class="log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events" role="menuitem">Events</a>
+          </div>
+        </div>
+        <div class="nav-item has-children" data-nav="settings">
+          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Settings <span class="caret" aria-hidden="true">▾</span></button>
+          <div class="nav-dropdown" role="menu">
+            <a class="settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem">General</a>
+            <a class="settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem">Agents</a>
+            <a class="settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem">Slash Commands</a>
+            <a class="settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem">Memories</a>
+            <hr class="nav-dropdown-divider" aria-hidden="true">
+            <a class="settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem">Projects</a>
+            <a class="settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem">Profiles</a>
+            <a class="settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem">Skills</a>
+            <hr class="nav-dropdown-divider" aria-hidden="true">
+            <a class="settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem">config.toml</a>
+          </div>
+        </div>
         <a class="nav-item" href="/admin/users" data-nav="users">Users</a>
       </nav>
       <div class="nav-actions">

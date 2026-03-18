@@ -1,4 +1,5 @@
 # 2026-03-18
+- Admin UI: refreshed the 2026 desktop nav into a tighter macOS-style command bar with dropdown menus for Hosts, Logs, and Settings, restored mobile tab fallbacks inside the drawer, and cache-bumped the dashboard stylesheet.
 - Admin UI: switched the dashboard shell from hash fragments to real `/admin/...` paths (`/admin/dashboard`, `/admin/hosts/*`, `/admin/logs/*`, `/admin/settings/*`, `/admin/projects/{slug}`, `/admin/users`), updated the path bootstrap/init helpers, and cache-bumped the touched admin JS bundles so reloads and deep links stay in sync.
 - cdx wrapper/auth contracts: `/auth` and `/versions` now expose `versions.auto_update_enabled`, and host-level `auto_update_override` now tells `cdx` to skip per-run update checks when cron-managed auto-update is already enabled. Wrapper bumped to `2026.03.18-03`.
 - Admin hosts: fixed `/admin/hosts` so it also returns `last_cron_check`, which lets the dashboard host detail show real cron auto-update check-ins instead of falling back to `Never` after successful `cdx --cron` runs.
