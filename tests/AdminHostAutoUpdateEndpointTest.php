@@ -40,5 +40,10 @@ final class AdminHostAutoUpdateEndpointTest extends TestCase
             $routeBlock,
             'Expected /admin/hosts to include auto_update_override so dashboard toggles persist after reload'
         );
+        self::assertStringContainsString(
+            "'last_cron_check'",
+            $routeBlock,
+            'Expected /admin/hosts to include last_cron_check so the dashboard can show recent cron auto-update check-ins'
+        );
     }
 }
