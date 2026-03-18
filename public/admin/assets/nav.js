@@ -15,6 +15,7 @@
   const drawerMedia = typeof window.matchMedia === 'function'
     ? window.matchMedia(MOBILE_DRAWER_MEDIA)
     : null;
+  const isCompactNav = () => (drawerMedia ? drawerMedia.matches : window.innerWidth <= 940);
 
   const groups = Array.from(nav.querySelectorAll('.nav-item.has-children'));
 
@@ -25,10 +26,20 @@
     }
   };
 
+  const closeGroup = (group) => {
+    group.classList.remove('open');
+    setExpanded(group, false);
+  };
+
+  const focusGroupLink = (group, position = 'first') => {
+    const links = Array.from(group.querySelectorAll('.nav-dropdown a'));
+    const target = position === 'last' ? links[links.length - 1] : links[0];
+    target?.focus();
+  };
+
   function closeAllGroups() {
     groups.forEach((group) => {
-      group.classList.remove('open');
-      setExpanded(group, false);
+      closeGroup(group);
     });
   }
 
@@ -58,23 +69,52 @@
       openGroup(group);
     });
 
+    trigger?.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        openGroup(group);
+        focusGroupLink(group, 'first');
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        openGroup(group);
+        focusGroupLink(group, 'last');
+      }
+    });
+
     group.addEventListener('pointerenter', () => {
+      if (isCompactNav()) return;
       clearTimeout(hoverTimer);
       openGroup(group);
     });
 
     group.addEventListener('pointerleave', () => {
+      if (isCompactNav()) return;
       clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {
-        group.classList.remove('open');
-        setExpanded(group, false);
+        closeGroup(group);
       }, 120);
     });
 
     group.addEventListener('focusin', () => openGroup(group));
-  });
 
-  const isCompactNav = () => (drawerMedia ? drawerMedia.matches : window.innerWidth <= 940);
+    group.addEventListener('focusout', () => {
+      window.requestAnimationFrame(() => {
+        if (!group.contains(document.activeElement)) {
+          closeGroup(group);
+        }
+      });
+    });
+
+    group.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeGroup(group);
+      trigger?.focus();
+    });
+  });
 
   function syncNavHeightVar() {
     const body = document.body;
@@ -260,20 +300,49 @@
     return inferViewFromPath(normalizePath(linkUrl.pathname));
   }
 
+  function linkPathKey(link) {
+    const href = String(link.getAttribute('href') || '').trim();
+    if (!href || href.startsWith('#')) {
+      return '';
+    }
+
+    try {
+      return normalizePath(new URL(href, window.location.origin).pathname);
+    } catch (_) {
+      return '';
+    }
+  }
+
   function syncActiveLinks() {
     const activeView = currentViewKey();
+    const currentPath = normalizePath(window.location.pathname);
     document.querySelectorAll('.nav-item.has-children').forEach((group) => {
       group.classList.remove('active');
     });
 
     document.querySelectorAll('a.nav-item, .nav-dropdown a, a.menu-link').forEach((link) => {
       const linkView = linkViewKey(link);
-      const isActive = !!linkView && linkView === activeView;
+      const linkPath = linkPathKey(link);
+      const exactMatch = !!linkPath && linkPath === currentPath;
+      const isTopLevelNav = link.matches('a.nav-item, a.menu-link');
+      const isActive = exactMatch || (!exactMatch && isTopLevelNav && !!linkView && linkView === activeView);
       link.classList.toggle('active', isActive);
+      if (isActive) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
 
       if (isActive) {
         const parentGroup = link.closest('.has-children');
         parentGroup?.classList.add('active');
+      }
+    });
+
+    document.querySelectorAll('.nav-item.has-children').forEach((group) => {
+      const groupView = normalizePanelKey(group.dataset?.nav || '');
+      if (groupView && groupView === activeView) {
+        group.classList.add('active');
       }
     });
   }

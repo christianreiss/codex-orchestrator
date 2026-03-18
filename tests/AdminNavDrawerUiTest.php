@@ -17,6 +17,12 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('id="navMenuToggle"', $html);
         $this->assertStringContainsString('id="navDrawer"', $html);
         $this->assertStringContainsString('id="navDrawerBackdrop"', $html);
+        $this->assertStringContainsString('class="nav-primary"', $html);
+        $this->assertStringContainsString('class="nav-secondary"', $html);
+        $this->assertStringContainsString('class="nav-utilities"', $html);
+        $this->assertStringContainsString('aria-label="Primary"', $html);
+        $this->assertStringContainsString('aria-controls="navDropdownHosts"', $html);
+        $this->assertStringContainsString('id="navDropdownHosts"', $html);
         $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
     }
 
@@ -29,6 +35,9 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('navMenuToggle', $js);
         $this->assertStringContainsString('navDrawerBackdrop', $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
+        $this->assertStringContainsString("setAttribute('aria-current', 'page')", $js);
+        $this->assertStringContainsString("event.key === 'ArrowDown'", $js);
+        $this->assertStringContainsString("group.addEventListener('focusout'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);
         $this->assertStringContainsString("attributeFilter: ['data-view-mode']", $js);
@@ -40,7 +49,10 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertIsString($css);
 
         $this->assertStringContainsString('body[data-nav-version="2026"] .main-nav', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-primary', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-panel', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-secondary', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-utilities', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-drawer-backdrop', $css);
         $this->assertStringContainsString('@media (max-width: 940px)', $css);
     }
