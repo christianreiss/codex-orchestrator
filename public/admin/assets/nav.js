@@ -272,8 +272,11 @@
       link.classList.toggle('active', isActive);
 
       if (isActive) {
+        link.setAttribute('aria-current', 'page');
         const parentGroup = link.closest('.has-children');
         parentGroup?.classList.add('active');
+      } else {
+        link.removeAttribute('aria-current');
       }
     });
   }

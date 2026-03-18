@@ -5000,31 +5000,33 @@ body[data-theme="dark"] .panel-set[data-panel="dashboard"] .dashboard-chart-canv
   }
 }
 
-/* === 2026 nav layer (macOS-style command bar + mobile drawer) === */
+/* === 2026 nav layer — unified app navigation bar + mobile drawer === */
 body[data-nav-version="2026"] {
   --nav-height: 48px;
   --nav-z: 320;
   --nav-drawer-width: min(360px, calc(100vw - 20px));
+  --nav-indicator: 2px;
 }
 
+/* ── Header surface ── */
 body[data-nav-version="2026"] .main-nav {
   position: sticky;
   top: 0;
   z-index: var(--nav-z);
   height: var(--nav-height);
   min-height: var(--nav-height);
-  padding: 0 16px;
+  padding: 0 20px;
   display: flex;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  gap: 0;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  box-shadow: 0 0.5px 0 rgba(255, 255, 255, 0.06) inset,
-              0 1px 3px rgba(2, 6, 23, 0.06);
+  box-shadow: 0 1px 2px rgba(2, 6, 23, 0.04);
 }
 
+/* ── Brand ── */
 body[data-nav-version="2026"] .nav-brand {
   display: inline-flex;
   align-items: center;
@@ -5032,9 +5034,8 @@ body[data-nav-version="2026"] .nav-brand {
   min-width: 0;
   text-decoration: none;
   color: inherit;
-  margin-right: 6px;
-  padding-right: 10px;
-  border-right: 1px solid var(--border);
+  margin-right: 20px;
+  flex-shrink: 0;
 }
 
 body[data-nav-version="2026"] .brand-logo {
@@ -5049,19 +5050,21 @@ body[data-nav-version="2026"] .brand-title {
   white-space: nowrap;
 }
 
+/* ── Mobile menu toggle ── */
 body[data-nav-version="2026"] .nav-menu-toggle {
   display: none;
   align-items: center;
   gap: 8px;
   min-height: 36px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
   font-weight: 700;
   letter-spacing: -0.01em;
   cursor: pointer;
+  align-self: center;
 }
 
 body[data-nav-version="2026"] .nav-menu-toggle-lines {
@@ -5094,28 +5097,31 @@ body[data-nav-version="2026"] .nav-menu-toggle-lines::after {
   top: 4px;
 }
 
+/* ── Nav panel (grid: nav | actions | status) ── */
 body[data-nav-version="2026"] .nav-panel {
   flex: 1;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
+  gap: 0;
 }
 
+/* ── Primary nav group ── */
 body[data-nav-version="2026"] .nav-groups {
   display: inline-flex;
-  align-items: center;
-  gap: 1px;
+  align-items: stretch;
+  gap: 0;
   min-width: 0;
 }
 
+/* ── Nav items: text links, not buttons ── */
 body[data-nav-version="2026"] .main-nav .nav-item {
   position: relative;
-  height: 32px;
-  padding: 0 10px !important;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  height: auto;
+  padding: 0 12px !important;
+  border-radius: 0 !important;
+  border: none !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5123,75 +5129,109 @@ body[data-nav-version="2026"] .main-nav .nav-item {
   color: var(--muted) !important;
   background: transparent !important;
   font-size: 13px;
-  font-weight: 600 !important;
+  font-weight: 550 !important;
   letter-spacing: -0.005em;
-  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+  transition: color 120ms ease, background 120ms ease;
   white-space: nowrap;
+  box-shadow: none !important;
 }
 
+/* Bottom indicator bar — sits on the header border */
 body[data-nav-version="2026"] .main-nav .nav-item::after {
-  display: none !important;
-  content: none !important;
+  content: '' !important;
+  display: block !important;
+  position: absolute;
+  bottom: -1px;
+  left: 8px;
+  right: 8px;
+  height: var(--nav-indicator);
+  border-radius: var(--nav-indicator) var(--nav-indicator) 0 0;
+  background: transparent;
+  transition: background 120ms ease;
 }
 
+/* Hover: subtle background tint + text color */
 body[data-nav-version="2026"] .main-nav .nav-item:hover,
 body[data-nav-version="2026"] .main-nav .nav-item:focus-visible {
   color: var(--text) !important;
-  background: rgba(var(--accent-rgb), 0.08) !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
+  background: var(--frost) !important;
+  border: none !important;
 }
 
+body[data-nav-version="2026"] .main-nav .nav-item:focus-visible {
+  outline: none;
+  box-shadow: var(--ring) !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-item:hover::after,
+body[data-nav-version="2026"] .main-nav .nav-item:focus-visible::after {
+  background: rgba(var(--accent-rgb), 0.25);
+}
+
+/* Active: accent indicator + emphasized text */
 body[data-nav-version="2026"] .main-nav .nav-item.active {
   color: var(--text) !important;
-  background: rgba(var(--accent-rgb), 0.12) !important;
-  border-color: rgba(var(--accent-rgb), 0.18) !important;
-  box-shadow: none !important;
+  background: transparent !important;
+  font-weight: 650 !important;
+  border: none !important;
 }
 
+body[data-nav-version="2026"] .main-nav .nav-item.active::after {
+  background: var(--accent) !important;
+}
+
+/* Open dropdown parent */
 body[data-nav-version="2026"] .main-nav .nav-item.has-children.open {
   color: var(--text) !important;
-  background: rgba(var(--accent-rgb), 0.14) !important;
-  border-color: rgba(var(--accent-rgb), 0.22) !important;
-  box-shadow: none !important;
+  background: var(--frost) !important;
+  border: none !important;
 }
 
-/* Dropdown caret */
+body[data-nav-version="2026"] .main-nav .nav-item.has-children.open::after {
+  background: rgba(var(--accent-rgb), 0.4);
+}
+
+/* Active + open parent */
+body[data-nav-version="2026"] .main-nav .nav-item.has-children.active::after {
+  background: var(--accent) !important;
+}
+
+/* ── Dropdown caret ── */
 body[data-nav-version="2026"] .nav-item .caret {
   font-size: 9px;
-  opacity: 0.5;
+  opacity: 0.45;
   margin-left: 2px;
   transition: transform 120ms ease, opacity 120ms ease;
 }
 
 body[data-nav-version="2026"] .nav-item.has-children.open .caret {
   transform: rotate(180deg);
-  opacity: 0.8;
+  opacity: 0.75;
 }
 
-/* macOS-style dropdown */
+/* ── Dropdown menus ── */
 body[data-nav-version="2026"] .nav-dropdown {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 1px);
   left: 0;
   min-width: 200px;
   display: none;
   flex-direction: column;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 96%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  box-shadow: 0 8px 30px rgba(2, 6, 23, 0.18),
-              0 2px 8px rgba(2, 6, 23, 0.10);
+  box-shadow: 0 6px 20px rgba(2, 6, 23, 0.14),
+              0 2px 6px rgba(2, 6, 23, 0.08);
   z-index: 200;
-  animation: navDropIn 120ms ease;
+  animation: navDropIn 100ms ease;
 }
 
 @keyframes navDropIn {
-  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 body[data-nav-version="2026"] .nav-item.has-children:hover .nav-dropdown,
@@ -5204,7 +5244,7 @@ body[data-nav-version="2026"] .nav-dropdown a {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--text);
   text-decoration: none;
   font-size: 13px;
@@ -5217,13 +5257,13 @@ body[data-nav-version="2026"] .nav-dropdown a {
 
 body[data-nav-version="2026"] .nav-dropdown a:hover,
 body[data-nav-version="2026"] .nav-dropdown a:focus-visible {
-  background: rgba(var(--accent-rgb), 0.12);
+  background: rgba(var(--accent-rgb), 0.10);
   border: none;
   outline: none;
 }
 
 body[data-nav-version="2026"] .nav-dropdown a.active {
-  background: rgba(var(--accent-rgb), 0.14);
+  background: rgba(var(--accent-rgb), 0.10);
   font-weight: 600;
   color: var(--accent);
 }
@@ -5235,22 +5275,28 @@ body[data-nav-version="2026"] .nav-dropdown a.active {
   margin: 3px 8px;
 }
 
+/* ── Actions zone (utilities + CTA) ── */
 body[data-nav-version="2026"] .nav-actions {
-  margin-left: 4px;
+  margin-left: 0;
   display: inline-flex;
   align-items: center;
+  align-self: center;
   gap: 6px;
-  padding-left: 10px;
+  padding-left: 16px;
+  margin-left: 8px;
   border-left: 1px solid var(--border);
   justify-content: flex-end;
 }
 
+/* ── Account / status zone ── */
 body[data-nav-version="2026"] .nav-status {
   margin: 0;
   display: inline-flex;
   align-items: center;
+  align-self: center;
   gap: 6px;
-  padding-left: 10px;
+  padding-left: 12px;
+  margin-left: 4px;
   border-left: 1px solid var(--border);
 }
 
@@ -5271,44 +5317,61 @@ body[data-nav-version="2026"] .nav-user-name {
 
 body[data-nav-version="2026"] .nav-lock {
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 3px 5px;
   line-height: 1;
   background: transparent;
   color: inherit;
   cursor: pointer;
   font-size: 12px;
+  transition: background 80ms ease;
 }
 
 body[data-nav-version="2026"] .nav-lock:hover {
   background: var(--frost);
 }
 
+/* ── Nav buttons (actions area) ── */
 body[data-nav-version="2026"] .main-nav .nav-btn {
-  min-height: 32px;
-  border-radius: 8px !important;
+  min-height: 30px;
+  border-radius: 6px !important;
   border: 1px solid var(--border) !important;
-  padding: 5px 10px;
+  padding: 4px 10px;
   font-size: 12px;
-  font-weight: 700 !important;
-  color: var(--text) !important;
-  background: var(--card) !important;
+  font-weight: 600 !important;
+  color: var(--muted) !important;
+  background: transparent !important;
   box-shadow: none !important;
+  transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-btn:hover,
+body[data-nav-version="2026"] .main-nav .nav-btn:focus-visible {
+  color: var(--text) !important;
+  background: var(--frost) !important;
+  border-color: var(--border-2) !important;
 }
 
 body[data-nav-version="2026"] .main-nav .nav-btn.primary {
   border-color: rgba(var(--accent-rgb), 0.48) !important;
   background: var(--accent-gradient) !important;
   color: #ffffff !important;
+  font-weight: 650 !important;
+}
+
+body[data-nav-version="2026"] .main-nav .nav-btn.primary:hover,
+body[data-nav-version="2026"] .main-nav .nav-btn.primary:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.7) !important;
+  filter: brightness(1.06);
 }
 
 body[data-nav-version="2026"] .main-nav .nav-btn.ghost {
-  background: transparent !important;
+  border-color: transparent !important;
 }
 
-body[data-nav-version="2026"] .main-nav .nav-btn:hover,
-body[data-nav-version="2026"] .main-nav .nav-btn:focus-visible {
-  border-color: rgba(var(--accent-rgb), 0.34) !important;
+body[data-nav-version="2026"] .main-nav .nav-btn.ghost:hover,
+body[data-nav-version="2026"] .main-nav .nav-btn.ghost:focus-visible {
+  border-color: var(--border) !important;
 }
 
 /* Hide left sidebars — merged into top nav dropdowns */
@@ -5342,12 +5405,13 @@ body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
   pointer-events: auto;
 }
 
-/* --- Mobile drawer (≤940px) --- */
+/* ── Mobile drawer (≤940px) ── */
 @media (max-width: 940px) {
   body[data-nav-version="2026"] .main-nav {
     height: 52px;
     min-height: 52px;
     padding: 0 12px;
+    align-items: center;
     justify-content: space-between;
   }
 
@@ -5403,15 +5467,30 @@ body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 2px;
+    gap: 1px;
     margin-top: 8px;
   }
 
+  /* In drawer: nav items use contained style, not bottom-bar */
   body[data-nav-version="2026"] .main-nav .nav-item {
     width: 100%;
     justify-content: flex-start;
     min-height: 38px;
-    border-radius: 8px;
+    border-radius: 7px !important;
+    padding: 0 10px !important;
+  }
+
+  body[data-nav-version="2026"] .main-nav .nav-item::after {
+    display: none !important;
+  }
+
+  body[data-nav-version="2026"] .main-nav .nav-item.active {
+    background: rgba(var(--accent-rgb), 0.10) !important;
+    color: var(--accent) !important;
+  }
+
+  body[data-nav-version="2026"] .main-nav .nav-item.has-children.open {
+    background: var(--frost) !important;
   }
 
   body[data-nav-version="2026"] .nav-dropdown {
@@ -5442,6 +5521,7 @@ body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
     display: grid;
     grid-template-columns: 1fr;
     gap: 6px;
+    align-self: auto;
   }
 
   body[data-nav-version="2026"] .nav-actions .nav-btn {
@@ -5454,13 +5534,14 @@ body[data-nav-version="2026"].nav-drawer-open .nav-drawer-backdrop {
     margin: 0;
     padding: 0;
     border-left: 0;
+    align-self: auto;
   }
 
   body[data-nav-version="2026"] .nav-user {
     width: 100%;
     justify-content: space-between;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 7px;
     padding: 6px 10px;
     background: var(--frost);
   }

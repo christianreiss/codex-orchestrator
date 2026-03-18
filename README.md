@@ -1,109 +1,124 @@
 # Codex Orchestrator
 
-Codex Orchestrator is a small PHP/MySQL service for managing OpenAI Codex across a fleet.
+**One command to rule your Codex fleet.**
 
-It gives you an easy, one-command install for new machines, handles authorization in one swift go, and keeps everything in sync every time someone runs `cdx`:
-- Auth (`~/.codex/auth.json`)
-- Fleet `config.toml` (including managed MCP entries)
-- Slash commands (prompts)
-- Skills
-- AGENTS.md
-- Usage/cost reporting and quota policy
+Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` handle the rest — syncing credentials, config, prompts, skills, and usage data so you never have to copy a token by hand again.
 
 ![Host-specific installer baking and sync flow](docs/img/cdx.png)
 
-## Why would I need this?
-- You run Codex on more than one machine and do not want to copy tokens by hand.
-- You want per-host API keys with IP binding and the option to treat some machines as insecure (no auth left on disk).
-- You prefer a single place to manage fleet config, slash commands, Skills, and AGENTS.md.
-- You need usage/cost reporting and a quota or kill switch you can enforce centrally.
-- You want auto-updated wrappers and Codex versions with the ability to pin or roll back.
+## What does it actually do?
 
-If you only use Codex on one laptop, this is probably overkill.
+**Sync everything, everywhere**
+- Your `auth.json`, `config.toml`, slash commands, skills, and `AGENTS.md` stay in sync across every host — automatically, every time you run `cdx`.
+- Each host gets its own API key baked right into the wrapper. No shared secrets floating around.
 
-## What this does (in one minute)
-1) Upload a canonical Codex `auth.json` once (Admin → Auth Upload).
-2) Register a host in the Admin UI to mint a per-host API key and one-time installer token.
-3) Run the installer on the host (`curl .../install/<token> | bash`).
-4) From then on, each `cdx` run pulls the latest auth/config/prompts/skills/AGENTS, enforces policy, self-updates, and reports usage.
+**Stay safe without thinking about it**
+- Auth payloads are encrypted at rest. API keys are hashed and IP-bound on first use.
+- Hosts you don't trust to keep credentials on disk? Mark them "insecure" — auth gets purged after every run.
+- A global kill switch lets you cut API access fleet-wide in seconds if something goes sideways.
 
-## Features
-- Central auth vault: canonical `auth.json` and per-target entries are encrypted (`libsodium secretbox`); runner validation runs before `/auth` store writes, can apply runner `updated_auth`, and blocks `/auth` store when runner is unreachable/non-OK.
-- Host installer and wrapper: per-host API keys baked into the `cdx` script; secure hosts can launch from cached auth during API outages (fresh window: 24h, secure fallback: 7d); insecure hosts purge auth after each run and require an open insecure window.
-- Fleet config builder: admin UI renders `config.toml` and injects host-specific MCP headers; delivered to `~/.codex/config.toml`.
-- Prompt and Skill distribution: slash commands (prompts) and Skills live in MySQL and sync to `~/.codex/prompts/` and `~/.agents/skills/`; AGENTS.md is canonical too.
-- Native project coordination: optional Projects module adds shared notes, todos, files, feedback, and append-only change history for cross-agent work.
-- Managed CoCo skill rollout: enabling the Projects module auto-publishes a managed `coco` skill to Codex clients through the normal Skill sync flow, and that skill now documents CoCo as project-only shared state instead of a cross-host memory fallback.
-- Usage, cost, and quotas: `/usage` ingest with GPT-5.4 pricing, per-host token totals, ChatGPT quota snapshots, VIP hosts, global warn/hard-fail slider, and an API kill switch.
-- Version control: pin Codex version fleet-wide or per host; wrapper self-updates from the server-managed wrapper artifact (`/wrapper/download`).
-- Dashboards and API: admin API defaults to mTLS access (`ADMIN_ACCESS_MODE=mtls`) and supports userless bootstrap until the first active admin user; HTTP API for automation.
-- MCP server: native HTTP MCP endpoint (`/mcp`) with host-scoped memory/resource tools plus shared project tools/resources when the Projects module is enabled; coordinator filesystem helpers are no longer exposed on the host-authenticated route.
+**See what's happening**
+- Track token usage and costs per host with built-in dashboards.
+- Quota warnings nudge you before you hit limits. VIP hosts can bypass them when it matters.
+- ChatGPT quota snapshots refresh automatically so you always know where you stand.
 
-## See it in action
-![Admin dashboard overview](docs/img/dashboard_1.png)
-![Per-host digests and validation logs](docs/img/dashboard_2.png)
-![Token usage aggregates and recent activity](docs/img/dashboard_3.png)
+**Stay in control**
+- Pin Codex to a specific version fleet-wide, or let individual hosts override.
+- The `cdx` wrapper self-updates from your server — no manual upgrades.
+- An admin dashboard covers host management, content editing, usage monitoring, and more.
 
-## Quick start (Docker)
-Prerequisites: Docker and Docker Compose.
+**Collaborate across agents**
+- The optional Projects module gives your agents shared notes, todos, files, and feedback with append-only change history.
+- A native MCP server provides host-scoped memory tools plus shared project resources.
+
+## Is this for me?
+
+You'll get the most out of this if:
+
+- You run Codex on **more than one machine** and want a single source of truth for auth and config.
+- You want **per-host API keys** with IP binding, instead of one token pasted everywhere.
+- You need **visibility** into who's using what, how much it costs, and a way to set limits.
+- You'd like to manage **prompts, skills, and AGENTS.md** from one place instead of scattering files across machines.
+- You want a **kill switch** and quota controls you can pull from a dashboard.
+
+If you only use Codex on one laptop, this is probably overkill — but we won't judge if you set it up anyway.
+
+## Get started in 5 minutes
+
+All you need is Docker and Docker Compose.
 
 ```bash
 bin/setup.sh
 ```
 
-This runs the guided installer for `.env`, data directories, TLS/Caddy/mTLS defaults, and (unless you skip with flags) builds/starts the stack. See `docs/INSTALL.md` for non-interactive flags and advanced options.
+That's it. The guided installer walks you through `.env` configuration, data directories, TLS setup, and (unless you opt out) builds and starts the whole stack. See [`docs/INSTALL.md`](docs/INSTALL.md) for non-interactive flags and advanced options.
 
-## Onboard a host
-1) Ensure the canonical `~/.codex/auth.json` is uploaded (Admin → Auth Upload).
-2) Admin → Hosts → New Host → copy the installer command (`curl .../install/<token> | bash`).
-3) Run that command on the target machine. It installs Codex and the baked `cdx` wrapper.
-4) Optional: use Admin → Auth Seed Command (`POST /admin/auth/seed-command`) for a one-time `/seed/auth/<token>` bootstrap script.
+### Onboard your first host
 
-You can also automate provisioning with `POST /admin/hosts/register` (requires admin mTLS by default).
+1. **Upload your auth** — go to Admin and upload your canonical `~/.codex/auth.json`. You only do this once.
+2. **Register a host** — Admin, Hosts, New Host. You'll get an installer command.
+3. **Run the installer** on the target machine:
+   ```bash
+   curl https://your-server/install/<token> | bash
+   ```
+4. **Done.** From now on, just run `cdx` and everything syncs.
 
-## Run Codex on a provisioned host
+Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback). Insecure hosts purge auth after each run and need an open window from the admin.
+
+## See it in action
+
+![Admin dashboard overview](docs/img/dashboard_1.png)
+![Per-host digests and validation logs](docs/img/dashboard_2.png)
+![Token usage aggregates and recent activity](docs/img/dashboard_3.png)
+
+## Day-to-day: the `cdx` command
+
+Once a host is provisioned, `cdx` is your daily driver:
+
 ```bash
-cdx                 # sync and launch with fleet defaults
-cdx myprofile       # use a named profile baked into config.toml
-cdx --execute "show me open PRs"  # one-shot output
+cdx                              # sync and launch with fleet defaults
+cdx myprofile                    # use a named profile from config.toml
+cdx --execute "show me open PRs" # one-shot, script-friendly output
 ```
-Secure hosts keep `~/.codex/auth.json` on disk; insecure hosts delete it after each run and require an open insecure window.
+
+A few more handy ones:
 
 ```bash
-cdx status
-cdx doctor
-cdx lane
-cdx ls
-cdx lane spark --persist
-cdx --update
-cdx --uninstall
+cdx status          # quick health check
+cdx doctor          # diagnose SSH, PTY, and API issues
+cdx lane spark      # switch to Spark lane for this run
+cdx ls              # shortcut for lane spark
+cdx --update        # force-update the wrapper and Codex
+cdx --uninstall     # remove everything and decommission
 ```
 
-## Host API surface
-- Auth + uninstall: `POST /auth`, `DELETE /auth`
-- Host install/bootstrap: `GET /install/{token}`, `GET /seed/auth/{token}`, `POST /seed/auth/{token}`
-- Wrapper metadata/download: `GET /wrapper`, `GET /wrapper/download`
-- Startup bundled sync: `POST /sync/status`, `POST /sync/bootstrap`
-- Sync endpoints (legacy/fallback + push): `GET /slash-commands`, `POST /slash-commands/retrieve`, `POST /slash-commands/store`, `GET /skills`, `POST /skills/retrieve`, `POST /skills/store`, `POST /agents/retrieve`, `POST /config/retrieve`
-- Projects coordination (when enabled): `GET /projects`, `POST /projects`, `GET /projects/{slug}`, `GET /projects/{slug}/bootstrap`, `GET /projects/{slug}/changes`, plus note/todo/file/feedback subroutes
-- Telemetry + host state: `POST /usage`, `POST /host/users`, `GET /host/lane`, `POST /host/lane`
-- MCP: `GET /mcp`, `POST /mcp`, plus `/mcp/memories/*` helpers
-- Version snapshot: `GET /versions` (unauthenticated while API kill switch is off)
+## Under the hood
 
-## Security guardrails
-- Per-IP binding with optional roaming; insecure windows for hosts that must not keep auth on disk.
-- Secretbox encryption for API keys and auth payloads; API kill switch for emergencies.
-- Rate limits for all non-admin routes plus an auth-fail bucket for repeated bad keys.
-- Runner validation gates `/auth` store (retrieve keeps serving canonical auth); wrapper updates verify SHA-256 before replacement.
+Codex Orchestrator takes security seriously so you can focus on building things:
+
+- **Encryption**: All auth payloads use libsodium secretbox. Keys are rotated with KID tracking.
+- **Runner validation**: A sidecar service validates auth before writes are accepted — transparent to reads.
+- **Rate limiting**: All non-admin routes are rate-limited, with a dedicated bucket for auth failures.
+- **mTLS admin access**: The admin API defaults to mutual TLS. Passkey (WebAuthn) login is available too.
+- **IP binding**: Each host's API key locks to its IP on first use, with optional roaming support.
+
+For the full API surface, MCP details, and architecture deep-dive, check the docs below.
 
 ## Documentation
-- Installation: `docs/INSTALL.md`
-- Host and user workflow: `docs/USAGE.md`
-- System overview and flow: `docs/OVERVIEW.md`
-- API surface: `docs/API.md` and `docs/interface-api.md`
-- MCP details: `docs/MCP.md`
-- Config builder: `docs/CONFIG_BUILDER.md`
-- Admin dashboard: `docs/ADMIN.md`
-- DB/contracts: `docs/interface-db.md`, `docs/interface-cdx.md`
 
-License: see `LICENSE`.
+| Doc | What's inside |
+|-----|---------------|
+| [`INSTALL.md`](docs/INSTALL.md) | Setup, Docker services, TLS, mTLS, backups |
+| [`USAGE.md`](docs/USAGE.md) | Host user and operator workflows |
+| [`OVERVIEW.md`](docs/OVERVIEW.md) | Architecture, auth flow, sync pipeline |
+| [`API.md`](docs/API.md) | Full HTTP API reference |
+| [`MCP.md`](docs/MCP.md) | MCP server tools and resources |
+| [`CONFIG_BUILDER.md`](docs/CONFIG_BUILDER.md) | Fleet config.toml builder |
+| [`ADMIN.md`](docs/ADMIN.md) | Admin dashboard guide |
+| [`interface-api.md`](docs/interface-api.md) | API interface contracts |
+| [`interface-db.md`](docs/interface-db.md) | Database schema reference |
+| [`interface-cdx.md`](docs/interface-cdx.md) | Wrapper interface contracts |
+
+## License
+
+[GNU General Public License v3](LICENSE)
