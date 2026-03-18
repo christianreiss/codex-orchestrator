@@ -5002,7 +5002,7 @@ body[data-theme="dark"] .panel-set[data-panel="dashboard"] .dashboard-chart-canv
 
 /* === 2026 nav layer — editorial rail === */
 body[data-nav-version="2026"] {
-  --nav-height: 74px;
+  --nav-height: 64px;
   --nav-z: 320;
   --nav-drawer-width: min(420px, 100vw);
 }
@@ -5012,20 +5012,20 @@ body[data-nav-version="2026"] .editorial-rail {
   top: 0;
   z-index: var(--nav-z);
   min-height: var(--nav-height);
-  padding: 18px 24px 14px;
+  padding: 10px 20px 8px;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   background: color-mix(in srgb, var(--bg) 96%, transparent);
 }
 
 body[data-nav-version="2026"] .rail-brand {
   flex-shrink: 0;
-  min-height: 56px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding-right: 4px;
   text-decoration: none;
   color: inherit;
@@ -5102,21 +5102,21 @@ body[data-nav-version="2026"].editorial-rail-open .rail-toggle-glyph::after {
 body[data-nav-version="2026"] .rail-frame {
   flex: 1;
   min-width: 0;
-  min-height: 56px;
+  min-height: 48px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 20px;
-  padding: 0 18px;
+  gap: 16px;
+  padding: 0 16px;
   border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
-  border-radius: 18px;
+  border-radius: 16px;
   background: color-mix(in srgb, var(--card) 96%, transparent);
   box-shadow: none;
 }
 
 body[data-nav-version="2026"] .rail-primary {
   min-width: 0;
-  min-height: 56px;
+  min-height: 48px;
   display: flex;
   align-items: stretch;
   gap: 0;
@@ -5126,18 +5126,18 @@ body[data-nav-version="2026"] .rail-link,
 body[data-nav-version="2026"] .rail-group {
   position: relative;
   flex-shrink: 0;
-  min-height: 56px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
 }
 
 body[data-nav-version="2026"] .rail-link,
 body[data-nav-version="2026"] .rail-disclosure {
-  min-height: 56px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -5160,9 +5160,9 @@ body[data-nav-version="2026"] .rail-link::after,
 body[data-nav-version="2026"] .rail-group::after {
   content: '';
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
   height: 2px;
   background: transparent;
   opacity: 0;
@@ -5280,8 +5280,8 @@ body[data-nav-version="2026"] .rail-tools {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 18px;
-  min-height: 34px;
+  gap: 16px;
+  min-height: 30px;
   padding-left: 0;
   border-left: 0;
 }
@@ -5289,7 +5289,7 @@ body[data-nav-version="2026"] .rail-tools {
 body[data-nav-version="2026"] .rail-toolset {
   display: inline-flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 body[data-nav-version="2026"] .rail-action,
@@ -5388,8 +5388,8 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
 
 @media (max-width: 940px) {
   body[data-nav-version="2026"] .editorial-rail {
-    min-height: 58px;
-    padding: 12px 14px;
+    min-height: 54px;
+    padding: 10px 12px;
     gap: 12px;
     justify-content: space-between;
   }

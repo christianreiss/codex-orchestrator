@@ -1,4 +1,5 @@
 # 2026-03-18
+- Admin UI: compacted the editorial rail to reclaim vertical space by reducing the header padding, inner frame height, and rail item heights on desktop/mobile, so the navbar wastes less white space while keeping the same flattened menu styling.
 - Admin UI: removed the last button/pill chrome from the editorial rail controls so `Hosts`, `Logs`, `Settings`, `New Host`, `Theme`, and logout now render as plain rail text/actions without bordered capsules, separator seams, or shadowed button surfaces.
 - Admin UI: flattened the editorial rail further by removing the remaining navbar/flyout box shadows and switching the custom focus treatment from shadow rings to simple outlines, so the whole header reads as one flat surface.
 - Admin UI: replaced the previous 2026 navbar with a clean-sheet editorial rail menu system: brand, destinations, utilities, and account controls now sit in one matte rail, desktop flyouts were rebuilt from scratch (`Hosts`, `Logs`, grouped `Settings`), the mobile nav now uses a full-height rail drawer, and the old chip/glass/button-heavy nav controller was retired entirely.

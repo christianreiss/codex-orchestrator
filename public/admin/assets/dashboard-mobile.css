@@ -649,7 +649,7 @@ body[data-view="mobile"] .log-footer {
     align-items: center !important;
     justify-content: space-between !important;
     gap: 12px !important;
-    padding: 12px 14px !important;
+    padding: 10px 12px !important;
   }
 
   body[data-nav-version="2026"] .rail-frame {
