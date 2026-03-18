@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-02">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-18-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-19-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="main-nav">
     <a class="nav-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
       <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
-      <div class="nav-brand-copy">
+      <div>
         <div class="brand-title">Codex Orchestrator</div>
       </div>
     </a>
@@ -21,60 +21,54 @@
       <span class="nav-menu-toggle-label">Menu</span>
     </button>
     <div class="nav-panel" id="navDrawer" aria-hidden="false">
-      <div class="nav-primary">
-        <nav class="nav-groups" aria-label="Primary">
-          <a class="nav-item" href="/admin/dashboard" data-nav="dashboard">Overview</a>
-          <div class="nav-item has-children" data-nav="hosts">
-            <button class="nav-trigger" id="navTriggerHosts" type="button" aria-expanded="false" aria-haspopup="true" aria-controls="navDropdownHosts">Hosts <span class="caret" aria-hidden="true">▾</span></button>
-            <div class="nav-dropdown" id="navDropdownHosts" aria-labelledby="navTriggerHosts">
-              <a class="host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="">All Hosts</a>
-              <a class="host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure">Secure</a>
-              <a class="host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure">Insecure</a>
-              <a class="host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned">Unprovisioned</a>
-            </div>
+      <nav class="nav-groups" aria-label="Primary navigation">
+        <a class="nav-item" href="/admin/dashboard" data-nav="dashboard">Overview</a>
+        <div class="nav-item has-children" data-nav="hosts">
+          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Hosts <span class="caret" aria-hidden="true">▾</span></button>
+          <div class="nav-dropdown" role="menu">
+            <a class="host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="" role="menuitem">All Hosts</a>
+            <a class="host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem">Secure</a>
+            <a class="host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem">Insecure</a>
+            <a class="host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
           </div>
-          <div class="nav-item has-children" data-nav="logs">
-            <button class="nav-trigger" id="navTriggerLogs" type="button" aria-expanded="false" aria-haspopup="true" aria-controls="navDropdownLogs">Logs <span class="caret" aria-hidden="true">▾</span></button>
-            <div class="nav-dropdown" id="navDropdownLogs" aria-labelledby="navTriggerLogs">
-              <a class="log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client">API Logs</a>
-              <a class="log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp">MCP Logs</a>
-              <a class="log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events">Events</a>
-            </div>
+        </div>
+        <div class="nav-item has-children" data-nav="logs">
+          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Logs <span class="caret" aria-hidden="true">▾</span></button>
+          <div class="nav-dropdown" role="menu">
+            <a class="log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client" role="menuitem">API Logs</a>
+            <a class="log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp" role="menuitem">MCP Logs</a>
+            <a class="log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events" role="menuitem">Events</a>
           </div>
-          <div class="nav-item has-children" data-nav="settings">
-            <button class="nav-trigger" id="navTriggerSettings" type="button" aria-expanded="false" aria-haspopup="true" aria-controls="navDropdownSettings">Settings <span class="caret" aria-hidden="true">▾</span></button>
-            <div class="nav-dropdown" id="navDropdownSettings" aria-labelledby="navTriggerSettings">
-              <a class="settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general">General</a>
-              <a class="settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents">Agents</a>
-              <a class="settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts">Slash Commands</a>
-              <a class="settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories">Memories</a>
-              <hr class="nav-dropdown-divider" aria-hidden="true">
-              <a class="settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects">Projects</a>
-              <a class="settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles">Profiles</a>
-              <a class="settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills">Skills</a>
-              <hr class="nav-dropdown-divider" aria-hidden="true">
-              <a class="settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config">config.toml</a>
-            </div>
+        </div>
+        <div class="nav-item has-children" data-nav="settings">
+          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Settings <span class="caret" aria-hidden="true">▾</span></button>
+          <div class="nav-dropdown" role="menu">
+            <a class="settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem">General</a>
+            <a class="settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem">Agents</a>
+            <a class="settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem">Slash Commands</a>
+            <a class="settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem">Memories</a>
+            <hr class="nav-dropdown-divider" aria-hidden="true">
+            <a class="settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem">Projects</a>
+            <a class="settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem">Profiles</a>
+            <a class="settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem">Skills</a>
+            <hr class="nav-dropdown-divider" aria-hidden="true">
+            <a class="settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem">config.toml</a>
           </div>
-          <a class="nav-item" href="/admin/users" data-nav="users">Users</a>
-        </nav>
+        </div>
+        <a class="nav-item" href="/admin/users" data-nav="users">Users</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
+        <button class="nav-btn primary" id="navNewHost">New host</button>
+        <button class="nav-btn ghost theme-toggle" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
+          Theme: <span class="theme-toggle-label">Auto</span>
+        </button>
       </div>
-      <div class="nav-secondary">
-        <div class="nav-utilities">
-          <button class="nav-btn utility" id="navInsecureHosts" type="button" style="display:none;">Toggler</button>
-          <button class="nav-btn ghost theme-toggle" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
-            Theme: <span class="theme-toggle-label">Auto</span>
-          </button>
-        </div>
-        <div class="nav-status">
-          <span class="nav-user" id="navUser" style="display:none;">
-            <span class="nav-user-name" id="navUserName">Authenticated user</span>
-            <button class="nav-lock" id="navLogout" type="button" aria-label="Logout">🔐</button>
-          </span>
-        </div>
-        <div class="nav-actions">
-          <button class="nav-btn primary" id="navNewHost" type="button">New host</button>
-        </div>
+      <div class="nav-status">
+        <span class="nav-user" id="navUser" style="display:none;">
+          <span class="nav-user-name" id="navUserName">Authenticated user</span>
+          <button class="nav-lock" id="navLogout" type="button" aria-label="Logout">🔐</button>
+        </span>
       </div>
     </div>
   </header>
@@ -1871,7 +1865,7 @@
       window.addEventListener('popstate', applyFromPath);
     })();
   </script>
-  <script src="/admin/assets/nav.js?v=2026-03-18-02"></script>
+  <script src="/admin/assets/nav.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
   <script src="/admin/assets/users.js?v=2026-02-19-02"></script>
   <script src="/admin/assets/passkeys.js?v=2026-03-17-01"></script>

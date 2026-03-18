@@ -679,8 +679,6 @@ body[data-view="mobile"] .log-footer {
   }
 
   body[data-nav-version="2026"] .nav-groups,
-  body[data-nav-version="2026"] .nav-secondary,
-  body[data-nav-version="2026"] .nav-utilities,
   body[data-nav-version="2026"] .nav-actions,
   body[data-nav-version="2026"] .nav-status {
     width: 100% !important;
@@ -698,29 +696,12 @@ body[data-view="mobile"] .log-footer {
     flex-wrap: nowrap !important;
   }
 
-  body[data-nav-version="2026"] .nav-secondary {
+  body[data-nav-version="2026"] .nav-actions {
     margin-top: auto !important;
     border-top: 1px solid var(--border) !important;
     padding-top: 12px !important;
     display: grid !important;
-    gap: 10px !important;
-  }
-
-  body[data-nav-version="2026"] .nav-utilities {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
-  }
-
-  body[data-nav-version="2026"] .nav-actions {
-    display: grid !important;
     grid-template-columns: 1fr;
     gap: 8px !important;
-  }
-
-  body[data-nav-version="2026"] .nav-utilities .nav-btn,
-  body[data-nav-version="2026"] .nav-actions .nav-btn {
-    width: 100% !important;
-    justify-content: flex-start !important;
   }
 }
