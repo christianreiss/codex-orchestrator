@@ -727,7 +727,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.18-01"
+WRAPPER_VERSION="2026.03.18-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -5848,21 +5848,32 @@ body = payload_json.encode("utf-8")
 headers = {"Content-Type": "application/json", "X-API-Key": api_key}
 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
 
-contexts = [None]
+contexts = []
+primary = ssl.create_default_context()
 if cafile:
     try:
-        ctx = ssl.create_default_context(cafile=cafile)
-        contexts = [ctx, None]
+        primary.load_verify_locations(cafile)
     except Exception:
+        primary = None
+if primary is not None:
+    try:
+        primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    except AttributeError:
         pass
+    contexts.append(primary)
+try:
+    fallback = ssl.create_default_context()
+    fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    contexts.append(fallback)
+except Exception:
+    pass
 if allow_insecure:
     try:
-        ctx_ins = ssl.create_default_context()
-        ctx_ins.check_hostname = False
-        ctx_ins.verify_mode = ssl.CERT_NONE
-        contexts.append(ctx_ins)
+        contexts.append(ssl._create_unverified_context())
     except Exception:
         pass
+if not contexts:
+    contexts = [None]
 
 last_err = None
 for ctx in contexts:

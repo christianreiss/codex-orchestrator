@@ -26,6 +26,9 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString('log_warn "flock not available; cron concurrent-run guard disabled."', $wrapperSource);
         self::assertStringContainsString('cron: update report failed after retries', $wrapperSource);
         self::assertStringContainsString('for report_attempt in 1 2 3; do', $wrapperSource);
+        self::assertStringContainsString('primary.verify_flags &= ~ssl.VERIFY_X509_STRICT', $wrapperSource);
+        self::assertStringContainsString('fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT', $wrapperSource);
+        self::assertStringContainsString('contexts.append(ssl._create_unverified_context())', $wrapperSource);
     }
 
     public function testReleaseAssetLookupFailsClosedWhenSpecificAssetMissing(): void
