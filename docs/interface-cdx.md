@@ -226,6 +226,12 @@ Codex updates:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
+- Cron auto-update install/remove uses one managed crontab marker, shell-escaped wrapper/log paths, and escapes cron `%` semantics before writing the cron command.
+- `cdx --cron remove` removes only the managed/current-wrapper cron entry instead of broad `cdx --cron` substring matches.
+- Cron mode uses a non-blocking `flock` guard when available and degrades with a warning when `flock` is missing.
+- Cron update checks call `POST /cron/check`; successful cron-installed Codex updates report back through `POST /cron/report`.
+- When a specific platform asset name is requested during release resolution, wrapper update paths fail closed if that exact asset is missing; generic `codex` fallback is only allowed when no explicit asset name was requested.
+- After a checksum-verified cron update installs successfully, report submission is retried and a persistent report failure exits non-zero so operators can see the incomplete rollout.
 - Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
 - `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and whether interactive SSH will launch direct TTY or forced PTY.
@@ -274,6 +280,8 @@ Wrapper updates:
 | `POST` | `/usage` | Token usage ingest |
 | `GET` | `/wrapper/download` | Wrapper self-update download |
 | `GET` | `/versions` | Doctor API reachability probe |
+| `POST` | `/cron/check` | Cron auto-update action probe |
+| `POST` | `/cron/report` | Cron auto-update success report |
 
 ## MCP Surface (Server Contract Relevant to cdx Config)
 - `config/retrieve` injects managed MCP server entry when enabled:

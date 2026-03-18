@@ -496,7 +496,7 @@ class HostRepository
     public function touchLastCronCheck(int $hostId): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET last_cron_check = :now, updated_at = :now WHERE id = :id'
+            'UPDATE hosts SET last_cron_check = :now WHERE id = :id'
         );
 
         $statement->execute([

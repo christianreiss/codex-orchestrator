@@ -2,6 +2,52 @@
 # Cron auto-update mode: lightweight path that skips auth sync and interactive launch.
 # Invoked via: cdx --cron [install|remove]
 
+cron_managed_marker() {
+  printf '%s' '# cdx-managed-cron'
+}
+
+cron_entry_matches_wrapper() {
+  local line="$1"
+  local cdx_path="$2"
+  local quoted_cdx_path="$3"
+  local marker="$4"
+
+  [[ "$line" == *"$marker"* ]] && return 0
+  [[ "$line" == *"$cdx_path"* && "$line" == *" --cron"* ]] && return 0
+  [[ "$line" == *"$quoted_cdx_path"* && "$line" == *" --cron"* ]] && return 0
+  return 1
+}
+
+cron_has_wrapper_entry() {
+  local crontab_text="$1"
+  local cdx_path="$2"
+  local quoted_cdx_path="$3"
+  local marker="$4"
+  local line=""
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if cron_entry_matches_wrapper "$line" "$cdx_path" "$quoted_cdx_path" "$marker"; then
+      return 0
+    fi
+  done <<< "$crontab_text"
+
+  return 1
+}
+
+cron_filter_existing_entries() {
+  local cdx_path="$1"
+  local quoted_cdx_path="$2"
+  local marker="$3"
+  local line=""
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if cron_entry_matches_wrapper "$line" "$cdx_path" "$quoted_cdx_path" "$marker"; then
+      continue
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
 install_cron_job() {
   local cdx_path
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
@@ -18,28 +64,46 @@ install_cron_job() {
   rand_minute=$(( $(cksum <<< "$(hostname)-min" | cut -d' ' -f1) % 60 ))
   rand_hour=$(( $(cksum <<< "$(hostname)-hr" | cut -d' ' -f1) % 4 ))
 
-  local cron_line="${rand_minute} ${rand_hour} * * * ${cdx_path} --cron >> ${log_file} 2>&1"
-  local marker="cdx --cron"
+  local quoted_cdx_path quoted_log_file cron_command cron_line marker current_crontab filtered_crontab
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  printf -v quoted_log_file '%q' "$log_file"
+  cron_command="${quoted_cdx_path} --cron >> ${quoted_log_file} 2>&1"
+  cron_command="${cron_command//%/\\%}"
+  marker="$(cron_managed_marker)"
+  cron_line="${rand_minute} ${rand_hour} * * * ${cron_command} ${marker}"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
 
-  # Check if entry already exists.
-  if crontab -l 2>/dev/null | grep -qF "$marker"; then
+  if printf '%s\n' "$current_crontab" | grep -qF "$cron_line"; then
     printf '%s\n' "cdx cron job already installed."
     return 0
   fi
 
-  # Append to existing crontab.
-  ( crontab -l 2>/dev/null || true; printf '%s\n' "$cron_line" ) | crontab -
-  printf '%s\n' "cdx cron job installed (daily at %02d:%02d). Log: ${log_file}" "$rand_hour" "$rand_minute"
+  filtered_crontab="$(printf '%s\n' "$current_crontab" | cron_filter_existing_entries "$cdx_path" "$quoted_cdx_path" "$marker")"
+
+  {
+    if [[ -n "$filtered_crontab" ]]; then
+      printf '%s\n' "$filtered_crontab"
+    fi
+    printf '%s\n' "$cron_line"
+  } | crontab -
+
+  printf 'cdx cron job installed (daily at %02d:%02d). Log: %s\n' "$rand_hour" "$rand_minute" "$log_file"
 }
 
 remove_cron_job() {
-  local marker="cdx --cron"
-  if ! crontab -l 2>/dev/null | grep -qF "$marker"; then
+  local cdx_path quoted_cdx_path marker current_crontab filtered_crontab
+  cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  marker="$(cron_managed_marker)"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+
+  if ! cron_has_wrapper_entry "$current_crontab" "$cdx_path" "$quoted_cdx_path" "$marker"; then
     printf '%s\n' "cdx cron job not found in crontab."
     return 0
   fi
 
-  crontab -l 2>/dev/null | grep -vF "$marker" | crontab -
+  filtered_crontab="$(printf '%s\n' "$current_crontab" | cron_filter_existing_entries "$cdx_path" "$quoted_cdx_path" "$marker")"
+  printf '%s\n' "$filtered_crontab" | crontab -
   printf '%s\n' "cdx cron job removed."
 }
 
@@ -112,10 +176,17 @@ cron_auto_update() {
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
 
   # Non-blocking lock to prevent concurrent cron runs.
-  exec 9>"$lock_file"
-  if ! flock -n 9; then
-    printf '[%s] cron: another cron run is active; skipping.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 0
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$lock_file" 2>/dev/null || {
+      printf '[%s] cron: cannot open lock file %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$lock_file"
+      return 1
+    }
+    if ! flock -n 9 2>/dev/null; then
+      printf '[%s] cron: another cron run is active; skipping.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      return 0
+    fi
+  else
+    log_warn "flock not available; cron concurrent-run guard disabled."
   fi
 
   load_sync_config
@@ -262,7 +333,19 @@ cron_auto_update() {
     local report_payload
     report_payload="$(python3 -c "import json; print(json.dumps({'client_version': '${new_version:-$target_version}'}))")"
     local report_url="${CODEX_SYNC_BASE_URL}/cron/report"
-    cron_do_api_call "$report_url" "$report_payload" "cron-report" >/dev/null 2>&1 || true
+    local report_attempt report_ok=0
+    for report_attempt in 1 2 3; do
+      if cron_do_api_call "$report_url" "$report_payload" "cron-report" >/dev/null 2>&1; then
+        report_ok=1
+        break
+      fi
+      sleep 2
+    done
+
+    if (( report_ok == 0 )); then
+      printf '[%s] cron: update report failed after retries (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+      return 1
+    fi
 
     printf '[%s] cron: update reported (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
     return 0

@@ -13,20 +13,17 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
-use App\Repositories\PricingSnapshotRepository;
 use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
-use App\Services\AuthEncryptionMigrator;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
-use App\Services\RunnerVerifier;
-use App\Services\UsageCostService;
 use App\Services\WrapperService;
-use App\Support\Installation;
+use App\Support\WorkerHeartbeat;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -36,6 +33,13 @@ $root = dirname(__DIR__);
 if (file_exists($root . '/.env')) {
     Dotenv::createImmutable($root)->safeLoad();
 }
+
+$healthPath = trim((string) Config::get('CHATGPT_USAGE_HEALTH_PATH', '/tmp/quota-cron-health.json'));
+if ($healthPath === '') {
+    $healthPath = '/tmp/quota-cron-health.json';
+}
+$heartbeat = new WorkerHeartbeat($healthPath);
+$heartbeat->recordAttempt();
 
 function logLine(string $message, bool $error = false): void
 {
@@ -55,16 +59,11 @@ try {
     ];
 
     $database = new Database($dbConfig);
-    $database->migrate();
 
     $keyManager = new EncryptionKeyManager($root);
     $secretBox = new SecretBox($keyManager->getKey());
 
-    $encryptionMigrator = new AuthEncryptionMigrator($database, $secretBox);
-    $encryptionMigrator->migrate();
-
     $hostRepository = new HostRepository($database, $secretBox);
-    $hostRepository->backfillApiKeyEncryption();
     $hostStateRepository = new HostAuthStateRepository($database);
     $digestRepository = new HostAuthDigestRepository($database);
     $hostUserRepository = new HostUserRepository($database);
@@ -76,6 +75,7 @@ try {
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $versionRepository = new VersionRepository($database);
     $pricingSnapshotRepository = new PricingSnapshotRepository($database);
+
     $pricingModel = 'gpt-5.4';
     $pricingService = new PricingService(
         $pricingSnapshotRepository,
@@ -84,25 +84,10 @@ try {
         (string) Config::get('PRICING_URL', ''),
         null
     );
-    $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
-    $chatGptUsageRepository = new ChatGptUsageRepository($database);
-    $installationId = Installation::ensure($root);
 
     $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
     $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox);
-    $wrapperService->ensureSeeded();
-
-    $runnerVerifier = null;
-    $runnerUrl = Config::get('AUTH_RUNNER_URL', '');
-    if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
-        $runnerVerifier = new RunnerVerifier(
-            $runnerUrl,
-            (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api'),
-            (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0),
-            (string) Config::get('AUTH_RUNNER_SHARED_SECRET', '')
-        );
-    }
+    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, null, $secretBox);
 
     $authService = new AuthService(
         $hostRepository,
@@ -115,14 +100,10 @@ try {
         $tokenUsageIngestRepository,
         $pricingService,
         $versionRepository,
-        $wrapperService,
-        null,
-        $runnerVerifier,
-        null,
-        $installationId
+        $wrapperService
     );
-    $usageCostService->backfillMissingCosts();
 
+    $chatGptUsageRepository = new ChatGptUsageRepository($database);
     $chatGptUsageService = new ChatGptUsageService(
         $authService,
         $chatGptUsageRepository,
@@ -130,19 +111,6 @@ try {
         (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
         (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0)
     );
-
-    // Keep the Codex client version cache warm so cron auto-update hosts (0–4 AM)
-    // always find a fresh version when they check in.
-    $hour = (int) gmdate('G');
-    if ($hour >= 0 && $hour <= 4) {
-        $ver = $authService->availableClientVersion(true);
-        logLine(sprintf(
-            'codex_version refresh=%s version=%s source=%s',
-            ($ver['version'] ?? 'n/a'),
-            ($ver['version'] ?? 'n/a'),
-            ($ver['source'] ?? 'unknown')
-        ));
-    }
 
     $result = $chatGptUsageService->fetchLatest(false);
     $snapshot = $result['snapshot'] ?? [];
@@ -168,8 +136,14 @@ try {
         $next ?? 'n/a'
     );
 
+    $heartbeat->recordSuccess([
+        'summary' => $summary,
+        'snapshot_status' => $status,
+        'next_eligible_at' => $next,
+    ]);
     logLine($summary);
 } catch (Throwable $exception) {
+    $heartbeat->recordFailure($exception->getMessage());
     logLine('chatgpt_usage refresh failed: ' . $exception->getMessage(), true);
     exit(1);
 }

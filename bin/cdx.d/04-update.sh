@@ -30,13 +30,16 @@ if wanted:
         if candidate.get("name") == wanted:
             asset = candidate
             break
-if asset is None:
+if asset is None and not wanted:
     for candidate in assets:
         if candidate.get("name") == "codex":
             asset = candidate
             break
 if asset is None:
-    print("error: could not find a matching release asset", file=sys.stderr)
+    if wanted:
+        print(f"error: could not find release asset {wanted}", file=sys.stderr)
+    else:
+        print("error: could not find a matching release asset", file=sys.stderr)
     sys.exit(2)
 payload = {
     "timestamp": int(time.time()),

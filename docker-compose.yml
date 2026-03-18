@@ -97,6 +97,7 @@ services:
       DB_USERNAME: ${DB_USERNAME:-codex}
       DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
       CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-3600}
+      CHATGPT_USAGE_HEALTH_PATH: ${CHATGPT_USAGE_HEALTH_PATH:-/tmp/quota-cron-health.json}
     volumes:
       - ${ENV_FILE:-./.env}:/var/www/html/.env
       - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
@@ -114,11 +115,11 @@ services:
           fi
         done"
     healthcheck:
-      test: ["CMD-SHELL", "php -r '$$h=getenv(\"DB_HOST\")?:\"mysql\";$$p=(int)(getenv(\"DB_PORT\")?:3306);$$d=getenv(\"DB_DATABASE\")?:\"codex_auth\";$$u=getenv(\"DB_USERNAME\")?:\"codex\";$$pw=getenv(\"DB_PASSWORD\")?:\"\";try{$$pdo=new PDO(\"mysql:host=$$h;port=$$p;dbname=$$d;charset=utf8mb4\",$$u,$$pw);$$pdo->query(\"SELECT 1\");exit(0);}catch(Throwable $$e){exit(1);}';"]
+      test: ["CMD", "php", "/var/www/html/scripts/check-quota-cron-health.php"]
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 120s
     read_only: true
     tmpfs:
       - /tmp

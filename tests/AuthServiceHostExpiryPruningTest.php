@@ -50,6 +50,7 @@ final class AuthServiceHostExpiryPruningTest extends TestCase
                 secure INTEGER NOT NULL DEFAULT 1,
                 vip INTEGER NOT NULL DEFAULT 0,
                 allow_roaming_ips INTEGER NOT NULL DEFAULT 0,
+                last_cron_check TEXT NULL,
                 last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
                 api_calls INTEGER NOT NULL DEFAULT 0,
@@ -199,6 +200,45 @@ final class AuthServiceHostExpiryPruningTest extends TestCase
         $expectedMax = $now + 7500;
         self::assertGreaterThanOrEqual($expectedMin, $refreshedTs);
         self::assertLessThanOrEqual($expectedMax, $refreshedTs);
+    }
+
+    public function testCronHeartbeatDoesNotPreventInactiveHostPruning(): void
+    {
+        $now = time();
+        $createdAt = gmdate(DATE_ATOM, $now - 40 * 86400);
+        $staleUpdatedAt = gmdate(DATE_ATOM, $now - 35 * 86400);
+
+        $seed = $this->pdo->prepare(
+            'INSERT INTO hosts (fqdn, api_key, status, secure, vip, allow_roaming_ips, last_cron_check, last_refresh, auth_digest, api_calls, expires_at, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :status, :secure, :vip, :allow_roaming_ips, :last_cron_check, :last_refresh, :auth_digest, :api_calls, :expires_at, :created_at, :updated_at)'
+        );
+        $seed->execute([
+            'fqdn' => 'cron-stale.test',
+            'api_key' => str_repeat('d', 64),
+            'status' => 'active',
+            'secure' => 1,
+            'vip' => 0,
+            'allow_roaming_ips' => 0,
+            'last_cron_check' => null,
+            'last_refresh' => null,
+            'auth_digest' => null,
+            'api_calls' => 0,
+            'expires_at' => null,
+            'created_at' => $createdAt,
+            'updated_at' => $staleUpdatedAt,
+        ]);
+        $hostId = (int) $this->pdo->lastInsertId();
+
+        $this->hosts->touchLastCronCheck($hostId);
+
+        $touchedHost = $this->hosts->findById($hostId);
+        self::assertNotNull($touchedHost);
+        self::assertSame($staleUpdatedAt, $touchedHost['updated_at']);
+        self::assertNotNull($touchedHost['last_cron_check']);
+
+        $this->service->pruneStaleHosts();
+
+        self::assertNull($this->hosts->findById($hostId));
     }
 
     private function fakeDatabase(PDO $pdo): Database

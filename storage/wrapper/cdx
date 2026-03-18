@@ -200,6 +200,231 @@ PY
 )"
 export CODEX_PY_HTTP_UTIL
 
+CODEX_PY_IPV4_PROXY_UTIL="$(cat <<'PY'
+import os
+import select
+import signal
+import socket
+import socketserver
+import sys
+from urllib.parse import urlsplit
+
+
+def _connect_ipv4(host, port):
+    last_err = None
+    for family, socktype, proto, _canonname, sockaddr in socket.getaddrinfo(
+        host, port, socket.AF_INET, socket.SOCK_STREAM
+    ):
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(15.0)
+            sock.connect(sockaddr)
+            sock.settimeout(None)
+            return sock
+        except OSError as exc:
+            last_err = exc
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+    if last_err is None:
+        raise OSError(f"failed to resolve domain to IPv4 addresses: {host}")
+    raise last_err
+
+
+def _relay_bidirectional(left, right):
+    sockets = [left, right]
+    try:
+        for sock in sockets:
+            sock.setblocking(False)
+        while True:
+            readable, _, _ = select.select(sockets, [], [], 60.0)
+            if not readable:
+                continue
+            for source in readable:
+                target = right if source is left else left
+                try:
+                    chunk = source.recv(65536)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                view = memoryview(chunk)
+                while view:
+                    try:
+                        written = target.send(view)
+                    except OSError:
+                        return
+                    view = view[written:]
+    finally:
+        for sock in sockets:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class ProxyHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        request_line = self.rfile.readline(65537)
+        if not request_line:
+            return
+        if len(request_line) > 65536:
+            self._write_error(414, b"request line too long")
+            return
+        try:
+            method, target, version = request_line.decode("iso-8859-1").strip().split(" ", 2)
+        except ValueError:
+            self._write_error(400, b"bad request")
+            return
+
+        headers = []
+        while True:
+            line = self.rfile.readline(65537)
+            if not line:
+                return
+            if len(line) > 65536:
+                self._write_error(431, b"header line too long")
+                return
+            if line in (b"\r\n", b"\n"):
+                break
+            headers.append(line)
+
+        if method.upper() == "CONNECT":
+            self._handle_connect(target)
+            return
+
+        self._handle_forward(method, target, version, headers)
+
+    def _handle_connect(self, target):
+        if ":" not in target:
+            self._write_error(400, b"CONNECT target missing port")
+            return
+        host, port_text = target.rsplit(":", 1)
+        try:
+            port = int(port_text)
+        except ValueError:
+            self._write_error(400, b"invalid CONNECT port")
+            return
+        try:
+            upstream = _connect_ipv4(host, port)
+        except OSError as exc:
+            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
+            return
+        self.wfile.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        self.wfile.flush()
+        _relay_bidirectional(self.connection, upstream)
+
+    def _handle_forward(self, method, target, version, headers):
+        parts = urlsplit(target)
+        host = parts.hostname
+        if not host:
+            self._write_error(400, b"proxy request requires absolute URL")
+            return
+        scheme = (parts.scheme or "http").lower()
+        port = parts.port or (443 if scheme == "https" else 80)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+
+        content_length = 0
+        sanitized_headers = []
+        saw_host = False
+        for raw_header in headers:
+            lowered = raw_header.lower()
+            if lowered.startswith(b"proxy-connection:"):
+                continue
+            if lowered.startswith(b"host:"):
+                saw_host = True
+            if lowered.startswith(b"content-length:"):
+                try:
+                    content_length = int(raw_header.split(b":", 1)[1].strip() or b"0")
+                except ValueError:
+                    content_length = 0
+            sanitized_headers.append(raw_header)
+        if not saw_host:
+            host_value = host if parts.port is None else f"{host}:{port}"
+            sanitized_headers.append(f"Host: {host_value}\r\n".encode("iso-8859-1"))
+
+        body = b""
+        if content_length > 0:
+            body = self.rfile.read(content_length)
+
+        try:
+            upstream = _connect_ipv4(host, port)
+        except OSError as exc:
+            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
+            return
+
+        try:
+            upstream.sendall(f"{method} {path} {version}\r\n".encode("iso-8859-1"))
+            for raw_header in sanitized_headers:
+                upstream.sendall(raw_header)
+            upstream.sendall(b"\r\n")
+            if body:
+                upstream.sendall(body)
+            _relay_bidirectional(self.connection, upstream)
+        except OSError:
+            try:
+                upstream.close()
+            except OSError:
+                pass
+
+    def _write_error(self, code, message):
+        reason = {
+            400: b"Bad Request",
+            414: b"URI Too Long",
+            431: b"Request Header Fields Too Large",
+            502: b"Bad Gateway",
+        }.get(code, b"Proxy Error")
+        body = message + b"\n"
+        self.wfile.write(
+            b"HTTP/1.1 %d %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+            % (code, reason, len(body), body)
+        )
+        self.wfile.flush()
+
+
+def main():
+    state_dir = os.environ.get("CODEX_IPV4_PROXY_DIR", "")
+    if not state_dir:
+        print("missing CODEX_IPV4_PROXY_DIR", file=sys.stderr)
+        return 1
+    os.makedirs(state_dir, exist_ok=True)
+    port_file = os.path.join(state_dir, "port")
+
+    server = ThreadedTcpServer(("127.0.0.1", 0), ProxyHandler)
+    with open(port_file, "w", encoding="utf-8") as handle:
+        handle.write(str(server.server_address[1]))
+        handle.flush()
+
+    def _shutdown(_signum, _frame):
+        server.shutdown()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    try:
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        server.server_close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+)"
+export CODEX_PY_IPV4_PROXY_UTIL
+
 MOTD_TEXT="$(cat <<'EOF'
   ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗
  ██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝
@@ -297,6 +522,9 @@ CODEX_EXIT_AFTER_UPDATE=0
 CODEX_DO_UNINSTALL=0
 CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
+CODEX_CRON_MODE=0
+CODEX_CRON_INSTALL=0
+CODEX_CRON_REMOVE=0
 CODEX_CONCURRENT_SYNC_OVERRIDE=0
 CODEX_PROFILE_CANDIDATE=""
 CODEX_LANE_COMMAND=0
@@ -373,6 +601,7 @@ AUTH_ACTION=""
 AUTH_MESSAGE=""
 SYNC_REMOTE_CLIENT_VERSION=""
 SYNC_REMOTE_CLIENT_VERSION_SOURCE=""
+SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
@@ -381,6 +610,9 @@ RUNNER_LAST_OK=""
 RUNNER_LAST_FAIL=""
 RUNNER_LAST_CHECK=""
 RUNNER_ENABLED=0
+CODEX_IPV4_PROXY_PID=""
+CODEX_IPV4_PROXY_DIR=""
+CODEX_IPV4_PROXY_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 AUTH_PULL_REASON=""
@@ -495,7 +727,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.13-02"
+WRAPPER_VERSION="2026.03.18-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -962,7 +1194,11 @@ if [[ "${1-}" == "lane" ]]; then
     CODEX_LANE_WANTS_RUN=1
   fi
 
-  set -- "${lane_passthrough[@]}"
+  if (( ${#lane_passthrough[@]} > 0 )); then
+    set -- "${lane_passthrough[@]}"
+  else
+    set --
+  fi
 fi
 
 if [[ "${1-}" == "--execute" ]]; then
@@ -1001,6 +1237,15 @@ case "${1-}" in
     CODEX_FORCE_WRAPPER_UPDATE=1
     CODEX_EXIT_AFTER_UPDATE=1
     shift
+    ;;
+  --cron)
+    CODEX_CRON_MODE=1
+    CODEX_SILENT=1
+    shift
+    case "${1-}" in
+      install) CODEX_CRON_INSTALL=1; shift ;;
+      remove)  CODEX_CRON_REMOVE=1; shift ;;
+    esac
     ;;
 esac
 
@@ -1788,6 +2033,43 @@ load_sync_config() {
   SYNC_CONFIG_LOADED=1
 }
 
+detect_codex_asset_name() {
+  local os_name arch_name
+  os_name="$(uname -s 2>/dev/null || echo unknown)"
+  arch_name="$(uname -m 2>/dev/null || echo unknown)"
+  case "$os_name" in
+    Linux)
+      case "$arch_name" in
+        x86_64|amd64)
+          local glibc_version
+          glibc_version="$(detect_glibc_version)"
+          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
+            printf "codex-x86_64-unknown-linux-musl.tar.gz"
+          else
+            printf "codex-x86_64-unknown-linux-gnu.tar.gz"
+          fi
+          ;;
+        aarch64|arm64)
+          printf "codex-aarch64-unknown-linux-gnu.tar.gz"
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    Darwin)
+      case "$arch_name" in
+        x86_64|amd64) printf "codex-x86_64-apple-darwin.tar.gz" ;;
+        aarch64|arm64) printf "codex-aarch64-apple-darwin.tar.gz" ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if (( CODEX_DO_UNINSTALL )); then
   cmd_uninstall
 fi
@@ -2037,6 +2319,9 @@ def record_versions(vblock):
         cvs = vblock.get("client_version_source")
         if isinstance(cvs, str) and cvs.strip():
             out["client_version_source"] = cvs.strip()
+        cvx = vblock.get("client_version_enforce_exact")
+        if isinstance(cvx, bool):
+            out["client_version_enforce_exact"] = cvx
         wv = vblock.get("wrapper_version")
         if isinstance(wv, str) and wv.strip():
             out["wrapper_version"] = wv.strip()
@@ -2252,6 +2537,7 @@ if not isinstance(versions, dict):
     sys.exit(0)
 cv = versions.get("client_version")
 cvs = versions.get("client_version_source")
+cvx = versions.get("client_version_enforce_exact")
 wv = versions.get("wrapper_version")
 ws = versions.get("wrapper_sha256")
 wu = versions.get("wrapper_url")
@@ -2259,6 +2545,8 @@ if isinstance(cv, str) and cv.strip():
     print(f"cv={cv.strip()}")
 if isinstance(cvs, str) and cvs.strip():
     print(f"cvs={cvs.strip()}")
+if isinstance(cvx, bool):
+    print("cvx=1" if cvx else "cvx=0")
 if isinstance(wv, str) and wv.strip():
     print(f"wv={wv.strip()}")
 if isinstance(ws, str) and ws.strip():
@@ -2423,6 +2711,9 @@ PY
                 ;;
               cvs=*)
                 SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
+                ;;
+              cvx=*)
+                SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
                 ;;
               wv=*)
                 SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
@@ -5425,6 +5716,378 @@ send_token_usage_if_present() {
 }
 
 
+# Cron auto-update mode: lightweight path that skips auth sync and interactive launch.
+# Invoked via: cdx --cron [install|remove]
+
+cron_managed_marker() {
+  printf '%s' '# cdx-managed-cron'
+}
+
+cron_entry_matches_wrapper() {
+  local line="$1"
+  local cdx_path="$2"
+  local quoted_cdx_path="$3"
+  local marker="$4"
+
+  [[ "$line" == *"$marker"* ]] && return 0
+  [[ "$line" == *"$cdx_path"* && "$line" == *" --cron"* ]] && return 0
+  [[ "$line" == *"$quoted_cdx_path"* && "$line" == *" --cron"* ]] && return 0
+  return 1
+}
+
+cron_has_wrapper_entry() {
+  local crontab_text="$1"
+  local cdx_path="$2"
+  local quoted_cdx_path="$3"
+  local marker="$4"
+  local line=""
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if cron_entry_matches_wrapper "$line" "$cdx_path" "$quoted_cdx_path" "$marker"; then
+      return 0
+    fi
+  done <<< "$crontab_text"
+
+  return 1
+}
+
+cron_filter_existing_entries() {
+  local cdx_path="$1"
+  local quoted_cdx_path="$2"
+  local marker="$3"
+  local line=""
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if cron_entry_matches_wrapper "$line" "$cdx_path" "$quoted_cdx_path" "$marker"; then
+      continue
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
+install_cron_job() {
+  local cdx_path
+  cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+  if [[ ! -x "$cdx_path" ]]; then
+    log_error "Cannot determine cdx path for cron entry."
+    return 1
+  fi
+
+  local log_file="$HOME/.codex/cron.log"
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+
+  # Random minute (0-59) and hour (0-3) unique per host, so not all hosts hit the API at once.
+  local rand_minute rand_hour
+  rand_minute=$(( $(cksum <<< "$(hostname)-min" | cut -d' ' -f1) % 60 ))
+  rand_hour=$(( $(cksum <<< "$(hostname)-hr" | cut -d' ' -f1) % 4 ))
+
+  local quoted_cdx_path quoted_log_file cron_command cron_line marker current_crontab filtered_crontab
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  printf -v quoted_log_file '%q' "$log_file"
+  cron_command="${quoted_cdx_path} --cron >> ${quoted_log_file} 2>&1"
+  cron_command="${cron_command//%/\\%}"
+  marker="$(cron_managed_marker)"
+  cron_line="${rand_minute} ${rand_hour} * * * ${cron_command} ${marker}"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+
+  if printf '%s\n' "$current_crontab" | grep -qF "$cron_line"; then
+    printf '%s\n' "cdx cron job already installed."
+    return 0
+  fi
+
+  filtered_crontab="$(printf '%s\n' "$current_crontab" | cron_filter_existing_entries "$cdx_path" "$quoted_cdx_path" "$marker")"
+
+  {
+    if [[ -n "$filtered_crontab" ]]; then
+      printf '%s\n' "$filtered_crontab"
+    fi
+    printf '%s\n' "$cron_line"
+  } | crontab -
+
+  printf 'cdx cron job installed (daily at %02d:%02d). Log: %s\n' "$rand_hour" "$rand_minute" "$log_file"
+}
+
+remove_cron_job() {
+  local cdx_path quoted_cdx_path marker current_crontab filtered_crontab
+  cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  marker="$(cron_managed_marker)"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+
+  if ! cron_has_wrapper_entry "$current_crontab" "$cdx_path" "$quoted_cdx_path" "$marker"; then
+    printf '%s\n' "cdx cron job not found in crontab."
+    return 0
+  fi
+
+  filtered_crontab="$(printf '%s\n' "$current_crontab" | cron_filter_existing_entries "$cdx_path" "$quoted_cdx_path" "$marker")"
+  printf '%s\n' "$filtered_crontab" | crontab -
+  printf '%s\n' "cdx cron job removed."
+}
+
+cron_do_api_call() {
+  local url="$1"
+  local json_payload="$2"
+  local action_label="$3"
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
+import json, os, socket, ssl, sys, urllib.error, urllib.request
+
+if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+    _orig = socket.getaddrinfo
+    def _force_v4(host, port, family=0, type=0, proto=0, flags=0):
+        return _orig(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = _force_v4
+
+url = sys.argv[1]
+payload_json = sys.argv[2]
+action = sys.argv[3]
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
+allow_insecure = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower() in ("1", "true", "yes")
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+
+body = payload_json.encode("utf-8")
+headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+
+contexts = [None]
+if cafile:
+    try:
+        ctx = ssl.create_default_context(cafile=cafile)
+        contexts = [ctx, None]
+    except Exception:
+        pass
+if allow_insecure:
+    try:
+        ctx_ins = ssl.create_default_context()
+        ctx_ins.check_hostname = False
+        ctx_ins.verify_mode = ssl.CERT_NONE
+        contexts.append(ctx_ins)
+    except Exception:
+        pass
+
+last_err = None
+for ctx in contexts:
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+            data = json.load(resp)
+            json.dump(data, sys.stdout, separators=(",", ":"))
+            sys.exit(0)
+    except urllib.error.HTTPError as exc:
+        msg = ""
+        try:
+            msg = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        print(f"{action} failed ({exc.code}): {msg}", file=sys.stderr)
+        sys.exit(2)
+    except Exception as exc:
+        last_err = exc
+        continue
+
+print(f"{action} failed: {last_err}", file=sys.stderr)
+sys.exit(3)
+PY
+}
+
+cron_auto_update() {
+  local lock_file="$HOME/.codex/.cdx_cron.lock"
+  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
+
+  # Non-blocking lock to prevent concurrent cron runs.
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$lock_file" 2>/dev/null || {
+      printf '[%s] cron: cannot open lock file %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$lock_file"
+      return 1
+    }
+    if ! flock -n 9 2>/dev/null; then
+      printf '[%s] cron: another cron run is active; skipping.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      return 0
+    fi
+  else
+    log_warn "flock not available; cron concurrent-run guard disabled."
+  fi
+
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    printf '[%s] cron: sync config missing; cannot check for updates.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+
+  local codex_bin
+  codex_bin="$(resolve_real_codex 2>/dev/null || true)"
+  if [[ -z "$codex_bin" ]]; then
+    printf '[%s] cron: codex binary not found on PATH.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+
+  local local_version_raw local_version
+  local_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
+  local_version="$(normalize_version "$local_version_raw")"
+
+  local cron_asset_name
+  cron_asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
+  if [[ -z "$cron_asset_name" ]]; then
+    printf '[%s] cron: unsupported platform; cannot determine asset name.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[%s] cron: python3 is required for API calls.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+
+  # Call POST /cron/check
+  local check_payload
+  check_payload="$(python3 -c "import json; print(json.dumps({
+    'client_version': '${local_version:-unknown}',
+    'wrapper_version': '${WRAPPER_VERSION:-unknown}',
+    'asset_name': '${cron_asset_name}'
+  }))")"
+
+  local check_url="${CODEX_SYNC_BASE_URL}/cron/check"
+  local check_response
+  check_response="$(cron_do_api_call "$check_url" "$check_payload" "cron-check" 2>&1)" || {
+    printf '[%s] cron: API check failed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$check_response"
+    return 1
+  }
+
+  local action target_version tag enforce_exact
+  action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('action',''))" 2>/dev/null || true)"
+
+  if [[ "$action" == "no_update" ]]; then
+    printf '[%s] cron: no update needed (current: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${local_version:-unknown}"
+    return 0
+  fi
+
+  if [[ "$action" == "disable" ]]; then
+    printf '[%s] cron: auto-update disabled by server; removing cron job.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    remove_cron_job
+    return 0
+  fi
+
+  if [[ "$action" != "update" ]]; then
+    printf '[%s] cron: unexpected action "%s" from API.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$action"
+    return 1
+  fi
+
+  # Extract update details
+  target_version="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('target_version',''))" 2>/dev/null || true)"
+  tag="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('tag',''))" 2>/dev/null || true)"
+
+  if [[ -z "$target_version" ]]; then
+    printf '[%s] cron: update action but no target_version provided.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+
+  printf '[%s] cron: update available: %s -> %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${local_version:-unknown}" "$target_version"
+
+  # Resolve download URL and SHA256 from GitHub releases.
+  local api_releases_url="https://api.github.com/repos/openai/codex/releases"
+  local tmp_payload
+  tmp_payload="$(mktemp)"
+  local fetch_success=0
+  local remote_url="" remote_asset="" remote_sha256="" remote_tag=""
+
+  local candidate_tags=()
+  local _t
+  for _t in "$tag" "$target_version" "v${target_version}" "rust-${target_version}" "rust-v${target_version}"; do
+    [[ -z "$_t" ]] && continue
+    local _dup=0
+    local _e
+    for _e in "${candidate_tags[@]-}"; do
+      [[ "$_e" == "$_t" ]] && { _dup=1; break; }
+    done
+    (( _dup )) || candidate_tags+=("$_t")
+  done
+
+  local payload_json="" payload_raw=""
+  local fresh_fields=()
+  for tag_variant in "${candidate_tags[@]}"; do
+    if payload_json="$(fetch_release_payload "${api_releases_url}/tags/${tag_variant}" "$cron_asset_name" 2>/dev/null)"; then
+      printf '%s\n' "$payload_json" > "$tmp_payload"
+      fresh_fields=()
+      if payload_raw="$(read_cached_payload "$tmp_payload")"; then
+        while IFS= read -r line; do
+          fresh_fields+=("$line")
+        done <<< "$payload_raw"
+      fi
+      if (( ${#fresh_fields[@]} >= 5 )); then
+        remote_url="${fresh_fields[1]}"
+        remote_asset="${fresh_fields[2]}"
+        remote_tag="${fresh_fields[4]}"
+        remote_sha256="${fresh_fields[5]:-}"
+        fetch_success=1
+        break
+      fi
+    fi
+  done
+  rm -f "$tmp_payload"
+
+  if (( fetch_success == 0 )); then
+    printf '[%s] cron: could not fetch release metadata for %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
+    return 1
+  fi
+
+  if [[ -z "$remote_sha256" ]]; then
+    printf '[%s] cron: missing checksum for %s; skipping update.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
+    return 1
+  fi
+
+  if [[ -z "$remote_url" ]]; then
+    printf '[%s] cron: missing download URL for %s; skipping update.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
+    return 1
+  fi
+
+  # Perform the update using the existing function.
+  if perform_update "$codex_bin" "$remote_url" "${remote_asset:-$cron_asset_name}" "$target_version" "$remote_sha256"; then
+    printf '[%s] cron: codex updated to %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
+
+    # Verify new version.
+    local new_version_raw new_version
+    new_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
+    new_version="$(normalize_version "$new_version_raw")"
+
+    # Report success to API.
+    local report_payload
+    report_payload="$(python3 -c "import json; print(json.dumps({'client_version': '${new_version:-$target_version}'}))")"
+    local report_url="${CODEX_SYNC_BASE_URL}/cron/report"
+    local report_attempt report_ok=0
+    for report_attempt in 1 2 3; do
+      if cron_do_api_call "$report_url" "$report_payload" "cron-report" >/dev/null 2>&1; then
+        report_ok=1
+        break
+      fi
+      sleep 2
+    done
+
+    if (( report_ok == 0 )); then
+      printf '[%s] cron: update report failed after retries (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+      return 1
+    fi
+
+    printf '[%s] cron: update reported (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+    return 0
+  else
+    printf '[%s] cron: update to %s failed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
+    return 1
+  fi
+}
+
+if (( CODEX_CRON_MODE )); then
+  if (( CODEX_CRON_INSTALL )); then
+    install_cron_job
+    exit $?
+  fi
+
+  if (( CODEX_CRON_REMOVE )); then
+    remove_cron_job
+    exit $?
+  fi
+
+  cron_auto_update
+  exit $?
+fi
+
+
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
@@ -5456,13 +6119,16 @@ if wanted:
         if candidate.get("name") == wanted:
             asset = candidate
             break
-if asset is None:
+if asset is None and not wanted:
     for candidate in assets:
         if candidate.get("name") == "codex":
             asset = candidate
             break
 if asset is None:
-    print("error: could not find a matching release asset", file=sys.stderr)
+    if wanted:
+        print(f"error: could not find release asset {wanted}", file=sys.stderr)
+    else:
+        print("error: could not find a matching release asset", file=sys.stderr)
     sys.exit(2)
 payload = {
     "timestamp": int(time.time()),
@@ -5674,8 +6340,6 @@ if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
   print_motd
 fi
 
-os_name="$(uname -s)"
-arch_name="$(uname -m)"
 asset_name=""
 skip_update_check=0
 if (( CDX_ACTIVE_RUN_DETECTED )); then
@@ -5683,52 +6347,16 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
 elif (( ! can_manage_codex )); then
   skip_update_check=1
 fi
-case "$os_name" in
-  Linux)
-	    case "$arch_name" in
-	      x86_64|amd64)
-	        asset_name="codex-x86_64-unknown-linux-gnu.tar.gz"
-	        glibc_version="$(detect_glibc_version)"
-	        if [[ -z "$glibc_version" ]]; then
-	          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
-	          if [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
-	            log_info "Unable to detect glibc version; using musl Codex build for compatibility."
-	          fi
-	        elif version_lt "$glibc_version" "2.39"; then
-	          asset_name="codex-x86_64-unknown-linux-musl.tar.gz"
-	          if [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
-	            log_info "glibc ${glibc_version} detected; using musl Codex build for compatibility."
-	          fi
-	        fi
-	        ;;
-      aarch64|arm64)
-        asset_name="codex-aarch64-unknown-linux-gnu.tar.gz"
-        ;;
-      *)
-        log_warn "Unsupported Linux architecture (${arch_name}); skipping update check."
-        skip_update_check=1
-        ;;
-    esac
-    ;;
-  Darwin)
-    case "$arch_name" in
-      x86_64|amd64)
-        asset_name="codex-x86_64-apple-darwin.tar.gz"
-        ;;
-      aarch64|arm64)
-        asset_name="codex-aarch64-apple-darwin.tar.gz"
-        ;;
-      *)
-        log_warn "Unsupported macOS architecture (${arch_name}); skipping update check."
-        skip_update_check=1
-        ;;
-    esac
-    ;;
-  *)
-    log_warn "Non-Linux operating system (${os_name}) detected; skipping update check."
+
+if (( ! skip_update_check )); then
+  asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
+  if [[ -z "$asset_name" ]]; then
+    os_name="$(uname -s 2>/dev/null || echo unknown)"
+    arch_name="$(uname -m 2>/dev/null || echo unknown)"
+    log_warn "Unsupported platform (${os_name}/${arch_name}); skipping update check."
     skip_update_check=1
-    ;;
-esac
+  fi
+fi
 
 remote_version=""
 remote_url=""
@@ -5739,9 +6367,19 @@ remote_timestamp=0
 prefer_npm_update=0
 enforce_exact_codex_version=0
 
-if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
-  enforce_exact_codex_version=1
-fi
+case "$(lowercase "${SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT:-}")" in
+  1|true|yes)
+    enforce_exact_codex_version=1
+    ;;
+  0|false|no)
+    enforce_exact_codex_version=0
+    ;;
+  *)
+    if [[ "${SYNC_REMOTE_CLIENT_VERSION_SOURCE:-}" == "locked" ]]; then
+      enforce_exact_codex_version=1
+    fi
+    ;;
+esac
 
 if (( ! skip_update_check )); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
@@ -8554,9 +9192,71 @@ if (( CODEX_LANE_WANTS_RUN == 0 )); then
   exit 0
 fi
 
+stop_codex_ipv4_proxy() {
+  local proxy_pid="${CODEX_IPV4_PROXY_PID:-}"
+  if [[ -n "$proxy_pid" ]]; then
+    kill "$proxy_pid" >/dev/null 2>&1 || true
+    wait "$proxy_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${CODEX_IPV4_PROXY_DIR:-}" ]] && [[ -d "$CODEX_IPV4_PROXY_DIR" ]]; then
+    rm -rf "$CODEX_IPV4_PROXY_DIR" >/dev/null 2>&1 || true
+  fi
+  CODEX_IPV4_PROXY_PID=""
+  CODEX_IPV4_PROXY_DIR=""
+  CODEX_IPV4_PROXY_URL=""
+}
+
+start_codex_ipv4_proxy() {
+  if [[ "$CODEX_FORCE_IPV4" != "1" ]]; then
+    return 1
+  fi
+  if [[ -n "${CODEX_IPV4_PROXY_URL:-}" ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_warn "python3 is unavailable; Codex child traffic cannot be forced through the local IPv4 proxy."
+    return 1
+  fi
+
+  local state_dir port_file port=""
+  state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cdx-ipv4-proxy.XXXXXX")"
+  port_file="$state_dir/port"
+  CODEX_IPV4_PROXY_DIR="$state_dir"
+
+  CODEX_IPV4_PROXY_DIR="$state_dir" python3 -u - <<'PY' >/dev/null 2>&1 &
+import os
+namespace = {}
+exec(os.environ["CODEX_PY_IPV4_PROXY_UTIL"], namespace)
+raise SystemExit(namespace["main"]())
+PY
+  CODEX_IPV4_PROXY_PID="$!"
+
+  local _i=0
+  for ((_i=0; _i<50; _i++)); do
+    if [[ -f "$port_file" ]]; then
+      port="$(tr -d '[:space:]' < "$port_file")"
+      break
+    fi
+    if ! kill -0 "$CODEX_IPV4_PROXY_PID" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    log_warn "failed to start the local IPv4 proxy; continuing without forcing Codex child traffic to IPv4."
+    stop_codex_ipv4_proxy
+    return 1
+  fi
+
+  CODEX_IPV4_PROXY_URL="http://127.0.0.1:${port}"
+  return 0
+}
+
 cleanup() {
   local exit_status=$?
   trap - EXIT
+  stop_codex_ipv4_proxy || true
   if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     push_slash_commands_if_changed || true
     push_skills_if_changed || true
@@ -8775,7 +9475,28 @@ detect_script_flags() {
 
 run_codex_command() {
   local tmp_output status
+  local use_cmd_prefix=0
+  local -a cmd_prefix=()
+  local -a cmd_line=("$CODEX_REAL_BIN")
   tmp_output="$(mktemp)"
+  if start_codex_ipv4_proxy; then
+    use_cmd_prefix=1
+    cmd_line+=(
+      -c "network.proxy_url=\"$CODEX_IPV4_PROXY_URL\""
+      -c "network.allow_upstream_proxy=true"
+    )
+    cmd_prefix=(
+      env
+      HTTPS_PROXY="$CODEX_IPV4_PROXY_URL" https_proxy="$CODEX_IPV4_PROXY_URL"
+      HTTP_PROXY="$CODEX_IPV4_PROXY_URL" http_proxy="$CODEX_IPV4_PROXY_URL"
+      ALL_PROXY="$CODEX_IPV4_PROXY_URL" all_proxy="$CODEX_IPV4_PROXY_URL"
+    )
+  fi
+  cmd_line+=("$@")
+  local -a exec_cmd=("${cmd_line[@]}")
+  if (( use_cmd_prefix )); then
+    exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
+  fi
   set +e
   local prompt_toolkit_no_cpr_added=0
   local pty_auto_disable_file="$HOME/.codex/.cdx_no_pty"
@@ -8788,19 +9509,18 @@ run_codex_command() {
   fi
 
   if [[ -t 0 && -t 1 ]]; then
-    local cmd_line=("$CODEX_REAL_BIN" "$@")
     if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
       # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
       # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
-      "${cmd_line[@]}"
+      "${exec_cmd[@]}"
       status=$?
     elif [[ "$CODEX_NO_PTY" == "1" ]]; then
       # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
-      "${cmd_line[@]}"
+      "${exec_cmd[@]}"
       status=$?
     elif [[ "${CODEX_FORCE_PTY:-0}" != "1" && -f "$pty_auto_disable_file" ]]; then
       # Auto-detected incompatible PTY host; run direct unless explicitly overridden.
-      "${cmd_line[@]}"
+      "${exec_cmd[@]}"
       status=$?
     else
       if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
@@ -8810,18 +9530,22 @@ run_codex_command() {
       if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
         # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
         local cmd_str
-        cmd_str="$(printf '%q ' "${cmd_line[@]}")"
+        cmd_str="$(printf '%q ' "${exec_cmd[@]}")"
         detect_script_flags
         if (( SCRIPT_SUPPORTS_C )); then
           script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"
         else
-          script $SCRIPT_FLAGS "$tmp_output" "${cmd_line[@]}"
+          script $SCRIPT_FLAGS "$tmp_output" "${exec_cmd[@]}"
         fi
         status=$?
       elif command -v python3 >/dev/null 2>&1; then
         # Fallback PTY using Python's pty module when script is unavailable.
+        local -a pty_cmd=(python3 - "$tmp_output" "${cmd_line[@]}")
+        if (( use_cmd_prefix )); then
+          pty_cmd=("${cmd_prefix[@]}" "${pty_cmd[@]}")
+        fi
         status=0
-        python3 - "$tmp_output" "${cmd_line[@]}" <<'PY'
+        "${pty_cmd[@]}" <<'PY'
 import fcntl
 import os
 import pty
@@ -8890,7 +9614,7 @@ PY
         status=$?
       else
         # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
-        "${cmd_line[@]}"
+        "${exec_cmd[@]}"
         status=$?
       fi
 
@@ -8905,7 +9629,7 @@ PY
           printf 'wrapper_version=%s\n' "${WRAPPER_VERSION:-unknown}"
         } > "$pty_auto_disable_file" 2>/dev/null || true
         log_warn "PTY capture looks incompatible on this host; auto-disabling PTY capture. Remove $pty_auto_disable_file or set CODEX_FORCE_PTY=1 to retry."
-        "${cmd_line[@]}"
+        "${exec_cmd[@]}"
         status=$?
       fi
     fi
@@ -8918,14 +9642,15 @@ PY
         log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
         status=1
       else
-        "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
+        "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
         status=${PIPESTATUS[0]}
       fi
     else
-      "$CODEX_REAL_BIN" "$@" 2>&1 | tee "$tmp_output"
+      "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
       status=${PIPESTATUS[0]}
     fi
   fi
+  stop_codex_ipv4_proxy || true
   if (( prompt_toolkit_no_cpr_added )); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi
