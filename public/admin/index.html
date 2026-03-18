@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-02">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-02-19-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-03">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-18-03">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
@@ -57,18 +57,20 @@
         </div>
         <a class="nav-item" href="/admin/users" data-nav="users">Users</a>
       </nav>
-      <div class="nav-actions">
-        <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
-        <button class="nav-btn primary" id="navNewHost">New host</button>
-        <button class="nav-btn ghost theme-toggle" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
-          Theme: <span class="theme-toggle-label">Auto</span>
-        </button>
-      </div>
-      <div class="nav-status">
-        <span class="nav-user" id="navUser" style="display:none;">
-          <span class="nav-user-name" id="navUserName">Authenticated user</span>
-          <button class="nav-lock" id="navLogout" type="button" aria-label="Logout">🔐</button>
-        </span>
+      <div class="nav-utility-cluster">
+        <div class="nav-actions">
+          <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
+          <button class="nav-btn primary" id="navNewHost">New host</button>
+          <button class="nav-btn ghost theme-toggle" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
+            Theme: <span class="theme-toggle-label">Auto</span>
+          </button>
+        </div>
+        <div class="nav-status">
+          <span class="nav-user" id="navUser" style="display:none;">
+            <span class="nav-user-name" id="navUserName">Authenticated user</span>
+            <button class="nav-lock" id="navLogout" type="button" aria-label="Logout">🔐</button>
+          </span>
+        </div>
       </div>
     </div>
   </header>

@@ -17,6 +17,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('id="navMenuToggle"', $html);
         $this->assertStringContainsString('id="navDrawer"', $html);
         $this->assertStringContainsString('id="navDrawerBackdrop"', $html);
+        $this->assertStringContainsString('class="nav-utility-cluster"', $html);
         $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
     }
 
@@ -41,6 +42,7 @@ final class AdminNavDrawerUiTest extends TestCase
 
         $this->assertStringContainsString('body[data-nav-version="2026"] .main-nav', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-panel', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-utility-cluster', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .nav-drawer-backdrop', $css);
         $this->assertStringContainsString('@media (max-width: 940px)', $css);
     }
