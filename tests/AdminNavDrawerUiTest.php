@@ -19,6 +19,12 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('id="navDrawer"', $html);
         $this->assertStringContainsString('id="navDrawerBackdrop"', $html);
         $this->assertStringContainsString('class="rail-frame"', $html);
+        $this->assertStringContainsString('id="navAccountTrigger"', $html);
+        $this->assertStringContainsString('id="navThemeMenuTrigger"', $html);
+        $this->assertStringContainsString('href="/admin/account/password"', $html);
+        $this->assertStringContainsString('href="/admin/account/passkeys"', $html);
+        $this->assertStringNotContainsString('id="themeToggle"', $html);
+        $this->assertStringNotContainsString('id="navUser"', $html);
         $this->assertStringContainsString('data-rail-trigger', $html);
         $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
         $this->assertStringContainsString('id="navInsecureHosts" style="display:none;">Active Windows</button>', $html);
@@ -35,6 +41,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString("const groups = Array.from(rail.querySelectorAll('.rail-group'));", $js);
         $this->assertStringContainsString("const shouldOpenForFocus = (group, target) => {", $js);
         $this->assertStringContainsString("return trigger.matches(':focus-visible');", $js);
+        $this->assertStringContainsString("if (/\\/admin\\/account/.test(pathname)) return 'account';", $js);
+        $this->assertStringContainsString("accountTab: String(document.body?.dataset?.accountTab || ''),", $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);

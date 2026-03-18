@@ -116,6 +116,39 @@ final class AdminAuthServiceLoginTest extends TestCase
         $this->service->login('admin', 'wrong', null, null);
     }
 
+    public function testChangePasswordUpdatesCredentialsAndKeepsCurrentSession(): void
+    {
+        $otherSession = $this->service->login('admin', 'passwordpassword', null, null);
+        $currentSession = $this->service->login('admin', 'passwordpassword', null, null);
+
+        $user = $this->service->changePassword(1, 'passwordpassword', 'newpasswordpassword', $currentSession['token']);
+        self::assertSame('admin', $user['username']);
+
+        self::assertNull($this->service->resolveSession($otherSession['token']));
+        self::assertNotNull($this->service->resolveSession($currentSession['token']));
+
+        try {
+            $this->service->login('admin', 'passwordpassword', null, null);
+            self::fail('Expected old password to stop working after password change.');
+        } catch (HttpException $exception) {
+            self::assertSame(401, $exception->getStatusCode());
+        }
+
+        $freshSession = $this->service->login('admin', 'newpasswordpassword', null, null);
+        self::assertSame('admin', $freshSession['user']['username']);
+    }
+
+    public function testChangePasswordRejectsWrongCurrentPassword(): void
+    {
+        try {
+            $this->service->changePassword(1, 'wrongpassword', 'newpasswordpassword', null);
+            self::fail('Expected password change to reject the wrong current password.');
+        } catch (HttpException $exception) {
+            self::assertSame(401, $exception->getStatusCode());
+            self::assertSame('Current password is incorrect', $exception->getMessage());
+        }
+    }
+
     public function testResolveLoginMethodReturnsPasswordWhenNoPasskeyExists(): void
     {
         self::assertSame('password', $this->service->resolveLoginMethod('admin'));

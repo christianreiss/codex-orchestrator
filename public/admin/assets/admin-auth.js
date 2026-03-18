@@ -1,9 +1,14 @@
 (() => {
   const logoutBtn = document.getElementById('navLogout');
-  const navUser = document.getElementById('navUser');
-  const navUserName = document.getElementById('navUserName');
+  const accountSummary = document.getElementById('navAccountSummary');
+  const accountName = document.getElementById('navAccountName');
+  const passwordLink = document.getElementById('navAccountPasswordLink');
+  const passkeysLink = document.getElementById('navAccountPasskeysLink');
+  const logoutModal = document.getElementById('logoutModal');
+  const logoutCancel = document.getElementById('logoutCancel');
+  const logoutConfirm = document.getElementById('logoutConfirm');
 
-  if (!logoutBtn && !navUser) {
+  if (!logoutBtn && !accountSummary) {
     return;
   }
 
@@ -29,20 +34,30 @@
     });
   }
 
-  function showNavUser(user) {
-    if (!navUser) {
-      return;
+  function show(el, on) {
+    if (!el) return;
+    el.style.display = on ? '' : 'none';
+  }
+
+  function showLogoutModal(open) {
+    if (!logoutModal) return;
+    logoutModal.classList.toggle('show', Boolean(open));
+  }
+
+  function showAccountState(user) {
+    const authenticated = Boolean(user);
+    show(accountSummary, authenticated);
+    show(passwordLink, authenticated);
+    show(passkeysLink, authenticated);
+    show(logoutBtn, authenticated);
+
+    if (authenticated && accountName) {
+      accountName.textContent = user.name || user.username || 'Authenticated user';
     }
 
-    if (!user) {
-      navUser.style.display = 'none';
-      return;
+    if (!authenticated) {
+      showLogoutModal(false);
     }
-
-    if (navUserName) {
-      navUserName.textContent = user.name || user.username || 'Authenticated user';
-    }
-    navUser.style.display = '';
   }
 
   async function fetchStatus() {
@@ -50,12 +65,13 @@
       const res = await api('/admin/auth/status');
       const authStatus = res?.data || null;
       window.__adminAuthStatus = authStatus;
+      document.dispatchEvent(new CustomEvent('admin-auth-status', { detail: authStatus }));
 
       const enforced = !!authStatus?.enforced;
       const authenticated = !!authStatus?.authenticated;
       const user = authenticated ? authStatus?.user || null : null;
 
-      showNavUser(user);
+      showAccountState(user);
 
       if (enforced && !authenticated) {
         window.location.replace('/admin/login');
@@ -64,19 +80,50 @@
 
       return authStatus;
     } catch (_) {
-      showNavUser(null);
+      window.__adminAuthStatus = null;
+      document.dispatchEvent(new CustomEvent('admin-auth-status', { detail: null }));
+      showAccountState(null);
       return null;
     }
   }
 
-  logoutBtn?.addEventListener('click', async () => {
+  async function performLogout() {
     try {
       await api('/admin/auth/logout', { method: 'POST' });
     } catch (_) {
       // Best effort logout.
     }
     window.location.replace('/admin/login');
+  }
+
+  logoutBtn?.addEventListener('click', () => {
+    window.__railNav?.closeMenus?.();
+    showLogoutModal(true);
   });
 
-  fetchStatus();
+  logoutCancel?.addEventListener('click', () => {
+    showLogoutModal(false);
+  });
+
+  logoutModal?.addEventListener('click', (event) => {
+    if (event.target === logoutModal) {
+      showLogoutModal(false);
+    }
+  });
+
+  logoutConfirm?.addEventListener('click', async () => {
+    if (logoutConfirm) logoutConfirm.disabled = true;
+    try {
+      await performLogout();
+    } finally {
+      if (logoutConfirm) logoutConfirm.disabled = false;
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    showLogoutModal(false);
+  });
+
+  window.__adminAuthStatusPromise = fetchStatus();
 })();

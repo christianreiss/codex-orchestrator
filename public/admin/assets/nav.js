@@ -133,6 +133,14 @@
     closeDrawer({ focusToggle: true });
   });
 
+  window.__railNav = {
+    closeMenus: () => {
+      closeAllGroups();
+      closeDrawer();
+    },
+    closeGroups: closeAllGroups,
+  };
+
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     closeAllGroups();
@@ -223,6 +231,7 @@
     if (/\/admin\/hosts/.test(pathname)) return 'hosts';
     if (/\/admin\/logs/.test(pathname)) return 'logs';
     if (/\/admin\/settings/.test(pathname)) return 'settings';
+    if (/\/admin\/account/.test(pathname)) return 'account';
     if (/\/admin\/users/.test(pathname)) return 'users';
     if (/\/admin\/projects/.test(pathname)) return 'settings';
     if (/\/admin\/(dashboard)?\/?$/.test(pathname)) return 'dashboard';
@@ -250,6 +259,7 @@
       hostTab: String(document.body?.dataset?.hostTab || ''),
       logTab: String(document.body?.dataset?.logTab || ''),
       settingsTab: String(document.body?.dataset?.settingsTab || ''),
+      accountTab: String(document.body?.dataset?.accountTab || ''),
     };
   }
 
@@ -283,6 +293,9 @@
     }
     if (Object.prototype.hasOwnProperty.call(link.dataset, 'settingsTab')) {
       return ['settingsTab', String(link.dataset.settingsTab || '')];
+    }
+    if (Object.prototype.hasOwnProperty.call(link.dataset, 'accountTab')) {
+      return ['accountTab', String(link.dataset.accountTab || '')];
     }
     return null;
   }

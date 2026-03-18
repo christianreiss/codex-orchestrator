@@ -85,6 +85,17 @@ class AdminSessionRepository
         $statement->execute(['user_id' => $userId]);
     }
 
+    public function deleteByUserExceptTokenHash(int $userId, string $tokenHash): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM admin_sessions WHERE user_id = :user_id AND token_hash <> :token_hash'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'token_hash' => $tokenHash,
+        ]);
+    }
+
     public function purgeExpired(string $now): int
     {
         $statement = $this->database->connection()->prepare(

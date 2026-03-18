@@ -9,8 +9,11 @@
     const mtlsStatus = document.getElementById('mtlsStatus');
     const mtlsSettingStatus = document.getElementById('mtlsSettingStatus');
     const toastDeck = document.getElementById('toastDeck');
-    const themeToggle = document.getElementById('themeToggle');
-    const themeToggleLabel = themeToggle ? themeToggle.querySelector('.theme-toggle-label') : null;
+    const navAccountGroup = document.getElementById('navAccountGroup');
+    const navThemeMenu = document.getElementById('navThemeMenu');
+    const navThemeMenuTrigger = document.getElementById('navThemeMenuTrigger');
+    const navThemeMenuPanel = document.getElementById('navThemeMenuPanel');
+    const themeOptions = Array.from(document.querySelectorAll('[data-theme-option]'));
     const newHostName = document.getElementById('new-host-name');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
@@ -305,28 +308,62 @@
       if (document.body) {
         document.body.dataset.theme = normalized;
       }
-      if (themeToggleLabel) {
-        themeToggleLabel.textContent = THEME_LABELS[normalized] || 'Auto';
+      themeOptions.forEach((option) => {
+        const active = normalizeTheme(option.dataset.themeOption) === normalized;
+        option.classList.toggle('is-current', active);
+        option.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+      if (navThemeMenuTrigger) {
+        const label = `Theme Selection: ${THEME_LABELS[normalized] || 'Auto'}`;
+        navThemeMenuTrigger.setAttribute('aria-label', label);
+        navThemeMenuTrigger.setAttribute('title', label);
+        navThemeMenuTrigger.dataset.theme = normalized;
       }
-      if (themeToggle) {
-        const label = `Theme: ${THEME_LABELS[normalized] || 'Auto'}`;
-        themeToggle.setAttribute('aria-label', label);
-        themeToggle.setAttribute('title', label);
-        themeToggle.dataset.theme = normalized;
-      }
+    }
+
+    function setThemeMenuOpen(open) {
+      if (!navThemeMenu || !navThemeMenuTrigger) return;
+      const expanded = Boolean(open);
+      navThemeMenu.classList.toggle('is-open', expanded);
+      navThemeMenuTrigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     }
 
     function initThemeToggle() {
       const initial = normalizeTheme(readStoredTheme());
       applyTheme(initial);
-      if (!themeToggle) return;
-      themeToggle.addEventListener('click', () => {
-        const current = normalizeTheme(readStoredTheme());
-        const nextIndex = (THEME_OPTIONS.indexOf(current) + 1) % THEME_OPTIONS.length;
-        const nextTheme = THEME_OPTIONS[nextIndex];
-        writeStoredTheme(nextTheme);
-        applyTheme(nextTheme);
+      if (!navThemeMenu || !navThemeMenuTrigger) return;
+      navThemeMenuTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        setThemeMenuOpen(!navThemeMenu.classList.contains('is-open'));
       });
+      themeOptions.forEach((option) => {
+        option.addEventListener('click', () => {
+          const nextTheme = normalizeTheme(option.dataset.themeOption);
+          writeStoredTheme(nextTheme);
+          applyTheme(nextTheme);
+          setThemeMenuOpen(false);
+          window.__railNav?.closeMenus?.();
+        });
+      });
+      document.addEventListener('click', (event) => {
+        if (navThemeMenu.contains(event.target)) return;
+        setThemeMenuOpen(false);
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        setThemeMenuOpen(false);
+      });
+      if (navAccountGroup && typeof MutationObserver === 'function') {
+        const themeObserver = new MutationObserver(() => {
+          if (!navAccountGroup.classList.contains('is-open')) {
+            setThemeMenuOpen(false);
+          }
+        });
+        themeObserver.observe(navAccountGroup, {
+          attributes: true,
+          attributeFilter: ['class'],
+        });
+      }
     }
 
     initThemeToggle();
@@ -508,6 +545,12 @@
         copy: 'Create users and assign access levels.',
         show: ['users-panel'],
       },
+      account: {
+        eyebrow: 'Account',
+        title: 'Your account',
+        copy: 'Manage your sign-in settings and personal admin session.',
+        show: ['accountPanel'],
+      },
       agents: {
         eyebrow: 'Agents',
         title: 'Canonical AGENTS.md',
@@ -543,8 +586,26 @@
     function applyViewMode() {
       // Use the live body dataset view to reflect navigation without reloads.
       const activeView = (document.body?.dataset?.viewMode || viewMode || 'dashboard').toLowerCase();
-      const config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      let config = VIEW_LAYOUTS[activeView] || VIEW_LAYOUTS.dashboard;
+      if (activeView === 'account') {
+        const accountTab = (document.body?.dataset?.accountTab || 'password').toLowerCase();
+        if (accountTab === 'passkeys') {
+          config = {
+            ...config,
+            eyebrow: 'Passkeys',
+            title: 'Account passkeys',
+            copy: 'Register, rename, and retire WebAuthn credentials for this admin account.',
+          };
+        } else {
+          config = {
+            ...config,
+            eyebrow: 'Password',
+            title: 'Change your password',
+            copy: 'Update the password for the admin account signed into this session.',
+          };
+        }
+      }
+      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -7805,6 +7866,7 @@
         return { panel: 'hosts', sub: seg2 };
       }
       if (seg1 === 'logs') return { panel: 'logs', sub: seg2 };
+      if (seg1 === 'account') return { panel: 'account', sub: seg2 || 'password' };
       if (seg1 === 'settings') return { panel: 'settings', sub: seg2 };
       if (seg1 === 'users') return { panel: 'users', sub: '' };
       if (seg1 === 'projects') return { panel: 'project-detail', sub: seg2 };
@@ -7819,6 +7881,7 @@
           ? 'mcp'
           : (((sub || '').toLowerCase() === 'events') ? 'events' : 'client'))
         : '';
+      const accountTab = panel === 'account' ? (sub || 'password').toLowerCase() : '';
       const settingsTab = panel === 'settings' ? (sub || 'general').toLowerCase() : '';
 
       document.querySelectorAll('.panel-set').forEach((section) => {
@@ -7845,6 +7908,11 @@
         document.body.dataset.settingsTab = settingsTab;
       } else if (document.body?.dataset?.settingsTab) {
         delete document.body.dataset.settingsTab;
+      }
+      if (panel === 'account') {
+        document.body.dataset.accountTab = accountTab;
+      } else if (document.body?.dataset?.accountTab) {
+        delete document.body.dataset.accountTab;
       }
       if (panel === 'project-detail' && sub) {
         document.body.dataset.projectSlug = decodeURIComponent(sub);
@@ -7916,6 +7984,13 @@
 
       if (panel === 'project-detail' && window.__loadProjectDetailByRoute) {
         window.__loadProjectDetailByRoute(sub);
+      }
+
+      if (panel === 'account') {
+        document.querySelectorAll('#accountPanel [data-account-panel]').forEach((panelEl) => {
+          const tab = (panelEl.dataset.accountPanel || '').toLowerCase();
+          panelEl.hidden = tab !== accountTab;
+        });
       }
 
       if (panel === 'settings') {

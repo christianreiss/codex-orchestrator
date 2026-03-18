@@ -1,4 +1,5 @@
 # 2026-03-18
+- Admin UI/auth: turned the navbar brand into an account menu with nested theme selection plus `Password change`, `Passkeys`, and `Logout`; moved personal passkey management out of `Users` into new `/admin/account/{password,passkeys}` pages; added self-service `POST /admin/auth/password/change`; and replaced direct logout with a confirmation modal.
 - Admin UI: reimagined the insecure-host navbar quick action into `Active Windows`, which now appears only when at least one insecure host window is currently enabled; the modal now lists only active hosts for quick disable, keeps allowed-domain revoke controls, removes the old enable/extend flow, and cache-bumps `dashboard.js`.
 - Admin UI: fixed the editorial rail desktop dropdowns so the first pointer click on `Hosts`, `Logs`, or `Settings` now stays open instead of opening on focus and immediately toggling shut; keyboard focus still auto-opens the menus.
 - Admin UI: compacted the editorial rail to reclaim vertical space by reducing the header padding, inner frame height, and rail item heights on desktop/mobile, so the navbar wastes less white space while keeping the same flattened menu styling.

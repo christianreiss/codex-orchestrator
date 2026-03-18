@@ -555,6 +555,10 @@ $router->add('GET', '#^/admin/dashboard$#', function (): void {
     require __DIR__ . '/admin/index.php';
 });
 
+$router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', function (): void {
+    require __DIR__ . '/admin/index.php';
+});
+
 $router->add('GET', '#^/admin/settings$#', function (): void {
     require __DIR__ . '/admin/index.php';
 });
@@ -665,6 +669,35 @@ $router->add('POST', '#^/admin/auth/logout$#', function () use ($adminAuthServic
 
     Response::json([
         'status' => 'ok',
+    ]);
+});
+
+$router->add('POST', '#^/admin/auth/password/change$#', function () use ($payload, $adminAuthService) {
+    requireAdminAccess();
+    $session = resolveAdminSession($adminAuthService);
+    if ($session === null || !isset($session['user']['id'])) {
+        Response::json(['status' => 'error', 'message' => 'Authentication required'], 401);
+    }
+
+    $currentPassword = is_array($payload) ? (string) ($payload['current_password'] ?? '') : '';
+    $newPassword = is_array($payload) ? (string) ($payload['new_password'] ?? '') : '';
+    $confirmPassword = is_array($payload) ? (string) ($payload['confirm_password'] ?? '') : '';
+    if ($newPassword !== $confirmPassword) {
+        throw new ValidationException(['confirm_password' => 'Password confirmation does not match.']);
+    }
+
+    $user = $adminAuthService->changePassword(
+        (int) $session['user']['id'],
+        $currentPassword,
+        $newPassword,
+        resolveAdminSessionToken($adminAuthService)
+    );
+
+    Response::json([
+        'status' => 'ok',
+        'data' => [
+            'user' => $user,
+        ],
     ]);
 });
 

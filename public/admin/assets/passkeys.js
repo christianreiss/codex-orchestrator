@@ -5,6 +5,7 @@
   const registerBtn = document.getElementById('passkeysRegisterBtn');
   const tableBody = document.querySelector('#passkeys-table tbody');
   const emptyState = document.getElementById('passkeysEmptyState');
+  const unsupportedNote = document.getElementById('passkeysUnsupportedNote');
 
   let passkeys = [];
 
@@ -216,10 +217,10 @@
   }
 
   async function init() {
-    // Only show when authenticated and WebAuthn is supported.
-    if (!window.PublicKeyCredential) return;
-
     let status = window.__adminAuthStatus;
+    if (!status && window.__adminAuthStatusPromise) {
+      status = await window.__adminAuthStatusPromise;
+    }
     if (!status) {
       try {
         const res = await api('/admin/auth/status');
@@ -232,11 +233,16 @@
 
     if (!status?.authenticated) return;
 
+    const supported = !!window.PublicKeyCredential;
+    show(unsupportedNote, !supported);
+    if (registerBtn) {
+      registerBtn.disabled = !supported;
+      registerBtn.style.display = supported ? '' : 'none';
+    }
     show(panel, true);
     await loadPasskeys();
   }
 
-  // Wait for the users panel to initialize first, then load passkeys.
   if (document.readyState === 'complete') {
     init();
   } else {

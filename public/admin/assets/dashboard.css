@@ -5046,6 +5046,26 @@ body[data-nav-version="2026"] .rail-brand-title {
   color: var(--text);
 }
 
+body[data-nav-version="2026"] .rail-group-account-menu {
+  flex-shrink: 0;
+}
+
+body[data-nav-version="2026"] .rail-group-account-menu::after {
+  display: none;
+}
+
+body[data-nav-version="2026"] .rail-brand-trigger {
+  padding: 0 4px 0 0 !important;
+  gap: 10px;
+}
+
+body[data-nav-version="2026"] .rail-brand-trigger:hover,
+body[data-nav-version="2026"] .rail-brand-trigger:focus-visible,
+body[data-nav-version="2026"] .rail-group-account-menu.is-active .rail-brand-trigger,
+body[data-nav-version="2026"] .rail-group-account-menu.is-open .rail-brand-trigger {
+  color: var(--text);
+}
+
 body[data-nav-version="2026"] .rail-toggle {
   display: none;
   margin-left: auto;
@@ -5192,7 +5212,9 @@ body[data-nav-version="2026"] .rail-group.is-open::after {
 body[data-nav-version="2026"] .rail-link:focus-visible,
 body[data-nav-version="2026"] .rail-disclosure:focus-visible,
 body[data-nav-version="2026"] .rail-action:focus-visible,
-body[data-nav-version="2026"] .rail-account-exit:focus-visible {
+body[data-nav-version="2026"] .rail-account-exit:focus-visible,
+body[data-nav-version="2026"] .rail-menu-button:focus-visible,
+body[data-nav-version="2026"] .rail-subpanel-item:focus-visible {
   outline: 2px solid rgba(var(--accent-rgb), 0.42);
   outline-offset: 3px;
   box-shadow: none;
@@ -5240,6 +5262,88 @@ body[data-nav-version="2026"] .rail-panel-settings {
   min-width: 640px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
+}
+
+body[data-nav-version="2026"] .rail-panel-account-menu {
+  min-width: 260px;
+  gap: 10px;
+}
+
+body[data-nav-version="2026"] .rail-account-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+}
+
+body[data-nav-version="2026"] .rail-account-eyebrow {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+body[data-nav-version="2026"] .rail-account-summary .rail-account-name {
+  max-width: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+body[data-nav-version="2026"] .rail-menu-stack {
+  display: grid;
+  gap: 6px;
+}
+
+body[data-nav-version="2026"] .rail-menu-button,
+body[data-nav-version="2026"] .rail-subpanel-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+}
+
+body[data-nav-version="2026"] .rail-menu-button:hover,
+body[data-nav-version="2026"] .rail-subpanel-item:hover {
+  color: var(--accent);
+}
+
+body[data-nav-version="2026"] .rail-menu-group.is-open .rail-menu-button-disclosure {
+  color: var(--accent);
+}
+
+body[data-nav-version="2026"] .rail-menu-group.is-open .rail-menu-button-disclosure .rail-chevron {
+  transform: rotate(225deg) translateY(-1px);
+}
+
+body[data-nav-version="2026"] .rail-subpanel {
+  display: none;
+  gap: 6px;
+  padding: 2px 0 0 14px;
+}
+
+body[data-nav-version="2026"] .rail-menu-group.is-open .rail-subpanel {
+  display: grid;
+}
+
+body[data-nav-version="2026"] .rail-subpanel-item.is-current {
+  color: var(--accent);
 }
 
 body[data-nav-version="2026"] .rail-section {
@@ -5445,6 +5549,11 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
     min-height: 48px;
   }
 
+  body[data-nav-version="2026"] .rail-group-account-menu,
+  body[data-nav-version="2026"] .rail-group-account-menu .rail-brand-trigger {
+    width: auto !important;
+  }
+
   body[data-nav-version="2026"] .rail-link,
   body[data-nav-version="2026"] .rail-disclosure {
     padding: 0;
@@ -5465,6 +5574,17 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+  }
+
+  body[data-nav-version="2026"] .rail-panel-account-menu {
+    position: absolute !important;
+    top: calc(100% - 4px) !important;
+    left: 0 !important;
+    min-width: 240px !important;
+    padding: 14px !important;
+    border: 1px solid color-mix(in srgb, var(--border) 96%, transparent) !important;
+    border-radius: 16px !important;
+    background: color-mix(in srgb, var(--card) 100%, transparent) !important;
   }
 
   body[data-nav-version="2026"] .rail-panel-settings {

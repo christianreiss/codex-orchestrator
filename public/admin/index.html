@@ -10,10 +10,35 @@
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="editorial-rail">
-    <a class="rail-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
-      <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
-      <div class="rail-brand-title">Codex Orchestrator</div>
-    </a>
+    <div class="rail-group rail-group-account-menu" id="navAccountGroup" data-nav="account">
+      <button class="rail-brand rail-brand-trigger rail-disclosure" id="navAccountTrigger" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true" aria-label="Open account menu">
+        <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
+        <div class="rail-brand-title">Codex Orchestrator</div>
+        <span class="rail-chevron" aria-hidden="true"></span>
+      </button>
+      <div class="rail-panel rail-panel-account-menu" role="menu" aria-label="Account menu">
+        <div class="rail-account-summary" id="navAccountSummary" style="display:none;">
+          <div class="rail-account-eyebrow">Signed in as</div>
+          <div class="rail-account-name" id="navAccountName">Authenticated user</div>
+        </div>
+        <div class="rail-menu-stack">
+          <div class="rail-menu-group" id="navThemeMenu">
+            <button class="rail-menu-button rail-menu-button-disclosure" id="navThemeMenuTrigger" type="button" aria-expanded="false" role="menuitem">
+              <span>Theme Selection</span>
+              <span class="rail-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="rail-subpanel" id="navThemeMenuPanel" role="menu" aria-label="Theme selection">
+              <button class="rail-subpanel-item" id="navThemeOptionAuto" type="button" data-theme-option="auto" role="menuitemradio" aria-checked="true">Auto</button>
+              <button class="rail-subpanel-item" id="navThemeOptionLight" type="button" data-theme-option="light" role="menuitemradio" aria-checked="false">Light</button>
+              <button class="rail-subpanel-item" id="navThemeOptionDark" type="button" data-theme-option="dark" role="menuitemradio" aria-checked="false">Dark</button>
+            </div>
+          </div>
+          <a class="rail-sub-link" id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;">Password change</a>
+          <a class="rail-sub-link" id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;">Passkeys</a>
+          <button class="rail-menu-button" id="navLogout" type="button" role="menuitem" style="display:none;">Logout</button>
+        </div>
+      </div>
+    </div>
     <button class="rail-toggle" id="navMenuToggle" type="button" aria-expanded="false" aria-controls="navDrawer" aria-label="Open navigation menu">
       <span class="rail-toggle-label">Menu</span>
       <span class="rail-toggle-glyph" aria-hidden="true"></span>
@@ -75,14 +100,7 @@
         <div class="rail-toolset">
           <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Active Windows</button>
           <button class="rail-action rail-action-accent" id="navNewHost">New Host</button>
-          <button class="rail-action rail-action-quiet" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
-            Theme <span class="theme-toggle-label">Auto</span>
-          </button>
         </div>
-        <span class="rail-account" id="navUser" style="display:none;">
-          <span class="rail-account-name" id="navUserName">Authenticated user</span>
-          <button class="rail-account-exit" id="navLogout" type="button" aria-label="Logout">Log out</button>
-        </span>
       </div>
     </div>
   </header>
@@ -717,6 +735,71 @@
         </section>
 
         <!-- Users -->
+        <section class="panel-set" data-panel="account" id="accountPanel" hidden>
+          <section class="card panel" id="accountAccessNotice" hidden>
+            <div class="panel-head">
+              <div>
+                <h2>Account access required</h2>
+                <p class="muted" style="margin:4px 0 0;">Sign in with an admin session to change your password or manage passkeys.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="card panel" id="accountPasswordPanel" data-account-panel="password" hidden>
+            <div class="panel-head">
+              <div>
+                <h2>Change Password</h2>
+                <p class="muted" style="margin:4px 0 0;">Update the password for your current admin account.</p>
+              </div>
+            </div>
+            <div class="field">
+              <label for="accountCurrentPassword">Current password</label>
+              <input id="accountCurrentPassword" type="password" autocomplete="current-password">
+            </div>
+            <div class="field">
+              <label for="accountNewPassword">New password</label>
+              <input id="accountNewPassword" type="password" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label for="accountConfirmPassword">Confirm new password</label>
+              <input id="accountConfirmPassword" type="password" autocomplete="new-password">
+            </div>
+            <div class="auth-error" id="accountPasswordError" role="alert"></div>
+            <div class="muted" id="accountPasswordStatus" style="min-height:18px; font-size:13px;"></div>
+            <div class="actions">
+              <button class="ghost" id="accountPasswordReset" type="button">Reset</button>
+              <button id="accountPasswordSave" type="button">Change password</button>
+            </div>
+          </section>
+
+          <section class="card panel" id="passkeys-panel" data-account-panel="passkeys" hidden>
+            <div class="panel-head">
+              <div>
+                <h2>Your Passkeys</h2>
+                <p class="muted" style="margin:4px 0 0;">Register WebAuthn passkeys for admin login. The login page uses your username first, and users with a registered passkey must sign in with that passkey.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost tiny-btn" id="passkeysRegisterBtn">+ Register passkey</button>
+              </div>
+            </div>
+            <div class="muted" id="passkeysUnsupportedNote" style="padding:0 16px 16px; display:none;">This browser cannot register new passkeys, but you can still review and remove existing ones.</div>
+            <div class="table-wrap">
+              <table id="passkeys-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Created</th>
+                    <th>Last used</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="muted" id="passkeysEmptyState" style="padding:16px; display:none;">No passkeys registered.</div>
+          </section>
+        </section>
+
         <section class="panel-set" data-panel="users" hidden>
           <section class="card panel" id="users-panel">
             <div class="panel-head">
@@ -746,32 +829,6 @@
               </table>
             </div>
             <div class="muted" id="usersEmptyState" style="padding:16px; display:none;">No users yet. Create the first admin to enable login.</div>
-          </section>
-
-          <section class="card panel" id="passkeys-panel" style="display:none;">
-            <div class="panel-head">
-              <div>
-                <h2>Your Passkeys</h2>
-                <p class="muted" style="margin:4px 0 0;">Register WebAuthn passkeys for admin login. The login page uses your username first, and users with a registered passkey must sign in with that passkey.</p>
-              </div>
-              <div class="panel-actions">
-                <button class="ghost tiny-btn" id="passkeysRegisterBtn">+ Register passkey</button>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table id="passkeys-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Created</th>
-                    <th>Last used</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-            <div class="muted" id="passkeysEmptyState" style="padding:16px; display:none;">No passkeys registered.</div>
           </section>
         </section>
 
@@ -1807,6 +1864,16 @@
       </div>
     </div>
   </div>
+  <div class="modal-backdrop" id="logoutModal">
+    <div class="modal">
+      <h3>Sign out</h3>
+      <p class="muted">Sign out of this admin session?</p>
+      <div class="actions">
+        <button class="ghost" id="logoutCancel" type="button">Cancel</button>
+        <button id="logoutConfirm" type="button">Log out</button>
+      </div>
+    </div>
+  </div>
   </div>
   <div id="toastDeck" class="toast-deck" aria-live="polite" aria-atomic="false"></div>
   <script>
@@ -1835,6 +1902,9 @@
         }
         if (seg1 === 'settings') {
           return { panel: 'settings', sub: seg2.toLowerCase() };
+        }
+        if (seg1 === 'account') {
+          return { panel: 'account', sub: (seg2 || 'password').toLowerCase() };
         }
         if (seg1 === 'projects') {
           return { panel: 'project-detail', sub: decodeRouteValue(seg2) };
@@ -1868,6 +1938,11 @@
         } else if (document.body.dataset.settingsTab) {
           delete document.body.dataset.settingsTab;
         }
+        if (route.panel === 'account') {
+          document.body.dataset.accountTab = route.sub || 'password';
+        } else if (document.body.dataset.accountTab) {
+          delete document.body.dataset.accountTab;
+        }
         if (route.panel === 'project-detail' && route.sub) {
           document.body.dataset.projectSlug = route.sub;
         } else if (document.body.dataset.projectSlug) {
@@ -1878,14 +1953,15 @@
       window.addEventListener('popstate', applyFromPath);
     })();
   </script>
-  <script src="/admin/assets/nav.js?v=2026-03-18-03"></script>
-  <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
+  <script src="/admin/assets/nav.js?v=2026-03-18-04"></script>
+  <script src="/admin/assets/admin-auth.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/account.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/users.js?v=2026-02-19-02"></script>
-  <script src="/admin/assets/passkeys.js?v=2026-03-17-01"></script>
+  <script src="/admin/assets/passkeys.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-18-02"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-18-03"></script>
   <script src="/admin/assets/logs.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

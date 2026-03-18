@@ -189,6 +189,37 @@ class AdminAuthService
         $this->logs->log(null, 'admin.auth.logout', []);
     }
 
+    public function changePassword(int $userId, string $currentPassword, string $newPassword, ?string $currentToken = null): array
+    {
+        $user = $this->users->findById($userId);
+        if ($user === null || empty($user['active'])) {
+            throw new HttpException('User not found', 404);
+        }
+
+        $hash = (string) ($user['password_hash'] ?? '');
+        if ($hash === '' || trim($currentPassword) === '' || !password_verify($currentPassword, $hash)) {
+            throw new HttpException('Current password is incorrect', 401);
+        }
+
+        $this->validatePassword($newPassword);
+
+        $nextHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $updated = $this->users->update($userId, ['password_hash' => $nextHash]);
+        if ($updated === null) {
+            throw new HttpException('User not found', 404);
+        }
+
+        if (is_string($currentToken) && trim($currentToken) !== '') {
+            $this->sessions->deleteByUserExceptTokenHash($userId, hash('sha256', $currentToken));
+        } else {
+            $this->sessions->deleteByUser($userId);
+        }
+        $this->resets->expireForUser($userId, gmdate(DATE_ATOM));
+        $this->logs->log(null, 'admin.auth.password.change', ['user_id' => $userId]);
+
+        return $this->sanitizeUser($updated);
+    }
+
     public function assertCapability(array $user, string $capability): void
     {
         $role = (string) ($user['access_level'] ?? self::ROLE_USER);
