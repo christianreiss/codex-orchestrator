@@ -1,4 +1,5 @@
 # 2026-03-18
+- Skills/API: `GET /skills`, `POST /skills/retrieve`, startup sync payloads, and project bootstrap skill metadata now include canonical `skill://{slug}` URIs so MCP-first Codex clients can load managed Skills without inferring the resource handle from local fallback files.
 - cdx wrapper: hardened `cdx --cron` installs by quoting wrapper/log paths, escaping cron `%` semantics, narrowing remove/install matching to the managed/current wrapper entry, degrading cleanly when `flock` is unavailable, retrying `/cron/report`, and failing closed on mismatched platform release assets. Wrapper bumped to `2026.03.18-01`.
 - Host pruning: `/cron/check` now records only `last_cron_check`, so stray cron pings no longer refresh host `updated_at` and keep inactive/decommissioned hosts alive.
 - Ops: slimmed `scripts/refresh-chatgpt-usage.php` down to quota-refresh work only and switched `quota-cron` health from a DB probe to a heartbeat-driven success signal.

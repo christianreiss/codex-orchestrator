@@ -107,12 +107,12 @@ Profile shorthand:
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
 | Slash commands | `GET /slash-commands` + `POST /slash-commands/retrieve` | `POST /slash-commands/store` | `~/.codex/prompts/*`, baseline `~/.codex/.prompt-baseline.json` |
-| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | Primary read path: MCP `skill://{slug}`. Synced fallback copy: `~/.agents/skills/<slug>/SKILL.md`, baseline `~/.agents/.skill-baseline.json` |
+| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | Primary read path: MCP `skill://{slug}`. Sync payloads now also include canonical `uri` metadata, and the synced fallback copy remains `~/.agents/skills/<slug>/SKILL.md`, baseline `~/.agents/.skill-baseline.json` |
 | AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
 Sync details:
-- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts/skills/AGENTS/config in one pass. Skills remain canonical via cdx/MCP `skill://{slug}`; the synced `SKILL.md` files are compatibility fallback copies.
+- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts/skills/AGENTS/config in one pass. Skills remain canonical via cdx/MCP `skill://{slug}`; bundle skill entries include canonical `uri` metadata, and the synced `SKILL.md` files are compatibility fallback copies.
 - Wrapper falls back to legacy per-resource pulls if bundle path fails or endpoints are missing.
 - Deleted/retired remote prompts and skills are removed locally.
 - When the Projects module is enabled, the managed `coco` skill is included in the normal Skills sync flow, is read primarily through MCP `skill://coco`, and also lands at `~/.agents/skills/coco/SKILL.md` as the synced fallback copy. Its guidance is project-only for shared CoCo handoffs; host-scoped MCP memory is not treated as a cross-host fallback.

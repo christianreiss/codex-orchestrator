@@ -96,6 +96,7 @@ final class ProjectCoordinationBootstrapTest extends TestCase
 
         $this->assertSame('apollo', $bootstrap['project']);
         $this->assertSame('coco', $bootstrap['skill']['slug']);
+        $this->assertSame('skill://coco', $bootstrap['skill']['uri']);
         $this->assertSame('~/.agents/skills/coco/SKILL.md', $bootstrap['skill']['path']);
         $this->assertStringContainsString('skill://coco', $bootstrap['instructions'][0]);
         $this->assertStringContainsString('~/.agents/skills/coco/SKILL.md', $bootstrap['instructions'][0]);

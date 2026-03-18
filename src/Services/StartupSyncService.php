@@ -173,6 +173,7 @@ class StartupSyncService
 
             $remote[] = [
                 'slug' => $slug,
+                'uri' => $this->skillUri($slug, $row['uri'] ?? null),
                 'sha256' => $remoteSha,
                 'deleted_at' => $deletedAt,
                 'managed' => !empty($row['managed']),
@@ -186,6 +187,7 @@ class StartupSyncService
                 $removedCount++;
                 $changed[] = [
                     'slug' => $slug,
+                    'uri' => $this->skillUri($slug, $row['uri'] ?? null),
                     'status' => 'deleted',
                     'deleted_at' => $deletedAt,
                 ];
@@ -204,6 +206,7 @@ class StartupSyncService
             $updatedCount++;
             $entry = [
                 'slug' => $slug,
+                'uri' => $this->skillUri($slug, $row['uri'] ?? null),
                 'status' => 'updated',
                 'sha256' => $remoteSha,
                 'managed' => !empty($row['managed']),
@@ -347,5 +350,14 @@ class StartupSyncService
 
         $normalized = trim($value);
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function skillUri(string $slug, mixed $candidate = null): string
+    {
+        if (is_string($candidate) && trim($candidate) !== '') {
+            return trim($candidate);
+        }
+
+        return 'skill://' . rawurlencode($slug);
     }
 }

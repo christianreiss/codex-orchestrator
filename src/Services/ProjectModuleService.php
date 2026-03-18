@@ -10,6 +10,7 @@ class ProjectModuleService
 {
     public const ENABLED_FLAG = 'projects_module_enabled';
     public const MANAGED_SKILL_SLUG = 'coco';
+    public const MANAGED_SKILL_URI = 'skill://coco';
     public const MANAGED_SKILL_PATH = '~/.agents/skills/coco/SKILL.md';
 
     public function __construct(private readonly VersionRepository $versions)
@@ -53,6 +54,7 @@ class ProjectModuleService
         return [
             'id' => null,
             'slug' => $skill['slug'],
+            'uri' => $skill['uri'],
             'sha256' => $sha,
             'display_name' => $skill['display_name'],
             'description' => $skill['description'],
@@ -106,12 +108,13 @@ class ProjectModuleService
     }
 
     /**
-     * @return array{slug:string,display_name:string,description:string,path:string}
+     * @return array{slug:string,uri:string,display_name:string,description:string,path:string}
      */
     private function managedSkillMetadata(): array
     {
         return [
             'slug' => self::MANAGED_SKILL_SLUG,
+            'uri' => self::MANAGED_SKILL_URI,
             'display_name' => 'CoCo Projects',
             'description' => 'Native project-only coordination workflow for codex-orchestrator, with the toolkit embedded in the skill itself.',
             'path' => self::MANAGED_SKILL_PATH,

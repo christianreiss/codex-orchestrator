@@ -34,6 +34,7 @@ class SkillService
             $rows[] = $managed;
             usort($rows, static fn (array $a, array $b): int => strcmp((string) ($a['slug'] ?? ''), (string) ($b['slug'] ?? '')));
         }
+        $rows = array_map(fn (array $row): array => $this->addCanonicalUri($row), $rows);
         $this->logs->log($this->hostId($host), 'skill.list', ['count' => count($rows)]);
 
         return $rows;
@@ -56,6 +57,7 @@ class SkillService
             return [
                 'status' => 'missing',
                 'slug' => $normalized,
+                'uri' => $this->skillUri($normalized),
             ];
         }
 
@@ -68,6 +70,7 @@ class SkillService
             return [
                 'status' => 'deleted',
                 'slug' => $normalized,
+                'uri' => $this->skillUri($normalized),
                 'deleted_at' => $row['deleted_at'] ?? gmdate(DATE_ATOM),
             ];
         }
@@ -81,6 +84,7 @@ class SkillService
         $result = [
             'status' => $status,
             'slug' => $normalized,
+            'uri' => $this->skillUri($normalized),
             'sha256' => $canonicalSha,
             'display_name' => $row['display_name'] ?? null,
             'description' => $row['description'] ?? null,
@@ -109,6 +113,7 @@ class SkillService
 
         return [
             'slug' => $normalized,
+            'uri' => $this->skillUri($normalized),
             'sha256' => $row['sha256'] ?? hash('sha256', (string) ($row['manifest'] ?? '')),
             'display_name' => $row['display_name'] ?? null,
             'description' => $row['description'] ?? null,
@@ -259,5 +264,22 @@ class SkillService
     private function isManagedSlug(string $slug): bool
     {
         return $slug === ProjectModuleService::MANAGED_SKILL_SLUG && $this->managedSkill() !== null;
+    }
+
+    private function addCanonicalUri(array $row): array
+    {
+        $slug = trim((string) ($row['slug'] ?? ''));
+        if ($slug === '') {
+            return $row;
+        }
+
+        $row['uri'] = $this->skillUri($slug);
+
+        return $row;
+    }
+
+    private function skillUri(string $slug): string
+    {
+        return 'skill://' . rawurlencode($slug);
     }
 }

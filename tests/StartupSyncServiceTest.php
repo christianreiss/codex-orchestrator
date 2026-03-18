@@ -169,5 +169,7 @@ final class StartupSyncServiceTest extends TestCase
 
         $this->assertContains('skills_changed', $result['reasons']);
         $this->assertSame(1, $result['skills']['changed_count']);
+        $this->assertSame('skill://deploy', $result['skills']['remote'][0]['uri']);
+        $this->assertSame('skill://deploy', $result['skills']['changed'][0]['uri']);
     }
 }

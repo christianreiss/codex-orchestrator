@@ -61,8 +61,8 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 - `GET /slash-commands` — list commands (`filename`, `sha256`, `description`, `argument_hint`, `updated_at`, optional `deleted_at`). Auth required.
 - `POST /slash-commands/retrieve` — body: `filename` (required), optional `sha256`. Returns `status` `missing` | `unchanged` | `updated` (with `prompt` when updated).
 - `POST /slash-commands/store` — body: `filename`, `prompt` (or `content`), optional `description`/`argument_hint`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`.
-- `GET /skills` — list skills (`slug`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required. When the Projects module is enabled, the list also includes a managed `coco` skill that syncs to clients through the normal Skills path.
-- `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated` (with `manifest` when updated).
+- `GET /skills` — list skills (`slug`, canonical `uri` as `skill://{slug}`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required. When the Projects module is enabled, the list also includes a managed `coco` skill that syncs to clients through the normal Skills path.
+- `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated`, canonical `uri`, and `manifest` when updated.
 - `POST /skills/store` — body: `slug`, `manifest` (or `content`; canonical `SKILL.md` markdown), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`. The reserved slug `coco` is rejected while the Projects module is enabled.
 
 ### Agents
@@ -76,7 +76,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /projects` — list projects with summary fields (`slug`, `title`, `name`, `description`, `about`, `latest_seq`, `created_at`, `updated_at`).
 - `POST /projects` — body: `slug` (required), optional `about` object, optional `roster_markdown` or `agents_markdown`. Returns the full project detail payload.
 - `GET /projects/{slug}` — full project state: `project`, `notes`, `todos`, `files`, `feedback`, and `recent_changes`.
-- `GET /projects/{slug}/bootstrap` — compact context payload with `about`, `roster_markdown`, `latest_seq`, `counts`, recent notes/todos/files/changes, native `instructions`, `quickstart`, managed `skill` metadata, and canonical project routes. The embedded guidance is explicitly project-only for CoCo shared handoffs and warns against host-scoped `memory://...` fallbacks.
+- `GET /projects/{slug}/bootstrap` — compact context payload with `about`, `roster_markdown`, `latest_seq`, `counts`, recent notes/todos/files/changes, native `instructions`, `quickstart`, managed `skill` metadata (`slug`, canonical `uri`, synced fallback `path`), and canonical project routes. The embedded guidance is explicitly project-only for CoCo shared handoffs and warns against host-scoped `memory://...` fallbacks.
 - `POST /projects/{slug}/about` — body `{ about: {...} }` (or a raw object) updates the project metadata block.
 - `POST /projects/{slug}/roster` — body `{ roster_markdown }` or `{ markdown }` updates the shared roster/brief markdown.
 - `GET /projects/{slug}/changes` — optional `since` query/body value; returns `{ project, since, latest_seq, changes[] }`.

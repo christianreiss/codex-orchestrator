@@ -204,10 +204,12 @@ final class SkillServiceTest extends TestCase
 
         $unchanged = $this->service->retrieve('lint', $sha, null);
         $this->assertSame('unchanged', $unchanged['status']);
+        $this->assertSame('skill://lint', $unchanged['uri']);
         $this->assertArrayNotHasKey('manifest', $unchanged);
 
         $updated = $this->service->retrieve('lint', null, null);
         $this->assertSame('updated', $updated['status']);
+        $this->assertSame('skill://lint', $updated['uri']);
         $this->assertSame($payload['manifest'], $updated['manifest']);
     }
 
@@ -229,6 +231,7 @@ final class SkillServiceTest extends TestCase
 
         $this->assertCount(1, $skills);
         $this->assertSame('coco', $skills[0]['slug']);
+        $this->assertSame('skill://coco', $skills[0]['uri']);
         $this->assertSame('CoCo Projects', $skills[0]['display_name']);
         $this->assertArrayHasKey('managed', $skills[0]);
     }

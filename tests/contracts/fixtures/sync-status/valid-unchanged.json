@@ -34,6 +34,7 @@
       "remote": [
         {
           "slug": "docker-restart",
+          "uri": "skill://docker-restart",
           "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "deleted_at": null
         }

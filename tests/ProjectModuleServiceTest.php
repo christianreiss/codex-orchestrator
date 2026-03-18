@@ -56,6 +56,7 @@ final class ProjectModuleServiceTest extends TestCase
 
         $this->assertNotNull($skill);
         $this->assertSame('coco', $skill['slug']);
+        $this->assertSame('skill://coco', $skill['uri']);
         $this->assertTrue($skill['managed']);
         $this->assertStringContainsString('# CoCo Toolkit (Codex Orchestrator Projects)', $skill['manifest']);
         $this->assertStringContainsString('Use cdx MCP `resource_read` on `skill://coco` as the primary source.', $skill['manifest']);
@@ -96,6 +97,7 @@ final class ProjectModuleServiceTest extends TestCase
         $this->assertStringContainsString('memory://', implode("\n", $instructions));
         $this->assertStringNotContainsString('/help', $instructions[0]);
         $this->assertSame('coco', $skill['slug']);
+        $this->assertSame('skill://coco', $skill['uri']);
         $this->assertSame('~/.agents/skills/coco/SKILL.md', $skill['path']);
         $this->assertContains('project_list', $quickstart);
         $this->assertContains('project_create {"slug":"apollo"}', $quickstart);

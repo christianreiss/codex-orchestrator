@@ -50,6 +50,7 @@
       "remote": [
         {
           "slug": "docker-restart",
+          "uri": "skill://docker-restart",
           "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "deleted_at": null
         }
@@ -57,6 +58,7 @@
       "changed": [
         {
           "slug": "docker-restart",
+          "uri": "skill://docker-restart",
           "status": "updated",
           "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "manifest": "# SKILL"
