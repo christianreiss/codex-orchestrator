@@ -4,85 +4,80 @@
     document.body.classList.add('embed');
   }
 
-  const nav = document.querySelector('.main-nav');
-  const navPanel = document.getElementById('navDrawer');
+  const rail = document.querySelector('.editorial-rail');
+  const drawer = document.getElementById('navDrawer');
   const menuToggle = document.getElementById('navMenuToggle');
   const backdrop = document.getElementById('navDrawerBackdrop');
   const mtlsStatus = document.getElementById('mtlsStatus');
-  if (!nav) return;
+  if (!rail) return;
 
   const MOBILE_DRAWER_MEDIA = '(max-width: 940px)';
   const drawerMedia = typeof window.matchMedia === 'function'
     ? window.matchMedia(MOBILE_DRAWER_MEDIA)
     : null;
+  const groups = Array.from(rail.querySelectorAll('.rail-group'));
 
-  const groups = Array.from(nav.querySelectorAll('.nav-item.has-children'));
+  const isCompactRail = () => (drawerMedia ? drawerMedia.matches : window.innerWidth <= 940);
+  const triggerFor = (group) => group.querySelector('[data-rail-trigger]');
+  const hasOpenGroup = () => groups.some((group) => group.classList.contains('is-open'));
 
   const setExpanded = (group, expanded) => {
-    const trigger = group.querySelector('.nav-trigger');
+    const trigger = triggerFor(group);
     if (trigger) {
       trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     }
   };
 
-  function closeAllGroups() {
+  function closeAllGroups({ except = null } = {}) {
     groups.forEach((group) => {
-      group.classList.remove('open');
+      if (group === except) return;
+      group.classList.remove('is-open');
       setExpanded(group, false);
     });
   }
 
   function openGroup(group) {
-    groups.forEach((current) => {
-      if (current !== group) {
-        current.classList.remove('open');
-        setExpanded(current, false);
-      }
-    });
-    group.classList.add('open');
+    closeAllGroups({ except: group });
+    group.classList.add('is-open');
     setExpanded(group, true);
   }
 
+  function toggleGroup(group) {
+    if (group.classList.contains('is-open')) {
+      group.classList.remove('is-open');
+      setExpanded(group, false);
+      return;
+    }
+    openGroup(group);
+  }
+
   groups.forEach((group) => {
-    const trigger = group.querySelector('.nav-trigger');
-    let hoverTimer;
+    const trigger = triggerFor(group);
+    if (!trigger) return;
 
-    trigger?.addEventListener('click', (event) => {
+    trigger.addEventListener('click', (event) => {
       event.preventDefault();
-      const isOpen = group.classList.contains('open');
-      if (isOpen) {
-        group.classList.remove('open');
-        setExpanded(group, false);
-        return;
-      }
+      toggleGroup(group);
+    });
+
+    trigger.addEventListener('pointerenter', () => {
+      if (isCompactRail() || !hasOpenGroup()) return;
       openGroup(group);
     });
 
-    group.addEventListener('pointerenter', () => {
-      clearTimeout(hoverTimer);
+    group.addEventListener('focusin', () => {
+      if (isCompactRail()) return;
       openGroup(group);
     });
-
-    group.addEventListener('pointerleave', () => {
-      clearTimeout(hoverTimer);
-      hoverTimer = setTimeout(() => {
-        group.classList.remove('open');
-        setExpanded(group, false);
-      }, 120);
-    });
-
-    group.addEventListener('focusin', () => openGroup(group));
   });
 
-  const isCompactNav = () => (drawerMedia ? drawerMedia.matches : window.innerWidth <= 940);
-
-  function syncNavHeightVar() {
+  function syncRailHeightVar() {
     const body = document.body;
     if (!body) return;
-    const navRect = nav.getBoundingClientRect();
-    const navHeight = Math.max(0, Math.round(navRect.height));
-    if (navHeight > 0) {
-      body.style.setProperty('--nav-height', `${navHeight}px`);
+    const railRect = rail.getBoundingClientRect();
+    const railHeight = Math.max(0, Math.round(railRect.height));
+    if (railHeight > 0) {
+      body.style.setProperty('--nav-height', `${railHeight}px`);
       return;
     }
     body.style.removeProperty('--nav-height');
@@ -91,16 +86,16 @@
   let drawerOpen = false;
 
   function applyDrawerState(open) {
-    const compact = isCompactNav();
+    const compact = isCompactRail();
     drawerOpen = compact ? Boolean(open) : false;
 
-    document.body.classList.toggle('nav-drawer-open', drawerOpen);
+    document.body.classList.toggle('editorial-rail-open', drawerOpen);
 
     if (menuToggle) {
       menuToggle.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
     }
-    if (navPanel) {
-      navPanel.setAttribute('aria-hidden', compact ? (drawerOpen ? 'false' : 'true') : 'false');
+    if (drawer) {
+      drawer.setAttribute('aria-hidden', compact ? (drawerOpen ? 'false' : 'true') : 'false');
     }
     if (backdrop) {
       backdrop.hidden = !drawerOpen;
@@ -134,13 +129,16 @@
   });
 
   document.addEventListener('click', (event) => {
-    if (!nav.contains(event.target)) {
+    if (!rail.contains(event.target)) {
       closeAllGroups();
     }
   });
 
-  nav.querySelectorAll('.nav-dropdown a').forEach((link) => {
-    link.addEventListener('click', () => closeAllGroups());
+  rail.querySelectorAll('.rail-sub-link').forEach((link) => {
+    link.addEventListener('click', () => {
+      closeAllGroups();
+      closeDrawer();
+    });
   });
 
   function setStatusChip(element, state) {
@@ -183,7 +181,6 @@
       const json = await response.json();
       window.__navStatus.setMtls(json?.data?.mtls ?? null);
     } catch (_) {
-      // If auth/mTLS checks fail, keep a deterministic status instead of stale text.
       window.__navStatus.setMtls({ required: true, present: false });
     }
   }
@@ -236,6 +233,15 @@
     return pathView || 'dashboard';
   }
 
+  function currentRouteState() {
+    return {
+      view: currentViewKey(),
+      hostTab: String(document.body?.dataset?.hostTab || ''),
+      logTab: String(document.body?.dataset?.logTab || ''),
+      settingsTab: String(document.body?.dataset?.settingsTab || ''),
+    };
+  }
+
   function linkViewKey(link) {
     const datasetView = normalizePanelKey(link.dataset?.nav || '');
     if (datasetView) return datasetView;
@@ -247,34 +253,55 @@
       return inferViewFromHash(href);
     }
 
-    let linkUrl = null;
     try {
-      linkUrl = new URL(href, window.location.origin);
+      const linkUrl = new URL(href, window.location.origin);
+      const queryView = normalizePanelKey(linkUrl.searchParams.get('view') || '');
+      if (queryView) return queryView;
+      return inferViewFromPath(normalizePath(linkUrl.pathname));
     } catch (_) {
       return '';
     }
+  }
 
-    const queryView = normalizePanelKey(linkUrl.searchParams.get('view') || '');
-    if (queryView) return queryView;
+  function linkTabTarget(link) {
+    if (Object.prototype.hasOwnProperty.call(link.dataset, 'hostTab')) {
+      return ['hostTab', String(link.dataset.hostTab || '')];
+    }
+    if (Object.prototype.hasOwnProperty.call(link.dataset, 'logTab')) {
+      return ['logTab', String(link.dataset.logTab || '')];
+    }
+    if (Object.prototype.hasOwnProperty.call(link.dataset, 'settingsTab')) {
+      return ['settingsTab', String(link.dataset.settingsTab || '')];
+    }
+    return null;
+  }
 
-    return inferViewFromPath(normalizePath(linkUrl.pathname));
+  function isLinkActive(link, routeState) {
+    const viewKey = linkViewKey(link);
+    if (!viewKey || viewKey !== routeState.view) return false;
+
+    const tabTarget = linkTabTarget(link);
+    if (!tabTarget) return true;
+
+    const [field, value] = tabTarget;
+    return String(routeState[field] || '') === value;
   }
 
   function syncActiveLinks() {
-    const activeView = currentViewKey();
-    document.querySelectorAll('.nav-item.has-children').forEach((group) => {
-      group.classList.remove('active');
+    const routeState = currentRouteState();
+
+    groups.forEach((group) => {
+      group.classList.remove('is-active');
     });
 
-    document.querySelectorAll('a.nav-item, .nav-dropdown a, a.menu-link').forEach((link) => {
-      const linkView = linkViewKey(link);
-      const isActive = !!linkView && linkView === activeView;
-      link.classList.toggle('active', isActive);
+    document.querySelectorAll('a.rail-link, .rail-sub-link, a.menu-link').forEach((link) => {
+      const active = isLinkActive(link, routeState);
+      link.classList.toggle('is-active', active);
 
-      if (isActive) {
+      if (active) {
         link.setAttribute('aria-current', 'page');
-        const parentGroup = link.closest('.has-children');
-        parentGroup?.classList.add('active');
+        const parentGroup = link.closest('.rail-group');
+        parentGroup?.classList.add('is-active');
       } else {
         link.removeAttribute('aria-current');
       }
@@ -287,9 +314,8 @@
     closeDrawer();
   };
 
-  document.querySelectorAll('a.nav-item, .nav-dropdown a, a.menu-link').forEach((link) => {
+  document.querySelectorAll('a.rail-link, .rail-sub-link, a.menu-link').forEach((link) => {
     link.addEventListener('click', () => {
-      // Routing runs after click (via delegated handler + popstate); run an immediate sync as feedback.
       syncAndCloseForNavigation();
     });
   });
@@ -311,7 +337,7 @@
 
   const handleViewportChange = () => {
     applyDrawerState(false);
-    syncNavHeightVar();
+    syncRailHeightVar();
     syncActiveLinks();
   };
 
@@ -326,15 +352,15 @@
   }
 
   if (typeof ResizeObserver === 'function') {
-    const navResizeObserver = new ResizeObserver(() => {
-      syncNavHeightVar();
+    const railResizeObserver = new ResizeObserver(() => {
+      syncRailHeightVar();
     });
-    navResizeObserver.observe(nav);
+    railResizeObserver.observe(rail);
   } else {
-    window.addEventListener('resize', syncNavHeightVar);
+    window.addEventListener('resize', syncRailHeightVar);
   }
 
   applyDrawerState(false);
-  syncNavHeightVar();
+  syncRailHeightVar();
   syncActiveLinks();
 })();

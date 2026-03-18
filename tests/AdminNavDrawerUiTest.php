@@ -14,10 +14,12 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertIsString($html);
 
         $this->assertStringContainsString('data-nav-version="2026"', $html);
+        $this->assertStringContainsString('class="editorial-rail"', $html);
         $this->assertStringContainsString('id="navMenuToggle"', $html);
         $this->assertStringContainsString('id="navDrawer"', $html);
         $this->assertStringContainsString('id="navDrawerBackdrop"', $html);
-        $this->assertStringContainsString('class="nav-utility-cluster"', $html);
+        $this->assertStringContainsString('class="rail-frame"', $html);
+        $this->assertStringContainsString('data-rail-trigger', $html);
         $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
     }
 
@@ -26,9 +28,10 @@ final class AdminNavDrawerUiTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/nav.js');
         $this->assertIsString($js);
 
-        $this->assertStringContainsString('nav-drawer-open', $js);
+        $this->assertStringContainsString('editorial-rail-open', $js);
         $this->assertStringContainsString('navMenuToggle', $js);
         $this->assertStringContainsString('navDrawerBackdrop', $js);
+        $this->assertStringContainsString("const groups = Array.from(rail.querySelectorAll('.rail-group'));", $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);
@@ -40,11 +43,11 @@ final class AdminNavDrawerUiTest extends TestCase
         $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
         $this->assertIsString($css);
 
-        $this->assertStringContainsString('body[data-nav-version="2026"] .main-nav', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-panel', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-utility-cluster', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .main-nav .nav-item.has-children', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .nav-drawer-backdrop', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-frame', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-panel', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-tools', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail-backdrop', $css);
         $this->assertStringContainsString('@media (max-width: 940px)', $css);
     }
 }

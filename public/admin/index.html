@@ -4,77 +4,89 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-04">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-18-04">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-05">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-18-05">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
-  <header class="main-nav">
-    <a class="nav-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
-      <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
-      <div>
-        <div class="brand-title">Codex Orchestrator</div>
-      </div>
+  <header class="editorial-rail">
+    <a class="rail-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
+      <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
+      <div class="rail-brand-title">Codex Orchestrator</div>
     </a>
-    <button class="nav-menu-toggle" id="navMenuToggle" type="button" aria-expanded="false" aria-controls="navDrawer" aria-label="Open navigation menu">
-      <span class="nav-menu-toggle-lines" aria-hidden="true"></span>
-      <span class="nav-menu-toggle-label">Menu</span>
+    <button class="rail-toggle" id="navMenuToggle" type="button" aria-expanded="false" aria-controls="navDrawer" aria-label="Open navigation menu">
+      <span class="rail-toggle-label">Menu</span>
+      <span class="rail-toggle-glyph" aria-hidden="true"></span>
     </button>
-    <div class="nav-panel" id="navDrawer" aria-hidden="false">
-      <nav class="nav-groups" aria-label="Primary navigation">
-        <a class="nav-item" href="/admin/dashboard" data-nav="dashboard">Overview</a>
-        <div class="nav-item has-children" data-nav="hosts">
-          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Hosts <span class="caret" aria-hidden="true">▾</span></button>
-          <div class="nav-dropdown" role="menu">
-            <a class="host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="" role="menuitem">All Hosts</a>
-            <a class="host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem">Secure</a>
-            <a class="host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem">Insecure</a>
-            <a class="host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
+    <div class="rail-frame" id="navDrawer" aria-hidden="false">
+      <nav class="rail-primary" aria-label="Primary navigation">
+        <a class="rail-link" href="/admin/dashboard" data-nav="dashboard">Overview</a>
+        <div class="rail-group" data-nav="hosts">
+          <button class="rail-disclosure" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true">
+            <span>Hosts</span>
+            <span class="rail-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="rail-panel rail-panel-compact" role="menu">
+            <a class="rail-sub-link host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="" role="menuitem">All Hosts</a>
+            <a class="rail-sub-link host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem">Secure</a>
+            <a class="rail-sub-link host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem">Insecure</a>
+            <a class="rail-sub-link host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
           </div>
         </div>
-        <div class="nav-item has-children" data-nav="logs">
-          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Logs <span class="caret" aria-hidden="true">▾</span></button>
-          <div class="nav-dropdown" role="menu">
-            <a class="log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client" role="menuitem">API Logs</a>
-            <a class="log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp" role="menuitem">MCP Logs</a>
-            <a class="log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events" role="menuitem">Events</a>
+        <div class="rail-group" data-nav="logs">
+          <button class="rail-disclosure" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true">
+            <span>Logs</span>
+            <span class="rail-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="rail-panel rail-panel-compact" role="menu">
+            <a class="rail-sub-link log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client" role="menuitem">API Logs</a>
+            <a class="rail-sub-link log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp" role="menuitem">MCP Logs</a>
+            <a class="rail-sub-link log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events" role="menuitem">Events</a>
           </div>
         </div>
-        <div class="nav-item has-children" data-nav="settings">
-          <button class="nav-trigger" type="button" aria-expanded="false" aria-haspopup="true">Settings <span class="caret" aria-hidden="true">▾</span></button>
-          <div class="nav-dropdown" role="menu">
-            <a class="settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem">General</a>
-            <a class="settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem">Agents</a>
-            <a class="settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem">Slash Commands</a>
-            <a class="settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem">Memories</a>
-            <hr class="nav-dropdown-divider" aria-hidden="true">
-            <a class="settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem">Projects</a>
-            <a class="settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem">Profiles</a>
-            <a class="settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem">Skills</a>
-            <hr class="nav-dropdown-divider" aria-hidden="true">
-            <a class="settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem">config.toml</a>
+        <div class="rail-group rail-group-settings" data-nav="settings">
+          <button class="rail-disclosure" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true">
+            <span>Settings</span>
+            <span class="rail-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="rail-panel rail-panel-settings" role="menu">
+            <section class="rail-section" aria-label="Admin settings">
+              <div class="rail-section-label">Admin</div>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem">General</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem">Agents</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem">config.toml</a>
+            </section>
+            <section class="rail-section" aria-label="Authoring settings">
+              <div class="rail-section-label">Authoring</div>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem">Slash Commands</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem">Skills</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem">Memories</a>
+            </section>
+            <section class="rail-section" aria-label="Workspace settings">
+              <div class="rail-section-label">Workspace</div>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem">Projects</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem">Profiles</a>
+            </section>
           </div>
         </div>
-        <a class="nav-item" href="/admin/users" data-nav="users">Users</a>
+        <a class="rail-link" href="/admin/users" data-nav="users">Users</a>
       </nav>
-      <div class="nav-utility-cluster">
-        <div class="nav-actions">
-          <button class="nav-btn primary" id="navInsecureHosts" style="display:none;">Toggler</button>
-          <button class="nav-btn primary" id="navNewHost">New host</button>
-          <button class="nav-btn ghost theme-toggle" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
-            Theme: <span class="theme-toggle-label">Auto</span>
+      <div class="rail-tools">
+        <div class="rail-toolset">
+          <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Toggler</button>
+          <button class="rail-action rail-action-accent" id="navNewHost">New Host</button>
+          <button class="rail-action rail-action-quiet" id="themeToggle" type="button" aria-label="Theme: Auto" title="Theme: Auto">
+            Theme <span class="theme-toggle-label">Auto</span>
           </button>
         </div>
-        <div class="nav-status">
-          <span class="nav-user" id="navUser" style="display:none;">
-            <span class="nav-user-name" id="navUserName">Authenticated user</span>
-            <button class="nav-lock" id="navLogout" type="button" aria-label="Logout">🔐</button>
-          </span>
-        </div>
+        <span class="rail-account" id="navUser" style="display:none;">
+          <span class="rail-account-name" id="navUserName">Authenticated user</span>
+          <button class="rail-account-exit" id="navLogout" type="button" aria-label="Logout">Log out</button>
+        </span>
       </div>
     </div>
   </header>
-  <button class="nav-drawer-backdrop" id="navDrawerBackdrop" type="button" hidden aria-label="Close navigation menu"></button>
+  <button class="editorial-rail-backdrop" id="navDrawerBackdrop" type="button" hidden aria-label="Close navigation menu"></button>
 
   <div class="app">
     <div class="content">
@@ -1867,7 +1879,7 @@
       window.addEventListener('popstate', applyFromPath);
     })();
   </script>
-  <script src="/admin/assets/nav.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/nav.js?v=2026-03-18-02"></script>
   <script src="/admin/assets/admin-auth.js?v=2026-02-16-01"></script>
   <script src="/admin/assets/users.js?v=2026-02-19-02"></script>
   <script src="/admin/assets/passkeys.js?v=2026-03-17-01"></script>

@@ -264,8 +264,8 @@ body::before {
   100% { transform: translate(10px, -10px) scale(1.02); }
 }
 
-.main-nav,
-.nav-drawer-backdrop,
+.editorial-rail,
+.editorial-rail-backdrop,
 .app,
 .login-shell,
 .admin-error-shell {
@@ -405,11 +405,10 @@ h3 {
   box-shadow: none;
 }
 
-body[data-view-mode="dashboard"] .main-nav {
-  backdrop-filter: blur(18px);
-  background: color-mix(in srgb, var(--card) 82%, transparent);
+body[data-view-mode="dashboard"] .editorial-rail {
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.14);
+  box-shadow: none;
 }
 
 body[data-view-mode="dashboard"] .menu-line {
