@@ -37,9 +37,10 @@ For CoCo specifically, shared state is project-only. `memory://...` resources re
 - Resource tools: `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
 - Projects module enabled: `project_list`, `project_create`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, `project_feedback_create`.
 - Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
-- `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`) and `memory_store` (`memory://{scope}:{name}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
+- `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`), `memory_store` (`memory://{scope}:{name}`), and `skill_manifest` (`skill://{slug}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
 - Memory/FS/resource tool responses are wrapped in `CallToolResult.content` blocks.
-- `resources/list` always includes recent `memory://...` resources for the caller; when the Projects module is enabled it also includes concrete `project://{slug}` resources for each active shared project.
+- `resources/list` always includes recent `memory://...` resources for the caller and synced Skills as `skill://{slug}` read-only markdown resources; when the Projects module is enabled it also includes concrete `project://{slug}` resources for each active shared project.
+- `resources/read` fetches a single memory as `text/plain` when given `uri=memory://{id}`, a Skill manifest as `text/markdown` when given `uri=skill://{slug}`, or a project bootstrap JSON document when given `uri=project://{slug}`. Clients should prefer `skill://{slug}` as the primary Skill read path; synced local `~/.agents/skills/<slug>/SKILL.md` files are compatibility fallback copies.
 - The managed `coco` skill uses the `project_*` / `project://{slug}` side of that surface for shared handoffs; it does not treat `memory://...` as cross-host shared state.
 
 ## Example JSON-RPC call
