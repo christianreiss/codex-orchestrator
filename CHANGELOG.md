@@ -1,4 +1,5 @@
 # 2026-03-18
+- Admin UI: fixed the editorial rail desktop dropdowns so the first pointer click on `Hosts`, `Logs`, or `Settings` now stays open instead of opening on focus and immediately toggling shut; keyboard focus still auto-opens the menus.
 - Admin UI: compacted the editorial rail to reclaim vertical space by reducing the header padding, inner frame height, and rail item heights on desktop/mobile, so the navbar wastes less white space while keeping the same flattened menu styling.
 - Admin UI: removed the last button/pill chrome from the editorial rail controls so `Hosts`, `Logs`, `Settings`, `New Host`, `Theme`, and logout now render as plain rail text/actions without bordered capsules, separator seams, or shadowed button surfaces.
 - Admin UI: flattened the editorial rail further by removing the remaining navbar/flyout box shadows and switching the custom focus treatment from shadow rings to simple outlines, so the whole header reads as one flat surface.

@@ -32,6 +32,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('navMenuToggle', $js);
         $this->assertStringContainsString('navDrawerBackdrop', $js);
         $this->assertStringContainsString("const groups = Array.from(rail.querySelectorAll('.rail-group'));", $js);
+        $this->assertStringContainsString("const shouldOpenForFocus = (group, target) => {", $js);
+        $this->assertStringContainsString("return trigger.matches(':focus-visible');", $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);

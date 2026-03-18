@@ -20,6 +20,17 @@
   const isCompactRail = () => (drawerMedia ? drawerMedia.matches : window.innerWidth <= 940);
   const triggerFor = (group) => group.querySelector('[data-rail-trigger]');
   const hasOpenGroup = () => groups.some((group) => group.classList.contains('is-open'));
+  const shouldOpenForFocus = (group, target) => {
+    if (isCompactRail()) return false;
+    const trigger = triggerFor(group);
+    if (!trigger || target !== trigger) return true;
+    if (typeof trigger.matches !== 'function') return true;
+    try {
+      return trigger.matches(':focus-visible');
+    } catch (_) {
+      return true;
+    }
+  };
 
   const setExpanded = (group, expanded) => {
     const trigger = triggerFor(group);
@@ -65,8 +76,8 @@
       openGroup(group);
     });
 
-    group.addEventListener('focusin', () => {
-      if (isCompactRail()) return;
+    group.addEventListener('focusin', (event) => {
+      if (!shouldOpenForFocus(group, event.target)) return;
       openGroup(group);
     });
   });
