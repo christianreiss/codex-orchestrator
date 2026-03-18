@@ -74,15 +74,18 @@ Scheduled preflight: on the first non-admin request after the configured interva
 - `POST /admin/auth/login/method` — username-first admin login probe. Body `{username}`; returns `{method:"passkey"|"password"}` for a known active user. Unknown/inactive usernames fail with the same generic auth-style error used by password login.
 - `POST /admin/auth/login` — login with `{username, password}`; issues an HTTP-only session cookie. Users with registered passkeys cannot use this route and must complete passkey login instead.
 - `POST /admin/auth/logout` — clears the session cookie.
+- `POST /admin/auth/password/change` — authenticated self-service password change. Body `{current_password, new_password, confirm_password}`; rejects wrong current passwords and confirmation mismatches, applies the existing admin password policy to `new_password`, updates the current user’s password hash, expires outstanding reset tokens, and signs out other sessions for that same user while keeping the current session active.
 - `POST /admin/auth/passkey/login/options` — begin username-bound passkey login. Body `{username}`; returns WebAuthn `challenge`, `rpId`, `timeout`, `userVerification:"required"`, and `allowCredentials` for that active user only. Fails when the user is unknown/inactive or has no registered passkeys.
 - `POST /admin/auth/passkey/login` — completes passkey login. Validates RP ID, exact origin, `UP`, `UV`, signature, challenge single-use, and credential ownership before issuing the normal admin session cookie. Sign-counter regressions log `admin.auth.passkey.sign_count_regression` and do not reduce the stored counter.
 - `POST /admin/auth/passkey/register/options` — begin passkey registration for the authenticated admin session. Returns WebAuthn registration options with `residentKey:"discouraged"`, `userVerification:"required"`, and exclude-credentials built from that user’s existing passkeys.
 - `POST /admin/auth/passkey/register` — completes passkey registration. Validates RP ID, exact origin, challenge single-use, `UP`, `UV`, `AT`, and supported COSE algorithms before storing the public key and metadata.
 - `GET /admin/login` — dedicated admin login page (HTML; served by `public/admin/index.php` dispatch through `/admin/.htaccess`).
 - `GET /admin/hosts/{id}` — dedicated admin host detail page (HTML shell). Uses the same dashboard assets but resolves the active host from the path instead of opening an in-page modal.
+- `GET /admin/account/password` — dedicated authenticated account password page (HTML shell route inside the admin dashboard). The navbar brand/account menu links here for self-service password updates.
+- `GET /admin/account/passkeys` — dedicated authenticated account passkeys page (HTML shell route inside the admin dashboard). The navbar brand/account menu links here for personal passkey registration, rename, and removal.
 - `POST /admin/auth/password/request` — disabled; always returns `410 Gone`.
 - `POST /admin/auth/password/reset` — disabled; always returns `410 Gone`.
-- `GET /admin/passkeys` — list the authenticated admin user’s registered passkeys (`id`, `name`, `transports`, `created_at`, `last_used_at`).
+- `GET /admin/passkeys` — list the authenticated admin user’s registered passkeys (`id`, `name`, `transports`, `created_at`, `last_used_at`). Used by the `/admin/account/passkeys` page; this is no longer presented inside the Users panel.
 - `POST /admin/passkeys/{id}/name` — rename one of the authenticated admin user’s passkeys. Body `{name}`.
 - `DELETE /admin/passkeys/{id}` — delete one of the authenticated admin user’s passkeys.
 - `GET /admin/users` — list admin users (id, name, username, email, access_level, active, last_login_at, timestamps).
