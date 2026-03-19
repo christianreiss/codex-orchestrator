@@ -38,5 +38,16 @@ final class AdminInsecureHostsEndpointTest extends TestCase
             $routeBlock,
             'Expected /admin/hosts/insecure to normalize insecure_enabled_until using DATE_ATOM (timezone-aware)'
         );
+
+        self::assertStringContainsString(
+            'if (!$isActive) {',
+            $routeBlock,
+            'Expected /admin/hosts/insecure to filter out inactive hosts/domains before returning them'
+        );
+        self::assertStringContainsString(
+            "'count' => count(\$items)",
+            $routeBlock,
+            'Expected /admin/hosts/insecure count to reflect the filtered host list'
+        );
     }
 }

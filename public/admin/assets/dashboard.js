@@ -7122,20 +7122,12 @@
       if (!items.length) {
         insecureHostsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No insecure hosts found.</div></div></div>';
       } else {
-        const activeNotice = activeCount === 0
-          ? '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No active insecure host windows.</div></div></div>'
-          : '';
-        insecureHostsList.innerHTML = activeNotice + items.map((host) => {
-          const active = hostHasActiveInsecureWindow(host);
-          const onlineFor = active ? formatCountdown(host?.insecure_enabled_until) : 'Window closed';
-          const onlineUntil = active ? (host?.insecure_enabled_until || '') : '';
-          const onlineLine = active
-            ? (onlineFor !== '—'
-              ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
-              : '<div class="quick-hosts-sub">Online now</div>')
-            : '<div class="quick-hosts-sub">Window closed</div>';
-          const action = active ? 'disable' : 'enable';
-          const label = active ? 'Disable' : 'Enable';
+        insecureHostsList.innerHTML = items.map((host) => {
+          const onlineFor = formatCountdown(host?.insecure_enabled_until);
+          const onlineUntil = host?.insecure_enabled_until || '';
+          const onlineLine = onlineFor !== '—'
+            ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
+            : '<div class="quick-hosts-sub">Online now</div>';
           return `
             <div class="quick-hosts-row" data-host-id="${host.id}">
               <div class="quick-hosts-info">
@@ -7143,7 +7135,7 @@
                 ${onlineLine}
               </div>
               <div class="quick-hosts-actions">
-                <button class="ghost" data-action="${action}">${label}</button>
+                <button class="ghost" data-action="disable">Disable</button>
               </div>
             </div>
           `;
@@ -7162,17 +7154,16 @@
         domains.sort(activeDomainFirst);
 
         if (!domains.length) {
-          insecureDomainsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No domains auto-allowed yet.</div></div></div>';
+          insecureDomainsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No active allowed domains.</div></div></div>';
         } else {
           insecureDomainsList.innerHTML = domains.map((domain) => {
-            const isActive = domainActive(domain);
             const label = 'Revoke';
             const btnClass = 'ghost';
-            const onlineFor = isActive ? formatCountdown(domain?.enabled_until) : '';
-            const onlineUntil = isActive ? (domain?.enabled_until || '') : '';
-            const onlineLine = isActive && onlineFor !== '—'
+            const onlineFor = formatCountdown(domain?.enabled_until);
+            const onlineUntil = domain?.enabled_until || '';
+            const onlineLine = onlineFor !== '—'
               ? `<div class="quick-hosts-sub" data-countdown="domain" data-until="${escapeHtml(onlineUntil)}">Auto-allow: ${escapeHtml(onlineFor)}</div>`
-              : '';
+              : '<div class="quick-hosts-sub">Auto-allow active</div>';
             return `
               <div class="quick-hosts-row" data-domain-id="${domain.id}">
                 <div class="quick-hosts-info">
@@ -7255,11 +7246,10 @@
           const hostId = hostIdRaw ? parseInt(hostIdRaw, 10) : NaN;
           if (!Number.isFinite(hostId)) return;
           const action = String(btn.getAttribute('data-action') || '').toLowerCase();
-          let enableTarget = action === 'enable';
 
           btn.disabled = true;
           const originalLabel = btn.textContent;
-          btn.textContent = enableTarget ? 'Turning on…' : 'Turning off…';
+          btn.textContent = 'Turning off…';
           try {
             const resp = await api('/admin/hosts/insecure');
             const hosts = resp?.data?.hosts || [];
@@ -7267,13 +7257,12 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
-            enableTarget = !(target?.active === true);
-            await toggleInsecureApi(target, null, enableTarget);
+            await toggleInsecureApi(target, null, false);
             const refreshed = await api('/admin/hosts/insecure');
             openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
           } catch (err) {
             console.error('insecure hosts toggle failed', err);
-            toast(`${enableTarget ? 'Enable' : 'Disable'} failed: ${err.message}`, 'error');
+            toast(`Disable failed: ${err.message}`, 'error');
           } finally {
             btn.disabled = false;
             btn.textContent = originalLabel;

@@ -3267,14 +3267,16 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
         }
 
         $isActive = ($enabledTs !== null) && ($enabledTs > time());
-        if ($isActive) {
-            $active += 1;
+        if (!$isActive) {
+            continue;
         }
+
+        $active += 1;
 
         $items[] = [
             'id' => (int) $host['id'],
             'fqdn' => $host['fqdn'],
-            'active' => $isActive,
+            'active' => true,
             'insecure_enabled_until' => $enabledUntil,
             'secure' => $isSecure,
         ];
@@ -3303,13 +3305,15 @@ $router->add('GET', '#^/admin/hosts/insecure$#', function () use ($hostRepositor
             }
         }
         $isActive = ($enabledTs !== null) && ($enabledTs > time());
-        if ($isActive) {
-            $domainsActive += 1;
+        if (!$isActive) {
+            continue;
         }
+
+        $domainsActive += 1;
         $domainItems[] = [
             'id' => (int) ($row['id'] ?? 0),
             'domain' => $row['domain'] ?? null,
-            'active' => $isActive,
+            'active' => true,
             'enabled_until' => $enabledUntil,
             'window_minutes' => isset($row['window_minutes']) ? (int) $row['window_minutes'] : null,
         ];
