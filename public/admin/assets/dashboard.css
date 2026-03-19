@@ -5046,26 +5046,6 @@ body[data-nav-version="2026"] .rail-brand-title {
   color: var(--text);
 }
 
-body[data-nav-version="2026"] .rail-group-account-menu {
-  flex-shrink: 0;
-}
-
-body[data-nav-version="2026"] .rail-group-account-menu::after {
-  display: none;
-}
-
-body[data-nav-version="2026"] .rail-brand-trigger {
-  padding: 0 4px 0 0 !important;
-  gap: 10px;
-}
-
-body[data-nav-version="2026"] .rail-brand-trigger:hover,
-body[data-nav-version="2026"] .rail-brand-trigger:focus-visible,
-body[data-nav-version="2026"] .rail-group-account-menu.is-active .rail-brand-trigger,
-body[data-nav-version="2026"] .rail-group-account-menu.is-open .rail-brand-trigger {
-  color: var(--text);
-}
-
 body[data-nav-version="2026"] .rail-toggle {
   display: none;
   margin-left: auto;
@@ -5267,6 +5247,8 @@ body[data-nav-version="2026"] .rail-panel-settings {
 body[data-nav-version="2026"] .rail-panel-account-menu {
   min-width: 260px;
   gap: 10px;
+  left: auto;
+  right: 0;
 }
 
 body[data-nav-version="2026"] .rail-account-summary {
@@ -5394,6 +5376,51 @@ body[data-nav-version="2026"] .rail-toolset {
   display: inline-flex;
   align-items: center;
   gap: 14px;
+}
+
+body[data-nav-version="2026"] .rail-group-account-menu {
+  flex-shrink: 0;
+}
+
+body[data-nav-version="2026"] .rail-group-account-menu::after {
+  display: none;
+}
+
+body[data-nav-version="2026"] .rail-account-trigger {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: color 120ms ease;
+}
+
+body[data-nav-version="2026"] .rail-account-trigger:hover,
+body[data-nav-version="2026"] .rail-account-trigger:focus-visible,
+body[data-nav-version="2026"] .rail-group-account-menu.is-active .rail-account-trigger,
+body[data-nav-version="2026"] .rail-group-account-menu.is-open .rail-account-trigger {
+  color: var(--text);
+}
+
+body[data-nav-version="2026"] .rail-account-trigger-label {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 body[data-nav-version="2026"] .rail-action,
@@ -5590,6 +5617,31 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
   body[data-nav-version="2026"] .rail-panel-settings {
     grid-template-columns: 1fr;
     gap: 16px;
+  }
+
+  body[data-nav-version="2026"] .rail-group-account-menu {
+    width: 100%;
+  }
+
+  body[data-nav-version="2026"] .rail-account-trigger {
+    width: 100%;
+    min-height: 48px;
+    justify-content: space-between;
+    font-size: 12px;
+  }
+
+  body[data-nav-version="2026"] .rail-account-trigger-label {
+    max-width: none;
+  }
+
+  body[data-nav-version="2026"] .rail-panel-account-menu {
+    position: static;
+    min-width: 0;
+    right: auto;
+    padding: 10px 0 0 16px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
 
   body[data-nav-version="2026"] .rail-section-label {

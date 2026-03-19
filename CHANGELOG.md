@@ -1,4 +1,5 @@
 # 2026-03-19
+- Admin UI/auth: restored the dedicated upper-right account menu and now bootstrap it directly from the already-authenticated PHP admin session, so the signed-in name, password/passkey links, and logout action no longer disappear from the header when the follow-up `/admin/auth/status` refresh call hiccups.
 - Admin UI: fixed the `Active Windows` modal so `Disable all` no longer makes the host rows disappear; insecure hosts now remain visible in the modal after shutdown, show an explicit `Window closed` state, and can be re-enabled in place without leaving the view.
 
 # 2026-03-18

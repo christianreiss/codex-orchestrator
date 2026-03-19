@@ -706,8 +706,8 @@ body[data-view="mobile"] .log-footer {
   }
 
   body[data-nav-version="2026"] .rail-group-account-menu,
-  body[data-nav-version="2026"] .rail-group-account-menu .rail-brand-trigger {
-    width: auto !important;
+  body[data-nav-version="2026"] .rail-group-account-menu .rail-account-trigger {
+    width: 100% !important;
   }
 
   body[data-nav-version="2026"] .rail-panel {
@@ -719,14 +719,14 @@ body[data-view="mobile"] .log-footer {
   }
 
   body[data-nav-version="2026"] .rail-panel-account-menu {
-    position: absolute !important;
-    top: calc(100% - 4px) !important;
-    left: 0 !important;
-    min-width: 240px !important;
-    padding: 14px !important;
-    border: 1px solid color-mix(in srgb, var(--border) 96%, transparent) !important;
-    border-radius: 16px !important;
-    background: color-mix(in srgb, var(--card) 100%, transparent) !important;
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    min-width: 0 !important;
+    padding: 10px 0 0 16px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
   }
 
   body[data-nav-version="2026"] .rail-tools {

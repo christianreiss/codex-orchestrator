@@ -4,41 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-18-07">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-18-06">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-19-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-19-01">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="editorial-rail">
-    <div class="rail-group rail-group-account-menu" id="navAccountGroup" data-nav="account">
-      <button class="rail-brand rail-brand-trigger rail-disclosure" id="navAccountTrigger" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true" aria-label="Open account menu">
-        <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
-        <div class="rail-brand-title">Codex Orchestrator</div>
-        <span class="rail-chevron" aria-hidden="true"></span>
-      </button>
-      <div class="rail-panel rail-panel-account-menu" role="menu" aria-label="Account menu">
-        <div class="rail-account-summary" id="navAccountSummary" style="display:none;">
-          <div class="rail-account-eyebrow">Signed in as</div>
-          <div class="rail-account-name" id="navAccountName">Authenticated user</div>
-        </div>
-        <div class="rail-menu-stack">
-          <div class="rail-menu-group" id="navThemeMenu">
-            <button class="rail-menu-button rail-menu-button-disclosure" id="navThemeMenuTrigger" type="button" aria-expanded="false" role="menuitem">
-              <span>Theme Selection</span>
-              <span class="rail-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="rail-subpanel" id="navThemeMenuPanel" role="menu" aria-label="Theme selection">
-              <button class="rail-subpanel-item" id="navThemeOptionAuto" type="button" data-theme-option="auto" role="menuitemradio" aria-checked="true">Auto</button>
-              <button class="rail-subpanel-item" id="navThemeOptionLight" type="button" data-theme-option="light" role="menuitemradio" aria-checked="false">Light</button>
-              <button class="rail-subpanel-item" id="navThemeOptionDark" type="button" data-theme-option="dark" role="menuitemradio" aria-checked="false">Dark</button>
-            </div>
-          </div>
-          <a class="rail-sub-link" id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;">Password change</a>
-          <a class="rail-sub-link" id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;">Passkeys</a>
-          <button class="rail-menu-button" id="navLogout" type="button" role="menuitem" style="display:none;">Logout</button>
-        </div>
-      </div>
-    </div>
+    <a class="rail-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
+      <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
+      <div class="rail-brand-title">Codex Orchestrator</div>
+    </a>
     <button class="rail-toggle" id="navMenuToggle" type="button" aria-expanded="false" aria-controls="navDrawer" aria-label="Open navigation menu">
       <span class="rail-toggle-label">Menu</span>
       <span class="rail-toggle-glyph" aria-hidden="true"></span>
@@ -100,6 +75,34 @@
         <div class="rail-toolset">
           <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Active Windows</button>
           <button class="rail-action rail-action-accent" id="navNewHost">New Host</button>
+        </div>
+        <div class="rail-group rail-group-account-menu" id="navAccountGroup" data-nav="account" style="display:none;">
+          <button class="rail-account-trigger rail-disclosure" id="navAccountTrigger" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true" aria-label="Open account menu">
+            <span class="rail-account-trigger-label" id="navAccountTriggerLabel">Authenticated user</span>
+            <span class="rail-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="rail-panel rail-panel-account-menu" role="menu" aria-label="Account menu">
+            <div class="rail-account-summary" id="navAccountSummary" style="display:none;">
+              <div class="rail-account-eyebrow">Signed in as</div>
+              <div class="rail-account-name" id="navAccountName">Authenticated user</div>
+            </div>
+            <div class="rail-menu-stack">
+              <div class="rail-menu-group" id="navThemeMenu">
+                <button class="rail-menu-button rail-menu-button-disclosure" id="navThemeMenuTrigger" type="button" aria-expanded="false" role="menuitem">
+                  <span>Theme Selection</span>
+                  <span class="rail-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="rail-subpanel" id="navThemeMenuPanel" role="menu" aria-label="Theme selection">
+                  <button class="rail-subpanel-item" id="navThemeOptionAuto" type="button" data-theme-option="auto" role="menuitemradio" aria-checked="true">Auto</button>
+                  <button class="rail-subpanel-item" id="navThemeOptionLight" type="button" data-theme-option="light" role="menuitemradio" aria-checked="false">Light</button>
+                  <button class="rail-subpanel-item" id="navThemeOptionDark" type="button" data-theme-option="dark" role="menuitemradio" aria-checked="false">Dark</button>
+                </div>
+              </div>
+              <a class="rail-sub-link" id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;">Password change</a>
+              <a class="rail-sub-link" id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;">Passkeys</a>
+              <button class="rail-menu-button" id="navLogout" type="button" role="menuitem" style="display:none;">Logout</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1954,7 +1957,7 @@
     })();
   </script>
   <script src="/admin/assets/nav.js?v=2026-03-18-04"></script>
-  <script src="/admin/assets/admin-auth.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/admin-auth.js?v=2026-03-19-01"></script>
   <script src="/admin/assets/account.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/users.js?v=2026-02-19-02"></script>
   <script src="/admin/assets/passkeys.js?v=2026-03-18-01"></script>

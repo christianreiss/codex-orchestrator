@@ -242,6 +242,54 @@ if (!$isLoginRoute && $shouldServeMobile) {
     }
 }
 
+$bootstrap = [
+    'enforced' => $loginEnforced,
+    'authenticated' => $isAuthenticated,
+    'user' => $isAuthenticated ? ($adminSession['user'] ?? null) : null,
+];
+
+if (!$isLoginRoute && $isAuthenticated) {
+    $accountName = htmlspecialchars((string) (($adminSession['user']['name'] ?? $adminSession['user']['username'] ?? 'Authenticated user')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $content = str_replace(
+        'id="navAccountGroup" data-nav="account" style="display:none;"',
+        'id="navAccountGroup" data-nav="account"',
+        $content
+    );
+    $content = str_replace(
+        'id="navAccountTriggerLabel">Authenticated user</span>',
+        'id="navAccountTriggerLabel">' . $accountName . '</span>',
+        $content
+    );
+    $content = str_replace(
+        'id="navAccountSummary" style="display:none;"',
+        'id="navAccountSummary"',
+        $content
+    );
+    $content = str_replace(
+        'id="navAccountName">Authenticated user</div>',
+        'id="navAccountName">' . $accountName . '</div>',
+        $content
+    );
+    $content = str_replace(
+        'id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;"',
+        'id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem"',
+        $content
+    );
+    $content = str_replace(
+        'id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;"',
+        'id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem"',
+        $content
+    );
+    $content = str_replace(
+        'id="navLogout" type="button" role="menuitem" style="display:none;"',
+        'id="navLogout" type="button" role="menuitem"',
+        $content
+    );
+}
+
+$bootstrapScript = '<script>window.__adminBootstrap = ' . json_encode($bootstrap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';</script>';
+$content = str_replace('</body>', $bootstrapScript . "\n</body>", $content);
+
 header('Content-Type: text/html; charset=utf-8');
 header('X-Admin-Page: ' . ($isLoginRoute ? 'login' : 'dashboard'));
 if (!$isLoginRoute) {

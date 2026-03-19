@@ -1,7 +1,9 @@
 (() => {
+  const accountGroup = document.getElementById('navAccountGroup');
   const logoutBtn = document.getElementById('navLogout');
   const accountSummary = document.getElementById('navAccountSummary');
   const accountName = document.getElementById('navAccountName');
+  const accountTriggerLabel = document.getElementById('navAccountTriggerLabel');
   const passwordLink = document.getElementById('navAccountPasswordLink');
   const passkeysLink = document.getElementById('navAccountPasskeysLink');
   const logoutModal = document.getElementById('logoutModal');
@@ -12,10 +14,15 @@
     return;
   }
 
+  const bootstrapStatus = (window.__adminBootstrap && typeof window.__adminBootstrap === 'object')
+    ? window.__adminBootstrap
+    : null;
+
   function api(path, opts = {}) {
     const headers = { Accept: 'application/json', ...(opts.headers || {}) };
     const init = {
       cache: 'no-store',
+      credentials: 'same-origin',
       headers,
       method: opts.method || 'GET',
     };
@@ -46,13 +53,21 @@
 
   function showAccountState(user) {
     const authenticated = Boolean(user);
+    show(accountGroup, authenticated);
     show(accountSummary, authenticated);
     show(passwordLink, authenticated);
     show(passkeysLink, authenticated);
     show(logoutBtn, authenticated);
 
-    if (authenticated && accountName) {
-      accountName.textContent = user.name || user.username || 'Authenticated user';
+    const label = authenticated
+      ? (user.name || user.username || 'Authenticated user')
+      : 'Authenticated user';
+
+    if (accountName) {
+      accountName.textContent = label;
+    }
+    if (accountTriggerLabel) {
+      accountTriggerLabel.textContent = label;
     }
 
     if (!authenticated) {
@@ -60,30 +75,31 @@
     }
   }
 
+  function applyAuthStatus(rawStatus) {
+    const authStatus = rawStatus && typeof rawStatus === 'object' ? rawStatus : null;
+    window.__adminAuthStatus = authStatus;
+    document.dispatchEvent(new CustomEvent('admin-auth-status', { detail: authStatus }));
+
+    const enforced = !!authStatus?.enforced;
+    const authenticated = !!authStatus?.authenticated;
+    const user = authenticated ? authStatus?.user || null : null;
+
+    showAccountState(user);
+
+    if (enforced && !authenticated) {
+      window.location.replace('/admin/login');
+      return null;
+    }
+
+    return authStatus;
+  }
+
   async function fetchStatus() {
     try {
       const res = await api('/admin/auth/status');
-      const authStatus = res?.data || null;
-      window.__adminAuthStatus = authStatus;
-      document.dispatchEvent(new CustomEvent('admin-auth-status', { detail: authStatus }));
-
-      const enforced = !!authStatus?.enforced;
-      const authenticated = !!authStatus?.authenticated;
-      const user = authenticated ? authStatus?.user || null : null;
-
-      showAccountState(user);
-
-      if (enforced && !authenticated) {
-        window.location.replace('/admin/login');
-        return null;
-      }
-
-      return authStatus;
+      return applyAuthStatus(res?.data || null);
     } catch (_) {
-      window.__adminAuthStatus = null;
-      document.dispatchEvent(new CustomEvent('admin-auth-status', { detail: null }));
-      showAccountState(null);
-      return null;
+      return applyAuthStatus(bootstrapStatus);
     }
   }
 
@@ -124,6 +140,10 @@
     if (event.key !== 'Escape') return;
     showLogoutModal(false);
   });
+
+  if (bootstrapStatus) {
+    applyAuthStatus(bootstrapStatus);
+  }
 
   window.__adminAuthStatusPromise = fetchStatus();
 })();
