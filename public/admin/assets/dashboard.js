@@ -7122,7 +7122,10 @@
       if (!items.length) {
         insecureHostsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No insecure hosts found.</div></div></div>';
       } else {
-        insecureHostsList.innerHTML = items.map((host) => {
+        const activeNotice = activeCount === 0
+          ? '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No active insecure host windows.</div></div></div>'
+          : '';
+        insecureHostsList.innerHTML = activeNotice + items.map((host) => {
           const active = hostHasActiveInsecureWindow(host);
           const onlineFor = active ? formatCountdown(host?.insecure_enabled_until) : 'Window closed';
           const onlineUntil = active ? (host?.insecure_enabled_until || '') : '';
@@ -7214,6 +7217,8 @@
       }
       if (insecureHostsDisableAllBtn) {
         insecureHostsDisableAllBtn.addEventListener('click', async () => {
+          const disableBtns = insecureHostsList?.querySelectorAll('button[data-action="disable"]');
+          if (!disableBtns?.length) return;
           insecureHostsDisableAllBtn.disabled = true;
           const original = insecureHostsDisableAllBtn.textContent;
           insecureHostsDisableAllBtn.textContent = 'Disabling…';
@@ -7250,7 +7255,7 @@
           const hostId = hostIdRaw ? parseInt(hostIdRaw, 10) : NaN;
           if (!Number.isFinite(hostId)) return;
           const action = String(btn.getAttribute('data-action') || '').toLowerCase();
-          const enableTarget = action === 'enable';
+          let enableTarget = action === 'enable';
 
           btn.disabled = true;
           const originalLabel = btn.textContent;
@@ -7262,6 +7267,7 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
+            enableTarget = !(target?.active === true);
             await toggleInsecureApi(target, null, enableTarget);
             const refreshed = await api('/admin/hosts/insecure');
             openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
