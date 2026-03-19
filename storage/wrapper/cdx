@@ -74,6 +74,32 @@ log_debug() {
   return 0
 }
 
+CDX_BOOT_START_NS=""
+cdx_time_ms() {
+  date +%s%N 2>/dev/null || true
+}
+
+cdx_elapsed_ms() {
+  local start_ns="$1"
+  local end_ns
+  end_ns="$(cdx_time_ms)"
+  if [[ "$start_ns" =~ ^[0-9]+$ ]] && [[ "$end_ns" =~ ^[0-9]+$ ]]; then
+    printf '%s' $(( (end_ns - start_ns) / 1000000 ))
+  fi
+}
+
+cdx_debug_phase() {
+  local label="$1"
+  local start_ns="$2"
+  local elapsed
+  elapsed="$(cdx_elapsed_ms "$start_ns")"
+  if [[ -n "$elapsed" ]]; then
+    log_debug "timing: ${label} ${elapsed}ms"
+  fi
+}
+
+CDX_BOOT_START_NS="$(cdx_time_ms)"
+
 lowercase() {
   local input="${1-}"
   printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
@@ -128,6 +154,7 @@ PY
 CODEX_PY_HTTP_UTIL="$(cat <<'PY'
 import json
 import os
+import pathlib
 import socket
 import ssl
 import urllib.error
@@ -196,6 +223,29 @@ def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, 
             last_err = exc
             continue
     raise RuntimeError(f"request failed: {last_err}")
+
+_cdx_api_key = ""
+_cdx_cafile = ""
+
+def cdx_atomic_write_text(target, content, mode=None):
+    target = pathlib.Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+    if mode is not None:
+        try:
+            os.chmod(target, mode)
+        except PermissionError:
+            pass
+
+def cdx_short_request_json(method, url, payload=None):
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=_cdx_api_key, cafile=_cdx_cafile, payload=payload, timeout=20)
 PY
 )"
 export CODEX_PY_HTTP_UTIL
@@ -605,6 +655,7 @@ SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
+SYNC_REMOTE_AUTO_UPDATE_CRON=""
 RUNNER_STATE=""
 RUNNER_LAST_OK=""
 RUNNER_LAST_FAIL=""
@@ -727,7 +778,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.18-01"
+WRAPPER_VERSION="2026.03.19-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -746,7 +797,8 @@ CDX_RUN_GUARD_WARNING_EMITTED=0
 IS_ROOT=0
 CAN_SUDO=0
 SUDO_BIN="sudo -n"
-if (( EUID == 0 )); then
+DETECTED_UID="$(id -u 2>/dev/null || true)"
+if (( EUID == 0 )) || [[ "$DETECTED_UID" == "0" ]]; then
   IS_ROOT=1
 elif command -v sudo >/dev/null 2>&1; then
   if sudo -n true >/dev/null 2>&1; then
@@ -1268,6 +1320,14 @@ case "${1-}" in
 esac
 
 if (( CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )) && (( $# > 0 )); then
+  if is_help_flag "${1-}"; then
+    if (( CODEX_STATUS_ONLY )); then
+      printf 'Usage: cdx [--debug] status\n\nShow sync/update summary without launching Codex. Exit 0 on success, 1 on error.\n'
+    else
+      printf 'Usage: cdx [--debug] doctor\n\nRun diagnostic checks: deps, auth, sync, API probe, disk, cron, PTY, SSH hints.\n'
+    fi
+    exit 0
+  fi
   if (( CODEX_STATUS_ONLY )); then
     printf 'Usage: cdx [--debug] status\n' >&2
   else
@@ -1286,7 +1346,7 @@ fi
 if (( ! IS_ROOT )) && (( CAN_SUDO == 0 )); then
   log_info "Non-root execution detected; skipping automatic Codex install/update (passwordless sudo required)."
 fi
-log_debug "starting | user=${CURRENT_USER} | is_root=${IS_ROOT} | can_sudo=${CAN_SUDO} | path=$PATH"
+log_debug "starting | user=${CURRENT_USER} | uid=${DETECTED_UID:-unknown} | euid=${EUID:-unknown} | is_root=${IS_ROOT} | can_sudo=${CAN_SUDO} | path=$PATH"
 
 detect_linux_package_manager() {
   local tokens=()
@@ -2150,19 +2210,23 @@ def canonical_json(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def atomic_write_text(target, content, mode=None):
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
-    if mode is not None:
-        try:
-            os.chmod(target, mode)
-        except PermissionError:
-            pass
+if "cdx_atomic_write_text" in globals():
+    atomic_write_text = cdx_atomic_write_text
+else:
+    def atomic_write_text(target, content, mode=None):
+        target = pathlib.Path(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(target)
+        if mode is not None:
+            try:
+                os.chmod(target, mode)
+            except PermissionError:
+                pass
 
 
 def parse_error_body(body: str):
@@ -2346,6 +2410,9 @@ def record_versions(vblock):
         re = vblock.get("runner_enabled")
         if isinstance(re, bool):
             out["runner_enabled"] = re
+        aue = vblock.get("auto_update_enabled")
+        if isinstance(aue, bool):
+            out["auto_update_enabled"] = aue
         silent = vblock.get("cdx_silent")
         if isinstance(silent, bool):
             out["cdx_silent"] = silent
@@ -2568,6 +2635,9 @@ if isinstance(rlc, str) and rlc.strip():
 re = versions.get("runner_enabled")
 if isinstance(re, bool):
     print("re=1" if re else "re=0")
+aue = versions.get("auto_update_enabled")
+if isinstance(aue, bool):
+    print("aue=1" if aue else "aue=0")
 asv = parsed.get("auth_status")
 if isinstance(asv, str) and asv.strip():
     print(f"as={asv.strip()}")
@@ -2738,6 +2808,9 @@ PY
                 ;;
               re=*)
                 RUNNER_ENABLED="${line#re=}"
+                ;;
+              aue=*)
+                SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
                 ;;
               as=*)
                 AUTH_STATUS="${line#as=}"
@@ -3208,12 +3281,10 @@ prompt_dir = pathlib.Path(sys.argv[3]).expanduser()
 cafile = sys.argv[4] if len(sys.argv) > 4 else ""
 baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else prompt_dir.parent / ".prompt-baseline.json"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+_cdx_api_key = api_key
+_cdx_cafile = cafile
 
-
-def request_json(method: str, url: str, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
+request_json = cdx_short_request_json
 
 
 def parse_front_matter(text: str):
@@ -3261,13 +3332,7 @@ def load_local(include_content: bool = False):
     return prompts
 
 
-def atomic_write_text(target, content):
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
+atomic_write_text = cdx_atomic_write_text
 
 
 def save_baseline(prompts: dict):
@@ -3428,6 +3493,55 @@ print("skip reason=unknown-mode errors=0")
 PY
 }
 
+sync_slash_commands_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    PROMPT_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    PROMPT_SYNC_STATUS="no-python"
+    log_warn "python3 is required for slash command sync; skipping."
+    return 1
+  fi
+  local summary status_code
+  set +e
+  summary="$(prompt_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$PROMPT_DIR" "$CODEX_SYNC_CA_FILE" "$PROMPT_BASELINE_FILE")"
+  status_code=$?
+  set -e
+  PROMPT_SYNC_STATUS="error"
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      PROMPT_SYNC_STATUS="offline"
+      PROMPT_SYNC_REASON="$reason"
+      [[ -n "$summary" ]] && log_warn "Slash command sync offline: $summary" || log_warn "Slash command sync offline."
+      PROMPT_PULL_ERRORS=0
+    else
+      [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
+      PROMPT_PULL_ERRORS=1
+    fi
+    return 1
+  fi
+  local part
+  PROMPT_SYNC_REASON=""
+  PROMPT_SYNC_STATUS="${summary%% *}"
+  for part in $summary; do
+    case "$part" in
+      updated=*) PROMPT_PULL_UPDATED="${part#updated=}" ;;
+      errors=*) PROMPT_PULL_ERRORS="${part#errors=}" ;;
+      remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
+      local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
+      removed=*) PROMPT_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
+
 skill_sync_python() {
   local mode="$1"
   local base="$2"
@@ -3450,13 +3564,11 @@ skill_dir = pathlib.Path(sys.argv[3]).expanduser()
 cafile = sys.argv[4] if len(sys.argv) > 4 else ""
 baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else skill_dir.parent / ".skill-baseline.json"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+_cdx_api_key = api_key
+_cdx_cafile = cafile
 legacy_skill_dir = pathlib.Path.home() / ".codex" / "skills"
 
-
-def request_json(method: str, url: str, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
+request_json = cdx_short_request_json
 
 
 def load_local(include_content: bool = False):
@@ -3482,13 +3594,7 @@ def load_local(include_content: bool = False):
     return skills
 
 
-def atomic_write_text(target, content):
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
+atomic_write_text = cdx_atomic_write_text
 
 
 def save_baseline(skills: dict):
@@ -3789,6 +3895,56 @@ print("skip reason=unknown-mode errors=0")
 PY
 }
 
+
+
+sync_skills_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    SKILL_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    SKILL_SYNC_STATUS="no-python"
+    log_warn "python3 is required for skill sync; skipping."
+    return 1
+  fi
+  local summary status_code
+  set +e
+  summary="$(skill_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
+  status_code=$?
+  set -e
+  SKILL_SYNC_STATUS="error"
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      SKILL_SYNC_STATUS="offline"
+      SKILL_SYNC_REASON="$reason"
+      [[ -n "$summary" ]] && log_warn "Skill sync offline: $summary" || log_warn "Skill sync offline."
+      SKILL_PULL_ERRORS=0
+    else
+      [[ -n "$summary" ]] && log_warn "Skill sync failed: $summary" || log_warn "Skill sync failed."
+      SKILL_PULL_ERRORS=1
+    fi
+    return 1
+  fi
+  local part
+  SKILL_SYNC_REASON=""
+  SKILL_SYNC_STATUS="${summary%% *}"
+  for part in $summary; do
+    case "$part" in
+      updated=*) SKILL_PULL_UPDATED="${part#updated=}" ;;
+      errors=*) SKILL_PULL_ERRORS="${part#errors=}" ;;
+      remote=*) SKILL_REMOTE_COUNT="${part#remote=}" ;;
+      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
+      removed=*) SKILL_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
 agents_sync_python() {
   local base="$1"
   local api_key="$2"
@@ -3809,21 +3965,11 @@ target = pathlib.Path(sys.argv[2]).expanduser()
 cafile = sys.argv[3] if len(sys.argv) > 3 else ""
 current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+_cdx_api_key = api_key
+_cdx_cafile = cafile
 
-
-def request_json(method: str, url: str, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
-
-
-def atomic_write_text(target, content):
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
+request_json = cdx_short_request_json
+atomic_write_text = cdx_atomic_write_text
 
 
 if not base:
@@ -3886,101 +4032,7 @@ sys.exit(1)
 PY
 }
 
-sync_slash_commands_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    PROMPT_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    PROMPT_SYNC_STATUS="no-python"
-    log_warn "python3 is required for slash command sync; skipping."
-    return 1
-  fi
-  local summary status_code
-  set +e
-  summary="$(prompt_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$PROMPT_DIR" "$CODEX_SYNC_CA_FILE" "$PROMPT_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  PROMPT_SYNC_STATUS="error"
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
-    fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      PROMPT_SYNC_STATUS="offline"
-      PROMPT_SYNC_REASON="$reason"
-      [[ -n "$summary" ]] && log_warn "Slash command sync offline: $summary" || log_warn "Slash command sync offline."
-      PROMPT_PULL_ERRORS=0
-    else
-      [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
-      PROMPT_PULL_ERRORS=1
-    fi
-    return 1
-  fi
-  local part
-  PROMPT_SYNC_REASON=""
-  PROMPT_SYNC_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      updated=*) PROMPT_PULL_UPDATED="${part#updated=}" ;;
-      errors=*) PROMPT_PULL_ERRORS="${part#errors=}" ;;
-      remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
-      local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
-      removed=*) PROMPT_REMOVED="${part#removed=}" ;;
-    esac
-  done
-  return 0
-}
 
-sync_skills_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    SKILL_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    SKILL_SYNC_STATUS="no-python"
-    log_warn "python3 is required for skill sync; skipping."
-    return 1
-  fi
-  local summary status_code
-  set +e
-  summary="$(skill_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  SKILL_SYNC_STATUS="error"
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
-    fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      SKILL_SYNC_STATUS="offline"
-      SKILL_SYNC_REASON="$reason"
-      [[ -n "$summary" ]] && log_warn "Skill sync offline: $summary" || log_warn "Skill sync offline."
-      SKILL_PULL_ERRORS=0
-    else
-      [[ -n "$summary" ]] && log_warn "Skill sync failed: $summary" || log_warn "Skill sync failed."
-      SKILL_PULL_ERRORS=1
-    fi
-    return 1
-  fi
-  local part
-  SKILL_SYNC_REASON=""
-  SKILL_SYNC_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      updated=*) SKILL_PULL_UPDATED="${part#updated=}" ;;
-      errors=*) SKILL_PULL_ERRORS="${part#errors=}" ;;
-      remote=*) SKILL_REMOTE_COUNT="${part#remote=}" ;;
-      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
-      removed=*) SKILL_REMOVED="${part#removed=}" ;;
-    esac
-  done
-  return 0
-}
 
 sync_agents_pull() {
   load_sync_config
@@ -4048,6 +4100,7 @@ PY
   return 0
 }
 
+
 config_sync_python() {
   local base="$1"
   local api_key="$2"
@@ -4073,21 +4126,11 @@ target = pathlib.Path(sys.argv[2]).expanduser()
 cafile = sys.argv[3] if len(sys.argv) > 3 else ""
 current_sha = (sys.argv[4] or "").strip() if len(sys.argv) > 4 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+_cdx_api_key = api_key
+_cdx_cafile = cafile
 
-
-def request_json(method: str, url: str, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
-
-
-def atomic_write_text(target, content):
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
+request_json = cdx_short_request_json
+atomic_write_text = cdx_atomic_write_text
 
 
 if not base:
@@ -4192,6 +4235,8 @@ cafile = sys.argv[6] if len(sys.argv) > 6 else ""
 prompt_baseline = pathlib.Path(sys.argv[7]).expanduser() if len(sys.argv) > 7 else prompt_dir.parent / ".prompt-baseline.json"
 skill_baseline = pathlib.Path(sys.argv[8]).expanduser() if len(sys.argv) > 8 else skill_dir.parent / ".skill-baseline.json"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+_cdx_api_key = api_key
+_cdx_cafile = cafile
 username = (os.environ.get("CODEX_SYNC_USERNAME", "") or "").strip()
 home_path = (os.environ.get("CODEX_SYNC_HOME", "") or "").strip()
 hostname = (os.environ.get("CODEX_SYNC_HOSTNAME", "") or "").strip()
@@ -4203,11 +4248,7 @@ if not api_key:
     print("error reason=missing-api-key")
     sys.exit(1)
 
-
-def request_json(method: str, url: str, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=api_key, cafile=cafile, payload=payload, timeout=20)
+request_json = cdx_short_request_json
 
 
 def normalize_sha(value):
@@ -4220,15 +4261,7 @@ def normalize_sha(value):
         return None
     return value
 
-
-def atomic_write_text(target: pathlib.Path, content: str):
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
+atomic_write_text = cdx_atomic_write_text
 
 
 def file_sha(path: pathlib.Path):
@@ -4992,6 +5025,7 @@ if log_prompts in ("true", "false"):
     emit("CODEX_OTEL_LOG_USER_PROMPT", log_prompts)
 PY
 }
+
 
 push_slash_commands_if_changed() {
   load_sync_config
@@ -5829,62 +5863,40 @@ cron_do_api_call() {
   local json_payload="$2"
   local action_label="$3"
   CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
-import json, os, socket, ssl, sys, urllib.error, urllib.request
+import json, os, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig = socket.getaddrinfo
-    def _force_v4(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_v4
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 url = sys.argv[1]
 payload_json = sys.argv[2]
 action = sys.argv[3]
 cafile = sys.argv[4] if len(sys.argv) > 4 else ""
-allow_insecure = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower() in ("1", "true", "yes")
+allow_insecure_raw = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower()
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
-body = payload_json.encode("utf-8")
-headers = {"Content-Type": "application/json", "X-API-Key": api_key}
-req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-
-contexts = [None]
-if cafile:
-    try:
-        ctx = ssl.create_default_context(cafile=cafile)
-        contexts = [ctx, None]
-    except Exception:
-        pass
-if allow_insecure:
-    try:
-        ctx_ins = ssl.create_default_context()
-        ctx_ins.check_hostname = False
-        ctx_ins.verify_mode = ssl.CERT_NONE
-        contexts.append(ctx_ins)
-    except Exception:
-        pass
-
-last_err = None
-for ctx in contexts:
-    try:
-        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-            data = json.load(resp)
-            json.dump(data, sys.stdout, separators=(",", ":"))
-            sys.exit(0)
-    except urllib.error.HTTPError as exc:
-        msg = ""
-        try:
-            msg = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            pass
-        print(f"{action} failed ({exc.code}): {msg}", file=sys.stderr)
+payload = json.loads(payload_json)
+try:
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("python-http-util-missing")
+    os.environ["CODEX_SYNC_ALLOW_INSECURE"] = allow_insecure_raw
+    data = cdx_request_json(
+        "POST", url, api_key,
+        cafile=cafile, payload=payload, timeout=30,
+        allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE",
+    )
+    json.dump(data, sys.stdout, separators=(",", ":"))
+    sys.exit(0)
+except RuntimeError as exc:
+    msg = str(exc)
+    if msg.startswith("http-"):
+        print(f"{action} failed ({msg})", file=sys.stderr)
         sys.exit(2)
-    except Exception as exc:
-        last_err = exc
-        continue
-
-print(f"{action} failed: {last_err}", file=sys.stderr)
-sys.exit(3)
+    print(f"{action} failed: {msg}", file=sys.stderr)
+    sys.exit(3)
 PY
 }
 
@@ -6092,12 +6104,14 @@ fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
   CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
-import json, os, socket, sys, time, urllib.request
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+import json, os, sys, time, urllib.request
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
 url = sys.argv[1]
 wanted = sys.argv[2]
 headers = {
@@ -6311,13 +6325,17 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   fi
 else
   # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
+  _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
+  cdx_debug_phase "auth-sync" "$_t_auth"
+  _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
     sync_slash_commands_pull || true
     sync_skills_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi
+  cdx_debug_phase "bundle-sync" "$_t_bundle"
 fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 ORIGINAL_AUTH_SHA="$(sha256_file "$HOME/.codex/auth.json" 2>/dev/null || true)"
@@ -6343,6 +6361,8 @@ fi
 asset_name=""
 skip_update_check=0
 if (( CDX_ACTIVE_RUN_DETECTED )); then
+  skip_update_check=1
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
   skip_update_check=1
 elif (( ! can_manage_codex )); then
   skip_update_check=1
@@ -6488,7 +6508,7 @@ if (( skip_update_check )); then
   if (( CDX_ACTIVE_RUN_DETECTED )); then
     codex_status_note="active cdx run"
   else
-    codex_status_note="not permitted to manage Codex (need root)"
+    codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
   fi
 elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
   codex_target_label="${norm_remote:-${remote_version:-unknown}}"
@@ -7613,10 +7633,18 @@ print_doctor_report() {
 
   local api_probe="fail\tunreachable"
   local api_probe_rc=1
+  local api_probe_start_ns=""
+  local api_probe_end_ns=""
+  local api_probe_elapsed_ms=""
+  api_probe_start_ns="$(date +%s%N 2>/dev/null || true)"
   if api_probe="$(doctor_probe_api_versions)"; then
     api_probe_rc=0
   else
     api_probe_rc=$?
+  fi
+  api_probe_end_ns="$(date +%s%N 2>/dev/null || true)"
+  if [[ "$api_probe_start_ns" =~ ^[0-9]+$ ]] && [[ "$api_probe_end_ns" =~ ^[0-9]+$ ]]; then
+    api_probe_elapsed_ms=$(( (api_probe_end_ns - api_probe_start_ns) / 1000000 ))
   fi
   local api_probe_state="${api_probe%%$'\t'*}"
   local api_probe_detail="${api_probe#*$'\t'}"
@@ -7691,9 +7719,135 @@ print_doctor_report() {
       ;;
   esac
 
+  local mcp_label="n/a"
+  if [[ -f "$CONFIG_PATH" ]]; then
+    if toml_table_enabled "$CONFIG_PATH" "mcp_servers.cdx"; then
+      mcp_label="configured ✅"
+    elif toml_table_enabled "$CONFIG_PATH" "mcp_servers.codex-orchestrator"; then
+      mcp_label="configured (legacy name) ✅"
+    else
+      mcp_label="$(colorize "not configured or disabled" "yellow")"
+      hints+=("MCP server [mcp_servers.cdx] is missing or disabled in config.toml.")
+    fi
+  else
+    mcp_label="$(colorize "no config.toml" "yellow")"
+  fi
+
+  local config_validity_label="n/a"
+  if [[ -f "$CONFIG_PATH" ]] && command -v python3 >/dev/null 2>&1; then
+    local config_parse_err=""
+    config_parse_err="$(python3 -c "
+import sys
+path = sys.argv[1]
+method = 'heuristic'
+try:
+    import tomllib
+    method = 'tomllib'
+except ImportError:
+    try:
+        import tomli as tomllib
+        method = 'tomllib'
+    except ImportError:
+        tomllib = None
+if tomllib is not None:
+    try:
+        with open(path, 'rb') as fh:
+            tomllib.load(fh)
+        print('ok:' + method)
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
+else:
+    try:
+        content = open(path, 'r').read()
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('#') or not stripped:
+                continue
+            if stripped.startswith('['):
+                if not stripped.endswith(']'):
+                    print('unclosed table header: ' + stripped)
+                    sys.exit(1)
+        print('ok:' + method)
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
+" "$CONFIG_PATH" 2>&1)" || config_parse_err="parse error"
+    if [[ "$config_parse_err" == ok:* ]]; then
+      local toml_method="${config_parse_err#ok:}"
+      config_validity_label="valid (${toml_method}) ✅"
+    else
+      config_validity_label="$(colorize "parse error: ${config_parse_err}" "red")"
+      failures=$(( failures + 1 ))
+      hints+=("config.toml has parse errors; fix or re-sync the file.")
+    fi
+  elif [[ -f "$CONFIG_PATH" ]]; then
+    config_validity_label="$(colorize "python3 required for validation" "yellow")"
+  fi
+
+  local disk_label="ok"
+  local codex_parent="${HOME}/.codex"
+  if command -v df >/dev/null 2>&1 && [[ -d "$codex_parent" ]]; then
+    local free_kb=""
+    free_kb="$(df -Pk "$codex_parent" 2>/dev/null | awk 'NR==2 {print $4}')" || free_kb=""
+    if [[ "$free_kb" =~ ^[0-9]+$ ]]; then
+      local free_mb=$(( free_kb / 1024 ))
+      if (( free_mb < 500 )); then
+        disk_label="$(colorize "${free_mb}MB free (< 500MB)" "red")"
+        failures=$(( failures + 1 ))
+        hints+=("Disk space on ~/.codex partition is critically low (${free_mb}MB free).")
+      elif (( free_mb < 1000 )); then
+        disk_label="$(colorize "${free_mb}MB free" "yellow")"
+        hints+=("Disk space on ~/.codex partition is low (${free_mb}MB free).")
+      else
+        disk_label="${free_mb}MB free ✅"
+      fi
+    fi
+  fi
+
+  local cron_label="n/a"
+  if command -v crontab >/dev/null 2>&1; then
+    local cdx_real_path=""
+    cdx_real_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+    local cron_marker=""
+    cron_marker="$(cron_managed_marker)"
+    local current_crontab=""
+    current_crontab="$(crontab -l 2>/dev/null || true)"
+    local quoted_cdx_path=""
+    printf -v quoted_cdx_path '%q' "$cdx_real_path"
+    if cron_has_wrapper_entry "$current_crontab" "$cdx_real_path" "$quoted_cdx_path" "$cron_marker"; then
+      cron_label="installed ✅"
+    else
+      if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+        cron_label="$(colorize "not installed (server expects cron)" "yellow")"
+        hints+=("Auto-update cron is expected by the server but not installed. Run: cdx --cron install")
+      else
+        cron_label="not installed"
+      fi
+    fi
+  fi
+
+  local api_latency_label=""
+  if [[ "$api_probe_elapsed_ms" =~ ^[0-9]+$ ]]; then
+    if (( api_probe_elapsed_ms > 5000 )); then
+      api_latency_label="$(colorize "${api_probe_elapsed_ms}ms (slow)" "red")"
+      hints+=("API probe latency is high (${api_probe_elapsed_ms}ms); check network conditions.")
+    elif (( api_probe_elapsed_ms > 2000 )); then
+      api_latency_label="$(colorize "${api_probe_elapsed_ms}ms" "yellow")"
+    else
+      api_latency_label="${api_probe_elapsed_ms}ms ✅"
+    fi
+  fi
+
   local cli_bits=(
     "version=${LOCAL_VERSION:-unknown}"
+    "wrapper=${WRAPPER_VERSION}"
   )
+  local boot_elapsed=""
+  boot_elapsed="$(cdx_elapsed_ms "$CDX_BOOT_START_NS")"
+  if [[ -n "$boot_elapsed" ]]; then
+    cli_bits+=("boot=${boot_elapsed}ms")
+  fi
   if (( CODEX_SSH_INTERACTIVE )); then
     if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
       cli_bits+=("ssh-launch=pty-forced")
@@ -7706,8 +7860,14 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
   log_info "$(format_simple_row "Doctor auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
   log_info "$(format_simple_row "Doctor sync" "$sync_label")"
-  log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}")"
+  log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
+  log_info "$(format_simple_row "Doctor mcp" "$mcp_label")"
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
+  if [[ -n "$api_latency_label" ]]; then
+    log_info "$(format_simple_row "Doctor lat" "$api_latency_label")"
+  fi
+  log_info "$(format_simple_row "Doctor disk" "$disk_label")"
+  log_info "$(format_simple_row "Doctor cron" "$cron_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
   log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"
@@ -8427,6 +8587,7 @@ if (( QUOTA_BLOCKED )); then
   command_tone="red"
 fi
 
+
   if (( ! HOST_IS_SECURE )); then
     if (( insecure_compact_ok )); then
       result_label="Synced on insecure host; auth refreshed."
@@ -8923,6 +9084,7 @@ fi
     QUOTA_WARNING_REASON="$(human_join "${quota_warnings[@]}")"
   fi
 
+
   concurrent_compact_summary=0
   concurrent_compact_note=""
   concurrent_compact_tone="yellow"
@@ -9049,6 +9211,7 @@ if (( CODEX_STATUS_ONLY )); then
   release_run_lock_if_held || true
   exit 0
 fi
+
 
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )); then
   if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
@@ -9821,6 +9984,7 @@ fi
 
 ensure_current_project_trusted_in_config
 
+cdx_debug_phase "total-boot" "$CDX_BOOT_START_NS"
 CODEX_COMMAND_STARTED=1
 if run_codex_command "$@"; then
   cmd_status=0

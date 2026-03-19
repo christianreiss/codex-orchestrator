@@ -778,7 +778,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.19-02"
+WRAPPER_VERSION="2026.03.19-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -797,7 +797,8 @@ CDX_RUN_GUARD_WARNING_EMITTED=0
 IS_ROOT=0
 CAN_SUDO=0
 SUDO_BIN="sudo -n"
-if (( EUID == 0 )); then
+DETECTED_UID="$(id -u 2>/dev/null || true)"
+if (( EUID == 0 )) || [[ "$DETECTED_UID" == "0" ]]; then
   IS_ROOT=1
 elif command -v sudo >/dev/null 2>&1; then
   if sudo -n true >/dev/null 2>&1; then
@@ -1345,7 +1346,7 @@ fi
 if (( ! IS_ROOT )) && (( CAN_SUDO == 0 )); then
   log_info "Non-root execution detected; skipping automatic Codex install/update (passwordless sudo required)."
 fi
-log_debug "starting | user=${CURRENT_USER} | is_root=${IS_ROOT} | can_sudo=${CAN_SUDO} | path=$PATH"
+log_debug "starting | user=${CURRENT_USER} | uid=${DETECTED_UID:-unknown} | euid=${EUID:-unknown} | is_root=${IS_ROOT} | can_sudo=${CAN_SUDO} | path=$PATH"
 
 detect_linux_package_manager() {
   local tokens=()
@@ -6507,7 +6508,7 @@ if (( skip_update_check )); then
   if (( CDX_ACTIVE_RUN_DETECTED )); then
     codex_status_note="active cdx run"
   else
-    codex_status_note="not permitted to manage Codex (need root)"
+    codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
   fi
 elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
   codex_target_label="${norm_remote:-${remote_version:-unknown}}"

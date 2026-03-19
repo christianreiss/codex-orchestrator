@@ -1,5 +1,6 @@
 # 2026-03-19
 - Admin UI/hosts: fixed a `dashboard.js` syntax error in the host detail action bar that stopped the admin bundle from loading; host detail fields such as `WebUI Admin Port` now populate again. Cache-bumped `dashboard.js` to `v=2026-03-19-03`.
+- cdx wrapper: hardened root detection for self-update management by falling back to `id -u` alongside Bash `EUID`, and the `Versions` summary now reports the detected UID when Codex update checks are skipped for lack of privileges. Wrapper bumped to `2026.03.19-03`.
 - Admin UI: tightened the `Active Windows` modal again so it now shows only currently enabled insecure hosts and active domain allows; disabled host windows and inactive domain entries disappear immediately after refresh/revoke instead of lingering in the quick-action list.
 - Admin UI/auth: restored the dedicated upper-right account menu and now bootstrap it directly from the already-authenticated PHP admin session, so the signed-in name, password/passkey links, and logout action no longer disappear from the header when the follow-up `/admin/auth/status` refresh call hiccups.
 - Admin UI: fixed the `Active Windows` modal so `Disable all` no longer makes the host rows disappear; insecure hosts now remain visible in the modal after shutdown, show an explicit `Window closed` state, and can be re-enabled in place without leaving the view.

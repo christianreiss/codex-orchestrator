@@ -260,7 +260,7 @@ if (( skip_update_check )); then
   if (( CDX_ACTIVE_RUN_DETECTED )); then
     codex_status_note="active cdx run"
   else
-    codex_status_note="not permitted to manage Codex (need root)"
+    codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
   fi
 elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
   codex_target_label="${norm_remote:-${remote_version:-unknown}}"
