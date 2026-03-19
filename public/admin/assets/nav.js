@@ -318,7 +318,7 @@
       group.classList.remove('is-active');
     });
 
-    document.querySelectorAll('a.rail-link, .rail-sub-link, a.menu-link').forEach((link) => {
+    document.querySelectorAll('a.rail-link, .rail-sub-link').forEach((link) => {
       const active = isLinkActive(link, routeState);
       link.classList.toggle('is-active', active);
 
@@ -338,7 +338,7 @@
     closeDrawer();
   };
 
-  document.querySelectorAll('a.rail-link, .rail-sub-link, a.menu-link').forEach((link) => {
+  document.querySelectorAll('a.rail-link, .rail-sub-link').forEach((link) => {
     link.addEventListener('click', () => {
       syncAndCloseForNavigation();
     });

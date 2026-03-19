@@ -1,4 +1,5 @@
 # 2026-03-19
+- Admin UI: removed the duplicate secondary page nav strip (`Overview`, `Hosts`, `Logs`, `Settings`, `Users`) from the admin shell, leaving the main header/editorial rail as the only top-level navigation.
 - Admin UI/hosts: fixed a `dashboard.js` syntax error in the host detail action bar that stopped the admin bundle from loading; host detail fields such as `WebUI Admin Port` now populate again. Cache-bumped `dashboard.js` to `v=2026-03-19-03`.
 - cdx wrapper: hardened root detection for self-update management by falling back to `id -u` alongside Bash `EUID`, and the `Versions` summary now reports the detected UID when Codex update checks are skipped for lack of privileges. Wrapper bumped to `2026.03.19-03`.
 - Admin UI: tightened the `Active Windows` modal again so it now shows only currently enabled insecure hosts and active domain allows; disabled host windows and inactive domain entries disappear immediately after refresh/revoke instead of lingering in the quick-action list.

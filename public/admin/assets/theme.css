@@ -412,11 +412,6 @@ body[data-view-mode="dashboard"] .editorial-rail {
   box-shadow: none;
 }
 
-body[data-view-mode="dashboard"] .menu-line {
-  backdrop-filter: blur(14px);
-  background: color-mix(in srgb, var(--card) 82%, transparent);
-}
-
 body[data-view-mode="dashboard"] .dashboard-hero {
   border-radius: 24px;
   border-color: var(--border);

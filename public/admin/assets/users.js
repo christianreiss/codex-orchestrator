@@ -3,7 +3,6 @@
   if (!usersPanel) return;
 
   const navUsers = document.querySelector('[data-nav="users"]');
-  const menuUsers = Array.from(document.querySelectorAll('.menu-link')).find((el) => el.getAttribute('href') === '#users');
 
   const addBtn = document.getElementById('usersAddBtn');
   const wipeBtn = document.getElementById('usersWipeBtn');
@@ -228,7 +227,6 @@
 
   function hideUsersNav() {
     navUsers?.remove();
-    menuUsers?.remove();
   }
 
   async function init() {
