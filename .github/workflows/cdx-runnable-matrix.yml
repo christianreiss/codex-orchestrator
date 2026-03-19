@@ -70,14 +70,7 @@ jobs:
         run: bash scripts/verify-wrapper-version-bump.sh
 
       - name: Run wrapper coverage tests
-        run: |
-          vendor/bin/phpunit \
-            tests/CdxWrapperLaneSparkAliasTest.php \
-            tests/CdxWrapperScriptDependencyTest.php \
-            tests/CdxWrapperPackageManagerSupportTest.php \
-            tests/CdxWrapperPythonCompatibilityTest.php \
-            tests/CdxWrapperIpv4ProxyTest.php \
-            tests/CdxWrapperNonTtyDispatchTest.php
+        run: vendor/bin/phpunit tests/CdxWrapper*.php
 
   linux-runnable-smoke:
     name: Linux Runnable Smoke (${{ matrix.name }})
@@ -193,6 +186,7 @@ jobs:
         runner:
           - macos-13
           - macos-14
+          - macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4

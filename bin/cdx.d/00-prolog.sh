@@ -74,6 +74,32 @@ log_debug() {
   return 0
 }
 
+CDX_BOOT_START_NS=""
+cdx_time_ms() {
+  date +%s%N 2>/dev/null || true
+}
+
+cdx_elapsed_ms() {
+  local start_ns="$1"
+  local end_ns
+  end_ns="$(cdx_time_ms)"
+  if [[ "$start_ns" =~ ^[0-9]+$ ]] && [[ "$end_ns" =~ ^[0-9]+$ ]]; then
+    printf '%s' $(( (end_ns - start_ns) / 1000000 ))
+  fi
+}
+
+cdx_debug_phase() {
+  local label="$1"
+  local start_ns="$2"
+  local elapsed
+  elapsed="$(cdx_elapsed_ms "$start_ns")"
+  if [[ -n "$elapsed" ]]; then
+    log_debug "timing: ${label} ${elapsed}ms"
+  fi
+}
+
+CDX_BOOT_START_NS="$(cdx_time_ms)"
+
 lowercase() {
   local input="${1-}"
   printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
@@ -128,6 +154,7 @@ PY
 CODEX_PY_HTTP_UTIL="$(cat <<'PY'
 import json
 import os
+import pathlib
 import socket
 import ssl
 import urllib.error
@@ -196,6 +223,29 @@ def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, 
             last_err = exc
             continue
     raise RuntimeError(f"request failed: {last_err}")
+
+_cdx_api_key = ""
+_cdx_cafile = ""
+
+def cdx_atomic_write_text(target, content, mode=None):
+    target = pathlib.Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+    if mode is not None:
+        try:
+            os.chmod(target, mode)
+        except PermissionError:
+            pass
+
+def cdx_short_request_json(method, url, payload=None):
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=_cdx_api_key, cafile=_cdx_cafile, payload=payload, timeout=20)
 PY
 )"
 export CODEX_PY_HTTP_UTIL
@@ -728,7 +778,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.18-03"
+WRAPPER_VERSION="2026.03.19-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

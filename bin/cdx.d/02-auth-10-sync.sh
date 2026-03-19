@@ -74,19 +74,23 @@ def canonical_json(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def atomic_write_text(target, content, mode=None):
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
-    if mode is not None:
-        try:
-            os.chmod(target, mode)
-        except PermissionError:
-            pass
+if "cdx_atomic_write_text" in globals():
+    atomic_write_text = cdx_atomic_write_text
+else:
+    def atomic_write_text(target, content, mode=None):
+        target = pathlib.Path(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(target)
+        if mode is not None:
+            try:
+                os.chmod(target, mode)
+            except PermissionError:
+                pass
 
 
 def parse_error_body(body: str):

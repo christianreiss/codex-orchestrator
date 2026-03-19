@@ -627,6 +627,7 @@ fi
 
 ensure_current_project_trusted_in_config
 
+cdx_debug_phase "total-boot" "$CDX_BOOT_START_NS"
 CODEX_COMMAND_STARTED=1
 if run_codex_command "$@"; then
   cmd_status=0

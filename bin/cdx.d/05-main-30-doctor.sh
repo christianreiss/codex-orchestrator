@@ -60,10 +60,18 @@ print_doctor_report() {
 
   local api_probe="fail\tunreachable"
   local api_probe_rc=1
+  local api_probe_start_ns=""
+  local api_probe_end_ns=""
+  local api_probe_elapsed_ms=""
+  api_probe_start_ns="$(date +%s%N 2>/dev/null || true)"
   if api_probe="$(doctor_probe_api_versions)"; then
     api_probe_rc=0
   else
     api_probe_rc=$?
+  fi
+  api_probe_end_ns="$(date +%s%N 2>/dev/null || true)"
+  if [[ "$api_probe_start_ns" =~ ^[0-9]+$ ]] && [[ "$api_probe_end_ns" =~ ^[0-9]+$ ]]; then
+    api_probe_elapsed_ms=$(( (api_probe_end_ns - api_probe_start_ns) / 1000000 ))
   fi
   local api_probe_state="${api_probe%%$'\t'*}"
   local api_probe_detail="${api_probe#*$'\t'}"
@@ -138,6 +146,85 @@ print_doctor_report() {
       ;;
   esac
 
+  local mcp_label="n/a"
+  if [[ -f "$CONFIG_PATH" ]]; then
+    if toml_table_enabled "$CONFIG_PATH" "mcp_servers.cdx"; then
+      mcp_label="configured ✅"
+    elif toml_table_enabled "$CONFIG_PATH" "mcp_servers.codex-orchestrator"; then
+      mcp_label="configured (legacy name) ✅"
+    else
+      mcp_label="$(colorize "not configured or disabled" "yellow")"
+      hints+=("MCP server [mcp_servers.cdx] is missing or disabled in config.toml.")
+    fi
+  else
+    mcp_label="$(colorize "no config.toml" "yellow")"
+  fi
+
+  local config_validity_label="n/a"
+  if [[ -f "$CONFIG_PATH" ]] && command -v python3 >/dev/null 2>&1; then
+    local config_parse_err=""
+    config_parse_err="$(python3 -c "
+import sys
+try:
+    content = open(sys.argv[1], 'r').read()
+    # Minimal TOML validation: check for unclosed brackets and basic structure
+    bracket_depth = 0
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('#') or not stripped:
+            continue
+        if stripped.startswith('['):
+            if not stripped.endswith(']'):
+                print('unclosed table header: ' + stripped)
+                sys.exit(1)
+    print('ok')
+except Exception as e:
+    print(str(e))
+    sys.exit(1)
+" "$CONFIG_PATH" 2>&1)" || config_parse_err="parse error"
+    if [[ "$config_parse_err" == "ok" ]]; then
+      config_validity_label="valid ✅"
+    else
+      config_validity_label="$(colorize "parse error: ${config_parse_err}" "red")"
+      failures=$(( failures + 1 ))
+      hints+=("config.toml has parse errors; fix or re-sync the file.")
+    fi
+  elif [[ -f "$CONFIG_PATH" ]]; then
+    config_validity_label="$(colorize "python3 required for validation" "yellow")"
+  fi
+
+  local disk_label="ok"
+  local codex_parent="${HOME}/.codex"
+  if command -v df >/dev/null 2>&1 && [[ -d "$codex_parent" ]]; then
+    local free_kb=""
+    free_kb="$(df -Pk "$codex_parent" 2>/dev/null | awk 'NR==2 {print $4}')" || free_kb=""
+    if [[ "$free_kb" =~ ^[0-9]+$ ]]; then
+      local free_mb=$(( free_kb / 1024 ))
+      if (( free_mb < 500 )); then
+        disk_label="$(colorize "${free_mb}MB free (< 500MB)" "red")"
+        failures=$(( failures + 1 ))
+        hints+=("Disk space on ~/.codex partition is critically low (${free_mb}MB free).")
+      elif (( free_mb < 1000 )); then
+        disk_label="$(colorize "${free_mb}MB free" "yellow")"
+        hints+=("Disk space on ~/.codex partition is low (${free_mb}MB free).")
+      else
+        disk_label="${free_mb}MB free ✅"
+      fi
+    fi
+  fi
+
+  local api_latency_label=""
+  if [[ "$api_probe_elapsed_ms" =~ ^[0-9]+$ ]]; then
+    if (( api_probe_elapsed_ms > 5000 )); then
+      api_latency_label="$(colorize "${api_probe_elapsed_ms}ms (slow)" "red")"
+      hints+=("API probe latency is high (${api_probe_elapsed_ms}ms); check network conditions.")
+    elif (( api_probe_elapsed_ms > 2000 )); then
+      api_latency_label="$(colorize "${api_probe_elapsed_ms}ms" "yellow")"
+    else
+      api_latency_label="${api_probe_elapsed_ms}ms ✅"
+    fi
+  fi
+
   local cli_bits=(
     "version=${LOCAL_VERSION:-unknown}"
   )
@@ -153,8 +240,13 @@ print_doctor_report() {
   log_info "$(format_simple_row "Doctor paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
   log_info "$(format_simple_row "Doctor auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
   log_info "$(format_simple_row "Doctor sync" "$sync_label")"
-  log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}")"
+  log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
+  log_info "$(format_simple_row "Doctor mcp" "$mcp_label")"
   log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
+  if [[ -n "$api_latency_label" ]]; then
+    log_info "$(format_simple_row "Doctor lat" "$api_latency_label")"
+  fi
+  log_info "$(format_simple_row "Doctor disk" "$disk_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
   log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"

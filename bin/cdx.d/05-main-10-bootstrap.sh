@@ -77,13 +77,17 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   fi
 else
   # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
+  _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
+  cdx_debug_phase "auth-sync" "$_t_auth"
+  _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
     sync_slash_commands_pull || true
     sync_skills_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi
+  cdx_debug_phase "bundle-sync" "$_t_bundle"
 fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 ORIGINAL_AUTH_SHA="$(sha256_file "$HOME/.codex/auth.json" 2>/dev/null || true)"

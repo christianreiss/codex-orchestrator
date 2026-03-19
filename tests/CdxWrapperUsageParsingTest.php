@@ -111,7 +111,7 @@ LOG);
      */
     private function parseUsagePayload(string $capturedOutput, ?string $home = null): ?array
     {
-        $fragment = @file_get_contents(__DIR__ . '/../bin/cdx.d/03-prompts-usage.sh');
+        $fragment = @file_get_contents(__DIR__ . '/../bin/cdx.d/03-sync-50-usage.sh');
         self::assertIsString($fragment, 'Expected to be able to read usage parser fragment.');
 
         $startMarker = "python3 - \"\$log_path\" <<'PY'\n";
