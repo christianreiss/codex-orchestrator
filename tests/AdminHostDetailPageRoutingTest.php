@@ -41,5 +41,7 @@ final class AdminHostDetailPageRoutingTest extends TestCase
         $this->assertStringContainsString('window.location.assign(`/admin/hosts/${Math.trunc(numericId)}`);', $js);
         $this->assertStringContainsString("return { panel: 'host-detail', sub: seg2 };", $js);
         $this->assertStringContainsString('renderActiveHostDetail()', $js);
+        $this->assertStringContainsString('btn.onclick = async (ev) => {', $js);
+        $this->assertStringContainsString("await showConfirmModal('Clear auth'", $js);
     }
 }

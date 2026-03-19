@@ -2497,7 +2497,7 @@
     async function bindHostDetailActions(host) {
       if (!hostDetailActions) return;
       hostDetailActions.querySelectorAll('button[data-action]').forEach((btn) => {
-        btn.onclick = (ev) => {
+        btn.onclick = async (ev) => {
           ev.stopPropagation();
           const action = btn.getAttribute('data-action');
           if (action === 'install') {
