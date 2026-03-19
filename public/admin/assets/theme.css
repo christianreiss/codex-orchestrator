@@ -1,4 +1,5 @@
-/* Shared admin theme primitives used by login, dashboard, and access/error pages. */
+/* Canonical design token source — dashboard.css inherits; do not redeclare shared tokens there.
+   Shared admin theme primitives used by login, dashboard, and access/error pages. */
 
 @font-face {
   font-family: 'Sora';

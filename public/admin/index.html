@@ -151,7 +151,7 @@
             <h3>New Host</h3>
             <p>Issue a one-time installer link for this FQDN. The API key is baked in and bound to this host on first contact.</p>
             <div class="field">
-              <label for="new-host-name" style="font-weight:600;">Host FQDN</label>
+              <label for="new-host-name" class="modal-label">Host FQDN</label>
               <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
               <div class="auth-error" id="newHostError" role="alert"></div>
             </div>
@@ -161,7 +161,7 @@
                 <span class="track"><span class="thumb"></span></span>
                 <span class="toggle-text">Secure host (keep auth.json after runs)</span>
               </label>
-              <p class="muted" style="margin:6px 0 0;">Off = treat as insecure; cdx removes auth.json after each run.</p>
+              <p class="muted panel-subtitle">Off = treat as insecure; cdx removes auth.json after each run.</p>
             </div>
             <div class="field">
               <label class="toggle state-toggle" for="temporaryHostToggle">
@@ -169,7 +169,7 @@
                 <span class="track"><span class="thumb"></span></span>
                 <span class="toggle-text">Temporary host (auto-remove after 2h idle)</span>
               </label>
-              <p class="muted" style="margin:6px 0 0;">Useful for rescue/live systems; the host entry + API key are pruned two hours after the last successful contact.</p>
+              <p class="muted panel-subtitle">Useful for rescue/live systems; the host entry + API key are pruned two hours after the last successful contact.</p>
             </div>
             <div class="field">
               <label class="toggle state-toggle" for="insecureToggle">
@@ -193,15 +193,15 @@
               </label>
             </div>
             <div class="field" id="commandField" style="display:none;">
-              <label style="font-weight:600;">Run on the target host</label>
+              <label class="modal-label">Run on the target host</label>
               <div class="command-box">
                 <span class="cmd-text" id="bootstrapCmd"></span>
                 <button class="copy-btn" id="copyCmd">Copy</button>
               </div>
               <p class="muted" id="installerMeta" style="margin-top:8px; display:none;"></p>
-              <p class="muted" style="margin-top:8px;">Single command downloads the baked installer and configures the host.</p>
+              <p class="muted panel-meta">Single command downloads the baked installer and configures the host.</p>
             </div>
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+            <div class="actions">
               <button class="ghost" id="cancelNewHost">Cancel</button>
               <button id="createHost">Generate</button>
             </div>
@@ -212,30 +212,30 @@
             <h3>Seed auth.json</h3>
             <p>Paste or choose an auth.json; it will be validated via the runner and stored as canonical.</p>
             <div class="field">
-              <label for="uploadHostSelect" style="font-weight:600;">Store scope</label>
+              <label for="uploadHostSelect" class="modal-label">Store scope</label>
               <select id="uploadHostSelect"></select>
             </div>
             <div class="field">
-              <label for="uploadAuthText" style="font-weight:600;">auth.json</label>
+              <label for="uploadAuthText" class="modal-label">auth.json</label>
               <textarea id="uploadAuthText" rows="8" placeholder='{"last_refresh":"...","auths":{...}}'></textarea>
             </div>
             <div class="field">
-              <label style="font-weight:600;">or choose file</label>
+              <label class="modal-label">or choose file</label>
               <input type="file" id="uploadAuthFile" accept=".json,application/json">
             </div>
             <div class="field">
-              <label style="font-weight:600;">One-time seed command</label>
+              <label class="modal-label">One-time seed command</label>
               <div class="command-box" id="seedCommandField" style="display:none;">
                 <span class="cmd-text" id="seedCommandText"></span>
                 <button class="copy-btn" id="seedCommandCopy">Copy</button>
               </div>
               <p class="muted" id="seedCommandMeta" style="margin:6px 0 0; display:none;"></p>
-              <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:8px;">
+              <div class="actions">
                 <button class="ghost" id="seedCommandBtn">Generate</button>
               </div>
             </div>
-            <div id="uploadStatus" class="muted" style="min-height:18px; font-size:13px;"></div>
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:6px;">
+            <div id="uploadStatus" class="muted status-text"></div>
+            <div class="actions">
               <button class="ghost" id="uploadAuthCancel">Cancel</button>
               <button id="uploadAuthSubmit">Upload</button>
             </div>
@@ -251,7 +251,7 @@
               <p class="muted" style="margin:0 0 10px;">Currently enabled domain allows that auto-open insecure windows.</p>
               <div id="insecureDomainsList" class="quick-hosts-list"></div>
             </div>
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
+            <div class="actions">
               <button class="ghost" id="insecureHostsDisableAll" style="display:none;">Disable all</button>
               <button class="ghost" id="insecureHostsCloseBtn">Close</button>
             </div>
@@ -282,15 +282,15 @@
             <h3>Delete AGENTS.md version</h3>
             <p id="agentsDeleteIntro" class="muted"></p>
             <div class="field">
-              <label for="agentsDeleteSelect" style="font-weight:600;">Move affected hosts to</label>
+              <label for="agentsDeleteSelect" class="modal-label">Move affected hosts to</label>
               <select id="agentsDeleteSelect"></select>
               <div class="muted-note">Default follows the fleet AGENTS.md setting.</div>
             </div>
             <div class="field">
-              <label style="font-weight:600;">Affected hosts</label>
+              <label class="modal-label">Affected hosts</label>
               <div id="agentsDeleteHosts" class="agents-delete-hosts"></div>
             </div>
-            <div id="agentsDeleteStatus" class="muted" style="min-height:18px;"></div>
+            <div id="agentsDeleteStatus" class="muted status-text"></div>
             <div class="actions">
               <button class="ghost" id="agentsDeleteCancel">Cancel</button>
               <button class="danger" id="agentsDeleteConfirm">Move &amp; Delete</button>
@@ -323,19 +323,19 @@
           <div class="modal">
             <h3>Slash command</h3>
             <div class="field">
-              <label for="promptFilename" style="font-weight:600;">Filename</label>
+              <label for="promptFilename" class="modal-label">Filename</label>
               <input type="text" id="promptFilename" placeholder="example.sh">
             </div>
             <div class="field">
-              <label for="promptDescription" style="font-weight:600;">Description</label>
+              <label for="promptDescription" class="modal-label">Description</label>
               <input type="text" id="promptDescription" placeholder="Optional summary">
             </div>
             <div class="field">
-              <label for="promptArgument" style="font-weight:600;">Argument hint</label>
+              <label for="promptArgument" class="modal-label">Argument hint</label>
               <input type="text" id="promptArgument" placeholder="Optional usage hint">
             </div>
             <div class="field">
-              <label for="promptBody" style="font-weight:600;">Prompt</label>
+              <label for="promptBody" class="modal-label">Prompt</label>
               <textarea id="promptBody" rows="10" spellcheck="false" placeholder="---&#10;description: ...&#10;---&#10;Prompt body..."></textarea>
             </div>
             <div class="actions">
@@ -359,25 +359,25 @@
             </div>
             <div class="skill-modal-body">
               <div class="field">
-                <label for="skillName" style="font-weight:600;">Skill name</label>
+                <label for="skillName" class="modal-label">Skill name</label>
                 <input type="text" id="skillName" placeholder="Incident warm handoff, Deploy db, …">
                 <div class="muted-note">Maps to the SKILL.md <code>name</code> and dashboard label.</div>
               </div>
               <div class="field">
                 <div class="field-label-row">
-                  <label for="skillSlug" style="font-weight:600;">Slug</label>
+                  <label for="skillSlug" class="modal-label">Slug</label>
                   <button type="button" class="ghost tiny-btn" id="skillSlugSuggest">Auto-fill</button>
                 </div>
                 <input type="text" id="skillSlug" placeholder="e.g. backup-db">
                 <div class="muted-note" id="skillSlugNote">cdx serves this skill canonically; hosts also sync <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code> as the fallback copy.</div>
               </div>
               <div class="field">
-                <label for="skillDescription" style="font-weight:600;">Short description</label>
+                <label for="skillDescription" class="modal-label">Short description</label>
                 <input type="text" id="skillDescription" placeholder="One-liner surfaced in search/results">
                 <div class="muted-note">Populates the SKILL.md <code>description</code>.</div>
               </div>
               <div class="field">
-                <label for="skillTagsInput" style="font-weight:600;">Tags</label>
+                <label for="skillTagsInput" class="modal-label">Tags</label>
                 <div class="skill-tags-input">
                   <div class="skill-tags-list" id="skillTagsList"></div>
                   <input type="text" id="skillTagsInput" placeholder="Type a tag and press Enter">
@@ -385,19 +385,19 @@
                 <div class="muted-note">Optional, but great for routing and search (<code>tags</code> array).</div>
               </div>
               <div class="field">
-                <label for="skillWhat" style="font-weight:600;">What this skill does</label>
+                <label for="skillWhat" class="modal-label">What this skill does</label>
                 <textarea id="skillWhat" rows="5" spellcheck="false" placeholder="Explain the intent, guardrails, expected outputs."></textarea>
               </div>
               <div class="field">
-                <label for="skillWhen" style="font-weight:600;">When to use this skill</label>
+                <label for="skillWhen" class="modal-label">When to use this skill</label>
                 <textarea id="skillWhen" rows="4" spellcheck="false" placeholder="List triggers, heuristics, or context clues."></textarea>
               </div>
               <div class="field">
-                <label for="skillSteps" style="font-weight:600;">Step-by-step instructions</label>
+                <label for="skillSteps" class="modal-label">Step-by-step instructions</label>
                 <textarea id="skillSteps" rows="6" spellcheck="false" placeholder="Provide numbered instructions, failure modes, and success signals."></textarea>
               </div>
             </div>
-            <div class="muted" id="skillStatus" role="status" aria-live="polite" aria-atomic="true" style="min-height:18px; font-size:13px; margin:6px 0 2px;"></div>
+            <div class="muted status-text" id="skillStatus" role="status" aria-live="polite" aria-atomic="true"></div>
             <div class="actions">
               <button class="ghost danger" id="skillDelete" type="button" hidden>Delete</button>
               <button class="ghost" id="skillCancel">Cancel</button>
@@ -409,7 +409,7 @@
           <div class="modal">
             <h3 id="accessBlockTitle">Admin access blocked</h3>
             <p class="muted" id="accessBlockBody">mTLS is required before continuing.</p>
-            <div class="actions" style="margin-top:12px; justify-content:flex-end;">
+            <div class="actions">
               <button class="ghost" id="accessBlockDismiss">Close</button>
             </div>
           </div>
@@ -419,15 +419,15 @@
             <h3>Insecure host access request</h3>
             <p class="muted" id="insecureApprovalSubtitle">An insecure host is waiting for approval.</p>
             <div class="field">
-              <label style="font-weight:600;">Hostname</label>
+              <label class="modal-label">Hostname</label>
               <div class="muted" id="insecureApprovalHost">—</div>
             </div>
             <div class="field">
-              <label style="font-weight:600;">FQDN</label>
+              <label class="modal-label">FQDN</label>
               <div class="muted" id="insecureApprovalFqdn">—</div>
             </div>
             <div class="field">
-              <label style="font-weight:600;">Requested at</label>
+              <label class="modal-label">Requested at</label>
               <div class="muted" id="insecureApprovalTime">—</div>
             </div>
             <div class="actions">
@@ -447,7 +447,7 @@
               <button class="ghost tiny-btn" id="usageHistoryClose">Close</button>
             </div>
             <div class="usage-history-chart" id="usageHistoryChart">Loading…</div>
-            <div class="muted" id="usageHistoryMeta" style="margin-top:8px;"></div>
+            <div class="muted panel-meta" id="usageHistoryMeta"></div>
           </div>
         </div>
         <div class="modal-backdrop" id="costHistoryModal" role="dialog" aria-modal="true">
@@ -460,7 +460,7 @@
               <button class="ghost tiny-btn" id="costHistoryClose">Close</button>
             </div>
             <div class="usage-history-chart cost-history-chart" id="costHistoryChart">Loading…</div>
-            <div class="muted" id="costHistoryMeta" style="margin-top:8px;"></div>
+            <div class="muted panel-meta" id="costHistoryMeta"></div>
           </div>
         </div>
 
@@ -518,10 +518,10 @@
                   <table id="hosts-table">
                     <thead>
                       <tr>
-                        <th data-sort-key="host"><span class="sort-link" role="button" tabindex="0" data-sort="host"><span>Host</span><span class="sort-indicator">↕</span></span></th>
-                        <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
-                        <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
-                        <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="host"><span class="sort-link" role="button" tabindex="0" data-sort="host" aria-label="Sort by host"><span>Host</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status" aria-label="Sort by status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen" aria-label="Sort by last seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client" aria-label="Sort by Codex version"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
                         <th class="insecure-col">Insecure Window</th>
                       </tr>
                     </thead>
@@ -589,7 +589,7 @@
               <div>
                 <p class="muted overline">Project Workspace</p>
                 <h2 id="projectDetailTitle">Loading…</h2>
-                <p class="muted" id="projectDetailMeta" style="margin:4px 0 0;">Fetching shared project state.</p>
+                <p class="muted panel-subtitle" id="projectDetailMeta">Fetching shared project state.</p>
               </div>
               <div class="project-detail-head-actions">
                 <a class="ghost tiny-btn" id="projectDetailBack" href="/admin/settings/projects">Back to projects</a>
@@ -619,10 +619,10 @@
                   <label for="projectAboutDescription">Description</label>
                   <textarea id="projectAboutDescription" rows="4" placeholder="What this project is doing and why."></textarea>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <button class="ghost" id="projectAboutSave">Save About</button>
                 </div>
-                <div class="muted" id="projectAboutStatus" style="margin-top:8px;">No project loaded.</div>
+                <div class="muted panel-meta" id="projectAboutStatus">No project loaded.</div>
               </section>
               <section class="project-detail-section">
                 <div class="project-detail-section-head">
@@ -633,10 +633,10 @@
                   <label for="projectRosterMarkdown">Roster / Coordination Notes</label>
                   <textarea id="projectRosterMarkdown" rows="9" spellcheck="false" placeholder="Ownership, handoff notes, and operating rules."></textarea>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <button class="ghost" id="projectRosterSave">Save Roster</button>
                 </div>
-                <div class="muted" id="projectRosterStatus" style="margin-top:8px;">No project loaded.</div>
+                <div class="muted panel-meta" id="projectRosterStatus">No project loaded.</div>
               </section>
               <section class="project-detail-section">
                 <div class="project-detail-section-head">
@@ -652,12 +652,12 @@
                   <label for="projectNoteBody">Body</label>
                   <textarea id="projectNoteBody" rows="5" placeholder="Short, useful, and future-proof."></textarea>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <button class="ghost" id="projectNoteReset">Reset</button>
                   <button class="primary" id="projectNoteSave">Save Note</button>
                 </div>
-                <div class="muted" id="projectNoteStatus" style="margin-top:8px;">No project loaded.</div>
-                <div id="projectNotesList" class="list-rows" style="margin-top:14px;"></div>
+                <div class="muted panel-meta" id="projectNoteStatus">No project loaded.</div>
+                <div id="projectNotesList" class="list-rows list-rows-spaced"></div>
               </section>
               <section class="project-detail-section">
                 <div class="project-detail-section-head">
@@ -673,12 +673,12 @@
                   <label for="projectTodoDetail">Detail</label>
                   <textarea id="projectTodoDetail" rows="4" placeholder="Acceptance hints, edge cases, and dependencies."></textarea>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <button class="ghost" id="projectTodoReset">Reset</button>
                   <button class="primary" id="projectTodoSave">Save Todo</button>
                 </div>
-                <div class="muted" id="projectTodoStatus" style="margin-top:8px;">No project loaded.</div>
-                <div id="projectTodosList" class="list-rows" style="margin-top:14px;"></div>
+                <div class="muted panel-meta" id="projectTodoStatus">No project loaded.</div>
+                <div id="projectTodosList" class="list-rows list-rows-spaced"></div>
               </section>
               <section class="project-detail-section">
                 <div class="project-detail-section-head">
@@ -703,11 +703,11 @@
                   <label for="projectFileContent">Content</label>
                   <textarea id="projectFileContent" rows="8" spellcheck="false" placeholder="Store canonical snippets, checklists, or rollout notes."></textarea>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <button class="primary" id="projectFileSave">Save File</button>
                 </div>
-                <div class="muted" id="projectFileStatus" style="margin-top:8px;">No project loaded.</div>
-                <div id="projectFilesList" class="list-rows" style="margin-top:14px;"></div>
+                <div class="muted panel-meta" id="projectFileStatus">No project loaded.</div>
+                <div id="projectFilesList" class="list-rows list-rows-spaced"></div>
               </section>
               <section class="project-detail-section">
                 <div class="project-detail-section-head">
@@ -732,11 +732,11 @@
                   <label for="projectFeedbackBody">Body</label>
                   <textarea id="projectFeedbackBody" rows="5" placeholder="Operator feedback, issue reports, and follow-up asks."></textarea>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <button class="primary" id="projectFeedbackSave">Save Feedback</button>
                 </div>
-                <div class="muted" id="projectFeedbackStatus" style="margin-top:8px;">No project loaded.</div>
-                <div id="projectFeedbackList" class="list-rows" style="margin-top:14px;"></div>
+                <div class="muted panel-meta" id="projectFeedbackStatus">No project loaded.</div>
+                <div id="projectFeedbackList" class="list-rows list-rows-spaced"></div>
               </section>
               <section class="project-detail-section project-detail-wide">
                 <div class="project-detail-section-head">
@@ -755,7 +755,7 @@
             <div class="panel-head">
               <div>
                 <h2>Account access required</h2>
-                <p class="muted" style="margin:4px 0 0;">Sign in with an admin session to change your password or manage passkeys.</p>
+                <p class="muted panel-subtitle">Sign in with an admin session to change your password or manage passkeys.</p>
               </div>
             </div>
           </section>
@@ -764,7 +764,7 @@
             <div class="panel-head">
               <div>
                 <h2>Change Password</h2>
-                <p class="muted" style="margin:4px 0 0;">Update the password for your current admin account.</p>
+                <p class="muted panel-subtitle">Update the password for your current admin account.</p>
               </div>
             </div>
             <div class="field">
@@ -780,7 +780,7 @@
               <input id="accountConfirmPassword" type="password" autocomplete="new-password">
             </div>
             <div class="auth-error" id="accountPasswordError" role="alert"></div>
-            <div class="muted" id="accountPasswordStatus" style="min-height:18px; font-size:13px;"></div>
+            <div class="muted status-text" id="accountPasswordStatus"></div>
             <div class="actions">
               <button class="ghost" id="accountPasswordReset" type="button">Reset</button>
               <button id="accountPasswordSave" type="button">Change password</button>
@@ -791,7 +791,7 @@
             <div class="panel-head">
               <div>
                 <h2>Your Passkeys</h2>
-                <p class="muted" style="margin:4px 0 0;">Register WebAuthn passkeys for admin login. The login page uses your username first, and users with a registered passkey must sign in with that passkey.</p>
+                <p class="muted panel-subtitle">Register WebAuthn passkeys for admin login. The login page uses your username first, and users with a registered passkey must sign in with that passkey.</p>
               </div>
               <div class="panel-actions">
                 <button class="ghost tiny-btn" id="passkeysRegisterBtn">+ Register passkey</button>
@@ -811,7 +811,7 @@
                 <tbody></tbody>
               </table>
             </div>
-            <div class="muted" id="passkeysEmptyState" style="padding:16px; display:none;">No passkeys registered.</div>
+            <div class="muted empty-state-inline" id="passkeysEmptyState" style="display:none;">No passkeys registered.</div>
           </section>
         </section>
 
@@ -820,7 +820,7 @@
             <div class="panel-head">
               <div>
                 <h2>User Management</h2>
-                <p class="muted" style="margin:4px 0 0;">Create users and assign access levels.</p>
+                <p class="muted panel-subtitle">Create users and assign access levels.</p>
               </div>
               <div class="panel-actions">
                 <button class="ghost tiny-btn" id="usersAddBtn">+ Add user</button>
@@ -843,12 +843,12 @@
                 <tbody></tbody>
               </table>
             </div>
-            <div class="muted" id="usersEmptyState" style="padding:16px; display:none;">No users yet. Create the first admin to enable login.</div>
+            <div class="muted empty-state-inline" id="usersEmptyState" style="display:none;">No users yet. Create the first admin to enable login.</div>
           </section>
         </section>
 
         <!-- Logs -->
-	        <section class="panel-set" data-panel="logs" hidden>
+        <section class="panel-set" data-panel="logs" hidden>
             <nav class="logs-mobile-nav" aria-label="Logs tabs">
               <a class="log-tab logs-mobile-tab active" data-log-tab="client" href="/admin/logs">API logs</a>
               <a class="log-tab logs-mobile-tab" data-log-tab="mcp" href="/admin/logs/mcp">MCP logs</a>
@@ -867,7 +867,7 @@
                   <div class="panel-head">
                     <div>
                       <h2>Client Reports</h2>
-                      <p class="muted" style="margin:4px 0 0;">Newest first · search by host or IP · click headers to sort.</p>
+                      <p class="muted panel-subtitle">Newest first · search by host or IP · click headers to sort.</p>
                     </div>
                     <div class="panel-actions log-actions">
                       <input type="search" id="log-search" placeholder="Search host or IP">
@@ -911,7 +911,7 @@
                   <div class="panel-head">
                     <div>
                       <h2>MCP Access Logs</h2>
-                      <p class="muted" style="margin:4px 0 0;">Recent MCP access events.</p>
+                      <p class="muted panel-subtitle">Recent MCP access events.</p>
                     </div>
                     <div class="panel-actions log-actions">
                       <button id="mcp-refresh" class="ghost tiny-btn">↻ Refresh</button>
@@ -937,7 +937,7 @@
                   <div class="panel-head">
                     <div>
                       <h2>Events / Audit Log</h2>
-                      <p class="muted" style="margin:4px 0 0;">Newest first · filter by host/action/time · copy JSON for incident tickets.</p>
+                      <p class="muted panel-subtitle">Newest first · filter by host/action/time · copy JSON for incident tickets.</p>
                     </div>
                     <div class="panel-actions log-actions">
                       <select id="event-host" title="Host filter">
@@ -993,7 +993,7 @@
                 </section>
               </div>
             </div>
-	        </section>
+        </section>
 
         <!-- Settings -->
         <section class="panel-set" data-panel="settings" hidden>
@@ -1025,7 +1025,7 @@
             <div class="panel-head">
               <div>
                 <h2>Operations & Settings</h2>
-                <p class="muted" style="margin:4px 0 0;">Emergency toggles and runner utilities.</p>
+                <p class="muted panel-subtitle">Emergency toggles and runner utilities.</p>
               </div>
               <div class="panel-actions">
                 <button class="ghost tiny-btn" id="settingsToggle">Show</button>
@@ -1036,16 +1036,16 @@
                 <div class="setting-head">
                   <div>
                     <h3>Admin mTLS Policy</h3>
-                    <p class="muted" style="margin:2px 0 0;">Certificate enforcement for <code>/admin</code> routes.</p>
+                    <p class="muted panel-subtitle-sm">Certificate enforcement for <code>/admin</code> routes.</p>
                   </div>
                 </div>
-                <p class="muted" id="mtlsSettingStatus" style="margin:8px 0 0;">Loading…</p>
+                <p class="muted panel-meta" id="mtlsSettingStatus">Loading…</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
                     <h3>Quota Policy</h3>
-                    <p class="muted quota-desc" style="margin:2px 0 0;">ChatGPT quota hit: deny Codex launch.</p>
+                    <p class="muted quota-desc panel-subtitle-sm">ChatGPT quota hit: deny Codex launch.</p>
                   </div>
                   <label class="toggle" for="quotaHardFailToggle">
                     <input type="checkbox" id="quotaHardFailToggle">
@@ -1078,7 +1078,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>API Kill Switch</h3>
-                    <p class="muted" style="margin:2px 0 0;">Emergency stop for Codex agents.</p>
+                    <p class="muted panel-subtitle-sm">Emergency stop for Codex agents.</p>
                   </div>
                   <label class="toggle" for="apiToggle">
                     <input type="checkbox" id="apiToggle">
@@ -1091,7 +1091,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>cdx Silent Mode</h3>
-                    <p class="muted" style="margin:2px 0 0;">Hide wrapper boot logs; only errors print.</p>
+                    <p class="muted panel-subtitle-sm">Hide wrapper boot logs; only errors print.</p>
                   </div>
                   <label class="toggle" for="cdxSilentToggle">
                     <input type="checkbox" id="cdxSilentToggle">
@@ -1104,7 +1104,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>Reverse DNS Enforcement</h3>
-                    <p class="muted" style="margin:2px 0 0;">Require forward + PTR match on <code>/auth</code>.</p>
+                    <p class="muted panel-subtitle-sm">Require forward + PTR match on <code>/auth</code>.</p>
                   </div>
                   <label class="toggle" for="reverseDnsToggle">
                     <input type="checkbox" id="reverseDnsToggle">
@@ -1112,27 +1112,27 @@
                     <span class="toggle-text" id="reverseDnsLabel">Disabled</span>
                   </label>
                 </div>
-                <p class="muted" style="margin:8px 0 0;">Per-host overrides can disable or force this check.</p>
+                <p class="muted panel-meta">Per-host overrides can disable or force this check.</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
                     <h3>Codex Version</h3>
-                    <p class="muted" style="margin:2px 0 0;">Latest tracks GitHub; selecting a version pins the fleet.</p>
+                    <p class="muted panel-subtitle-sm">Latest tracks GitHub; selecting a version pins the fleet.</p>
                   </div>
                 </div>
-                <div class="panel-actions" style="margin-top:12px;">
+                <div class="panel-actions panel-actions-spaced">
                   <select id="codexVersionSelect" title="Codex target version">
                     <option value="latest">Latest</option>
                   </select>
                 </div>
-                <p class="muted" id="codexVersionMeta" style="margin:8px 0 0;">Loading…</p>
+                <p class="muted panel-meta" id="codexVersionMeta">Loading…</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
                     <h3>Insecure Host Window</h3>
-                    <p class="muted" style="margin:2px 0 0;">Duration granted when enabling insecure hosts.</p>
+                    <p class="muted panel-subtitle-sm">Duration granted when enabling insecure hosts.</p>
                   </div>
                 </div>
                 <div class="insecure-window-control">
@@ -1150,7 +1150,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>Insecure Host Approval</h3>
-                    <p class="muted" style="margin:2px 0 0;">Require admin confirmation when windows are closed.</p>
+                    <p class="muted panel-subtitle-sm">Require admin confirmation when windows are closed.</p>
                   </div>
                   <label class="toggle" for="insecureApprovalToggle">
                     <input type="checkbox" id="insecureApprovalToggle">
@@ -1158,13 +1158,13 @@
                     <span class="toggle-text" id="insecureApprovalLabel">Disabled</span>
                   </label>
                 </div>
-                <p class="muted" style="margin:8px 0 0;">When enabled, cdx waits for approval if a websocket admin is connected.</p>
+                <p class="muted panel-meta">When enabled, cdx waits for approval if a websocket admin is connected.</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
                     <h3>Cron Auto-Update</h3>
-                    <p class="muted" style="margin:2px 0 0;">Fleet-wide Codex binary auto-update via cron.</p>
+                    <p class="muted panel-subtitle-sm">Fleet-wide Codex binary auto-update via cron.</p>
                   </div>
                   <label class="toggle" for="autoUpdateToggle">
                     <input type="checkbox" id="autoUpdateToggle">
@@ -1172,13 +1172,13 @@
                     <span class="toggle-text" id="autoUpdateLabel">Disabled</span>
                   </label>
                 </div>
-                <p class="muted" style="margin:8px 0 0;">When enabled, hosts with <code>cdx --cron</code> installed will automatically update the Codex binary once daily (0–4 AM, randomized per host). Per-host overrides available in host details. Default: off.</p>
+                <p class="muted panel-meta">When enabled, hosts with <code>cdx --cron</code> installed will automatically update the Codex binary once daily (0–4 AM, randomized per host). Per-host overrides available in host details. Default: off.</p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
                     <h3>Host Pruning</h3>
-                    <p class="muted" style="margin:2px 0 0;">Delete inactive hosts after N days (0 disables pruning).</p>
+                    <p class="muted panel-subtitle-sm">Delete inactive hosts after N days (0 disables pruning).</p>
                   </div>
                 </div>
                 <div class="prune-window-control">
@@ -1196,7 +1196,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>Maintenance</h3>
-                    <p class="muted" style="margin:2px 0 0;">Run the runner, seed auth.json, or check versions.</p>
+                    <p class="muted panel-subtitle-sm">Run the runner, seed auth.json, or check versions.</p>
                   </div>
                 </div>
                 <div class="setting-actions">
@@ -1230,7 +1230,7 @@
             <pre id="agentsPreview" class="code-block" style="max-height:65vh; overflow:auto; cursor:text;"></pre>
             <textarea id="agentsEditorInline" rows="18" spellcheck="false" hidden style="width:100%; max-height:65vh; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;"></textarea>
             <div class="agents-versions">
-              <div class="table-wrapper">
+              <div class="table-wrap">
                 <table id="agentsVersions">
                   <thead>
                     <tr>
@@ -1259,7 +1259,7 @@
               </div>
             </div>
             <div class="panel-body">
-              <div class="table-wrapper">
+              <div class="table-wrap">
                 <table id="prompts">
                   <thead>
                     <tr>
@@ -1273,32 +1273,32 @@
                 </table>
               </div>
             </div>
-            <div class="muted" id="promptStatus" style="margin-top:8px;"></div>
+            <div class="muted panel-meta" id="promptStatus"></div>
           </section>
 	          <section class="card panel" data-settings-panel="memories" hidden>
 	            <div class="panel-head">
 	              <div>
 	                <h2>Memories</h2>
-	                <p class="muted" style="margin:4px 0 0;">Browse MCP memories stored by hosts.</p>
+	                <p class="muted panel-subtitle">Browse MCP memories stored by hosts.</p>
 	              </div>
 	            </div>
 	            <div class="memory-controls" id="memoriesFilters">
 	              <div class="field">
-	                <label for="memoriesQuery" style="font-weight:600;">Search</label>
+	                <label for="memoriesQuery" class="modal-label">Search</label>
 	                <input id="memoriesQuery" type="text" placeholder="Text search (optional)">
 	              </div>
               <div class="field narrow-field">
-                <label for="memoriesHostFilter" style="font-weight:600;">Host</label>
+                <label for="memoriesHostFilter" class="modal-label">Host</label>
                 <select id="memoriesHostFilter">
                   <option value="">All hosts</option>
                 </select>
               </div>
               <div class="field">
-                <label for="memoriesTags" style="font-weight:600;">Tags</label>
+                <label for="memoriesTags" class="modal-label">Tags</label>
                 <input id="memoriesTags" type="text" placeholder="tag1, tag2 (optional)">
               </div>
               <div class="field narrow-field">
-                <label for="memoriesLimit" style="font-weight:600;">Limit</label>
+                <label for="memoriesLimit" class="modal-label">Limit</label>
                 <input id="memoriesLimit" type="number" min="1" max="200" value="50">
               </div>
             </div>
@@ -1314,13 +1314,13 @@
                 <tbody></tbody>
               </table>
 	            </div>
-		            <div id="memoriesEmptyState" class="empty-state-box" hidden>
-		              <div class="empty-state-title">No memories yet</div>
-		              <div class="muted" style="margin-top:6px;">
-		                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
-		              </div>
-		            </div>
-		          </section>
+            <div id="memoriesEmptyState" class="empty-state-box" hidden>
+              <div class="empty-state-title">No memories yet</div>
+              <div class="muted" style="margin-top:6px;">
+                This fleet hasn’t stored any MCP memories. Once a host writes memory via MCP, entries will show up here.
+              </div>
+            </div>
+          </section>
           <section class="card panel" data-settings-panel="projects" hidden>
             <div class="panel-head">
               <div>
@@ -1334,7 +1334,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>Module State</h3>
-                    <p class="muted" style="margin:2px 0 0;">Enable shared project coordination and auto-deploy the managed <code>coco</code> skill with the native project-only CoCo toolkit/help to clients.</p>
+                    <p class="muted panel-subtitle-sm">Enable shared project coordination and auto-deploy the managed <code>coco</code> skill with the native project-only CoCo toolkit/help to clients.</p>
                   </div>
                   <label class="toggle" for="projectsEnabledToggle">
                     <input type="checkbox" id="projectsEnabledToggle">
@@ -1342,14 +1342,14 @@
                     <span class="toggle-text" id="projectsEnabledLabel">Disabled</span>
                   </label>
                 </div>
-                <p class="muted" id="projectsModuleStatus" style="margin:8px 0 0;">Loading…</p>
-                <p class="muted" id="projectsManagedSkill" style="margin:8px 0 0;">Managed skill: <code>coco</code></p>
+                <p class="muted panel-meta" id="projectsModuleStatus">Loading…</p>
+                <p class="muted panel-meta" id="projectsManagedSkill">Managed skill: <code>coco</code></p>
               </div>
               <div class="setting-block">
                 <div class="setting-head">
                   <div>
                     <h3>Project Index</h3>
-                    <p class="muted" id="projectsIndexMeta" style="margin:2px 0 0;">Known projects only. Open one for the full workspace.</p>
+                    <p class="muted panel-subtitle-sm" id="projectsIndexMeta">Known projects only. Open one for the full workspace.</p>
                   </div>
                 </div>
                 <p class="muted-note" style="margin-top:12px;">Creation stays API-driven for now. This page is intentionally compressed to list, open, and delete existing projects.</p>
@@ -1385,7 +1385,7 @@
 	              </div>
 	            </div>
 	            <div class="panel-body">
-	              <div class="inline-group" style="margin-bottom:12px;">
+	              <div class="inline-group inline-group-spaced">
 	                <div class="pill-quiet">Status: <span id="profilesStatus">Loading…</span></div>
 	                <div class="pill-quiet">SHA: <span id="profilesSha">—</span></div>
 	                <div class="pill-quiet">Updated: <span id="profilesUpdated">—</span></div>
@@ -1413,7 +1413,7 @@
               </div>
             </div>
             <div class="panel-body">
-              <div class="table-wrapper">
+              <div class="table-wrap">
                 <table id="skills">
                   <thead>
                     <tr>
@@ -1460,7 +1460,7 @@
                 </aside>
 
                 <section class="config-main" aria-label="Config editor">
-              <div class="inline-group" style="margin-bottom:12px;">
+              <div class="inline-group inline-group-spaced">
                 <div class="pill-quiet">Status: <span id="configStatus">Loading…</span></div>
                 <div class="pill-quiet">SHA: <span id="configSha">—</span></div>
                 <div class="pill-quiet">Updated: <span id="configUpdated">—</span></div>
@@ -1548,7 +1548,7 @@
                     <div class="field">
                       <label style="align-items:center; gap:8px;">
                         <span>Force reasoning summaries</span>
-                        <input id="supportsSummariesInput" type="checkbox" style="width:auto; accent-color: var(--accent);">
+                        <input id="supportsSummariesInput" type="checkbox" class="feature-checkbox">
                       </label>
                     </div>
                   </div>
@@ -1573,7 +1573,7 @@
                   </div>
                   <div class="feature-list">
                     <label class="feature-toggle">
-                      <input type="checkbox" id="dangerousBypassApprovalsSandbox" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="dangerousBypassApprovalsSandbox" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Dangerously bypass approvals and sandbox</div>
                         <div class="feature-desc">Adds <code>--dangerously-bypass-approvals-and-sandbox</code> to the Codex CLI invocation. This disables safety guardrails and should only be used for trusted, local-only runs.</div>
@@ -1582,14 +1582,14 @@
                   </div>
                   <div class="feature-list">
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureFastMode" style="width:auto; accent-color: var(--accent);" checked>
+                      <input type="checkbox" id="featureFastMode" class="feature-checkbox" checked>
                       <div>
                         <div class="feature-title">Fast mode</div>
                         <div class="feature-desc">Use Codex fast-mode defaults for lower-latency responses where available.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureUnifiedExec" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featureUnifiedExec" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Unified exec tool</div>
                         <div class="feature-desc">Use the unified PTY-backed exec tool.</div>
@@ -1607,49 +1607,49 @@
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureVoiceTranscription" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featureVoiceTranscription" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Enable voice transcription</div>
                         <div class="feature-desc">Allow speech-to-text input tooling for supported clients.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureApps" style="width:auto; accent-color: var(--accent);" checked>
+                      <input type="checkbox" id="featureApps" class="feature-checkbox" checked>
                       <div>
                         <div class="feature-title">ChatGPT Apps</div>
                         <div class="feature-desc">Use connected ChatGPT Apps via <code>$</code>. Install them with <code>/apps</code>, then restart Codex after enabling.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureGuardianApproval" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featureGuardianApproval" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Automatic approval review</div>
                         <div class="feature-desc">Dispatch <code>on-request</code> approval prompts, for example sandbox escapes or blocked network access, to a carefully-prompted security reviewer subagent instead of blocking on your input.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureJsRepl" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featureJsRepl" class="feature-checkbox">
                       <div>
                         <div class="feature-title">JavaScript REPL</div>
                         <div class="feature-desc">Enable a persistent Node-backed JavaScript REPL for interactive website debugging and inline JavaScript execution. Requires Node &gt;= v22.22.0 installed.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureBubblewrapSandbox" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featureBubblewrapSandbox" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Bubblewrap sandbox</div>
                         <div class="feature-desc">Try the new Linux sandbox based on bubblewrap.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featurePreventIdleSleep" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="featurePreventIdleSleep" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Prevent sleep while running</div>
                         <div class="feature-desc">Keep your computer awake while Codex is running a thread.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="featureMultiAgent" style="width:auto; accent-color: var(--accent);" checked>
+                      <input type="checkbox" id="featureMultiAgent" class="feature-checkbox" checked>
                       <div>
                         <div class="feature-title">Multi-agents</div>
                         <div class="feature-desc">Ask Codex to spawn multiple agents to parallelize the work and win in efficiency.</div>
@@ -1676,21 +1676,21 @@
                   </div>
                   <div class="feature-list">
                     <label class="feature-toggle">
-                      <input type="checkbox" id="sandboxNetwork" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="sandboxNetwork" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Allow network access</div>
                         <div class="feature-desc">Let workspace commands reach the internet.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="sandboxTmpdir" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="sandboxTmpdir" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Exclude $TMPDIR</div>
                         <div class="feature-desc">Skip the host's $TMPDIR to keep temp files private.</div>
                       </div>
                     </label>
                     <label class="feature-toggle">
-                      <input type="checkbox" id="sandboxSlashTmp" style="width:auto; accent-color: var(--accent);">
+                      <input type="checkbox" id="sandboxSlashTmp" class="feature-checkbox">
                       <div>
                         <div class="feature-title">Exclude /tmp</div>
                         <div class="feature-desc">Hide /tmp from the sandbox.</div>
@@ -1718,7 +1718,7 @@
                     <textarea id="envSetInput" placeholder="PATH=/usr/bin&#10;MY_FLAG=1"></textarea>
                   </div>
                   <label class="feature-toggle" style="margin-top:6px;">
-                    <input type="checkbox" id="ignoreDefaultExcludesInput" style="width:auto; accent-color: var(--accent);">
+                    <input type="checkbox" id="ignoreDefaultExcludesInput" class="feature-checkbox">
                     <div>
                       <div class="feature-title">Ignore default env excludes</div>
                       <div class="feature-desc">Skip the built-in env blacklist (AWS_*, etc.).</div>
@@ -1737,7 +1737,7 @@
                     </label>
                   </div>
                   <div id="orchestratorMcpSummaryWrap" class="field" style="margin-top:4px;" hidden>
-                    <span class="muted-note" style="font-weight:600;">Injected per host</span>
+                    <span class="muted-note modal-label">Injected per host</span>
                     <div id="orchestratorMcpSummary" class="mono-block" style="margin-top:6px; font-size:12px; line-height:1.4;"></div>
                     <span class="muted-note">Auth token is the host's API key; rendered per-host on fetch.</span>
                   </div>
@@ -1775,7 +1775,7 @@
                     <textarea id="otelHeadersInput" placeholder='x-otlp-api-key=${OTLP_TOKEN}'></textarea>
                   </div>
                   <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
-                    <input type="checkbox" id="otelLogPromptsInput" style="width:auto; accent-color: var(--accent);">
+                    <input type="checkbox" id="otelLogPromptsInput" class="feature-checkbox">
                     <span>log_user_prompt</span>
                   </label>
                 </div>
@@ -1812,7 +1812,7 @@
     </main>
   </div>
 
-  <div class="modal-backdrop" id="usersModal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="usersModal" role="dialog" aria-modal="true" aria-labelledby="usersModalTitle">
     <div class="modal users-modal">
       <div class="modal-head">
         <div>
@@ -1859,11 +1859,11 @@
     </div>
   </div>
 
-  <div class="modal-backdrop" id="usersWipeModal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="usersWipeModal" role="dialog" aria-modal="true" aria-labelledby="usersWipeModalTitle">
     <div class="modal users-modal">
       <div class="modal-head">
         <div>
-          <h3>Wipe all users</h3>
+          <h3 id="usersWipeModalTitle">Wipe all users</h3>
           <p class="muted">Type WIPE to confirm. This disables login enforcement.</p>
         </div>
         <button class="ghost tiny-btn" id="usersWipeClose">Close</button>
@@ -1879,9 +1879,9 @@
       </div>
     </div>
   </div>
-  <div class="modal-backdrop" id="logoutModal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="logoutModal" role="dialog" aria-modal="true" aria-labelledby="logoutModalTitle">
     <div class="modal">
-      <h3>Sign out</h3>
+      <h3 id="logoutModalTitle">Sign out</h3>
       <p class="muted">Sign out of this admin session?</p>
       <div class="actions">
         <button class="ghost" id="logoutCancel" type="button">Cancel</button>

@@ -842,6 +842,7 @@
 
       const toastEl = document.createElement('div');
       toastEl.className = `toast level-${normalizedLevel}`;
+      toastEl.setAttribute('role', 'status');
       toastEl.dataset.toastId = String(toastId);
 
       const content = document.createElement('div');
