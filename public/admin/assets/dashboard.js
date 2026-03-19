@@ -7119,15 +7119,20 @@
         insecureHostsDisableAllBtn.style.display = activeCount > 0 ? '' : 'none';
       }
 
-      if (!activeHosts.length) {
-        insecureHostsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No active insecure host windows.</div></div></div>';
+      if (!items.length) {
+        insecureHostsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No insecure hosts found.</div></div></div>';
       } else {
-        insecureHostsList.innerHTML = activeHosts.map((host) => {
-          const onlineFor = formatCountdown(host?.insecure_enabled_until);
-          const onlineUntil = host?.insecure_enabled_until || '';
-          const onlineLine = onlineFor !== '—'
-            ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
-            : '';
+        insecureHostsList.innerHTML = items.map((host) => {
+          const active = hostHasActiveInsecureWindow(host);
+          const onlineFor = active ? formatCountdown(host?.insecure_enabled_until) : 'Window closed';
+          const onlineUntil = active ? (host?.insecure_enabled_until || '') : '';
+          const onlineLine = active
+            ? (onlineFor !== '—'
+              ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
+              : '<div class="quick-hosts-sub">Online now</div>')
+            : '<div class="quick-hosts-sub">Window closed</div>';
+          const action = active ? 'disable' : 'enable';
+          const label = active ? 'Disable' : 'Enable';
           return `
             <div class="quick-hosts-row" data-host-id="${host.id}">
               <div class="quick-hosts-info">
@@ -7135,7 +7140,7 @@
                 ${onlineLine}
               </div>
               <div class="quick-hosts-actions">
-                <button class="ghost" data-action="disable">Disable</button>
+                <button class="ghost" data-action="${action}">${label}</button>
               </div>
             </div>
           `;
@@ -7238,16 +7243,18 @@
       }
       if (insecureHostsList) {
         insecureHostsList.addEventListener('click', async (e) => {
-          const btn = e.target?.closest?.('button[data-action="disable"]');
+          const btn = e.target?.closest?.('button[data-action]');
           if (!btn) return;
           const row = btn.closest('.quick-hosts-row');
           const hostIdRaw = row?.getAttribute?.('data-host-id');
           const hostId = hostIdRaw ? parseInt(hostIdRaw, 10) : NaN;
           if (!Number.isFinite(hostId)) return;
+          const action = String(btn.getAttribute('data-action') || '').toLowerCase();
+          const enableTarget = action === 'enable';
 
           btn.disabled = true;
           const originalLabel = btn.textContent;
-          btn.textContent = 'Turning off…';
+          btn.textContent = enableTarget ? 'Turning on…' : 'Turning off…';
           try {
             const resp = await api('/admin/hosts/insecure');
             const hosts = resp?.data?.hosts || [];
@@ -7255,11 +7262,12 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
-            await toggleInsecureApi(target, null, false);
+            await toggleInsecureApi(target, null, enableTarget);
             const refreshed = await api('/admin/hosts/insecure');
             openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
           } catch (err) {
             console.error('insecure hosts toggle failed', err);
+            toast(`${enableTarget ? 'Enable' : 'Disable'} failed: ${err.message}`, 'error');
           } finally {
             btn.disabled = false;
             btn.textContent = originalLabel;

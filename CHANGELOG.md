@@ -1,3 +1,6 @@
+# 2026-03-19
+- Admin UI: fixed the `Active Windows` modal so `Disable all` no longer makes the host rows disappear; insecure hosts now remain visible in the modal after shutdown, show an explicit `Window closed` state, and can be re-enabled in place without leaving the view.
+
 # 2026-03-18
 - Admin UI/auth: turned the navbar brand into an account menu with nested theme selection plus `Password change`, `Passkeys`, and `Logout`; moved personal passkey management out of `Users` into new `/admin/account/{password,passkeys}` pages; added self-service `POST /admin/auth/password/change`; and replaced direct logout with a confirmation modal.
 - Admin UI: reimagined the insecure-host navbar quick action into `Active Windows`, which now appears only when at least one insecure host window is currently enabled; the modal now lists only active hosts for quick disable, keeps allowed-domain revoke controls, removes the old enable/extend flow, and cache-bumps `dashboard.js`.
