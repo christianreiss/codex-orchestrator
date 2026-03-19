@@ -165,25 +165,44 @@ print_doctor_report() {
     local config_parse_err=""
     config_parse_err="$(python3 -c "
 import sys
+path = sys.argv[1]
+method = 'heuristic'
 try:
-    content = open(sys.argv[1], 'r').read()
-    # Minimal TOML validation: check for unclosed brackets and basic structure
-    bracket_depth = 0
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.startswith('#') or not stripped:
-            continue
-        if stripped.startswith('['):
-            if not stripped.endswith(']'):
-                print('unclosed table header: ' + stripped)
-                sys.exit(1)
-    print('ok')
-except Exception as e:
-    print(str(e))
-    sys.exit(1)
+    import tomllib
+    method = 'tomllib'
+except ImportError:
+    try:
+        import tomli as tomllib
+        method = 'tomllib'
+    except ImportError:
+        tomllib = None
+if tomllib is not None:
+    try:
+        with open(path, 'rb') as fh:
+            tomllib.load(fh)
+        print('ok:' + method)
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
+else:
+    try:
+        content = open(path, 'r').read()
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('#') or not stripped:
+                continue
+            if stripped.startswith('['):
+                if not stripped.endswith(']'):
+                    print('unclosed table header: ' + stripped)
+                    sys.exit(1)
+        print('ok:' + method)
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
 " "$CONFIG_PATH" 2>&1)" || config_parse_err="parse error"
-    if [[ "$config_parse_err" == "ok" ]]; then
-      config_validity_label="valid ✅"
+    if [[ "$config_parse_err" == ok:* ]]; then
+      local toml_method="${config_parse_err#ok:}"
+      config_validity_label="valid (${toml_method}) ✅"
     else
       config_validity_label="$(colorize "parse error: ${config_parse_err}" "red")"
       failures=$(( failures + 1 ))
@@ -213,6 +232,28 @@ except Exception as e:
     fi
   fi
 
+  local cron_label="n/a"
+  if command -v crontab >/dev/null 2>&1; then
+    local cdx_real_path=""
+    cdx_real_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+    local cron_marker=""
+    cron_marker="$(cron_managed_marker)"
+    local current_crontab=""
+    current_crontab="$(crontab -l 2>/dev/null || true)"
+    local quoted_cdx_path=""
+    printf -v quoted_cdx_path '%q' "$cdx_real_path"
+    if cron_has_wrapper_entry "$current_crontab" "$cdx_real_path" "$quoted_cdx_path" "$cron_marker"; then
+      cron_label="installed ✅"
+    else
+      if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+        cron_label="$(colorize "not installed (server expects cron)" "yellow")"
+        hints+=("Auto-update cron is expected by the server but not installed. Run: cdx --cron install")
+      else
+        cron_label="not installed"
+      fi
+    fi
+  fi
+
   local api_latency_label=""
   if [[ "$api_probe_elapsed_ms" =~ ^[0-9]+$ ]]; then
     if (( api_probe_elapsed_ms > 5000 )); then
@@ -227,7 +268,13 @@ except Exception as e:
 
   local cli_bits=(
     "version=${LOCAL_VERSION:-unknown}"
+    "wrapper=${WRAPPER_VERSION}"
   )
+  local boot_elapsed=""
+  boot_elapsed="$(cdx_elapsed_ms "$CDX_BOOT_START_NS")"
+  if [[ -n "$boot_elapsed" ]]; then
+    cli_bits+=("boot=${boot_elapsed}ms")
+  fi
   if (( CODEX_SSH_INTERACTIVE )); then
     if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
       cli_bits+=("ssh-launch=pty-forced")
@@ -247,6 +294,7 @@ except Exception as e:
     log_info "$(format_simple_row "Doctor lat" "$api_latency_label")"
   fi
   log_info "$(format_simple_row "Doctor disk" "$disk_label")"
+  log_info "$(format_simple_row "Doctor cron" "$cron_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
   log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"

@@ -778,7 +778,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.19-01"
+WRAPPER_VERSION="2026.03.19-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -1319,6 +1319,14 @@ case "${1-}" in
 esac
 
 if (( CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )) && (( $# > 0 )); then
+  if is_help_flag "${1-}"; then
+    if (( CODEX_STATUS_ONLY )); then
+      printf 'Usage: cdx [--debug] status\n\nShow sync/update summary without launching Codex. Exit 0 on success, 1 on error.\n'
+    else
+      printf 'Usage: cdx [--debug] doctor\n\nRun diagnostic checks: deps, auth, sync, API probe, disk, cron, PTY, SSH hints.\n'
+    fi
+    exit 0
+  fi
   if (( CODEX_STATUS_ONLY )); then
     printf 'Usage: cdx [--debug] status\n' >&2
   else

@@ -112,73 +112,40 @@ cron_do_api_call() {
   local json_payload="$2"
   local action_label="$3"
   CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
-import json, os, socket, ssl, sys, urllib.error, urllib.request
+import json, os, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig = socket.getaddrinfo
-    def _force_v4(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_v4
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 url = sys.argv[1]
 payload_json = sys.argv[2]
 action = sys.argv[3]
 cafile = sys.argv[4] if len(sys.argv) > 4 else ""
-allow_insecure = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower() in ("1", "true", "yes")
+allow_insecure_raw = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower()
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
-body = payload_json.encode("utf-8")
-headers = {"Content-Type": "application/json", "X-API-Key": api_key}
-req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-
-contexts = []
-primary = ssl.create_default_context()
-if cafile:
-    try:
-        primary.load_verify_locations(cafile)
-    except Exception:
-        primary = None
-if primary is not None:
-    try:
-        primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    except AttributeError:
-        pass
-    contexts.append(primary)
+payload = json.loads(payload_json)
 try:
-    fallback = ssl.create_default_context()
-    fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    contexts.append(fallback)
-except Exception:
-    pass
-if allow_insecure:
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
-if not contexts:
-    contexts = [None]
-
-last_err = None
-for ctx in contexts:
-    try:
-        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-            data = json.load(resp)
-            json.dump(data, sys.stdout, separators=(",", ":"))
-            sys.exit(0)
-    except urllib.error.HTTPError as exc:
-        msg = ""
-        try:
-            msg = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            pass
-        print(f"{action} failed ({exc.code}): {msg}", file=sys.stderr)
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("python-http-util-missing")
+    os.environ["CODEX_SYNC_ALLOW_INSECURE"] = allow_insecure_raw
+    data = cdx_request_json(
+        "POST", url, api_key,
+        cafile=cafile, payload=payload, timeout=30,
+        allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE",
+    )
+    json.dump(data, sys.stdout, separators=(",", ":"))
+    sys.exit(0)
+except RuntimeError as exc:
+    msg = str(exc)
+    if msg.startswith("http-"):
+        print(f"{action} failed ({msg})", file=sys.stderr)
         sys.exit(2)
-    except Exception as exc:
-        last_err = exc
-        continue
-
-print(f"{action} failed: {last_err}", file=sys.stderr)
-sys.exit(3)
+    print(f"{action} failed: {msg}", file=sys.stderr)
+    sys.exit(3)
 PY
 }
 

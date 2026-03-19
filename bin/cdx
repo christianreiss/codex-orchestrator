@@ -778,7 +778,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.19-01"
+WRAPPER_VERSION="2026.03.19-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -1319,6 +1319,14 @@ case "${1-}" in
 esac
 
 if (( CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )) && (( $# > 0 )); then
+  if is_help_flag "${1-}"; then
+    if (( CODEX_STATUS_ONLY )); then
+      printf 'Usage: cdx [--debug] status\n\nShow sync/update summary without launching Codex. Exit 0 on success, 1 on error.\n'
+    else
+      printf 'Usage: cdx [--debug] doctor\n\nRun diagnostic checks: deps, auth, sync, API probe, disk, cron, PTY, SSH hints.\n'
+    fi
+    exit 0
+  fi
   if (( CODEX_STATUS_ONLY )); then
     printf 'Usage: cdx [--debug] status\n' >&2
   else
@@ -5854,73 +5862,40 @@ cron_do_api_call() {
   local json_payload="$2"
   local action_label="$3"
   CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
-import json, os, socket, ssl, sys, urllib.error, urllib.request
+import json, os, sys
 
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig = socket.getaddrinfo
-    def _force_v4(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_v4
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 url = sys.argv[1]
 payload_json = sys.argv[2]
 action = sys.argv[3]
 cafile = sys.argv[4] if len(sys.argv) > 4 else ""
-allow_insecure = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower() in ("1", "true", "yes")
+allow_insecure_raw = (sys.argv[5] if len(sys.argv) > 5 else "").strip().lower()
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
-body = payload_json.encode("utf-8")
-headers = {"Content-Type": "application/json", "X-API-Key": api_key}
-req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-
-contexts = []
-primary = ssl.create_default_context()
-if cafile:
-    try:
-        primary.load_verify_locations(cafile)
-    except Exception:
-        primary = None
-if primary is not None:
-    try:
-        primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    except AttributeError:
-        pass
-    contexts.append(primary)
+payload = json.loads(payload_json)
 try:
-    fallback = ssl.create_default_context()
-    fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    contexts.append(fallback)
-except Exception:
-    pass
-if allow_insecure:
-    try:
-        contexts.append(ssl._create_unverified_context())
-    except Exception:
-        pass
-if not contexts:
-    contexts = [None]
-
-last_err = None
-for ctx in contexts:
-    try:
-        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-            data = json.load(resp)
-            json.dump(data, sys.stdout, separators=(",", ":"))
-            sys.exit(0)
-    except urllib.error.HTTPError as exc:
-        msg = ""
-        try:
-            msg = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            pass
-        print(f"{action} failed ({exc.code}): {msg}", file=sys.stderr)
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("python-http-util-missing")
+    os.environ["CODEX_SYNC_ALLOW_INSECURE"] = allow_insecure_raw
+    data = cdx_request_json(
+        "POST", url, api_key,
+        cafile=cafile, payload=payload, timeout=30,
+        allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE",
+    )
+    json.dump(data, sys.stdout, separators=(",", ":"))
+    sys.exit(0)
+except RuntimeError as exc:
+    msg = str(exc)
+    if msg.startswith("http-"):
+        print(f"{action} failed ({msg})", file=sys.stderr)
         sys.exit(2)
-    except Exception as exc:
-        last_err = exc
-        continue
-
-print(f"{action} failed: {last_err}", file=sys.stderr)
-sys.exit(3)
+    print(f"{action} failed: {msg}", file=sys.stderr)
+    sys.exit(3)
 PY
 }
 
@@ -6128,12 +6103,14 @@ fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
   CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
-import json, os, socket, sys, time, urllib.request
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+import json, os, sys, time, urllib.request
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
 url = sys.argv[1]
 wanted = sys.argv[2]
 headers = {
@@ -7760,25 +7737,44 @@ print_doctor_report() {
     local config_parse_err=""
     config_parse_err="$(python3 -c "
 import sys
+path = sys.argv[1]
+method = 'heuristic'
 try:
-    content = open(sys.argv[1], 'r').read()
-    # Minimal TOML validation: check for unclosed brackets and basic structure
-    bracket_depth = 0
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.startswith('#') or not stripped:
-            continue
-        if stripped.startswith('['):
-            if not stripped.endswith(']'):
-                print('unclosed table header: ' + stripped)
-                sys.exit(1)
-    print('ok')
-except Exception as e:
-    print(str(e))
-    sys.exit(1)
+    import tomllib
+    method = 'tomllib'
+except ImportError:
+    try:
+        import tomli as tomllib
+        method = 'tomllib'
+    except ImportError:
+        tomllib = None
+if tomllib is not None:
+    try:
+        with open(path, 'rb') as fh:
+            tomllib.load(fh)
+        print('ok:' + method)
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
+else:
+    try:
+        content = open(path, 'r').read()
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('#') or not stripped:
+                continue
+            if stripped.startswith('['):
+                if not stripped.endswith(']'):
+                    print('unclosed table header: ' + stripped)
+                    sys.exit(1)
+        print('ok:' + method)
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
 " "$CONFIG_PATH" 2>&1)" || config_parse_err="parse error"
-    if [[ "$config_parse_err" == "ok" ]]; then
-      config_validity_label="valid ✅"
+    if [[ "$config_parse_err" == ok:* ]]; then
+      local toml_method="${config_parse_err#ok:}"
+      config_validity_label="valid (${toml_method}) ✅"
     else
       config_validity_label="$(colorize "parse error: ${config_parse_err}" "red")"
       failures=$(( failures + 1 ))
@@ -7808,6 +7804,28 @@ except Exception as e:
     fi
   fi
 
+  local cron_label="n/a"
+  if command -v crontab >/dev/null 2>&1; then
+    local cdx_real_path=""
+    cdx_real_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+    local cron_marker=""
+    cron_marker="$(cron_managed_marker)"
+    local current_crontab=""
+    current_crontab="$(crontab -l 2>/dev/null || true)"
+    local quoted_cdx_path=""
+    printf -v quoted_cdx_path '%q' "$cdx_real_path"
+    if cron_has_wrapper_entry "$current_crontab" "$cdx_real_path" "$quoted_cdx_path" "$cron_marker"; then
+      cron_label="installed ✅"
+    else
+      if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+        cron_label="$(colorize "not installed (server expects cron)" "yellow")"
+        hints+=("Auto-update cron is expected by the server but not installed. Run: cdx --cron install")
+      else
+        cron_label="not installed"
+      fi
+    fi
+  fi
+
   local api_latency_label=""
   if [[ "$api_probe_elapsed_ms" =~ ^[0-9]+$ ]]; then
     if (( api_probe_elapsed_ms > 5000 )); then
@@ -7822,7 +7840,13 @@ except Exception as e:
 
   local cli_bits=(
     "version=${LOCAL_VERSION:-unknown}"
+    "wrapper=${WRAPPER_VERSION}"
   )
+  local boot_elapsed=""
+  boot_elapsed="$(cdx_elapsed_ms "$CDX_BOOT_START_NS")"
+  if [[ -n "$boot_elapsed" ]]; then
+    cli_bits+=("boot=${boot_elapsed}ms")
+  fi
   if (( CODEX_SSH_INTERACTIVE )); then
     if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
       cli_bits+=("ssh-launch=pty-forced")
@@ -7842,6 +7866,7 @@ except Exception as e:
     log_info "$(format_simple_row "Doctor lat" "$api_latency_label")"
   fi
   log_info "$(format_simple_row "Doctor disk" "$disk_label")"
+  log_info "$(format_simple_row "Doctor cron" "$cron_label")"
   log_info "$(format_simple_row "Doctor pty" "$pty_label")"
   log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
   log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"

@@ -3,12 +3,14 @@ fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
   CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
-import json, os, socket, sys, time, urllib.request
-if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    socket.getaddrinfo = _force_getaddrinfo
+import json, os, sys, time, urllib.request
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
 url = sys.argv[1]
 wanted = sys.argv[2]
 headers = {
