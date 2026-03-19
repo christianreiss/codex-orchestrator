@@ -15,6 +15,7 @@
     const navThemeMenuPanel = document.getElementById('navThemeMenuPanel');
     const themeOptions = Array.from(document.querySelectorAll('[data-theme-option]'));
     const newHostName = document.getElementById('new-host-name');
+    const newHostError = document.getElementById('newHostError');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
@@ -168,6 +169,11 @@
     const accessBlockTitle = document.getElementById('accessBlockTitle');
     const accessBlockBody = document.getElementById('accessBlockBody');
     const accessBlockDismiss = document.getElementById('accessBlockDismiss');
+    const confirmModal = document.getElementById('confirmModal');
+    const confirmModalTitle = document.getElementById('confirmModalTitle');
+    const confirmModalBody = document.getElementById('confirmModalBody');
+    const confirmModalCancel = document.getElementById('confirmModalCancel');
+    const confirmModalConfirm = document.getElementById('confirmModalConfirm');
     const insecureApprovalModal = document.getElementById('insecureApprovalModal');
     const insecureApprovalSubtitle = document.getElementById('insecureApprovalSubtitle');
     const insecureApprovalHost = document.getElementById('insecureApprovalHost');
@@ -882,6 +888,41 @@
       });
     }
 
+    window.__toast = pushToast;
+
+    function setInertBehindModal(backdropEl, state) {
+      document.querySelector('.editorial-rail')?.toggleAttribute('inert', state);
+      document.getElementById('navDrawerBackdrop')?.toggleAttribute('inert', state);
+      if (!backdropEl?.parentElement) return;
+      for (const child of backdropEl.parentElement.children) {
+        if (child === backdropEl || child.classList.contains('modal-backdrop')) continue;
+        child.toggleAttribute('inert', state);
+      }
+    }
+
+    let confirmResolve = null;
+    function showConfirmModal(title, body, { action = 'Confirm', warn = true } = {}) {
+      return new Promise((resolve) => {
+        confirmResolve = resolve;
+        if (confirmModalTitle) confirmModalTitle.textContent = title;
+        if (confirmModalBody) confirmModalBody.textContent = body;
+        if (confirmModalConfirm) {
+          confirmModalConfirm.textContent = action;
+          confirmModalConfirm.className = warn ? 'btn-warn' : '';
+        }
+        confirmModal?.classList.add('show');
+        setInertBehindModal(confirmModal, true);
+      });
+    }
+    function closeConfirmModal(result) {
+      confirmModal?.classList.remove('show');
+      setInertBehindModal(confirmModal, false);
+      if (confirmResolve) { confirmResolve(result); confirmResolve = null; }
+    }
+    if (confirmModalCancel) confirmModalCancel.addEventListener('click', () => closeConfirmModal(false));
+    if (confirmModalConfirm) confirmModalConfirm.addEventListener('click', () => closeConfirmModal(true));
+    window.__confirm = showConfirmModal;
+
     function toastFromEvent(eventOrPayload) {
       if (!eventOrPayload || typeof eventOrPayload !== 'object') return;
       const payload = (eventOrPayload.payload && typeof eventOrPayload.payload === 'object')
@@ -1086,10 +1127,12 @@
       if (accessBlockTitle && title) accessBlockTitle.textContent = title;
       if (accessBlockBody && body) accessBlockBody.textContent = body;
       accessBlockModal.classList.add('show');
+      setInertBehindModal(accessBlockModal, true);
     }
 
     function hideAccessBlock() {
       accessBlockModal?.classList.remove('show');
+      setInertBehindModal(accessBlockModal, false);
     }
 
     function maybeShowAccessBlock() {
@@ -1108,8 +1151,10 @@
       if (!insecureApprovalModal) return;
       if (show) {
         insecureApprovalModal.classList.add('show');
+        setInertBehindModal(insecureApprovalModal, true);
       } else {
         insecureApprovalModal.classList.remove('show');
+        setInertBehindModal(insecureApprovalModal, false);
       }
     }
 
@@ -2457,10 +2502,9 @@
           if (action === 'install') {
             regenerateInstaller(host.fqdn, host.id);
           } else if (action === 'clear') {
-            if (!confirm(`Clear auth for ${host.fqdn}?`)) return;
+            if (!await showConfirmModal('Clear auth', `Clear auth for ${host.fqdn}?`, { action: 'Clear' })) return;
             confirmClear(host.id);
           } else if (action === 'remove') {
-            if (!confirm(`Remove ${host.fqdn}? This cannot be undone.`)) return;
             openDeleteModal(host.id);
           }
         };
@@ -3522,13 +3566,13 @@
           const recordId = btn.getAttribute('data-delete-record-id');
           const memoryKey = btn.getAttribute('data-memory-key') || recordId;
           const label = memoryKey ? `memory ${memoryKey}` : `record #${recordId}`;
-          if (!recordId || !confirm(`Delete ${label}? This cannot be undone.`)) return;
+          if (!recordId || !await showConfirmModal('Delete memory', `Delete ${label}? This cannot be undone.`, { action: 'Delete' })) return;
           try {
             btn.disabled = true;
             await api(`/admin/mcp/memories/${encodeURIComponent(recordId)}`, 'DELETE');
             await loadMemories();
           } catch (err) {
-            alert(err.message || 'Delete failed');
+            toast(err.message || 'Delete failed', 'error');
             btn.disabled = false;
           }
         });
@@ -4088,8 +4132,10 @@
       if (!usageHistoryModal) return;
       if (show) {
         usageHistoryModal.classList.add('show');
+        setInertBehindModal(usageHistoryModal, true);
       } else {
         usageHistoryModal.classList.remove('show');
+        setInertBehindModal(usageHistoryModal, false);
       }
     }
 
@@ -4482,8 +4528,10 @@
       if (!costHistoryModal) return;
       if (show) {
         costHistoryModal.classList.add('show');
+        setInertBehindModal(costHistoryModal, true);
       } else {
         costHistoryModal.classList.remove('show');
+        setInertBehindModal(costHistoryModal, false);
       }
     }
 
@@ -5508,8 +5556,10 @@
       if (!seedModal) return;
       if (show) {
         seedModal.classList.add('show');
+        setInertBehindModal(seedModal, true);
       } else {
         seedModal.classList.remove('show');
+        setInertBehindModal(seedModal, false);
       }
     }
 
@@ -6886,8 +6936,10 @@
       if (!upgradeModal) return;
       if (show) {
         upgradeModal.classList.add('show');
+        setInertBehindModal(upgradeModal, true);
       } else {
         upgradeModal.classList.remove('show');
+        setInertBehindModal(upgradeModal, false);
       }
     }
 
@@ -7089,6 +7141,7 @@
     function closeInsecureHostsModal() {
       if (!insecureHostsModal) return;
       insecureHostsModal.classList.remove('show');
+      setInertBehindModal(insecureHostsModal, false);
       if (insecureHostsList) insecureHostsList.innerHTML = '';
       if (insecureDomainsList) insecureDomainsList.innerHTML = '';
       insecureModalOpen = false;
@@ -7180,6 +7233,7 @@
       }
 
       insecureHostsModal.classList.add('show');
+      setInertBehindModal(insecureHostsModal, true);
       insecureModalOpen = true;
       refreshInsecureHostsCountdowns();
       if (insecureModalCountdownTimer) {
@@ -7195,7 +7249,7 @@
         const insecureDomains = resp?.data?.domains || [];
         openInsecureHostsModal(insecureHosts, insecureDomains);
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       }
     }
 
@@ -7305,7 +7359,7 @@
         await api('/admin/versions/check', { method: 'POST' });
         await loadAll();
       } catch (err) {
-        alert(`Version check failed: ${err.message}`);
+        toast(`Version check failed: ${err.message}`, 'error');
       } finally {
         versionCheckBtn.disabled = false;
         versionCheckBtn.textContent = original;
@@ -7323,7 +7377,7 @@
         return res?.data ?? null;
       } catch (err) {
         if (logFn) logFn(`Runner failed: ${err.message}`, 'err');
-        else alert(`Runner failed: ${err.message}`);
+        else toast(`Runner failed: ${err.message}`, 'error');
         throw err;
       }
     }
@@ -7332,10 +7386,12 @@
       if (!runnerModal) return;
       if (show) {
         runnerModal.classList.add('show');
+        setInertBehindModal(runnerModal, true);
         resetRunnerLog();
         setRunnerMeta(runnerSummary, null);
       } else {
         runnerModal.classList.remove('show');
+        setInertBehindModal(runnerModal, false);
       }
     }
 
@@ -7343,8 +7399,10 @@
       if (!promptModal) return;
       if (show) {
         promptModal.classList.add('show');
+        setInertBehindModal(promptModal, true);
       } else {
         promptModal.classList.remove('show');
+        setInertBehindModal(promptModal, false);
         if (promptStatus) promptStatus.textContent = '';
       }
     }
@@ -7469,11 +7527,13 @@
       if (agentsDeleteStatus) agentsDeleteStatus.textContent = '';
       renderAgentsDeleteHostsList(pendingAgentsDeleteHosts);
       agentsDeleteModal.classList.add('show');
+      setInertBehindModal(agentsDeleteModal, true);
     }
 
     function closeAgentsDeleteModal() {
       if (!agentsDeleteModal) return;
       agentsDeleteModal.classList.remove('show');
+      setInertBehindModal(agentsDeleteModal, false);
       pendingAgentsDeleteId = null;
       pendingAgentsDeleteHosts = [];
       if (agentsDeleteStatus) agentsDeleteStatus.textContent = '';
@@ -7526,7 +7586,7 @@
         openAgentsDeleteModal(id, affectedHosts);
         return;
       }
-      if (!confirm(`Delete AGENTS.md version #${id}? This cannot be undone.`)) {
+      if (!await showConfirmModal('Delete version', `Delete AGENTS.md version #${id}? This cannot be undone.`, { action: 'Delete' })) {
         return;
       }
       if (agentsStatus) agentsStatus.textContent = `Deleting v${id}…`;
@@ -7571,14 +7631,14 @@
 
     async function retirePrompt(filename) {
       if (!filename) return;
-      if (!confirm(`Retire slash command "${filename}"? This removes it from hosts on next sync.`)) {
+      if (!await showConfirmModal('Retire command', `Retire slash command "${filename}"? This removes it from hosts on next sync.`, { action: 'Retire' })) {
         return;
       }
       try {
         await api(`/admin/slash-commands/${encodeURIComponent(filename)}`, { method: 'DELETE' });
         await loadAll();
       } catch (err) {
-        alert(`Retire failed: ${err.message}`);
+        toast(`Retire failed: ${err.message}`, 'error');
       }
     }
 
@@ -7616,8 +7676,10 @@
       if (!skillModal) return;
       if (show) {
         skillModal.classList.add('show');
+        setInertBehindModal(skillModal, true);
       } else {
         skillModal.classList.remove('show');
+        setInertBehindModal(skillModal, false);
       }
     }
 
@@ -7730,7 +7792,7 @@
     async function deleteSkill(slug, options = {}) {
       if (!slug) return;
       const fromModal = options?.fromModal === true;
-      if (!confirm(`Delete skill "${slug}"? Hosts remove it on next sync.`)) {
+      if (!await showConfirmModal('Delete skill', `Delete skill "${slug}"? Hosts remove it on next sync.`, { action: 'Delete' })) {
         return;
       }
       if (fromModal && skillStatus) {
@@ -7749,7 +7811,7 @@
         if (fromModal && skillStatus) {
           skillStatus.textContent = `Delete failed: ${err.message}`;
         } else {
-          alert(`Delete failed: ${err.message}`);
+          toast(`Delete failed: ${err.message}`, 'error');
         }
       } finally {
         if (skillDelete) skillDelete.disabled = false;
@@ -8293,15 +8355,28 @@
         if (e.target === agentsDeleteModal) closeAgentsDeleteModal();
       });
     }
+    const modalCloseMap = new Map([
+      [newHostModal,          () => showNewHostModal(false)],
+      [uploadModal,           () => showUploadModal(false)],
+      [insecureHostsModal,    () => closeInsecureHostsModal()],
+      [deleteHostModal,       () => closeDeleteModal()],
+      [agentsDeleteModal,     () => closeAgentsDeleteModal()],
+      [runnerModal,           () => showRunnerModal(false)],
+      [promptModal,           () => showPromptModal(false)],
+      [skillModal,            () => showSkillModal(false)],
+      [upgradeModal,          () => showUpgradeNotesModal(false)],
+      [usageHistoryModal,     () => showUsageHistoryModal(false)],
+      [costHistoryModal,      () => showCostHistoryModal(false)],
+      [seedModal,             () => showSeedModal(false)],
+      [insecureApprovalModal, () => denyInsecureApproval()],
+      [confirmModal,          () => closeConfirmModal(false)],
+    ]);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && agentsDeleteModal?.classList.contains('show')) {
-        e.preventDefault();
-        closeAgentsDeleteModal();
-      }
-      if (e.key === 'Escape' && insecureApprovalModal?.classList.contains('show')) {
-        e.preventDefault();
-        denyInsecureApproval();
-      }
+      if (e.key !== 'Escape') return;
+      const open = document.querySelector('.modal-backdrop.show');
+      if (!open) return;
+      const closeFn = modalCloseMap.get(open);
+      if (closeFn) { e.preventDefault(); closeFn(); }
     });
     if (runnerModal) {
       runnerModal.addEventListener('click', (e) => {
@@ -8490,6 +8565,7 @@
     applyRouting(); // ensure deep links after query param normalization
 
     function resetNewHostForm({ focusInput = false } = {}) {
+      if (newHostError) { newHostError.textContent = ''; newHostError.classList.remove('show'); }
       if (commandField) {
         commandField.style.display = 'none';
       }
@@ -8525,9 +8601,11 @@
       if (!newHostModal) return;
       if (show) {
         newHostModal.classList.add('show');
+        setInertBehindModal(newHostModal, true);
         if (reset) resetNewHostForm({ focusInput });
       } else {
         newHostModal.classList.remove('show');
+        setInertBehindModal(newHostModal, false);
         if (reset) resetNewHostForm();
       }
     }
@@ -8536,6 +8614,7 @@
       if (!uploadModal) return;
       if (show) {
         uploadModal.classList.add('show');
+        setInertBehindModal(uploadModal, true);
         uploadAuthText.value = '';
         uploadAuthFile.value = '';
         uploadFileContent = '';
@@ -8551,13 +8630,14 @@
         if (uploadStatus) uploadStatus.textContent = '';
       } else {
         uploadModal.classList.remove('show');
+        setInertBehindModal(uploadModal, false);
       }
     }
 
     async function createHost() {
       const fqdn = newHostName.value.trim();
       if (!fqdn) {
-        alert('Please enter a host name');
+        if (newHostError) { newHostError.textContent = 'Please enter a host name'; newHostError.classList.add('show'); }
         return;
       }
       await regenerateInstaller(fqdn);
@@ -8566,7 +8646,7 @@
     async function regenerateInstaller(fqdn, hostId = null) {
       const targetFqdn = fqdn || newHostName.value.trim();
       if (!targetFqdn) {
-        alert('Please enter a host name');
+        if (newHostError) { newHostError.textContent = 'Please enter a host name'; newHostError.classList.add('show'); }
         return;
       }
       const existingHost = hostId ? currentHosts.find(h => h.id === hostId) : null;
@@ -8652,7 +8732,7 @@
         await loadAll();
       } catch (err) {
         const msg = err?.message || String(err);
-        alert(`Installer generation failed: ${msg}`);
+        toast(`Installer generation failed: ${msg}`, 'error');
       } finally {
         if (createHostBtn) {
           createHostBtn.disabled = false;
@@ -8679,14 +8759,14 @@
     async function submitAuthUpload() {
       const raw = uploadAuthText?.value?.trim() || uploadFileContent || '';
       if (!raw) {
-        alert('Paste auth.json or choose a file first');
+        toast('Paste auth.json or choose a file first', 'warn');
         return;
       }
       let parsed;
       try {
         parsed = JSON.parse(raw);
       } catch (err) {
-        alert(`Invalid JSON: ${err.message}`);
+        toast(`Invalid JSON: ${err.message}`, 'error');
         return;
       }
       const selectedHost = uploadHostSelect?.value || 'system';
@@ -8708,7 +8788,7 @@
         if (uploadStatus) uploadStatus.textContent = message;
         await loadAll();
       } catch (err) {
-        alert(`Upload failed: ${err.message}`);
+        toast(`Upload failed: ${err.message}`, 'error');
       } finally {
         uploadAuthSubmit.disabled = false;
         uploadAuthSubmit.textContent = originalText;
@@ -8738,7 +8818,7 @@
         }
         if (cmd) toast('Seed command ready.', 'ok');
       } catch (err) {
-        alert(`Seed command failed: ${err.message}`);
+        toast(`Seed command failed: ${err.message}`, 'error');
       } finally {
         seedCommandBtn.disabled = false;
         seedCommandBtn.textContent = originalText;
@@ -8753,10 +8833,12 @@
         deleteHostText.textContent = `Remove ${name}? This cannot be undone.`;
       }
       deleteHostModal?.classList.add('show');
+      setInertBehindModal(deleteHostModal, true);
     }
 
     function closeDeleteModal() {
       deleteHostModal?.classList.remove('show');
+      setInertBehindModal(deleteHostModal, false);
       pendingDeleteId = null;
     }
 
@@ -8772,7 +8854,7 @@
         await loadAll();
         closeDeleteModal();
       } catch (err) {
-        alert(`Remove failed: ${err.message}`);
+        toast(`Remove failed: ${err.message}`, 'error');
       } finally {
         if (btn) {
           btn.disabled = false;
@@ -8788,14 +8870,14 @@
         await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       }
     }
 
     async function toggleRoaming(id, allowState = null) {
       const host = currentHosts.find(h => h.id === id);
       if (!host) {
-        alert('Host not found');
+        toast('Host not found', 'warn');
         return;
       }
       const targetState = typeof allowState === 'boolean' ? allowState : !host.allow_roaming_ips;
@@ -8806,14 +8888,14 @@
         });
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       }
     }
 
     async function toggleSecurity(id, secureState = null) {
       const host = currentHosts.find(h => h.id === id);
       if (!host) {
-        alert('Host not found');
+        toast('Host not found', 'warn');
         return;
       }
       const targetSecure = typeof secureState === 'boolean' ? secureState : !isHostSecure(host);
@@ -8824,13 +8906,13 @@
         });
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       }
     }
 
     async function toggleVip(host, button = null, desiredState = null) {
       if (!host) {
-        alert('Host not found');
+        toast('Host not found', 'warn');
         return;
       }
       const target = typeof desiredState === 'boolean' ? desiredState : !host.vip;
@@ -8846,7 +8928,7 @@
         });
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       } finally {
         if (button) {
           button.disabled = false;
@@ -8873,7 +8955,7 @@
         });
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       }
     }
 
@@ -8922,7 +9004,7 @@
 
     async function toggleIpv4(host, button = null, desiredState = null) {
       if (!host) {
-        alert('Host not found');
+        toast('Host not found', 'warn');
         return;
       }
       const target = typeof desiredState === 'boolean' ? desiredState : !host.force_ipv4;
@@ -8938,7 +9020,7 @@
         });
         await loadAll();
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        toast(err.message, 'error');
       } finally {
         if (button) {
           button.disabled = false;

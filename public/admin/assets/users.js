@@ -353,7 +353,7 @@
     if (action === 'edit') {
       openModal(user);
     } else if (action === 'delete') {
-      if (!confirm(`Delete user ${user.username}?`)) return;
+      if (!window.__confirm || !await window.__confirm('Delete user', `Delete user ${user.username}?`, { action: 'Delete' })) return;
       try {
         await api(`/admin/users/${id}`, { method: 'DELETE' });
         users = users.filter((u) => u.id !== id);
@@ -380,6 +380,12 @@
     } catch (err) {
       showError(wipeError, err.message);
     }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (modal?.classList.contains('show')) { e.preventDefault(); closeModal(); return; }
+    if (wipeModal?.classList.contains('show')) { e.preventDefault(); closeWipeModal(); return; }
   });
 
   init();

@@ -120,8 +120,19 @@
       </nav>
 
       <main class="main">
+        <!-- Generic confirm modal -->
+        <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true">
+          <div class="modal confirm-modal">
+            <h3 id="confirmModalTitle">Confirm</h3>
+            <p id="confirmModalBody"></p>
+            <div class="actions">
+              <button class="ghost" id="confirmModalCancel">Cancel</button>
+              <button class="btn-warn" id="confirmModalConfirm">Confirm</button>
+            </div>
+          </div>
+        </div>
         <!-- Modals (from legacy hosts/settings) -->
-        <div class="modal-backdrop" id="seedModal">
+        <div class="modal-backdrop" id="seedModal" role="dialog" aria-modal="true">
           <div class="modal seed-modal">
             <h3>Initial seeding required</h3>
             <p class="muted" id="seedModalCopy">This installation has no hosts or canonical auth.json yet. Seed auth.json before issuing installers.</p>
@@ -135,13 +146,14 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="newHostModal">
+        <div class="modal-backdrop" id="newHostModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>New Host</h3>
             <p>Issue a one-time installer link for this FQDN. The API key is baked in and bound to this host on first contact.</p>
             <div class="field">
               <label for="new-host-name" style="font-weight:600;">Host FQDN</label>
               <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
+              <div class="auth-error" id="newHostError" role="alert"></div>
             </div>
             <div class="field">
               <label class="toggle state-toggle" for="secureHostToggle">
@@ -195,7 +207,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="uploadModal">
+        <div class="modal-backdrop" id="uploadModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Seed auth.json</h3>
             <p>Paste or choose an auth.json; it will be validated via the runner and stored as canonical.</p>
@@ -229,7 +241,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="insecureHostsModal">
+        <div class="modal-backdrop" id="insecureHostsModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Active windows</h3>
             <p class="muted">Currently enabled insecure host windows for quick disabling.</p>
@@ -245,7 +257,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="deleteHostModal">
+        <div class="modal-backdrop" id="deleteHostModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Remove host</h3>
             <p id="delete-host-text" class="muted"></p>
@@ -255,7 +267,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="projectDeleteModal">
+        <div class="modal-backdrop" id="projectDeleteModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Delete project</h3>
             <p id="projectDeleteText" class="muted">This removes the project and all of its shared notes, todos, files, feedback, and history.</p>
@@ -265,7 +277,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="agentsDeleteModal">
+        <div class="modal-backdrop" id="agentsDeleteModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Delete AGENTS.md version</h3>
             <p id="agentsDeleteIntro" class="muted"></p>
@@ -285,7 +297,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="runnerModal">
+        <div class="modal-backdrop" id="runnerModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Auth runner</h3>
             <p class="muted">Manual runner invocation with live output and the final decision.</p>
@@ -296,7 +308,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="upgradeModal">
+        <div class="modal-backdrop" id="upgradeModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Codex Upgrade Notes</h3>
             <p class="muted" id="upgradeVersionLabel"></p>
@@ -307,7 +319,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="promptModal">
+        <div class="modal-backdrop" id="promptModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Slash command</h3>
             <div class="field">
@@ -332,7 +344,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="skillModal">
+        <div class="modal-backdrop" id="skillModal" role="dialog" aria-modal="true">
           <div class="modal skill-modal">
             <div class="modal-head">
               <div>
@@ -393,7 +405,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="accessBlockModal">
+        <div class="modal-backdrop" id="accessBlockModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3 id="accessBlockTitle">Admin access blocked</h3>
             <p class="muted" id="accessBlockBody">mTLS is required before continuing.</p>
@@ -402,7 +414,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="insecureApprovalModal">
+        <div class="modal-backdrop" id="insecureApprovalModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Insecure host access request</h3>
             <p class="muted" id="insecureApprovalSubtitle">An insecure host is waiting for approval.</p>
@@ -425,7 +437,7 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="usageHistoryModal">
+        <div class="modal-backdrop" id="usageHistoryModal" role="dialog" aria-modal="true">
           <div class="modal usage-history-modal">
             <div class="modal-head">
               <div>
@@ -438,7 +450,7 @@
             <div class="muted" id="usageHistoryMeta" style="margin-top:8px;"></div>
           </div>
         </div>
-        <div class="modal-backdrop" id="costHistoryModal">
+        <div class="modal-backdrop" id="costHistoryModal" role="dialog" aria-modal="true">
           <div class="modal usage-history-modal">
             <div class="modal-head">
               <div>
@@ -1800,7 +1812,7 @@
     </main>
   </div>
 
-  <div class="modal-backdrop" id="usersModal">
+  <div class="modal-backdrop" id="usersModal" role="dialog" aria-modal="true">
     <div class="modal users-modal">
       <div class="modal-head">
         <div>
@@ -1847,7 +1859,7 @@
     </div>
   </div>
 
-  <div class="modal-backdrop" id="usersWipeModal">
+  <div class="modal-backdrop" id="usersWipeModal" role="dialog" aria-modal="true">
     <div class="modal users-modal">
       <div class="modal-head">
         <div>
@@ -1867,7 +1879,7 @@
       </div>
     </div>
   </div>
-  <div class="modal-backdrop" id="logoutModal">
+  <div class="modal-backdrop" id="logoutModal" role="dialog" aria-modal="true">
     <div class="modal">
       <h3>Sign out</h3>
       <p class="muted">Sign out of this admin session?</p>

@@ -814,7 +814,7 @@
 
   async function deleteNote(id) {
     if (!currentSlug || !id) return;
-    if (!window.confirm(`Delete note #${id}?`)) return;
+    if (!window.__confirm || !await window.__confirm('Delete note', `Delete note #${id}?`, { action: 'Delete' })) return;
     if (projectNoteStatus) projectNoteStatus.textContent = 'Deleting…';
     try {
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/notes/${id}`, { method: 'DELETE' });
@@ -861,7 +861,7 @@
 
   async function deleteTodo(id) {
     if (!currentSlug || !id) return;
-    if (!window.confirm(`Delete todo #${id}?`)) return;
+    if (!window.__confirm || !await window.__confirm('Delete todo', `Delete todo #${id}?`, { action: 'Delete' })) return;
     if (projectTodoStatus) projectTodoStatus.textContent = 'Deleting…';
     try {
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/todos/${id}`, { method: 'DELETE' });
@@ -894,7 +894,7 @@
 
   async function deleteFile(id) {
     if (!currentSlug || !id) return;
-    if (!window.confirm(`Delete file #${id}?`)) return;
+    if (!window.__confirm || !await window.__confirm('Delete file', `Delete file #${id}?`, { action: 'Delete' })) return;
     if (projectFileStatus) projectFileStatus.textContent = 'Deleting…';
     try {
       await api(`/admin/projects/${encodeURIComponent(currentSlug)}/files/${id}`, { method: 'DELETE' });
@@ -955,7 +955,7 @@
       }
       await loadSettingsView();
     } catch (err) {
-      alert(`Delete failed: ${err.message}`);
+      if (window.__toast) window.__toast({ message: `Delete failed: ${err.message}`, level: 'error' });
     } finally {
       if (confirmProjectDelete) {
         confirmProjectDelete.disabled = false;
@@ -1029,6 +1029,12 @@
     if (confirmProjectDelete) {
       confirmProjectDelete.addEventListener('click', confirmDeleteProjectAction);
     }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && projectDeleteModal?.classList.contains('show')) {
+        e.preventDefault();
+        closeProjectDeleteModal();
+      }
+    });
   }
 
   function init() {

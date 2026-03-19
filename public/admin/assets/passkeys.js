@@ -103,7 +103,7 @@
 
   async function registerPasskey() {
     if (!window.PublicKeyCredential) {
-      alert('WebAuthn is not supported in this browser.');
+      if (window.__toast) window.__toast({ message: 'WebAuthn is not supported in this browser.', level: 'warn' });
       return;
     }
 
@@ -151,23 +151,16 @@
       const regRes = await api('/admin/auth/passkey/register', { method: 'POST', json: body });
       const passkey = regRes?.data?.passkey;
 
-      // Prompt for a name.
-      if (passkey?.id) {
-        const name = prompt('Give this passkey a name:', passkey.name || 'My Passkey');
-        if (name && name.trim()) {
-          try {
-            await api(`/admin/passkeys/${passkey.id}/name`, {
-              method: 'POST',
-              json: { name: name.trim() },
-            });
-          } catch (_) {}
-        }
-      }
-
       await loadPasskeys();
+
+      // Inline rename for the new passkey.
+      if (passkey?.id && tableBody) {
+        const row = tableBody.querySelector(`tr[data-passkey-id="${passkey.id}"]`);
+        if (row) startInlineRename(row, passkey.id, passkey.name || 'My Passkey');
+      }
     } catch (err) {
       if (err.name !== 'NotAllowedError') {
-        alert('Passkey registration failed: ' + (err.message || 'Unknown error'));
+        if (window.__toast) window.__toast({ message: 'Passkey registration failed: ' + (err.message || 'Unknown error'), level: 'error' });
       }
     } finally {
       registerBtn.disabled = false;
@@ -176,28 +169,52 @@
   }
 
   async function deletePasskey(id) {
-    if (!confirm('Delete this passkey?')) return;
+    if (!window.__confirm || !await window.__confirm('Delete passkey', 'Delete this passkey?', { action: 'Delete' })) return;
     try {
       await api(`/admin/passkeys/${id}`, { method: 'DELETE' });
       await loadPasskeys();
     } catch (err) {
-      alert('Failed to delete passkey: ' + (err.message || 'Unknown error'));
+      if (window.__toast) window.__toast({ message: 'Failed to delete passkey: ' + (err.message || 'Unknown error'), level: 'error' });
     }
   }
 
-  async function renamePasskey(id) {
-    const pk = passkeys.find((p) => p.id === id);
-    const name = prompt('Rename passkey:', pk?.name || '');
-    if (!name || !name.trim()) return;
-    try {
-      await api(`/admin/passkeys/${id}/name`, {
-        method: 'POST',
-        json: { name: name.trim() },
-      });
+  function startInlineRename(row, id, currentName) {
+    const cell = row?.cells?.[0];
+    if (!cell) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'inline-rename';
+    input.value = currentName;
+    cell.textContent = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+    let submitted = false;
+    async function submit() {
+      if (submitted) return;
+      submitted = true;
+      const val = input.value.trim();
+      if (val && val !== currentName) {
+        try {
+          await api(`/admin/passkeys/${id}/name`, { method: 'POST', json: { name: val } });
+        } catch (err) {
+          if (window.__toast) window.__toast({ message: 'Failed to rename passkey: ' + (err.message || 'Unknown error'), level: 'error' });
+        }
+      }
       await loadPasskeys();
-    } catch (err) {
-      alert('Failed to rename passkey: ' + (err.message || 'Unknown error'));
     }
+    input.addEventListener('blur', submit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { submitted = true; loadPasskeys(); }
+    });
+  }
+
+  async function renamePasskey(id) {
+    if (!tableBody) return;
+    const row = tableBody.querySelector(`tr[data-passkey-id="${id}"]`);
+    const pk = passkeys.find((p) => p.id === id);
+    if (row) startInlineRename(row, id, pk?.name || '');
   }
 
   if (tableBody) {
