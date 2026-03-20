@@ -136,6 +136,7 @@ Sync details:
 - Managed MCP auth is replaced with a short-lived bearer on insecure hosts, so `config.toml` does not keep a reusable coordinator credential on disk after the run.
 - Supported override models:
   - `gpt-5.4`
+  - `gpt-5.4-mini`
   - `gpt-5.3-codex`
   - `gpt-5.3-codex-spark`
   - `gpt-5.2-codex`
@@ -144,6 +145,7 @@ Sync details:
   - `gpt-5.1-codex-mini`
 - Supported reasoning effort values: `low|medium|high|xhigh`.
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
+- `gpt-5.4-mini` accepts `low|medium|high|xhigh`.
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
 - Normalization defaults include `features.apps=true` and `features.multi_agent=true` when unset.

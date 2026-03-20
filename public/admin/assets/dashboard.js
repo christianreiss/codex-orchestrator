@@ -224,6 +224,7 @@
     let pendingAgentsDeleteHosts = [];
     const HOST_MODEL_REASONING = {
       'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.2-codex': ['low', 'medium', 'high', 'xhigh'],
@@ -2462,6 +2463,7 @@
               <select id="hostModelOverrideSelect">
                 <option value="">Standard (global)</option>
                 <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.3-codex">gpt-5.3-codex</option>
                 <option value="gpt-5.3-codex-spark">gpt-5.3-codex-spark</option>
                 <option value="gpt-5.2-codex">gpt-5.2-codex</option>

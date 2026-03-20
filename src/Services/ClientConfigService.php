@@ -21,6 +21,7 @@ class ClientConfigService
     /** @var list<string> */
     public const SUPPORTED_MODELS = [
         'gpt-5.4',
+        'gpt-5.4-mini',
         'gpt-5.3-codex',
         'gpt-5.3-codex-spark',
         'gpt-5.2-codex',
@@ -32,6 +33,7 @@ class ClientConfigService
     /** @var array<string, list<string>> */
     public const MODEL_REASONING_EFFORTS = [
         'gpt-5.4' => ['low', 'medium', 'high', 'xhigh'],
+        'gpt-5.4-mini' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.3-codex' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.3-codex-spark' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.2-codex' => ['low', 'medium', 'high', 'xhigh'],

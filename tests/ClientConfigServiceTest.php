@@ -370,6 +370,17 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('model_reasoning_effort = "xhigh"', $rendered['content']);
     }
 
+    public function testGpt54MiniSupportsFullReasoningEffortRange(): void
+    {
+        $rendered = $this->service->render([
+            'model' => 'gpt-5.4-mini',
+            'model_reasoning_effort' => 'xhigh',
+        ]);
+
+        $this->assertStringContainsString('model = "gpt-5.4-mini"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "xhigh"', $rendered['content']);
+    }
+
     public function testReasoningSummaryOmittedForSparkAndForcedDetailedForCodexModels(): void
     {
         $rendered = $this->service->render([
@@ -450,11 +461,16 @@ final class ClientConfigServiceTest extends TestCase
             ClientConfigService::normalizeSupportedModel('gpt-5.4')
         );
         $this->assertSame(
+            'gpt-5.4-mini',
+            ClientConfigService::normalizeSupportedModel('gpt-5.4-mini')
+        );
+        $this->assertSame(
             'gpt-5.3-codex-spark',
             ClientConfigService::normalizeSupportedModel('gpt-5.3-codex-spark')
         );
         $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.1'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4', 'xhigh'));
+        $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4-mini', 'xhigh'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.3-codex-spark', 'xhigh'));
         $this->assertFalse(ClientConfigService::modelSupportsReasoningEffort('gpt-5.1-codex-mini', 'low'));
     }

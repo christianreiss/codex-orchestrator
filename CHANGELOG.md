@@ -1,3 +1,6 @@
+# 2026-03-20
+- Model support: added `gpt-5.4-mini` across the fleet config/admin host override allowlists, config builder, profiles UI, and docs, with `low|medium|high|xhigh` reasoning-effort support; cache-bumped the touched admin JS bundles.
+
 # 2026-03-19
 - Admin UI: removed the duplicate secondary page nav strip (`Overview`, `Hosts`, `Logs`, `Settings`, `Users`) from the admin shell, leaving the main header/editorial rail as the only top-level navigation.
 - Admin UI/hosts: fixed a `dashboard.js` syntax error in the host detail action bar that stopped the admin bundle from loading; host detail fields such as `WebUI Admin Port` now populate again. Cache-bumped `dashboard.js` to `v=2026-03-19-03`.
