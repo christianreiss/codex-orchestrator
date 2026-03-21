@@ -1,3 +1,8 @@
+# 2026-03-21
+- Admin UI: removed the dead `uPlot` chart path and orphaned assets, leaving the SVG quota/cost history renderer as the only supported dashboard history implementation; cache-bumped the touched admin JS/CSS bundles.
+- Admin UI: fixed the `Active Windows` modal again so it respects the server-provided insecure-window active state, keeps closed insecure hosts visible with a `Window closed` status, and allows in-place re-enable/disable actions without leaving the modal.
+- cdx wrapper/dev tooling: split the baked wrapper’s large embedded Python/config fragments into dedicated `bin/cdx.d/` subfragments, rebuilt `bin/cdx`, and added repo guardrails for PHPStan, shell linting, dependency-audit, contract tests, and generated-wrapper verification. Wrapper bumped to `2026.03.21-01`.
+
 # 2026-03-20
 - Model support: added `gpt-5.4-mini` across the fleet config/admin host override allowlists, config builder, profiles UI, and docs, with `low|medium|high|xhigh` reasoning-effort support; cache-bumped the touched admin JS bundles.
 

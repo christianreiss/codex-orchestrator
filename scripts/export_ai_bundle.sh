@@ -159,7 +159,7 @@ is_secret_file() {
       return 0
       ;;
     *.pem|*.key|*.p12|*.pfx|*.crt|*.csr|*.sqlite|*.sqlite3) return 0 ;;
-    storage/*.log|storage/*.sqlite|storage/*.sqlite3) return 0 ;;
+    storage/*.log) return 0 ;;
   esac
   return 1
 }
@@ -175,8 +175,6 @@ is_path_excluded() {
     public/admin/assets/chart.umd.min.js) return 0 ;;
     public/admin/assets/chartjs-plugin-zoom.min.js) return 0 ;;
     public/admin/assets/hammer.min.js) return 0 ;;
-    public/admin/assets/uPlot.min.css) return 0 ;;
-    public/admin/assets/uPlot.min.js) return 0 ;;
   esac
 
   case "${path}" in
@@ -199,7 +197,7 @@ language_hint() {
   local path="$1"
   case "${path}" in
     *.php) echo "php" ;;
-    *.json) echo "json" ;;
+    composer.lock|*.json) echo "json" ;;
     *.md|*.MD) echo "markdown" ;;
     *.sh) echo "bash" ;;
     *.py) echo "python" ;;
@@ -210,7 +208,6 @@ language_hint() {
     *.htaccess) echo "apacheconf" ;;
     *.txt) echo "text" ;;
     Dockerfile) echo "dockerfile" ;;
-    composer.json|composer.lock) echo "json" ;;
     *) echo "text" ;;
   esac
 }
@@ -235,7 +232,7 @@ should_include_component_file() {
         public/index.php|public/mtls-debug.php) return 0 ;;
         public/admin/index.php|public/admin/index.html|public/admin/login.html|public/admin/.htaccess) return 0 ;;
         public/admin/assets/*.js|public/admin/assets/*.css) return 0 ;;
-        src/*|src/*/*|src/*/*/*) return 0 ;;
+        src/*) return 0 ;;
         scripts/admin-passkeys.php|scripts/admin-ws.php|scripts/migrate.php|scripts/refresh-chatgpt-usage.php|scripts/verify-interface-contracts.php) return 0 ;;
         tests/*) return 0 ;;
       esac

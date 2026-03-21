@@ -10,7 +10,7 @@ if [[ ! -d "$SRC_DIR" ]]; then
   exit 1
 fi
 
-mapfile -t PARTS < <(LC_ALL=C find "$SRC_DIR" -maxdepth 1 -type f -name '*.sh' -print | sort)
+mapfile -t PARTS < <(LC_ALL=C find "$SRC_DIR" -type f -name '*.sh' -print | sort)
 if (( ${#PARTS[@]} == 0 )); then
   echo "No cdx fragments found in $SRC_DIR" >&2
   exit 1

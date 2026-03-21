@@ -480,10 +480,6 @@
     let costHistoryPromise = null;
     const costHistoryCache = new Map();
     const costHistoryPromiseCache = new Map();
-    let usageHistoryPlot = null;
-    let usageHistoryResizeObserver = null;
-    let costHistoryPlot = null;
-    let costHistoryResizeObserver = null;
     let dashboardQuotaChart = null;
     let dashboardCostChart = null;
     let dashboardQuotaPoints = [];
@@ -4176,193 +4172,11 @@
       return series;
     }
 
-    function getChartHeight(defaultHeight = 260) {
-      return document.body?.dataset?.view === 'mobile' ? 220 : defaultHeight;
-    }
-
-    function getPlotSize(container, height) {
-      if (!container) return { width: 0, height };
-      const rect = container.getBoundingClientRect();
-      const width = Math.max(240, Math.floor(rect.width || 0));
-      return { width, height };
-    }
-
-    function destroyPlot(plot, observer) {
-      if (observer) observer.disconnect();
-      if (plot && typeof plot.destroy === 'function') plot.destroy();
-    }
-
-    function attachPlotResizeObserver(plot, container, height) {
-      if (!plot || !container || typeof ResizeObserver === 'undefined') return null;
-      let frame = null;
-      const observer = new ResizeObserver(() => {
-        if (frame) return;
-        frame = window.requestAnimationFrame(() => {
-          frame = null;
-          const { width } = getPlotSize(container, height);
-          if (width > 0 && typeof plot.setSize === 'function') {
-            plot.setSize({ width, height });
-          }
-        });
-      });
-      observer.observe(container);
-      return observer;
-    }
-
-    function getCssVar(name, fallback) {
-      const value = getComputedStyle(document.documentElement).getPropertyValue(name);
-      return value && value.trim() ? value.trim() : fallback;
-    }
-
     function renderUsageHistoryChart(series, laneKey, windowKey) {
       if (!usageHistoryChart) return;
-      destroyPlot(usageHistoryPlot, usageHistoryResizeObserver);
-      usageHistoryPlot = null;
-      usageHistoryResizeObserver = null;
       if (!Array.isArray(series) || series.length === 0) {
         usageHistoryChart.innerHTML = '<div class="muted">No quota history yet.</div>';
         return;
-      }
-
-      if (window.uPlot) {
-        try {
-          const plotHeight = getChartHeight(260);
-          const accent = getCssVar('--accent-2', '#0b7c73');
-          const accentRgb = getCssVar('--accent-rgb', '15, 156, 146');
-          const gridStroke = 'rgba(15,23,42,0.08)';
-          const Plot = window.uPlot;
-          const xVals = series.map((pt) => pt.x);
-          const yVals = series.map((pt) => pt.y);
-          const maxY = Math.max(100, ...yVals);
-          const tickMax = Math.ceil(maxY / 25) * 25;
-          const yTicks = [];
-          for (let value = 0; value <= tickMax; value += 25) {
-            yTicks.push(value);
-          }
-
-          usageHistoryChart.innerHTML = `
-            <div data-usage-plot></div>
-            <div class="usage-history-tooltip" data-usage-tooltip hidden></div>
-          `;
-          const plotRoot = usageHistoryChart.querySelector('[data-usage-plot]');
-          const tooltip = usageHistoryChart.querySelector('[data-usage-tooltip]');
-          if (!plotRoot) return;
-          plotRoot.setAttribute('role', 'img');
-          const laneLabel = laneKey === 'spark' ? 'Spark' : 'Normal';
-          const windowLabel = windowKey === 'secondary' ? 'weekly' : '5-hour';
-          plotRoot.setAttribute('aria-label', `${laneLabel} ${windowLabel} quota history`);
-
-          const { width } = getPlotSize(plotRoot, plotHeight);
-          const data = [xVals, yVals];
-          const opts = {
-            width,
-            height: plotHeight,
-            series: [
-              {},
-              {
-                label: `${laneKey === 'spark' ? 'Spark' : 'Normal'} ${windowKey === 'secondary' ? 'weekly' : '5-hour'} quota`,
-                stroke: accent,
-                width: 2,
-                fill: `rgba(${accentRgb},0.18)`,
-                points: { show: false },
-              },
-            ],
-            scales: {
-              x: { time: true },
-              y: {
-                range: () => [0, tickMax],
-              },
-            },
-            axes: [
-              {
-                stroke: '#64748b',
-                grid: { stroke: gridStroke },
-                ticks: { stroke: gridStroke },
-                values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
-              },
-              {
-                stroke: '#64748b',
-                grid: { stroke: gridStroke },
-                ticks: { stroke: gridStroke },
-                splits: () => yTicks,
-                values: (u, ticks) => ticks.map((v) => `${Math.round(v)}%`),
-              },
-            ],
-            cursor: {
-              y: false,
-              points: { show: true },
-            },
-            legend: {
-              show: false,
-            },
-          };
-
-          const plot = new Plot(opts, data, plotRoot);
-          const observer = attachPlotResizeObserver(plot, plotRoot, plotHeight);
-          usageHistoryPlot = plot;
-          usageHistoryResizeObserver = observer;
-
-          if (tooltip) {
-            let lockedIdx = null;
-            let lastClientX = null;
-
-            const showTooltip = (idx, clientX) => {
-              if (idx === null || idx === undefined) return;
-              const point = series[idx];
-              if (!point) return;
-              const dateLabel = formatShortDate(new Date(point.x), true);
-              const valueLabel = `${Math.round(point.raw ?? point.y)}%`;
-              tooltip.innerHTML = `
-                <span class="label">${dateLabel}</span>
-                <span class="value">${valueLabel}</span>
-              `;
-              tooltip.hidden = false;
-              const rect = plotRoot.getBoundingClientRect();
-              const safeClientX = Number.isFinite(clientX) ? clientX : rect.left + (usageHistoryPlot?.cursor?.left ?? 0);
-              lastClientX = safeClientX;
-              const relative = rect.width > 0 ? clamp((safeClientX - rect.left) / rect.width, 0, 1) : 0.5;
-              const tipWidth = tooltip.offsetWidth || 0;
-              const xPos = clamp((relative * rect.width) - (tipWidth / 2), 0, Math.max(rect.width - tipWidth, 0));
-              tooltip.style.left = `${xPos}px`;
-              tooltip.style.top = '10px';
-            };
-
-            const hideTooltip = () => {
-              tooltip.hidden = true;
-              tooltip.innerHTML = '';
-            };
-
-            plotRoot.addEventListener('pointermove', (event) => {
-              if (lockedIdx !== null) return;
-              const idx = usageHistoryPlot?.cursor?.idx;
-              if (idx === null || idx === undefined) return;
-              showTooltip(idx, event.clientX);
-            });
-            plotRoot.addEventListener('mouseleave', () => {
-              if (lockedIdx !== null) {
-                showTooltip(lockedIdx, lastClientX);
-                return;
-              }
-              hideTooltip();
-            });
-            plotRoot.addEventListener('click', (event) => {
-              const idx = usageHistoryPlot?.cursor?.idx;
-              if (idx === null || idx === undefined) return;
-              lockedIdx = lockedIdx === idx ? null : idx;
-              if (lockedIdx === null) {
-                hideTooltip();
-                return;
-              }
-              showTooltip(lockedIdx, event.clientX);
-            });
-          }
-          return;
-        } catch (err) {
-          console.warn('uPlot render failed, falling back to SVG usage history.', err);
-          destroyPlot(usageHistoryPlot, usageHistoryResizeObserver);
-          usageHistoryPlot = null;
-          usageHistoryResizeObserver = null;
-        }
       }
 
       const width = 800;
@@ -4581,9 +4395,6 @@
 
     function renderCostHistoryChart(history) {
       if (!costHistoryChart) return;
-      destroyPlot(costHistoryPlot, costHistoryResizeObserver);
-      costHistoryPlot = null;
-      costHistoryResizeObserver = null;
       const series = buildCostSeries(history);
       const allPoints = series.flatMap((s) => s.values);
       if (allPoints.length === 0) {
@@ -4596,149 +4407,6 @@
         return;
       }
       const currency = history?.currency || 'USD';
-
-      if (window.uPlot) {
-        try {
-          const Plot = window.uPlot;
-          const plotHeight = getChartHeight(260);
-          const gridStroke = 'rgba(15,23,42,0.08)';
-
-          const seriesData = series.map((s) => {
-            const byDate = new Map(s.values.map((value) => [value.date, value.y]));
-            return pointIndex.map((pt) => byDate.get(pt.date) ?? null);
-          });
-          const xVals = pointIndex.map((pt) => pt.x);
-          const data = [xVals, ...seriesData];
-          let maxY = 0;
-          seriesData.forEach((values) => {
-            values.forEach((val) => {
-              if (Number.isFinite(val) && val > maxY) maxY = val;
-            });
-          });
-          const yMax = Math.max(1, maxY);
-          const ticks = buildCostTicks(yMax);
-          const tickMax = ticks[ticks.length - 1] ?? yMax;
-
-          const legend = series.map((s) => {
-            const latest = s.values[s.values.length - 1];
-            const value = latest ? latest.y : 0;
-            const color = s.color || '#0f172a';
-            const classes = ['legend-item'];
-            if (s.key === 'total' || s.emphasis) classes.push('legend-total');
-            return `<span class="${classes.join(' ')}"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, currency)}</strong></span>`;
-          }).join('');
-
-          const latestPoint = pointIndex[pointIndex.length - 1];
-          const detailHtml = renderCostDetail(latestPoint, currency);
-          const tableRows = renderCostTableRows(pointIndex, currency);
-
-          costHistoryChart.innerHTML = `
-            <div class="legend">${legend}</div>
-            <div class="cost-chart-shell" data-chart-shell>
-              <div data-cost-plot></div>
-              <div class="cost-chart-tooltip" data-cost-tooltip hidden></div>
-            </div>
-            <div class="cost-detail" data-cost-detail>${detailHtml}</div>
-            <div class="cost-table-wrap">
-              <table class="cost-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Date</th>
-                    <th scope="col">Total</th>
-                    <th scope="col">Input</th>
-                    <th scope="col">Output</th>
-                    <th scope="col">Cached</th>
-                    <th scope="col">Tokens</th>
-                  </tr>
-                </thead>
-                <tbody data-cost-table>${tableRows}</tbody>
-              </table>
-            </div>
-          `;
-
-          const plotRoot = costHistoryChart.querySelector('[data-cost-plot]');
-          if (!plotRoot) return;
-          plotRoot.setAttribute('role', 'img');
-          plotRoot.setAttribute('aria-label', 'Cost history over time');
-          const { width } = getPlotSize(plotRoot, plotHeight);
-          const opts = {
-            width,
-            height: plotHeight,
-            series: [
-              {},
-              {
-                label: 'Total',
-                stroke: '#312e81',
-                width: 3,
-                points: { show: false },
-              },
-              {
-                label: 'Input',
-                stroke: '#0ea5e9',
-                width: 2,
-                points: { show: false },
-              },
-              {
-                label: 'Output',
-                stroke: '#16a34a',
-                width: 2,
-                points: { show: false },
-              },
-              {
-                label: 'Cached',
-                stroke: '#f97316',
-                width: 2,
-                points: { show: false },
-              },
-            ],
-            scales: {
-              x: { time: true },
-              y: {
-                range: () => [0, tickMax],
-              },
-            },
-            axes: [
-              {
-                stroke: '#64748b',
-                grid: { stroke: gridStroke },
-                ticks: { stroke: gridStroke },
-                values: (u, ticks) => ticks.map((v) => formatShortDate(new Date(v))),
-              },
-              {
-                stroke: '#64748b',
-                grid: { stroke: gridStroke },
-                ticks: { stroke: gridStroke },
-                splits: () => ticks,
-                values: (u, ticks) => ticks.map((v) => formatMoney(v, currency)),
-              },
-            ],
-            cursor: {
-              y: false,
-              points: { show: true },
-            },
-            legend: {
-              show: false,
-            },
-          };
-
-          const plot = new Plot(opts, data, plotRoot);
-          const observer = attachPlotResizeObserver(plot, plotRoot, plotHeight);
-          costHistoryPlot = plot;
-          costHistoryResizeObserver = observer;
-
-          attachCostHistoryInteractions(costHistoryChart, {
-            plot: costHistoryPlot,
-            points: pointIndex,
-            currency,
-          });
-          return;
-        } catch (err) {
-          console.warn('uPlot render failed, falling back to SVG cost history.', err);
-          destroyPlot(costHistoryPlot, costHistoryResizeObserver);
-          costHistoryPlot = null;
-          costHistoryResizeObserver = null;
-        }
-      }
 
       const width = 800;
       const height = 260;
@@ -4819,17 +4487,32 @@
     }
 
     function attachCostHistoryInteractions(root, config) {
-      const { points, currency, minX, spanX, plot } = config || {};
+      const { points, currency, minX, spanX } = config || {};
       if (!root || !Array.isArray(points) || points.length === 0) return;
       const tooltip = root.querySelector('[data-cost-tooltip]');
       const detailEl = root.querySelector('[data-cost-detail]');
       const tableBody = root.querySelector('[data-cost-table]');
+      const overlay = root.querySelector('[data-chart-overlay]');
+      const crosshair = root.querySelector('[data-cost-crosshair]');
       if (!detailEl || !tableBody) return;
 
       const dateLookup = new Map(points.map((pt, idx) => [pt.date, { point: pt, idx }]));
       let selectedIdx = points.length - 1;
       let lockedIdx = selectedIdx;
       let activeRow = null;
+
+      function positionCrosshair(point) {
+        if (!crosshair) return;
+        if (!point) {
+          crosshair.hidden = true;
+          return;
+        }
+        const range = spanX || 1;
+        const ratio = range === 0 ? 0 : (point.x - minX) / range;
+        const percent = clamp(ratio, 0, 1);
+        crosshair.style.left = `${(percent * 100).toFixed(2)}%`;
+        crosshair.hidden = false;
+      }
 
       function updateRowSelection(date) {
         if (!tableBody) return;
@@ -4861,18 +4544,8 @@
           detailEl.innerHTML = renderCostDetail(point, currency);
         }
         updateRowSelection(point.date);
+        positionCrosshair(point);
         return point;
-      }
-
-      function showTooltip(point, clientX, chartRect) {
-        if (!tooltip || !point) return;
-        tooltip.innerHTML = renderCostTooltip(point, currency);
-        tooltip.hidden = false;
-        if (!chartRect) return;
-        const tipWidth = tooltip.offsetWidth || 0;
-        const leftPx = clamp(clientX - chartRect.left - (tipWidth / 2), 0, Math.max(chartRect.width - tipWidth, 0));
-        tooltip.style.left = `${leftPx}px`;
-        tooltip.style.top = '12px';
       }
 
       function hideTooltip() {
@@ -4882,110 +4555,6 @@
       }
 
       setSelection(selectedIdx, { lock: true, force: true });
-
-      if (plot) {
-        const plotRoot = plot.root;
-
-        const syncCursorToIdx = (idx) => {
-          if (!plot || typeof plot.valToPos !== 'function' || typeof plot.setCursor !== 'function') return;
-          const point = points[idx];
-          if (!point) return;
-          const left = plot.valToPos(point.x, 'x');
-          if (!Number.isFinite(left)) return;
-          plot.setCursor({ left, top: 0 }, false, false);
-        };
-
-        if (plotRoot) {
-          plotRoot.addEventListener('pointermove', (event) => {
-            const idx = plot?.cursor?.idx;
-            if (idx === null || idx === undefined) return;
-            const point = setSelection(idx, { lock: false });
-            if (!point) return;
-            const rect = plotRoot.getBoundingClientRect();
-            showTooltip(point, event.clientX, rect);
-          });
-          plotRoot.addEventListener('mouseleave', () => {
-            hideTooltip();
-            if (lockedIdx !== null) {
-              setSelection(lockedIdx, { lock: false, force: true });
-            }
-          });
-          plotRoot.addEventListener('click', (event) => {
-            const idx = plot?.cursor?.idx;
-            if (idx === null || idx === undefined) return;
-            lockedIdx = idx;
-            const point = setSelection(idx, { lock: true, force: true });
-            if (!point) return;
-            const rect = plotRoot.getBoundingClientRect();
-            showTooltip(point, event.clientX, rect);
-          });
-        }
-
-        const handleRowFocus = (event, lock = false) => {
-          const row = event.target.closest('tr[data-cost-row]');
-          if (!row) return;
-          const date = row.dataset.costRow;
-          const lookup = dateLookup.get(date);
-          if (!lookup) return;
-          setSelection(lookup.idx, { lock, force: lock });
-          if (!lock) hideTooltip();
-          if (lock) lockedIdx = lookup.idx;
-          syncCursorToIdx(lookup.idx);
-        };
-
-        tableBody.addEventListener('mouseover', (event) => handleRowFocus(event, false));
-        tableBody.addEventListener('focusin', (event) => handleRowFocus(event, false));
-        tableBody.addEventListener('mouseleave', () => {
-          hideTooltip();
-          if (lockedIdx !== null) {
-            setSelection(lockedIdx, { lock: false, force: true });
-          }
-        });
-        tableBody.addEventListener('click', (event) => {
-          event.preventDefault();
-          handleRowFocus(event, true);
-        });
-        tableBody.addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          event.preventDefault();
-          handleRowFocus(event, true);
-        });
-        return;
-      }
-
-      const overlay = root.querySelector('[data-chart-overlay]');
-      const crosshair = root.querySelector('[data-cost-crosshair]');
-
-      function positionCrosshair(point) {
-        if (!crosshair) return;
-        if (!point) {
-          crosshair.hidden = true;
-          return;
-        }
-        const range = spanX || 1;
-        const ratio = range === 0 ? 0 : (point.x - minX) / range;
-        const percent = clamp(ratio, 0, 1);
-        crosshair.style.left = `${(percent * 100).toFixed(2)}%`;
-        crosshair.hidden = false;
-      }
-
-      function setSelectionByDate(date, opts = {}) {
-        const lookup = dateLookup.get(date);
-        if (!lookup) return null;
-        const force = opts.force ?? false;
-        if (!force && selectedIdx === lookup.idx) {
-          if (opts.lock) lockedIdx = lookup.idx;
-          return lookup.point;
-        }
-        selectedIdx = lookup.idx;
-        if (opts.lock) lockedIdx = lookup.idx;
-        if (detailEl) {
-          detailEl.innerHTML = renderCostDetail(lookup.point, currency);
-        }
-        updateRowSelection(lookup.point.date);
-        positionCrosshair(lookup.point);
-        return lookup.point;
-      }
 
       function showOverlayTooltip(point, clientX) {
         if (!tooltip || !overlay || !point) return;
@@ -4999,8 +4568,6 @@
         tooltip.style.left = `${leftPx}px`;
         tooltip.style.top = '12px';
       }
-
-      setSelectionByDate(points[selectedIdx]?.date, { lock: true, force: true });
 
       if (overlay) {
         overlay.addEventListener('pointermove', (ev) => {
@@ -7089,6 +6656,16 @@
       return insecureState(host).enabledActive;
     }
 
+    function renderClosedInsecureHostSubline() {
+      return '<div class="quick-hosts-sub">Window closed</div>';
+    }
+
+    function insecureHostModalAction(active) {
+      const action = active ? 'disable' : 'enable';
+      const label = active ? 'Disable' : 'Enable';
+      return { action, label };
+    }
+
     function renderInsecureHostsQuickButton(hostsList) {
       if (!navInsecureHosts) return;
       const activeCount = Array.isArray(hostsList) ? hostsList.filter((host) => hostHasActiveInsecureWindow(host)).length : 0;
@@ -7179,11 +6756,15 @@
         insecureHostsList.innerHTML = '<div class="quick-hosts-row"><div class="quick-hosts-info"><div class="quick-hosts-fqdn muted">No insecure hosts found.</div></div></div>';
       } else {
         insecureHostsList.innerHTML = items.map((host) => {
+          const active = hostHasActiveInsecureWindow(host);
           const onlineFor = formatCountdown(host?.insecure_enabled_until);
           const onlineUntil = host?.insecure_enabled_until || '';
-          const onlineLine = onlineFor !== '—'
-            ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
-            : '<div class="quick-hosts-sub">Online now</div>';
+          const { action, label } = insecureHostModalAction(active);
+          const onlineLine = active
+            ? (onlineFor !== '—'
+              ? `<div class="quick-hosts-sub" data-countdown="host" data-until="${escapeHtml(onlineUntil)}">Online: ${escapeHtml(onlineFor)}</div>`
+              : '<div class="quick-hosts-sub">Online now</div>')
+            : renderClosedInsecureHostSubline();
           return `
             <div class="quick-hosts-row" data-host-id="${host.id}">
               <div class="quick-hosts-info">
@@ -7191,7 +6772,7 @@
                 ${onlineLine}
               </div>
               <div class="quick-hosts-actions">
-                <button class="ghost" data-action="disable">Disable</button>
+                <button class="ghost" data-action="disable" data-next-action="${action}">${label}</button>
               </div>
             </div>
           `;
@@ -7302,11 +6883,12 @@
           const hostIdRaw = row?.getAttribute?.('data-host-id');
           const hostId = hostIdRaw ? parseInt(hostIdRaw, 10) : NaN;
           if (!Number.isFinite(hostId)) return;
-          const action = String(btn.getAttribute('data-action') || '').toLowerCase();
+          const buttonAction = String(btn.getAttribute('data-action') || '').toLowerCase();
+          if (buttonAction !== 'disable') return;
 
           btn.disabled = true;
           const originalLabel = btn.textContent;
-          btn.textContent = 'Turning off…';
+          btn.textContent = 'Working…';
           try {
             const resp = await api('/admin/hosts/insecure');
             const hosts = resp?.data?.hosts || [];
@@ -7314,12 +6896,17 @@
             if (!target) {
               throw new Error('Host not found (refresh and retry).');
             }
-            await toggleInsecureApi(target, null, false);
+            const active = target?.active === true || hostHasActiveInsecureWindow(target);
+            const action = active ? 'disable' : 'enable';
+            btn.textContent = active ? 'Turning off…' : 'Turning on…';
+            const desired = action === 'enable' ? true : action === 'disable' ? false : !active;
+            await toggleInsecureApi(target, null, desired);
             const refreshed = await api('/admin/hosts/insecure');
             openInsecureHostsModal(refreshed?.data?.hosts || [], refreshed?.data?.domains || []);
           } catch (err) {
             console.error('insecure hosts toggle failed', err);
-            toast(`Disable failed: ${err.message}`, 'error');
+            const verb = action === 'enable' ? 'Enable' : 'Disable';
+            toast(`${verb} failed: ${err.message}`, 'error');
           } finally {
             btn.disabled = false;
             btn.textContent = originalLabel;

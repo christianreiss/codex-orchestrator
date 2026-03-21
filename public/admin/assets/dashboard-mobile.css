@@ -564,7 +564,7 @@ body[data-view="mobile"] .usage-history-modal {
 }
 
 body[data-view="mobile"] .usage-history-chart svg,
-body[data-view="mobile"] .usage-history-chart .uplot {
+body[data-view="mobile"] .usage-history-chart svg {
   height: 220px;
 }
 

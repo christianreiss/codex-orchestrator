@@ -14,6 +14,7 @@ use App\Database;
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Http\Response;
+use App\Http\Router;
 use App\Http\TrustedProxy;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
@@ -96,38 +97,7 @@ if (file_exists($root . '/.env')) {
     Dotenv::createImmutable($root)->safeLoad();
 }
 
-// Lightweight, local router (avoid pulling in a framework for a single-file API).
-$router = new class {
-    /** @var array<int, array{method: string, pattern: string, handler: callable}> */
-    private array $routes = [];
-
-    public function add(string $method, string $pattern, callable $handler): void
-    {
-        $this->routes[] = [
-            'method' => strtoupper($method),
-            'pattern' => $pattern,
-            'handler' => $handler,
-        ];
-    }
-
-    public function dispatch(string $method, string $path): bool
-    {
-        $method = strtoupper($method);
-        foreach ($this->routes as $route) {
-            if ($route['method'] !== $method) {
-                continue;
-            }
-            if (preg_match($route['pattern'], $path, $matches) !== 1) {
-                continue;
-            }
-            // $matches[0] is the full match; pass capture groups only.
-            $args = array_values(array_slice($matches, 1));
-            ($route['handler'])(...$args);
-            return true;
-        }
-        return false;
-    }
-};
+$router = new Router();
 
 $installationId = Installation::ensure($root);
 
@@ -5184,4 +5154,3 @@ try {
         'message' => 'Unexpected error',
     ], 500);
 }
-

@@ -31,15 +31,30 @@ jobs:
         run: |
           php -r 'if (!extension_loaded("sodium")) { fwrite(STDERR, "sodium extension is required\n"); exit(1); }'
 
-      - name: Verify interface contracts and docs sync
-        run: php scripts/verify-interface-contracts.php
+      - name: Run contract checks
+        run: composer test:contracts
 
-      - name: Run contract response tests
-        run: |
-          vendor/bin/phpunit \
-            tests/ContractSchemasTest.php \
-            tests/AuthServiceContractResponsesTest.php \
-            tests/AuthReasonContractsTest.php
+  php-static-analysis:
+    name: PHP Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer:v2
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPStan
+        run: composer lint:phpstan
+
+      - name: Audit Composer dependencies
+        run: composer audit:composer-unused
 
   wrapper-static-tests:
     name: Wrapper Static Tests
@@ -63,14 +78,17 @@ jobs:
       - name: Assert built wrapper is up to date
         run: git diff --exit-code -- bin/cdx
 
-      - name: Lint built wrapper with ShellCheck
-        run: shellcheck -S warning -e SC2034 bin/cdx
+      - name: Install shfmt
+        run: sudo apt-get update && sudo apt-get install -y shfmt
+
+      - name: Lint shell sources
+        run: composer lint:shell
 
       - name: Verify wrapper version bump when wrapper changes
-        run: bash scripts/verify-wrapper-version-bump.sh
+        run: composer verify:wrapper
 
       - name: Run wrapper coverage tests
-        run: vendor/bin/phpunit tests/CdxWrapper*.php
+        run: composer test:wrapper
 
   linux-runnable-smoke:
     name: Linux Runnable Smoke (${{ matrix.name }})

@@ -1,0 +1,29 @@
+includes:
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+    - phpstan-baseline.neon
+
+parameters:
+    level: max
+    paths:
+        - public
+        - scripts
+        - src
+        - tests
+    tmpDir: storage/phpstan
+    treatPhpDocTypesAsCertain: true
+    reportUnmatchedIgnoredErrors: true
+    checkDynamicProperties: true
+    checkBenevolentUnionTypes: true
+    checkExplicitMixedMissingReturn: true
+    checkFunctionNameCase: true
+    checkInternalClassCaseSensitivity: true
+    checkMissingOverrideMethodAttribute: true
+    checkStrictPrintfPlaceholderTypes: true
+    checkTooWideReturnTypesInProtectedAndPublicMethods: true
+    checkUninitializedProperties: true
+    phpVersion: 80200
+    bootstrapFiles:
+        - src/Http/helpers.php
+    excludePaths:
+        analyse:
+            - vendor/*
