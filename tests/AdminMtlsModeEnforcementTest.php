@@ -10,7 +10,8 @@ final class AdminMtlsModeEnforcementTest extends TestCase
 {
     public function testRequireAdminAccessUsesMtlsMode(): void
     {
-        $contents = file_get_contents(__DIR__ . '/../public/index.php');
+        $contents = file_get_contents(__DIR__ . '/../public/index.php')
+                 . file_get_contents(__DIR__ . '/../src/Http/helpers.php');
         $this->assertNotFalse($contents);
 
         $this->assertStringNotContainsString('mtls_only', $contents);

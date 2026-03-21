@@ -26,12 +26,13 @@ final class AdminLoginRouteDispatchTest extends TestCase
     public function testApiFrontControllerDispatchesAdminLoginAndAdminRoot(): void
     {
         $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $helpers = file_get_contents(__DIR__ . '/../src/Http/helpers.php');
         $this->assertIsString($source);
 
         $this->assertStringContainsString("\$router->add('GET', '#^/admin/?\$#', function (): void {", $source);
         $this->assertStringContainsString("\$router->add('GET', '#^/admin/login\$#', function (): void {", $source);
         $this->assertStringContainsString("\$router->add('POST', '#^/admin/auth/login/method\$#', function () use (\$payload, \$adminAuthService) {", $source);
-        $this->assertStringContainsString("'/admin/auth/login/method'", $source);
+        $this->assertStringContainsString("'/admin/auth/login/method'", $source . $helpers);
         $this->assertStringContainsString("require __DIR__ . '/admin/index.php';", $source);
     }
 }

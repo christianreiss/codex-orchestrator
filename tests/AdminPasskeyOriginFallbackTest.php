@@ -10,7 +10,8 @@ final class AdminPasskeyOriginFallbackTest extends TestCase
 {
     public function testAdminWebAuthnRpIdFallsBackToPublicBaseUrlHost(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+               . file_get_contents(__DIR__ . '/../src/Http/helpers.php');
         $this->assertIsString($source);
 
         $this->assertStringContainsString("normalizeBaseUrlCandidate((string) Config::get('PUBLIC_BASE_URL', ''))", $source);
@@ -19,7 +20,8 @@ final class AdminPasskeyOriginFallbackTest extends TestCase
 
     public function testAdminWebAuthnOriginFallsBackToPublicBaseUrlOrigin(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+               . file_get_contents(__DIR__ . '/../src/Http/helpers.php');
         $this->assertIsString($source);
 
         $this->assertStringContainsString("\$publicOrigin = normalizeOrigin(\$publicBase);", $source);

@@ -10,7 +10,8 @@ final class AdminAccessModeTest extends TestCase
 {
     public function testAdminAccessModeUsesAdminAccessModeEnv(): void
     {
-        $contents = file_get_contents(__DIR__ . '/../public/index.php');
+        $contents = file_get_contents(__DIR__ . '/../public/index.php')
+                 . file_get_contents(__DIR__ . '/../src/Http/helpers.php');
         $this->assertNotFalse($contents);
         $this->assertStringContainsString('ADMIN_ACCESS_MODE', $contents);
         $this->assertStringNotContainsString('ADMIN_REQUIRE_MTLS', $contents);
