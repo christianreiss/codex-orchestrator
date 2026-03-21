@@ -11,7 +11,6 @@ namespace App\Support;
 
 use CBOR\Decoder;
 use CBOR\MapObject;
-use CBOR\Normalizable;
 use CBOR\StringStream;
 use ParagonIE\ConstantTime\Base64UrlSafe;
 
