@@ -6,7 +6,7 @@ final class AdminEventsMigrationTest extends TestCase
 {
     public function testAdminEventsTableIsMigrated(): void
     {
-        $source = @file_get_contents(__DIR__ . '/../src/Database.php');
+        $source = @file_get_contents(__DIR__ . '/../src/DatabaseMigrator.php');
         self::assertIsString($source);
 
         self::assertStringContainsString(
