@@ -182,11 +182,6 @@ class InsecureSessionTokenUsageRepository extends TokenUsageRepository
         return $this->totals();
     }
 
-    public function totalsByHost(): array
-    {
-        return [];
-    }
-
     public function record(
         ?int $hostId,
         ?int $total,

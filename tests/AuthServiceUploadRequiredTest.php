@@ -169,11 +169,6 @@ class NullTokenUsageRepository extends TokenUsageRepository
         return $this->totals();
     }
 
-    public function totalsByHost(): array
-    {
-        return [];
-    }
-
     public function record(
         ?int $hostId,
         ?int $total,
@@ -313,16 +308,6 @@ class StubWrapperService extends WrapperService
 
     public function ensureSeeded(): void
     {
-    }
-
-    public function replaceFromUpload(string $tmpPath, string $version, ?string $expectedSha, bool $isUploadedFile = false): array
-    {
-        return [];
-    }
-
-    public function contentPath(): string
-    {
-        return '';
     }
 
     public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array

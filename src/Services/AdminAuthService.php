@@ -72,19 +72,6 @@ class AdminAuthService
         return $ttl;
     }
 
-    public function resetTtlSeconds(): int
-    {
-        $raw = Config::get('ADMIN_PASSWORD_RESET_TTL_SECONDS', 3600);
-        $ttl = is_numeric($raw) ? (int) $raw : 3600;
-        if ($ttl < 300) {
-            $ttl = 300;
-        }
-        if ($ttl > 86400) {
-            $ttl = 86400;
-        }
-        return $ttl;
-    }
-
     public function passwordMinLength(): int
     {
         $raw = Config::get('ADMIN_PASSWORD_MIN_LENGTH', 12);
@@ -253,85 +240,6 @@ class AdminAuthService
         ];
 
         return in_array($capability, $matrix[$role] ?? [], true);
-    }
-
-    public function requestPasswordReset(string $identity): void
-    {
-        $identity = trim($identity);
-        if ($identity === '') {
-            return;
-        }
-
-        $user = $this->users->findByUsername(strtolower($identity));
-        if ($user === null) {
-            $user = $this->users->findByEmail(strtolower($identity));
-        }
-
-        if ($user === null || empty($user['active'])) {
-            return;
-        }
-
-        $fromEmail = (string) Config::get('ADMIN_PASSWORD_RESET_FROM', '');
-        $fromName = (string) Config::get('ADMIN_PASSWORD_RESET_FROM_NAME', '');
-        if (trim($fromEmail) === '') {
-            throw new HttpException('Password recovery not configured', 501);
-        }
-
-        $token = bin2hex(random_bytes(24));
-        $tokenHash = hash('sha256', $token);
-        $expiresAt = gmdate(DATE_ATOM, time() + $this->resetTtlSeconds());
-        $this->resets->expireForUser((int) $user['id'], gmdate(DATE_ATOM));
-        $this->resets->create((int) $user['id'], $tokenHash, $expiresAt);
-
-        $base = (string) Config::get('ADMIN_PASSWORD_RESET_BASE_URL', '');
-        if (trim($base) === '') {
-            $base = (string) Config::get('PUBLIC_BASE_URL', '');
-        }
-        $base = rtrim(trim($base), '/');
-        $link = $base !== '' ? $base . '/admin/#reset?token=' . $token : '';
-
-        $body = "A password reset was requested for your Codex Orchestrator admin account.\n\n";
-        if ($link !== '') {
-            $body .= "Reset link: {$link}\n";
-        }
-        $body .= "Reset token: {$token}\n";
-        $body .= "This token expires at {$expiresAt} UTC.\n";
-
-        $sent = $this->mailer->send((string) $user['email'], 'Codex Orchestrator password reset', $body, $fromEmail, $fromName);
-        if (!$sent) {
-            throw new HttpException('Failed to send password recovery email', 500);
-        }
-
-        $this->logs->log(null, 'admin.auth.reset.request', ['user_id' => $user['id']]);
-    }
-
-    public function resetPassword(string $token, string $newPassword): array
-    {
-        $this->validatePassword($newPassword);
-        $token = trim($token);
-        if ($token === '') {
-            throw new ValidationException(['token' => 'Reset token is required']);
-        }
-
-        $tokenHash = hash('sha256', $token);
-        $reset = $this->resets->findActiveByTokenHash($tokenHash, gmdate(DATE_ATOM));
-        if ($reset === null) {
-            throw new HttpException('Invalid or expired reset token', 400);
-        }
-
-        $user = $this->users->findById((int) $reset['user_id']);
-        if ($user === null) {
-            throw new HttpException('User not found', 404);
-        }
-
-        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
-        $this->users->update((int) $user['id'], ['password_hash' => $hash]);
-        $this->resets->markUsed((int) $reset['id'], gmdate(DATE_ATOM));
-        $this->sessions->deleteByUser((int) $user['id']);
-
-        $this->logs->log(null, 'admin.auth.reset.complete', ['user_id' => $user['id']]);
-
-        return $this->sanitizeUser($user);
     }
 
     public function validatePassword(string $password): void

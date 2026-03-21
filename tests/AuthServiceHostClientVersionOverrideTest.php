@@ -166,11 +166,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 return $this->totals();
             }
 
-            public function totalsByHost(): array
-            {
-                return [];
-            }
-
             public function record(
                 ?int $hostId,
                 ?int $total,
@@ -296,16 +291,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
 
             public function ensureSeeded(): void
             {
-            }
-
-            public function replaceFromUpload(string $tmpPath, string $version, ?string $expectedSha, bool $isUploadedFile = false): array
-            {
-                return [];
-            }
-
-            public function contentPath(): string
-            {
-                return '';
             }
 
             public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
@@ -502,11 +487,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 return $this->totals();
             }
 
-            public function totalsByHost(): array
-            {
-                return [];
-            }
-
             public function record(
                 ?int $hostId,
                 ?int $total,
@@ -588,16 +568,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             public function updateContent(string $content): array
             {
                 return [];
-            }
-
-            public function replaceFromUpload(string $tmpPath, string $version, ?string $expectedSha, bool $isUploadedFile = false): array
-            {
-                return [];
-            }
-
-            public function contentPath(): string
-            {
-                return '';
             }
 
             public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array

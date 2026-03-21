@@ -197,11 +197,6 @@ final class ContractTokenUsageRepository extends TokenUsageRepository
         ];
     }
 
-    public function totalsByHost(): array
-    {
-        return [];
-    }
-
     public function record(
         ?int $hostId,
         ?int $total,
