@@ -10,11 +10,12 @@ final class AdminAccountRoutesTest extends TestCase
 {
     public function testAccountBrowserRoutesAndPasswordChangeEndpointExist(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminAuthController.php');
         $this->assertIsString($source);
 
-        $this->assertStringContainsString("\$router->add('GET', '#^/admin/account(?:/(password|passkeys))?\$#', function (): void {", $source);
-        $this->assertStringContainsString("\$router->add('POST', '#^/admin/auth/password/change\$#', function () use (\$payload, \$adminAuthService) {", $source);
+        $this->assertStringContainsString("#^/admin/account(?:/(password|passkeys))?\$#", $source);
+        $this->assertStringContainsString("#^/admin/auth/password/change\$#", $source);
         $this->assertStringContainsString('Password confirmation does not match.', $source);
     }
 }

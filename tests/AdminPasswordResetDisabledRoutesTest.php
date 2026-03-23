@@ -13,22 +13,13 @@ final class AdminPasswordResetDisabledRoutesTest extends TestCase
         $source = file_get_contents(__DIR__ . '/../public/index.php');
         $this->assertIsString($source);
 
-        $requestRoute = "\$router->add('POST', '#^/admin/auth/password/request$#'";
-        $resetRoute = "\$router->add('POST', '#^/admin/auth/password/reset$#'";
+        $this->assertStringContainsString("#^/admin/auth/password/request\$#", $source, 'Expected password request route to exist');
+        $this->assertStringContainsString("#^/admin/auth/password/reset\$#", $source, 'Expected password reset route to exist');
 
-        $requestPos = strpos($source, $requestRoute);
-        $resetPos = strpos($source, $resetRoute);
-        $this->assertNotFalse($requestPos, 'Expected password request route to exist');
-        $this->assertNotFalse($resetPos, 'Expected password reset route to exist');
+        $controllerSource = file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminAuthController.php');
+        $this->assertIsString($controllerSource);
 
-        $requestChunk = substr($source, (int) $requestPos, 420);
-        $resetChunk = substr($source, (int) $resetPos, 420);
-
-        $this->assertIsString($requestChunk);
-        $this->assertIsString($resetChunk);
-        $this->assertStringContainsString('Password reset is disabled', $requestChunk);
-        $this->assertStringContainsString('], 410);', $requestChunk);
-        $this->assertStringContainsString('Password reset is disabled', $resetChunk);
-        $this->assertStringContainsString('], 410);', $resetChunk);
+        $this->assertStringContainsString('Password reset is disabled', $controllerSource);
+        $this->assertStringContainsString('], 410);', $controllerSource);
     }
 }

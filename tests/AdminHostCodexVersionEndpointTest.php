@@ -10,7 +10,7 @@ final class AdminHostCodexVersionEndpointTest extends TestCase
         self::assertIsString($routerSource);
 
         self::assertStringContainsString(
-            "#^/admin/hosts/(\\\\d+)/codex-version$#",
+            "#^/admin/hosts/(\\d+)/codex-version$#",
             $routerSource,
             'Expected /admin/hosts/{id}/codex-version route to exist in public/index.php'
         );
@@ -18,7 +18,8 @@ final class AdminHostCodexVersionEndpointTest extends TestCase
 
     public function testHostListIncludesClientVersionOverrideField(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("'client_version_override'", $routerSource);
@@ -26,7 +27,8 @@ final class AdminHostCodexVersionEndpointTest extends TestCase
 
     public function testEndpointUsesSharedCodexVersionPolicyHelper(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminHostController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString('CodexVersionPolicy::isSemanticVersion', $routerSource);

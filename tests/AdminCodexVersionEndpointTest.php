@@ -18,7 +18,8 @@ final class AdminCodexVersionEndpointTest extends TestCase
 
     public function testOverviewIncludesClientVersionLockFields(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("'client_version_lock'", $routerSource);
@@ -27,7 +28,8 @@ final class AdminCodexVersionEndpointTest extends TestCase
 
     public function testEndpointUsesSharedCodexVersionPolicyHelper(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminSettingsController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString('CodexVersionPolicy::isSemanticVersion', $routerSource);

@@ -8,7 +8,8 @@ final class AdminHistoryEndpointParamsTest extends TestCase
 {
     public function testCostHistoryEndpointSupportsAdvancedQueryParams(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("#^/admin/usage/cost-history$#", $routerSource);
@@ -20,7 +21,8 @@ final class AdminHistoryEndpointParamsTest extends TestCase
 
     public function testChatGptHistoryEndpointSupportsAdvancedQueryParams(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("#^/admin/chatgpt/usage/history$#", $routerSource);

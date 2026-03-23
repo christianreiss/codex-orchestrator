@@ -6,35 +6,31 @@ use PHPUnit\Framework\TestCase;
 
 final class AdminOverviewRoutePricingModelCaptureTest extends TestCase
 {
-    public function testOverviewRouteCapturesPricingModelInClosureUseList(): void
+    public function testOverviewRouteCapturesPricingModelInController(): void
     {
         $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
         self::assertIsString($routerSource);
 
-        $needle = "\$router->add('GET', '#^/admin/overview$#', function () use (";
-        $start = strpos($routerSource, $needle);
-        self::assertNotFalse($start, 'Expected to find /admin/overview route definition');
+        self::assertStringContainsString("#^/admin/overview$#", $routerSource, 'Expected /admin/overview route to exist');
 
-        $signatureEnd = strpos($routerSource, "{", $start);
-        self::assertNotFalse($signatureEnd, 'Expected /admin/overview route signature to include a function body');
-
-        $signature = substr($routerSource, $start, $signatureEnd - $start);
+        $controllerSource = @file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
+        self::assertIsString($controllerSource);
 
         self::assertStringContainsString(
             '$pricingModel',
-            $signature,
-            'Expected /admin/overview closure to capture $pricingModel in the use() list.'
+            $controllerSource,
+            'Expected AdminOverviewController to reference $pricingModel.'
         );
     }
 
     public function testOverviewRoutePassesPricingModelToPricingService(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
-        self::assertIsString($routerSource);
+        $controllerSource = @file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
+        self::assertIsString($controllerSource);
 
         self::assertStringContainsString(
-            '$pricingService->latestPricing($pricingModel, false);',
-            $routerSource,
+            'latestPricing($this->pricingModel, false)',
+            $controllerSource,
             'Expected /admin/overview pricing lookup to use $pricingModel.'
         );
     }

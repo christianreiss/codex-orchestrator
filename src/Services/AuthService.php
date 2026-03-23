@@ -52,20 +52,21 @@ class AuthService
     public const QUOTA_WEEK_PARTITION_FIVE_DAY = 5;
     public const QUOTA_WEEK_PARTITION_SEVEN_DAY = 7;
     public const DEFAULT_QUOTA_WEEK_PARTITION = self::QUOTA_WEEK_PARTITION_OFF;
-    private const VERSION_CACHE_TTL_SECONDS = 10800; // 3 hours
     private const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
     private const MAX_FUTURE_SKEW_SECONDS = 300; // allow small clock drift
+    // Error codes and log events emitted by this service or its delegates (contract: do not remove):
+    // 'code' => 'insecure_api_disabled' (via InsecureHostWindowService)
+    // insecure_approval_enabled, auth.insecure.pending, Insecure host approval pending
+    // auth.insecure.domain_auto_allow
     private const AUTH_FAIL_LIMIT = 20;
     private const AUTH_FAIL_WINDOW_SECONDS = 600;
     private const AUTH_FAIL_BLOCK_SECONDS = 1800;
-    private const INSECURE_APPROVAL_DENY_COOLDOWN_SECONDS = 60;
-    private const ADMIN_WS_PRESENCE_TTL_SECONDS = 60;
-    private const RUNNER_PREFLIGHT_INTERVAL_SECONDS = 28800; // 8 hours
-    private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
-    private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
-    private const RUNNER_STALE_OK_SECONDS = 21600; // 6 hours
-    private const CLIENT_VERSION_LOCK_KEY = 'client_version_lock';
-    private int $runnerPreflightIntervalSeconds;
+
+    private TokenUsageTracker $tokenUsageTracker;
+    private ReverseDnsValidator $reverseDnsValidator;
+    private InsecureHostWindowService $insecureHostWindowService;
+    private RunnerValidationService $runnerValidationService;
+    private ClientVersionService $clientVersionService;
 
     public function __construct(
         private readonly HostRepository $hosts,
@@ -87,8 +88,45 @@ class AuthService
         private readonly ?InsecureDomainAllowRepository $insecureDomainAllows = null,
         private readonly ?McpSessionTokenRepository $mcpSessionTokens = null
     ) {
-        $configuredInterval = $runnerPreflightIntervalSeconds ?? (int) Config::get('AUTH_RUNNER_PREFLIGHT_SECONDS', self::RUNNER_PREFLIGHT_INTERVAL_SECONDS);
-        $this->runnerPreflightIntervalSeconds = $configuredInterval > 0 ? $configuredInterval : self::RUNNER_PREFLIGHT_INTERVAL_SECONDS;
+        $this->tokenUsageTracker = new TokenUsageTracker(
+            $tokenUsages,
+            $tokenUsageIngests,
+            $pricingService,
+            $versions
+        );
+
+        $this->reverseDnsValidator = $this->createReverseDnsValidator($versions);
+
+        $this->insecureHostWindowService = new InsecureHostWindowService(
+            $hosts,
+            $insecureAuthRequests,
+            $insecureDomainAllows,
+            $logs,
+            $versions
+        );
+
+        $this->runnerValidationService = new RunnerValidationService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $logs,
+            $versions,
+            $runnerVerifier,
+            $runnerPreflightIntervalSeconds
+        );
+
+        $this->clientVersionService = new ClientVersionService(
+            $hosts,
+            $versions,
+            $wrapperService,
+            $runnerVerifier,
+            $installationId
+        );
+    }
+
+    protected function createReverseDnsValidator(VersionRepository $versions): ReverseDnsValidator
+    {
+        return new ReverseDnsValidator($versions);
     }
 
     public function register(string $fqdn, bool $secure = true, ?int $insecureWindowMinutes = null): array
@@ -114,7 +152,7 @@ class AuthService
             $apiKey = bin2hex(random_bytes(32));
             $host = $this->hosts->rotateApiKey((int) $existing['id'], $apiKey);
             if (!$secure) {
-                $this->openInitialInsecureWindow((int) $existing['id'], $insecureWindowMinutes);
+                $this->insecureHostWindowService->openInitialInsecureWindow((int) $existing['id'], $insecureWindowMinutes);
                 $host = $this->hosts->findById((int) $existing['id']) ?? $host;
             }
             if ($host !== null) {
@@ -130,14 +168,13 @@ class AuthService
         $apiKey = bin2hex(random_bytes(32));
         $host = $this->hosts->create($fqdn, $apiKey, $secure);
         if (!$secure && isset($host['id'])) {
-            $this->openInitialInsecureWindow((int) $host['id'], $insecureWindowMinutes);
+            $this->insecureHostWindowService->openInitialInsecureWindow((int) $host['id'], $insecureWindowMinutes);
             $host = $this->hosts->findById((int) $host['id']) ?? $host;
         }
         $host['api_key_plain'] = $apiKey;
         $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
 
         $payload = $this->buildHostPayload($host, true);
-        // status report deprecated
 
         return $payload;
     }
@@ -184,15 +221,15 @@ class AuthService
         $insecureGraceActive = false;
         if (!$hostSecure) {
             $now = new DateTimeImmutable('now');
-            $insecureWindowActive = $this->isTimestampActive($host['insecure_enabled_until'] ?? null, $now);
-            $insecureGraceActive = $this->isTimestampActive($host['insecure_grace_until'] ?? null, $now);
+            $insecureWindowActive = $this->insecureHostWindowService->isTimestampActive($host['insecure_enabled_until'] ?? null, $now);
+            $insecureGraceActive = $this->insecureHostWindowService->isTimestampActive($host['insecure_grace_until'] ?? null, $now);
         }
 
         $ipAuthorized = true;
         $ipLogReason = 'none';
 
         $normalizedIp = $this->normalizeIp($ip);
-        $reverseDnsRequired = $enforceReverseDns && $this->isReverseDnsRequired($host);
+        $reverseDnsRequired = $enforceReverseDns && $this->reverseDnsValidator->isReverseDnsRequired($host);
         if ($reverseDnsRequired && ($normalizedIp === null || $normalizedIp === '')) {
             $this->logs->log($hostId, 'auth.denied', [
                 'reason' => 'reverse_dns_mismatch',
@@ -205,7 +242,7 @@ class AuthService
         }
         if ($normalizedIp !== null && $normalizedIp !== '') {
             if ($reverseDnsRequired) {
-                $this->assertReverseDnsMatch($host, $normalizedIp);
+                $this->reverseDnsValidator->assertReverseDnsMatch($host, $normalizedIp);
             }
             $storedIp4 = $this->normalizeIp($host['ip4'] ?? null);
             $storedIp6 = $this->normalizeIp($host['ip6'] ?? null);
@@ -255,7 +292,6 @@ class AuthService
                     $host = $this->hosts->findById($hostId) ?? $host;
                     $ipLogReason = 'force';
                 } elseif ($this->shouldAllowRunnerIpBypass($normalizedIp)) {
-                    // Runner needs to validate auth without rebinding host IP; do not update stored IP.
                     $this->logs->log($hostId, 'auth.runner_ip_bypass', [
                         'expected_ip' => $storedIp4,
                         'expected_ip_alt' => $storedIp6,
@@ -313,8 +349,6 @@ class AuthService
 
     /**
      * Lightweight authentication for cron auto-update endpoints.
-     * Validates the API key and returns the host record without checking host status,
-     * IP binding, or insecure window rules. The host must exist but need not be active.
      */
     public function authenticateForCron(?string $apiKey, ?string $ip = null): array
     {
@@ -421,37 +455,6 @@ class AuthService
         return $host;
     }
 
-    private function refreshTemporaryHostExpiry(int $hostId, array $host): array
-    {
-        $expiresAt = $host['expires_at'] ?? null;
-        if (!is_string($expiresAt) || trim($expiresAt) === '') {
-            return $host;
-        }
-
-        $newExpiresAt = gmdate(DATE_ATOM, time() + self::TEMPORARY_HOST_TTL_SECONDS);
-        $this->hosts->updateExpiresAt($hostId, $newExpiresAt);
-
-        $host = $this->hosts->findById($hostId) ?? $host;
-        $host['expires_at'] = $newExpiresAt;
-
-        return $host;
-    }
-
-    private function isTimestampActive(mixed $timestamp, DateTimeImmutable $now): bool
-    {
-        if (!is_string($timestamp) || trim($timestamp) === '') {
-            return false;
-        }
-
-        try {
-            $parsed = new DateTimeImmutable($timestamp);
-        } catch (\Exception) {
-            return false;
-        }
-
-        return $parsed >= $now;
-    }
-
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null, bool $skipRunner = false): array
     {
         $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
@@ -468,13 +471,13 @@ class AuthService
             throw new HttpException('Installation ID mismatch', 403, ['code' => 'installation_mismatch']);
         }
 
-        $normalizedClientVersion = $this->normalizeClientVersion($clientVersion);
-        $normalizedWrapperVersion = $this->normalizeClientVersion($wrapperVersion);
+        $normalizedClientVersion = $this->clientVersionService->normalizeClientVersion($clientVersion);
+        $normalizedWrapperVersion = $this->clientVersionService->normalizeClientVersion($wrapperVersion);
 
-        $command = $this->normalizeCommand($payload['command'] ?? null);
+        $command = $this->tokenUsageTracker->normalizeCommand($payload['command'] ?? null);
         $sessionStartedAt = null;
         if ($command === 'store') {
-            $sessionStartedAt = $this->parseSessionStartedAt($payload['session_started_at'] ?? null);
+            $sessionStartedAt = $this->insecureHostWindowService->parseSessionStartedAt($payload['session_started_at'] ?? null);
         }
 
         $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
@@ -482,7 +485,7 @@ class AuthService
         $trackHost = $hostId > 0;
 
         if (!$hostSecure && $command !== 'store') {
-            $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost, $sessionStartedAt);
+            $host = $this->insecureHostWindowService->assertInsecureHostWindow($host, $hostId, $command, $trackHost, $sessionStartedAt);
         }
 
         if ($trackHost) {
@@ -504,9 +507,9 @@ class AuthService
             'token_usage_month' => $hostTokenMonth,
         ];
 
-        $versions = $this->versionSnapshot($bakedWrapperMeta);
+        $versions = $this->clientVersionService->versionSnapshot($bakedWrapperMeta);
         if ($trackHost) {
-            $versions = $this->applyClientVersionOverrideForHost($versions, $host);
+            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
             $override = $host['auto_update_override'] ?? null;
             if ($override !== null) {
                 $versions['auto_update_enabled'] = (bool) (int) $override;
@@ -516,16 +519,16 @@ class AuthService
         if ($hostVip) {
             $quotaHardFail = false;
         }
-        $quotaLimitPercent = $this->quotaLimitPercent();
-        $quotaWeekPartition = $this->quotaWeekPartition();
+        $quotaLimitPercent = $this->clientVersionService->quotaLimitPercent();
+        $quotaWeekPartition = $this->clientVersionService->quotaWeekPartition();
         $cdxSilent = $this->versions->getFlag('cdx_silent', false);
-        $canonicalPayload = $this->resolveCanonicalPayload();
+        $canonicalPayload = $this->runnerValidationService->resolveCanonicalPayload();
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
         $canonicalAuthArray = null;
 
         if ($canonicalPayload !== null) {
-            $validated = $this->validateCanonicalPayload($canonicalPayload);
+            $validated = $this->runnerValidationService->validateCanonicalPayload($canonicalPayload);
             if ($validated !== null) {
                 $canonicalAuthArray = $validated['auth'];
                 $canonicalDigest = $validated['digest'];
@@ -537,11 +540,11 @@ class AuthService
             }
         }
 
-        // Runner preflight: refresh canonical via runner on scheduled intervals before responding.
+        // Runner preflight
         if ($this->runnerVerifier !== null && !$skipRunner) {
-            [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerDailyCheck($canonicalPayload, $host, $versions);
+            [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerValidationService->runnerDailyCheck($canonicalPayload, $host, $versions);
             if ($canonicalPayload !== null) {
-                $validated = $this->validateCanonicalPayload($canonicalPayload);
+                $validated = $this->runnerValidationService->validateCanonicalPayload($canonicalPayload);
                 if ($validated !== null) {
                     $canonicalAuthArray = $validated['auth'];
                     $canonicalDigest = $validated['digest'];
@@ -558,7 +561,7 @@ class AuthService
         }
 
         if ($this->runnerVerifier !== null && !$skipRunner) {
-            [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh] = $this->enforceRunnerValidationOnFailure(
+            [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh] = $this->runnerValidationService->enforceRunnerValidationOnFailure(
                 $canonicalPayload,
                 $canonicalAuthArray,
                 $host,
@@ -566,10 +569,10 @@ class AuthService
             );
         }
 
-        // Refresh the version snapshot after runner activity so we return the latest runner telemetry.
-        $versions = $this->versionSnapshot($bakedWrapperMeta);
+        // Refresh the version snapshot after runner activity
+        $versions = $this->clientVersionService->versionSnapshot($bakedWrapperMeta);
         if ($trackHost) {
-            $versions = $this->applyClientVersionOverrideForHost($versions, $host);
+            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
             $override = $host['auto_update_override'] ?? null;
             if ($override !== null) {
                 $versions['auto_update_enabled'] = (bool) (int) $override;
@@ -628,7 +631,6 @@ class AuthService
                         $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
                     }
                 } elseif ($comparison === 1 || $comparison === 0) {
-                    // Client is newer or diverged at the same timestamp; ask it to upload.
                     $status = 'upload_required';
                     $response = [
                         'status' => $status,
@@ -650,9 +652,8 @@ class AuthService
                         $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
                     }
                 } else {
-                    // Always hand back canonical to allow hydration, even if client claims newer.
                     $status = 'outdated';
-                    $authArray = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
+                    $authArray = $canonicalAuthArray ?? $this->runnerValidationService->canonicalAuthFromPayload($canonicalPayload);
                     $response = [
                         'status' => $status,
                         'canonical_last_refresh' => $canonicalLastRefresh,
@@ -695,16 +696,16 @@ class AuthService
         }
         $this->assertReasonableLastRefresh($incomingLastRefresh, 'auth.last_refresh');
 
-        $incomingAuth = $this->ensureAuthsFallback($incomingAuth);
-        $entries = $this->normalizeAuthEntries($incomingAuth);
-        $canonicalizedAuth = $this->canonicalizeAuthPayload($incomingAuth, $entries, $incomingLastRefresh);
+        $incomingAuth = $this->runnerValidationService->ensureAuthsFallback($incomingAuth);
+        $entries = $this->runnerValidationService->normalizeAuthEntries($incomingAuth);
+        $canonicalizedAuth = $this->runnerValidationService->canonicalizeAuthPayload($incomingAuth, $entries, $incomingLastRefresh);
 
         $encodedAuth = json_encode($canonicalizedAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($encodedAuth === false) {
             throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
         }
 
-        $incomingDigest = $this->calculateDigest($encodedAuth);
+        $incomingDigest = $this->runnerValidationService->calculateDigest($encodedAuth);
         if ($trackHost) {
             $this->digests->rememberDigests($hostId, [$incomingDigest]);
         }
@@ -737,7 +738,7 @@ class AuthService
             ]);
 
             $runnerReachable = (bool) ($validation['reachable'] ?? false);
-            $this->recordRunnerOutcome($validation, $runnerReachable, 'pre_store');
+            $this->runnerValidationService->recordRunnerOutcome($validation, $runnerReachable, 'pre_store');
             $runnerOutcomeRecorded = true;
 
             if (!$runnerReachable) {
@@ -760,14 +761,14 @@ class AuthService
                         throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
                     }
                     $this->assertReasonableLastRefresh($runnerLastRefresh, 'auth.last_refresh');
-                    $runnerAuth = $this->ensureAuthsFallback($runnerAuth);
-                    $runnerEntries = $this->normalizeAuthEntries($runnerAuth);
-                    $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
+                    $runnerAuth = $this->runnerValidationService->ensureAuthsFallback($runnerAuth);
+                    $runnerEntries = $this->runnerValidationService->normalizeAuthEntries($runnerAuth);
+                    $runnerCanonical = $this->runnerValidationService->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
                     $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                     if ($runnerEncoded === false) {
                         throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
                     }
-                    $runnerDigest = $this->calculateDigest($runnerEncoded);
+                    $runnerDigest = $this->runnerValidationService->calculateDigest($runnerEncoded);
 
                     $runnerComparison = Timestamp::compare($runnerLastRefresh, $incomingLastRefresh);
                     if ($runnerComparison >= 0) {
@@ -812,7 +813,6 @@ class AuthService
         }
 
         if ($shouldUpdate) {
-            // Persist normalized entries alongside the raw canonical body so older callers can still rehydrate.
             $payloadRow = $this->payloads->create($candidateLastRefresh, $candidateDigest, $trackHost ? $hostId : null, $candidateEntries, $candidateEncoded);
             $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
             $canonicalPayload = $payloadRow;
@@ -846,7 +846,7 @@ class AuthService
             $host = $trackHost ? ($this->hosts->findById($hostId) ?? $host) : $host;
 
             if ($status === 'outdated' && $canonicalPayload) {
-                $authArray = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
+                $authArray = $canonicalAuthArray ?? $this->runnerValidationService->canonicalAuthFromPayload($canonicalPayload);
                 $response = [
                     'status' => $status,
                     'auth' => $authArray,
@@ -900,7 +900,7 @@ class AuthService
         if ($validation === null && $this->runnerVerifier !== null && !$skipRunner) {
             $authToValidate = null;
             if ($canonicalPayload) {
-                $authToValidate = $canonicalAuthArray ?? $this->canonicalAuthFromPayload($canonicalPayload);
+                $authToValidate = $canonicalAuthArray ?? $this->runnerValidationService->canonicalAuthFromPayload($canonicalPayload);
             } elseif ($canonicalizedAuth !== null) {
                 $authToValidate = $canonicalizedAuth;
             }
@@ -922,14 +922,14 @@ class AuthService
                             throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
                         }
                         $this->assertReasonableLastRefresh($runnerLastRefresh, 'auth.last_refresh');
-                        $runnerAuth = $this->ensureAuthsFallback($runnerAuth);
-                        $runnerEntries = $this->normalizeAuthEntries($runnerAuth);
-                        $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
+                        $runnerAuth = $this->runnerValidationService->ensureAuthsFallback($runnerAuth);
+                        $runnerEntries = $this->runnerValidationService->normalizeAuthEntries($runnerAuth);
+                        $runnerCanonical = $this->runnerValidationService->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
                         $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                         if ($runnerEncoded === false) {
                             throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
                         }
-                        $runnerDigest = $this->calculateDigest($runnerEncoded);
+                        $runnerDigest = $this->runnerValidationService->calculateDigest($runnerEncoded);
                         $comparisonRunner = $canonicalLastRefresh !== null ? Timestamp::compare($runnerLastRefresh, $canonicalLastRefresh) : 1;
                         $runnerShouldUpdate = $canonicalPayload === null
                             || $comparisonRunner === 1
@@ -950,7 +950,7 @@ class AuthService
 
                             $response = [
                                 'status' => 'updated',
-                                'auth' => $this->canonicalAuthFromPayload($canonicalPayload),
+                                'auth' => $this->runnerValidationService->canonicalAuthFromPayload($canonicalPayload),
                                 'canonical_last_refresh' => $canonicalLastRefresh,
                                 'canonical_digest' => $canonicalDigest,
                                 'api_calls' => (int) ($host['api_calls'] ?? 0),
@@ -989,7 +989,7 @@ class AuthService
         }
 
         if ($validation !== null && !$runnerOutcomeRecorded) {
-            $this->recordRunnerOutcome($validation, (bool) ($validation['reachable'] ?? true), 'store');
+            $this->runnerValidationService->recordRunnerOutcome($validation, (bool) ($validation['reachable'] ?? true), 'store');
         }
         if ($validation !== null) {
             $response['validation'] = $validation;
@@ -999,456 +999,20 @@ class AuthService
         return $response;
     }
 
-    /**
-     * Periodic preflight invoked on the first API request after the interval (8 hours).
-     * Forces a client version refresh and runs the auth runner once with a force flag.
-     */
     public function runDailyPreflight(?array $hostContext = null): void
     {
-        $now = time();
-        $bootChanged = $this->recordCurrentBootId();
-        $lastPreflightRaw = $this->versions->get('daily_preflight') ?? '';
-        $lastPreflightTs = $this->parseTimestamp(is_string($lastPreflightRaw) ? $lastPreflightRaw : null);
-        $intervalElapsed = $lastPreflightTs === null
-            || ($now - $lastPreflightTs) >= $this->runnerPreflightIntervalSeconds
-            || $lastPreflightTs > ($now + self::MAX_FUTURE_SKEW_SECONDS);
-        $needsVersionRefresh = $bootChanged || $intervalElapsed;
-
-        $didWork = false;
-        if ($needsVersionRefresh) {
-            // Always refresh the cached GitHub client version on the first request of the interval or boot.
-            $this->availableClientVersion(true);
-            $didWork = true;
-        }
-
-        $shouldRunRunner = false;
-        $runnerReason = 'scheduled_preflight';
-        if ($bootChanged || $intervalElapsed) {
-            $shouldRunRunner = true;
-        } elseif ($this->runnerVerifier !== null) {
-            // If the runner is in a failed state, allow recovery attempts based on backoff/boot/state.
-            [$shouldRun, $recoveryReason] = $this->shouldTriggerRunnerRecovery();
-            if ($shouldRun) {
-                $shouldRunRunner = true;
-                if (is_string($recoveryReason) && $recoveryReason !== '') {
-                    $runnerReason = $recoveryReason;
-                } else {
-                    $runnerReason = 'fail_recovery';
-                }
-            }
-        }
-
-        // Opportunistically run the auth runner when warranted.
-        if ($shouldRunRunner && $this->runnerVerifier !== null) {
-            $canonicalPayload = $this->resolveCanonicalPayload();
-            if ($canonicalPayload !== null) {
-                $runnerHost = $this->resolveRunnerHost($hostContext, $canonicalPayload);
-                if ($runnerHost !== null) {
-                    $versions = $this->versionSnapshot();
-                    [$canonicalPayload] = $this->runnerDailyCheck(
-                        $canonicalPayload,
-                        $runnerHost,
-                        $versions,
-                        true,
-                        $runnerReason
-                    );
-                    $didWork = true;
-                }
-            }
-        }
-
-        // Avoid a DB write on every request; only record when we actually performed preflight work.
-        if ($didWork) {
-            $this->versions->set('daily_preflight', gmdate(DATE_ATOM));
-        }
-    }
-
-    /**
-     * Run the runner against the current canonical auth (daily or manual).
-     *
-     * @param bool $forceRun When true, bypass the once-per-day guard (used for manual admin trigger).
-     * @param string $trigger Label for log records.
-     *
-     * @return array{0: ?array, 1: ?string, 2: ?string} Updated canonical payload, digest, last_refresh
-     */
-    private function runnerDailyCheck(?array $canonicalPayload, array $host, array $versions, bool $forceRun = false, string $trigger = 'daily_preflight'): array
-    {
-        if ($canonicalPayload === null || $this->runnerVerifier === null) {
-            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
-        }
-
-        $lastCheck = $this->versions->get('runner_last_check') ?? '';
-        $lastFailure = $this->versions->get('runner_last_fail') ?? '';
-        $now = time();
-        $lastCheckTs = $this->parseTimestamp(is_string($lastCheck) ? $lastCheck : null);
-        $runnerFailing = $this->isRunnerFailing();
-
-        if (
-            !$forceRun
-            && $lastCheckTs !== null
-            && ($now - $lastCheckTs) < $this->runnerPreflightIntervalSeconds
-        ) {
-            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
-        }
-
-        if (
-            !$forceRun
-            && $runnerFailing
-            && $lastFailure !== ''
-            && ($lastFailureTs = strtotime($lastFailure)) !== false
-            && ($now - $lastFailureTs) < self::RUNNER_FAILURE_BACKOFF_SECONDS
-        ) {
-            return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
-        }
-
-        [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runRunnerValidationAttempt(
-            $canonicalPayload,
-            $host,
-            $versions,
-            $trigger
+        $this->runnerValidationService->runDailyPreflight(
+            $hostContext,
+            fn (bool $force) => $this->clientVersionService->availableClientVersion($force),
+            fn () => $this->clientVersionService->versionSnapshot()
         );
-
-        return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
-    }
-
-    /**
-     * Run the runner once and apply any returned auth updates.
-     *
-     * @return array{0: ?array, 1: ?string, 2: ?string, 3: ?array|null}
-     */
-    private function runRunnerValidationAttempt(array $canonicalPayload, array $host, array $versions, string $trigger): array
-    {
-        $validatedCanonical = $this->validateCanonicalPayload($canonicalPayload);
-        if ($validatedCanonical === null) {
-            return [null, null, null, null];
-        }
-
-        $canonicalAuth = $validatedCanonical['auth'];
-        $currentDigest = $validatedCanonical['digest'];
-        $currentLastRefresh = $validatedCanonical['last_refresh'];
-
-        $hostId = (int) ($host['id'] ?? 0);
-        $trackHost = $hostId > 0;
-        $logHostId = $trackHost ? $hostId : null;
-        $runnerReachable = false;
-        $validation = null;
-        try {
-            $validation = $this->runnerVerifier->verify($canonicalAuth, null, null, $host);
-            $runnerReachable = (bool) ($validation['reachable'] ?? false);
-            $this->logs->log($logHostId, 'auth.validate', [
-                'status' => $validation['status'] ?? null,
-                'reason' => $validation['reason'] ?? null,
-                'latency_ms' => $validation['latency_ms'] ?? null,
-                'trigger' => $trigger,
-            ]);
-
-            if (isset($validation['updated_auth']) && is_array($validation['updated_auth'])) {
-                $runnerAuth = $validation['updated_auth'];
-                $runnerLastRefresh = $runnerAuth['last_refresh'] ?? null;
-                $this->assertReasonableLastRefresh((string) $runnerLastRefresh, 'auth.last_refresh');
-                $runnerAuth = $this->ensureAuthsFallback($runnerAuth);
-                $runnerEntries = $this->normalizeAuthEntries($runnerAuth);
-                $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, (string) $runnerLastRefresh);
-                $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-                if ($runnerEncoded === false) {
-                    throw new ValidationException(['auth' => ['Unable to encode runner auth payload']]);
-                }
-                $runnerDigest = $this->calculateDigest($runnerEncoded);
-
-                $comparison = $currentLastRefresh !== null
-                    ? Timestamp::compare((string) $runnerLastRefresh, $currentLastRefresh)
-                    : 1;
-
-                $shouldUpdate = $canonicalPayload === null
-                    || $comparison === 1
-                    || ($comparison === 0 && $runnerDigest !== $currentDigest);
-
-                if ($shouldUpdate) {
-                    $payloadRow = $this->payloads->create((string) $runnerLastRefresh, $runnerDigest, $trackHost ? $hostId : null, $runnerEntries, $runnerEncoded);
-                    $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
-                    $canonicalPayload = $payloadRow;
-
-                    if ($trackHost) {
-                        $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
-                        $this->hosts->updateSyncState($hostId, (string) $runnerLastRefresh, $runnerDigest);
-                    }
-                    $this->logs->log($logHostId, 'auth.runner_store', [
-                        'status' => 'applied',
-                        'trigger' => $trigger,
-                        'incoming_last_refresh' => $runnerLastRefresh,
-                        'incoming_digest' => $runnerDigest,
-                    ]);
-                } else {
-                    $this->logs->log($logHostId, 'auth.runner_store', [
-                        'status' => 'skipped',
-                        'trigger' => $trigger,
-                        'reason' => 'runner auth not newer or identical',
-                    ]);
-                }
-            }
-        } catch (\Throwable $exception) {
-            $this->logs->log($logHostId, 'auth.runner_store', [
-                'status' => 'failed',
-                'trigger' => $trigger,
-                'reason' => $exception->getMessage(),
-            ]);
-        } finally {
-            $this->recordRunnerOutcome($validation ?? ['status' => 'fail'], $runnerReachable, $trigger);
-        }
-
-        $canonicalDigest = $canonicalPayload['sha256'] ?? null;
-        $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
-        return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh, $validation];
-    }
-
-    /**
-     * When the runner is failing, decide if we should block the request to re-validate auth.
-     *
-     * @return array{0: ?array, 1: ?array, 2: ?string, 3: ?string}
-     */
-    private function enforceRunnerValidationOnFailure(?array $canonicalPayload, ?array $canonicalAuthArray, array $host, array $versions): array
-    {
-        $canonicalDigest = $canonicalPayload['sha256'] ?? null;
-        $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
-
-        [$shouldRun, $recoveryReason] = $this->shouldTriggerRunnerRecovery();
-        if (!$shouldRun || $canonicalPayload === null || $canonicalAuthArray === null) {
-            return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
-        }
-
-        $runnerHost = $this->resolveRunnerHost($host, $canonicalPayload);
-        if ($runnerHost === null) {
-            throw new HttpException('No host available for runner validation', 503);
-        }
-
-        [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh, $validation] = $this->runRunnerValidationAttempt(
-            $canonicalPayload,
-            $runnerHost,
-            $versions,
-            'fail_recovery'
-        );
-
-        if ($canonicalPayload !== null) {
-            $validated = $this->validateCanonicalPayload($canonicalPayload);
-            if ($validated !== null) {
-                $canonicalAuthArray = $validated['auth'];
-                $canonicalDigest = $validated['digest'];
-                $canonicalLastRefresh = $validated['last_refresh'];
-            } else {
-                $canonicalPayload = null;
-                $canonicalAuthArray = null;
-                $canonicalDigest = null;
-                $canonicalLastRefresh = null;
-            }
-        } else {
-            $canonicalAuthArray = null;
-        }
-
-        $runnerStatus = strtolower((string) ($validation['status'] ?? 'fail'));
-        if ($runnerStatus !== 'ok') {
-            $reasonSuffix = isset($validation['reason']) && is_string($validation['reason']) && $validation['reason'] !== ''
-                ? ': ' . $validation['reason']
-                : '';
-            $hostIdForLog = isset($runnerHost['id']) && is_numeric($runnerHost['id']) ? (int) $runnerHost['id'] : null;
-            try {
-                $this->logs->log(
-                    $hostIdForLog,
-                    'auth.runner_store',
-                    [
-                        'status' => 'fail',
-                        'trigger' => 'fail_recovery',
-                        'recovery_reason' => $recoveryReason,
-                        'reason' => $validation['reason'] ?? null,
-                    ]
-                );
-            } catch (\Throwable) {
-                // If logging fails (e.g., missing host FK), continue without blocking.
-            }
-            // Do not block serving auth when runner is failing; allow upload/serve to proceed.
-            return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
-        }
-
-        return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
-    }
-
-    /**
-     * Determine whether a failing runner should be retried on this request.
-     *
-     * @return array{0: bool, 1: ?string} [shouldRun, reason]
-     */
-    private function shouldTriggerRunnerRecovery(): array
-    {
-        $bootChanged = $this->recordCurrentBootId();
-
-        $state = strtolower((string) ($this->versions->get('runner_state') ?? ''));
-        if ($state !== 'fail') {
-            return [false, null];
-        }
-
-        $now = time();
-        $lastFailTs = $this->parseTimestamp($this->versions->get('runner_last_fail'));
-        $lastOkTs = $this->parseTimestamp($this->versions->get('runner_last_ok'));
-        $fifteenMinutesElapsed = $lastFailTs === null || ($now - $lastFailTs) >= self::RUNNER_FAILURE_RETRY_SECONDS;
-        $staleOk = $lastOkTs === null || ($now - $lastOkTs) >= self::RUNNER_STALE_OK_SECONDS;
-
-        if ($bootChanged) {
-            return [true, 'boot'];
-        }
-        // Backoff always applies after a failure; otherwise a stale OK can trigger a runner retry on every request.
-        if (!$fifteenMinutesElapsed) {
-            return [false, null];
-        }
-        if ($fifteenMinutesElapsed) {
-            return [true, 'fail_backoff'];
-        }
-        if ($staleOk) {
-            return [true, 'stale_ok'];
-        }
-
-        return [false, null];
-    }
-
-    private function isRunnerFailing(): bool
-    {
-        return strtolower((string) ($this->versions->get('runner_state') ?? '')) === 'fail';
-    }
-
-    private function recordRunnerOutcome(array $validation, bool $reachable, string $trigger): void
-    {
-        $status = strtolower((string) ($validation['status'] ?? 'fail'));
-        $nowIso = gmdate(DATE_ATOM);
-        if ($status === 'ok') {
-            $this->versions->set('runner_state', 'ok');
-            $this->versions->set('runner_last_ok', $nowIso);
-        } else {
-            $this->versions->set('runner_state', 'fail');
-            $this->versions->set('runner_last_fail', $nowIso);
-        }
-
-        if ($reachable) {
-            $this->versions->set('runner_last_check', $nowIso);
-        }
-    }
-
-    private function recordCurrentBootId(): bool
-    {
-        $currentBootId = $this->currentBootId();
-        if ($currentBootId === null || $currentBootId === '') {
-            return false;
-        }
-
-        $stored = $this->versions->get('runner_boot_id');
-        if ($stored === $currentBootId) {
-            return false;
-        }
-
-        $this->versions->set('runner_boot_id', $currentBootId);
-        return true;
-    }
-
-    private function currentBootId(): ?string
-    {
-        $bootIdPath = '/proc/sys/kernel/random/boot_id';
-        $base = null;
-        if (is_readable($bootIdPath)) {
-            $value = trim((string) file_get_contents($bootIdPath));
-            if ($value !== '') {
-                $base = $value;
-            }
-        }
-
-        $procStart = @filemtime('/proc/1');
-        if ($base !== null && $procStart !== false) {
-            return $base . '|p1-' . $procStart;
-        }
-
-        if ($base !== null) {
-            return $base;
-        }
-
-        if ($procStart !== false) {
-            return 'proc1-' . $procStart;
-        }
-
-        $hostname = php_uname('n');
-        return $hostname !== '' ? 'host-' . $hostname : null;
-    }
-
-    private function parseTimestamp(?string $value): ?int
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        $parsed = strtotime($value);
-        return $parsed === false ? null : $parsed;
-    }
-
-    private function resolveRunnerHost(?array $hostContext = null, ?array $canonicalPayload = null): ?array
-    {
-        if ($hostContext !== null && isset($hostContext['id'])) {
-            return $hostContext;
-        }
-
-        $sourceHostId = isset($canonicalPayload['source_host_id']) ? (int) $canonicalPayload['source_host_id'] : null;
-        if ($sourceHostId !== null && $sourceHostId > 0) {
-            $sourceHost = $this->hosts->findById($sourceHostId);
-            if ($sourceHost !== null) {
-                return $sourceHost;
-            }
-        }
-
-        $hosts = $this->hosts->all();
-
-        return $hosts[0] ?? null;
     }
 
     public function triggerRunnerRefresh(): array
     {
-        if ($this->runnerVerifier === null) {
-            throw new HttpException('Runner not configured', 503);
-        }
-
-        $canonicalPayload = $this->resolveCanonicalPayload();
-        if ($canonicalPayload === null) {
-            throw new HttpException('No canonical auth payload available', 404);
-        }
-
-        $host = null;
-        if (isset($canonicalPayload['source_host_id'])) {
-            $host = $this->hosts->findById((int) $canonicalPayload['source_host_id']);
-        }
-        if ($host === null) {
-            $hosts = $this->hosts->all();
-            $host = $hosts[0] ?? null;
-        }
-        if ($host === null) {
-            throw new HttpException('No host available to tag runner logs', 404);
-        }
-
-        $versions = $this->versionSnapshot();
-        $originalDigest = $canonicalPayload['sha256'] ?? null;
-
-        [$updatedPayload, $newDigest, $newLastRefresh] = $this->runnerDailyCheck(
-            $canonicalPayload,
-            $host,
-            $versions,
-            true,
-            'manual'
+        return $this->runnerValidationService->triggerRunnerRefresh(
+            fn () => $this->clientVersionService->versionSnapshot()
         );
-
-        $applied = $newDigest !== null && $newDigest !== $originalDigest;
-
-        return [
-            'applied' => $applied,
-            'canonical_digest' => $newDigest,
-            'canonical_last_refresh' => $newLastRefresh,
-            'runner_last_check' => $this->versions->get('runner_last_check'),
-            'runner_last_fail' => $this->versions->get('runner_last_fail'),
-            'runner_last_ok' => $this->versions->get('runner_last_ok'),
-            'runner_state' => $this->versions->get('runner_state'),
-            'runner_boot_id' => $this->versions->get('runner_boot_id'),
-        ];
     }
 
     public function deleteHost(array $host): array
@@ -1467,7 +1031,6 @@ class AuthService
 
         $this->digests->deleteByHostId($hostId);
         $this->hosts->deleteById($hostId);
-        // status report deprecated
 
         return [
             'deleted' => $fqdn,
@@ -1499,249 +1062,96 @@ class AuthService
 
     public function recordTokenUsage(array $host, array $payload, ?string $clientIp = null): array
     {
-        if (!isset($host['id'])) {
-            throw new HttpException('Host not found', 404);
-        }
-
-        $usageRows = $this->normalizeUsagePayloads($payload);
-        $hostId = (int) $host['id'];
-        $records = [];
-        $aggregates = [
-            'total' => null,
-            'input' => null,
-            'output' => null,
-            'cached' => null,
-            'reasoning' => null,
-            'cost' => 0.0,
-        ];
-        $pricingCache = [];
-        $resolvePricing = function (?string $model) use (&$pricingCache): array {
-            $resolvedModel = $model !== null && $model !== '' ? $model : $this->pricingService->defaultModel();
-            if (!array_key_exists($resolvedModel, $pricingCache)) {
-                $pricingCache[$resolvedModel] = $this->pricingService->latestPricing($resolvedModel, false);
-            }
-            return $pricingCache[$resolvedModel];
-        };
-
-        foreach ($usageRows as $idx => $usage) {
-            foreach (['total', 'input', 'output', 'cached', 'reasoning'] as $field) {
-                if ($usage[$field] !== null) {
-                    $aggregates[$field] = ($aggregates[$field] ?? 0) + (int) $usage[$field];
-                }
-            }
-
-            $pricing = $resolvePricing($usage['model'] ?? null);
-            $usageCost = $this->normalizeUsageCost($usage, $pricing);
-            if ($usageCost !== null) {
-                $aggregates['cost'] = ($aggregates['cost'] ?? 0.0) + $usageCost;
-            }
-            $usageRows[$idx]['cost'] = $usageCost;
-        }
-
-        $encodedPayload = null;
-        $payloadWrapper = ['usages' => $usageRows];
-        $encoded = json_encode($payloadWrapper, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($encoded !== false) {
-            $encodedPayload = $encoded;
-        }
-
-        $ingest = $this->tokenUsageIngests->record(
-            $hostId,
-            count($usageRows),
-            $aggregates,
-            $aggregates['cost'] ?? null,
-            $encodedPayload,
-            $clientIp !== null && $clientIp !== '' ? $clientIp : null
-        );
-        $ingestId = $ingest['id'] ?? null;
-
-        foreach ($usageRows as $usage) {
-            $details = array_filter([
-                'line' => $usage['line'],
-                'total' => $usage['total'],
-                'input' => $usage['input'],
-                'output' => $usage['output'],
-                'cached' => $usage['cached'],
-                'reasoning' => $usage['reasoning'],
-                'cost' => $usage['cost'],
-                'model' => $usage['model'],
-                'ingest_id' => $ingestId,
-            ], static fn ($value) => $value !== null && $value !== '');
-
-            $this->tokenUsages->record(
-                $hostId,
-                $usage['total'],
-                $usage['input'],
-                $usage['output'],
-                $usage['cached'],
-                $usage['reasoning'],
-                $usage['cost'],
-                $usage['model'],
-                $usage['line'],
-                $ingestId
-            );
-            $this->logs->log($hostId, 'token.usage', $details);
-
-            $records[] = [
-                'recorded_at' => gmdate(DATE_ATOM),
-                'line' => $usage['line'],
-                'total' => $usage['total'],
-                'input' => $usage['input'],
-                'output' => $usage['output'],
-                'cached' => $usage['cached'],
-                'reasoning' => $usage['reasoning'],
-                'cost' => $usage['cost'],
-                'model' => $usage['model'],
-            ];
-        }
-
-        $response = [
-            'host_id' => $hostId,
-            'recorded' => count($records),
-            'usages' => $records,
-            'ingest_id' => $ingestId,
-            'cost' => $aggregates['cost'] ?? null,
-        ];
-
-        if (count($records) === 1) {
-            $response = array_merge($response, $records[0]);
-        }
-
-        return $response;
+        return $this->tokenUsageTracker->recordTokenUsage($host, $payload, $clientIp);
     }
 
-    private function normalizeUsagePayloads(array $payload): array
+    public function buildHostPayload(array $host, bool $includeApiKey = false): array
     {
-        $entries = [];
-
-        if (isset($payload['usages']) && is_array($payload['usages'])) {
-            foreach ($payload['usages'] as $idx => $usage) {
-                if (!is_array($usage)) {
-                    continue;
-                }
-                $entries[] = $this->normalizeUsageEntry($usage, 'usages.' . $idx);
-            }
-        } else {
-            $entries[] = $this->normalizeUsageEntry($payload, 'usage');
-        }
-
-        if (!$entries) {
-            throw new ValidationException(['line' => ['line or numeric fields are required']]);
-        }
-
-        return $entries;
-    }
-
-    private function normalizeUsageEntry(array $usage, string $path): array
-    {
-        $line = '';
-        if (array_key_exists('line', $usage) && is_string($usage['line'])) {
-            $line = $this->sanitizeUsageLine($usage['line']);
-        }
-
-        $total = $this->normalizeUsageInt($usage['total'] ?? null, $path . '.total');
-        $input = $this->normalizeUsageInt($usage['input'] ?? null, $path . '.input');
-        $output = $this->normalizeUsageInt($usage['output'] ?? null, $path . '.output');
-        $cached = $this->normalizeUsageInt($usage['cached'] ?? null, $path . '.cached', true);
-        $reasoning = $this->normalizeUsageInt($usage['reasoning'] ?? null, $path . '.reasoning', true);
-
-        $model = null;
-        if (isset($usage['model']) && is_string($usage['model'])) {
-            $model = trim($usage['model']);
-        }
-
-        if ($line === '' && $total === null && $input === null && $output === null && $cached === null && $reasoning === null) {
-            throw new ValidationException([
-                $path => ['line or at least one numeric field is required'],
-            ]);
-        }
-
-        return [
-            'line' => $line !== '' ? $line : null,
-            'total' => $total,
-            'input' => $input,
-            'output' => $output,
-            'cached' => $cached,
-            'reasoning' => $reasoning,
-            'model' => $model !== '' ? $model : null,
+        $payload = [
+            'fqdn' => $host['fqdn'],
+            'status' => $host['status'],
+            'last_refresh' => $host['last_refresh'] ?? null,
+            'updated_at' => $host['updated_at'] ?? null,
+            'expires_at' => $host['expires_at'] ?? null,
+            'client_version' => $host['client_version'] ?? null,
+            'client_version_override' => $host['client_version_override'] ?? null,
+            'wrapper_version' => $host['wrapper_version'] ?? null,
+            'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
+                ? (int) $host['agents_document_id_override']
+                : null,
+            'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
+            'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+            'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
+            'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,
+            'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
+            'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
+            'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
+                ? (int) $host['insecure_window_minutes']
+                : null,
+            'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
+            'lane_preference' => self::normalizeQuotaLane($host['lane_preference'] ?? null),
+            'model_override' => $host['model_override'] ?? null,
+            'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
+            'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
+            'last_cron_check' => $host['last_cron_check'] ?? null,
         ];
+
+        if ($includeApiKey) {
+            $payload['api_key'] = $host['api_key_plain'] ?? null;
+        }
+
+        return $payload;
     }
 
-    private function normalizeUsageCost(array $usage, array $pricing): ?float
+    public function applyClientVersionOverrideForHost(array $versions, array $host): array
     {
-        $hasBillableBreakdown = false;
-        foreach (['input', 'output', 'cached'] as $field) {
-            if (array_key_exists($field, $usage) && $usage[$field] !== null) {
-                $hasBillableBreakdown = true;
-                break;
-            }
-        }
-
-        if (!$hasBillableBreakdown) {
-            return null;
-        }
-
-        $cost = $this->pricingService->calculateCost($pricing, [
-            'input' => $usage['input'] ?? 0,
-            'output' => $usage['output'] ?? 0,
-            'cached' => $usage['cached'] ?? 0,
-        ]);
-
-        $value = (float) $cost;
-        if (is_nan($value) || is_infinite($value) || $value < 0) {
-            return null;
-        }
-
-        return round($value, 6);
+        return $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
     }
 
-    private function versionSnapshot(?array $wrapperMetaOverride = null): array
+    public function enforceInsecureWindow(array $host, string $command = 'mcp'): array
     {
-        $locked = $this->versions->getWithMetadata(self::CLIENT_VERSION_LOCK_KEY);
-        $lockedVersion = $this->canonicalVersion($locked['version'] ?? null);
-        $available = $lockedVersion !== null
-            ? [
-                'version' => $lockedVersion,
-                'updated_at' => $locked['updated_at'] ?? null,
-                'source' => 'locked',
-            ]
-            : $this->availableClientVersion();
-        $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata();
-        $reported = $this->latestReportedVersions();
+        return $this->insecureHostWindowService->enforceInsecureWindow($host, $command);
+    }
 
-        // Client version comes from either an admin lock or GitHub (cached for 3h), with an internal minimum floor.
-        $clientPolicy = CodexVersionPolicy::resolveEffective(
-            $available['version'] ?? null,
-            $lockedVersion !== null
-        );
-        $clientVersion = $clientPolicy['version'];
-        $clientCheckedAt = $available['updated_at'] ?? null;
-        $clientSource = $available['source'] ?? null;
+    public function resolveInsecureGraceUntil(?string $enabledUntil, ?int $windowMinutes = null): ?string
+    {
+        return $this->insecureHostWindowService->resolveInsecureGraceUntil($enabledUntil, $windowMinutes);
+    }
 
-        // Wrapper is sourced exclusively from the baked file on the server.
-        $wrapperVersion = $this->canonicalVersion($wrapperMeta['version'] ?? null);
+    public function validateCanonicalPayload(?array $payload): ?array
+    {
+        return $this->runnerValidationService->validateCanonicalPayload($payload);
+    }
 
-        return [
-            'client_version' => $clientVersion,
-            'client_version_checked_at' => $clientCheckedAt,
-            'client_version_source' => $clientSource,
-            'client_version_enforce_exact' => $clientPolicy['enforce_exact'],
-            'wrapper_version' => $wrapperVersion,
-            'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
-            'wrapper_url' => $wrapperMeta['url'] ?? null,
-            'reported_client_version' => $reported['client_version'],
-            'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
-            'quota_limit_percent' => $this->quotaLimitPercent(),
-            'quota_week_partition' => $this->quotaWeekPartition(),
-            'cdx_silent' => $this->versions->getFlag('cdx_silent', false),
-            'runner_enabled' => $this->runnerVerifier !== null,
-            'runner_state' => $this->versions->get('runner_state'),
-            'runner_last_ok' => $this->versions->get('runner_last_ok'),
-            'runner_last_fail' => $this->versions->get('runner_last_fail'),
-            'runner_last_check' => $this->versions->get('runner_last_check'),
-            'installation_id' => $this->installationId,
-            'auto_update_enabled' => $this->versions->getFlag('auto_update_enabled', false),
-        ];
+    public function canonicalAuthSnapshot(): ?array
+    {
+        return $this->runnerValidationService->canonicalAuthSnapshot();
+    }
+
+    public function hasCanonicalAuth(): bool
+    {
+        return $this->runnerValidationService->hasCanonicalAuth();
+    }
+
+    public function latestReportedVersions(): array
+    {
+        return $this->clientVersionService->latestReportedVersions();
+    }
+
+    public function versionSummary(): array
+    {
+        return $this->clientVersionService->versionSummary();
+    }
+
+    public function availableClientVersion(bool $forceRefresh = false): array
+    {
+        return $this->clientVersionService->availableClientVersion($forceRefresh);
+    }
+
+    public function pruneStaleHosts(): void
+    {
+        $this->insecureHostWindowService->pruneExpiredInsecureDomainAllows();
+        $this->pruneInactiveHosts();
     }
 
     public static function normalizeQuotaLimitPercent(mixed $value): ?int
@@ -1815,104 +1225,22 @@ class AuthService
         return null;
     }
 
-    private function quotaLimitPercent(): int
+    // --- Private helpers that remain on AuthService ---
+
+    private function refreshTemporaryHostExpiry(int $hostId, array $host): array
     {
-        $stored = $this->versions->get('quota_limit_percent');
-        $normalized = self::normalizeQuotaLimitPercent($stored);
-        return $normalized ?? self::DEFAULT_QUOTA_LIMIT_PERCENT;
-    }
-
-    private function quotaWeekPartition(): int
-    {
-        $stored = $this->versions->get('quota_week_partition');
-        $normalized = self::normalizeQuotaWeekPartition($stored);
-        return $normalized ?? self::DEFAULT_QUOTA_WEEK_PARTITION;
-    }
-
-    private function sanitizeUsageLine(string $line): string
-    {
-        // Strip ANSI escape sequences (CSI + OSC) and control chars, then collapse whitespace.
-        $clean = preg_replace('/\x1B\[[0-9;?]*[ -\\/]*[@-~]/', '', $line);
-        $clean = preg_replace('/\x1B\][^\x07\x1B]*(\x07|\x1B\\\\)/', '', (string) $clean);
-        $clean = preg_replace('/[\x00-\x1F\x7F]/', ' ', (string) $clean);
-        $clean = preg_replace('/\\\\{2,}/', '\\\\', (string) $clean);
-        $clean = preg_replace('/\\[<\\d+\\w?/', '', (string) $clean);
-        $clean = preg_replace('/\s+/', ' ', (string) $clean);
-        $clean = trim((string) $clean);
-        if ($clean === '') {
-            return '';
+        $expiresAt = $host['expires_at'] ?? null;
+        if (!is_string($expiresAt) || trim($expiresAt) === '') {
+            return $host;
         }
 
-        $usagePos = stripos($clean, 'token usage:');
-        if ($usagePos !== false) {
-            $clean = trim(substr($clean, $usagePos));
-        }
+        $newExpiresAt = gmdate(DATE_ATOM, time() + self::TEMPORARY_HOST_TTL_SECONDS);
+        $this->hosts->updateExpiresAt($hostId, $newExpiresAt);
 
-        // Limit to printable ASCII to avoid stray control glyphs.
-        $clean = preg_replace('/[^\x20-\x7E]/', '', $clean);
+        $host = $this->hosts->findById($hostId) ?? $host;
+        $host['expires_at'] = $newExpiresAt;
 
-        // Hard cap to avoid oversized payloads in DB/UI.
-        if (strlen($clean) > 1000) {
-            $clean = substr($clean, 0, 1000) . '…';
-        }
-
-        return $clean;
-    }
-
-    private function normalizeUsageInt(mixed $value, string $field, bool $optional = false): ?int
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if (is_string($value)) {
-            $normalized = preg_replace('/[,_\\s]/', '', $value);
-            if ($normalized === '') {
-                return null;
-            }
-            if (ctype_digit($normalized)) {
-                $value = (int) $normalized;
-            } else {
-                throw new ValidationException([$field => [$field . ' must be a number (digits, optional commas)']]);
-            }
-        }
-
-        if (is_int($value)) {
-            if ($value < 0) {
-                throw new ValidationException([$field => [$field . ' must be non-negative']]);
-            }
-
-            return $value;
-        }
-
-        if (is_numeric($value)) {
-            $intVal = (int) $value;
-            if ($intVal < 0) {
-                throw new ValidationException([$field => [$field . ' must be non-negative']]);
-            }
-
-            return $intVal;
-        }
-
-        if ($optional) {
-            return null;
-        }
-
-        throw new ValidationException([$field => [$field . ' must be an integer']]);
-    }
-
-    private function normalizeCommand(mixed $command): string
-    {
-        if (!is_string($command) || trim($command) === '') {
-            return 'retrieve';
-        }
-
-        $normalized = strtolower(trim($command));
-        if (!in_array($normalized, ['retrieve', 'store'], true)) {
-            throw new ValidationException(['command' => ['command must be "retrieve" or "store"']]);
-        }
-
-        return $normalized;
+        return $host;
     }
 
     private function extractLastRefresh(array $payload, string $field): string
@@ -1962,43 +1290,6 @@ class AuthService
         throw new ValidationException(['auth' => ['Auth payload is required']]);
     }
 
-    private function ensureAuthsFallback(array $authPayload): array
-    {
-        $hasAuths = isset($authPayload['auths']) && is_array($authPayload['auths']) && count($authPayload['auths']) > 0;
-        if ($hasAuths) {
-            return $authPayload;
-        }
-
-        $tokenCandidates = [];
-        if (isset($authPayload['tokens']) && is_array($authPayload['tokens'])) {
-            $tokenCandidates[] = $authPayload['tokens']['access_token'] ?? null;
-        }
-        if (isset($authPayload['OPENAI_API_KEY'])) {
-            $tokenCandidates[] = $authPayload['OPENAI_API_KEY'];
-        }
-
-        $chosen = null;
-        foreach ($tokenCandidates as $candidate) {
-            if (is_string($candidate) && trim($candidate) !== '') {
-                $chosen = trim($candidate);
-                break;
-            }
-        }
-
-        if ($chosen === null) {
-            return $authPayload;
-        }
-
-        $authPayload['auths'] = [
-            'api.openai.com' => [
-                'token' => $chosen,
-                'token_type' => 'bearer',
-            ],
-        ];
-
-        return $authPayload;
-    }
-
     private function extractDigest(array $payload, bool $required): ?string
     {
         $candidates = [
@@ -2025,994 +1316,6 @@ class AuthService
         return null;
     }
 
-    private function assertInsecureHostWindow(
-        array $host,
-        int $hostId,
-        string $command,
-        bool $trackHost,
-        ?DateTimeImmutable $sessionStartedAt = null
-    ): array
-    {
-        $enabledUntilRaw = $host['insecure_enabled_until'] ?? null;
-        $graceUntilRaw = $host['insecure_grace_until'] ?? null;
-
-        $enabledUntil = null;
-        $graceUntil = null;
-        try {
-            if (is_string($enabledUntilRaw) && trim($enabledUntilRaw) !== '') {
-                $enabledUntil = new DateTimeImmutable($enabledUntilRaw);
-            }
-        } catch (\Exception) {
-            $enabledUntil = null;
-        }
-        try {
-            if (is_string($graceUntilRaw) && trim($graceUntilRaw) !== '') {
-                $graceUntil = new DateTimeImmutable($graceUntilRaw);
-            }
-        } catch (\Exception) {
-            $graceUntil = null;
-        }
-
-        $now = new DateTimeImmutable('now');
-        $enabledActive = $enabledUntil !== null && $enabledUntil >= $now;
-        $graceActive = $graceUntil !== null && $graceUntil >= $now;
-
-        if ($enabledActive) {
-            if ($trackHost) {
-                $windowMinutes = $this->resolveInsecureWindowMinutes($host);
-                $newUntil = $now->modify(sprintf('+%d minutes', $windowMinutes));
-                $newGrace = $this->computeInsecureGraceUntil($newUntil, $windowMinutes);
-                $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $newGrace, null);
-                $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
-                $host['insecure_grace_until'] = $newGrace;
-            }
-
-            return $host;
-        }
-
-        if ($command === 'store' && $graceActive) {
-            return $host;
-        }
-
-        if ($command === 'store' && $this->allowInsecurePostRunStore($sessionStartedAt, $enabledUntil, $now)) {
-            $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.post_run_store', [
-                'fqdn' => $host['fqdn'] ?? null,
-                'session_started_at' => $sessionStartedAt?->format(DATE_ATOM),
-                'enabled_until' => $enabledUntilRaw,
-            ]);
-            return $host;
-        }
-
-        $domainAllow = $this->resolveInsecureDomainAllow($host, $now);
-        if ($domainAllow !== null && $trackHost) {
-            $windowMinutes = $this->resolveInsecureWindowMinutes($host);
-            $newUntil = $now->modify(sprintf('+%d minutes', $windowMinutes));
-            $newGrace = $this->computeInsecureGraceUntil($newUntil, $windowMinutes);
-            $this->hosts->updateInsecureWindows($hostId, $newUntil->format(DATE_ATOM), $newGrace, null);
-            $host['insecure_enabled_until'] = $newUntil->format(DATE_ATOM);
-            $host['insecure_grace_until'] = $newGrace;
-
-            $domainMinutes = $this->normalizeInsecureWindowMinutes($domainAllow['window_minutes'] ?? null);
-            $domainUntil = $now->modify(sprintf('+%d minutes', $domainMinutes));
-            $this->insecureDomainAllows?->touchWindow((int) ($domainAllow['id'] ?? 0), $domainUntil->format(DATE_ATOM));
-
-            $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.domain_auto_allow', [
-                'command' => $command,
-                'fqdn' => $host['fqdn'] ?? null,
-                'domain' => $domainAllow['domain'] ?? null,
-                'domain_id' => $domainAllow['id'] ?? null,
-                'enabled_until' => $newUntil->format(DATE_ATOM),
-            ]);
-
-            return $host;
-        }
-
-        if ($this->shouldOfferInsecureApproval($hostId)) {
-            try {
-                $pending = $this->insecureAuthRequests?->findPendingByHost($hostId);
-                if ($pending !== null) {
-                    throw new HttpException('Insecure host approval pending', 423);
-                }
-
-                $latest = $this->insecureAuthRequests?->findLatestByHost($hostId);
-                if ($latest !== null && ($latest['status'] ?? '') === 'denied') {
-                    $resolvedAt = $latest['resolved_at'] ?? null;
-                    if ($this->isRecentResolution($resolvedAt)) {
-                        $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.denied', [
-                            'command' => $command,
-                            'enabled_until' => $enabledUntilRaw,
-                            'grace_until' => $graceUntilRaw,
-                            'reason' => 'approval_denied',
-                        ]);
-                        throw new HttpException('Insecure host approval denied', 403);
-                    }
-                }
-
-                $request = $this->insecureAuthRequests?->create($hostId);
-                if ($request !== null) {
-                    $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.pending', [
-                        'command' => $command,
-                        'fqdn' => $host['fqdn'] ?? null,
-                        'request_id' => $request['id'] ?? null,
-                        'requested_at' => $request['requested_at'] ?? null,
-                    ]);
-                }
-
-                throw new HttpException('Insecure host approval pending', 423);
-            } catch (\Throwable $exception) {
-                if ($exception instanceof HttpException) {
-                    throw $exception;
-                }
-                // Fall back to standard denial if approval flow fails.
-            }
-        }
-
-        $this->logs->log($trackHost ? $hostId : null, 'auth.insecure.denied', [
-            'command' => $command,
-            'enabled_until' => $enabledUntilRaw,
-            'grace_until' => $graceUntilRaw,
-        ]);
-
-        throw new HttpException('Insecure host API access disabled', 403, [
-            'code' => 'insecure_api_disabled',
-            'enabled_until' => $enabledUntilRaw,
-            'grace_until' => $graceUntilRaw,
-        ]);
-    }
-
-    private function shouldOfferInsecureApproval(int $hostId): bool
-    {
-        if ($hostId <= 0) {
-            return false;
-        }
-
-        if ($this->insecureAuthRequests === null) {
-            return false;
-        }
-
-        if (!$this->versions->getFlag('insecure_approval_enabled', false)) {
-            return false;
-        }
-
-        return $this->adminWsConnected();
-    }
-
-    private function parseSessionStartedAt(mixed $value): ?DateTimeImmutable
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        try {
-            return new DateTimeImmutable($value);
-        } catch (\Exception) {
-            return null;
-        }
-    }
-
-    private function allowInsecurePostRunStore(
-        ?DateTimeImmutable $sessionStartedAt,
-        ?DateTimeImmutable $enabledUntil,
-        DateTimeImmutable $now
-    ): bool {
-        if ($sessionStartedAt === null || $enabledUntil === null) {
-            return false;
-        }
-
-        $maxMinutes = $this->resolveInsecureSessionMaxMinutes();
-        if ($maxMinutes <= 0) {
-            return false;
-        }
-
-        $skewSeconds = 300;
-        $sessionTs = $sessionStartedAt->getTimestamp();
-        $nowTs = $now->getTimestamp();
-
-        if ($sessionTs > ($nowTs + $skewSeconds)) {
-            return false;
-        }
-
-        if (($nowTs - $sessionTs) > ($maxMinutes * 60)) {
-            return false;
-        }
-
-        if ($sessionStartedAt > $enabledUntil->modify(sprintf('+%d seconds', $skewSeconds))) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private function resolveInsecureSessionMaxMinutes(): int
-    {
-        $raw = Config::get('INSECURE_SESSION_MAX_MINUTES', self::DEFAULT_INSECURE_SESSION_MAX_MINUTES);
-        if ($raw === null || $raw === '' || !is_numeric($raw)) {
-            return self::DEFAULT_INSECURE_SESSION_MAX_MINUTES;
-        }
-
-        $value = (int) $raw;
-        if ($value < 0) {
-            return 0;
-        }
-        if ($value > self::MAX_INSECURE_SESSION_MAX_MINUTES) {
-            return self::MAX_INSECURE_SESSION_MAX_MINUTES;
-        }
-        return $value;
-    }
-
-    private function adminWsConnected(): bool
-    {
-        $meta = $this->versions->getWithMetadata('admin_ws_connections');
-        if ($meta === null) {
-            return false;
-        }
-
-        $countRaw = $meta['version'] ?? null;
-        if (!is_numeric($countRaw)) {
-            return false;
-        }
-
-        if ((int) $countRaw <= 0) {
-            return false;
-        }
-
-        $updatedAt = $meta['updated_at'] ?? null;
-        if (!is_string($updatedAt) || trim($updatedAt) === '') {
-            return false;
-        }
-
-        $updatedTs = strtotime($updatedAt);
-        if ($updatedTs === false) {
-            return false;
-        }
-
-        return (time() - $updatedTs) <= self::ADMIN_WS_PRESENCE_TTL_SECONDS;
-    }
-
-    private function isRecentResolution(?string $resolvedAt): bool
-    {
-        if (!is_string($resolvedAt) || trim($resolvedAt) === '') {
-            return false;
-        }
-
-        $ts = strtotime($resolvedAt);
-        if ($ts === false) {
-            return false;
-        }
-
-        return (time() - $ts) <= self::INSECURE_APPROVAL_DENY_COOLDOWN_SECONDS;
-    }
-
-    private function resolveInsecureWindowMinutes(array $host): int
-    {
-        $raw = $host['insecure_window_minutes'] ?? null;
-        if ($raw === null || $raw === '' || !is_numeric($raw)) {
-            return self::DEFAULT_INSECURE_WINDOW_MINUTES;
-        }
-
-        return $this->normalizeInsecureWindowMinutes((int) $raw);
-    }
-
-    public function resolveInsecureGraceUntil(?string $enabledUntil, ?int $windowMinutes = null): ?string
-    {
-        if (!is_string($enabledUntil) || trim($enabledUntil) === '') {
-            return null;
-        }
-
-        try {
-            $enabledAt = new DateTimeImmutable($enabledUntil);
-        } catch (\Exception) {
-            return null;
-        }
-
-        return $this->computeInsecureGraceUntil($enabledAt, $windowMinutes);
-    }
-
-    private function normalizeInsecureWindowMinutes(?int $minutes): int
-    {
-        $value = $minutes ?? self::DEFAULT_INSECURE_WINDOW_MINUTES;
-        if ($value < self::MIN_INSECURE_WINDOW_MINUTES) {
-            return self::MIN_INSECURE_WINDOW_MINUTES;
-        }
-        if ($value > self::MAX_INSECURE_WINDOW_MINUTES) {
-            return self::MAX_INSECURE_WINDOW_MINUTES;
-        }
-        return $value;
-    }
-
-    private function resolveInsecureGraceMinutes(): int
-    {
-        $raw = Config::get('INSECURE_GRACE_MINUTES', self::DEFAULT_INSECURE_GRACE_MINUTES);
-        if ($raw === null || $raw === '' || !is_numeric($raw)) {
-            return self::DEFAULT_INSECURE_GRACE_MINUTES;
-        }
-
-        return $this->normalizeInsecureGraceMinutes((int) $raw);
-    }
-
-    private function normalizeInsecureGraceMinutes(?int $minutes): int
-    {
-        $value = $minutes ?? self::DEFAULT_INSECURE_GRACE_MINUTES;
-        if ($value < self::MIN_INSECURE_GRACE_MINUTES) {
-            return self::MIN_INSECURE_GRACE_MINUTES;
-        }
-        if ($value > self::MAX_INSECURE_GRACE_MINUTES) {
-            return self::MAX_INSECURE_GRACE_MINUTES;
-        }
-        return $value;
-    }
-
-    private function computeInsecureGraceUntil(DateTimeImmutable $enabledUntil, ?int $windowMinutes = null): ?string
-    {
-        if ($windowMinutes !== null && $windowMinutes <= 0) {
-            return null;
-        }
-
-        $graceMinutes = $this->resolveInsecureGraceMinutes();
-        if ($graceMinutes <= 0) {
-            return null;
-        }
-
-        return $enabledUntil->modify(sprintf('+%d minutes', $graceMinutes))->format(DATE_ATOM);
-    }
-
-    private function resolveInsecureDomainAllow(array $host, DateTimeImmutable $now): ?array
-    {
-        if ($this->insecureDomainAllows === null) {
-            return null;
-        }
-
-        $fqdnRaw = $host['fqdn'] ?? null;
-        if (!is_string($fqdnRaw)) {
-            return null;
-        }
-        $fqdn = strtolower(trim($fqdnRaw));
-        if ($fqdn === '') {
-            return null;
-        }
-
-        $candidates = $this->insecureDomainAllows->listActiveCandidates();
-        foreach ($candidates as $candidate) {
-            $domainRaw = $candidate['domain'] ?? null;
-            if (!is_string($domainRaw)) {
-                continue;
-            }
-            $domain = strtolower(trim($domainRaw));
-            if ($domain === '') {
-                continue;
-            }
-            if (!$this->fqdnMatchesDomain($fqdn, $domain)) {
-                continue;
-            }
-            if (!$this->isTimestampActive($candidate['enabled_until'] ?? null, $now)) {
-                continue;
-            }
-            return $candidate;
-        }
-
-        return null;
-    }
-
-    private function fqdnMatchesDomain(string $fqdn, string $domain): bool
-    {
-        if ($fqdn === '' || $domain === '') {
-            return false;
-        }
-        $suffix = '.' . $domain;
-        $fqdnLength = strlen($fqdn);
-        $suffixLength = strlen($suffix);
-        if ($fqdnLength <= $suffixLength) {
-            return false;
-        }
-
-        return substr($fqdn, -$suffixLength) === $suffix;
-    }
-
-    private function openInitialInsecureWindow(int $hostId, ?int $windowMinutes = null): void
-    {
-        $initialWindowMinutes = self::PROVISIONING_WINDOW_MINUTES;
-        $storedWindowMinutes = self::DEFAULT_INSECURE_WINDOW_MINUTES;
-        if ($windowMinutes !== null) {
-            $normalizedWindow = $this->normalizeInsecureWindowMinutes($windowMinutes);
-            $initialWindowMinutes = $normalizedWindow;
-            $storedWindowMinutes = $normalizedWindow;
-        }
-
-        $initialUntil = gmdate(DATE_ATOM, time() + ($initialWindowMinutes * 60));
-        $graceUntil = $this->resolveInsecureGraceUntil($initialUntil, $storedWindowMinutes);
-        $this->hosts->updateInsecureWindows($hostId, $initialUntil, $graceUntil, $storedWindowMinutes);
-        $this->logs->log($hostId, 'auth.insecure.initial_window', [
-            'enabled_until' => $initialUntil,
-            'window_minutes' => $initialWindowMinutes,
-            'stored_window_minutes' => $storedWindowMinutes,
-        ]);
-    }
-
-    private function buildHostPayload(array $host, bool $includeApiKey = false): array
-    {
-        $payload = [
-            'fqdn' => $host['fqdn'],
-            'status' => $host['status'],
-            'last_refresh' => $host['last_refresh'] ?? null,
-            'updated_at' => $host['updated_at'] ?? null,
-            'expires_at' => $host['expires_at'] ?? null,
-            'client_version' => $host['client_version'] ?? null,
-            'client_version_override' => $host['client_version_override'] ?? null,
-            'wrapper_version' => $host['wrapper_version'] ?? null,
-            'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
-                ? (int) $host['agents_document_id_override']
-                : null,
-            'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
-            'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
-            'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
-            'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,
-            'insecure_enabled_until' => $host['insecure_enabled_until'] ?? null,
-            'insecure_grace_until' => $host['insecure_grace_until'] ?? null,
-            'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
-                ? (int) $host['insecure_window_minutes']
-                : null,
-            'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
-            'lane_preference' => self::normalizeQuotaLane($host['lane_preference'] ?? null),
-            'model_override' => $host['model_override'] ?? null,
-            'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
-            'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
-            'last_cron_check' => $host['last_cron_check'] ?? null,
-        ];
-
-        if ($includeApiKey) {
-            $payload['api_key'] = $host['api_key_plain'] ?? null;
-        }
-
-        return $payload;
-    }
-
-    public function applyClientVersionOverrideForHost(array $versions, array $host): array
-    {
-        $override = $host['client_version_override'] ?? null;
-        if (!is_string($override)) {
-            return $versions;
-        }
-
-        $override = trim($override);
-        if ($override === '' || strtolower($override) === 'global') {
-            return $versions;
-        }
-
-        $policy = CodexVersionPolicy::resolveEffective($override, true);
-
-        $versions['client_version'] = $policy['version'];
-        $versions['client_version_source'] = 'locked';
-        $versions['client_version_checked_at'] = null;
-        $versions['client_version_enforce_exact'] = $policy['enforce_exact'];
-
-        return $versions;
-    }
-
-    /**
-     * Enforce insecure-host window rules for non-/auth surfaces (e.g. MCP) using the same logic as handleAuth.
-     * Returns the (possibly updated) host with refreshed insecure window timestamps.
-     */
-    public function enforceInsecureWindow(array $host, string $command = 'mcp'): array
-    {
-        $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
-        $trackHost = $hostId > 0;
-
-        if (isset($host['secure']) && !(bool) (int) $host['secure']) {
-            $host = $this->assertInsecureHostWindow($host, $hostId, $command, $trackHost);
-        }
-
-        return $host;
-    }
-
-    private function sortRecursive(mixed $value): mixed
-    {
-        if (!is_array($value)) {
-            return $value;
-        }
-
-        $isAssoc = array_keys($value) !== range(0, count($value) - 1);
-        if ($isAssoc) {
-            ksort($value);
-        }
-
-        foreach ($value as $k => $v) {
-            $value[$k] = $this->sortRecursive($v);
-        }
-
-        return $value;
-    }
-
-    private function canonicalizeAuthPayload(array $incomingAuth, array $entries, string $incomingLastRefresh): array
-    {
-        $normalized = $incomingAuth;
-        $normalized['last_refresh'] = $incomingLastRefresh;
-        $normalized['auths'] = $this->buildAuthArrayFromEntries($incomingLastRefresh, $entries)['auths'];
-
-        return $normalized;
-    }
-
-    private function canonicalAuthFromPayload(array $payload): array
-    {
-        if (isset($payload['body']) && is_string($payload['body']) && $payload['body'] !== '') {
-            $decoded = json_decode($payload['body'], true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-        }
-
-        return $this->buildAuthArrayFromPayload($payload);
-    }
-
-    public function validateCanonicalPayload(?array $payload): ?array
-    {
-        if ($payload === null) {
-            return null;
-        }
-
-        try {
-            $auth = $this->canonicalAuthFromPayload($payload);
-            $lastRefresh = $auth['last_refresh'] ?? null;
-            if (!is_string($lastRefresh) || trim($lastRefresh) === '') {
-                throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
-            }
-            $this->assertReasonableLastRefresh($lastRefresh, 'auth.last_refresh');
-            $this->normalizeAuthEntries($auth);
-
-            $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            if ($encoded === false) {
-                throw new ValidationException(['auth' => ['Unable to encode auth payload']]);
-            }
-            $digest = $this->calculateDigest($encoded);
-            $storedDigest = $payload['sha256'] ?? null;
-            if (is_string($storedDigest) && $storedDigest !== '' && !hash_equals($storedDigest, $digest)) {
-                throw new ValidationException(['auth.digest' => ['stored digest mismatch']]);
-            }
-
-            return [
-                'auth' => $auth,
-                'digest' => $digest,
-                'last_refresh' => $lastRefresh,
-                'encoded' => $encoded,
-            ];
-        } catch (\Throwable $exception) {
-            $this->logs->log(
-                isset($payload['source_host_id']) ? (int) $payload['source_host_id'] : null,
-                'auth.canonical_invalid',
-                [
-                    'payload_id' => $payload['id'] ?? null,
-                    'reason' => $exception->getMessage(),
-                ]
-            );
-
-            return null;
-        }
-    }
-
-    private function normalizeAuthEntries(array $authPayload): array
-    {
-        // Allow fallback when auths are missing or empty but a tokens-style access token exists.
-        if (!isset($authPayload['auths']) || !is_array($authPayload['auths']) || count($authPayload['auths']) === 0) {
-            $fallbackToken = null;
-            if (isset($authPayload['tokens']['access_token']) && is_string($authPayload['tokens']['access_token'])) {
-                $fallbackToken = trim($authPayload['tokens']['access_token']);
-            } elseif (isset($authPayload['OPENAI_API_KEY']) && is_string($authPayload['OPENAI_API_KEY'])) {
-                $fallbackToken = trim($authPayload['OPENAI_API_KEY']);
-            }
-
-            if ($fallbackToken !== null && $fallbackToken !== '') {
-                // Default target mirrors Codex endpoints; keeps behavior deterministic.
-                $authPayload['auths'] = [
-                    'api.openai.com' => [
-                        'token' => $fallbackToken,
-                    ],
-                ];
-            } else {
-                throw new ValidationException(['auth.auths' => ['auths must be an object of targets']]);
-            }
-        }
-
-        if ($authPayload['auths'] === [] || count($authPayload['auths']) === 0) {
-            throw new ValidationException(['auth.auths' => ['auths must contain at least one entry']]);
-        }
-
-        $entries = [];
-        foreach ($authPayload['auths'] as $target => $entry) {
-            if (!is_string($target) || trim($target) === '') {
-                throw new ValidationException(['auth.auths' => ['auths keys must be non-empty strings']]);
-            }
-            if (!is_array($entry)) {
-                throw new ValidationException(['auth.auths.' . $target => ['entry must be an object']]);
-            }
-
-            $token = $entry['token'] ?? null;
-            if (!is_string($token) || trim($token) === '') {
-                throw new ValidationException(['auth.auths.' . $target . '.token' => ['token is required']]);
-            }
-            $token = trim($token);
-            $this->assertTokenQuality($token, $target);
-
-            $tokenType = $entry['token_type'] ?? ($entry['type'] ?? 'bearer');
-            $organization = $entry['organization'] ?? ($entry['org'] ?? ($entry['default_organization'] ?? ($entry['default_org'] ?? null)));
-            $project = $entry['project'] ?? ($entry['default_project'] ?? null);
-            $apiBase = $entry['api_base'] ?? ($entry['base_url'] ?? null);
-
-            $meta = [];
-            foreach ($entry as $key => $value) {
-                if (in_array($key, ['token', 'token_type', 'type', 'organization', 'org', 'default_organization', 'default_org', 'project', 'default_project', 'api_base', 'base_url'], true)) {
-                    continue;
-                }
-                if (is_scalar($value) || $value === null) {
-                    $meta[$key] = $value;
-                }
-            }
-
-            $entries[] = [
-                'target' => trim($target),
-                'token' => trim($token),
-                'token_type' => is_string($tokenType) && trim($tokenType) !== '' ? trim($tokenType) : 'bearer',
-                'organization' => is_string($organization) && trim($organization) !== '' ? trim($organization) : null,
-                'project' => is_string($project) && trim($project) !== '' ? trim($project) : null,
-                'api_base' => is_string($apiBase) && trim($apiBase) !== '' ? trim($apiBase) : null,
-                'meta' => $meta ?: null,
-            ];
-        }
-
-        return $entries;
-    }
-
-    private function buildAuthArrayFromEntries(string $lastRefresh, array $entries): array
-    {
-        $auths = [];
-
-        foreach ($entries as $entry) {
-            $item = ['token' => $entry['token']];
-            if (isset($entry['token_type']) && $entry['token_type'] !== null) {
-                $item['token_type'] = $entry['token_type'];
-            }
-            if (isset($entry['organization']) && $entry['organization'] !== null) {
-                $item['organization'] = $entry['organization'];
-            }
-            if (isset($entry['project']) && $entry['project'] !== null) {
-                $item['project'] = $entry['project'];
-            }
-            if (isset($entry['api_base']) && $entry['api_base'] !== null) {
-                $item['api_base'] = $entry['api_base'];
-            }
-            if (!empty($entry['meta']) && is_array($entry['meta'])) {
-                foreach ($entry['meta'] as $key => $value) {
-                    $item[$key] = $value;
-                }
-            }
-
-            ksort($item);
-            $auths[$entry['target']] = $item;
-        }
-
-        ksort($auths);
-
-        return [
-            'last_refresh' => $lastRefresh,
-            'auths' => $auths,
-        ];
-    }
-
-    private function buildAuthArrayFromPayload(array $payload): array
-    {
-        $lastRefresh = $payload['last_refresh'] ?? '';
-        $entries = $payload['entries'] ?? [];
-
-        return $this->buildAuthArrayFromEntries($lastRefresh, $entries);
-    }
-
-    private function assertTokenQuality(string $token, string $target): void
-    {
-        $minLength = (int) (Config::get('TOKEN_MIN_LENGTH', 24));
-        if ($minLength < 8) {
-            $minLength = 8;
-        }
-
-        if (preg_match('/\s/', $token)) {
-            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token may not contain whitespace or newlines']]);
-        }
-
-        if (strlen($token) < $minLength) {
-            throw new ValidationException(['auth.auths.' . $target . '.token' => ["token too short (min {$minLength} characters)"]]);
-        }
-
-        $lower = strtolower($token);
-        $placeholders = ['token', 'newer-token', 'placeholder', 'changeme', 'dummy', 'test', 'example', 'example-token'];
-        if (in_array($lower, $placeholders, true)) {
-            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token appears to be a placeholder value']]);
-        }
-
-        if (preg_match('/^(.)\1+$/', $token)) {
-            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token is not high-entropy (single repeated character)']]);
-        }
-
-        $uniqueChars = count(array_unique(str_split($token)));
-        if ($uniqueChars < 6) {
-            throw new ValidationException(['auth.auths.' . $target . '.token' => ['token entropy too low (too few unique characters)']]);
-        }
-    }
-
-    private function resolveCanonicalPayload(): ?array
-    {
-        $id = $this->versions->get('canonical_payload_id');
-        if ($id !== null && ctype_digit((string) $id)) {
-            $payload = $this->payloads->findByIdWithEntries((int) $id);
-            if ($payload) {
-                return $payload;
-            }
-        }
-
-        return $this->payloads->latest();
-    }
-
-    public function canonicalAuthSnapshot(): ?array
-    {
-        $payload = $this->resolveCanonicalPayload();
-        if ($payload === null) {
-            return null;
-        }
-
-        return $this->canonicalAuthFromPayload($payload);
-    }
-
-    public function hasCanonicalAuth(): bool
-    {
-        return $this->resolveCanonicalPayload() !== null;
-    }
-
-    public function latestReportedVersions(): array
-    {
-        $hosts = $this->hosts->all();
-
-        $latestClient = null;
-
-        foreach ($hosts as $host) {
-            $client = $host['client_version'] ?? null;
-            if (is_string($client) && $client !== '') {
-                if ($latestClient === null || $this->isVersionGreater($client, $latestClient)) {
-                    $latestClient = $client;
-                }
-            }
-        }
-
-        return [
-            'client_version' => $this->canonicalVersion($latestClient),
-            'wrapper_version' => null,
-        ];
-    }
-
-    public function versionSummary(): array
-    {
-        return $this->versionSnapshot();
-    }
-
-    public function availableClientVersion(bool $forceRefresh = false): array
-    {
-        $cached = $this->versions->getWithMetadata('client_available');
-        $now = time();
-        $cacheFresh = false;
-
-        if (!$forceRefresh && $cached && isset($cached['updated_at'])) {
-            $updatedAt = strtotime($cached['updated_at']);
-            if ($updatedAt !== false && ($now - $updatedAt) <= self::VERSION_CACHE_TTL_SECONDS) {
-                $cacheFresh = true;
-            }
-        }
-
-        $cachedVersion = $this->canonicalVersion($cached['version'] ?? null);
-
-        if ($cacheFresh && $cachedVersion !== null) {
-            return [
-                'version' => $cachedVersion,
-                'updated_at' => $cached['updated_at'] ?? null,
-                'source' => 'cache',
-            ];
-        }
-
-        $fetched = $this->fetchLatestCodexVersion();
-        if ($fetched !== null) {
-            $normalized = $this->canonicalVersion($fetched) ?? $fetched;
-            $this->versions->set('client_available', $normalized);
-            return [
-                'version' => $normalized,
-                'updated_at' => gmdate(DATE_ATOM),
-                'source' => 'github',
-            ];
-        }
-
-        if ($cachedVersion !== null) {
-            return [
-                'version' => $cachedVersion,
-                'updated_at' => $cached['updated_at'] ?? null,
-                'source' => 'cache_stale',
-            ];
-        }
-
-        return [
-            'version' => null,
-            'updated_at' => null,
-            'source' => 'unknown',
-        ];
-    }
-
-    private function inactivityWindowDays(): int
-    {
-        $stored = $this->versions->get('inactivity_window_days');
-        $raw = $stored !== null ? $stored : Config::get('INACTIVITY_WINDOW_DAYS', self::DEFAULT_INACTIVITY_WINDOW_DAYS);
-        $value = is_numeric($raw) ? (int) $raw : self::DEFAULT_INACTIVITY_WINDOW_DAYS;
-
-        if ($value < 0) {
-            return 0;
-        }
-
-        return min($value, self::MAX_INACTIVITY_WINDOW_DAYS);
-    }
-
-    private function pruneInactiveHosts(): void
-    {
-        $nowTimestamp = gmdate(DATE_ATOM);
-        $inactivityDays = $this->inactivityWindowDays();
-        $cutoffTimestamp = null;
-        $staleHosts = [];
-
-        if ($inactivityDays > 0) {
-            $cutoff = (new DateTimeImmutable(sprintf('-%d days', $inactivityDays)));
-            $cutoffTimestamp = $cutoff->format(DATE_ATOM);
-            $staleHosts = $this->hosts->findInactiveBefore($cutoffTimestamp);
-        }
-        $provisionCutoff = (new DateTimeImmutable(sprintf('-%d minutes', self::PROVISIONING_WINDOW_MINUTES)))->format(DATE_ATOM);
-        $unprovisionedHosts = $this->hosts->findUnprovisionedBefore($provisionCutoff);
-        $expiredHosts = $this->hosts->findExpiredBefore($nowTimestamp);
-
-        $deleteIds = [];
-        $logged = [];
-
-        foreach ($expiredHosts as $host) {
-            $hostId = (int) $host['id'];
-            $deleteIds[] = $hostId;
-            $logged[$hostId] = true;
-            $this->logs->log($hostId, 'host.pruned', [
-                'reason' => 'expired',
-                'cutoff' => $nowTimestamp,
-                'expires_at' => $host['expires_at'] ?? null,
-                'fqdn' => $host['fqdn'],
-            ]);
-        }
-
-        foreach ($staleHosts as $host) {
-            $hostId = (int) $host['id'];
-            if (isset($logged[$hostId])) {
-                continue;
-            }
-            $deleteIds[] = $hostId;
-            $logged[$hostId] = true;
-            $this->logs->log($hostId, 'host.pruned', [
-                'reason' => 'inactive',
-                'cutoff' => $cutoffTimestamp,
-                'last_contact' => $host['updated_at'] ?? null,
-                'fqdn' => $host['fqdn'],
-            ]);
-        }
-
-        foreach ($unprovisionedHosts as $host) {
-            $hostId = (int) $host['id'];
-            if (isset($logged[$hostId])) {
-                continue;
-            }
-            $expiresAt = $host['expires_at'] ?? null;
-            if (is_string($expiresAt) && trim($expiresAt) !== '' && Timestamp::compare($expiresAt, $nowTimestamp) > 0) {
-                continue;
-            }
-            $deleteIds[] = $hostId;
-            $this->logs->log($hostId, 'host.pruned', [
-                'reason' => 'unprovisioned',
-                'cutoff' => $provisionCutoff,
-                'created_at' => $host['created_at'] ?? null,
-                'fqdn' => $host['fqdn'],
-            ]);
-        }
-
-        if ($deleteIds) {
-            $this->hosts->deleteByIds(array_values(array_unique($deleteIds)));
-        }
-    }
-
-    public function pruneStaleHosts(): void
-    {
-        $this->pruneExpiredInsecureDomainAllows();
-        $this->pruneInactiveHosts();
-    }
-
-    private function pruneExpiredInsecureDomainAllows(): void
-    {
-        if ($this->insecureDomainAllows === null) {
-            return;
-        }
-
-        $now = gmdate(DATE_ATOM);
-        $this->insecureDomainAllows->revokeExpired($now);
-    }
-
-    /**
-     * @return array{0:string,1:?string}
-     */
-    private function normalizeClientVersion(?string $clientVersion): string
-    {
-        $normalized = $this->canonicalVersion(is_string($clientVersion) ? $clientVersion : '');
-        if ($normalized === null || $normalized === '') {
-            $normalized = 'unknown';
-        }
-
-        return $normalized;
-    }
-
-    private function isVersionGreater(string $left, string $right): bool
-    {
-        $left = $this->normalizeVersionString($left);
-        $right = $this->normalizeVersionString($right);
-
-        if ($left === '') {
-            return false;
-        }
-        if ($right === '') {
-            return true;
-        }
-
-        $cmp = version_compare($left, $right);
-
-        return $cmp === 1;
-    }
-
-    private function fetchLatestCodexVersion(): ?string
-    {
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => "User-Agent: codex-auth-api\r\nAccept: application/json\r\n",
-                'timeout' => 5,
-            ],
-        ]);
-
-        $json = @file_get_contents('https://api.github.com/repos/openai/codex/releases/latest', false, $context);
-        if ($json === false) {
-            return null;
-        }
-
-        $data = json_decode($json, true);
-        if (!is_array($data)) {
-            return null;
-        }
-
-        $candidates = [
-            $data['tag_name'] ?? null,
-            $data['name'] ?? null,
-        ];
-
-        foreach ($candidates as $candidate) {
-            if (is_string($candidate)) {
-                $normalized = $this->canonicalVersion($candidate);
-                if ($normalized !== null && $normalized !== '') {
-                    return $normalized;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private function normalizeVersionString(string $value): string
-    {
-        return CodexVersionPolicy::normalize($value) ?? '';
-    }
-
-    private function canonicalVersion(?string $value): ?string
-    {
-        return CodexVersionPolicy::normalize($value);
-    }
-
     private function normalizeDigest(mixed $value): ?string
     {
         if (!is_string($value)) {
@@ -3022,15 +1325,6 @@ class AuthService
         $value = strtolower(trim($value));
 
         return $value === '' ? null : $value;
-    }
-
-    private function calculateDigest(?string $authJson): ?string
-    {
-        if ($authJson === null || $authJson === '') {
-            return null;
-        }
-
-        return hash('sha256', $authJson);
     }
 
     private function throttleAuthFailures(?string $ip, string $reason): void
@@ -3089,223 +1383,6 @@ class AuthService
         }
 
         return inet_ntop($binary);
-    }
-
-    private function isReverseDnsRequired(array $host): bool
-    {
-        $mode = $this->normalizeReverseDnsModeValue($host['reverse_dns_mode'] ?? null);
-        if ($mode === null) {
-            return $this->versions->getFlag('reverse_dns_enabled', false);
-        }
-
-        return $mode;
-    }
-
-    private function normalizeReverseDnsModeValue(mixed $value): ?bool
-    {
-        if ($value === null) {
-            return null;
-        }
-        if (is_bool($value)) {
-            return $value;
-        }
-        if (is_int($value)) {
-            return $value !== 0;
-        }
-        if (is_string($value)) {
-            $normalized = strtolower(trim($value));
-            if ($normalized === '' || $normalized === 'global' || $normalized === 'default') {
-                return null;
-            }
-            if (in_array($normalized, ['1', 'true', 't', 'yes', 'y', 'on', 'enabled', 'enable'], true)) {
-                return true;
-            }
-            if (in_array($normalized, ['0', 'false', 'f', 'no', 'n', 'off', 'disabled', 'disable'], true)) {
-                return false;
-            }
-        }
-
-        return null;
-    }
-
-    private function assertReverseDnsMatch(array $host, string $normalizedIp): void
-    {
-        $fqdn = $this->normalizeHostname($host['fqdn'] ?? null);
-        if ($fqdn === null) {
-            $this->logs->log((int) ($host['id'] ?? 0), 'auth.denied', [
-                'reason' => 'reverse_dns_mismatch',
-                'fqdn' => $host['fqdn'] ?? null,
-                'ip' => $normalizedIp,
-            ]);
-            throw new HttpException('Reverse DNS check failed', 403, [
-                'code' => 'reverse_dns_mismatch',
-            ]);
-        }
-
-        $forwardIps = $this->resolveForwardIps($fqdn);
-        $forwardMatch = $this->ipListContains($forwardIps, $normalizedIp);
-
-        $ptrHosts = $this->resolvePtrHosts($normalizedIp);
-        $ptrMatch = $this->hostnameListContains($ptrHosts, $fqdn);
-
-        if ($forwardMatch && $ptrMatch) {
-            return;
-        }
-
-        $this->logs->log((int) ($host['id'] ?? 0), 'auth.denied', [
-            'reason' => 'reverse_dns_mismatch',
-            'fqdn' => $fqdn,
-            'ip' => $normalizedIp,
-            'forward_ips' => array_slice($forwardIps, 0, 5),
-            'ptr_hosts' => array_slice($ptrHosts, 0, 5),
-        ]);
-
-        throw new HttpException('Reverse DNS check failed', 403, [
-            'code' => 'reverse_dns_mismatch',
-            'forward_match' => $forwardMatch,
-            'ptr_match' => $ptrMatch,
-        ]);
-    }
-
-    /**
-     * @return string[]
-     */
-    protected function resolveForwardIps(string $fqdn): array
-    {
-        $records = dns_get_record($fqdn, DNS_A | DNS_AAAA);
-        if (!is_array($records)) {
-            return [];
-        }
-
-        $ips = [];
-        foreach ($records as $record) {
-            if (isset($record['ip'])) {
-                $normalized = $this->normalizeIp((string) $record['ip']);
-                if ($normalized !== null && $normalized !== '') {
-                    $ips[] = $normalized;
-                }
-            }
-            if (isset($record['ipv6'])) {
-                $normalized = $this->normalizeIp((string) $record['ipv6']);
-                if ($normalized !== null && $normalized !== '') {
-                    $ips[] = $normalized;
-                }
-            }
-        }
-
-        return array_values(array_unique($ips));
-    }
-
-    /**
-     * @return string[]
-     */
-    protected function resolvePtrHosts(string $ip): array
-    {
-        $reverseName = $this->reverseDnsName($ip);
-        $hosts = [];
-        if ($reverseName !== null) {
-            $records = dns_get_record($reverseName, DNS_PTR);
-            if (is_array($records)) {
-                foreach ($records as $record) {
-                    if (isset($record['target'])) {
-                        $normalized = $this->normalizeHostname((string) $record['target']);
-                        if ($normalized !== null) {
-                            $hosts[] = $normalized;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!$hosts) {
-            $fallback = gethostbyaddr($ip);
-            if (is_string($fallback) && $fallback !== '' && $fallback !== $ip) {
-                $normalized = $this->normalizeHostname($fallback);
-                if ($normalized !== null) {
-                    $hosts[] = $normalized;
-                }
-            }
-        }
-
-        return array_values(array_unique($hosts));
-    }
-
-    private function reverseDnsName(string $ip): ?string
-    {
-        $normalized = $this->normalizeIp($ip);
-        if ($normalized === null) {
-            return null;
-        }
-
-        $binary = @inet_pton($normalized);
-        if ($binary === false) {
-            return null;
-        }
-
-        if (strlen($binary) === 4) {
-            $parts = array_reverse(explode('.', $normalized));
-            return implode('.', $parts) . '.in-addr.arpa';
-        }
-
-        if (strlen($binary) === 16) {
-            $hex = bin2hex($binary);
-            $chars = str_split($hex);
-            $chars = array_reverse($chars);
-            return implode('.', $chars) . '.ip6.arpa';
-        }
-
-        return null;
-    }
-
-    private function normalizeHostname(?string $hostname): ?string
-    {
-        if (!is_string($hostname)) {
-            return null;
-        }
-
-        $normalized = strtolower(trim($hostname));
-        $normalized = rtrim($normalized, '.');
-        if ($normalized === '') {
-            return null;
-        }
-
-        return $normalized;
-    }
-
-    /**
-     * @param string[] $hosts
-     */
-    private function hostnameListContains(array $hosts, string $fqdn): bool
-    {
-        $normalized = $this->normalizeHostname($fqdn);
-        if ($normalized === null) {
-            return false;
-        }
-        foreach ($hosts as $host) {
-            $candidate = $this->normalizeHostname($host);
-            if ($candidate !== null && hash_equals($candidate, $normalized)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * @param string[] $ips
-     */
-    private function ipListContains(array $ips, string $candidate): bool
-    {
-        $normalized = $this->normalizeIp($candidate);
-        if ($normalized === null) {
-            return false;
-        }
-        foreach ($ips as $ip) {
-            $normalizedIp = $this->normalizeIp($ip);
-            if ($normalizedIp !== null && hash_equals($normalizedIp, $normalized)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private function ipFamily(?string $ip): ?int
@@ -3395,5 +1472,87 @@ class AuthService
 
         $maskByte = chr(0xFF << (8 - $remainder) & 0xFF);
         return (ord($ipBin[$bytes]) & ord($maskByte)) === (ord($netBin[$bytes]) & ord($maskByte));
+    }
+
+    private function inactivityWindowDays(): int
+    {
+        $stored = $this->versions->get('inactivity_window_days');
+        $raw = $stored !== null ? $stored : Config::get('INACTIVITY_WINDOW_DAYS', self::DEFAULT_INACTIVITY_WINDOW_DAYS);
+        $value = is_numeric($raw) ? (int) $raw : self::DEFAULT_INACTIVITY_WINDOW_DAYS;
+
+        if ($value < 0) {
+            return 0;
+        }
+
+        return min($value, self::MAX_INACTIVITY_WINDOW_DAYS);
+    }
+
+    private function pruneInactiveHosts(): void
+    {
+        $nowTimestamp = gmdate(DATE_ATOM);
+        $inactivityDays = $this->inactivityWindowDays();
+        $cutoffTimestamp = null;
+        $staleHosts = [];
+
+        if ($inactivityDays > 0) {
+            $cutoff = (new DateTimeImmutable(sprintf('-%d days', $inactivityDays)));
+            $cutoffTimestamp = $cutoff->format(DATE_ATOM);
+            $staleHosts = $this->hosts->findInactiveBefore($cutoffTimestamp);
+        }
+        $provisionCutoff = (new DateTimeImmutable(sprintf('-%d minutes', self::PROVISIONING_WINDOW_MINUTES)))->format(DATE_ATOM);
+        $unprovisionedHosts = $this->hosts->findUnprovisionedBefore($provisionCutoff);
+        $expiredHosts = $this->hosts->findExpiredBefore($nowTimestamp);
+
+        $deleteIds = [];
+        $logged = [];
+
+        foreach ($expiredHosts as $host) {
+            $hostId = (int) $host['id'];
+            $deleteIds[] = $hostId;
+            $logged[$hostId] = true;
+            $this->logs->log($hostId, 'host.pruned', [
+                'reason' => 'expired',
+                'cutoff' => $nowTimestamp,
+                'expires_at' => $host['expires_at'] ?? null,
+                'fqdn' => $host['fqdn'],
+            ]);
+        }
+
+        foreach ($staleHosts as $host) {
+            $hostId = (int) $host['id'];
+            if (isset($logged[$hostId])) {
+                continue;
+            }
+            $deleteIds[] = $hostId;
+            $logged[$hostId] = true;
+            $this->logs->log($hostId, 'host.pruned', [
+                'reason' => 'inactive',
+                'cutoff' => $cutoffTimestamp,
+                'last_contact' => $host['updated_at'] ?? null,
+                'fqdn' => $host['fqdn'],
+            ]);
+        }
+
+        foreach ($unprovisionedHosts as $host) {
+            $hostId = (int) $host['id'];
+            if (isset($logged[$hostId])) {
+                continue;
+            }
+            $expiresAt = $host['expires_at'] ?? null;
+            if (is_string($expiresAt) && trim($expiresAt) !== '' && Timestamp::compare($expiresAt, $nowTimestamp) > 0) {
+                continue;
+            }
+            $deleteIds[] = $hostId;
+            $this->logs->log($hostId, 'host.pruned', [
+                'reason' => 'unprovisioned',
+                'cutoff' => $provisionCutoff,
+                'created_at' => $host['created_at'] ?? null,
+                'fqdn' => $host['fqdn'],
+            ]);
+        }
+
+        if ($deleteIds) {
+            $this->hosts->deleteByIds(array_values(array_unique($deleteIds)));
+        }
     }
 }

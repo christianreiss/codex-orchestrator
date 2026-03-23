@@ -8,7 +8,8 @@ final class AdminSettingsLiveUpdateLogActionsTest extends TestCase
 {
     public function testSettingsMutationsLogActionsForWebsocketPush(): void
     {
-        $php = file_get_contents(__DIR__ . '/../public/index.php');
+        $php = file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminSettingsController.php');
         $this->assertIsString($php);
 
         $this->assertStringContainsString("'admin.api.state'", $php);

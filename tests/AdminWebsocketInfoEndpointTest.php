@@ -18,7 +18,8 @@ final class AdminWebsocketInfoEndpointTest extends TestCase
 
     public function testEndpointUsesAdminWsConfig(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString(
@@ -30,12 +31,13 @@ final class AdminWebsocketInfoEndpointTest extends TestCase
 
     public function testEndpointReturnsWsMetadataContract(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString('ADMIN_WS_PUBLIC_URL', $routerSource);
         self::assertStringContainsString('/admin/ws', $routerSource);
-        self::assertStringContainsString("'last_event_id' => \$enabled ? \$adminEventRepository->latestId() : 0", $routerSource);
+        self::assertStringContainsString("'last_event_id' => \$enabled ? \$this->adminEventRepository->latestId() : 0", $routerSource);
         self::assertStringContainsString("'heartbeat_seconds' => \$heartbeat", $routerSource);
         self::assertStringContainsString("'backlog_limit' => \$backlog", $routerSource);
     }

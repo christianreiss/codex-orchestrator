@@ -8,10 +8,11 @@ final class McpRouteEphemeralAuthTest extends TestCase
 {
     public function testMcpRouteUsesDedicatedCredentialAuthentication(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/McpRouteController.php');
         self::assertIsString($source);
-        self::assertStringContainsString('$host = $service->authenticateMcpCredential($apiKey, $clientIp);', $source);
-        self::assertStringContainsString("'tools' => \$mcpServer->listTools(McpServer::CAPABILITY_HOST)", $source);
-        self::assertStringContainsString("\$result = \$mcpServer->dispatch(\$name, \$args, \$host, McpServer::CAPABILITY_HOST);", $source);
+        self::assertStringContainsString('authenticateMcpCredential($apiKey, $clientIp)', $source);
+        self::assertStringContainsString("listTools(McpServer::CAPABILITY_HOST)", $source);
+        self::assertStringContainsString("dispatch(\$name, \$args, \$host, McpServer::CAPABILITY_HOST)", $source);
     }
 }

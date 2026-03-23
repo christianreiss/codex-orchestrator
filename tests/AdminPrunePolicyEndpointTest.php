@@ -18,7 +18,8 @@ final class AdminPrunePolicyEndpointTest extends TestCase
 
     public function testOverviewIncludesInactivityWindowDays(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("'inactivity_window_days'", $routerSource);

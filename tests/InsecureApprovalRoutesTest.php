@@ -8,7 +8,8 @@ final class InsecureApprovalRoutesTest extends TestCase
 {
     public function testAdminInsecureApprovalRoutesExist(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminHostController.php');
         $this->assertIsString($source);
 
         $this->assertStringContainsString('/admin/insecure-approval', $source);

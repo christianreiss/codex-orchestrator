@@ -25,14 +25,16 @@ final class AdminLoginRouteDispatchTest extends TestCase
 
     public function testApiFrontControllerDispatchesAdminLoginAndAdminRoot(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminPageController.php');
         $helpers = file_get_contents(__DIR__ . '/../src/Http/helpers.php');
         $this->assertIsString($source);
 
-        $this->assertStringContainsString("\$router->add('GET', '#^/admin/?\$#', function (): void {", $source);
-        $this->assertStringContainsString("\$router->add('GET', '#^/admin/login\$#', function (): void {", $source);
-        $this->assertStringContainsString("\$router->add('POST', '#^/admin/auth/login/method\$#', function () use (\$payload, \$adminAuthService) {", $source);
-        $this->assertStringContainsString("'/admin/auth/login/method'", $source . $helpers);
-        $this->assertStringContainsString("require __DIR__ . '/admin/index.php';", $source);
+        $this->assertStringContainsString("#^/admin/?\$#", $source);
+        $this->assertStringContainsString("#^/admin/login\$#", $source);
+        $this->assertStringContainsString("#^/admin/auth/login/method\$#", $source);
+        $adminSessionHelper = file_get_contents(__DIR__ . '/../src/Http/AdminSessionHelper.php');
+        $this->assertStringContainsString("'/admin/auth/login/method'", $source . $helpers . $adminSessionHelper);
+        $this->assertStringContainsString("/admin/index.php", $source);
     }
 }

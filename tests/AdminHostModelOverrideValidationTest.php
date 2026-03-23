@@ -10,7 +10,7 @@ final class AdminHostModelOverrideValidationTest extends TestCase
         self::assertIsString($routerSource);
 
         self::assertStringContainsString(
-            "#^/admin/hosts/(\\\\d+)/model$#",
+            "#^/admin/hosts/(\\d+)/model$#",
             $routerSource,
             'Expected /admin/hosts/{id}/model route to exist in public/index.php'
         );
@@ -18,7 +18,8 @@ final class AdminHostModelOverrideValidationTest extends TestCase
 
     public function testEndpointValidatesSupportedModelAndEffortCombinations(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminHostController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString(

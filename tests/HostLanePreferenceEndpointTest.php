@@ -20,7 +20,8 @@ final class HostLanePreferenceEndpointTest extends TestCase
 
     public function testHostLaneRouteEnforcesValidationAndInsecureWindowChecks(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/HostApiController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("lane must be one of: normal, spark, or null", $routerSource);

@@ -10,11 +10,12 @@ final class AdminHostDetailPageRoutingTest extends TestCase
 {
     public function testApiFrontControllerDispatchesDedicatedHostDetailPath(): void
     {
-        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        $source = file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminPageController.php');
         $this->assertIsString($source);
 
-        $this->assertStringContainsString("\$router->add('GET', '#^/admin/hosts/(\\\\d+)\$#', function (): void {", $source);
-        $this->assertStringContainsString("require __DIR__ . '/admin/index.php';", $source);
+        $this->assertStringContainsString("#^/admin/hosts/(\\d+)\$#", $source);
+        $this->assertStringContainsString("/admin/index.php", $source);
     }
 
     public function testAdminDashboardUsesDedicatedHostDetailPanelWithoutModal(): void

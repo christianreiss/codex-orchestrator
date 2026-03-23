@@ -19,85 +19,16 @@ use App\Repositories\VersionRepository;
 class ClientConfigService
 {
     /** @var list<string> */
-    public const SUPPORTED_MODELS = [
-        'gpt-5.4',
-        'gpt-5.4-mini',
-        'gpt-5.3-codex',
-        'gpt-5.3-codex-spark',
-        'gpt-5.2-codex',
-        'gpt-5.2',
-        'gpt-5.1-codex-max',
-        'gpt-5.1-codex-mini',
-    ];
+    public const SUPPORTED_MODELS = ConfigNormalizer::SUPPORTED_MODELS;
 
     /** @var array<string, list<string>> */
-    public const MODEL_REASONING_EFFORTS = [
-        'gpt-5.4' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.4-mini' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.3-codex' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.3-codex-spark' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.2-codex' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.2' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.1-codex-max' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.1-codex-mini' => ['medium', 'high'],
-    ];
+    public const MODEL_REASONING_EFFORTS = ConfigNormalizer::MODEL_REASONING_EFFORTS;
 
     /** @var list<string> */
-    public const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+    public const REASONING_EFFORTS = ConfigNormalizer::REASONING_EFFORTS;
 
     /** @var list<string> */
-    public const PERSONALITIES = ['friendly', 'pragmatic', 'none'];
-
-    /** @var list<string> */
-    private const DROPPED_FEATURE_KEYS = [
-        'steer',
-        'collaboration_modes',
-        'elevated_windows_sandbox',
-        'experimental_windows_sandbox',
-        'enable_experimental_windows_sandbox',
-        'remote_models',
-        'request_rule',
-        'search_tool',
-    ];
-
-    /** @var list<string> */
-    private const SUPPORTED_FEATURE_KEYS = [
-        'apply_patch_freeform',
-        'apps',
-        'apps_mcp_gateway',
-        'artifact',
-        'child_agents_md',
-        'codex_git_commit',
-        'default_mode_request_user_input',
-        'enable_request_compression',
-        'fast_mode',
-        'guardian_approval',
-        'image_detail_original',
-        'image_generation',
-        'js_repl',
-        'js_repl_tools_only',
-        'memories',
-        'multi_agent',
-        'personality',
-        'plugins',
-        'powershell_utf8',
-        'prevent_idle_sleep',
-        'realtime_conversation',
-        'request_permissions',
-        'responses_websockets',
-        'responses_websockets_v2',
-        'runtime_metrics',
-        'shell_snapshot',
-        'shell_tool',
-        'shell_zsh_fork',
-        'skill_env_var_dependency_prompt',
-        'skill_mcp_dependency_install',
-        'sqlite',
-        'undo',
-        'unified_exec',
-        'use_linux_sandbox_bwrap',
-        'voice_transcription',
-    ];
+    public const PERSONALITIES = ConfigNormalizer::PERSONALITIES;
 
     /**
      * Per-request cache for baked configs so multiple calls in one request
@@ -111,7 +42,9 @@ class ClientConfigService
         private readonly ClientConfigRepository $configs,
         private readonly LogRepository $logs,
         private readonly ?VersionRepository $versions = null,
-        private readonly ?McpSessionTokenRepository $mcpSessionTokens = null
+        private readonly ?McpSessionTokenRepository $mcpSessionTokens = null,
+        private readonly ConfigNormalizer $normalizer = new ConfigNormalizer(),
+        private readonly TomlRenderer $tomlRenderer = new TomlRenderer()
     ) {
     }
 
@@ -127,7 +60,7 @@ class ClientConfigService
         $body = (string) ($row['body'] ?? '');
         $sha = $row['sha256'] ?? hash('sha256', $body);
         $settings = $row['settings'] ?? null;
-        $normalizedSettings = is_array($settings) ? $this->normalizeSettings($settings) : null;
+        $normalizedSettings = is_array($settings) ? $this->normalizer->normalizeSettings($settings) : null;
 
         return [
             'status' => 'ok',
@@ -141,8 +74,8 @@ class ClientConfigService
 
     public function render(array $settings): array
     {
-        $normalized = $this->normalizeSettings($settings);
-        $content = $this->buildToml($normalized);
+        $normalized = $this->normalizer->normalizeSettings($settings);
+        $content = $this->tomlRenderer->buildToml($normalized);
         $sha = hash('sha256', $content);
 
         return [
@@ -156,9 +89,9 @@ class ClientConfigService
     public function renderForHost(array $settings, ?array $host, ?string $baseUrl, ?string $apiKey): array
     {
         $settings = $this->applyHostModelOverrides($settings, $host);
-        $normalized = $this->normalizeSettings($settings);
+        $normalized = $this->normalizer->normalizeSettings($settings);
         $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey, $host);
-        $content = $this->buildToml($withManaged);
+        $content = $this->tomlRenderer->buildToml($withManaged);
         $sha = hash('sha256', $content);
 
         return [
@@ -178,7 +111,7 @@ class ClientConfigService
         $modelOverride = self::normalizeSupportedModel($host['model_override'] ?? null);
         $effectiveModel = $modelOverride ?? self::normalizeSupportedModel($settings['model'] ?? null);
         $effortOverrideRaw = self::normalizeReasoningEffort($host['reasoning_effort_override'] ?? null);
-        $effortOverride = $this->normalizeReasoningEffortForModel($effortOverrideRaw, $effectiveModel);
+        $effortOverride = $this->normalizer->normalizeReasoningEffortForModel($effortOverrideRaw, $effectiveModel);
         if ($modelOverride === null && $effortOverride === null) {
             return $settings;
         }
@@ -190,7 +123,7 @@ class ClientConfigService
             $settings['model_reasoning_effort'] = $effortOverride;
         }
 
-        $activeProfile = $this->normalizeString($settings['profile'] ?? null);
+        $activeProfile = $this->normalizer->normalizeString($settings['profile'] ?? null);
         if ($activeProfile === null) {
             return $settings;
         }
@@ -206,10 +139,10 @@ class ClientConfigService
                 $updatedProfiles[] = $entry;
                 continue;
             }
-            $name = $this->normalizeString($entry['name'] ?? null);
+            $name = $this->normalizer->normalizeString($entry['name'] ?? null);
             if ($name !== null && hash_equals($activeProfile, $name)) {
                 $profileModel = $modelOverride ?? self::normalizeSupportedModel($entry['model'] ?? null);
-                $profileEffort = $this->normalizeReasoningEffortForModel($effortOverrideRaw, $profileModel);
+                $profileEffort = $this->normalizer->normalizeReasoningEffortForModel($effortOverrideRaw, $profileModel);
                 if ($modelOverride !== null) {
                     $entry['model'] = $modelOverride;
                 }
@@ -253,8 +186,8 @@ class ClientConfigService
 
         $contentUnchanged = $existing !== null && hash_equals((string) $existingSha, $rendered['sha256']);
         $settingsUnchanged = $existing !== null && hash_equals(
-            $this->settingsHash($existing['settings'] ?? []),
-            $this->settingsHash($rendered['settings'] ?? [])
+            $this->normalizer->settingsHash($existing['settings'] ?? []),
+            $this->normalizer->settingsHash($rendered['settings'] ?? [])
         );
 
         $status = $existing === null ? 'created' : (($contentUnchanged && $settingsUnchanged) ? 'unchanged' : 'updated');
@@ -287,8 +220,8 @@ class ClientConfigService
         if ($this->versions === null) {
             return;
         }
-        $model = $this->normalizeString($settings['model'] ?? null);
-        $effort = $this->normalizeString($settings['model_reasoning_effort'] ?? null);
+        $model = $this->normalizer->normalizeString($settings['model'] ?? null);
+        $effort = $this->normalizer->normalizeString($settings['model_reasoning_effort'] ?? null);
         if ($model !== null) {
             $this->versions->set('cdx_model', $model);
         }
@@ -306,11 +239,11 @@ class ClientConfigService
         ?string $home = null
     ): array
     {
-        $this->assertSha($sha256, true);
+        $this->normalizer->assertSha($sha256, true);
 
         $row = $this->configs->latest();
         $hostId = $this->hostId($host);
-        $homePath = $this->normalizeHomePath($home, $username);
+        $homePath = $this->tomlRenderer->normalizeHomePath($home, $username);
 
         if ($row === null) {
             $this->logs->log($hostId, 'config.retrieve', ['status' => 'missing']);
@@ -332,7 +265,7 @@ class ClientConfigService
                 $settings = [];
             }
             $rendered = $this->renderForHost($settings, $host, $baseUrl, $apiKey);
-            $content = $this->injectTrustedProjectToml($rendered['content'], $homePath);
+            $content = $this->tomlRenderer->injectTrustedProjectToml($rendered['content'], $homePath);
             $bakedSha = $rendered['sha256'];
             $bakedSize = $rendered['size_bytes'];
             if ($content !== $rendered['content']) {
@@ -392,62 +325,16 @@ class ClientConfigService
             $updatedAt ?? '',
             $hostId ?? 0,
             $keyHash,
-            $this->normalizeString($baseUrl) ?? '',
+            $this->normalizer->normalizeString($baseUrl) ?? '',
             $homePath ?? '',
         ]);
-    }
-
-    private function injectTrustedProjectToml(string $content, ?string $homePath): string
-    {
-        $path = $this->normalizeHomePath($homePath, null);
-        if ($path === null || $path === '') {
-            return $content;
-        }
-
-        $table = '[projects.' . $this->tomlString($path) . ']';
-        if (strpos($content, $table) !== false) {
-            return $content;
-        }
-
-        $trimmed = rtrim($content);
-        $separator = $trimmed === '' ? '' : "\n\n";
-        return $trimmed . $separator . $table . "\ntrust_level = \"trusted\"\n";
-    }
-
-    private function normalizeHomePath(?string $home, ?string $username): ?string
-    {
-        $normalized = $this->normalizeString($home);
-        if ($normalized === null || $normalized === '') {
-            $candidateUser = $this->normalizeString($username);
-            if ($candidateUser !== null && $candidateUser !== '' && preg_match('/^[A-Za-z0-9._-]+$/', $candidateUser)) {
-                $normalized = '/home/' . $candidateUser;
-            } else {
-                return null;
-            }
-        }
-
-        if (!str_starts_with($normalized, '/')) {
-            return null;
-        }
-
-        if (preg_match('/[\x00-\x1F\x7F]/', $normalized)) {
-            return null;
-        }
-
-        return $normalized;
-    }
-
-    private function tomlString(string $value): string
-    {
-        $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $value);
-        return '"' . $escaped . '"';
     }
 
     private function injectManagedMcp(array $settings, ?string $baseUrl, ?string $apiKey, ?array $host = null): array
     {
         $enabled = $settings['orchestrator_mcp_enabled'] ?? true;
-        $normalizedBase = $this->normalizeString($baseUrl);
-        $key = $this->normalizeString($apiKey);
+        $normalizedBase = $this->normalizer->normalizeString($baseUrl);
+        $key = $this->normalizer->normalizeString($apiKey);
         $hostSecure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
 
@@ -527,906 +414,30 @@ class ClientConfigService
         return is_numeric($hostId) ? (int) $hostId : null;
     }
 
-    private function normalizeSettings(array $settings): array
-    {
-        $normalizeString = fn ($value): ?string => $this->normalizeString($value);
-        $normalizeBool = fn ($value, ?bool $default = null): ?bool => $this->normalizeBool($value, $default);
-        $model = self::normalizeSupportedModel($settings['model'] ?? null);
-
-        $result = [
-            'model' => $model,
-            'model_provider' => $normalizeString($settings['model_provider'] ?? null),
-            'local_provider' => $normalizeString($settings['local_provider'] ?? null),
-            'profile' => $normalizeString($settings['profile'] ?? null),
-            'personality' => $this->normalizePersonality($settings['personality'] ?? null) ?? 'friendly',
-            'approval_policy' => $this->normalizeApprovalPolicy($settings['approval_policy'] ?? null),
-            'sandbox_mode' => $normalizeString($settings['sandbox_mode'] ?? null),
-            'security' => [
-                'dangerously_bypass_approvals_and_sandbox' => $normalizeBool(
-                    (is_array($settings['security'] ?? null) ? ($settings['security']['dangerously_bypass_approvals_and_sandbox'] ?? null) : null)
-                ),
-            ],
-            'web_search' => $this->normalizeWebSearchFeature($settings['web_search'] ?? null),
-            'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
-                $settings['model_reasoning_effort'] ?? null,
-                $model
-            ),
-            'model_reasoning_summary' => null, // set after model-aware normalization
-            'model_verbosity' => $this->normalizeModelVerbosity($settings['model_verbosity'] ?? null, $model),
-            'model_supports_reasoning_summaries' => $normalizeBool($settings['model_supports_reasoning_summaries'] ?? null),
-            'model_context_window' => $this->normalizeInt($settings['model_context_window'] ?? null),
-            'model_max_output_tokens' => $this->normalizeInt($settings['model_max_output_tokens'] ?? null),
-            'notify' => $this->normalizeStringList($settings['notify'] ?? []),
-            'orchestrator_mcp_enabled' => $normalizeBool($settings['orchestrator_mcp_enabled'] ?? null, true),
-        ];
-        if (is_array($result['notify'])) {
-            $result['notify'] = array_values($result['notify']);
-        }
-
-        $result['model_reasoning_summary'] = $this->normalizeReasoningSummary(
-            $settings['model_reasoning_summary'] ?? null,
-            $result['model']
-        );
-
-        $noticeRaw = is_array($settings['notice'] ?? null) ? $settings['notice'] : [];
-        $noticeDefaults = [
-            'hide_gpt5_1_migration_prompt' => true,
-            'hide_gpt-5.1-codex-max_migration_prompt' => true,
-            'hide_rate_limit_model_nudge' => true,
-            'model_migrations' => [
-                'gpt-5.2-codex' => 'gpt-5.3-codex',
-                'gpt-5.3-codex' => 'gpt-5.4',
-            ],
-        ];
-        $notice = [];
-        foreach ($noticeDefaults as $key => $default) {
-            $candidate = array_key_exists($key, $noticeRaw) ? $noticeRaw[$key] : $default;
-            if ($key === 'model_migrations') {
-                $notice[$key] = $this->normalizeStringMap(is_array($default) ? $default : []);
-                continue;
-            }
-            $notice[$key] = $normalizeBool($candidate, $default) ?? $default;
-        }
-        foreach ($noticeRaw as $key => $value) {
-            if ($key === 'model_migrations') {
-                $defaultMigrations = is_array($notice[$key] ?? null) ? $notice[$key] : [];
-                $customMigrations = $this->normalizeStringMap(is_array($value) ? $value : []);
-                $notice[$key] = array_replace($defaultMigrations, $customMigrations);
-                continue;
-            }
-            if (array_key_exists($key, $notice)) {
-                $override = $normalizeBool($value, $notice[$key]);
-                if ($override !== null) {
-                    $notice[$key] = $override;
-                }
-                continue;
-            }
-            $boolValue = $normalizeBool($value);
-            if ($boolValue !== null) {
-                $notice[(string) $key] = $boolValue;
-            }
-        }
-        $result['notice'] = $notice;
-
-        $featuresRaw = is_array($settings['features'] ?? null) ? $settings['features'] : [];
-        $features = [];
-        foreach ($featuresRaw as $key => $value) {
-            $name = $normalizeString((string) $key);
-            if ($name === null || $name === '') {
-                continue;
-            }
-            if ($name === 'web_search' || $name === 'web_search_request' || $name === 'web_search_cached') {
-                $normalized = $this->normalizeWebSearchFeature($value);
-                if ($name === 'web_search_cached' && $normalized === 'live') {
-                    $normalized = 'cached';
-                }
-                if ($normalized !== null && $result['web_search'] === null) {
-                    $result['web_search'] = $normalized;
-                }
-                continue;
-            }
-            if (in_array($name, self::DROPPED_FEATURE_KEYS, true)) {
-                continue;
-            }
-            if (!in_array($name, self::SUPPORTED_FEATURE_KEYS, true)) {
-                continue;
-            }
-            $boolValue = $normalizeBool($value);
-            if ($boolValue === null) {
-                continue;
-            }
-            $features[$name] = $boolValue;
-        }
-        foreach (['apps', 'multi_agent'] as $defaultEnabledFeature) {
-            if (!array_key_exists($defaultEnabledFeature, $features)) {
-                $features[$defaultEnabledFeature] = true;
-            }
-        }
-        $result['features'] = $features;
-
-        $sandboxRaw = is_array($settings['sandbox_workspace_write'] ?? null) ? $settings['sandbox_workspace_write'] : [];
-        $result['sandbox_workspace_write'] = [
-            'network_access' => $normalizeBool($sandboxRaw['network_access'] ?? null),
-            'exclude_tmpdir_env_var' => $normalizeBool($sandboxRaw['exclude_tmpdir_env_var'] ?? null),
-            'exclude_slash_tmp' => $normalizeBool($sandboxRaw['exclude_slash_tmp'] ?? null),
-            'writable_roots' => $this->normalizeStringList($sandboxRaw['writable_roots'] ?? []),
-        ];
-
-        $envRaw = is_array($settings['shell_environment_policy'] ?? null) ? $settings['shell_environment_policy'] : [];
-        $result['shell_environment_policy'] = [
-            'inherit' => $normalizeString($envRaw['inherit'] ?? null),
-            'set' => $this->normalizeStringMap($envRaw['set'] ?? []),
-            'ignore_default_excludes' => $normalizeBool($envRaw['ignore_default_excludes'] ?? null),
-            'exclude' => $this->normalizeStringList($envRaw['exclude'] ?? []),
-            'include_only' => $this->normalizeStringList($envRaw['include_only'] ?? []),
-        ];
-
-        $profilesRaw = is_array($settings['profiles'] ?? null) ? $settings['profiles'] : [];
-        $profiles = [];
-        foreach ($profilesRaw as $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-            $name = $normalizeString($entry['name'] ?? null);
-            if ($name === null || $name === '') {
-                continue;
-            }
-
-            $profileModel = $normalizeString($entry['model'] ?? null);
-            $profileModel = self::normalizeSupportedModel($profileModel);
-            $profileWebSearch = $this->normalizeWebSearchFeature($entry['web_search'] ?? null);
-            $profileFeaturesRaw = is_array($entry['features'] ?? null) ? $entry['features'] : [];
-            $profileFeatures = [];
-            foreach ($profileFeaturesRaw as $key => $value) {
-                $featureName = $normalizeString((string) $key);
-                if ($featureName === null || $featureName === '') {
-                    continue;
-                }
-                if ($featureName === 'web_search' || $featureName === 'web_search_request' || $featureName === 'web_search_cached') {
-                    $normalized = $this->normalizeWebSearchFeature($value);
-                    if ($featureName === 'web_search_cached' && $normalized === 'live') {
-                        $normalized = 'cached';
-                    }
-                    if ($normalized !== null && $profileWebSearch === null) {
-                        $profileWebSearch = $normalized;
-                    }
-                    continue;
-                }
-                if (in_array($featureName, self::DROPPED_FEATURE_KEYS, true)) {
-                    continue;
-                }
-                if (!in_array($featureName, self::SUPPORTED_FEATURE_KEYS, true)) {
-                    continue;
-                }
-                $boolValue = $normalizeBool($value);
-                if ($boolValue === null) {
-                    continue;
-                }
-                $profileFeatures[$featureName] = $boolValue;
-            }
-
-            $profileSandboxRaw = is_array($entry['sandbox_workspace_write'] ?? null) ? $entry['sandbox_workspace_write'] : [];
-            $profiles[] = [
-                'name' => $name,
-                'model' => $profileModel,
-                'approval_policy' => $this->normalizeApprovalPolicy($entry['approval_policy'] ?? null),
-                'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
-                'personality' => $this->normalizePersonality($entry['personality'] ?? null),
-                'web_search' => $profileWebSearch,
-                'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
-                    $entry['model_reasoning_effort'] ?? null,
-                    $profileModel
-                ),
-                'model_reasoning_summary' => $this->normalizeReasoningSummary($entry['model_reasoning_summary'] ?? null, $profileModel),
-                'model_verbosity' => $this->normalizeModelVerbosity($entry['model_verbosity'] ?? null, $profileModel),
-                'model_supports_reasoning_summaries' => $normalizeBool($entry['model_supports_reasoning_summaries'] ?? null),
-                'model_context_window' => $this->normalizeInt($entry['model_context_window'] ?? null),
-                'model_max_output_tokens' => $this->normalizeInt($entry['model_max_output_tokens'] ?? null),
-                'features' => $profileFeatures,
-                'sandbox_workspace_write' => [
-                    'network_access' => $normalizeBool($profileSandboxRaw['network_access'] ?? null),
-                ],
-            ];
-        }
-        $result['profiles'] = $profiles;
-
-        $mcpRaw = is_array($settings['mcp_servers'] ?? null) ? $settings['mcp_servers'] : [];
-        $mcpServers = [];
-        foreach ($mcpRaw as $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-            $name = $normalizeString($entry['name'] ?? null);
-            if ($name === null || $name === '') {
-                continue;
-            }
-
-            $server = [
-                'name' => $name,
-                'command' => $normalizeString($entry['command'] ?? null),
-                'args' => $this->normalizeStringList($entry['args'] ?? []),
-                'url' => $normalizeString($entry['url'] ?? null),
-                'bearer_token' => $normalizeString($entry['bearer_token'] ?? null),
-                'bearer_token_env_var' => $normalizeString($entry['bearer_token_env_var'] ?? null),
-                'http_headers' => $this->normalizeStringMap($entry['http_headers'] ?? []),
-                'env_http_headers' => $this->normalizeStringMap($entry['env_http_headers'] ?? []),
-                'enabled' => $normalizeBool($entry['enabled'] ?? null),
-                'startup_timeout_sec' => $this->normalizeInt($entry['startup_timeout_sec'] ?? null),
-                'tool_timeout_sec' => $this->normalizeInt($entry['tool_timeout_sec'] ?? null),
-            ];
-
-            // Drop impossible transport combos
-            if (($server['command'] === null || $server['command'] === '') && ($server['url'] === null || $server['url'] === '')) {
-                continue;
-            }
-
-            $mcpServers[] = $server;
-        }
-        $result['mcp_servers'] = $mcpServers;
-
-        $otelRaw = is_array($settings['otel'] ?? null) ? $settings['otel'] : [];
-        $result['otel'] = [
-            'environment' => $normalizeString($otelRaw['environment'] ?? null),
-            'exporter' => $normalizeString($otelRaw['exporter'] ?? null),
-            'endpoint' => $normalizeString($otelRaw['endpoint'] ?? null),
-            'protocol' => $normalizeString($otelRaw['protocol'] ?? null),
-            'headers' => $this->normalizeStringMap($otelRaw['headers'] ?? []),
-            'log_user_prompt' => $normalizeBool($otelRaw['log_user_prompt'] ?? null),
-        ];
-
-        $customToml = $settings['custom_toml'] ?? null;
-        $result['custom_toml'] = is_string($customToml) ? trim($customToml) : '';
-
-        return $result;
-    }
-
-    private function normalizeModelVerbosity($value, $model): ?string
-    {
-        $normalized = $this->normalizeString($value);
-        if ($normalized === null || $normalized === '') {
-            return null;
-        }
-
-        $allowed = ['low', 'medium', 'high'];
-        if (!in_array($normalized, $allowed, true)) {
-            return null;
-        }
-
-        $modelKey = strtolower((string) $model);
-        if ($modelKey === 'gpt-5.1-codex-max') {
-            return 'medium';
-        }
-
-        return $normalized;
-    }
-
-    private function buildToml(array $settings): string
-    {
-        $lines = [];
-
-        $rootKeys = [
-            'model',
-            'model_provider',
-            'local_provider',
-            'profile',
-            'personality',
-            'approval_policy',
-            'sandbox_mode',
-            'web_search',
-            'model_reasoning_effort',
-            'model_reasoning_summary',
-            'model_verbosity',
-            'model_supports_reasoning_summaries',
-            'model_context_window',
-            'model_max_output_tokens',
-        ];
-
-        $notify = $settings['notify'] ?? [];
-        if (is_array($notify) && $this->isAssoc($notify)) {
-            $notify = array_values($notify);
-        }
-        $settings['notify'] = $notify;
-
-        foreach ($rootKeys as $key) {
-            $this->addKeyValue($lines, $key, $settings[$key] ?? null);
-        }
-
-        $this->addKeyValue($lines, 'notify', $settings['notify'] ?? null);
-
-        $features = $settings['features'] ?? [];
-        if (!is_array($features)) {
-            $features = [];
-        }
-        unset($features['web_search'], $features['web_search_request'], $features['web_search_cached']);
-        foreach (self::DROPPED_FEATURE_KEYS as $obsoleteFeature) {
-            unset($features[$obsoleteFeature]);
-        }
-        if ($this->hasAny($features)) {
-            $this->addBlankLine($lines);
-            $lines[] = '[features]';
-            foreach ($this->sortedAssoc($features) as $key => $value) {
-                $this->addKeyValue($lines, (string) $key, $value);
-            }
-        }
-
-        if ($this->hasAny($settings['notice'] ?? [])) {
-            $this->addBlankLine($lines);
-            $lines[] = '[notice]';
-            foreach ($this->sortedAssoc($settings['notice']) as $key => $value) {
-                $this->addKeyValue($lines, (string) $key, $value);
-            }
-        }
-
-        if ($this->hasAny($settings['security'] ?? [])) {
-            $this->addBlankLine($lines);
-            $lines[] = '[security]';
-            $security = $settings['security'] ?? [];
-            $this->addKeyValue($lines, 'dangerously_bypass_approvals_and_sandbox', $security['dangerously_bypass_approvals_and_sandbox'] ?? null);
-        }
-
-        if ($this->hasAny($settings['sandbox_workspace_write'] ?? [])) {
-            $this->addBlankLine($lines);
-            $lines[] = '[sandbox_workspace_write]';
-            $sandbox = $settings['sandbox_workspace_write'] ?? [];
-            $this->addKeyValue($lines, 'network_access', $sandbox['network_access'] ?? null);
-            $this->addKeyValue($lines, 'exclude_tmpdir_env_var', $sandbox['exclude_tmpdir_env_var'] ?? null);
-            $this->addKeyValue($lines, 'exclude_slash_tmp', $sandbox['exclude_slash_tmp'] ?? null);
-            $this->addKeyValue($lines, 'writable_roots', $sandbox['writable_roots'] ?? null);
-        }
-
-        if ($this->hasAny($settings['shell_environment_policy'] ?? [])) {
-            $this->addBlankLine($lines);
-            $lines[] = '[shell_environment_policy]';
-            $env = $settings['shell_environment_policy'] ?? [];
-            $this->addKeyValue($lines, 'inherit', $env['inherit'] ?? null);
-            $this->addInlineTable($lines, 'set', $env['set'] ?? []);
-            $this->addKeyValue($lines, 'ignore_default_excludes', $env['ignore_default_excludes'] ?? null);
-            $this->addKeyValue($lines, 'exclude', $env['exclude'] ?? null);
-            $this->addKeyValue($lines, 'include_only', $env['include_only'] ?? null);
-        }
-
-        $profiles = $settings['profiles'] ?? [];
-        if (is_array($profiles) && count($profiles) > 0) {
-            foreach ($this->sortEntriesByName($profiles) as $profile) {
-                $name = $profile['name'] ?? null;
-                if ($name === null || $name === '') {
-                    continue;
-                }
-                $this->addBlankLine($lines);
-                $profileKey = $this->formatKey($name);
-                $lines[] = '[profiles.' . $profileKey . ']';
-                $this->addKeyValue($lines, 'model', $profile['model'] ?? null);
-                $this->addKeyValue($lines, 'approval_policy', $profile['approval_policy'] ?? null);
-                $this->addKeyValue($lines, 'sandbox_mode', $profile['sandbox_mode'] ?? null);
-                $this->addKeyValue($lines, 'personality', $profile['personality'] ?? null);
-                $this->addKeyValue($lines, 'web_search', $profile['web_search'] ?? null);
-                $this->addKeyValue($lines, 'model_reasoning_effort', $profile['model_reasoning_effort'] ?? null);
-                $this->addKeyValue($lines, 'model_reasoning_summary', $profile['model_reasoning_summary'] ?? null);
-                $this->addKeyValue($lines, 'model_verbosity', $profile['model_verbosity'] ?? null);
-                $this->addKeyValue($lines, 'model_supports_reasoning_summaries', $profile['model_supports_reasoning_summaries'] ?? null);
-                $this->addKeyValue($lines, 'model_context_window', $profile['model_context_window'] ?? null);
-                $this->addKeyValue($lines, 'model_max_output_tokens', $profile['model_max_output_tokens'] ?? null);
-
-                if ($this->hasAny($profile['features'] ?? [])) {
-                    $this->addBlankLine($lines);
-                    $lines[] = '[profiles.' . $profileKey . '.features]';
-                    foreach ($this->sortedAssoc($profile['features'] ?? []) as $key => $value) {
-                        $this->addKeyValue($lines, (string) $key, $value);
-                    }
-                }
-
-                if ($this->hasAny($profile['sandbox_workspace_write'] ?? [])) {
-                    $this->addBlankLine($lines);
-                    $lines[] = '[profiles.' . $profileKey . '.sandbox_workspace_write]';
-                    $sandbox = $profile['sandbox_workspace_write'] ?? [];
-                    $this->addKeyValue($lines, 'network_access', $sandbox['network_access'] ?? null);
-                }
-            }
-        }
-
-        $mcpServers = $settings['mcp_servers'] ?? [];
-        if (is_array($mcpServers) && count($mcpServers) > 0) {
-            foreach ($this->sortEntriesByName($mcpServers) as $entry) {
-                $name = $entry['name'] ?? null;
-                if ($name === null || $name === '') {
-                    continue;
-                }
-                $this->addBlankLine($lines);
-                $lines[] = '[mcp_servers.' . $this->formatKey($name) . ']';
-                $this->addKeyValue($lines, 'command', $entry['command'] ?? null);
-                $this->addKeyValue($lines, 'args', $entry['args'] ?? null);
-                $this->addKeyValue($lines, 'url', $entry['url'] ?? null);
-                $this->addKeyValue($lines, 'bearer_token_env_var', $entry['bearer_token_env_var'] ?? null);
-                $this->addInlineTable($lines, 'http_headers', $entry['http_headers'] ?? []);
-                $this->addInlineTable($lines, 'env_http_headers', $entry['env_http_headers'] ?? []);
-                $this->addKeyValue($lines, 'enabled', $entry['enabled'] ?? null);
-                $this->addKeyValue($lines, 'startup_timeout_sec', $entry['startup_timeout_sec'] ?? null);
-                $this->addKeyValue($lines, 'tool_timeout_sec', $entry['tool_timeout_sec'] ?? null);
-            }
-        }
-
-        $otel = $settings['otel'] ?? [];
-        if ($this->hasAny($otel)) {
-            $this->addBlankLine($lines);
-            $lines[] = '[otel]';
-            $this->addKeyValue($lines, 'environment', $otel['environment'] ?? null);
-            $exporter = $otel['exporter'] ?? null;
-            $endpoint = $otel['endpoint'] ?? null;
-            $headers = $otel['headers'] ?? [];
-            $protocol = $otel['protocol'] ?? null;
-            if ($exporter === 'otlp-http' && $endpoint !== null) {
-                $httpConfig = ['endpoint' => $endpoint];
-                if ($protocol !== null) {
-                    $httpConfig['protocol'] = $protocol;
-                }
-                if ($this->hasAny($headers)) {
-                    $httpConfig['headers'] = $headers;
-                }
-                $this->addInlineTable($lines, 'exporter', ['otlp-http' => $httpConfig]);
-            } elseif ($exporter === 'otlp-grpc' && $endpoint !== null) {
-                $grpcConfig = ['endpoint' => $endpoint];
-                if ($this->hasAny($headers)) {
-                    $grpcConfig['headers'] = $headers;
-                }
-                $this->addInlineTable($lines, 'exporter', ['otlp-grpc' => $grpcConfig]);
-            } else {
-                $this->addKeyValue($lines, 'exporter', $exporter ?? 'none');
-            }
-            $this->addKeyValue($lines, 'log_user_prompt', $otel['log_user_prompt'] ?? null);
-        }
-
-        if (isset($settings['custom_toml']) && trim((string) $settings['custom_toml']) !== '') {
-            $this->addBlankLine($lines);
-            $custom = rtrim((string) $settings['custom_toml']) . "\n";
-            $lines[] = rtrim($custom, "\n");
-        }
-
-        $content = implode("\n", array_filter($lines, static fn ($line) => $line !== null));
-        return rtrim($content) . "\n";
-    }
-
-    private function addKeyValue(array &$lines, string $key, mixed $value): void
-    {
-        if ($value === null || $value === '') {
-            return;
-        }
-
-        $lines[] = $this->formatKey($key) . ' = ' . $this->formatValue($value);
-    }
-
-    private function addInlineTable(array &$lines, string $key, mixed $value): void
-    {
-        if (!is_array($value) || !$this->hasAny($value)) {
-            return;
-        }
-
-        $lines[] = $this->formatKey($key) . ' = ' . $this->formatInlineTable($value);
-    }
-
-    private function formatValue(mixed $value): string
-    {
-        if (is_bool($value)) {
-            return $value ? 'true' : 'false';
-        }
-        if (is_int($value)) {
-            return (string) $value;
-        }
-        if (is_float($value)) {
-            return rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
-        }
-        if (is_array($value)) {
-            if ($value === []) {
-                return '[]';
-            }
-            if ($this->isAssoc($value)) {
-                return $this->formatInlineTable($value);
-            }
-            $parts = [];
-            foreach ($value as $item) {
-                $parts[] = $this->formatValue($item);
-            }
-            return '[' . implode(', ', $parts) . ']';
-        }
-
-        return '"' . $this->escapeString((string) $value) . '"';
-    }
-
-    private function formatInlineTable(array $map): string
-    {
-        $pairs = [];
-        foreach ($this->sortedAssoc($map) as $key => $value) {
-            $pairs[] = $this->formatKey((string) $key) . ' = ' . $this->formatValue($value);
-        }
-        return '{ ' . implode(', ', $pairs) . ' }';
-    }
-
-    private function formatKey(string $key): string
-    {
-        if (preg_match('/^[A-Za-z0-9_-]+$/', $key) === 1) {
-            return $key;
-        }
-
-        return '"' . $this->escapeString($key) . '"';
-    }
-
-    private function escapeString(string $value): string
-    {
-        $replaced = str_replace(
-            ['\\', '"', "\n", "\r", "\t"],
-            ['\\\\', '\\"', '\\n', '\\r', '\\t'],
-            $value
-        );
-
-        return $replaced;
-    }
-
-    private function isAssoc(array $value): bool
-    {
-        return array_keys($value) !== range(0, count($value) - 1);
-    }
-
-    private function hasAny(mixed $value): bool
-    {
-        if ($value === null) {
-            return false;
-        }
-        if (is_array($value)) {
-            foreach ($value as $item) {
-                if ($item === null || $item === '') {
-                    continue;
-                }
-                if (is_array($item) && !$this->hasAny($item)) {
-                    continue;
-                }
-                return true;
-            }
-            return false;
-        }
-
-        return (bool) $value;
-    }
-
-    private function addBlankLine(array &$lines): void
-    {
-        if (empty($lines)) {
-            return;
-        }
-        if (end($lines) !== '') {
-            $lines[] = '';
-        }
-    }
-
-    private function normalizeString(mixed $value): ?string
-    {
-        if (!is_string($value) && !is_numeric($value)) {
-            return null;
-        }
-        $str = trim((string) $value);
-        return $str === '' ? null : $str;
-    }
-
-    private function normalizeBool(mixed $value, ?bool $default = null): ?bool
-    {
-        if (is_bool($value)) {
-            return $value;
-        }
-        if (is_string($value)) {
-            $normalized = strtolower(trim($value));
-            if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
-                return true;
-            }
-            if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
-                return false;
-            }
-        }
-        if (is_int($value)) {
-            return $value !== 0;
-        }
-
-        return $default;
-    }
-
-    private function normalizeWebSearchFeature(mixed $value): ?string
-    {
-        if (is_bool($value)) {
-            return $value ? 'live' : 'disabled';
-        }
-        if (is_int($value)) {
-            return $value !== 0 ? 'live' : 'disabled';
-        }
-        if (is_string($value)) {
-            $normalized = strtolower(trim($value));
-            if (in_array($normalized, ['live', 'cached', 'disabled'], true)) {
-                return $normalized;
-            }
-            if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
-                return 'live';
-            }
-            if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
-                return 'disabled';
-            }
-        }
-
-        return null;
-    }
-
-    private function normalizeApprovalPolicy(mixed $value): ?string
-    {
-        $normalized = $this->normalizeString($value);
-        if ($normalized === null) {
-            return null;
-        }
-
-        if (strtolower($normalized) === 'on-failure') {
-            return 'on-request';
-        }
-
-        return $normalized;
-    }
-
-    private function normalizePersonality(mixed $value): ?string
-    {
-        $normalized = $this->normalizeString($value);
-        if ($normalized === null) {
-            return null;
-        }
-
-        $lower = strtolower($normalized);
-        if (!in_array($lower, self::PERSONALITIES, true)) {
-            return null;
-        }
-
-        return $lower;
-    }
-
-    private function normalizeReasoningSummary(mixed $value, ?string $model = null): ?string
-    {
-        $normalized = $this->normalizeString($value);
-        if ($normalized === null) {
-            return null;
-        }
-
-        $lower = strtolower($normalized);
-        if ($lower === 'none') {
-            return null;
-        }
-
-        $allowed = ['auto', 'concise', 'detailed'];
-        if (!in_array($lower, $allowed, true)) {
-            return null;
-        }
-
-        if ($model !== null && $this->isSparkCodexModel($model)) {
-            // gpt-5.3-codex-spark rejects reasoning summary settings.
-            return null;
-        }
-
-        if ($model !== null && $this->isDetailedOnlyCodexModel($model)) {
-            // gpt-5.1-codex*, gpt-5.2-codex, and gpt-5.3-codex support detailed summaries only.
-            return 'detailed';
-        }
-
-        return $lower;
-    }
-
-    private function normalizeReasoningEffortForModel(mixed $value, ?string $model): ?string
-    {
-        $effort = self::normalizeReasoningEffort($value);
-        if ($effort === null || $model === null) {
-            return null;
-        }
-
-        return self::modelSupportsReasoningEffort($model, $effort) ? $effort : null;
-    }
-
-    private function isSparkCodexModel(string $model): bool
-    {
-        $m = strtolower(trim($model));
-        return str_contains($m, 'codex-spark');
-    }
-
-    private function isDetailedOnlyCodexModel(string $model): bool
-    {
-        $m = strtolower(trim($model));
-        return str_starts_with($m, 'gpt-5.1-codex')
-            || str_starts_with($m, 'gpt-5.2-codex')
-            || $m === 'gpt-5.3-codex';
-    }
-
     /** @return list<string> */
     public static function supportedModels(): array
     {
-        return self::SUPPORTED_MODELS;
+        return ConfigNormalizer::supportedModels();
     }
 
     public static function normalizeSupportedModel(mixed $value): ?string
     {
-        if (!is_string($value) && !is_numeric($value)) {
-            return null;
-        }
-        $model = strtolower(trim((string) $value));
-        if ($model === '') {
-            return null;
-        }
-
-        return in_array($model, self::SUPPORTED_MODELS, true) ? $model : null;
+        return ConfigNormalizer::normalizeSupportedModel($value);
     }
 
     /** @return list<string> */
     public static function supportedReasoningEffortsForModel(mixed $model): array
     {
-        $normalized = self::normalizeSupportedModel($model);
-        if ($normalized === null) {
-            return [];
-        }
-
-        return self::MODEL_REASONING_EFFORTS[$normalized] ?? [];
+        return ConfigNormalizer::supportedReasoningEffortsForModel($model);
     }
 
     public static function normalizeReasoningEffort(mixed $value): ?string
     {
-        if (!is_string($value) && !is_numeric($value)) {
-            return null;
-        }
-        $effort = strtolower(trim((string) $value));
-        if ($effort === '') {
-            return null;
-        }
-
-        return in_array($effort, self::REASONING_EFFORTS, true) ? $effort : null;
+        return ConfigNormalizer::normalizeReasoningEffort($value);
     }
 
     public static function modelSupportsReasoningEffort(mixed $model, mixed $effort): bool
     {
-        $normalizedModel = self::normalizeSupportedModel($model);
-        $normalizedEffort = self::normalizeReasoningEffort($effort);
-        if ($normalizedModel === null || $normalizedEffort === null) {
-            return false;
-        }
-
-        return in_array($normalizedEffort, self::supportedReasoningEffortsForModel($normalizedModel), true);
-    }
-
-    private function normalizeInt(mixed $value): ?int
-    {
-        if (is_int($value)) {
-            return $value;
-        }
-        if (is_string($value) && preg_match('/^-?[0-9]+$/', trim($value)) === 1) {
-            return (int) $value;
-        }
-
-        return null;
-    }
-
-    private function normalizeStringList(mixed $value): array
-    {
-        $result = [];
-        if (is_array($value)) {
-            foreach ($value as $item) {
-                $str = $this->normalizeString($item);
-                if ($str !== null && $str !== '') {
-                    $result[] = $str;
-                }
-            }
-        } elseif (is_string($value)) {
-            $parts = preg_split('/[\r\n]+/', $value) ?: [];
-            foreach ($parts as $part) {
-                $str = $this->normalizeString($part);
-                if ($str !== null && $str !== '') {
-                    $result[] = $str;
-                }
-            }
-        }
-
-        return array_values(array_unique($result));
-    }
-
-    private function normalizeStringMap(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $result = [];
-        foreach ($value as $key => $val) {
-            $name = $this->normalizeString((string) $key);
-            if ($name === null || $name === '') {
-                continue;
-            }
-            if (is_bool($val) || is_int($val) || is_float($val)) {
-                $result[$name] = $val;
-                continue;
-            }
-            $result[$name] = (string) $val;
-        }
-
-        ksort($result);
-
-        return $result;
-    }
-
-    private function assertSha(?string $sha, bool $allowNull = false, array &$errors = []): void
-    {
-        if ($sha === null) {
-            if ($allowNull) {
-                return;
-            }
-            $errors['sha256'][] = 'sha256 is required';
-            if ($errors) {
-                throw new ValidationException($errors);
-            }
-            return;
-        }
-
-        $value = trim($sha);
-        if ($value !== '' && !preg_match('/^[A-Fa-f0-9]{64}$/', $value)) {
-            $errors['sha256'][] = 'sha256 must be 64 hex characters';
-        }
-
-        if ($errors) {
-            throw new ValidationException($errors);
-        }
-    }
-
-    private function settingsHash(mixed $settings): string
-    {
-        $normalized = $this->normalizeForHash($settings);
-        $encoded = json_encode($normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-        return hash('sha256', $encoded === false ? '' : $encoded);
-    }
-
-    private function normalizeForHash(mixed $value): mixed
-    {
-        if (is_array($value)) {
-            $result = $value;
-            if ($this->isAssoc($value)) {
-                ksort($result, SORT_NATURAL);
-            }
-
-            foreach ($result as $key => $child) {
-                $result[$key] = $this->normalizeForHash($child);
-            }
-
-            return $result;
-        }
-
-        if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
-            return $value;
-        }
-
-        return (string) $value;
-    }
-
-    /**
-     * @param array<int|string, mixed> $map
-     *
-     * @return array<int|string, mixed>
-     */
-    private function sortedAssoc(array $map): array
-    {
-        if (!$this->isAssoc($map)) {
-            return $map;
-        }
-        ksort($map, SORT_NATURAL);
-
-        return $map;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $entries
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function sortEntriesByName(array $entries): array
-    {
-        usort($entries, static function ($a, $b): int {
-            $aKey = (string) ($a['name'] ?? '');
-            $bKey = (string) ($b['name'] ?? '');
-            return strcmp($aKey, $bKey);
-        });
-
-        return $entries;
+        return ConfigNormalizer::modelSupportsReasoningEffort($model, $effort);
     }
 }

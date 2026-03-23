@@ -16,6 +16,8 @@ use App\Repositories\ProjectTodoRepository;
 
 class ProjectCoordinationService
 {
+    private readonly ProjectNormalizer $normalizer;
+
     public function __construct(
         private readonly ProjectRepository $projects,
         private readonly ProjectNoteRepository $notes,
@@ -24,8 +26,10 @@ class ProjectCoordinationService
         private readonly ProjectFeedbackRepository $feedback,
         private readonly ProjectEventRepository $events,
         private readonly ProjectModuleService $module,
-        private readonly LogRepository $logs
+        private readonly LogRepository $logs,
+        ?ProjectNormalizer $normalizer = null
     ) {
+        $this->normalizer = $normalizer ?? new ProjectNormalizer();
     }
 
     public function listProjects(?array $host = null): array
@@ -57,9 +61,9 @@ class ProjectCoordinationService
     public function createProject(array $payload, ?array $host = null): array
     {
         $this->ensureEnabled();
-        $slug = $this->normalizeSlug($payload['slug'] ?? ($payload['project'] ?? null));
-        $about = $this->normalizeAbout($payload['about'] ?? null);
-        $roster = $this->normalizeRoster($payload['roster_markdown'] ?? ($payload['agents_markdown'] ?? ''));
+        $slug = $this->normalizer->normalizeSlug($payload['slug'] ?? ($payload['project'] ?? null));
+        $about = $this->normalizer->normalizeAbout($payload['about'] ?? null);
+        $roster = $this->normalizer->normalizeRoster($payload['roster_markdown'] ?? ($payload['agents_markdown'] ?? ''));
 
         if ($this->projects->findBySlug($slug, true) !== null) {
             throw new ValidationException(['slug' => ['slug already exists']]);
@@ -167,7 +171,7 @@ class ProjectCoordinationService
     {
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
-        $about = $this->normalizeAbout($payload['about'] ?? $payload);
+        $about = $this->normalizer->normalizeAbout($payload['about'] ?? $payload);
         $updated = $this->projects->updateAbout((int) $project['id'], $about);
         $this->recordEvent($updated, 'about', 'update', 'project', $updated['id'] ?? null, [
             'about' => $updated['about'] ?? $about,
@@ -184,7 +188,7 @@ class ProjectCoordinationService
     {
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
-        $roster = $this->normalizeRoster($payload['roster_markdown'] ?? ($payload['markdown'] ?? ''));
+        $roster = $this->normalizer->normalizeRoster($payload['roster_markdown'] ?? ($payload['markdown'] ?? ''));
         $updated = $this->projects->updateRoster((int) $project['id'], $roster);
         $this->recordEvent($updated, 'roster', 'update', 'project', $updated['id'] ?? null, [
             'roster_markdown' => $updated['roster_markdown'] ?? $roster,
@@ -233,7 +237,7 @@ class ProjectCoordinationService
     {
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
-        [$header, $body] = $this->normalizeNotePayload($payload);
+        [$header, $body] = $this->normalizer->normalizeNotePayload($payload);
         $hostId = $this->hostId($host);
 
         if ($id === null) {
@@ -297,7 +301,7 @@ class ProjectCoordinationService
     {
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
-        [$title, $detail] = $this->normalizeTodoPayload($payload);
+        [$title, $detail] = $this->normalizer->normalizeTodoPayload($payload);
         $saved = $this->hydrateTodo($this->todos->create((int) $project['id'], $title, $detail, $this->hostId($host)));
         $this->recordEvent($project, 'todo', 'create', 'todo', $saved['id'] ?? null, $saved, $this->hostId($host));
         $this->logs->log($this->hostId($host), 'project.todo.create', ['slug' => $project['slug'], 'todo_id' => $saved['id'] ?? null]);
@@ -316,7 +320,7 @@ class ProjectCoordinationService
             throw new HttpException('Todo not found', 404);
         }
 
-        [$title, $detail] = $this->normalizeTodoPayload($payload);
+        [$title, $detail] = $this->normalizer->normalizeTodoPayload($payload);
         $saved = $this->hydrateTodo($this->todos->update((int) $project['id'], $id, $title, $detail, $this->hostId($host)));
         $this->recordEvent($project, 'todo', 'update', 'todo', $saved['id'] ?? $id, $saved, $this->hostId($host));
         $this->logs->log($this->hostId($host), 'project.todo.update', ['slug' => $project['slug'], 'todo_id' => $saved['id'] ?? $id]);
@@ -383,7 +387,7 @@ class ProjectCoordinationService
     {
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
-        [$storedName, $description, $content, $mimeType] = $this->normalizeFilePayload($payload);
+        [$storedName, $description, $content, $mimeType] = $this->normalizer->normalizeFilePayload($payload);
         $saved = $this->files->upsert(
             (int) $project['id'],
             $storedName,
@@ -457,7 +461,7 @@ class ProjectCoordinationService
     {
         $this->ensureEnabled();
         $project = $this->requireProject($slug);
-        [$type, $title, $body] = $this->normalizeFeedbackPayload($payload);
+        [$type, $title, $body] = $this->normalizer->normalizeFeedbackPayload($payload);
         $saved = $this->feedback->create((int) $project['id'], $type, $title, $body, $this->hostId($host));
         $this->recordEvent($project, 'feedback', 'create', 'feedback', $saved['id'] ?? null, $saved, $this->hostId($host));
         $this->logs->log($this->hostId($host), 'project.feedback.create', ['slug' => $project['slug'], 'feedback_id' => $saved['id'] ?? null]);
@@ -511,9 +515,9 @@ class ProjectCoordinationService
 
         return [
             'slug' => $slug,
-            'title' => $this->normalizeOptionalString($about['title'] ?? null) ?? $slug,
-            'name' => $this->normalizeOptionalString($about['name'] ?? null) ?? $slug,
-            'description' => $this->normalizeOptionalString($about['description'] ?? null) ?? '',
+            'title' => $this->normalizer->normalizeOptionalString($about['title'] ?? null) ?? $slug,
+            'name' => $this->normalizer->normalizeOptionalString($about['name'] ?? null) ?? $slug,
+            'description' => $this->normalizer->normalizeOptionalString($about['description'] ?? null) ?? '',
             'about' => $project['about'] ?? null,
             'latest_seq' => isset($project['latest_event_seq']) ? (int) $project['latest_event_seq'] : 0,
             'created_at' => $project['created_at'] ?? null,
@@ -541,7 +545,7 @@ class ProjectCoordinationService
 
     private function requireProject(string $slug): array
     {
-        $normalizedSlug = $this->normalizeSlug($slug);
+        $normalizedSlug = $this->normalizer->normalizeSlug($slug);
         $project = $this->projects->findBySlug($normalizedSlug);
         if ($project === null) {
             throw new HttpException('Project not found', 404);
@@ -555,166 +559,6 @@ class ProjectCoordinationService
         if (!$this->module->isEnabled()) {
             throw new HttpException('Project coordination disabled', 404);
         }
-    }
-
-    private function normalizeSlug(mixed $value): string
-    {
-        $slug = trim((string) $value);
-        if ($slug === '') {
-            throw new ValidationException(['slug' => ['slug is required']]);
-        }
-        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $slug)) {
-            throw new ValidationException(['slug' => ['slug must match /^[A-Za-z0-9][A-Za-z0-9_-]*$/']]);
-        }
-
-        return $slug;
-    }
-
-    private function normalizeAbout(mixed $value): ?array
-    {
-        if ($value === null) {
-            return null;
-        }
-        if (!is_array($value)) {
-            throw new ValidationException(['about' => ['about must be an object']]);
-        }
-
-        $normalized = [];
-        foreach ($value as $key => $entry) {
-            if (!is_string($key) || trim($key) === '') {
-                continue;
-            }
-            if (is_scalar($entry) || $entry === null) {
-                $normalized[$key] = is_string($entry) ? trim($entry) : $entry;
-                continue;
-            }
-            if (is_array($entry)) {
-                $normalized[$key] = $entry;
-            }
-        }
-
-        return $normalized === [] ? null : $normalized;
-    }
-
-    private function normalizeRoster(mixed $value): string
-    {
-        $text = trim((string) $value);
-        if (strlen($text) > 65535) {
-            throw new ValidationException(['roster_markdown' => ['roster_markdown must be 65535 characters or fewer']]);
-        }
-
-        return $text;
-    }
-
-    /**
-     * @return array{0:string,1:string}
-     */
-    private function normalizeNotePayload(array $payload): array
-    {
-        $header = trim((string) ($payload['header'] ?? ''));
-        $body = trim((string) ($payload['body'] ?? ''));
-        $errors = [];
-        if ($header === '') {
-            $errors['header'][] = 'header is required';
-        }
-        if ($body === '') {
-            $errors['body'][] = 'body is required';
-        }
-        if ($errors) {
-            throw new ValidationException($errors);
-        }
-
-        return [$header, $body];
-    }
-
-    /**
-     * @return array{0:string,1:string}
-     */
-    private function normalizeTodoPayload(array $payload): array
-    {
-        $title = trim((string) ($payload['title'] ?? ''));
-        $detail = trim((string) ($payload['detail'] ?? ''));
-        $errors = [];
-        if ($title === '') {
-            $errors['title'][] = 'title is required';
-        }
-        if ($errors) {
-            throw new ValidationException($errors);
-        }
-
-        return [$title, $detail];
-    }
-
-    /**
-     * @return array{0:string,1:?string,2:string,3:?string}
-     */
-    private function normalizeFilePayload(array $payload): array
-    {
-        $storedName = $this->normalizeStoredName($payload['stored_name'] ?? ($payload['name'] ?? ''));
-        $description = $this->normalizeOptionalString($payload['description'] ?? null);
-        $content = (string) ($payload['content'] ?? ($payload['text'] ?? ''));
-        $mimeType = $this->normalizeOptionalString($payload['mime_type'] ?? null);
-        if ($content === '') {
-            throw new ValidationException(['content' => ['content is required']]);
-        }
-
-        return [$storedName, $description, $content, $mimeType];
-    }
-
-    /**
-     * @return array{0:string,1:string,2:string}
-     */
-    private function normalizeFeedbackPayload(array $payload): array
-    {
-        $type = strtolower(trim((string) ($payload['type'] ?? 'feature')));
-        $title = trim((string) ($payload['title'] ?? ''));
-        $body = trim((string) ($payload['body'] ?? ''));
-        $errors = [];
-        if (!in_array($type, ['bug', 'feature', 'note'], true)) {
-            $errors['type'][] = 'type must be bug, feature, or note';
-        }
-        if ($title === '') {
-            $errors['title'][] = 'title is required';
-        }
-        if ($body === '') {
-            $errors['body'][] = 'body is required';
-        }
-        if ($errors) {
-            throw new ValidationException($errors);
-        }
-
-        return [$type, $title, $body];
-    }
-
-    private function normalizeStoredName(mixed $value): string
-    {
-        $name = trim((string) $value);
-        if ($name === '') {
-            throw new ValidationException(['stored_name' => ['stored_name is required']]);
-        }
-        $normalized = preg_replace('#/+#', '/', str_replace('\\', '/', $name));
-        $normalized = $normalized === null ? $name : $normalized;
-        $segments = array_values(array_filter(explode('/', $normalized), static fn (string $segment): bool => $segment !== ''));
-        if ($segments === []) {
-            throw new ValidationException(['stored_name' => ['stored_name is invalid']]);
-        }
-        foreach ($segments as $segment) {
-            if ($segment === '.' || $segment === '..') {
-                throw new ValidationException(['stored_name' => ['stored_name cannot contain dot segments']]);
-            }
-        }
-
-        return implode('/', $segments);
-    }
-
-    private function normalizeOptionalString(mixed $value): ?string
-    {
-        if (!is_scalar($value) || is_bool($value)) {
-            return null;
-        }
-        $trimmed = trim((string) $value);
-
-        return $trimmed === '' ? null : $trimmed;
     }
 
     private function hydrateTodo(array $todo): array

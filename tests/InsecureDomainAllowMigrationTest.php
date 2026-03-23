@@ -6,7 +6,7 @@ final class InsecureDomainAllowMigrationTest extends TestCase
 {
     public function testDomainAllowTableIsMigrated(): void
     {
-        $source = @file_get_contents(__DIR__ . '/../src/DatabaseMigrator.php');
+        $source = @file_get_contents(__DIR__ . '/../src/Migrations/InsecureMigration.php');
         self::assertIsString($source);
 
         self::assertStringContainsString(

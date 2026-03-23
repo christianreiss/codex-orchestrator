@@ -186,14 +186,29 @@ final class TestReverseDnsAuthService extends AuthService
     /** @var array<string, string[]> */
     public array $ptr = [];
 
-    protected function resolveForwardIps(string $fqdn): array
+    protected function createReverseDnsValidator(\App\Repositories\VersionRepository $versions): \App\Services\ReverseDnsValidator
     {
-        return $this->forward[$fqdn] ?? [];
+        return new TestReverseDnsValidator($versions, $this);
+    }
+}
+
+final class TestReverseDnsValidator extends \App\Services\ReverseDnsValidator
+{
+    public function __construct(
+        \App\Repositories\VersionRepository $versions,
+        private readonly TestReverseDnsAuthService $testService
+    ) {
+        parent::__construct($versions);
     }
 
-    protected function resolvePtrHosts(string $ip): array
+    public function resolveForwardIps(string $fqdn): array
     {
-        return $this->ptr[$ip] ?? [];
+        return $this->testService->forward[$fqdn] ?? [];
+    }
+
+    public function resolvePtrHosts(string $ip): array
+    {
+        return $this->testService->ptr[$ip] ?? [];
     }
 }
 

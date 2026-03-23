@@ -10,7 +10,7 @@ final class AdminHostAgentsVersionEndpointTest extends TestCase
         self::assertIsString($routerSource);
 
         self::assertStringContainsString(
-            "#^/admin/hosts/(\\\\d+)/agents-version$#",
+            "#^/admin/hosts/(\\d+)/agents-version$#",
             $routerSource,
             'Expected /admin/hosts/{id}/agents-version route to exist in public/index.php'
         );
@@ -18,7 +18,8 @@ final class AdminHostAgentsVersionEndpointTest extends TestCase
 
     public function testHostListIncludesAgentsDocumentOverrideField(): void
     {
-        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
+        $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
+            . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
         self::assertStringContainsString("'agents_document_id_override'", $routerSource);
