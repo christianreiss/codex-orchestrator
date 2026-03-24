@@ -6970,7 +6970,14 @@ format_footer_sync_fragment() {
 format_run_cost_value() {
   local raw="$1"
   if [[ "$raw" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-    LC_NUMERIC=C printf "%.2f$" "$raw"
+    # Use 4 decimal places for sub-cent amounts so "$0.0012" shows instead of "$0.00".
+    local formatted
+    if LC_NUMERIC=C awk -v v="$raw" 'BEGIN { exit !(v < 0.01 && v > -0.01) }' 2>/dev/null; then
+      formatted="$(LC_NUMERIC=C printf "%.4f" "$raw")"
+    else
+      formatted="$(LC_NUMERIC=C printf "%.2f" "$raw")"
+    fi
+    printf '$%s' "$formatted"
     return
   fi
   printf "%s" "$raw"
