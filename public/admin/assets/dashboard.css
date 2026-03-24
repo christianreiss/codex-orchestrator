@@ -2991,12 +2991,18 @@ body.auth-locked .rail-tools {
   transition: color 140ms ease, border-left-color 140ms ease, background 140ms ease;
 }
 
-.hosts-nav-link.host-tab:hover,
+.hosts-nav-link.host-tab:hover {
+  color: var(--text);
+  border-left-color: var(--border);
+  background: color-mix(in srgb, var(--frost) 70%, transparent);
+}
+
 .hosts-nav-link.host-tab:focus-visible {
   color: var(--text);
   border-left-color: var(--border);
   background: color-mix(in srgb, var(--frost) 70%, transparent);
   outline: none;
+  box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.40);
 }
 
 .hosts-nav-link.host-tab.active {
@@ -3054,12 +3060,18 @@ body.auth-locked .rail-tools {
   transition: color 140ms ease, border-left-color 140ms ease, background 140ms ease;
 }
 
-.logs-nav-link.log-tab:hover,
+.logs-nav-link.log-tab:hover {
+  color: var(--text);
+  border-left-color: var(--border);
+  background: color-mix(in srgb, var(--frost) 70%, transparent);
+}
+
 .logs-nav-link.log-tab:focus-visible {
   color: var(--text);
   border-left-color: var(--border);
   background: color-mix(in srgb, var(--frost) 70%, transparent);
   outline: none;
+  box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.40);
 }
 
 .logs-nav-link.log-tab.active {
@@ -3341,12 +3353,18 @@ body[data-view-mode="logs"] main.main {
   transition: color 140ms ease, border-left-color 140ms ease, background 140ms ease;
 }
 
-.settings-tab:focus-visible,
 .settings-tab:hover {
   color: var(--text);
   border-left-color: var(--border);
   background: color-mix(in srgb, var(--frost) 70%, transparent);
+}
+
+.settings-tab:focus-visible {
+  color: var(--text);
+  border-left-color: var(--border);
+  background: color-mix(in srgb, var(--frost) 70%, transparent);
   outline: none;
+  box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.40);
 }
 
 .settings-tab.active {
@@ -4919,6 +4937,12 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
   border-color: var(--danger) !important;
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+/* Restore a visible focus ring when an invalid field is focused */
+.modal input[aria-invalid="true"]:focus-visible,
+.modal select[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 /* ── Account panel — password-change form layout ─────────────────────────── */
