@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: visual polish — `button.secondary` now uses `var(--panel)` background and `var(--border)` border instead of hardcoded white/light-grey values, so secondary buttons render correctly in dark mode; settings sidebar tabs (`.settings-tab`) gained a `transition` on color, border-left-color, and background so hover state changes animate smoothly instead of snapping.
+
+# 2026-03-24
 - cdx wrapper: fixed two TOML inline-comment bugs — `toml_table_enabled` (used by `--doctor` MCP detection) now matches section headers that carry a trailing `# comment` (e.g. `[mcp_servers.cdx] # remark`) instead of falsely reporting the table as missing; `is_header` inside `ensure_project_path_trusted_in_config` also gained the same fix so section-boundary detection no longer overshoots when the next header has an inline comment, preventing potential `trust_level` mis-insertion in config.toml. Rebuilt `bin/cdx`.
 
 # 2026-03-24

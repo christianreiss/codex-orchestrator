@@ -1401,9 +1401,9 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
     .runner-status-row { display: flex; gap: 8px; align-items: center; }
     .runner-status-row .muted { font-size: 13px; }
     button.secondary {
-      background: linear-gradient(135deg, #ffffff, #f5f7fb);
+      background: var(--panel);
       color: var(--text);
-      border: 1px solid rgba(15,23,42,0.1);
+      border: 1px solid var(--border);
       box-shadow: none;
     }
     button.danger {
@@ -3308,6 +3308,7 @@ body[data-view-mode="logs"] main.main {
   font-weight: 650;
   text-decoration: none;
   cursor: pointer;
+  transition: color 140ms ease, border-left-color 140ms ease, background 140ms ease;
 }
 
 .settings-tab:focus-visible,
