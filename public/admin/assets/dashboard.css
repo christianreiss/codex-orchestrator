@@ -4913,6 +4913,14 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
 .field-match-ok  { color: var(--success); font-weight: 600; }
 .field-match-err { color: var(--danger);  font-weight: 600; }
 
+/* Highlight inputs that failed client-side validation */
+.modal input[aria-invalid="true"],
+.modal select[aria-invalid="true"] {
+  border-color: var(--danger) !important;
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
 /* ── Account panel — password-change form layout ─────────────────────────── */
 /* The account password form lives inside .card.panel which has 18px padding  */
 /* but no scoped field-stack rules. Scope tightly to avoid cascade side-effects. */

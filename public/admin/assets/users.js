@@ -32,6 +32,37 @@
   const wipeConfirm = document.getElementById('usersWipeConfirm');
   const wipeError = document.getElementById('usersWipeError');
 
+  // ── Password-match hint ────────────────────────────────────────────────────
+  // Inserted after the confirm field so screen readers announce it live.
+  let usersMatchHintEl = null;
+  if (inputPasswordConfirm) {
+    usersMatchHintEl = document.createElement('div');
+    usersMatchHintEl.className = 'field-match-hint';
+    usersMatchHintEl.setAttribute('aria-live', 'polite');
+    inputPasswordConfirm.insertAdjacentElement('afterend', usersMatchHintEl);
+  }
+
+  function updateUsersMatchHint() {
+    if (!usersMatchHintEl) return;
+    const confirmVal = String(inputPasswordConfirm?.value || '');
+    if (!confirmVal) {
+      usersMatchHintEl.textContent = '';
+      usersMatchHintEl.className = 'field-match-hint';
+      return;
+    }
+    const newVal = String(inputPassword?.value || '');
+    if (confirmVal === newVal) {
+      usersMatchHintEl.textContent = 'Passwords match';
+      usersMatchHintEl.className = 'field-match-hint field-match-ok';
+    } else {
+      usersMatchHintEl.textContent = 'Passwords do not match';
+      usersMatchHintEl.className = 'field-match-hint field-match-err';
+    }
+  }
+
+  inputPassword?.addEventListener('input', updateUsersMatchHint);
+  inputPasswordConfirm?.addEventListener('input', updateUsersMatchHint);
+
   let users = [];
   let userFilterText = '';
   let roles = {
@@ -242,6 +273,30 @@
       .replace(/'/g, '&#39;');
   }
 
+  function clearFieldError(input) {
+    if (!input) return;
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-describedby');
+  }
+
+  function setFieldError(input, errorEl, message) {
+    if (!input || !errorEl) return;
+    const id = errorEl.id || `usersModalError`;
+    input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('aria-describedby', id);
+    showError(errorEl, message);
+    input.focus();
+  }
+
+  function clearAllFieldErrors() {
+    [inputName, inputUsername, inputEmail, inputPassword, inputPasswordConfirm].forEach(clearFieldError);
+    showError(modalError, '');
+    if (usersMatchHintEl) {
+      usersMatchHintEl.textContent = '';
+      usersMatchHintEl.className = 'field-match-hint';
+    }
+  }
+
   function openModal(user = null) {
     editingId = user ? user.id : null;
     if (modalTitle) modalTitle.textContent = user ? 'Edit user' : 'Add user';
@@ -252,14 +307,16 @@
     inputActive.checked = user?.active ?? true;
     inputPassword.value = '';
     if (inputPasswordConfirm) inputPasswordConfirm.value = '';
-    showError(modalError, '');
+    clearAllFieldErrors();
     modal?.classList.add('show');
+    // Focus the first meaningful input for keyboard/screen-reader users.
+    inputName?.focus();
   }
 
   function closeModal() {
     modal?.classList.remove('show');
     editingId = null;
-    showError(modalError, '');
+    clearAllFieldErrors();
   }
 
   function openWipeModal() {
@@ -371,24 +428,44 @@
     if (ev.target === wipeModal) closeWipeModal();
   });
 
+  // Clear field-level error state as soon as the user edits the field.
+  [inputName, inputUsername, inputEmail, inputPassword, inputPasswordConfirm].forEach((input) => {
+    input?.addEventListener('input', () => clearFieldError(input));
+  });
+
   modalSave?.addEventListener('click', async () => {
-    showError(modalError, '');
-    const passwordValue = inputPassword.value;
+    clearAllFieldErrors();
+    const passwordValue = inputPassword?.value || '';
     const confirmValue = inputPasswordConfirm?.value || '';
+
+    // Required: username
+    if (!inputUsername?.value.trim()) {
+      setFieldError(inputUsername, modalError, 'Username is required.');
+      return;
+    }
+
+    // Required: password for new users
+    if (!editingId && !passwordValue) {
+      setFieldError(inputPassword, modalError, 'Password is required for new users.');
+      return;
+    }
+
+    // Password match
     if (passwordValue && passwordValue !== confirmValue) {
-      showError(modalError, 'Password confirmation does not match.');
+      setFieldError(inputPasswordConfirm, modalError, 'Password confirmation does not match.');
       return;
     }
     if (!passwordValue && confirmValue) {
-      showError(modalError, 'Enter a password before confirming.');
+      setFieldError(inputPassword, modalError, 'Enter a password before confirming.');
       return;
     }
+
     const payload = {
-      name: inputName.value,
-      username: inputUsername.value,
-      email: inputEmail.value,
-      access_level: inputAccess.value,
-      active: inputActive.checked,
+      name: inputName?.value || '',
+      username: inputUsername.value.trim(),
+      email: inputEmail?.value || '',
+      access_level: inputAccess?.value || '',
+      active: inputActive?.checked ?? true,
     };
     if (passwordValue) {
       payload.password = passwordValue;

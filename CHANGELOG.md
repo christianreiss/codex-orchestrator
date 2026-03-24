@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: improved form validation feedback in the Users modal — (1) username is now required client-side with an inline error and `aria-invalid` highlight before hitting the server; (2) password is required for new users; (3) the confirm-password field gets the same real-time "Passwords match / Passwords do not match" hint (aria-live) already used in the account password-change form; (4) the first invalid field is auto-focused on save; (5) field error state clears on input so there's no stale red border; (6) opening the modal now moves focus to the Name field for keyboard and screen-reader users; CSS adds a red border + glow rule for `[aria-invalid="true"]` inputs inside modals.
+
+# 2026-03-24
 - Admin UI: polish — tab navigation transitions and active indicator consistency: `.host-tab` / `.log-tab` top tabs and `.hosts-nav-link.host-tab` / `.logs-nav-link.log-tab` sidebar links now animate color, border, and background changes with a 140 ms ease transition, matching the existing `.settings-tab` behavior so hover/focus state changes cross-fade instead of snapping; the active bottom-border indicator on `.host-tab.active` / `.log-tab.active` now uses `var(--accent)` instead of `var(--text)`, consistent with all other active-selection indicators in the dashboard (sidebar links, settings tabs). New selectors added to the existing `prefers-reduced-motion` block.
 
 # 2026-03-24
