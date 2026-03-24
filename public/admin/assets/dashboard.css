@@ -4348,6 +4348,13 @@ body[data-nav-version="2026"] .rail-disclosure:focus-visible {
   color: var(--text);
 }
 
+body[data-nav-version="2026"] .rail-link:not(.is-active):hover::after,
+body[data-nav-version="2026"] .rail-group:not(.is-active):not(.is-open):hover::after {
+  opacity: 0.28;
+  background: var(--accent);
+  transform: scaleX(0.65);
+}
+
 body[data-nav-version="2026"] .rail-link.is-active,
 body[data-nav-version="2026"] .rail-group.is-active .rail-disclosure,
 body[data-nav-version="2026"] .rail-group.is-open .rail-disclosure {
@@ -4398,7 +4405,7 @@ body[data-nav-version="2026"] .rail-panel {
   border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
   border-radius: 18px;
   background: color-mix(in srgb, var(--card) 100%, transparent);
-  box-shadow: none;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.14), 0 0 0 1px rgba(var(--accent-rgb), 0.06);
 }
 
 body[data-nav-version="2026"] .rail-group.is-open .rail-panel {
