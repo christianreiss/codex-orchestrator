@@ -612,6 +612,25 @@
         .replace(/'/g, '&#39;');
     }
 
+    function parseTimestamp(value) {
+      if (!value) return null;
+      const raw = String(value).trim();
+      const normalized = raw.replace(/\.(\d{3})\d*(Z?)/, '.$1$2');
+      const date = new Date(normalized);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function formatTimestamp(value) {
+      const date = parseTimestamp(value);
+      if (!date) return escapeHtml(value || '—');
+      const dd = String(date.getDate()).padStart(2, '0');
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const yy = String(date.getFullYear()).slice(-2);
+      const hh = String(date.getHours()).padStart(2, '0');
+      const min = String(date.getMinutes()).padStart(2, '0');
+      return `${dd}.${mm}.${yy}, ${hh}:${min}`;
+    }
+
     const formatStatus = (item) => {
       if (item.success) return 'ok';
       const code = item.error_code ? `code ${escapeHtml(item.error_code)}` : null;
@@ -624,7 +643,7 @@
 
     const formatHost = (item) => escapeHtml(item.host_fqdn || item.host || '—');
     const formatTool = (item) => escapeHtml(item.name || item.method || '—');
-    const formatTime = (ts) => escapeHtml(ts || '—');
+    const formatTime = (ts) => formatTimestamp(ts);
 
     function renderRows(items) {
       if (!items.length) {
