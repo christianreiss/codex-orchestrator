@@ -1075,8 +1075,8 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
       font-size: 14px;
       min-width: 200px;
     }
-    .panel-actions input:focus,
-    .panel-actions select:focus { outline: 1px solid var(--accent); }
+    .panel-actions input:focus-visible,
+    .panel-actions select:focus-visible { outline: none; box-shadow: var(--ring); }
     .settings-panel .settings-grid {
       display: flex;
       flex-direction: column;
@@ -1664,8 +1664,8 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
       font-family: var(--font-sans);
       line-height: 1.4;
     }
-    .modal input:focus,
-    .modal textarea:focus { outline: 1px solid var(--accent); }
+    .modal input:focus-visible,
+    .modal textarea:focus-visible { outline: none; box-shadow: var(--ring); }
     .agents-modal {
       max-width: 880px;
       width: min(920px, 95vw);
@@ -4323,7 +4323,7 @@ body[data-nav-version="2026"] .rail-disclosure {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  transition: color 120ms ease;
+  transition: color 160ms ease;
 }
 
 body[data-nav-version="2026"] .rail-link::after,
@@ -4350,9 +4350,9 @@ body[data-nav-version="2026"] .rail-disclosure:focus-visible {
 
 body[data-nav-version="2026"] .rail-link:not(.is-active):hover::after,
 body[data-nav-version="2026"] .rail-group:not(.is-active):not(.is-open):hover::after {
-  opacity: 0.28;
+  opacity: 0.32;
   background: var(--accent);
-  transform: scaleX(0.65);
+  transform: scaleX(1);
 }
 
 body[data-nav-version="2026"] .rail-link.is-active,
@@ -4533,7 +4533,7 @@ body[data-nav-version="2026"] .rail-sub-link {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
-  transition: color 120ms ease;
+  transition: color 160ms ease;
 }
 
 body[data-nav-version="2026"] .rail-sub-link:hover,
@@ -4585,7 +4585,7 @@ body[data-nav-version="2026"] .rail-account-trigger {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  transition: color 120ms ease;
+  transition: color 160ms ease;
 }
 
 body[data-nav-version="2026"] .rail-account-trigger:hover,
@@ -4619,7 +4619,7 @@ body[data-nav-version="2026"] .rail-account-exit {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  transition: color 120ms ease;
+  transition: color 160ms ease;
 }
 
 body[data-nav-version="2026"] .rail-action {
