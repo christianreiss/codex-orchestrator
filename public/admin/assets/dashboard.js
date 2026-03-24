@@ -5,6 +5,7 @@
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
     const navInsecureHosts = document.getElementById('navInsecureHosts');
+    const navHelpTrigger = document.getElementById('navHelpTrigger');
     const insecureHostsDisableAllBtn = document.getElementById('insecureHostsDisableAll');
     const mtlsStatus = document.getElementById('mtlsStatus');
     const mtlsSettingStatus = document.getElementById('mtlsSettingStatus');
@@ -174,6 +175,8 @@
     const confirmModalBody = document.getElementById('confirmModalBody');
     const confirmModalCancel = document.getElementById('confirmModalCancel');
     const confirmModalConfirm = document.getElementById('confirmModalConfirm');
+    const helpModal = document.getElementById('helpModal');
+    const helpModalClose = document.getElementById('helpModalClose');
     const insecureApprovalModal = document.getElementById('insecureApprovalModal');
     const insecureApprovalSubtitle = document.getElementById('insecureApprovalSubtitle');
     const insecureApprovalHost = document.getElementById('insecureApprovalHost');
@@ -258,6 +261,9 @@
 
     const THEME_OPTIONS = ['auto', 'light', 'dark'];
     const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+    const SHORTCUT_SEQUENCE_TIMEOUT_MS = 1200;
+    let pendingShortcutPrefix = '';
+    let pendingShortcutTimer = null;
 
     function formatReasoningEffortLabel(value) {
       return value === 'xhigh' ? 'xhigh (Extra high)' : value;
@@ -898,6 +904,153 @@
       }
     }
 
+    function showHelpModal(show) {
+      if (!helpModal) return;
+      const shouldShow = !!show;
+      helpModal.classList.toggle('show', shouldShow);
+      setInertBehindModal(helpModal, shouldShow);
+      if (shouldShow) {
+        window.__railNav?.closeMenus?.();
+        window.setTimeout(() => {
+          helpModalClose?.focus();
+        }, 30);
+      } else {
+        navHelpTrigger?.focus();
+      }
+    }
+
+    function closeHelpModal() {
+      showHelpModal(false);
+    }
+
+    function clearShortcutPrefix() {
+      pendingShortcutPrefix = '';
+      if (pendingShortcutTimer) {
+        window.clearTimeout(pendingShortcutTimer);
+        pendingShortcutTimer = null;
+      }
+    }
+
+    function armShortcutPrefix(prefix) {
+      clearShortcutPrefix();
+      pendingShortcutPrefix = prefix;
+      pendingShortcutTimer = window.setTimeout(() => {
+        clearShortcutPrefix();
+      }, SHORTCUT_SEQUENCE_TIMEOUT_MS);
+    }
+
+    function isEditableShortcutTarget(target) {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+      if (target.closest('[contenteditable="true"]')) return true;
+      const tag = (target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return true;
+      return false;
+    }
+
+    function openModalBackdrop() {
+      return document.querySelector('.modal-backdrop.show');
+    }
+
+    function navigateAdminShortcut(path) {
+      const target = String(path || '').trim();
+      if (!target.startsWith('/admin')) return;
+      const url = new URL(target, window.location.origin);
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      history.pushState({}, '', url.toString());
+      applyRouting();
+    }
+
+    function focusHostsFilterShortcut() {
+      if ((document.body?.dataset?.viewMode || '').toLowerCase() !== 'hosts') {
+        toast('Host filter shortcut only applies in Hosts view.', 'info', { timeoutMs: 1800 });
+        return;
+      }
+      if (!filterInput) return;
+      filterInput.focus();
+      filterInput.select?.();
+    }
+
+    function reloadCurrentViewShortcut() {
+      window.location.reload();
+    }
+
+    function handleShortcutPrefixKey(key) {
+      if (pendingShortcutPrefix !== 'g') return false;
+      const routes = {
+        d: '/admin/dashboard',
+        h: '/admin/hosts',
+        l: '/admin/logs',
+        s: '/admin/settings/general',
+        p: '/admin/settings/projects',
+        u: '/admin/users',
+      };
+      const route = routes[key];
+      clearShortcutPrefix();
+      if (!route) return false;
+      navigateAdminShortcut(route);
+      return true;
+    }
+
+    function handleGlobalShortcut(event) {
+      if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const key = String(event.key || '');
+      const normalizedKey = key.toLowerCase();
+      const modal = openModalBackdrop();
+
+      if (key === '?') {
+        event.preventDefault();
+        if (modal && modal !== helpModal) return;
+        showHelpModal(!(helpModal?.classList.contains('show')));
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (modal) {
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (isEditableShortcutTarget(event.target)) {
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (handleShortcutPrefixKey(normalizedKey)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (normalizedKey === 'g') {
+        event.preventDefault();
+        armShortcutPrefix('g');
+        return;
+      }
+
+      if (normalizedKey === 'n') {
+        event.preventDefault();
+        showNewHostModal(true);
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (key === '/') {
+        event.preventDefault();
+        focusHostsFilterShortcut();
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (normalizedKey === 'r') {
+        event.preventDefault();
+        clearShortcutPrefix();
+        reloadCurrentViewShortcut();
+      }
+    }
+
     let confirmResolve = null;
     function showConfirmModal(title, body, { action = 'Confirm', warn = true } = {}) {
       return new Promise((resolve) => {
@@ -920,6 +1073,13 @@
     if (confirmModalCancel) confirmModalCancel.addEventListener('click', () => closeConfirmModal(false));
     if (confirmModalConfirm) confirmModalConfirm.addEventListener('click', () => closeConfirmModal(true));
     window.__confirm = showConfirmModal;
+    if (navHelpTrigger) navHelpTrigger.addEventListener('click', () => showHelpModal(true));
+    if (helpModalClose) helpModalClose.addEventListener('click', closeHelpModal);
+    if (helpModal) {
+      helpModal.addEventListener('click', (event) => {
+        if (event.target === helpModal) closeHelpModal();
+      });
+    }
 
     function toastFromEvent(eventOrPayload) {
       if (!eventOrPayload || typeof eventOrPayload !== 'object') return;
@@ -7946,6 +8106,7 @@
       });
     }
     const modalCloseMap = new Map([
+      [helpModal,             () => closeHelpModal()],
       [newHostModal,          () => showNewHostModal(false)],
       [uploadModal,           () => showUploadModal(false)],
       [insecureHostsModal,    () => closeInsecureHostsModal()],
@@ -7968,6 +8129,7 @@
       const closeFn = modalCloseMap.get(open);
       if (closeFn) { e.preventDefault(); closeFn(); }
     });
+    document.addEventListener('keydown', handleGlobalShortcut);
     if (runnerModal) {
       runnerModal.addEventListener('click', (e) => {
         if (e.target === runnerModal) showRunnerModal(false);
