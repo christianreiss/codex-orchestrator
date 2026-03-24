@@ -1,3 +1,6 @@
+# 2026-03-24
+- Admin UI: polished button micro-interactions — dashboard buttons now lift `1px` on hover with a subtle accent shadow (matching the login page's established tactile style) and snap back cleanly on press; transition timing made uniform at `150ms cubic-bezier(0.2,0,0,1)`. Toggle switch thumbs replaced hardcoded dark-blue gradients with a neutral off-state (`#e2e8f0`) and the theme accent gradient for the on-state, so toggles now adapt to both dark and light themes.
+
 # 2026-03-21
 - cdx wrapper/setup: replaced the old `Codex Coordinator` startup ASCII art with the new `codex orchestrator` banner in the wrapper and quick-setup flow, then bumped the wrapper to `2026.03.21-02`.
 - Admin UI: removed the dead `uPlot` chart path and orphaned assets, leaving the SVG quota/cost history renderer as the only supported dashboard history implementation; cache-bumped the touched admin JS/CSS bundles.
