@@ -110,13 +110,26 @@ if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
   print_motd
 fi
 
+AUTO_UPDATE_CRON_READY=0
+if (( ! CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CRON_MODE )) && (( ! CODEX_DO_UNINSTALL )); then
+  if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+    if reconcile_cron_job_state install; then
+      AUTO_UPDATE_CRON_READY=1
+    else
+      log_warn "Cron-managed auto-update is enabled by the server, but the wrapper could not ensure the cron job; falling back to startup Codex update checks."
+    fi
+  else
+    reconcile_cron_job_state remove || log_warn "Server disabled cron-managed auto-update, but the wrapper could not remove the managed cron job."
+  fi
+fi
+
 asset_name=""
 skip_update_check=0
 skip_update_reason=""
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   skip_update_check=1
   skip_update_reason="active_run"
-elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && (( AUTO_UPDATE_CRON_READY )); then
   skip_update_check=1
   skip_update_reason="cron_managed"
 elif (( ! can_manage_codex )); then

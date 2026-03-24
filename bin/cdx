@@ -447,7 +447,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-02"
+WRAPPER_VERSION="2026.03.24-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -5857,7 +5857,29 @@ cron_filter_existing_entries() {
   done
 }
 
+cron_wrapper_entry_installed() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local cdx_path quoted_cdx_path marker current_crontab
+  cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+  if [[ ! -x "$cdx_path" ]]; then
+    return 1
+  fi
+
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  marker="$(cron_managed_marker)"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+  cron_has_wrapper_entry "$current_crontab" "$cdx_path" "$quoted_cdx_path" "$marker"
+}
+
 install_cron_job() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    log_error "Cannot install cdx cron job because crontab is unavailable."
+    return 1
+  fi
+
   local cdx_path
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
   if [[ ! -x "$cdx_path" ]]; then
@@ -5900,6 +5922,11 @@ install_cron_job() {
 }
 
 remove_cron_job() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    printf '%s\n' "cdx cron job not found in crontab."
+    return 0
+  fi
+
   local cdx_path quoted_cdx_path marker current_crontab filtered_crontab
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
   printf -v quoted_cdx_path '%q' "$cdx_path"
@@ -5914,6 +5941,31 @@ remove_cron_job() {
   filtered_crontab="$(printf '%s\n' "$current_crontab" | cron_filter_existing_entries "$cdx_path" "$quoted_cdx_path" "$marker")"
   printf '%s\n' "$filtered_crontab" | crontab -
   printf '%s\n' "cdx cron job removed."
+}
+
+reconcile_cron_job_state() {
+  local desired_state="$1"
+
+  case "$desired_state" in
+    install)
+      if cron_wrapper_entry_installed; then
+        return 0
+      fi
+      install_cron_job
+      return $?
+      ;;
+    remove)
+      if ! cron_wrapper_entry_installed; then
+        return 0
+      fi
+      remove_cron_job
+      return $?
+      ;;
+    *)
+      log_error "Unknown cron reconciliation state: $desired_state"
+      return 1
+      ;;
+  esac
 }
 
 cron_do_api_call() {
@@ -6416,13 +6468,26 @@ if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
   print_motd
 fi
 
+AUTO_UPDATE_CRON_READY=0
+if (( ! CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CRON_MODE )) && (( ! CODEX_DO_UNINSTALL )); then
+  if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+    if reconcile_cron_job_state install; then
+      AUTO_UPDATE_CRON_READY=1
+    else
+      log_warn "Cron-managed auto-update is enabled by the server, but the wrapper could not ensure the cron job; falling back to startup Codex update checks."
+    fi
+  else
+    reconcile_cron_job_state remove || log_warn "Server disabled cron-managed auto-update, but the wrapper could not remove the managed cron job."
+  fi
+fi
+
 asset_name=""
 skip_update_check=0
 skip_update_reason=""
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   skip_update_check=1
   skip_update_reason="active_run"
-elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && (( AUTO_UPDATE_CRON_READY )); then
   skip_update_check=1
   skip_update_reason="cron_managed"
 elif (( ! can_manage_codex )); then

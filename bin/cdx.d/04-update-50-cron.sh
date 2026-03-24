@@ -48,7 +48,29 @@ cron_filter_existing_entries() {
   done
 }
 
+cron_wrapper_entry_installed() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local cdx_path quoted_cdx_path marker current_crontab
+  cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+  if [[ ! -x "$cdx_path" ]]; then
+    return 1
+  fi
+
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  marker="$(cron_managed_marker)"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+  cron_has_wrapper_entry "$current_crontab" "$cdx_path" "$quoted_cdx_path" "$marker"
+}
+
 install_cron_job() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    log_error "Cannot install cdx cron job because crontab is unavailable."
+    return 1
+  fi
+
   local cdx_path
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
   if [[ ! -x "$cdx_path" ]]; then
@@ -91,6 +113,11 @@ install_cron_job() {
 }
 
 remove_cron_job() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    printf '%s\n' "cdx cron job not found in crontab."
+    return 0
+  fi
+
   local cdx_path quoted_cdx_path marker current_crontab filtered_crontab
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
   printf -v quoted_cdx_path '%q' "$cdx_path"
@@ -105,6 +132,31 @@ remove_cron_job() {
   filtered_crontab="$(printf '%s\n' "$current_crontab" | cron_filter_existing_entries "$cdx_path" "$quoted_cdx_path" "$marker")"
   printf '%s\n' "$filtered_crontab" | crontab -
   printf '%s\n' "cdx cron job removed."
+}
+
+reconcile_cron_job_state() {
+  local desired_state="$1"
+
+  case "$desired_state" in
+    install)
+      if cron_wrapper_entry_installed; then
+        return 0
+      fi
+      install_cron_job
+      return $?
+      ;;
+    remove)
+      if ! cron_wrapper_entry_installed; then
+        return 0
+      fi
+      remove_cron_job
+      return $?
+      ;;
+    *)
+      log_error "Unknown cron reconciliation state: $desired_state"
+      return 1
+      ;;
+  esac
 }
 
 cron_do_api_call() {

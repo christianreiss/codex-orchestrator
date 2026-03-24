@@ -228,12 +228,13 @@ Codex updates:
 - Target version comes from `/auth` `versions.client_version`.
 - If `/auth` returns `client_version_enforce_exact=true`, wrapper enforces the exact target version (upgrade or downgrade).
 - If `client_version_enforce_exact=false`, wrapper treats `versions.client_version` as an upgrade floor only and never downgrades to meet it.
-- If `/auth` returns `auto_update_enabled=true`, wrapper skips the normal per-run Codex update check because cron-managed auto-update is authoritative for that host.
+- If `/auth` returns `auto_update_enabled=true`, wrapper first ensures the managed `cdx --cron` job is installed for the current user. Once the cron job is in place, wrapper skips the normal per-run Codex update check because cron-managed auto-update is authoritative for that host. If cron installation fails, wrapper falls back to the normal startup Codex update probe instead of silently disabling updates.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary.
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Cron auto-update install/remove uses one managed crontab marker, shell-escaped wrapper/log paths, and escapes cron `%` semantics before writing the cron command.
+- Normal sync-capable wrapper runs reconcile cron state to match policy: enabled ensures the managed cron entry exists, disabled removes that managed entry.
 - `cdx --cron remove` removes only the managed/current-wrapper cron entry instead of broad `cdx --cron` substring matches.
 - Cron mode uses a non-blocking `flock` guard when available and degrades with a warning when `flock` is missing.
 - Cron update checks call `POST /cron/check`; successful cron-installed Codex updates report back through `POST /cron/report`.

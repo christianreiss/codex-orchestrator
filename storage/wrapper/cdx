@@ -447,7 +447,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-01"
+WRAPPER_VERSION="2026.03.24-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -6418,12 +6418,16 @@ fi
 
 asset_name=""
 skip_update_check=0
+skip_update_reason=""
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   skip_update_check=1
+  skip_update_reason="active_run"
 elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
   skip_update_check=1
+  skip_update_reason="cron_managed"
 elif (( ! can_manage_codex )); then
   skip_update_check=1
+  skip_update_reason="privilege"
 fi
 
 if (( ! skip_update_check )); then
@@ -6433,6 +6437,7 @@ if (( ! skip_update_check )); then
     arch_name="$(uname -m 2>/dev/null || echo unknown)"
     log_warn "Unsupported platform (${os_name}/${arch_name}); skipping update check."
     skip_update_check=1
+    skip_update_reason="unsupported_platform"
   fi
 fi
 
@@ -6563,11 +6568,20 @@ codex_installed_label="${LOCAL_VERSION:-unknown}"
 if (( skip_update_check )); then
   codex_target_label="${remote_version:-${LOCAL_VERSION:-unknown}}"
   codex_status_label="Check skipped"
-  if (( CDX_ACTIVE_RUN_DETECTED )); then
-    codex_status_note="active cdx run"
-  else
-    codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
-  fi
+  case "$skip_update_reason" in
+    active_run)
+      codex_status_note="active cdx run"
+      ;;
+    cron_managed)
+      codex_status_note="cron-managed updates"
+      ;;
+    unsupported_platform)
+      codex_status_note="unsupported platform (${platform_os}/${platform_arch})"
+      ;;
+    *)
+      codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
+      ;;
+  esac
 elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
   codex_target_label="${norm_remote:-${remote_version:-unknown}}"
   codex_status_label="Deferred"
@@ -7136,7 +7150,9 @@ print_run_exit_footer() {
     run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
     if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
       local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
-      if (( run_elapsed_s < 60 )); then
+      if (( run_elapsed_s == 0 )); then
+        run_time_text="${run_elapsed_ms}ms"
+      elif (( run_elapsed_s < 60 )); then
         run_time_text="${run_elapsed_s}s"
       else
         run_time_text="$(format_duration_short "$run_elapsed_s")"
@@ -7150,7 +7166,12 @@ print_run_exit_footer() {
   auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
   local sync_text="${usage_sync}; ${auth_sync}"
 
+  local footer_row_labels=("$usage_label" "$cost_label" "$run_time_label" "$sync_label")
+  local saved_row_label_width="$ROW_LABEL_WIDTH"
+  ROW_LABEL_WIDTH="$(compute_row_label_width "${footer_row_labels[@]}")"
+
   log_info "$(summary_divider)"
+  log_info "$(summary_header "Run summary")"
   log_info "$(format_simple_row "$usage_label" "$usage_text")"
   log_info "$(format_simple_row "$cost_label" "$cost_text")"
   if [[ -n "$run_time_text" ]]; then
@@ -7158,6 +7179,8 @@ print_run_exit_footer() {
   fi
   log_info "$(format_simple_row "$sync_label" "$sync_text")"
   log_info "$(summary_divider)"
+
+  ROW_LABEL_WIDTH="$saved_row_label_width"
 }
 
 section_bullet() {
@@ -7830,17 +7853,27 @@ print_doctor_report() {
   local ssh_bits=(
     "session=${ssh_session_label}"
     "TERM=${TERM:-unknown}"
-    "TERM_PROGRAM=${TERM_PROGRAM:-n/a}"
-    "KONSOLE_VERSION=${KONSOLE_VERSION:-n/a}"
-    "VTE_VERSION=${VTE_VERSION:-n/a}"
-    "KITTY_WINDOW_ID=${KITTY_WINDOW_ID:+set}"
-    "WEZTERM_VERSION=${WEZTERM_VERSION:-n/a}"
-    "WT_SESSION=${WT_SESSION:+set}"
   )
+  # Only include terminal identifier vars when they carry a real value; omit
+  # empty or unset vars so the SSH env row stays concise on most machines.
+  [[ -n "${TERM_PROGRAM:-}" ]] && ssh_bits+=("TERM_PROGRAM=${TERM_PROGRAM}")
+  [[ -n "${KONSOLE_VERSION:-}" ]] && ssh_bits+=("KONSOLE_VERSION=${KONSOLE_VERSION}")
+  [[ -n "${VTE_VERSION:-}" ]] && ssh_bits+=("VTE_VERSION=${VTE_VERSION}")
+  [[ -n "${KITTY_WINDOW_ID:-}" ]] && ssh_bits+=("KITTY_WINDOW_ID=set")
+  [[ -n "${WEZTERM_VERSION:-}" ]] && ssh_bits+=("WEZTERM_VERSION=${WEZTERM_VERSION}")
+  [[ -n "${WT_SESSION:-}" ]] && ssh_bits+=("WT_SESSION=set")
   local ssh_env_label
   ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 
-  local sync_label="auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}") prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}") skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}") agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}") config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  local sync_bits=(
+    "auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}")"
+    "prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}")"
+    "skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}")"
+    "agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}")"
+    "config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  )
+  local sync_label
+  sync_label="$(join_with_sep ' | ' "${sync_bits[@]}")"
   case "$AUTH_PULL_STATUS" in
     invalid)
       failures=$(( failures + 1 ))
@@ -7878,6 +7911,17 @@ print_doctor_report() {
     fi
   else
     mcp_label="$(colorize "no config.toml" "yellow")"
+  fi
+
+  local runner_row_label=""
+  local runner_row_tone="yellow"
+  if (( ${runner_enabled_flag:-0} )) || [[ -n "${runner_label:-}" ]]; then
+    runner_row_label="${runner_label:-enabled; no verification data yet}"
+    runner_row_tone="${runner_tone:-yellow}"
+    if [[ "$runner_row_tone" == "red" ]]; then
+      failures=$(( failures + 1 ))
+      hints+=("Runner is failing. Check the runner service and review admin event logs.")
+    fi
   fi
 
   local config_validity_label="n/a"
@@ -8005,7 +8049,7 @@ else:
     fi
   fi
 
-  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
   local saved_row_label_width="$ROW_LABEL_WIDTH"
   ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
 
@@ -8017,6 +8061,15 @@ else:
   log_info "$(format_simple_row "Sync" "$sync_label")"
   log_info "$(format_simple_row "Config" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
   log_info "$(format_simple_row "MCP" "$mcp_label")"
+  if [[ -n "$runner_row_label" ]]; then
+    local runner_row_display
+    if [[ "$runner_row_tone" == "green" ]]; then
+      runner_row_display="${runner_row_label} ✅"
+    else
+      runner_row_display="$(colorize "$runner_row_label" "$runner_row_tone")"
+    fi
+    log_info "$(format_simple_row "Runner" "$runner_row_display")"
+  fi
   log_info "$(format_simple_row "API" "$api_probe_label")"
   if [[ -n "$api_latency_label" ]]; then
     log_info "$(format_simple_row "Latency" "$api_latency_label")"
@@ -9671,25 +9724,19 @@ if m and m.group(1) == "true":
 PY
 }
 
-apply_codex_cli_toggles_from_config() {
-  if [[ ! -f "$CONFIG_PATH" ]]; then
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    return 0
-  fi
-  local line
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    case "$line" in
+# Apply config-derived CLI toggles at script scope so set -- modifies the
+# global $@ rather than a function-local copy.
+if [[ -f "$CONFIG_PATH" ]] && command -v python3 >/dev/null 2>&1; then
+  while IFS= read -r _cdx_cfg_toggle; do
+    [[ -z "$_cdx_cfg_toggle" ]] && continue
+    case "$_cdx_cfg_toggle" in
       --dangerously-bypass-approvals-and-sandbox)
-        set -- "$line" "$@"
+        set -- "$_cdx_cfg_toggle" "$@"
         ;;
     esac
   done < <(codex_cli_args_from_config_python 2>/dev/null || true)
-}
-
-apply_codex_cli_toggles_from_config
+  unset _cdx_cfg_toggle
+fi
 
 ensure_project_path_trusted_in_config() {
   local project_path="${1-}"

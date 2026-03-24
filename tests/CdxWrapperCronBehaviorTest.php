@@ -31,6 +31,24 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString('contexts.append(ssl._create_unverified_context())', $wrapperSource);
     }
 
+    public function testWrapperReconcilesCronInstallationToMatchServerPolicy(): void
+    {
+        $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('cron_wrapper_entry_installed() {', $wrapperSource);
+        self::assertStringContainsString('reconcile_cron_job_state() {', $wrapperSource);
+        self::assertStringContainsString('if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then', $wrapperSource);
+        self::assertStringContainsString('if reconcile_cron_job_state install; then', $wrapperSource);
+        self::assertStringContainsString('AUTO_UPDATE_CRON_READY=1', $wrapperSource);
+        self::assertStringContainsString(
+            'Cron-managed auto-update is enabled by the server, but the wrapper could not ensure the cron job; falling back to startup Codex update checks.',
+            $wrapperSource
+        );
+        self::assertStringContainsString('reconcile_cron_job_state remove || log_warn', $wrapperSource);
+        self::assertStringContainsString('elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && (( AUTO_UPDATE_CRON_READY )); then', $wrapperSource);
+    }
+
     public function testReleaseAssetLookupFailsClosedWhenSpecificAssetMissing(): void
     {
         $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
