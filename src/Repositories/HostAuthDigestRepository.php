@@ -74,17 +74,20 @@ class HostAuthDigestRepository
 
     private function prune(int $hostId, int $retain): void
     {
+        // Select only the IDs that fall outside the retention window by skipping
+        // the first :retain rows via OFFSET, so we never load the rows we intend to keep.
         $statement = $this->database->connection()->prepare(
-            'SELECT id FROM host_auth_digests WHERE host_id = :host_id ORDER BY last_seen DESC, id DESC'
+            'SELECT id FROM host_auth_digests WHERE host_id = :host_id ORDER BY last_seen DESC, id DESC LIMIT 99999 OFFSET :offset'
         );
-        $statement->execute(['host_id' => $hostId]);
+        $statement->bindValue('host_id', $hostId, PDO::PARAM_INT);
+        $statement->bindValue('offset', $retain, PDO::PARAM_INT);
+        $statement->execute();
 
-        $ids = $statement->fetchAll(PDO::FETCH_COLUMN);
-        if (!is_array($ids) || count($ids) <= $retain) {
+        $toDelete = $statement->fetchAll(PDO::FETCH_COLUMN);
+        if (!is_array($toDelete) || $toDelete === []) {
             return;
         }
 
-        $toDelete = array_slice($ids, $retain);
         $placeholders = implode(',', array_fill(0, count($toDelete), '?'));
         $delete = $this->database->connection()->prepare(
             "DELETE FROM host_auth_digests WHERE id IN ({$placeholders})"

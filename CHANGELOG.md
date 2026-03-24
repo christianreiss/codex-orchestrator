@@ -1,4 +1,7 @@
 # 2026-03-24
+- Backend: optimized `HostAuthDigestRepository::prune()` to use a LIMIT/OFFSET query instead of fetching all digest IDs into PHP and slicing with `array_slice`; the query now returns only the rows that fall outside the retention window, reducing unnecessary data transfer on hosts with many digest entries.
+
+# 2026-03-24
 - cdx wrapper: polished `--doctor` output — the report now closes with a trailing divider line so the block is visually bounded on both ends (previously it trailed off after the last hint); the "see hints below" suffix also uses a unicode down-arrow (↓) on unicode-capable terminals for a cleaner pointer. Rebuilt `bin/cdx`.
 
 # 2026-03-24
