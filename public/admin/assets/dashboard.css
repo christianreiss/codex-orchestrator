@@ -4899,6 +4899,16 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
 .feature-checkbox      { width: auto; accent-color: var(--accent); }
 .empty-state-inline    { padding: 16px; color: var(--muted); font-size: 13px; text-align: center; }
 
+/* ── Inline password-match hint ─────────────────────────────────────────── */
+.field-match-hint {
+  font-size: 12px;
+  min-height: 16px;
+  margin-top: 4px;
+  transition: color 150ms ease;
+}
+.field-match-ok  { color: var(--success); }
+.field-match-err { color: var(--danger); }
+
 @media (prefers-reduced-motion: reduce) {
   body[data-nav-version="2026"] .rail-link,
   body[data-nav-version="2026"] .rail-disclosure,

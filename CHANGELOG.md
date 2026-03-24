@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: password change form now shows a real-time "Passwords match / Passwords do not match" hint beneath the confirm field as the user types, eliminating the need to submit the form to discover a mismatch; the hint is aria-live so screen readers announce the state change; CSS uses `--success` / `--danger` tokens for theme-aware coloring.
+
+# 2026-03-24
 - Admin UI: visual polish — `.chip` and `.signal-chip` status badges now animate background, border, and color changes with a 160–200 ms ease transition, so JS-driven state flips (e.g. secure→insecure, ok→warn) cross-fade instead of snapping; a matching `prefers-reduced-motion` block disables the new transitions for users who prefer reduced motion. Login page `card-enter` animation no longer animates `filter: blur()` — the scale + opacity entrance is equally smooth without forcing a GPU compositing layer per frame; a `prefers-reduced-motion` block on the login page now suppresses the card entrance, logo-glow, and button gradient-shift animations entirely.
 
 # 2026-03-24

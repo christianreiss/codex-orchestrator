@@ -51,12 +51,44 @@
     statusEl.textContent = message || '';
   }
 
+  // ── Real-time password-match hint ─────────────────────────────────────────
+  // Inserted directly after the confirm field so screen readers announce it.
+  let matchHintEl = null;
+  if (confirmPasswordInput) {
+    matchHintEl = document.createElement('div');
+    matchHintEl.className = 'field-match-hint';
+    matchHintEl.setAttribute('aria-live', 'polite');
+    confirmPasswordInput.insertAdjacentElement('afterend', matchHintEl);
+  }
+
+  function updateMatchHint() {
+    if (!matchHintEl) return;
+    const confirmVal = String(confirmPasswordInput?.value || '');
+    if (!confirmVal) {
+      matchHintEl.textContent = '';
+      matchHintEl.className = 'field-match-hint';
+      return;
+    }
+    const newVal = String(newPasswordInput?.value || '');
+    if (confirmVal === newVal) {
+      matchHintEl.textContent = 'Passwords match';
+      matchHintEl.className = 'field-match-hint field-match-ok';
+    } else {
+      matchHintEl.textContent = 'Passwords do not match';
+      matchHintEl.className = 'field-match-hint field-match-err';
+    }
+  }
+
+  confirmPasswordInput?.addEventListener('input', updateMatchHint);
+  newPasswordInput?.addEventListener('input', updateMatchHint);
+
   function clearPasswordForm() {
     if (currentPasswordInput) currentPasswordInput.value = '';
     if (newPasswordInput) newPasswordInput.value = '';
     if (confirmPasswordInput) confirmPasswordInput.value = '';
     setError('');
     setStatus('');
+    updateMatchHint();
   }
 
   async function ensureStatus() {
