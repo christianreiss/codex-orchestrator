@@ -507,14 +507,7 @@ class AuthService
             'token_usage_month' => $hostTokenMonth,
         ];
 
-        $versions = $this->clientVersionService->versionSnapshot($bakedWrapperMeta);
-        if ($trackHost) {
-            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
-            $override = $host['auto_update_override'] ?? null;
-            if ($override !== null) {
-                $versions['auto_update_enabled'] = (bool) (int) $override;
-            }
-        }
+        $versions = $this->buildVersionSnapshotForHost($bakedWrapperMeta, $host, $trackHost);
         $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
         if ($hostVip) {
             $quotaHardFail = false;
@@ -570,14 +563,7 @@ class AuthService
         }
 
         // Refresh the version snapshot after runner activity
-        $versions = $this->clientVersionService->versionSnapshot($bakedWrapperMeta);
-        if ($trackHost) {
-            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
-            $override = $host['auto_update_override'] ?? null;
-            if ($override !== null) {
-                $versions['auto_update_enabled'] = (bool) (int) $override;
-            }
-        }
+        $versions = $this->buildVersionSnapshotForHost($bakedWrapperMeta, $host, $trackHost);
 
         $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];
         if ($trackHost && $canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
@@ -1226,6 +1212,19 @@ class AuthService
     }
 
     // --- Private helpers that remain on AuthService ---
+
+    private function buildVersionSnapshotForHost(?array $bakedWrapperMeta, array $host, bool $trackHost): array
+    {
+        $versions = $this->clientVersionService->versionSnapshot($bakedWrapperMeta);
+        if ($trackHost) {
+            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
+            $override = $host['auto_update_override'] ?? null;
+            if ($override !== null) {
+                $versions['auto_update_enabled'] = (bool) (int) $override;
+            }
+        }
+        return $versions;
+    }
 
     private function refreshTemporaryHostExpiry(int $hostId, array $host): array
     {

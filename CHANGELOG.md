@@ -1,4 +1,7 @@
 # 2026-03-24
+- Backend: extracted the duplicate version-snapshot-with-host-override block in `AuthService::handleAuth` into a private `buildVersionSnapshotForHost` method; the identical 7-line block previously appeared twice in the method (once before and once after the runner preflight path).
+
+# 2026-03-24
 - cdx wrapper: `--doctor` Sync row now renders items separated by ` | ` (e.g. `auth=ok | prompts=ok | skills=ok | agents=ok | config=ok`) instead of plain spaces, matching the visual style of the Deps row and making each sync channel easier to scan. Run-exit footer (`print_run_exit_footer`) now locally computes its own `ROW_LABEL_WIDTH` from the footer's own label set so columns align tightly to "Run usage" / "Run cost" / "Run time" / "Sync" rather than inheriting the wider pre-run summary width. Rebuilt `bin/cdx`.
 
 # 2026-03-24
