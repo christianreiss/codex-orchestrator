@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: skeleton loading screens for all three log tables (API Logs, Events, MCP Logs) — replaced the plain "Loading…" text row with animated shimmer skeleton rows that reflect the column layout of each table, giving users immediate visual feedback about structure while data is fetching; respects `prefers-reduced-motion`.
+
+# 2026-03-24
 - Admin UI: visual polish — `button.secondary` now uses `var(--panel)` background and `var(--border)` border instead of hardcoded white/light-grey values, so secondary buttons render correctly in dark mode; settings sidebar tabs (`.settings-tab`) gained a `transition` on color, border-left-color, and background so hover state changes animate smoothly instead of snapping.
 
 # 2026-03-24

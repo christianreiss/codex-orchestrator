@@ -2828,6 +2828,29 @@ body.auth-locked .rail-tools {
   color: var(--muted);
   font-weight: 600;
 }
+
+/* Skeleton loading rows */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton-row td { padding-top: 10px; padding-bottom: 10px; }
+.skeleton-cell {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--surface, #f4f4f5) 25%,
+    var(--border, #e4e4e7) 50%,
+    var(--surface, #f4f4f5) 75%
+  );
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-cell { animation: none; }
+}
 .mono { font-family: 'JetBrains Mono', monospace; }
 
 .quick-hosts-list {

@@ -8,6 +8,17 @@
     };
   }
 
+  // Render skeleton loading rows into a tbody.
+  // widths: array of CSS width strings, one per column.  count: number of rows.
+  function renderSkeletonRows(tbody, widths, count = 6) {
+    if (!tbody) return;
+    const rows = Array.from({ length: count }, () => {
+      const cells = widths.map((w) => `<td><span class="skeleton-cell" style="width:${w}"></span></td>`).join('');
+      return `<tr class="skeleton-row">${cells}</tr>`;
+    }).join('');
+    tbody.innerHTML = rows;
+  }
+
   // Client logs
   function initClientLogs() {
     const tableBody = document.querySelector('#log-table tbody');
@@ -136,9 +147,7 @@
       if (state.loading) return;
       state.loading = true;
       applySortState();
-      if (tableBody) {
-        tableBody.innerHTML = '<tr class="loading-row"><td colspan="8">Loading…</td></tr>';
-      }
+      renderSkeletonRows(tableBody, ['80px', '120px', '90px', '60px', '60px', '60px', '70px', '70px']);
       statusEl.textContent = 'Loading…';
 
       const params = new URLSearchParams({
@@ -458,7 +467,7 @@
       if (state.loading) return;
       state.loading = true;
       if (statusEl) statusEl.textContent = 'Loading…';
-      tableBody.innerHTML = '<tr class="loading-row"><td colspan="5">Loading…</td></tr>';
+      renderSkeletonRows(tableBody, ['80px', '120px', '140px', '220px', '40px'], 8);
 
       const limit = Number.isFinite(state.limit) ? state.limit : 100;
       const safeLimit = Math.max(1, Math.min(limit, 500));
@@ -604,7 +613,7 @@
 
     async function loadMcpLogs() {
       try {
-        tableBody.innerHTML = '<tr class="loading-row"><td colspan="4">Loading…</td></tr>';
+        renderSkeletonRows(tableBody, ['100px', '130px', '110px', '80px']);
         const res = await fetch('/admin/mcp/logs', { headers: { Accept: 'application/json' } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
