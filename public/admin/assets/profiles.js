@@ -99,6 +99,7 @@
   function markDirty() {
     profilesDirty = true;
     profilesRemotePending = false;
+    window.__adminDirtyModules?.add('profiles');
     setStatus('Edited (not saved)', shaEl?.textContent || null, updatedEl?.textContent || null);
   }
 
@@ -418,6 +419,7 @@
       setStatus(data.status === 'missing' ? 'No saved config yet' : 'Loaded', data.sha256 || null, data.updated_at || null);
       profilesDirty = false;
       profilesRemotePending = false;
+      window.__adminDirtyModules?.delete('profiles');
     } catch (err) {
       console.error('load profiles', err);
       setStatus('Failed to load');
@@ -459,6 +461,7 @@
       setStatus(`Saved (${data.status || 'ok'})`, data.sha256 || null, data.updated_at || null);
       profilesDirty = false;
       profilesRemotePending = false;
+      window.__adminDirtyModules?.delete('profiles');
     } catch (err) {
       console.error('save profiles', err);
       const details = err && err.message ? String(err.message) : '';

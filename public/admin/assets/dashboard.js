@@ -259,6 +259,11 @@
     const THEME_OPTIONS = ['auto', 'light', 'dark'];
     const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
 
+    // Dirty-state registry used by config.js and profiles.js to signal unsaved edits.
+    // Keys are module names (e.g. 'config', 'profiles'); the Set is non-empty when there
+    // are unsaved changes that should warn the user before navigation.
+    window.__adminDirtyModules = new Set();
+
     function formatReasoningEffortLabel(value) {
       return value === 'xhigh' ? 'xhigh (Extra high)' : value;
     }
@@ -7680,9 +7685,22 @@
       event.preventDefault();
       const url = new URL(href, window.location.origin);
       if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      if (window.__adminDirtyModules?.size > 0) {
+        const names = Array.from(window.__adminDirtyModules).join(', ');
+        if (!window.confirm(`You have unsaved changes in ${names}. Leave without saving?`)) return;
+        window.__adminDirtyModules.clear();
+      }
       history.pushState({}, '', url.toString());
       applyRouting();
     });
+
+    // Warn on full-page navigation (browser reload, external link, etc.) when there are unsaved changes.
+    window.addEventListener('beforeunload', (event) => {
+      if (!window.__adminDirtyModules?.size) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+
     applyRouting();
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);

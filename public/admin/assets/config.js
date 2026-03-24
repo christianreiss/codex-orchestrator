@@ -726,6 +726,7 @@
         previewMetaEl.textContent = `saved sha ${data.sha256}${data.size_bytes ? ` · ${data.size_bytes} bytes` : ''}`;
       }
       configDirty = false;
+      window.__adminDirtyModules?.delete('config');
     } catch (err) {
       console.error('load config', err);
       setStatus('Failed to load config');
@@ -837,6 +838,7 @@
       }
       configDirty = false;
       configRemotePending = false;
+      window.__adminDirtyModules?.delete('config');
     } catch (err) {
       console.error('save config', err);
       const details = err && err.message ? String(err.message) : '';
@@ -863,6 +865,7 @@
         lastRenderedSize = 0;
         configDirty = true;
         configRemotePending = false;
+        window.__adminDirtyModules?.add('config');
         if (previewMetaEl) previewMetaEl.textContent = 'Edited (preview pending)';
       };
       el.addEventListener('input', () => {
