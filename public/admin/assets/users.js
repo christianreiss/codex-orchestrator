@@ -398,11 +398,13 @@
       if (editingId) {
         const res = await api(`/admin/users/${editingId}`, { method: 'POST', json: payload });
         const updated = res?.data?.user;
+        if (!updated) throw new Error('Unexpected response: missing user data');
         users = users.map((u) => (u.id === updated.id ? updated : u));
       } else {
         const res = await api('/admin/users', { method: 'POST', json: payload });
         const created = res?.data?.user;
-        users = [...users, created].sort((a, b) => a.username.localeCompare(b.username));
+        if (!created) throw new Error('Unexpected response: missing user data');
+        users = [...users, created].sort((a, b) => (a.username || '').localeCompare(b.username || ''));
       }
       closeModal();
       renderUsers();
@@ -425,7 +427,10 @@
     if (action === 'edit') {
       openModal(user);
     } else if (action === 'delete') {
-      if (!window.__confirm || !await window.__confirm('Delete user', `Delete user ${user.username}?`, { action: 'Delete' })) return;
+      const confirmed = window.__confirm
+        ? await window.__confirm('Delete user', `Delete user ${user.username}?`, { action: 'Delete' })
+        : window.confirm(`Delete user ${user.username}?`);
+      if (!confirmed) return;
       try {
         await api(`/admin/users/${id}`, { method: 'DELETE' });
         users = users.filter((u) => u.id !== id);
