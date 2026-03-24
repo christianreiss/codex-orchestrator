@@ -1,3 +1,6 @@
+# 2026-03-24
+- Host sync/MCP API: fixed a controller helper regression that broke `/slash-commands`, `/skills`, `/agents/retrieve`, `/config/retrieve`, host lane/usage routes, and `/mcp` with HTTP 500 `Unexpected error` before auth completed; the controllers now call the autoloaded request/payload/version helper classes directly again.
+
 # 2026-03-21
 - cdx wrapper/setup: replaced the old `Codex Coordinator` startup ASCII art with the new `codex orchestrator` banner in the wrapper and quick-setup flow, then bumped the wrapper to `2026.03.21-02`.
 - Admin UI: removed the dead `uPlot` chart path and orphaned assets, leaving the SVG quota/cost history renderer as the only supported dashboard history implementation; cache-bumped the touched admin JS/CSS bundles.

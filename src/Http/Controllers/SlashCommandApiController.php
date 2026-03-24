@@ -2,13 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\RequestHelper;
 use App\Http\Response;
 use App\Services\AuthService;
 use App\Services\SkillService;
 use App\Services\SlashCommandService;
-
-use function App\Http\resolveApiKey;
-use function App\Http\resolveClientIp;
 
 class SlashCommandApiController
 {
@@ -109,8 +107,8 @@ class SlashCommandApiController
     /** @return array<string, mixed> */
     private function authenticateHost(): array
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
 
         return $this->service->authenticate($apiKey, $clientIp);
     }

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ValidationException;
+use App\Http\CorsHelper;
+use App\Http\RequestHelper;
 use App\Http\Response;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
@@ -10,10 +12,6 @@ use App\Repositories\McpAccessLogRepository;
 use App\Services\AuthService;
 use InvalidArgumentException;
 use Throwable;
-
-use function App\Http\isOriginAllowed;
-use function App\Http\resolveApiKey;
-use function App\Http\resolveClientIp;
 
 class McpRouteController
 {
@@ -29,7 +27,7 @@ class McpRouteController
     public function probe(): void
     {
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        if (!isOriginAllowed($origin)) {
+        if (!CorsHelper::isOriginAllowed($origin)) {
             Response::json([
                 'jsonrpc' => '2.0',
                 'error' => ['code' => -32099, 'message' => 'Origin not allowed'],
@@ -49,11 +47,11 @@ class McpRouteController
      */
     public function handle(?string $rawBody): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
 
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        if (!isOriginAllowed($origin)) {
+        if (!CorsHelper::isOriginAllowed($origin)) {
             Response::json([
                 'jsonrpc' => '2.0',
                 'error' => ['code' => -32099, 'message' => 'Origin not allowed'],

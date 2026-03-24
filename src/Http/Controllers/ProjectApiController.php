@@ -4,14 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
+use App\Http\RequestHelper;
 use App\Http\Response;
 use App\Services\AuthService;
 use App\Services\MemoryService;
 use App\Services\ProjectCoordinationService;
-
-use function App\Http\resolveApiKey;
-use function App\Http\resolveClientIp;
-use function App\Http\resolveIntQuery;
 
 class ProjectApiController
 {
@@ -65,7 +62,7 @@ class ProjectApiController
     {
         $host = $this->authenticateHost();
         $this->respondProjectAction(function () use ($slug, $host) {
-            $since = resolveIntQuery('since') ?? 0;
+            $since = RequestHelper::resolveIntQuery('since') ?? 0;
             return $this->projectCoordinationService->listChanges(urldecode($slug), max(0, $since), $host);
         });
     }
@@ -227,8 +224,8 @@ class ProjectApiController
     /** @return array<string, mixed> */
     private function authenticateHost(): array
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
 
         return $this->service->authenticate($apiKey, $clientIp);
     }
