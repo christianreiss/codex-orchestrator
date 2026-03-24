@@ -1,4 +1,7 @@
 # 2026-03-24
+- Backend: extracted repeated ChatGPT-usage fetch-and-hydrate block in `AuthController` into a private `fetchChatGptUsage()` helper, eliminating three identical 4-line sequences across `auth`, `syncStatus`, and `syncBootstrap`.
+
+# 2026-03-24
 - cdx wrapper: `--doctor` SSH env row now only shows terminal identifier env vars that are actually set (TERM_PROGRAM, KONSOLE_VERSION, VTE_VERSION, KITTY_WINDOW_ID, WEZTERM_VERSION, WT_SESSION); unset/empty vars are silently omitted so the row stays concise on most machines instead of printing a long chain of `n/a` and empty `KEY=` entries. Rebuilt `bin/cdx`.
 
 # 2026-03-24

@@ -45,14 +45,8 @@ class AuthController
         $baseUrl = resolveBaseUrl();
 
         // Opportunistically refresh ChatGPT usage if stale (respects cooldown inside service).
-        $this->chatGptUsageService->fetchLatest(false);
-
         $result = $this->service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
-        $chatgptUsage = $this->chatGptUsageService->latestWindowSummary();
-        if (is_array($chatgptUsage)) {
-            $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
-        }
-        $result['chatgpt_usage'] = $chatgptUsage;
+        $result['chatgpt_usage'] = $this->fetchChatGptUsage($host);
 
         Response::json([
             'status' => 'ok',
@@ -96,12 +90,7 @@ class AuthController
             $wrapperVersion = extractWrapperVersion($requestPayload);
             $authResult = $this->service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
 
-            $this->chatGptUsageService->fetchLatest(false);
-            $chatgptUsage = $this->chatGptUsageService->latestWindowSummary();
-            if (is_array($chatgptUsage)) {
-                $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
-            }
-            $authResult['chatgpt_usage'] = $chatgptUsage;
+            $authResult['chatgpt_usage'] = $this->fetchChatGptUsage($host);
             $result['auth'] = $authResult;
 
             $authStatus = strtolower(trim((string) ($authResult['status'] ?? '')));
@@ -170,12 +159,7 @@ class AuthController
                 $didStore = true;
             }
 
-            $this->chatGptUsageService->fetchLatest(false);
-            $chatgptUsage = $this->chatGptUsageService->latestWindowSummary();
-            if (is_array($chatgptUsage)) {
-                $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
-            }
-            $authResult['chatgpt_usage'] = $chatgptUsage;
+            $authResult['chatgpt_usage'] = $this->fetchChatGptUsage($host);
             $result['auth'] = $authResult;
 
             if ($didStore && ($authStatus === 'updated' || $authStatus === 'unchanged')) {
@@ -193,5 +177,15 @@ class AuthController
             'status' => 'ok',
             'data' => $result,
         ]);
+    }
+
+    private function fetchChatGptUsage(array $host): mixed
+    {
+        $this->chatGptUsageService->fetchLatest(false);
+        $chatgptUsage = $this->chatGptUsageService->latestWindowSummary();
+        if (is_array($chatgptUsage)) {
+            $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
+        }
+        return $chatgptUsage;
     }
 }
