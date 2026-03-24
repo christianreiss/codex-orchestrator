@@ -230,6 +230,7 @@ Codex updates:
   - GitHub release asset download/install for platform-specific binary.
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Cron auto-update install/remove uses one managed crontab marker, shell-escaped wrapper/log paths, and escapes cron `%` semantics before writing the cron command.
+- A fresh `cdx --cron install` immediately pings `POST /cron/check` once after writing the managed crontab entry so the server records an initial cron check-in without waiting for the first scheduled minute.
 - Normal sync-capable wrapper runs reconcile cron state to match policy: enabled ensures the managed cron entry exists, disabled removes that managed entry.
 - `cdx --cron remove` removes only the managed/current-wrapper cron entry instead of broad `cdx --cron` substring matches.
 - Cron mode uses a non-blocking `flock` guard when available and degrades with a warning when `flock` is missing.

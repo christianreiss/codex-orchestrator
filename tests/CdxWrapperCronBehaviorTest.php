@@ -16,6 +16,8 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString("printf -v quoted_log_file '%q' \"\$log_file\"", $wrapperSource);
         self::assertStringContainsString('cron_command="${cron_command//%/\\\\%}"', $wrapperSource);
         self::assertStringContainsString("printf 'cdx cron job installed (daily at %02d:%02d). Log: %s\\n'", $wrapperSource);
+        self::assertStringContainsString('if cron_ping_check_api "cron install"; then', $wrapperSource);
+        self::assertStringContainsString("cdx cron install pinged /cron/check successfully.", $wrapperSource);
     }
 
     public function testCronModeDegradesWithoutFlockAndRequiresReportSuccess(): void
@@ -37,6 +39,8 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString('cron_wrapper_entry_installed() {', $wrapperSource);
+        self::assertStringContainsString('cron_build_check_payload() {', $wrapperSource);
+        self::assertStringContainsString('cron_ping_check_api() {', $wrapperSource);
         self::assertStringContainsString('reconcile_cron_job_state() {', $wrapperSource);
         self::assertStringContainsString('if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then', $wrapperSource);
         self::assertStringContainsString('if reconcile_cron_job_state install; then', $wrapperSource);

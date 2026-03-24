@@ -437,7 +437,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-04"
+WRAPPER_VERSION="2026.03.24-05"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -5335,6 +5335,12 @@ install_cron_job() {
   } | crontab -
 
   printf 'cdx cron job installed (daily at %02d:%02d). Log: %s\n' "$rand_hour" "$rand_minute" "$log_file"
+
+  if cron_ping_check_api "cron install"; then
+    printf '%s\n' "cdx cron install pinged /cron/check successfully."
+  else
+    log_warn "cdx cron job was installed, but the initial /cron/check ping failed."
+  fi
 }
 
 remove_cron_job() {
@@ -5426,6 +5432,61 @@ except RuntimeError as exc:
 PY
 }
 
+cron_build_check_payload() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    log_error "sync config missing; cannot ping /cron/check."
+    return 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_error "python3 is required for /cron/check API calls."
+    return 1
+  fi
+
+  local codex_bin
+  codex_bin="$(resolve_real_codex 2>/dev/null || true)"
+  if [[ -z "$codex_bin" ]]; then
+    log_error "codex binary not found on PATH; cannot ping /cron/check."
+    return 1
+  fi
+
+  local local_version_raw local_version
+  local_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
+  local_version="$(normalize_version "$local_version_raw")"
+
+  local cron_asset_name
+  cron_asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
+  if [[ -z "$cron_asset_name" ]]; then
+    log_error "unsupported platform; cannot determine asset name for /cron/check."
+    return 1
+  fi
+
+  python3 -c "import json; print(json.dumps({
+    'client_version': '${local_version:-unknown}',
+    'wrapper_version': '${WRAPPER_VERSION:-unknown}',
+    'asset_name': '${cron_asset_name}'
+  }))"
+}
+
+cron_ping_check_api() {
+  local context_label="${1:-cron}"
+  local check_payload
+  check_payload="$(cron_build_check_payload)" || {
+    log_warn "${context_label}: could not build /cron/check payload."
+    return 1
+  }
+
+  local check_url="${CODEX_SYNC_BASE_URL}/cron/check"
+  local check_response
+  check_response="$(cron_do_api_call "$check_url" "$check_payload" "cron-check" 2>&1)" || {
+    log_warn "${context_label}: /cron/check failed: ${check_response}"
+    return 1
+  }
+
+  printf '%s' "$check_response"
+}
+
 cron_auto_update() {
   local lock_file="$HOME/.codex/.cdx_cron.lock"
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
@@ -5444,46 +5505,8 @@ cron_auto_update() {
     log_warn "flock not available; cron concurrent-run guard disabled."
   fi
 
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    printf '[%s] cron: sync config missing; cannot check for updates.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 1
-  fi
-
-  local codex_bin
-  codex_bin="$(resolve_real_codex 2>/dev/null || true)"
-  if [[ -z "$codex_bin" ]]; then
-    printf '[%s] cron: codex binary not found on PATH.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 1
-  fi
-
-  local local_version_raw local_version
-  local_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
-  local_version="$(normalize_version "$local_version_raw")"
-
-  local cron_asset_name
-  cron_asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
-  if [[ -z "$cron_asset_name" ]]; then
-    printf '[%s] cron: unsupported platform; cannot determine asset name.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 1
-  fi
-
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf '[%s] cron: python3 is required for API calls.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 1
-  fi
-
-  # Call POST /cron/check
-  local check_payload
-  check_payload="$(python3 -c "import json; print(json.dumps({
-    'client_version': '${local_version:-unknown}',
-    'wrapper_version': '${WRAPPER_VERSION:-unknown}',
-    'asset_name': '${cron_asset_name}'
-  }))")"
-
-  local check_url="${CODEX_SYNC_BASE_URL}/cron/check"
   local check_response
-  check_response="$(cron_do_api_call "$check_url" "$check_payload" "cron-check" 2>&1)" || {
+  check_response="$(cron_ping_check_api "cron")" || {
     printf '[%s] cron: API check failed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$check_response"
     return 1
   }
