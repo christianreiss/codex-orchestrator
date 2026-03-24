@@ -39,6 +39,7 @@
     user: 'User',
   };
   let editingId = null;
+  let userSort = { key: 'username', direction: 'asc' };
   let usersEnabled = false;
   let usersLiveRefreshTimer = null;
   let usersLiveRefreshInFlight = false;
@@ -122,6 +123,57 @@
       .join('');
   }
 
+  const ROLE_ORDER = { admin: 0, fleet_operator: 1, trusted_user: 2, user: 3 };
+
+  function sortedUsers() {
+    const list = [...users];
+    const { key, direction } = userSort;
+    list.sort((a, b) => {
+      let aVal, bVal;
+      if (key === 'name') {
+        aVal = (a.name || '').toLowerCase();
+        bVal = (b.name || '').toLowerCase();
+      } else if (key === 'username') {
+        aVal = (a.username || '').toLowerCase();
+        bVal = (b.username || '').toLowerCase();
+      } else if (key === 'access') {
+        aVal = ROLE_ORDER[a.access_level] ?? 99;
+        bVal = ROLE_ORDER[b.access_level] ?? 99;
+      } else if (key === 'status') {
+        aVal = a.active ? 0 : 1;
+        bVal = b.active ? 0 : 1;
+      } else if (key === 'last_login') {
+        const aTs = a.last_login_at ? new Date(a.last_login_at).getTime() : 0;
+        const bTs = b.last_login_at ? new Date(b.last_login_at).getTime() : 0;
+        aVal = aTs;
+        bVal = bTs;
+      } else {
+        return 0;
+      }
+      let result;
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        result = aVal - bVal;
+      } else {
+        result = String(aVal).localeCompare(String(bVal), undefined, { sensitivity: 'base' });
+      }
+      return direction === 'desc' ? -result : result;
+    });
+    return list;
+  }
+
+  function updateUserSortIndicators() {
+    document.querySelectorAll('#users-table .sort-link[data-users-sort]').forEach((link) => {
+      const key = link.getAttribute('data-users-sort');
+      const indicator = link.querySelector('.sort-indicator');
+      const isActive = key === userSort.key;
+      link.classList.toggle('sorted', isActive);
+      link.setAttribute('aria-sort', isActive ? (userSort.direction === 'asc' ? 'ascending' : 'descending') : 'none');
+      if (indicator) {
+        indicator.textContent = isActive ? (userSort.direction === 'asc' ? '▲' : '▼') : '↕';
+      }
+    });
+  }
+
   function renderUsers() {
     if (!tableBody) return;
     tableBody.innerHTML = '';
@@ -133,7 +185,7 @@
     show(emptyState, false);
     show(wipeBtn, true);
 
-    tableBody.innerHTML = users.map((user) => {
+    tableBody.innerHTML = sortedUsers().map((user) => {
       const access = roles[user.access_level] || user.access_level;
       const status = user.active ? 'Active' : 'Disabled';
       const lastLoginAt = user.last_login_at || '';
@@ -157,6 +209,7 @@
         </tr>
       `;
     }).join('');
+    updateUserSortIndicators();
   }
 
   function escapeHtml(value) {
@@ -384,6 +437,24 @@
     if (e.key !== 'Escape') return;
     if (modal?.classList.contains('show')) { e.preventDefault(); closeModal(); return; }
     if (wipeModal?.classList.contains('show')) { e.preventDefault(); closeWipeModal(); return; }
+  });
+
+  // Wire up sortable column headers in the users table.
+  document.querySelectorAll('#users-table .sort-link[data-users-sort]').forEach((link) => {
+    const activate = () => {
+      const key = link.getAttribute('data-users-sort');
+      if (!key) return;
+      if (userSort.key === key) {
+        userSort = { key, direction: userSort.direction === 'asc' ? 'desc' : 'asc' };
+      } else {
+        userSort = { key, direction: key === 'last_login' ? 'desc' : 'asc' };
+      }
+      renderUsers();
+    };
+    link.addEventListener('click', (e) => { e.preventDefault(); activate(); });
+    link.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+    });
   });
 
   init();

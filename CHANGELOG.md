@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: Users table is now sortable by Name, Username, Access level, Status, and Last login — clicking a column header toggles ascending/descending order; active column shows ▲/▼ indicators reusing the existing `.sort-link`/`.sorted` styles from the hosts table; default order remains username ascending; sort state is in-memory and resets on page load.
+
+# 2026-03-24
 - Admin UI: visual polish — removed erroneous `border-radius: 12px` from the global `:focus-visible` rule in `theme.css` and `dashboard.css`; the override was forcing all keyboard-focused elements (including pill-shaped buttons with `border-radius: 999px`) to render their focus outline as a rectangle, since modern browsers follow the element's own `border-radius` when drawing outlines; also added a subtle `scale(0.97)` and `box-shadow: none` to the global `button:active` state in `dashboard.css` for more tactile press feedback.
 
 # 2026-03-24
