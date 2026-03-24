@@ -4903,7 +4903,9 @@ except Exception:
     sys.exit(0)
 
 def find_block(name: str) -> str:
-    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*$', raw)
+    # Allow an optional inline TOML comment after the closing bracket,
+    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
     if not m:
         return ""
     start = m.end()
@@ -9500,7 +9502,9 @@ except Exception:
     sys.exit(0)
 
 def find_block(name: str) -> str:
-    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*$', raw)
+    # Allow an optional inline TOML comment after the closing bracket,
+    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
     if not m:
         return ""
     start = m.end()
