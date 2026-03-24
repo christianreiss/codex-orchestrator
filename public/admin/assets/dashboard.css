@@ -3089,10 +3089,15 @@ body[data-view-mode="settings"] .settings-sidebar {
 button {
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #ffffff;
+  background: var(--panel);
   color: var(--text);
   font-weight: 600;
   box-shadow: var(--shadow-soft);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 150ms ease, color 120ms ease, transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+button:active:not(:disabled) {
+  transform: translateY(0) !important;
+  transition-duration: 80ms;
 }
 button.primary,
 .primary {
@@ -3104,6 +3109,8 @@ button.primary,
 button.primary:hover:not(:disabled),
 .primary:hover:not(:disabled) {
   background: var(--accent-2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(var(--accent-rgb), 0.24);
 }
 button.ghost {
   background: transparent;
@@ -3111,8 +3118,15 @@ button.ghost {
   color: var(--text);
   box-shadow: none;
 }
+button.ghost:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.07);
+  border-color: rgba(var(--accent-rgb), 0.30);
+  transform: translateY(-1px);
+}
 button:not(.primary):not(.ghost):not(.danger):not(.warn):not(.api-enabled):not(.api-disabled):not(.runner-accent):not(.runner-ghost):hover:not(:disabled) {
   border-color: var(--accent-ring);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(var(--accent-rgb), 0.08);
 }
 
 .card,
@@ -4322,7 +4336,9 @@ body[data-nav-version="2026"] .rail-group::after {
   height: 2px;
   background: transparent;
   opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease;
+  transform: scaleX(0.3);
+  transform-origin: center;
+  transition: opacity 140ms ease, background 140ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 body[data-nav-version="2026"] .rail-link:hover,
@@ -4343,6 +4359,7 @@ body[data-nav-version="2026"] .rail-group.is-active::after,
 body[data-nav-version="2026"] .rail-group.is-open::after {
   opacity: 1;
   background: var(--accent);
+  transform: scaleX(1);
 }
 
 body[data-nav-version="2026"] .rail-link:focus-visible,
