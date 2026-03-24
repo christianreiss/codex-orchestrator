@@ -15,6 +15,8 @@ use Throwable;
 
 class McpRouteController
 {
+    private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+
     public function __construct(
         private AuthService $service,
         private McpServer $mcpServer,
@@ -227,7 +229,7 @@ class McpRouteController
                         $result = $this->mcpServer->wrapContent($exception->getMessage(), true);
                         $toolError = true;
                     } catch (ValidationException $exception) {
-                        $result = $this->mcpServer->wrapContent(json_encode($exception->getErrors(), JSON_UNESCAPED_SLASHES) ?: 'Invalid params', true);
+                        $result = $this->mcpServer->wrapContent(json_encode($exception->getErrors(), self::JSON_FLAGS) ?: 'Invalid params', true);
                         $toolError = true;
                     } catch (Throwable $exception) {
                         $result = $this->mcpServer->wrapContent('Internal error: ' . $exception->getMessage(), true);
@@ -269,16 +271,41 @@ class McpRouteController
                 http_response_code(202);
                 return;
             }
-            header('Content-Type: application/json');
-            echo json_encode($responses);
+            $this->emitJson($responses);
         } else {
             if (count($responses) === 0) {
                 http_response_code(202);
                 return;
             }
-            header('Content-Type: application/json');
-            echo json_encode($responses[0]);
+            $this->emitJson($responses[0]);
         }
         exit;
+    }
+
+    /**
+     * @param array<int, mixed>|array<string, mixed> $payload
+     */
+    private function emitJson(array $payload): void
+    {
+        $encoded = json_encode($payload, self::JSON_FLAGS);
+        if ($encoded === false) {
+            http_response_code(500);
+            $encoded = json_encode([
+                'jsonrpc' => '2.0',
+                'error' => [
+                    'code' => -32603,
+                    'message' => 'Internal error',
+                    'data' => 'MCP response encoding failed',
+                ],
+                'id' => is_array($payload) && array_key_exists('id', $payload) ? $payload['id'] : null,
+            ], self::JSON_FLAGS);
+            if ($encoded === false) {
+                $encoded = '{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null}';
+            }
+        }
+
+        header('Content-Type: application/json');
+        header('Content-Length: ' . strlen($encoded));
+        echo $encoded;
     }
 }

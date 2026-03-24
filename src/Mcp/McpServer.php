@@ -189,7 +189,7 @@ class McpServer
 
         $text = is_string($data)
             ? $data
-            : json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            : json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($text === false) {
             $text = '{}';
         }

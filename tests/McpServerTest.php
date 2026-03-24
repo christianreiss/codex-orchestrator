@@ -338,6 +338,17 @@ final class McpServerTest extends TestCase
         $this->assertSame(['query' => 'bug'], $spy->lastArgs[0]);
     }
 
+    public function testWrapContentSubstitutesInvalidUtf8Bytes(): void
+    {
+        $server = new McpServer(new SpyMemoryService());
+
+        $result = $server->wrapContent(['body' => "bad\xC3text"]);
+
+        $decoded = json_decode($result['content'][0]['text'] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame("bad\u{FFFD}text", $decoded['body']);
+    }
+
     public function testListToolsAliasIsHandledByRouterLogic(): void
     {
         // Router alias coverage is exercised in integration; ensure server output is stable for aliases.
