@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: polished `--doctor` output — the report now closes with a trailing divider line so the block is visually bounded on both ends (previously it trailed off after the last hint); the "see hints below" suffix also uses a unicode down-arrow (↓) on unicode-capable terminals for a cleaner pointer. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: skeleton loading screens for all three log tables (API Logs, Events, MCP Logs) — replaced the plain "Loading…" text row with animated shimmer skeleton rows that reflect the column layout of each table, giving users immediate visual feedback about structure while data is fetching; respects `prefers-reduced-motion`.
 
 # 2026-03-24

@@ -308,12 +308,20 @@ else:
   log_info "$(format_simple_row "CLI" "$(join_with_sep '; ' "${cli_bits[@]}")")"
 
   local result_summary=""
+  local hints_suffix=""
+  if (( ${#hints[@]} > 0 )); then
+    if output_supports_unicode; then
+      hints_suffix=" — see hints ↓"
+    else
+      hints_suffix=" — see hints below"
+    fi
+  fi
   if (( failures == 0 )); then
     result_summary="$(colorize "all checks passed" "green") ✅"
   elif (( failures == 1 )); then
-    result_summary="$(colorize "1 failure" "red") — see hints below"
+    result_summary="$(colorize "1 failure" "red")${hints_suffix}"
   else
-    result_summary="$(colorize "${failures} failures" "red") — see hints below"
+    result_summary="$(colorize "${failures} failures" "red")${hints_suffix}"
   fi
   log_info "$(format_simple_row "Result" "$result_summary")"
 
@@ -326,6 +334,7 @@ else:
       hint_index=$(( hint_index + 1 ))
     done
   fi
+  log_info "$(summary_divider)"
 
   ROW_LABEL_WIDTH="$saved_row_label_width"
   DOCTOR_FAILURES=$failures
