@@ -2628,8 +2628,8 @@ body.auth-locked .rail-tools {
   min-width: 220px;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(15,23,42,0.12);
-  background: rgba(15,23,42,0.05);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
   color: var(--text);
 }
 #event-host,
@@ -2637,16 +2637,16 @@ body.auth-locked .rail-tools {
 #event-limit {
   padding: 8px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(15,23,42,0.12);
-  background: rgba(15,23,42,0.05);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
   color: var(--text);
   font-weight: 600;
 }
 #log-page-size {
   padding: 8px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(15,23,42,0.12);
-  background: rgba(15,23,42,0.05);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
   color: var(--text);
   font-weight: 600;
 }
@@ -2675,9 +2675,15 @@ body.auth-locked .rail-tools {
   min-width: 220px;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(15,23,42,0.12);
-  background: rgba(15,23,42,0.05);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
   color: var(--text);
+}
+#mcp-search {
+  min-width: 220px;
+}
+#mcp-status-filter {
+  min-width: 0;
 }
 .event-details {
   max-width: 680px;
@@ -2691,8 +2697,8 @@ body.auth-locked .rail-tools {
   justify-content: center;
   padding: 6px 10px;
   border-radius: 10px;
-  background: rgba(15,23,42,0.05);
-  border: 1px solid rgba(15,23,42,0.12);
+  background: var(--frost);
+  border: 1px solid var(--border);
   font-weight: 700;
   min-width: 48px;
 }
@@ -2717,8 +2723,8 @@ body.auth-locked .rail-tools {
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 12px;
-  background: rgba(15,23,42,0.04);
-  border: 1px solid rgba(15,23,42,0.12);
+  background: var(--frost);
+  border: 1px solid var(--border);
 }
 .token-chip.token-input { background: rgba(14,165,233,0.14); border-color: rgba(14,165,233,0.35); }
 .token-chip.token-output { background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.35); }

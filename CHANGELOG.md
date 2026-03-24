@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: optical polish — fixed log panel inputs (search, page-size, event filters), `.badge`, and `.token-chip` using hard-coded `rgba(15,23,42,…)` backgrounds and borders that rendered near-invisible in dark mode; switched to `var(--input-bg)` / `var(--border)` / `var(--frost)` so all themes render correctly; also constrained `#mcp-status-filter` width (was inheriting a `200px` minimum from the generic panel-actions rule, making a 3-option select unnecessarily wide).
+
+# 2026-03-24
 - Admin UI: added search and status-filter to the MCP Access Logs panel — the panel previously had only a Refresh button, while API Logs and Events both offered search/filter controls; a text search input (filters by host or tool name, Escape to clear) and a success/failure select are now wired into client-side filtering against the full loaded result set; a footer entry-count line ("N entries" / "N / M entries") mirrors the status footer used by the other log views.
 
 # 2026-03-24
