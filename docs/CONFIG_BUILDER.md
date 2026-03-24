@@ -40,14 +40,14 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `apps` — enable connected ChatGPT Apps, including `$` App invocations after `/apps` install + restart (enabled by default).
 - `guardian_approval` — dispatch `on-request` approval prompts such as sandbox escapes or blocked network access to a carefully-prompted security reviewer subagent instead of blocking on direct user input (disabled by default).
 - `js_repl` — enable the persistent Node-backed JavaScript REPL for inline website debugging and JavaScript execution (disabled by default; requires Node `>= v22.22.0` on the host).
-- `use_linux_sandbox_bwrap` — try the new Linux sandbox based on bubblewrap (disabled by default).
+- `tui_app_server` — use the app-server-backed TUI implementation (disabled by default).
 - `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
 - Additional feature flags may be passed through from the UI `extraFeatures` textarea, but only currently supported Codex feature flags are kept in normalized/rendered output.
 
 Legacy compatibility:
 - `features.web_search_request` and `features.web_search_cached` are normalized into root `web_search`.
-- Removed feature keys (`steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_rule`, `search_tool`) are accepted for ingest compatibility but dropped from normalized/rendered output.
+- Removed feature keys (`steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, `use_linux_sandbox_bwrap`) are accepted for ingest compatibility but dropped from normalized/rendered output.
 
 ## Security toggles
 

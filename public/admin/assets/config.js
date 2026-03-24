@@ -27,7 +27,7 @@
   let featureApps;
   let featureGuardianApproval;
   let featureJsRepl;
-  let featureBubblewrapSandbox;
+  let featureTuiAppServer;
   let featurePreventIdleSleep;
   let featureMultiAgent;
   let dangerousBypassApprovalsSandbox;
@@ -174,7 +174,7 @@
         apps: true,
         guardian_approval: false,
         js_repl: false,
-        use_linux_sandbox_bwrap: false,
+        tui_app_server: false,
         prevent_idle_sleep: false,
         multi_agent: true,
       },
@@ -435,6 +435,11 @@
       .join('\n');
   }
 
+  function resolveFeatureFlag(cfg, key, fallback) {
+    const value = cfg?.features?.[key];
+    return typeof value === 'boolean' ? value : fallback;
+  }
+
   function collectSettings() {
     if (!modelInput) return defaultSettings();
     const base = defaultSettings();
@@ -443,10 +448,10 @@
       unified_exec: featureUnifiedExec.checked,
       voice_transcription: featureVoiceTranscription.checked,
       apps: featureApps ? featureApps.checked : true,
-      guardian_approval: featureGuardianApproval ? featureGuardianApproval.checked : true,
-      js_repl: featureJsRepl ? featureJsRepl.checked : true,
-      use_linux_sandbox_bwrap: featureBubblewrapSandbox ? featureBubblewrapSandbox.checked : true,
-      prevent_idle_sleep: featurePreventIdleSleep ? featurePreventIdleSleep.checked : true,
+      guardian_approval: featureGuardianApproval ? featureGuardianApproval.checked : false,
+      js_repl: featureJsRepl ? featureJsRepl.checked : false,
+      tui_app_server: featureTuiAppServer ? featureTuiAppServer.checked : false,
+      prevent_idle_sleep: featurePreventIdleSleep ? featurePreventIdleSleep.checked : false,
       multi_agent: featureMultiAgent ? featureMultiAgent.checked : true,
     };
     const extraFeatures = parseKeyValue(extraFeaturesInput.value);
@@ -560,22 +565,22 @@
     setSelectValue(featureWebSearch, webSearchValue || 'disabled');
     featureVoiceTranscription.checked = Boolean(cfg.features?.voice_transcription);
     if (featureApps) {
-      featureApps.checked = cfg.features?.apps !== false;
+      featureApps.checked = resolveFeatureFlag(cfg, 'apps', true);
     }
     if (featureGuardianApproval) {
-      featureGuardianApproval.checked = cfg.features?.guardian_approval !== false;
+      featureGuardianApproval.checked = resolveFeatureFlag(cfg, 'guardian_approval', false);
     }
     if (featureJsRepl) {
-      featureJsRepl.checked = cfg.features?.js_repl !== false;
+      featureJsRepl.checked = resolveFeatureFlag(cfg, 'js_repl', false);
     }
-    if (featureBubblewrapSandbox) {
-      featureBubblewrapSandbox.checked = cfg.features?.use_linux_sandbox_bwrap !== false;
+    if (featureTuiAppServer) {
+      featureTuiAppServer.checked = resolveFeatureFlag(cfg, 'tui_app_server', false);
     }
     if (featurePreventIdleSleep) {
-      featurePreventIdleSleep.checked = cfg.features?.prevent_idle_sleep !== false;
+      featurePreventIdleSleep.checked = resolveFeatureFlag(cfg, 'prevent_idle_sleep', false);
     }
     if (featureMultiAgent) {
-      featureMultiAgent.checked = cfg.features?.multi_agent !== false;
+      featureMultiAgent.checked = resolveFeatureFlag(cfg, 'multi_agent', true);
     }
     const featureExtras = { ...cfg.features };
     delete featureExtras.fast_mode;
@@ -586,9 +591,10 @@
     delete featureExtras.apps;
     delete featureExtras.guardian_approval;
     delete featureExtras.js_repl;
-    delete featureExtras.use_linux_sandbox_bwrap;
+    delete featureExtras.tui_app_server;
     delete featureExtras.prevent_idle_sleep;
     delete featureExtras.multi_agent;
+    delete featureExtras.request_permissions;
     delete featureExtras.experimental_windows_sandbox;
     delete featureExtras.elevated_windows_sandbox;
     delete featureExtras.enable_experimental_windows_sandbox;
@@ -907,7 +913,7 @@
     featureApps = document.getElementById('featureApps');
     featureGuardianApproval = document.getElementById('featureGuardianApproval');
     featureJsRepl = document.getElementById('featureJsRepl');
-    featureBubblewrapSandbox = document.getElementById('featureBubblewrapSandbox');
+    featureTuiAppServer = document.getElementById('featureTuiAppServer');
     featurePreventIdleSleep = document.getElementById('featurePreventIdleSleep');
     featureMultiAgent = document.getElementById('featureMultiAgent');
     dangerousBypassApprovalsSandbox = document.getElementById('dangerousBypassApprovalsSandbox');

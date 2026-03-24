@@ -275,7 +275,12 @@ final class ClientConfigServiceTest extends TestCase
                 'steer' => true,
                 'experimental_windows_sandbox' => true,
                 'enable_experimental_windows_sandbox' => true,
+                'request_permissions' => true,
                 'personality' => true,
+                'request_permissions_tool' => true,
+                'tui_app_server' => true,
+                'use_legacy_landlock' => true,
+                'use_linux_sandbox_bwrap' => true,
                 'ghost_commit' => true,
             ],
             'steer' => true,
@@ -293,20 +298,33 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('steer =', $rendered['content']);
         $this->assertStringNotContainsString('experimental_windows_sandbox =', $rendered['content']);
         $this->assertStringNotContainsString('enable_experimental_windows_sandbox =', $rendered['content']);
+        $this->assertStringNotContainsString('request_permissions =', $rendered['content']);
+        $this->assertStringNotContainsString('use_linux_sandbox_bwrap =', $rendered['content']);
         $this->assertStringContainsString('personality = true', $rendered['content']);
+        $this->assertStringContainsString('request_permissions_tool = true', $rendered['content']);
+        $this->assertStringContainsString('tui_app_server = true', $rendered['content']);
+        $this->assertStringContainsString('use_legacy_landlock = true', $rendered['content']);
         $this->assertStringNotContainsString('ghost_commit =', $rendered['content']);
         $this->assertArrayHasKey('fast_mode', $rendered['settings']['features']);
         $this->assertArrayHasKey('personality', $rendered['settings']['features']);
         $this->assertSame(true, $rendered['settings']['features']['personality']);
+        $this->assertArrayHasKey('request_permissions_tool', $rendered['settings']['features']);
+        $this->assertSame(true, $rendered['settings']['features']['request_permissions_tool']);
+        $this->assertArrayHasKey('tui_app_server', $rendered['settings']['features']);
+        $this->assertSame(true, $rendered['settings']['features']['tui_app_server']);
+        $this->assertArrayHasKey('use_legacy_landlock', $rendered['settings']['features']);
+        $this->assertSame(true, $rendered['settings']['features']['use_legacy_landlock']);
         $this->assertArrayHasKey('voice_transcription', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('collaboration_modes', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('elevated_windows_sandbox', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('remote_models', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('request_permissions', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('request_rule', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('search_tool', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('steer', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('experimental_windows_sandbox', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('enable_experimental_windows_sandbox', $rendered['settings']['features']);
+        $this->assertArrayNotHasKey('use_linux_sandbox_bwrap', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('ghost_commit', $rendered['settings']['features']);
         $this->assertArrayNotHasKey('steer', $rendered['settings']);
     }
@@ -321,7 +339,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
         $this->assertArrayNotHasKey('guardian_approval', $renderedDefault['settings']['features']);
         $this->assertArrayNotHasKey('js_repl', $renderedDefault['settings']['features']);
-        $this->assertArrayNotHasKey('use_linux_sandbox_bwrap', $renderedDefault['settings']['features']);
+        $this->assertArrayNotHasKey('tui_app_server', $renderedDefault['settings']['features']);
         $this->assertArrayNotHasKey('prevent_idle_sleep', $renderedDefault['settings']['features']);
 
         $renderedCustom = $this->service->render([
@@ -329,7 +347,7 @@ final class ClientConfigServiceTest extends TestCase
                 'apps' => true,
                 'guardian_approval' => false,
                 'js_repl' => false,
-                'use_linux_sandbox_bwrap' => false,
+                'tui_app_server' => false,
                 'prevent_idle_sleep' => false,
                 'multi_agent' => true,
             ],
@@ -341,8 +359,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame(false, $renderedCustom['settings']['features']['guardian_approval']);
         $this->assertStringContainsString('js_repl = false', $renderedCustom['content']);
         $this->assertSame(false, $renderedCustom['settings']['features']['js_repl']);
-        $this->assertStringContainsString('use_linux_sandbox_bwrap = false', $renderedCustom['content']);
-        $this->assertSame(false, $renderedCustom['settings']['features']['use_linux_sandbox_bwrap']);
+        $this->assertStringContainsString('tui_app_server = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['tui_app_server']);
         $this->assertStringContainsString('prevent_idle_sleep = false', $renderedCustom['content']);
         $this->assertSame(false, $renderedCustom['settings']['features']['prevent_idle_sleep']);
         $this->assertStringContainsString('multi_agent = true', $renderedCustom['content']);

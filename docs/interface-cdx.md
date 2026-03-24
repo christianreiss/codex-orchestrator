@@ -149,14 +149,14 @@ Sync details:
 - `gpt-5.1-codex-mini` accepts only `medium|high`.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
 - Normalization defaults include `features.apps=true` and `features.multi_agent=true` when unset.
-- Builder defaults keep `features.guardian_approval=false`, `features.js_repl=false`, `features.prevent_idle_sleep=false`, and `features.use_linux_sandbox_bwrap=false` unless explicitly enabled.
+- Builder defaults keep `features.guardian_approval=false`, `features.js_repl=false`, `features.tui_app_server=false`, and `features.prevent_idle_sleep=false` unless explicitly enabled.
 - `features.guardian_approval` enables automatic review of `on-request` approval prompts by a security reviewer subagent instead of blocking on direct user input.
 - `features.js_repl` enables the persistent Node-backed JavaScript REPL and requires Node `>= v22.22.0` on the host.
+- `features.tui_app_server` enables the app-server-backed TUI implementation.
 - `features.prevent_idle_sleep` keeps the computer awake while Codex is running a thread.
-- `features.use_linux_sandbox_bwrap` enables the new Linux sandbox based on bubblewrap.
 - Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.
 - Feature flags are normalized against the current Codex feature registry; unknown/removed flags are dropped from rendered output.
-- Removed legacy keys `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_rule`, and `search_tool` are accepted for ingest compatibility but dropped from rendered output.
+- Removed legacy keys `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, and `use_linux_sandbox_bwrap` are accepted for ingest compatibility but dropped from rendered output.
 - When `home` is provided, server appends trusted project stanza for that path.
 
 ## Quota, Lane, and Summary Rendering

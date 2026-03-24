@@ -557,11 +557,28 @@ final class ConfigNormalizerTest extends TestCase
     public function testNormalizeSettingsDropsDeprecatedFeatureKeys(): void
     {
         $result = $this->normalizer->normalizeSettings([
-            'features' => ['steer' => true, 'request_rule' => false, 'fast_mode' => true],
+            'features' => ['steer' => true, 'request_rule' => false, 'request_permissions' => true, 'use_linux_sandbox_bwrap' => true, 'fast_mode' => true],
         ]);
         $this->assertArrayNotHasKey('steer', $result['features']);
         $this->assertArrayNotHasKey('request_rule', $result['features']);
+        $this->assertArrayNotHasKey('request_permissions', $result['features']);
+        $this->assertArrayNotHasKey('use_linux_sandbox_bwrap', $result['features']);
         $this->assertTrue($result['features']['fast_mode']);
+    }
+
+    public function testNormalizeSettingsSupportsCurrentCliExperimentalAndAdvancedFlags(): void
+    {
+        $result = $this->normalizer->normalizeSettings([
+            'features' => [
+                'tui_app_server' => true,
+                'request_permissions_tool' => true,
+                'use_legacy_landlock' => true,
+            ],
+        ]);
+
+        $this->assertTrue($result['features']['tui_app_server']);
+        $this->assertTrue($result['features']['request_permissions_tool']);
+        $this->assertTrue($result['features']['use_legacy_landlock']);
     }
 
     public function testNormalizeSettingsDropsUnknownFeatureKeys(): void
