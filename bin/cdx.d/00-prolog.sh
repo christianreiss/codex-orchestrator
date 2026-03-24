@@ -435,7 +435,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-08"
+WRAPPER_VERSION="2026.03.24-09"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -620,11 +620,11 @@ acquire_run_lock_or_mark_concurrent() {
   CDX_RUN_LOCK_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.lock"
   CDX_RUN_LOCK_META_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.meta"
 
-  exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH" 2>/dev/null || {
+  if ! { exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH"; } 2>/dev/null; then
     CDX_RUN_LOCK_FD=""
     log_warn "Cannot open run lock ${CDX_RUN_LOCK_PATH}; concurrent-run guard disabled."
     return 0
-  }
+  fi
 
   if flock -n "$CDX_RUN_LOCK_FD" 2>/dev/null; then
     CDX_RUN_LOCK_HELD=1

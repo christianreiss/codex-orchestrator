@@ -100,6 +100,7 @@ apply_otel_env_from_config() {
         ;;
     esac
   done < <(otel_env_from_config_python 2>/dev/null || true)
+  return 0
 }
 
 apply_otel_env_from_config
@@ -261,6 +262,7 @@ ensure_current_project_trusted_in_config() {
   if [[ -n "$cwd_physical" && "$cwd_physical" != "$cwd_logical" ]]; then
     ensure_project_path_trusted_in_config "$cwd_physical"
   fi
+  return 0
 }
 
 codex_args_include_exact_flag() {

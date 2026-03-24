@@ -36,7 +36,7 @@ Guardrails:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
 8. Check/update Codex + wrapper.
-9. Render boot summary and enforce launch gates.
+9. Render boot summary and enforce launch gates. No-op helper paths must not abort launch here: empty OTel exports and unchanged logical/physical cwd trust writes both return success under `set -e`.
 10. Launch Codex (unless status/doctor/lane-only path exits first).
 11. Cleanup trap: prompt push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
 
@@ -120,6 +120,7 @@ Sync details:
 - Prompt store reads frontmatter keys `description` and `argument-hint`.
 - Wrapper includes `username` + `home` when retrieving config so server can bake per-user trusted project settings.
 - Before launching Codex, wrapper also force-marks the current working directory (and `pwd -P` path when different) as `trust_level = "trusted"` in local `~/.codex/config.toml` to suppress interactive trust prompts.
+- Pre-launch helpers are no-op safe: an empty OTel export set or an unchanged trust target must not terminate `cdx`.
 - Atomic writes (temp + `fsync` + replace) are used for auth, baselines, AGENTS, and config files.
 
 ## Config Bake Rules (`/config/retrieve`)
