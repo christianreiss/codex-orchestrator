@@ -597,19 +597,28 @@
     const refreshBtn = document.getElementById('mcp-refresh');
     if (!tableBody) return;
 
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     const formatStatus = (item) => {
       if (item.success) return 'ok';
-      const code = item.error_code ? `code ${item.error_code}` : null;
-      const msg = item.error_message || null;
+      const code = item.error_code ? `code ${escapeHtml(item.error_code)}` : null;
+      const msg = item.error_message ? escapeHtml(item.error_message) : null;
       if (code && msg) return `fail (${code}: ${msg})`;
       if (msg) return `fail (${msg})`;
       if (code) return `fail (${code})`;
       return 'fail';
     };
 
-    const formatHost = (item) => item.host_fqdn || item.host || '—';
-    const formatTool = (item) => item.name || item.method || '—';
-    const formatTime = (ts) => ts || '—';
+    const formatHost = (item) => escapeHtml(item.host_fqdn || item.host || '—');
+    const formatTool = (item) => escapeHtml(item.name || item.method || '—');
+    const formatTime = (ts) => escapeHtml(ts || '—');
 
     async function loadMcpLogs() {
       try {
@@ -630,7 +639,7 @@
           return `<tr><td>${ts}</td><td>${host}</td><td>${tool}</td><td>${status}</td></tr>`;
         }).join('');
       } catch (err) {
-        tableBody.innerHTML = `<tr class=\"error-row\"><td colspan=\"4\">Failed: ${err.message}</td></tr>`;
+        tableBody.innerHTML = `<tr class="error-row"><td colspan="4">Failed: ${escapeHtml(err.message)}</td></tr>`;
       }
     }
 
