@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: added Runner row to `--doctor` output — the doctor report now includes a "Runner" row (between MCP and API) showing the current runner state (verified, failing, stale, or disabled), with green ✅ when healthy, yellow/red coloring when degraded, and a failure hint when `runner_tone` is red; the row is omitted when runner is entirely unconfigured with no state data. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: optical polish — fixed log panel inputs (search, page-size, event filters), `.badge`, and `.token-chip` using hard-coded `rgba(15,23,42,…)` backgrounds and borders that rendered near-invisible in dark mode; switched to `var(--input-bg)` / `var(--border)` / `var(--frost)` so all themes render correctly; also constrained `#mcp-status-filter` width (was inheriting a `200px` minimum from the generic panel-actions rule, making a 3-option select unnecessarily wide).
 
 # 2026-03-24

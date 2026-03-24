@@ -7899,6 +7899,17 @@ print_doctor_report() {
     mcp_label="$(colorize "no config.toml" "yellow")"
   fi
 
+  local runner_row_label=""
+  local runner_row_tone="yellow"
+  if (( ${runner_enabled_flag:-0} )) || [[ -n "${runner_label:-}" ]]; then
+    runner_row_label="${runner_label:-enabled; no verification data yet}"
+    runner_row_tone="${runner_tone:-yellow}"
+    if [[ "$runner_row_tone" == "red" ]]; then
+      failures=$(( failures + 1 ))
+      hints+=("Runner is failing. Check the runner service and review admin event logs.")
+    fi
+  fi
+
   local config_validity_label="n/a"
   if [[ -f "$CONFIG_PATH" ]] && command -v python3 >/dev/null 2>&1; then
     local config_parse_err=""
@@ -8024,7 +8035,7 @@ else:
     fi
   fi
 
-  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
   local saved_row_label_width="$ROW_LABEL_WIDTH"
   ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
 
@@ -8036,6 +8047,15 @@ else:
   log_info "$(format_simple_row "Sync" "$sync_label")"
   log_info "$(format_simple_row "Config" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
   log_info "$(format_simple_row "MCP" "$mcp_label")"
+  if [[ -n "$runner_row_label" ]]; then
+    local runner_row_display
+    if [[ "$runner_row_tone" == "green" ]]; then
+      runner_row_display="${runner_row_label} ✅"
+    else
+      runner_row_display="$(colorize "$runner_row_label" "$runner_row_tone")"
+    fi
+    log_info "$(format_simple_row "Runner" "$runner_row_display")"
+  fi
   log_info "$(format_simple_row "API" "$api_probe_label")"
   if [[ -n "$api_latency_label" ]]; then
     log_info "$(format_simple_row "Latency" "$api_latency_label")"
