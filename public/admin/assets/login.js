@@ -24,6 +24,31 @@
     stagedUsername: '',
   };
 
+  function warmAdminShell() {
+    if (typeof window.fetch !== 'function') {
+      return;
+    }
+
+    const hrefs = Array.from(document.querySelectorAll('link[data-admin-prefetch][href]'))
+      .map((node) => node.getAttribute('href') || '')
+      .filter(Boolean);
+
+    hrefs.forEach((href) => {
+      window.fetch(href, {
+        credentials: 'same-origin',
+        cache: 'force-cache',
+      }).catch(() => {});
+    });
+  }
+
+  function scheduleAdminShellWarmup() {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => warmAdminShell(), { timeout: 1200 });
+      return;
+    }
+    window.setTimeout(() => warmAdminShell(), 180);
+  }
+
   function api(path, opts = {}) {
     const headers = { Accept: 'application/json', ...(opts.headers || {}) };
     const init = {
@@ -255,5 +280,6 @@
     await handlePasswordSubmit(username, password);
   });
 
+  scheduleAdminShellWarmup();
   hydrateStatus();
 })();
