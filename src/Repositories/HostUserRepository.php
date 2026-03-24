@@ -46,6 +46,35 @@ class HostUserRepository
         return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
+    /**
+     * Return users for each of the given host IDs.
+     *
+     * @param  int[]  $hostIds
+     * @return array<int, array>  keyed by host_id
+     */
+    public function listByHosts(array $hostIds): array
+    {
+        if ($hostIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($hostIds), '?'));
+        $statement = $this->database->connection()->prepare(
+            "SELECT host_id, username, hostname, first_seen, last_seen
+             FROM host_users
+             WHERE host_id IN ($placeholders)
+             ORDER BY host_id, username ASC"
+        );
+        $statement->execute($hostIds);
+
+        $result = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $result[(int) $row['host_id']][] = $row;
+        }
+
+        return $result;
+    }
+
     public function deleteByHostId(int $hostId): void
     {
         $statement = $this->database->connection()->prepare(

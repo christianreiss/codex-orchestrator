@@ -621,19 +621,24 @@ class AdminOverviewController
         $hosts = $this->hostRepository->all();
         $digests = $this->digestRepository->byHostId();
 
+        $hostIds = array_map(static fn(array $h): int => (int) $h['id'], $hosts);
+        $tokenUsageMap = $this->tokenUsageRepository->latestForHosts($hostIds);
+        $usersMap      = $this->hostUserRepository->listByHosts($hostIds);
+
+        $normalizeTs = static function ($value): ?string {
+            if ($value === null) {
+                return null;
+            }
+            try {
+                $dt = new DateTimeImmutable((string) $value);
+                return $dt->format(DATE_ATOM);
+            } catch (\Exception) {
+                return is_string($value) ? $value : null;
+            }
+        };
+
         $items = [];
         foreach ($hosts as $host) {
-            $normalizeTs = static function ($value): ?string {
-                if ($value === null) {
-                    return null;
-                }
-                try {
-                    $dt = new DateTimeImmutable((string) $value);
-                    return $dt->format(DATE_ATOM);
-                } catch (\Exception) {
-                    return is_string($value) ? $value : null;
-                }
-            };
             $hostDigests = $digests[$host['id']] ?? [];
             $items[] = [
                 'id' => (int) $host['id'],
@@ -674,8 +679,8 @@ class AdminOverviewController
                     && isset($host['auth_digest'])
                     && (string) $host['auth_digest'] !== (string) $canonicalDigest,
                 'auth_source' => $canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId,
-                'token_usage' => $this->tokenUsageRepository->latestForHost((int) $host['id']),
-                'users' => $this->hostUserRepository->listByHost((int) $host['id']),
+                'token_usage' => $tokenUsageMap[(int) $host['id']] ?? null,
+                'users' => $usersMap[(int) $host['id']] ?? [],
             ];
         }
 

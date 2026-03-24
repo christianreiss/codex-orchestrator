@@ -1,4 +1,5 @@
 # 2026-03-24
+- Backend: eliminated N+1 query pattern in `GET /admin/hosts` — added `TokenUsageRepository::latestForHosts()` and `HostUserRepository::listByHosts()` batch methods that fetch token-usage and user rows for all hosts in two queries instead of two-per-host; `AdminOverviewController::hosts()` now uses these batch methods and also hoists the `$normalizeTs` closure out of the per-host loop.
 - cdx wrapper: colorized individual sync status tokens in the `--doctor` Sync row — each status value (`ok`, `offline`, `concurrent`, etc.) is now rendered green/yellow/red instead of plain text, making it faster to spot failures at a glance. Rebuilt `bin/cdx`.
 
 - Admin UI: unsaved-changes guard for config.toml and Profiles editors — navigating away via SPA links now shows a browser confirm dialog when either editor has uncommitted edits; closing/reloading the tab also triggers the native `beforeunload` prompt; dirty state is cleared automatically on successful save or reload; cache-bumped `dashboard.js` to `v=2026-03-24-03`, `config.js` to `v=2026-03-24-01`, `profiles.js` to `v=2026-03-24-01`.

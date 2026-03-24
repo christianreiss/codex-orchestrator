@@ -156,6 +156,54 @@ class TokenUsageRepository
         ];
     }
 
+    /**
+     * Return the latest token-usage row for each of the given host IDs.
+     *
+     * @param  int[]  $hostIds
+     * @return array<int, array>  keyed by host_id
+     */
+    public function latestForHosts(array $hostIds): array
+    {
+        if ($hostIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($hostIds), '?'));
+        $statement = $this->database->connection()->prepare(
+            "SELECT t.host_id, t.ingest_id, t.total,
+                    t.input_tokens AS input, t.output_tokens AS output,
+                    t.cached_tokens AS cached, t.reasoning_tokens AS reasoning,
+                    t.cost, t.model, t.line, t.created_at
+             FROM token_usages t
+             INNER JOIN (
+                 SELECT host_id, MAX(id) AS max_id
+                 FROM token_usages
+                 WHERE host_id IN ($placeholders)
+                 GROUP BY host_id
+             ) latest ON t.id = latest.max_id"
+        );
+        $statement->execute($hostIds);
+
+        $result = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $hostId = (int) $row['host_id'];
+            $result[$hostId] = [
+                'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
+                'total'     => isset($row['total'])     ? (int) $row['total']      : null,
+                'input'     => isset($row['input'])     ? (int) $row['input']      : null,
+                'output'    => isset($row['output'])    ? (int) $row['output']     : null,
+                'cached'    => isset($row['cached'])    ? (int) $row['cached']     : null,
+                'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning']  : null,
+                'cost'      => isset($row['cost'])      ? (float) $row['cost']     : null,
+                'model'     => $row['model']     ?? null,
+                'line'      => $row['line']      ?? null,
+                'created_at'=> $row['created_at'] ?? null,
+            ];
+        }
+
+        return $result;
+    }
+
     public function recent(int $limit = 50): array
     {
         $limit = max(1, min($limit, 500));
