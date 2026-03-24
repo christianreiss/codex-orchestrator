@@ -45,14 +45,18 @@ final class CdxWrapperRunFooterTest extends TestCase
         self::assertStringContainsString('cost_text="${cost_prefix}unavailable (${cost_reason})"', $wrapperSource);
     }
 
-    public function testWrapperFormatsRunCostWithTwoDecimalsAndCurrencySuffix(): void
+    public function testWrapperFormatsRunCostWithCurrencyPrefixAndVariableDecimals(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString('format_run_cost_value() {', $wrapperSource);
-        self::assertStringContainsString('LC_NUMERIC=C printf "%.2f$" "$raw"', $wrapperSource);
+        // Dollar sign is now a prefix: printf '$%s' "$formatted"
+        self::assertStringContainsString("printf '\$%s' \"\$formatted\"", $wrapperSource);
+        // Sub-cent values use 4 decimal places; larger amounts use 2.
+        self::assertStringContainsString('LC_NUMERIC=C printf "%.4f" "$raw"', $wrapperSource);
+        self::assertStringContainsString('LC_NUMERIC=C printf "%.2f" "$raw"', $wrapperSource);
         self::assertStringContainsString('cost_text="${cost_prefix}$(format_run_cost_value "${USAGE_PUSH_COST}")"', $wrapperSource);
     }
 }
