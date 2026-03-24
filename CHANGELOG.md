@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: optical polish — panel filter inputs (hosts, users, logs) now use `var(--input-bg)` instead of a hardcoded `#fff` background, so they render correctly in dark mode instead of showing as stark white boxes; sort-link column headers now animate their label color and sort-indicator opacity with a 120 ms ease transition instead of snapping instantly on click.
+
+# 2026-03-24
 - Admin UI: Users table now has a live search filter — typing in the new filter input above the table instantly narrows the list by name, username, email, or access level; pressing Escape clears the filter; a "no users match the current filter" message is shown when the filter produces no results.
 
 # 2026-03-24

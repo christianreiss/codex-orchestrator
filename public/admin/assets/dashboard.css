@@ -1067,7 +1067,7 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
     .panel-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .panel-actions input,
     .panel-actions select {
-      background: #fff;
+      background: var(--input-bg);
       border: 1px solid var(--border);
       color: var(--text);
       padding: 10px 14px;
@@ -1466,8 +1466,9 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
       font-weight: 600;
       cursor: pointer;
       padding: 2px 0;
+      transition: color 0.12s ease;
     }
-    .sort-link .sort-indicator { font-size: 12px; opacity: 0.6; }
+    .sort-link .sort-indicator { font-size: 12px; opacity: 0.6; transition: opacity 0.12s ease; }
     .sort-link:hover,
     .sort-link:focus-visible { color: var(--text); outline: none; }
     .sort-link.sorted { color: var(--text); }
