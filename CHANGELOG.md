@@ -1,4 +1,5 @@
 # 2026-03-24
+- Admin UI/API: expanded host auto-update status into backend-derived states so the hosts table and host detail can distinguish disabled-but-running cron, missing daily check-ins, update-needed, update-succeeded, and “new release since last check” cases with compact emoji plus detailed tooltips.
 - Admin UI: the hosts table now includes an `Auto-updates` column with three compact states: `-` when cron auto-updates are not enabled, `✅` when the host has a recent cron check-in, and `⚠️` when auto-updates are enabled but the last cron check is missing or stale.
 - Admin UI: the login page now prefetches and idle-warms the main admin shell (`/admin/index.html`, dashboard CSS, and dashboard JS) so the first authenticated dashboard visit is less of a cold start.
 - cdx wrapper: shortened the skipped Codex auto-update note from `cron-managed auto-update enabled` to `cron-managed updates` so the `Versions` summary fits narrow terminals without losing the reason.

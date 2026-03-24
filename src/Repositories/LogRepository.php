@@ -227,4 +227,69 @@ class LogRepository
 
         return is_numeric($count) ? (int) $count : 0;
     }
+
+    public function latestByHostAndActions(array $hostIds, array $actions): array
+    {
+        $hostIds = array_values(array_unique(array_map(
+            static fn ($value): int => is_numeric($value) ? (int) $value : 0,
+            $hostIds
+        )));
+        $hostIds = array_values(array_filter($hostIds, static fn (int $value): bool => $value > 0));
+        $actions = array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
+
+        if (!$hostIds || !$actions) {
+            return [];
+        }
+
+        $hostPlaceholders = [];
+        $actionPlaceholders = [];
+        $params = [];
+
+        foreach ($hostIds as $idx => $hostId) {
+            $key = 'host' . $idx;
+            $hostPlaceholders[] = ':' . $key;
+            $params[$key] = $hostId;
+        }
+
+        foreach ($actions as $idx => $action) {
+            $key = 'action' . $idx;
+            $actionPlaceholders[] = ':' . $key;
+            $params[$key] = $action;
+        }
+
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, host_id, action, details, created_at
+             FROM logs
+             WHERE host_id IN (' . implode(',', $hostPlaceholders) . ')
+               AND action IN (' . implode(',', $actionPlaceholders) . ')
+             ORDER BY host_id ASC, action ASC, created_at DESC, id DESC'
+        );
+
+        foreach ($params as $key => $value) {
+            $statement->bindValue($key, $value, str_starts_with($key, 'host') ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $statement->execute();
+
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        if (!is_array($rows) || !$rows) {
+            return [];
+        }
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $hostId = isset($row['host_id']) ? (int) $row['host_id'] : 0;
+            $action = isset($row['action']) && is_string($row['action']) ? $row['action'] : '';
+            if ($hostId <= 0 || $action === '') {
+                continue;
+            }
+            if (!isset($grouped[$hostId])) {
+                $grouped[$hostId] = [];
+            }
+            if (!isset($grouped[$hostId][$action])) {
+                $grouped[$hostId][$action] = $row;
+            }
+        }
+
+        return $grouped;
+    }
 }

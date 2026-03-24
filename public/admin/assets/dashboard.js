@@ -2292,41 +2292,29 @@
       });
     }
 
-    function hostAutoUpdateEnabled(host) {
-      if (host?.auto_update_override === true) return true;
-      if (host?.auto_update_override === false) return false;
-      return autoUpdateEnabled === true;
+    function hostAutoUpdateIndicator(host) {
+      const label = typeof host?.auto_update_label === 'string' && host.auto_update_label.trim() !== ''
+        ? host.auto_update_label.trim()
+        : 'Auto-update status unavailable';
+      const icon = typeof host?.auto_update_emoji === 'string' && host.auto_update_emoji.trim() !== ''
+        ? host.auto_update_emoji.trim()
+        : '⚠️';
+      const rank = Number.isFinite(host?.auto_update_rank) ? Number(host.auto_update_rank) : 1;
+      const state = typeof host?.auto_update_state === 'string' ? host.auto_update_state : 'unknown';
+      const lastEventAt = typeof host?.auto_update_last_event_at === 'string' ? host.auto_update_last_event_at : null;
+      const targetVersion = typeof host?.auto_update_target_version === 'string' ? host.auto_update_target_version : null;
+      return { icon, label, rank, state, lastEventAt, targetVersion };
     }
 
-    function hostAutoUpdateIndicator(host) {
-      if (!hostAutoUpdateEnabled(host)) {
-        return {
-          icon: '-',
-          label: 'Auto-updates disabled',
-          rank: 2,
-        };
+    function hostAutoUpdateTone(host) {
+      const state = hostAutoUpdateIndicator(host).state;
+      if (state === 'enabled_current_checked' || state === 'enabled_update_succeeded') {
+        return 'ok';
       }
-
-      const lastCheckDate = parseTimestamp(host?.last_cron_check);
-      if (lastCheckDate) {
-        const ageMs = Date.now() - lastCheckDate.getTime();
-        const recentWindowMs = 36 * 60 * 60 * 1000;
-        if (ageMs >= 0 && ageMs <= recentWindowMs) {
-          return {
-            icon: '✅',
-            label: `Auto-updates OK (${formatRelative(host.last_cron_check)})`,
-            rank: 0,
-          };
-        }
+      if (state === 'disabled_idle') {
+        return 'neutral';
       }
-
-      return {
-        icon: '⚠️',
-        label: host?.last_cron_check
-          ? `Auto-updates warning (${formatRelative(host.last_cron_check)})`
-          : 'Auto-updates warning (no recent cron check)',
-        rank: 1,
-      };
+      return 'warn';
     }
 
     function hostSortValue(host, key) {
@@ -2945,6 +2933,7 @@
       const health = hostHealth(host);
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
+      const autoUpdate = hostAutoUpdateIndicator(host);
       const summaryItems = [
         {
           label: 'Health',
@@ -2969,6 +2958,11 @@
           meta: 'Client · Wrapper',
           raw: true,
         },
+        {
+          label: 'Auto-updates',
+          value: autoUpdate.label,
+          meta: autoUpdate.lastEventAt ? `last signal ${formatRelative(autoUpdate.lastEventAt)}` : 'No cron signal yet',
+        },
       ];
       hostDetailSummary.innerHTML = summaryItems.map(item => `
         <div class="summary-card">
@@ -2992,6 +2986,8 @@
       const healthDesc = 'Provisioning and sync signal for this host.';
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
+      const autoUpdate = hostAutoUpdateIndicator(host);
+      const autoUpdateTone = hostAutoUpdateTone(host);
       const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
         ? ` (${formatNumber(host.api_calls)} api calls)`
         : '';
@@ -3011,6 +3007,13 @@
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
         { key: 'Last cron check', value: host.last_cron_check ? formatRelativeWithTimestamp(host.last_cron_check) : 'Never', desc: 'Last time the cron auto-update checked in.' },
+        {
+          key: 'Auto-updates',
+          value: `<span class="chip ${autoUpdateTone}">${escapeHtml(autoUpdate.label)}</span>`,
+          desc: autoUpdate.lastEventAt
+            ? `Latest auto-update signal: ${formatRelativeWithTimestamp(autoUpdate.lastEventAt)}${autoUpdate.targetVersion ? ` · target ${autoUpdate.targetVersion}` : ''}.`
+            : 'No recent auto-update signal recorded for this host.',
+        },
         {
           key: 'IP binding',
           value: `

@@ -44,10 +44,13 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         self::assertIsString($js);
         self::assertStringContainsString('function hostAutoUpdateIndicator(host)', $js);
-        self::assertStringContainsString("icon: '-'", $js);
-        self::assertStringContainsString("icon: '✅'", $js);
-        self::assertStringContainsString("icon: '⚠️'", $js);
+        self::assertStringContainsString('host?.auto_update_label', $js);
+        self::assertStringContainsString('host?.auto_update_emoji', $js);
+        self::assertStringContainsString('host?.auto_update_rank', $js);
+        self::assertStringContainsString('host?.auto_update_state', $js);
+        self::assertStringContainsString('host?.auto_update_last_event_at', $js);
         self::assertStringContainsString("case 'auto_updates':", $js);
         self::assertStringContainsString('host-auto-updates-indicator', $js);
+        self::assertStringContainsString("label: 'Auto-updates'", $js);
     }
 }
