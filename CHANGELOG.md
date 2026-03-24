@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: `format_simple_row` now wraps ANSI-colorized text on narrow terminals — previously the fold logic was skipped whenever escape codes were present, so error/warning rows in `--doctor` and `--status` output (highlighted in red or yellow) could overflow the terminal width; the new path measures visible character width via `strip_ansi_sgr` and breaks on space boundaries, keeping value columns aligned with the label pipe just as plain-text rows do. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: Users table is now sortable by Name, Username, Access level, Status, and Last login — clicking a column header toggles ascending/descending order; active column shows ▲/▼ indicators reusing the existing `.sort-link`/`.sorted` styles from the hosts table; default order remains username ascending; sort state is in-memory and resets on page load.
 
 # 2026-03-24

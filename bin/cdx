@@ -6899,24 +6899,70 @@ format_status_row() {
 
 format_simple_row() {
   local label="$1" text="$2"
-  if [[ -t 1 && "$text" != *$'\033['* ]]; then
+  if [[ -t 1 ]]; then
     local cols="${COLUMNS:-}"
     if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
       cols="$(tput cols 2>/dev/null || true)"
     fi
     if [[ "$cols" =~ ^[0-9]+$ ]]; then
       local max=$(( cols - ROW_LABEL_WIDTH - 5 ))
-      if (( max >= 20 )) && (( ${#text} > max )); then
-        local first=1 chunk
-        while IFS= read -r chunk; do
-          if (( first )); then
-            printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
-            first=0
-          else
-            printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+      if (( max >= 20 )); then
+        if [[ "$text" != *$'\033['* ]]; then
+          # Plain text: use fold for reliable word-boundary wrapping.
+          if (( ${#text} > max )); then
+            local first=1 chunk
+            while IFS= read -r chunk; do
+              if (( first )); then
+                printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
+                first=0
+              else
+                printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+              fi
+            done <<< "$(fold -s -w "$max" <<< "$text")"
+            return
           fi
-        done <<< "$(fold -s -w "$max" <<< "$text")"
-        return
+        else
+          # ANSI-colorized text: fold can't count visible width correctly, so
+          # measure via strip_ansi_sgr and break on space boundaries instead.
+          local plain
+          plain="$(strip_ansi_sgr "$text")"
+          if (( ${#plain} > max )); then
+            local out="" cur_line="" token rest="$text"
+            while [[ -n "$rest" ]]; do
+              if [[ "$rest" == *" "* ]]; then
+                token="${rest%% *}"
+                rest="${rest#* }"
+              else
+                token="$rest"
+                rest=""
+              fi
+              local cand="$cur_line"
+              [[ -n "$cand" ]] && cand+=" "
+              cand+="$token"
+              local cand_plain
+              cand_plain="$(strip_ansi_sgr "$cand")"
+              if (( ${#cand_plain} > max )) && [[ -n "$cur_line" ]]; then
+                if [[ -n "$out" ]]; then
+                  printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$cur_line"
+                else
+                  printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$cur_line"
+                fi
+                out="x"
+                cur_line="$token"
+              else
+                cur_line="$cand"
+              fi
+            done
+            if [[ -n "$cur_line" ]]; then
+              if [[ -n "$out" ]]; then
+                printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$cur_line"
+              else
+                printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$cur_line"
+              fi
+            fi
+            return
+          fi
+        fi
       fi
     fi
   fi
