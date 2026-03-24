@@ -167,19 +167,13 @@ class LogRepository
 
     public function recentByActions(array $actions, int $limit = 20): array
     {
-        $actions = array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
+        $actions = $this->normalizeActions($actions);
         if (!$actions) {
             return [];
         }
 
         $limit = max(1, min($limit, 200));
-        $placeholders = [];
-        $params = [];
-        foreach ($actions as $idx => $action) {
-            $key = 'action' . $idx;
-            $placeholders[] = ':' . $key;
-            $params[$key] = $action;
-        }
+        [$placeholders, $params] = $this->buildInClauseParams($actions);
 
         $statement = $this->database->connection()->prepare(
             'SELECT id, host_id, action, details, created_at
@@ -202,18 +196,13 @@ class LogRepository
 
     public function countActionsSince(array $actions, string $since): int
     {
-        $actions = array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
+        $actions = $this->normalizeActions($actions);
         if (!$actions || trim($since) === '') {
             return 0;
         }
 
-        $placeholders = [];
-        $params = [];
-        foreach ($actions as $idx => $action) {
-            $key = 'action' . $idx;
-            $placeholders[] = ':' . $key;
-            $params[$key] = $action;
-        }
+        [$placeholders, $params] = $this->buildInClauseParams($actions);
+
         $statement = $this->database->connection()->prepare(
             'SELECT COUNT(*) FROM logs WHERE action IN (' . implode(',', $placeholders) . ') AND created_at >= :since'
         );
@@ -226,5 +215,31 @@ class LogRepository
         $count = $statement->fetchColumn();
 
         return is_numeric($count) ? (int) $count : 0;
+    }
+
+    /**
+     * @param list<string> $values
+     * @return array{list<string>, array<string, string>}
+     */
+    private function buildInClauseParams(array $values): array
+    {
+        $placeholders = [];
+        $params = [];
+        foreach ($values as $idx => $value) {
+            $key = 'action' . $idx;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $value;
+        }
+
+        return [$placeholders, $params];
+    }
+
+    /**
+     * @param array<mixed> $actions
+     * @return list<string>
+     */
+    private function normalizeActions(array $actions): array
+    {
+        return array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
     }
 }
