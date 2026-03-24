@@ -70,6 +70,25 @@ class TokenUsageIngestRepository
         ];
     }
 
+    private function normalizeIngestRow(array $row): array
+    {
+        return [
+            'id'         => isset($row['id'])        ? (int) $row['id']        : null,
+            'host_id'    => isset($row['host_id'])   ? (int) $row['host_id']   : null,
+            'fqdn'       => $row['fqdn']      ?? null,
+            'entries'    => isset($row['entries'])   ? (int) $row['entries']   : 0,
+            'total'      => isset($row['total'])     ? (int) $row['total']     : null,
+            'input'      => isset($row['input'])     ? (int) $row['input']     : null,
+            'output'     => isset($row['output'])    ? (int) $row['output']    : null,
+            'cached'     => isset($row['cached'])    ? (int) $row['cached']    : null,
+            'reasoning'  => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
+            'cost'       => isset($row['cost'])      ? (float) $row['cost']    : null,
+            'client_ip'  => $row['client_ip'] ?? null,
+            'payload'    => $row['payload']   ?? null,
+            'created_at' => $row['created_at'] ?? null,
+        ];
+    }
+
     public function recent(int $limit = 50): array
     {
         $limit = max(1, min($limit, 500));
@@ -98,21 +117,7 @@ class TokenUsageIngestRepository
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $items = [];
         foreach ($rows as $row) {
-            $items[] = [
-                'id' => isset($row['id']) ? (int) $row['id'] : null,
-                'host_id' => isset($row['host_id']) ? (int) $row['host_id'] : null,
-                'fqdn' => $row['fqdn'] ?? null,
-                'entries' => isset($row['entries']) ? (int) $row['entries'] : 0,
-                'total' => isset($row['total']) ? (int) $row['total'] : null,
-                'input' => isset($row['input']) ? (int) $row['input'] : null,
-                'output' => isset($row['output']) ? (int) $row['output'] : null,
-                'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
-                'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
-                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
-                'client_ip' => $row['client_ip'] ?? null,
-                'payload' => $row['payload'] ?? null,
-                'created_at' => $row['created_at'] ?? null,
-            ];
+            $items[] = $this->normalizeIngestRow($row);
         }
 
         return $items;
@@ -212,21 +217,7 @@ class TokenUsageIngestRepository
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $items = [];
         foreach ($rows as $row) {
-            $items[] = [
-                'id' => isset($row['id']) ? (int) $row['id'] : null,
-                'host_id' => isset($row['host_id']) ? (int) $row['host_id'] : null,
-                'fqdn' => $row['fqdn'] ?? null,
-                'entries' => isset($row['entries']) ? (int) $row['entries'] : 0,
-                'total' => isset($row['total']) ? (int) $row['total'] : null,
-                'input' => isset($row['input']) ? (int) $row['input'] : null,
-                'output' => isset($row['output']) ? (int) $row['output'] : null,
-                'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
-                'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
-                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
-                'client_ip' => $row['client_ip'] ?? null,
-                'payload' => $row['payload'] ?? null,
-                'created_at' => $row['created_at'] ?? null,
-            ];
+            $items[] = $this->normalizeIngestRow($row);
         }
 
         $pages = (int) ceil($total / $perPage);

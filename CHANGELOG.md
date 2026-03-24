@@ -1,4 +1,7 @@
 # 2026-03-24
+- Backend: eliminated duplicated row-normalization logic in `TokenUsageIngestRepository` (extracted `normalizeIngestRow()`, used by both `recent()` and `search()`) and `TokenUsageRepository` (extracted `normalizeUsageRow()`, used by `latestForHost()`, `latestForHosts()`, and `recent()`); no behavior change.
+
+# 2026-03-24
 - cdx wrapper: the run exit footer now shows a "Run time" row with the elapsed session duration (seconds-precision for runs under a minute, e.g. `45s`; minutes/hours for longer runs, e.g. `2h 34m`); the footer block is also now closed with a matching divider line so it visually matches the opening divider. Rebuilt `bin/cdx`.
 
 # 2026-03-24

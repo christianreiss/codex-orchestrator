@@ -50,6 +50,22 @@ class TokenUsageRepository
         ]);
     }
 
+    private function normalizeUsageRow(array $row): array
+    {
+        return [
+            'ingest_id'  => isset($row['ingest_id'])  ? (int) $row['ingest_id']  : null,
+            'total'      => isset($row['total'])      ? (int) $row['total']      : null,
+            'input'      => isset($row['input'])      ? (int) $row['input']      : null,
+            'output'     => isset($row['output'])     ? (int) $row['output']     : null,
+            'cached'     => isset($row['cached'])     ? (int) $row['cached']     : null,
+            'reasoning'  => isset($row['reasoning'])  ? (int) $row['reasoning']  : null,
+            'cost'       => isset($row['cost'])       ? (float) $row['cost']     : null,
+            'model'      => $row['model']      ?? null,
+            'line'       => $row['line']       ?? null,
+            'created_at' => $row['created_at'] ?? null,
+        ];
+    }
+
     private const TOTALS_SELECT = 'SELECT COALESCE(SUM(total), 0) AS total,
                     COALESCE(SUM(input_tokens), 0) AS input,
                     COALESCE(SUM(output_tokens), 0) AS output,
@@ -142,18 +158,7 @@ class TokenUsageRepository
             return null;
         }
 
-        return [
-            'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
-            'total' => isset($row['total']) ? (int) $row['total'] : null,
-            'input' => isset($row['input']) ? (int) $row['input'] : null,
-            'output' => isset($row['output']) ? (int) $row['output'] : null,
-            'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
-            'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
-            'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
-            'model' => $row['model'] ?? null,
-            'line' => $row['line'] ?? null,
-            'created_at' => $row['created_at'] ?? null,
-        ];
+        return $this->normalizeUsageRow($row);
     }
 
     /**
@@ -187,18 +192,7 @@ class TokenUsageRepository
         $result = [];
         foreach ($statement->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
             $hostId = (int) $row['host_id'];
-            $result[$hostId] = [
-                'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
-                'total'     => isset($row['total'])     ? (int) $row['total']      : null,
-                'input'     => isset($row['input'])     ? (int) $row['input']      : null,
-                'output'    => isset($row['output'])    ? (int) $row['output']     : null,
-                'cached'    => isset($row['cached'])    ? (int) $row['cached']     : null,
-                'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning']  : null,
-                'cost'      => isset($row['cost'])      ? (float) $row['cost']     : null,
-                'model'     => $row['model']     ?? null,
-                'line'      => $row['line']      ?? null,
-                'created_at'=> $row['created_at'] ?? null,
-            ];
+            $result[$hostId] = $this->normalizeUsageRow($row);
         }
 
         return $result;
@@ -232,21 +226,14 @@ class TokenUsageRepository
 
         $items = [];
         foreach ($rows as $row) {
-            $items[] = [
-                'id' => isset($row['id']) ? (int) $row['id'] : null,
-                'host_id' => isset($row['host_id']) ? (int) $row['host_id'] : null,
-                'fqdn' => $row['fqdn'] ?? null,
-                'total' => isset($row['total']) ? (int) $row['total'] : null,
-                'input' => isset($row['input']) ? (int) $row['input'] : null,
-                'output' => isset($row['output']) ? (int) $row['output'] : null,
-                'cached' => isset($row['cached']) ? (int) $row['cached'] : null,
-                'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
-                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
-                'ingest_id' => isset($row['ingest_id']) ? (int) $row['ingest_id'] : null,
-                'model' => $row['model'] ?? null,
-                'line' => $row['line'] ?? null,
-                'created_at' => $row['created_at'] ?? null,
-            ];
+            $items[] = array_merge(
+                [
+                    'id'      => isset($row['id'])      ? (int) $row['id']      : null,
+                    'host_id' => isset($row['host_id']) ? (int) $row['host_id'] : null,
+                    'fqdn'    => $row['fqdn'] ?? null,
+                ],
+                $this->normalizeUsageRow($row)
+            );
         }
 
         return $items;
