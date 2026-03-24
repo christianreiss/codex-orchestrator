@@ -135,6 +135,7 @@
           <div class="field">
             <label>Name</label>
             <input type="text" class="profile-name" placeholder="ultra" value="">
+            <div class="auth-error profile-name-error" role="alert"></div>
             <div class="muted-note">Allowed: <code>A–Z a–z 0–9 _ -</code></div>
           </div>
           <div class="field">
@@ -243,6 +244,16 @@
 
     nameInput.value = (data.name || '').trim();
     nameInput.setAttribute('pattern', '^[A-Za-z0-9_-]+$');
+    const nameErrorEl = row.querySelector('.profile-name-error');
+    function validateProfileName() {
+      const val = (nameInput.value || '').trim();
+      const invalid = val.length > 0 && !/^[A-Za-z0-9_-]+$/.test(val);
+      if (nameErrorEl) {
+        nameErrorEl.textContent = invalid ? 'Invalid characters — use A–Z, a–z, 0–9, _ or -' : '';
+        nameErrorEl.classList.toggle('show', invalid);
+      }
+      nameInput.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+    }
 
     const features = data.features || {};
     streamToggle.checked = Boolean(typeof features.streamable_shell === 'boolean' ? features.streamable_shell : defaults.features?.streamable_shell);
@@ -294,12 +305,21 @@
       summaryMetaEl.textContent = bits.length ? bits.join(' · ') : 'Click to expand';
     };
 
-    row.querySelector('.remove-profile')?.addEventListener('click', (e) => {
+    row.querySelector('.remove-profile')?.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      const name = (nameInput?.value || '').trim() || 'this profile';
+      if (window.__confirm) {
+        const ok = await window.__confirm('Delete profile', `Delete profile "${name}"?`, { action: 'Delete' });
+        if (!ok) return;
+      } else if (!window.confirm(`Delete profile "${name}"?`)) {
+        return;
+      }
       row.remove();
       markDirty();
     });
+
+    nameInput?.addEventListener('input', validateProfileName);
 
     row.querySelectorAll('input, select').forEach((el) => {
       el.addEventListener('input', () => { updateSummary(); markDirty(); });
