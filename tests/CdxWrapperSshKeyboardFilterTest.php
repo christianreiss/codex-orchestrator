@@ -38,8 +38,8 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
 
-        self::assertStringContainsString('Doctor ssh', $wrapperSource);
-        self::assertStringContainsString('Doctor cli', $wrapperSource);
+        self::assertStringContainsString('"SSH env"', $wrapperSource);
+        self::assertStringContainsString('"CLI"', $wrapperSource);
         self::assertStringContainsString('session=${ssh_session_label}', $wrapperSource);
         self::assertStringContainsString('TERM=${TERM:-unknown}', $wrapperSource);
         self::assertStringContainsString('version=${LOCAL_VERSION:-unknown}', $wrapperSource);

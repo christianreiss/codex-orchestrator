@@ -213,11 +213,11 @@ except Exception:
     sys.exit(0)
 
 def find_block(name: str) -> str:
-    m = re.search(r'(?m)^\\[' + re.escape(name) + r'\\]\\s*$', raw)
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*$', raw)
     if not m:
         return ""
     start = m.end()
-    m2 = re.search(r'(?m)^\\[', raw[start:])
+    m2 = re.search(r'(?m)^\[', raw[start:])
     end = start + (m2.start() if m2 else len(raw[start:]))
     return raw[start:end]
 
