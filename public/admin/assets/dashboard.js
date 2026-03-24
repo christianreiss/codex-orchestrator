@@ -8721,6 +8721,36 @@
         if (btn && !btn.disabled) btn.click();
       }
 
+      function triggerNew() {
+        const activePanel = document.querySelector('.panel-set:not([hidden])');
+        if (!activePanel) return;
+        const panelKey = activePanel.dataset?.panel || '';
+
+        if (panelKey === 'hosts' || panelKey === 'host-detail') {
+          const btn = document.getElementById('newHostBtn');
+          if (btn && !btn.disabled) btn.click();
+          return;
+        }
+
+        if (panelKey === 'users') {
+          const btn = document.getElementById('usersAddBtn');
+          if (btn && !btn.disabled) btn.click();
+          return;
+        }
+
+        if (panelKey === 'settings') {
+          const activeSubPanel = activePanel.querySelector('[data-settings-panel]:not([hidden])');
+          const subKey = activeSubPanel?.dataset?.settingsPanel || '';
+          if (subKey === 'prompts') {
+            const btn = document.getElementById('newCommandBtn');
+            if (btn && !btn.disabled) btn.click();
+          } else if (subKey === 'skills') {
+            const btn = document.getElementById('newSkillBtn');
+            if (btn && !btn.disabled) btn.click();
+          }
+        }
+      }
+
       // `g` prefix handling: wait up to 1.5 s for the second key.
       let gPending = false;
       let gTimer = null;
@@ -8784,6 +8814,12 @@
         if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault();
           triggerRefresh();
+          return;
+        }
+
+        if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          triggerNew();
           return;
         }
       });
