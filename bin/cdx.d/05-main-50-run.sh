@@ -199,7 +199,12 @@ changed = False
 
 def is_header(line: str) -> bool:
     stripped = line.strip()
-    return stripped.startswith("[") and stripped.endswith("]")
+    if not stripped.startswith("["):
+        return False
+    # Strip optional inline comment before the end-bracket check so that
+    # `[section] # comment` is correctly recognised as a table header.
+    without_comment = stripped.split("#")[0].rstrip()
+    return without_comment.endswith("]")
 
 
 table_index = None

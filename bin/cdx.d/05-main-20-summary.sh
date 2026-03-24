@@ -561,7 +561,12 @@ toml_table_enabled() {
     BEGIN { in_table=0; found=0; disabled=0 }
     {
       line = trim($0)
-      if (line == header) { in_table=1; found=1; next }
+      # Match the header exactly or with a trailing inline comment
+      # (e.g. `[mcp_servers.cdx] # remark` is valid TOML and must still be matched).
+      if (line == header || \
+          (substr(line, 1, length(header)) == header && \
+           substr(line, length(header)+1) ~ /^[[:space:]]*(#.*)?$/)) \
+        { in_table=1; found=1; next }
       if (in_table && line ~ /^\[/) { in_table=0 }
       if (in_table && line ~ /^enabled[[:space:]]*=[[:space:]]*false([[:space:]]*(#.*)?)?$/) { disabled=1 }
     }

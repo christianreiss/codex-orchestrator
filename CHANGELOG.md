@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: fixed two TOML inline-comment bugs — `toml_table_enabled` (used by `--doctor` MCP detection) now matches section headers that carry a trailing `# comment` (e.g. `[mcp_servers.cdx] # remark`) instead of falsely reporting the table as missing; `is_header` inside `ensure_project_path_trusted_in_config` also gained the same fix so section-boundary detection no longer overshoots when the next header has an inline comment, preventing potential `trust_level` mis-insertion in config.toml. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Tests: added `PayloadHelperTest` with 41 unit tests covering all three public methods of `PayloadHelper` — `extractSyncAuthFingerprint` (defaults, auth-subkey extraction, digest validation/normalization, installation_id handling), `extractSyncAuthCandidate` (null/non-array inputs, missing key, valid/invalid candidate types), and `extractSyncHostUserInput` (flat vs. `host_user` subkey, whitespace trimming, partial fields, non-array subkey fallback); `PayloadHelper` previously had zero direct test coverage.
 
 # 2026-03-24
