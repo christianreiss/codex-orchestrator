@@ -3614,6 +3614,12 @@ h1, h2, h3 {
   outline-offset: 2px;
 }
 
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+select,
+textarea {
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
 button {
   background: var(--panel);
   color: var(--text);
@@ -4235,7 +4241,9 @@ body[data-nav-version="2026"] .editorial-rail {
   align-items: center;
   gap: 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 body[data-nav-version="2026"] .rail-brand {
@@ -5003,6 +5011,12 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
   .log-tab,
   .hosts-nav-link.host-tab,
   .logs-nav-link.log-tab {
+    transition: none !important;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
     transition: none !important;
   }
 }

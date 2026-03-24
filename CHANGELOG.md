@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: visual polish — (1) sticky editorial-rail nav now uses `backdrop-filter: blur(12px)` with a slightly lower background opacity (82% → was 96%) so content scrolling beneath the nav blurs through the frosted surface, matching the depth treatment already used by cards, modals, and the login panel; (2) dashboard `input`, `select`, and `textarea` elements now animate their `border-color` and `box-shadow` properties over 180 ms so focus rings and hover border changes cross-fade instead of snapping, consistent with the login page's input transitions; both changes respect `prefers-reduced-motion`.
+
+# 2026-03-24
 - cdx wrapper: fixed `dangerously_bypass_approvals_and_sandbox = true` config setting being silently ignored — the `apply_codex_cli_toggles_from_config` helper was calling `set -- "$line" "$@"` inside a bash function body, which only modifies the function's local `$@`; the `--dangerously-bypass-approvals-and-sandbox` flag was therefore never prepended to the args passed to `codex`; replaced the function wrapper with inline script-scope logic so `set --` modifies the global positional parameters. Rebuilt `bin/cdx`.
 - Admin UI: hardened `hydrateRoles` in `users.js` — role keys and labels from the server were injected into `<select>` `innerHTML` without HTML-escaping; applied `escapeHtml` to both key (`value` attribute) and label (option text content) to prevent unexpected HTML injection if server-side role metadata ever contains special characters; cache-bumped `users.js` to `v=2026-03-24-05`.
 
