@@ -144,3 +144,103 @@ perform_update() (
   fi
   log_info "Codex updated to ${new_version}"
 )
+
+resolve_wrapper_target_url() {
+  local target_url="${1:-}"
+
+  if [[ -z "$target_url" ]] && [[ -n "${CODEX_SYNC_BASE_URL:-}" ]]; then
+    target_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
+  if [[ -n "$target_url" && "$target_url" != http* ]]; then
+    target_url="${CODEX_SYNC_BASE_URL%/}${target_url}"
+  fi
+
+  printf '%s' "$target_url"
+}
+
+wrapper_self_update_needed() {
+  local target_wrapper="${1:-}"
+  local target_wrapper_sha="${2:-}"
+  local need_wrapper_update=0
+
+  if [[ -n "$target_wrapper" && "$target_wrapper" != "${WRAPPER_VERSION:-}" ]]; then
+    need_wrapper_update=1
+  fi
+  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
+    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
+      if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
+        need_wrapper_update=1
+      fi
+    fi
+  fi
+
+  return $need_wrapper_update
+}
+
+WRAPPER_UPDATE_LAST_ERROR=""
+
+perform_wrapper_self_update() {
+  local target_wrapper="${1:-}"
+  local target_wrapper_sha="${2:-}"
+  local target_wrapper_url="${3:-}"
+  WRAPPER_UPDATE_LAST_ERROR=""
+
+  if [[ -z "$CODEX_SYNC_API_KEY" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="API key missing"
+    return 1
+  fi
+  if [[ -z "$target_wrapper_url" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="missing download URL"
+    return 1
+  fi
+
+  local tmpdir tmpwrapper dl_sha
+  tmpdir="$(mktemp -d)"
+  tmpwrapper="$tmpdir/cdx"
+  local -a curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
+    curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
+  fi
+  case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
+    1|true|yes)
+      curl_args+=("-k")
+      ;;
+  esac
+
+  if ! curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
+    WRAPPER_UPDATE_LAST_ERROR="download error"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
+  if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="hash mismatch"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  chmod +x "$tmpwrapper"
+  if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
+    install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
+  elif (( CAN_SUDO )); then
+    if ! $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
+      WRAPPER_UPDATE_LAST_ERROR="sudo install denied"
+      rm -rf "$tmpdir"
+      return 1
+    fi
+  else
+    WRAPPER_UPDATE_LAST_ERROR="no permission"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  rm -rf "$tmpdir"
+  if [[ -n "$target_wrapper" ]]; then
+    WRAPPER_VERSION="$target_wrapper"
+  fi
+  return 0
+}

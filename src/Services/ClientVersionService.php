@@ -60,6 +60,7 @@ class ClientVersionService
             'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
             'wrapper_url' => $wrapperMeta['url'] ?? null,
             'reported_client_version' => $reported['client_version'],
+            'reported_wrapper_version' => $reported['wrapper_version'],
             'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
             'quota_limit_percent' => $this->quotaLimitPercent(),
             'quota_week_partition' => $this->quotaWeekPartition(),
@@ -150,6 +151,7 @@ class ClientVersionService
         $hosts = $this->hosts->all();
 
         $latestClient = null;
+        $latestWrapper = null;
 
         foreach ($hosts as $host) {
             $client = $host['client_version'] ?? null;
@@ -158,11 +160,18 @@ class ClientVersionService
                     $latestClient = $client;
                 }
             }
+
+            $wrapper = $host['wrapper_version'] ?? null;
+            if (is_string($wrapper) && $wrapper !== '') {
+                if ($latestWrapper === null || $this->isVersionGreater($wrapper, $latestWrapper)) {
+                    $latestWrapper = $wrapper;
+                }
+            }
         }
 
         return [
             'client_version' => $this->canonicalVersion($latestClient),
-            'wrapper_version' => null,
+            'wrapper_version' => $this->canonicalVersion($latestWrapper),
         ];
     }
 

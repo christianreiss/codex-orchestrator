@@ -1189,12 +1189,17 @@ class AdminOverviewController
 
         $targetVersion = CodexVersionPolicy::normalize($versions['client_version'] ?? null);
         $hostVersion = CodexVersionPolicy::normalize($host['client_version'] ?? null);
+        $targetWrapperVersion = CodexVersionPolicy::normalize($versions['wrapper_version'] ?? null);
+        $hostWrapperVersion = CodexVersionPolicy::normalize($host['wrapper_version'] ?? null);
         $targetCheckedAt = $this->normalizeIsoTimestamp($versions['client_version_checked_at'] ?? null);
-        $updateNeeded = $this->isHostBehindTarget(
+        $clientUpdateNeeded = $this->isHostBehindTarget(
             $hostVersion,
             $targetVersion,
             (bool) ($versions['client_version_enforce_exact'] ?? false)
         );
+        $wrapperUpdateNeeded = $targetWrapperVersion !== null
+            && ($hostWrapperVersion === null || $hostWrapperVersion !== $targetWrapperVersion);
+        $updateNeeded = $clientUpdateNeeded || $wrapperUpdateNeeded;
 
         $availableEvent = $cronEvents['cron.update_available'] ?? null;
         $reportedEvent = $cronEvents['cron.update_reported'] ?? null;
@@ -1212,7 +1217,7 @@ class AdminOverviewController
                     'emoji' => '⚠️',
                     'rank' => 1,
                     'last_event_at' => $lastCronCheck,
-                    'target_version' => $targetVersion,
+                    'target_version' => $targetVersion ?? $targetWrapperVersion,
                 ];
             }
 
@@ -1223,7 +1228,7 @@ class AdminOverviewController
                 'emoji' => '-',
                 'rank' => 2,
                 'last_event_at' => $lastCronCheck,
-                'target_version' => $targetVersion,
+                'target_version' => $targetVersion ?? $targetWrapperVersion,
             ];
         }
 
@@ -1235,14 +1240,16 @@ class AdminOverviewController
                 'emoji' => '⚠️',
                 'rank' => 1,
                 'last_event_at' => $lastCronCheck,
-                'target_version' => $targetVersion,
+                'target_version' => $targetVersion ?? $targetWrapperVersion,
             ];
         }
 
-        $hostAtTarget = $targetVersion !== null
-            && $hostVersion !== null
-            && $hostVersion === $targetVersion;
-        $newReleaseSinceCheck = $updateNeeded
+        $clientAtTarget = $targetVersion === null
+            || ($hostVersion !== null && $hostVersion === $targetVersion);
+        $wrapperAtTarget = $targetWrapperVersion === null
+            || ($hostWrapperVersion !== null && $hostWrapperVersion === $targetWrapperVersion);
+        $hostAtTarget = $clientAtTarget && $wrapperAtTarget;
+        $newReleaseSinceCheck = $clientUpdateNeeded
             && $lastCronCheck !== null
             && $targetCheckedAt !== null
             && strtotime($targetCheckedAt) > strtotime($lastCronCheck);
@@ -1251,11 +1258,11 @@ class AdminOverviewController
             return [
                 'effective_enabled' => true,
                 'state' => 'enabled_update_succeeded',
-                'label' => 'Checked in and auto-update succeeded',
+                'label' => 'Checked in and auto-update succeeded for Codex and wrapper',
                 'emoji' => '✅',
                 'rank' => 0,
                 'last_event_at' => $reportedAt ?? $lastCronCheck,
-                'target_version' => $targetVersion,
+                'target_version' => $targetVersion ?? $targetWrapperVersion,
             ];
         }
 
@@ -1267,30 +1274,35 @@ class AdminOverviewController
                 'emoji' => '⚠️',
                 'rank' => 1,
                 'last_event_at' => $targetCheckedAt,
-                'target_version' => $targetVersion,
+                'target_version' => $targetVersion ?? $targetWrapperVersion,
             ];
         }
 
         if ($updateNeeded) {
+            $label = $clientUpdateNeeded && $wrapperUpdateNeeded
+                ? 'Checked in, but Codex and wrapper still need updates'
+                : ($wrapperUpdateNeeded
+                    ? 'Checked in, but wrapper still needs an update'
+                    : 'Checked in, but Codex still needs an update');
             return [
                 'effective_enabled' => true,
                 'state' => 'enabled_checked_update_needed',
-                'label' => 'Checked in, update still needed',
+                'label' => $label,
                 'emoji' => '⚠️',
                 'rank' => 1,
                 'last_event_at' => $availableAt ?? $lastCronCheck,
-                'target_version' => $targetVersion,
+                'target_version' => $targetVersion ?? $targetWrapperVersion,
             ];
         }
 
         return [
             'effective_enabled' => true,
             'state' => 'enabled_current_checked',
-            'label' => 'Checked in and already current',
+            'label' => 'Checked in and already current for Codex and wrapper',
             'emoji' => '✅',
             'rank' => 0,
             'last_event_at' => $lastCronCheck,
-            'target_version' => $targetVersion,
+            'target_version' => $targetVersion ?? $targetWrapperVersion,
         ];
     }
 

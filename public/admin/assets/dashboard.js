@@ -1800,18 +1800,26 @@
       const lockAt = currentOverview?.client_version_lock_updated_at ?? null;
       const target = normalizeCodexVersion(currentOverview?.versions?.client_version ?? '');
       const reported = normalizeCodexVersion(currentOverview?.versions?.reported_client_version ?? '');
+      const wrapperTarget = typeof currentOverview?.versions?.wrapper_version === 'string'
+        ? currentOverview.versions.wrapper_version.trim().replace(/^v/i, '')
+        : '';
+      const wrapperReported = typeof currentOverview?.versions?.reported_wrapper_version === 'string'
+        ? currentOverview.versions.reported_wrapper_version.trim().replace(/^v/i, '')
+        : '';
       const checkedAt = currentOverview?.versions?.client_version_checked_at ?? null;
 
       if (lock) {
         const at = lockAt ? formatRelative(lockAt) : 'unknown time';
-        const extra = reported && reported !== lock ? ` · Reported in use: ${reported}` : '';
-        codexVersionMeta.textContent = `Pinned to ${lock} (set ${at})${extra}.`;
+        const codexExtra = reported && reported !== lock ? ` · Codex in use: ${reported}` : '';
+        const wrapperExtra = wrapperTarget ? ` · Wrapper target ${wrapperTarget}${wrapperReported && wrapperReported !== wrapperTarget ? `, in use ${wrapperReported}` : ''}` : '';
+        codexVersionMeta.textContent = `Pinned to ${lock} (set ${at})${codexExtra}${wrapperExtra}.`;
         return;
       }
       if (target) {
         const at = checkedAt ? formatRelative(checkedAt) : 'unknown time';
-        const extra = reported && reported !== target ? ` · Reported in use: ${reported}` : '';
-        codexVersionMeta.textContent = `Latest targeting ${target} (checked ${at})${extra}.`;
+        const codexExtra = reported && reported !== target ? ` · Codex in use: ${reported}` : '';
+        const wrapperExtra = wrapperTarget ? ` · Wrapper target ${wrapperTarget}${wrapperReported && wrapperReported !== wrapperTarget ? `, in use ${wrapperReported}` : ''}` : '';
+        codexVersionMeta.textContent = `Latest targeting ${target} (checked ${at})${codexExtra}${wrapperExtra}.`;
         return;
       }
       codexVersionMeta.textContent = 'Latest targeting: unknown (no GitHub version cached yet).';
@@ -5915,7 +5923,7 @@
                 <strong>${codexVersion ? `<span class="upgrade-trigger clickable" data-version="${escapeHtml(codexVersion)}">v${escapeHtml(codexVersionDisplay)}</span>` : 'n/a'}</strong>
               </div>
             </div>
-            <div class="stat-note">Wrapper ${escapeHtml(versions.wrapper_version ?? 'n/a')} · checked ${escapeHtml(checkedAt)}</div>
+            <div class="stat-note">Wrapper ${escapeHtml(versions.wrapper_version ?? 'n/a')} · reported ${escapeHtml(versions.reported_wrapper_version ?? 'n/a')} · checked ${escapeHtml(checkedAt)}</div>
           </div>
         `,
       ];

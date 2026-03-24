@@ -54,6 +54,7 @@
       "wrapper_sha256": "a4dfab14ed740bb7f4f3f3f040f8a337d66a5934a5ff7ce5f0a7e7f1f12ec401",
       "wrapper_url": "/wrapper/download",
       "reported_client_version": "0.101.0",
+      "reported_wrapper_version": "2026.02.20-01",
       "quota_hard_fail": true,
       "quota_limit_percent": 90,
       "quota_week_partition": 7,

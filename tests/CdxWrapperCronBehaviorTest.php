@@ -29,6 +29,7 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString('log_warn "flock not available; cron concurrent-run guard disabled."', $wrapperSource);
         self::assertStringContainsString('cron: update report failed after retries', $wrapperSource);
         self::assertStringContainsString('for report_attempt in 1 2 3; do', $wrapperSource);
+        self::assertStringContainsString("'wrapper_version': '\${WRAPPER_VERSION:-unknown}'", $wrapperSource);
         self::assertStringContainsString('primary.verify_flags &= ~ssl.VERIFY_X509_STRICT', $wrapperSource);
         self::assertStringContainsString('fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT', $wrapperSource);
         self::assertStringContainsString('contexts.append(ssl._create_unverified_context())', $wrapperSource);
@@ -42,6 +43,10 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString('cron_wrapper_entry_installed() {', $wrapperSource);
         self::assertStringContainsString('cron_build_check_payload() {', $wrapperSource);
         self::assertStringContainsString('cron_ping_check_api() {', $wrapperSource);
+        self::assertStringContainsString("wrapper_action=\"\$(printf '%s' \"\$check_response\"", $wrapperSource);
+        self::assertStringContainsString('if [[ "$wrapper_action" == "update" ]]; then', $wrapperSource);
+        self::assertStringContainsString('perform_wrapper_self_update "$wrapper_target_version" "$wrapper_target_sha" "$wrapper_target_url"', $wrapperSource);
+        self::assertStringContainsString('exec env CODEX_WRAPPER_RESTARTED=1 "$SCRIPT_REAL" --cron', $wrapperSource);
         self::assertStringContainsString('CRON_CHECK_RESPONSE=""', $wrapperSource);
         self::assertStringContainsString('CRON_CHECK_RESPONSE="$check_response"', $wrapperSource);
         self::assertStringContainsString('reconcile_cron_job_state() {', $wrapperSource);

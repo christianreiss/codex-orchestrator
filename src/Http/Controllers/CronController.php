@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Response;
+use App\Http\VersionHelper;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
@@ -29,6 +30,18 @@ class CronController
 
         $this->hostRepository->touchLastCronCheck($hostId);
 
+        $submittedVersion = VersionHelper::extractClientVersion($payload);
+        $submittedWrapperVersion = VersionHelper::extractWrapperVersion($payload);
+        if ($submittedVersion !== null || $submittedWrapperVersion !== null) {
+            $this->hostRepository->updateReportedVersions($hostId, $submittedVersion, $submittedWrapperVersion);
+            if ($submittedVersion !== null) {
+                $host['client_version'] = $submittedVersion;
+            }
+            if ($submittedWrapperVersion !== null) {
+                $host['wrapper_version'] = $submittedWrapperVersion;
+            }
+        }
+
         // Resolve effective auto-update setting: per-host override wins, then fleet default.
         $override = $host['auto_update_override'] ?? null;
         if ($override !== null) {
@@ -40,7 +53,15 @@ class CronController
         if (!$autoUpdateEnabled) {
             Response::json([
                 'status' => 'ok',
-                'data' => ['action' => 'disable'],
+                'data' => [
+                    'action' => 'disable',
+                    'wrapper' => [
+                        'action' => 'no_update',
+                        'target_version' => null,
+                        'sha256' => null,
+                        'url' => null,
+                    ],
+                ],
             ]);
         }
 
@@ -50,23 +71,41 @@ class CronController
 
         $targetVersion = CodexVersionPolicy::normalize($versions['client_version'] ?? null);
         $enforceExact = $versions['client_version_enforce_exact'] ?? false;
-        $submittedVersion = CodexVersionPolicy::normalize($payload['client_version'] ?? null);
 
-        $needUpdate = false;
+        $needClientUpdate = false;
         if ($targetVersion !== null && $submittedVersion !== null) {
             if ($enforceExact) {
-                $needUpdate = ($submittedVersion !== $targetVersion);
+                $needClientUpdate = ($submittedVersion !== $targetVersion);
             } else {
-                $needUpdate = version_compare($submittedVersion, $targetVersion, '<');
+                $needClientUpdate = version_compare($submittedVersion, $targetVersion, '<');
             }
         } elseif ($targetVersion !== null && $submittedVersion === null) {
-            $needUpdate = true;
+            $needClientUpdate = true;
         }
 
-        if (!$needUpdate) {
+        $targetWrapperVersion = CodexVersionPolicy::normalize($versions['wrapper_version'] ?? null);
+        $wrapperUpdate = [
+            'action' => 'no_update',
+            'target_version' => $targetWrapperVersion,
+            'sha256' => $versions['wrapper_sha256'] ?? null,
+            'url' => $versions['wrapper_url'] ?? null,
+        ];
+
+        $needWrapperUpdate = false;
+        if ($targetWrapperVersion !== null) {
+            $needWrapperUpdate = $submittedWrapperVersion === null || $submittedWrapperVersion !== $targetWrapperVersion;
+            if ($needWrapperUpdate) {
+                $wrapperUpdate['action'] = 'update';
+            }
+        }
+
+        if (!$needClientUpdate && !$needWrapperUpdate) {
             Response::json([
                 'status' => 'ok',
-                'data' => ['action' => 'no_update'],
+                'data' => [
+                    'action' => 'no_update',
+                    'wrapper' => $wrapperUpdate,
+                ],
             ]);
         }
 
@@ -74,17 +113,29 @@ class CronController
         $tag = $targetVersion;
 
         $this->logRepository->log($hostId, 'cron.update_available', [
-            'current' => $submittedVersion,
-            'target' => $targetVersion,
+            'client' => [
+                'current' => $submittedVersion,
+                'target' => $targetVersion,
+                'needs_update' => $needClientUpdate,
+                'enforce_exact' => $enforceExact,
+            ],
+            'wrapper' => [
+                'current' => $submittedWrapperVersion,
+                'target' => $targetWrapperVersion,
+                'needs_update' => $needWrapperUpdate,
+                'sha256' => $versions['wrapper_sha256'] ?? null,
+                'url' => $versions['wrapper_url'] ?? null,
+            ],
         ]);
 
         Response::json([
             'status' => 'ok',
             'data' => [
-                'action' => 'update',
-                'target_version' => $targetVersion,
+                'action' => $needClientUpdate ? 'update' : 'no_update',
+                'target_version' => $needClientUpdate ? $targetVersion : null,
                 'tag' => $tag,
                 'enforce_exact' => $enforceExact,
+                'wrapper' => $wrapperUpdate,
             ],
         ]);
     }
@@ -96,26 +147,24 @@ class CronController
         $host = $this->service->authenticateForCron($apiKey, $clientIp);
         $hostId = (int) $host['id'];
 
-        $clientVersion = $payload['client_version'] ?? null;
-        if (!is_string($clientVersion) || trim($clientVersion) === '') {
+        $clientVersion = VersionHelper::extractClientVersion($payload);
+        $wrapperVersion = VersionHelper::extractWrapperVersion($payload);
+        if ($clientVersion === null && $wrapperVersion === null) {
             Response::json([
                 'status' => 'error',
-                'message' => 'client_version is required',
+                'message' => 'client_version or wrapper_version is required',
             ], 422);
         }
 
-        $normalized = CodexVersionPolicy::normalize($clientVersion);
-        if ($normalized === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Invalid client_version',
-            ], 422);
-        }
-
-        $this->hostRepository->updateClientVersions($hostId, $normalized, $host['wrapper_version'] ?? null);
+        $this->hostRepository->updateReportedVersions($hostId, $clientVersion, $wrapperVersion);
 
         $this->logRepository->log($hostId, 'cron.update_reported', [
-            'client_version' => $normalized,
+            'client' => [
+                'reported' => $clientVersion,
+            ],
+            'wrapper' => [
+                'reported' => $wrapperVersion,
+            ],
         ]);
 
         Response::json([

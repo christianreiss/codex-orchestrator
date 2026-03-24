@@ -5515,17 +5515,42 @@ cron_auto_update() {
   }
   check_response="$CRON_CHECK_RESPONSE"
 
-  local action target_version tag enforce_exact
+  local action target_version tag wrapper_action wrapper_target_version wrapper_target_sha wrapper_target_url
   action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('action',''))" 2>/dev/null || true)"
-
-  if [[ "$action" == "no_update" ]]; then
-    printf '[%s] cron: no update needed (current: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${local_version:-unknown}"
-    return 0
-  fi
+  wrapper_action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('action',''))" 2>/dev/null || true)"
+  wrapper_target_version="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('target_version',''))" 2>/dev/null || true)"
+  wrapper_target_sha="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('sha256',''))" 2>/dev/null || true)"
+  wrapper_target_url="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('url',''))" 2>/dev/null || true)"
+  wrapper_target_url="$(resolve_wrapper_target_url "$wrapper_target_url")"
 
   if [[ "$action" == "disable" ]]; then
     printf '[%s] cron: auto-update disabled by server; removing cron job.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     remove_cron_job
+    return 0
+  fi
+
+  if [[ "$wrapper_action" == "update" ]]; then
+    if [[ -z "$wrapper_target_version" || -z "$wrapper_target_url" ]]; then
+      printf '[%s] cron: wrapper update requested but target metadata is incomplete.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      return 1
+    fi
+
+    if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
+      printf '[%s] cron: wrapper update loop detected for target %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version"
+      return 1
+    fi
+
+    if perform_wrapper_self_update "$wrapper_target_version" "$wrapper_target_sha" "$wrapper_target_url"; then
+      printf '[%s] cron: wrapper updated to %s; restarting cron flow.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version"
+      exec env CODEX_WRAPPER_RESTARTED=1 "$SCRIPT_REAL" --cron
+    fi
+
+    printf '[%s] cron: wrapper update to %s failed (%s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version" "${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
+    return 1
+  fi
+
+  if [[ "$action" == "no_update" ]]; then
+    printf '[%s] cron: no update needed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     return 0
   fi
 
@@ -5613,7 +5638,10 @@ cron_auto_update() {
 
     # Report success to API.
     local report_payload
-    report_payload="$(python3 -c "import json; print(json.dumps({'client_version': '${new_version:-$target_version}'}))")"
+    report_payload="$(python3 -c "import json; print(json.dumps({
+      'client_version': '${new_version:-$target_version}',
+      'wrapper_version': '${WRAPPER_VERSION:-unknown}'
+    }))")"
     local report_url="${CODEX_SYNC_BASE_URL}/cron/report"
     local report_attempt report_ok=0
     for report_attempt in 1 2 3; do
@@ -5625,11 +5653,11 @@ cron_auto_update() {
     done
 
     if (( report_ok == 0 )); then
-      printf '[%s] cron: update report failed after retries (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+      printf '[%s] cron: update report failed after retries (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
       return 1
     fi
 
-    printf '[%s] cron: update reported (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+    printf '[%s] cron: update reported (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
     return 0
   else
     printf '[%s] cron: update to %s failed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
@@ -5798,6 +5826,106 @@ perform_update() (
   fi
   log_info "Codex updated to ${new_version}"
 )
+
+resolve_wrapper_target_url() {
+  local target_url="${1:-}"
+
+  if [[ -z "$target_url" ]] && [[ -n "${CODEX_SYNC_BASE_URL:-}" ]]; then
+    target_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
+  if [[ -n "$target_url" && "$target_url" != http* ]]; then
+    target_url="${CODEX_SYNC_BASE_URL%/}${target_url}"
+  fi
+
+  printf '%s' "$target_url"
+}
+
+wrapper_self_update_needed() {
+  local target_wrapper="${1:-}"
+  local target_wrapper_sha="${2:-}"
+  local need_wrapper_update=0
+
+  if [[ -n "$target_wrapper" && "$target_wrapper" != "${WRAPPER_VERSION:-}" ]]; then
+    need_wrapper_update=1
+  fi
+  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
+    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
+      if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
+        need_wrapper_update=1
+      fi
+    fi
+  fi
+
+  return $need_wrapper_update
+}
+
+WRAPPER_UPDATE_LAST_ERROR=""
+
+perform_wrapper_self_update() {
+  local target_wrapper="${1:-}"
+  local target_wrapper_sha="${2:-}"
+  local target_wrapper_url="${3:-}"
+  WRAPPER_UPDATE_LAST_ERROR=""
+
+  if [[ -z "$CODEX_SYNC_API_KEY" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="API key missing"
+    return 1
+  fi
+  if [[ -z "$target_wrapper_url" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="missing download URL"
+    return 1
+  fi
+
+  local tmpdir tmpwrapper dl_sha
+  tmpdir="$(mktemp -d)"
+  tmpwrapper="$tmpdir/cdx"
+  local -a curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
+  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
+    curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
+  fi
+  case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
+    1|true|yes)
+      curl_args+=("-k")
+      ;;
+  esac
+
+  if ! curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
+    WRAPPER_UPDATE_LAST_ERROR="download error"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
+  if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="hash mismatch"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  chmod +x "$tmpwrapper"
+  if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
+    install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
+  elif (( CAN_SUDO )); then
+    if ! $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
+      WRAPPER_UPDATE_LAST_ERROR="sudo install denied"
+      rm -rf "$tmpdir"
+      return 1
+    fi
+  else
+    WRAPPER_UPDATE_LAST_ERROR="no permission"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  rm -rf "$tmpdir"
+  if [[ -n "$target_wrapper" ]]; then
+    WRAPPER_VERSION="$target_wrapper"
+  fi
+  return 0
+}
 
 
 API_RELEASES_URL="https://api.github.com/repos/openai/codex/releases"
@@ -6008,13 +6136,7 @@ defer_codex_update_for_wrapper=0
 if (( need_update )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) \
   && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
   precheck_target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
-  precheck_target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
-  if [[ -z "$precheck_target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
-    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
-  fi
-  if [[ -n "$precheck_target_wrapper_url" && "$precheck_target_wrapper_url" != http* ]]; then
-    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${precheck_target_wrapper_url}"
-  fi
+  precheck_target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
   if [[ -n "$precheck_target_wrapper" && "$precheck_target_wrapper" != "$WRAPPER_VERSION" \
     && -n "$precheck_target_wrapper_url" && -n "$CODEX_SYNC_API_KEY" ]]; then
     defer_codex_update_for_wrapper=1
@@ -6169,26 +6291,12 @@ wrapper_target_label="$WRAPPER_VERSION"
 if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; }; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
-  target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
+  target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
   wrapper_target_label="${target_wrapper:-$WRAPPER_VERSION}"
 
-  if [[ -z "$target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
-    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
-  fi
-  if [[ -n "$target_wrapper_url" && "$target_wrapper_url" != http* ]]; then
-    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${target_wrapper_url}"
-  fi
-
   need_wrapper_update=0
-  if [[ -n "$target_wrapper" && "$target_wrapper" != "$WRAPPER_VERSION" ]]; then
+  if wrapper_self_update_needed "$target_wrapper" "$target_wrapper_sha"; then
     need_wrapper_update=1
-  fi
-  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
-    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
-      if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
-        need_wrapper_update=1
-      fi
-    fi
   fi
   if (( CODEX_FORCE_WRAPPER_UPDATE )); then
     need_wrapper_update=1
@@ -6203,67 +6311,19 @@ if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODE
       wrapper_status_label="Update skipped"
       wrapper_status_note="API key missing"
     else
-      tmpdir="$(mktemp -d)"
-      tmpwrapper="$tmpdir/cdx"
-      curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
-      if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
-        curl_args+=("-4")
-      fi
-      if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
-        curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
-      fi
-      case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
-        1|true|yes)
-          curl_args+=("-k")
-          ;;
-      esac
-      if curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
-        dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
-        if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
-          log_warn "Wrapper update skipped: hash mismatch (expected ${target_wrapper_sha}, got ${dl_sha})"
-          wrapper_update_failed=1
-          wrapper_status_label="Update skipped"
-          wrapper_status_note="hash mismatch"
-        else
-          chmod +x "$tmpwrapper"
-          if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
-            install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
-            WRAPPER_VERSION="$target_wrapper"
-            wrapper_state="updated (${WRAPPER_VERSION})"
-            wrapper_updated=1
-            wrapper_status_label="Updated"
-            if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-              wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
-            fi
-          elif (( CAN_SUDO )); then
-            if $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
-              WRAPPER_VERSION="$target_wrapper"
-              wrapper_state="updated (${WRAPPER_VERSION})"
-              wrapper_updated=1
-              wrapper_status_label="Updated"
-              if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-                wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
-              fi
-            else
-              log_warn "Wrapper update failed: sudo install denied"
-              wrapper_update_failed=1
-              wrapper_status_label="Update failed"
-              wrapper_status_note="sudo install denied"
-            fi
-          else
-            log_warn "Wrapper update skipped: insufficient permissions to write $(dirname "$SCRIPT_REAL")"
-            wrapper_update_failed=1
-            wrapper_status_label="Update skipped"
-            wrapper_status_note="no permission"
-          fi
+      if perform_wrapper_self_update "$target_wrapper" "$target_wrapper_sha" "$target_wrapper_url"; then
+        wrapper_state="updated (${WRAPPER_VERSION})"
+        wrapper_updated=1
+        wrapper_status_label="Updated"
+        if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
+          wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
         fi
       else
-        log_warn "Wrapper update failed: download error"
+        log_warn "Wrapper update failed: ${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
         wrapper_update_failed=1
         wrapper_status_label="Update failed"
-        wrapper_status_note="download error"
+        wrapper_status_note="${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
       fi
-      rm -rf "$tmpdir"
     fi
   elif (( need_wrapper_update )) && [[ -z "$target_wrapper_url" ]]; then
     log_warn "Wrapper update skipped: API did not provide download URL"

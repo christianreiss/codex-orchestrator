@@ -207,13 +207,7 @@ defer_codex_update_for_wrapper=0
 if (( need_update )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) \
   && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
   precheck_target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
-  precheck_target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
-  if [[ -z "$precheck_target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
-    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
-  fi
-  if [[ -n "$precheck_target_wrapper_url" && "$precheck_target_wrapper_url" != http* ]]; then
-    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${precheck_target_wrapper_url}"
-  fi
+  precheck_target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
   if [[ -n "$precheck_target_wrapper" && "$precheck_target_wrapper" != "$WRAPPER_VERSION" \
     && -n "$precheck_target_wrapper_url" && -n "$CODEX_SYNC_API_KEY" ]]; then
     defer_codex_update_for_wrapper=1
@@ -368,26 +362,12 @@ wrapper_target_label="$WRAPPER_VERSION"
 if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; }; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
-  target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
+  target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
   wrapper_target_label="${target_wrapper:-$WRAPPER_VERSION}"
 
-  if [[ -z "$target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
-    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
-  fi
-  if [[ -n "$target_wrapper_url" && "$target_wrapper_url" != http* ]]; then
-    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${target_wrapper_url}"
-  fi
-
   need_wrapper_update=0
-  if [[ -n "$target_wrapper" && "$target_wrapper" != "$WRAPPER_VERSION" ]]; then
+  if wrapper_self_update_needed "$target_wrapper" "$target_wrapper_sha"; then
     need_wrapper_update=1
-  fi
-  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
-    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
-      if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
-        need_wrapper_update=1
-      fi
-    fi
   fi
   if (( CODEX_FORCE_WRAPPER_UPDATE )); then
     need_wrapper_update=1
@@ -402,67 +382,19 @@ if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODE
       wrapper_status_label="Update skipped"
       wrapper_status_note="API key missing"
     else
-      tmpdir="$(mktemp -d)"
-      tmpwrapper="$tmpdir/cdx"
-      curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
-      if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
-        curl_args+=("-4")
-      fi
-      if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
-        curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
-      fi
-      case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
-        1|true|yes)
-          curl_args+=("-k")
-          ;;
-      esac
-      if curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
-        dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
-        if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
-          log_warn "Wrapper update skipped: hash mismatch (expected ${target_wrapper_sha}, got ${dl_sha})"
-          wrapper_update_failed=1
-          wrapper_status_label="Update skipped"
-          wrapper_status_note="hash mismatch"
-        else
-          chmod +x "$tmpwrapper"
-          if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
-            install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
-            WRAPPER_VERSION="$target_wrapper"
-            wrapper_state="updated (${WRAPPER_VERSION})"
-            wrapper_updated=1
-            wrapper_status_label="Updated"
-            if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-              wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
-            fi
-          elif (( CAN_SUDO )); then
-            if $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
-              WRAPPER_VERSION="$target_wrapper"
-              wrapper_state="updated (${WRAPPER_VERSION})"
-              wrapper_updated=1
-              wrapper_status_label="Updated"
-              if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-                wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
-              fi
-            else
-              log_warn "Wrapper update failed: sudo install denied"
-              wrapper_update_failed=1
-              wrapper_status_label="Update failed"
-              wrapper_status_note="sudo install denied"
-            fi
-          else
-            log_warn "Wrapper update skipped: insufficient permissions to write $(dirname "$SCRIPT_REAL")"
-            wrapper_update_failed=1
-            wrapper_status_label="Update skipped"
-            wrapper_status_note="no permission"
-          fi
+      if perform_wrapper_self_update "$target_wrapper" "$target_wrapper_sha" "$target_wrapper_url"; then
+        wrapper_state="updated (${WRAPPER_VERSION})"
+        wrapper_updated=1
+        wrapper_status_label="Updated"
+        if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
+          wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
         fi
       else
-        log_warn "Wrapper update failed: download error"
+        log_warn "Wrapper update failed: ${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
         wrapper_update_failed=1
         wrapper_status_label="Update failed"
-        wrapper_status_note="download error"
+        wrapper_status_note="${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
       fi
-      rm -rf "$tmpdir"
     fi
   elif (( need_wrapper_update )) && [[ -z "$target_wrapper_url" ]]; then
     log_warn "Wrapper update skipped: API did not provide download URL"

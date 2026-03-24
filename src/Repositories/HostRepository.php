@@ -208,10 +208,29 @@ class HostRepository
 
     public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
     {
-        $this->updateHostFields($hostId, 'client_version = :client_version, wrapper_version = :wrapper_version', [
-            'client_version' => $clientVersion,
-            'wrapper_version' => $wrapperVersion,
-        ]);
+        $this->updateReportedVersions($hostId, $clientVersion, $wrapperVersion);
+    }
+
+    public function updateReportedVersions(int $hostId, ?string $clientVersion, ?string $wrapperVersion): void
+    {
+        $assignments = [];
+        $params = [];
+
+        if ($clientVersion !== null) {
+            $assignments[] = 'client_version = :client_version';
+            $params['client_version'] = $clientVersion;
+        }
+
+        if ($wrapperVersion !== null) {
+            $assignments[] = 'wrapper_version = :wrapper_version';
+            $params['wrapper_version'] = $wrapperVersion;
+        }
+
+        if ($assignments === []) {
+            return;
+        }
+
+        $this->updateHostFields($hostId, implode(', ', $assignments), $params);
     }
 
     public function updateSyncState(int $hostId, string $lastRefresh, string $authDigest): void

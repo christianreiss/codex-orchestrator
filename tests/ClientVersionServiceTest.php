@@ -231,37 +231,40 @@ final class ClientVersionServiceTest extends TestCase
     public function testLatestReportedVersionsReturnsNullWhenAllHostsHaveNoVersion(): void
     {
         $this->hosts->method('all')->willReturn([
-            ['id' => 1, 'client_version' => null],
-            ['id' => 2, 'client_version' => ''],
+            ['id' => 1, 'client_version' => null, 'wrapper_version' => null],
+            ['id' => 2, 'client_version' => '', 'wrapper_version' => ''],
         ]);
 
         $result = $this->svc->latestReportedVersions();
 
         $this->assertNull($result['client_version']);
+        $this->assertNull($result['wrapper_version']);
     }
 
     public function testLatestReportedVersionsReturnsSingleHostVersion(): void
     {
         $this->hosts->method('all')->willReturn([
-            ['id' => 1, 'client_version' => '0.120.0'],
+            ['id' => 1, 'client_version' => '0.120.0', 'wrapper_version' => '2026.03.24-01'],
         ]);
 
         $result = $this->svc->latestReportedVersions();
 
         $this->assertSame('0.120.0', $result['client_version']);
+        $this->assertSame('2026.03.24-01', $result['wrapper_version']);
     }
 
     public function testLatestReportedVersionsPicksHighestVersionAcrossHosts(): void
     {
         $this->hosts->method('all')->willReturn([
-            ['id' => 1, 'client_version' => '0.114.0'],
-            ['id' => 2, 'client_version' => '0.200.0'],
-            ['id' => 3, 'client_version' => '0.150.0'],
+            ['id' => 1, 'client_version' => '0.114.0', 'wrapper_version' => '2026.03.24-01'],
+            ['id' => 2, 'client_version' => '0.200.0', 'wrapper_version' => '2026.03.24-03'],
+            ['id' => 3, 'client_version' => '0.150.0', 'wrapper_version' => '2026.03.24-02'],
         ]);
 
         $result = $this->svc->latestReportedVersions();
 
         $this->assertSame('0.200.0', $result['client_version']);
+        $this->assertSame('2026.03.24-03', $result['wrapper_version']);
     }
 
     public function testLatestReportedVersionsIgnoresPrefixedVersionStrings(): void

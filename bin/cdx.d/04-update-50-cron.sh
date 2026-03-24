@@ -290,17 +290,42 @@ cron_auto_update() {
   }
   check_response="$CRON_CHECK_RESPONSE"
 
-  local action target_version tag enforce_exact
+  local action target_version tag wrapper_action wrapper_target_version wrapper_target_sha wrapper_target_url
   action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('action',''))" 2>/dev/null || true)"
-
-  if [[ "$action" == "no_update" ]]; then
-    printf '[%s] cron: no update needed (current: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${local_version:-unknown}"
-    return 0
-  fi
+  wrapper_action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('action',''))" 2>/dev/null || true)"
+  wrapper_target_version="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('target_version',''))" 2>/dev/null || true)"
+  wrapper_target_sha="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('sha256',''))" 2>/dev/null || true)"
+  wrapper_target_url="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('url',''))" 2>/dev/null || true)"
+  wrapper_target_url="$(resolve_wrapper_target_url "$wrapper_target_url")"
 
   if [[ "$action" == "disable" ]]; then
     printf '[%s] cron: auto-update disabled by server; removing cron job.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     remove_cron_job
+    return 0
+  fi
+
+  if [[ "$wrapper_action" == "update" ]]; then
+    if [[ -z "$wrapper_target_version" || -z "$wrapper_target_url" ]]; then
+      printf '[%s] cron: wrapper update requested but target metadata is incomplete.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      return 1
+    fi
+
+    if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
+      printf '[%s] cron: wrapper update loop detected for target %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version"
+      return 1
+    fi
+
+    if perform_wrapper_self_update "$wrapper_target_version" "$wrapper_target_sha" "$wrapper_target_url"; then
+      printf '[%s] cron: wrapper updated to %s; restarting cron flow.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version"
+      exec env CODEX_WRAPPER_RESTARTED=1 "$SCRIPT_REAL" --cron
+    fi
+
+    printf '[%s] cron: wrapper update to %s failed (%s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version" "${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
+    return 1
+  fi
+
+  if [[ "$action" == "no_update" ]]; then
+    printf '[%s] cron: no update needed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     return 0
   fi
 
@@ -388,7 +413,10 @@ cron_auto_update() {
 
     # Report success to API.
     local report_payload
-    report_payload="$(python3 -c "import json; print(json.dumps({'client_version': '${new_version:-$target_version}'}))")"
+    report_payload="$(python3 -c "import json; print(json.dumps({
+      'client_version': '${new_version:-$target_version}',
+      'wrapper_version': '${WRAPPER_VERSION:-unknown}'
+    }))")"
     local report_url="${CODEX_SYNC_BASE_URL}/cron/report"
     local report_attempt report_ok=0
     for report_attempt in 1 2 3; do
@@ -400,11 +428,11 @@ cron_auto_update() {
     done
 
     if (( report_ok == 0 )); then
-      printf '[%s] cron: update report failed after retries (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+      printf '[%s] cron: update report failed after retries (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
       return 1
     fi
 
-    printf '[%s] cron: update reported (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+    printf '[%s] cron: update reported (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
     return 0
   else
     printf '[%s] cron: update to %s failed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"

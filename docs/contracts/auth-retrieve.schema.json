@@ -256,6 +256,7 @@
             "wrapper_sha256",
             "wrapper_url",
             "reported_client_version",
+            "reported_wrapper_version",
             "quota_hard_fail",
             "quota_limit_percent",
             "quota_week_partition",
@@ -309,6 +310,12 @@
               ]
             },
             "reported_client_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reported_wrapper_version": {
               "type": [
                 "string",
                 "null"
