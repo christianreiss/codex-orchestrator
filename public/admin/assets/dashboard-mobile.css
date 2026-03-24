@@ -577,6 +577,24 @@ body[data-view="mobile"] .modal {
   border-radius: 18px;
 }
 
+body[data-view="mobile"] .shortcut-help-modal {
+  width: min(96vw, 680px);
+  padding: 22px 18px;
+}
+
+body[data-view="mobile"] .shortcut-help-head {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+body[data-view="mobile"] .shortcut-help-table-wrap {
+  overflow-x: auto;
+}
+
+body[data-view="mobile"] .shortcut-help-table {
+  min-width: 620px;
+}
+
 body[data-view="mobile"] .host-detail-page {
   max-width: none;
 }

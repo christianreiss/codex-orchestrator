@@ -3,15 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Response;
+use App\Http\RequestHelper;
+use App\Http\VersionHelper;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use Throwable;
-
-use function App\Http\resolveActiveQuotaLaneForHost;
-use function App\Http\resolveApiKey;
-use function App\Http\resolveClientIp;
 
 class HostApiController
 {
@@ -52,7 +50,7 @@ class HostApiController
         $host = $this->service->enforceInsecureWindow($host, 'host_lane_get');
 
         $lanePreference = AuthService::normalizeQuotaLane($host['lane_preference'] ?? null);
-        $effectiveLane = resolveActiveQuotaLaneForHost($host, $this->versionRepository, $lanePreference);
+        $effectiveLane = VersionHelper::resolveActiveQuotaLaneForHost($host, $this->versionRepository, $lanePreference);
 
         Response::json([
             'status' => 'ok',
@@ -103,7 +101,7 @@ class HostApiController
 
         $this->hostRepository->updateLanePreference($hostId, $lanePreference);
         $updated = $this->hostRepository->findById($hostId) ?? $host;
-        $effectiveLane = resolveActiveQuotaLaneForHost($updated, $this->versionRepository, $lanePreference);
+        $effectiveLane = VersionHelper::resolveActiveQuotaLaneForHost($updated, $this->versionRepository, $lanePreference);
         $this->logRepository->log($hostId, 'host.lane.set', [
             'fqdn' => $updated['fqdn'] ?? ($host['fqdn'] ?? null),
             'lane_preference' => $lanePreference,
@@ -127,8 +125,8 @@ class HostApiController
 
     public function recordUsage(mixed $payload): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $host = $this->service->authenticate($apiKey, $clientIp);
 
         try {
@@ -157,8 +155,8 @@ class HostApiController
     /** @return array<string, mixed> */
     private function authenticateHost(): array
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
 
         return $this->service->authenticate($apiKey, $clientIp);
     }

@@ -5,6 +5,7 @@
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
     const navInsecureHosts = document.getElementById('navInsecureHosts');
+    const navHelpTrigger = document.getElementById('navHelpTrigger');
     const insecureHostsDisableAllBtn = document.getElementById('insecureHostsDisableAll');
     const mtlsStatus = document.getElementById('mtlsStatus');
     const mtlsSettingStatus = document.getElementById('mtlsSettingStatus');
@@ -174,6 +175,8 @@
     const confirmModalBody = document.getElementById('confirmModalBody');
     const confirmModalCancel = document.getElementById('confirmModalCancel');
     const confirmModalConfirm = document.getElementById('confirmModalConfirm');
+    const helpModal = document.getElementById('helpModal');
+    const helpModalClose = document.getElementById('helpModalClose');
     const insecureApprovalModal = document.getElementById('insecureApprovalModal');
     const insecureApprovalSubtitle = document.getElementById('insecureApprovalSubtitle');
     const insecureApprovalHost = document.getElementById('insecureApprovalHost');
@@ -258,6 +261,9 @@
 
     const THEME_OPTIONS = ['auto', 'light', 'dark'];
     const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+    const SHORTCUT_SEQUENCE_TIMEOUT_MS = 1200;
+    let pendingShortcutPrefix = '';
+    let pendingShortcutTimer = null;
 
     // Dirty-state registry used by config.js and profiles.js to signal unsaved edits.
     // Keys are module names (e.g. 'config', 'profiles'); the Set is non-empty when there
@@ -903,6 +909,153 @@
       }
     }
 
+    function showHelpModal(show) {
+      if (!helpModal) return;
+      const shouldShow = !!show;
+      helpModal.classList.toggle('show', shouldShow);
+      setInertBehindModal(helpModal, shouldShow);
+      if (shouldShow) {
+        window.__railNav?.closeMenus?.();
+        window.setTimeout(() => {
+          helpModalClose?.focus();
+        }, 30);
+      } else {
+        navHelpTrigger?.focus();
+      }
+    }
+
+    function closeHelpModal() {
+      showHelpModal(false);
+    }
+
+    function clearShortcutPrefix() {
+      pendingShortcutPrefix = '';
+      if (pendingShortcutTimer) {
+        window.clearTimeout(pendingShortcutTimer);
+        pendingShortcutTimer = null;
+      }
+    }
+
+    function armShortcutPrefix(prefix) {
+      clearShortcutPrefix();
+      pendingShortcutPrefix = prefix;
+      pendingShortcutTimer = window.setTimeout(() => {
+        clearShortcutPrefix();
+      }, SHORTCUT_SEQUENCE_TIMEOUT_MS);
+    }
+
+    function isEditableShortcutTarget(target) {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+      if (target.closest('[contenteditable="true"]')) return true;
+      const tag = (target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return true;
+      return false;
+    }
+
+    function openModalBackdrop() {
+      return document.querySelector('.modal-backdrop.show');
+    }
+
+    function navigateAdminShortcut(path) {
+      const target = String(path || '').trim();
+      if (!target.startsWith('/admin')) return;
+      const url = new URL(target, window.location.origin);
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      history.pushState({}, '', url.toString());
+      applyRouting();
+    }
+
+    function focusHostsFilterShortcut() {
+      if ((document.body?.dataset?.viewMode || '').toLowerCase() !== 'hosts') {
+        toast('Host filter shortcut only applies in Hosts view.', 'info', { timeoutMs: 1800 });
+        return;
+      }
+      if (!filterInput) return;
+      filterInput.focus();
+      filterInput.select?.();
+    }
+
+    function reloadCurrentViewShortcut() {
+      window.location.reload();
+    }
+
+    function handleShortcutPrefixKey(key) {
+      if (pendingShortcutPrefix !== 'g') return false;
+      const routes = {
+        d: '/admin/dashboard',
+        h: '/admin/hosts',
+        l: '/admin/logs',
+        s: '/admin/settings/general',
+        p: '/admin/settings/projects',
+        u: '/admin/users',
+      };
+      const route = routes[key];
+      clearShortcutPrefix();
+      if (!route) return false;
+      navigateAdminShortcut(route);
+      return true;
+    }
+
+    function handleGlobalShortcut(event) {
+      if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const key = String(event.key || '');
+      const normalizedKey = key.toLowerCase();
+      const modal = openModalBackdrop();
+
+      if (key === '?') {
+        event.preventDefault();
+        if (modal && modal !== helpModal) return;
+        showHelpModal(!(helpModal?.classList.contains('show')));
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (modal) {
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (isEditableShortcutTarget(event.target)) {
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (handleShortcutPrefixKey(normalizedKey)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (normalizedKey === 'g') {
+        event.preventDefault();
+        armShortcutPrefix('g');
+        return;
+      }
+
+      if (normalizedKey === 'n') {
+        event.preventDefault();
+        showNewHostModal(true);
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (key === '/') {
+        event.preventDefault();
+        focusHostsFilterShortcut();
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (normalizedKey === 'r') {
+        event.preventDefault();
+        clearShortcutPrefix();
+        reloadCurrentViewShortcut();
+      }
+    }
+
     let confirmResolve = null;
     function showConfirmModal(title, body, { action = 'Confirm', warn = true } = {}) {
       return new Promise((resolve) => {
@@ -925,6 +1078,13 @@
     if (confirmModalCancel) confirmModalCancel.addEventListener('click', () => closeConfirmModal(false));
     if (confirmModalConfirm) confirmModalConfirm.addEventListener('click', () => closeConfirmModal(true));
     window.__confirm = showConfirmModal;
+    if (navHelpTrigger) navHelpTrigger.addEventListener('click', () => showHelpModal(true));
+    if (helpModalClose) helpModalClose.addEventListener('click', closeHelpModal);
+    if (helpModal) {
+      helpModal.addEventListener('click', (event) => {
+        if (event.target === helpModal) closeHelpModal();
+      });
+    }
 
     function toastFromEvent(eventOrPayload) {
       if (!eventOrPayload || typeof eventOrPayload !== 'object') return;
@@ -2130,10 +2290,36 @@
         if (!hostMatchesStatus(host)) return false;
         if (!hostFilterText) return true;
         const statusLabel = hostListStatus(host).label.toLowerCase();
-        const haystacks = [host.fqdn, host.client_version, statusLabel]
+        const autoUpdateLabel = hostAutoUpdateIndicator(host).label.toLowerCase();
+        const haystacks = [host.fqdn, host.client_version, statusLabel, autoUpdateLabel]
           .map((value) => (typeof value === 'string' ? value.toLowerCase() : ''));
         return haystacks.some(text => text.includes(hostFilterText));
       });
+    }
+
+    function hostAutoUpdateIndicator(host) {
+      const label = typeof host?.auto_update_label === 'string' && host.auto_update_label.trim() !== ''
+        ? host.auto_update_label.trim()
+        : 'Auto-update status unavailable';
+      const icon = typeof host?.auto_update_emoji === 'string' && host.auto_update_emoji.trim() !== ''
+        ? host.auto_update_emoji.trim()
+        : '⚠️';
+      const rank = Number.isFinite(host?.auto_update_rank) ? Number(host.auto_update_rank) : 1;
+      const state = typeof host?.auto_update_state === 'string' ? host.auto_update_state : 'unknown';
+      const lastEventAt = typeof host?.auto_update_last_event_at === 'string' ? host.auto_update_last_event_at : null;
+      const targetVersion = typeof host?.auto_update_target_version === 'string' ? host.auto_update_target_version : null;
+      return { icon, label, rank, state, lastEventAt, targetVersion };
+    }
+
+    function hostAutoUpdateTone(host) {
+      const state = hostAutoUpdateIndicator(host).state;
+      if (state === 'enabled_current_checked' || state === 'enabled_update_succeeded') {
+        return 'ok';
+      }
+      if (state === 'disabled_idle') {
+        return 'neutral';
+      }
+      return 'warn';
     }
 
     function hostSortValue(host, key) {
@@ -2148,6 +2334,8 @@
         }
         case 'client':
           return (host.client_version || '').toLowerCase();
+        case 'auto_updates':
+          return hostAutoUpdateIndicator(host).rank;
         default:
           return '';
       }
@@ -2750,6 +2938,7 @@
       const health = hostHealth(host);
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
+      const autoUpdate = hostAutoUpdateIndicator(host);
       const summaryItems = [
         {
           label: 'Health',
@@ -2774,6 +2963,11 @@
           meta: 'Client · Wrapper',
           raw: true,
         },
+        {
+          label: 'Auto-updates',
+          value: autoUpdate.label,
+          meta: autoUpdate.lastEventAt ? `last signal ${formatRelative(autoUpdate.lastEventAt)}` : 'No cron signal yet',
+        },
       ];
       hostDetailSummary.innerHTML = summaryItems.map(item => `
         <div class="summary-card">
@@ -2797,6 +2991,8 @@
       const healthDesc = 'Provisioning and sync signal for this host.';
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
+      const autoUpdate = hostAutoUpdateIndicator(host);
+      const autoUpdateTone = hostAutoUpdateTone(host);
       const apiCallsLabel = host.api_calls !== null && host.api_calls !== undefined
         ? ` (${formatNumber(host.api_calls)} api calls)`
         : '';
@@ -2816,6 +3012,13 @@
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
         { key: 'Auth refresh', value: formatRelativeWithTimestamp(host.last_refresh), desc: 'When auth.json was last uploaded or fetched.' },
         { key: 'Last cron check', value: host.last_cron_check ? formatRelativeWithTimestamp(host.last_cron_check) : 'Never', desc: 'Last time the cron auto-update checked in.' },
+        {
+          key: 'Auto-updates',
+          value: `<span class="chip ${autoUpdateTone}">${escapeHtml(autoUpdate.label)}</span>`,
+          desc: autoUpdate.lastEventAt
+            ? `Latest auto-update signal: ${formatRelativeWithTimestamp(autoUpdate.lastEventAt)}${autoUpdate.targetVersion ? ` · target ${autoUpdate.targetVersion}` : ''}.`
+            : 'No recent auto-update signal recorded for this host.',
+        },
         {
           key: 'IP binding',
           value: `
@@ -3098,6 +3301,7 @@
       const status = hostListStatus(host);
       const statusChip = `<span class="chip ${status.tone}">${status.label}</span>`;
       const lastSeenText = host.updated_at ? formatRelative(host.updated_at) : 'Never';
+      const autoUpdate = hostAutoUpdateIndicator(host);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
       tr.tabIndex = 0;
@@ -3116,6 +3320,7 @@
         <td data-label="Status" class="status-cell">${statusChip}</td>
         <td data-label="Last Seen"><span class="host-secondary">${escapeHtml(lastSeenText)}</span></td>
         <td data-label="Codex">${renderVersionTag(host.client_version, latestVersions.client)}</td>
+        <td data-label="Auto-updates" class="host-auto-updates-cell"><span class="host-auto-updates-indicator" title="${escapeHtml(autoUpdate.label)}" aria-label="${escapeHtml(autoUpdate.label)}">${autoUpdate.icon}</span></td>
         <td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>
       `;
       tr.addEventListener('click', () => openHostDetail(host.id));
@@ -3145,7 +3350,7 @@
       const filtered = applyHostFilters(currentHosts);
 
       hostsTbody.innerHTML = '';
-      const cols = 5;
+      const cols = 6;
       if (!filtered.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
         updateSortIndicators();
@@ -7964,6 +8169,7 @@
       });
     }
     const modalCloseMap = new Map([
+      [helpModal,             () => closeHelpModal()],
       [newHostModal,          () => showNewHostModal(false)],
       [uploadModal,           () => showUploadModal(false)],
       [insecureHostsModal,    () => closeInsecureHostsModal()],
@@ -7986,6 +8192,7 @@
       const closeFn = modalCloseMap.get(open);
       if (closeFn) { e.preventDefault(); closeFn(); }
     });
+    document.addEventListener('keydown', handleGlobalShortcut);
     if (runnerModal) {
       runnerModal.addEventListener('click', (e) => {
         if (e.target === runnerModal) showRunnerModal(false);

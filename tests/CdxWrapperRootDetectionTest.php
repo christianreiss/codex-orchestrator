@@ -23,9 +23,23 @@ final class CdxWrapperRootDetectionTest extends TestCase
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
+        self::assertStringContainsString('skip_update_reason="privilege"', $wrapperSource);
         self::assertStringContainsString(
             'codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"',
             $wrapperSource
         );
+    }
+
+    public function testWrapperReportsDistinctSkipReasonsForCodexChecks(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('skip_update_reason="active_run"', $wrapperSource);
+        self::assertStringContainsString('skip_update_reason="cron_managed"', $wrapperSource);
+        self::assertStringContainsString('skip_update_reason="unsupported_platform"', $wrapperSource);
+        self::assertStringContainsString('codex_status_note="cron-managed updates"', $wrapperSource);
+        self::assertStringContainsString('codex_status_note="unsupported platform (${platform_os}/${platform_arch})"', $wrapperSource);
     }
 }

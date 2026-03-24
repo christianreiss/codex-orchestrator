@@ -175,7 +175,7 @@ Wrapper quota behavior:
 
 Summary layout:
 - Sections: `Health`, `Versions`, `Usage`, `Quota`, `Result`.
-- When Codex auto-update checks are skipped for privilege reasons, the `Versions` section includes the wrapper-detected UID in the note (`need root; uid ...`) to make namespace/user mismatches visible.
+- When Codex auto-update checks are skipped, the `Versions` section reports the concrete reason: `active cdx run`, `cron-managed updates`, `unsupported platform (...)`, or, for genuine privilege skips, `need root; uid ...` with the wrapper-detected UID to make namespace/user mismatches visible.
 - In non-minimal output, concurrent-guard mode is compact (`Concurrent` + `Quota`).
 - Default row density:
   - global: `3` (`SUMMARY_ITEMS_PER_ROW`)

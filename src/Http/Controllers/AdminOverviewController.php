@@ -24,6 +24,7 @@ use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\CostHistoryService;
 use App\Services\PricingService;
+use App\Support\CodexVersionPolicy;
 use DateTimeImmutable;
 
 class AdminOverviewController
@@ -619,6 +620,16 @@ class AdminOverviewController
         }
 
         $hosts = $this->hostRepository->all();
+        $hostIds = array_map(
+            static fn (array $host): int => isset($host['id']) ? (int) $host['id'] : 0,
+            $hosts
+        );
+        $cronEvents = $this->logRepository->latestByHostAndActions($hostIds, [
+            'cron.update_available',
+            'cron.update_reported',
+        ]);
+        $versionSummary = $this->service->versionSummary();
+        $globalAutoUpdateEnabled = (bool) ($versionSummary['auto_update_enabled'] ?? false);
         $digests = $this->digestRepository->byHostId();
 
         $hostIds = array_map(static fn(array $h): int => (int) $h['id'], $hosts);
@@ -639,6 +650,9 @@ class AdminOverviewController
 
         $items = [];
         foreach ($hosts as $host) {
+            $hostVersions = $this->service->applyClientVersionOverrideForHost($versionSummary, $host);
+            $hostCronEvents = $cronEvents[(int) ($host['id'] ?? 0)] ?? [];
+            $autoUpdateState = $this->deriveAutoUpdateState($host, $hostVersions, $globalAutoUpdateEnabled, $hostCronEvents);
             $hostDigests = $digests[$host['id']] ?? [];
             $items[] = [
                 'id' => (int) $host['id'],
@@ -672,6 +686,13 @@ class AdminOverviewController
                 'model_override' => $host['model_override'] ?? null,
                 'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
                 'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
+                'effective_auto_update_enabled' => $autoUpdateState['effective_enabled'],
+                'auto_update_state' => $autoUpdateState['state'],
+                'auto_update_label' => $autoUpdateState['label'],
+                'auto_update_emoji' => $autoUpdateState['emoji'],
+                'auto_update_rank' => $autoUpdateState['rank'],
+                'auto_update_last_event_at' => $autoUpdateState['last_event_at'],
+                'auto_update_target_version' => $autoUpdateState['target_version'],
                 'canonical_digest' => $host['auth_digest'] ?? null,
                 'recent_digests' => array_values(array_unique($hostDigests)),
                 'authed' => ($host['auth_digest'] ?? '') !== '',
@@ -1154,5 +1175,165 @@ class AdminOverviewController
                 'tokens' => $tokens,
             ],
         ]);
+    }
+
+    private function deriveAutoUpdateState(array $host, array $versions, bool $globalAutoUpdateEnabled, array $cronEvents): array
+    {
+        $override = $host['auto_update_override'] ?? null;
+        $effectiveEnabled = $override === null
+            ? $globalAutoUpdateEnabled
+            : (bool) $override;
+
+        $lastCronCheck = $this->normalizeIsoTimestamp($host['last_cron_check'] ?? null);
+        $recentCheck = $this->isRecentTimestamp($lastCronCheck, 86400);
+
+        $targetVersion = CodexVersionPolicy::normalize($versions['client_version'] ?? null);
+        $hostVersion = CodexVersionPolicy::normalize($host['client_version'] ?? null);
+        $targetCheckedAt = $this->normalizeIsoTimestamp($versions['client_version_checked_at'] ?? null);
+        $updateNeeded = $this->isHostBehindTarget(
+            $hostVersion,
+            $targetVersion,
+            (bool) ($versions['client_version_enforce_exact'] ?? false)
+        );
+
+        $availableEvent = $cronEvents['cron.update_available'] ?? null;
+        $reportedEvent = $cronEvents['cron.update_reported'] ?? null;
+        $availableAt = $this->normalizeIsoTimestamp($availableEvent['created_at'] ?? null);
+        $reportedAt = $this->normalizeIsoTimestamp($reportedEvent['created_at'] ?? null);
+        $reportedAfterAvailable = $reportedAt !== null
+            && ($availableAt === null || strtotime($reportedAt) >= strtotime($availableAt));
+
+        if (!$effectiveEnabled) {
+            if ($recentCheck) {
+                return [
+                    'effective_enabled' => false,
+                    'state' => 'disabled_but_cron_running',
+                    'label' => 'Cron still running while auto-updates are disabled',
+                    'emoji' => '⚠️',
+                    'rank' => 1,
+                    'last_event_at' => $lastCronCheck,
+                    'target_version' => $targetVersion,
+                ];
+            }
+
+            return [
+                'effective_enabled' => false,
+                'state' => 'disabled_idle',
+                'label' => 'Auto-updates disabled',
+                'emoji' => '-',
+                'rank' => 2,
+                'last_event_at' => $lastCronCheck,
+                'target_version' => $targetVersion,
+            ];
+        }
+
+        if (!$recentCheck) {
+            return [
+                'effective_enabled' => true,
+                'state' => 'enabled_missing_checkin',
+                'label' => 'Expected daily cron check-in is missing',
+                'emoji' => '⚠️',
+                'rank' => 1,
+                'last_event_at' => $lastCronCheck,
+                'target_version' => $targetVersion,
+            ];
+        }
+
+        $hostAtTarget = $targetVersion !== null
+            && $hostVersion !== null
+            && $hostVersion === $targetVersion;
+        $newReleaseSinceCheck = $updateNeeded
+            && $lastCronCheck !== null
+            && $targetCheckedAt !== null
+            && strtotime($targetCheckedAt) > strtotime($lastCronCheck);
+
+        if ($hostAtTarget && $reportedAfterAvailable) {
+            return [
+                'effective_enabled' => true,
+                'state' => 'enabled_update_succeeded',
+                'label' => 'Checked in and auto-update succeeded',
+                'emoji' => '✅',
+                'rank' => 0,
+                'last_event_at' => $reportedAt ?? $lastCronCheck,
+                'target_version' => $targetVersion,
+            ];
+        }
+
+        if ($newReleaseSinceCheck) {
+            return [
+                'effective_enabled' => true,
+                'state' => 'enabled_checked_before_new_release',
+                'label' => 'Checked in earlier, but a newer release appeared since then',
+                'emoji' => '⚠️',
+                'rank' => 1,
+                'last_event_at' => $targetCheckedAt,
+                'target_version' => $targetVersion,
+            ];
+        }
+
+        if ($updateNeeded) {
+            return [
+                'effective_enabled' => true,
+                'state' => 'enabled_checked_update_needed',
+                'label' => 'Checked in, update still needed',
+                'emoji' => '⚠️',
+                'rank' => 1,
+                'last_event_at' => $availableAt ?? $lastCronCheck,
+                'target_version' => $targetVersion,
+            ];
+        }
+
+        return [
+            'effective_enabled' => true,
+            'state' => 'enabled_current_checked',
+            'label' => 'Checked in and already current',
+            'emoji' => '✅',
+            'rank' => 0,
+            'last_event_at' => $lastCronCheck,
+            'target_version' => $targetVersion,
+        ];
+    }
+
+    private function normalizeIsoTimestamp($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return (new DateTimeImmutable((string) $value))->format(DATE_ATOM);
+        } catch (\Exception) {
+            return is_string($value) ? $value : null;
+        }
+    }
+
+    private function isRecentTimestamp(?string $value, int $windowSeconds): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return false;
+        }
+
+        $age = time() - $timestamp;
+        return $age >= 0 && $age <= $windowSeconds;
+    }
+
+    private function isHostBehindTarget(?string $hostVersion, ?string $targetVersion, bool $enforceExact): bool
+    {
+        if ($targetVersion === null) {
+            return false;
+        }
+        if ($hostVersion === null) {
+            return true;
+        }
+        if ($enforceExact) {
+            return $hostVersion !== $targetVersion;
+        }
+
+        return version_compare($hostVersion, $targetVersion, '<');
     }
 }

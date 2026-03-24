@@ -2,22 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\PayloadHelper;
+use App\Http\RequestHelper;
 use App\Http\Response;
+use App\Http\VersionHelper;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\StartupSyncService;
-
-use function App\Http\extractClientVersion;
-use function App\Http\extractSyncAuthCandidate;
-use function App\Http\extractSyncAuthFingerprint;
-use function App\Http\extractSyncHostUserInput;
-use function App\Http\extractWrapperVersion;
-use function App\Http\normalizeBoolean;
-use function App\Http\resolveActiveQuotaLaneForHost;
-use function App\Http\resolveApiKey;
-use function App\Http\resolveBaseUrl;
-use function App\Http\resolveClientIp;
 
 class AuthController
 {
@@ -37,12 +29,12 @@ class AuthController
             ], 503);
         }
 
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $host = $this->service->authenticate($apiKey, $clientIp, false, true);
-        $clientVersion = extractClientVersion($payload);
-        $wrapperVersion = extractWrapperVersion($payload);
-        $baseUrl = resolveBaseUrl();
+        $clientVersion = VersionHelper::extractClientVersion($payload);
+        $wrapperVersion = VersionHelper::extractWrapperVersion($payload);
+        $baseUrl = RequestHelper::resolveBaseUrl();
 
         // Opportunistically refresh ChatGPT usage if stale (respects cooldown inside service).
         $result = $this->service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
@@ -56,8 +48,8 @@ class AuthController
 
     public function deleteAuth(): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $force = isset($_GET['force']) && $_GET['force'] !== '0';
 
         $host = $this->service->authenticate($apiKey, $clientIp, $force, true);
@@ -73,21 +65,21 @@ class AuthController
 
     public function syncStatus(mixed $payload): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $host = $this->service->authenticate($apiKey, $clientIp, false, true);
-        $baseUrl = resolveBaseUrl();
+        $baseUrl = RequestHelper::resolveBaseUrl();
         $requestPayload = is_array($payload) ? $payload : [];
 
-        $hostUserInput = extractSyncHostUserInput($requestPayload);
+        $hostUserInput = PayloadHelper::extractSyncHostUserInput($requestPayload);
         $users = $this->service->recordHostUser($host, $hostUserInput['username'], $hostUserInput['hostname']);
 
         $result = $this->startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, false);
-        $includeAuth = normalizeBoolean($requestPayload['include_auth'] ?? null);
+        $includeAuth = VersionHelper::normalizeBoolean($requestPayload['include_auth'] ?? null);
         if ($includeAuth !== false) {
-            $authFingerprint = extractSyncAuthFingerprint($requestPayload);
-            $clientVersion = extractClientVersion($requestPayload);
-            $wrapperVersion = extractWrapperVersion($requestPayload);
+            $authFingerprint = PayloadHelper::extractSyncAuthFingerprint($requestPayload);
+            $clientVersion = VersionHelper::extractClientVersion($requestPayload);
+            $wrapperVersion = VersionHelper::extractWrapperVersion($requestPayload);
             $authResult = $this->service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
 
             $authResult['chatgpt_usage'] = $this->fetchChatGptUsage($host);
@@ -111,24 +103,24 @@ class AuthController
 
     public function syncBootstrap(mixed $payload): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $host = $this->service->authenticate($apiKey, $clientIp, false, true);
-        $baseUrl = resolveBaseUrl();
+        $baseUrl = RequestHelper::resolveBaseUrl();
         $requestPayload = is_array($payload) ? $payload : [];
 
-        $hostUserInput = extractSyncHostUserInput($requestPayload);
+        $hostUserInput = PayloadHelper::extractSyncHostUserInput($requestPayload);
         $users = $this->service->recordHostUser($host, $hostUserInput['username'], $hostUserInput['hostname']);
 
         $result = $this->startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, true);
-        $includeAuth = normalizeBoolean($requestPayload['include_auth'] ?? null);
+        $includeAuth = VersionHelper::normalizeBoolean($requestPayload['include_auth'] ?? null);
         if ($includeAuth !== false) {
-            $authFingerprint = extractSyncAuthFingerprint($requestPayload);
-            $clientVersion = extractClientVersion($requestPayload);
-            $wrapperVersion = extractWrapperVersion($requestPayload);
+            $authFingerprint = PayloadHelper::extractSyncAuthFingerprint($requestPayload);
+            $clientVersion = VersionHelper::extractClientVersion($requestPayload);
+            $wrapperVersion = VersionHelper::extractWrapperVersion($requestPayload);
             $authResult = $this->service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
             $authStatus = strtolower(trim((string) ($authResult['status'] ?? '')));
-            $authCandidate = extractSyncAuthCandidate($requestPayload);
+            $authCandidate = PayloadHelper::extractSyncAuthCandidate($requestPayload);
             $didStore = false;
 
             if (($authStatus === 'missing' || $authStatus === 'upload_required') && is_array($authCandidate)) {
@@ -184,7 +176,7 @@ class AuthController
         $this->chatGptUsageService->fetchLatest(false);
         $chatgptUsage = $this->chatGptUsageService->latestWindowSummary();
         if (is_array($chatgptUsage)) {
-            $chatgptUsage['active_quota_lane'] = resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
+            $chatgptUsage['active_quota_lane'] = VersionHelper::resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
         }
         return $chatgptUsage;
     }

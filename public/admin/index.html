@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
   <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-24-06">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-21-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-24-01">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-24-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
@@ -73,6 +73,10 @@
       </nav>
       <div class="rail-tools">
         <div class="rail-toolset">
+          <button class="rail-action rail-action-quiet rail-help-trigger" id="navHelpTrigger" type="button" aria-label="Open keyboard shortcuts help" title="Keyboard shortcuts">
+            <span class="rail-help-glyph" aria-hidden="true">?</span>
+            <span class="rail-help-label">Shortcuts</span>
+          </button>
           <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Active Windows</button>
           <button class="rail-action rail-action-accent" id="navNewHost">New Host</button>
         </div>
@@ -147,6 +151,87 @@
               <button class="ghost" id="confirmModalCancel">Cancel</button>
               <button class="btn-warn" id="confirmModalConfirm">Confirm</button>
             </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+          <div class="modal shortcut-help-modal">
+            <div class="shortcut-help-head">
+              <div>
+                <div class="shortcut-help-eyebrow">Keyboard Guide</div>
+                <h3 id="helpModalTitle">Admin shortcuts</h3>
+              </div>
+              <button class="close-btn shortcut-help-close" id="helpModalClose" type="button" aria-label="Close keyboard shortcuts help">Close</button>
+            </div>
+            <p class="shortcut-help-copy">Fast paths for the admin shell. Shortcuts pause while you are typing in an input, textarea, select box, or editor.</p>
+            <div class="shortcut-help-table-wrap">
+              <table class="shortcut-help-table">
+                <thead>
+                  <tr>
+                    <th>Shortcut</th>
+                    <th>Action</th>
+                    <th>Context</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">?</kbd></span></td>
+                    <td>Open or close this help</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">Esc</kbd></span></td>
+                    <td>Close the active modal</td>
+                    <td>Any open modal</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">N</kbd></span></td>
+                    <td>Open <span class="shortcut-help-inline">New Host</span></td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">/</kbd></span></td>
+                    <td>Focus the host filter</td>
+                    <td>Hosts view</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">R</kbd></span></td>
+                    <td>Reload the current admin view</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">D</kbd></span></td>
+                    <td>Go to Overview</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">H</kbd></span></td>
+                    <td>Go to Hosts</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">L</kbd></span></td>
+                    <td>Go to Logs</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">S</kbd></span></td>
+                    <td>Go to Settings</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">P</kbd></span></td>
+                    <td>Go to Projects settings</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                  <tr>
+                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">U</kbd></span></td>
+                    <td>Go to Users</td>
+                    <td>Anywhere in the admin shell</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="shortcut-help-footer">Dry-run safe. No shortcuts fire while a text field has focus.</div>
           </div>
         </div>
         <!-- Modals (from legacy hosts/settings) -->
@@ -540,6 +625,7 @@
                         <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status" aria-label="Sort by status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
                         <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen" aria-label="Sort by last seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
                         <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client" aria-label="Sort by Codex version"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="auto_updates"><span class="sort-link" role="button" tabindex="0" data-sort="auto_updates" aria-label="Sort by auto-update status"><span>Auto-updates</span><span class="sort-indicator">↕</span></span></th>
                         <th class="insecure-col">Insecure Window</th>
                       </tr>
                     </thead>

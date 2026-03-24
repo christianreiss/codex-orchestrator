@@ -2,14 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\RequestHelper;
 use App\Http\Response;
 use App\Services\AgentsService;
 use App\Services\AuthService;
 use App\Services\ClientConfigService;
-
-use function App\Http\resolveApiKey;
-use function App\Http\resolveBaseUrl;
-use function App\Http\resolveClientIp;
 
 class ConfigApiController
 {
@@ -21,8 +18,8 @@ class ConfigApiController
 
     public function agentsRetrieve(mixed $payload): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $host = $this->service->authenticate($apiKey, $clientIp);
 
         $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
@@ -36,10 +33,10 @@ class ConfigApiController
 
     public function configRetrieve(mixed $payload): void
     {
-        $apiKey = resolveApiKey();
-        $clientIp = resolveClientIp();
+        $apiKey = RequestHelper::resolveApiKey();
+        $clientIp = RequestHelper::resolveClientIp();
         $host = $this->service->authenticate($apiKey, $clientIp);
-        $baseUrl = resolveBaseUrl();
+        $baseUrl = RequestHelper::resolveBaseUrl();
 
         $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
         $username = is_array($payload) && array_key_exists('username', $payload) ? (string) $payload['username'] : null;

@@ -1,5 +1,14 @@
 # 2026-03-24
 - Admin UI: micro-polish on interactive elements — (1) added `transition: background 150ms ease, border-color 150ms ease, color 120ms ease` to `.config-section` sidebar buttons, which previously snapped on hover/active with no animation; (2) unified chip transition durations: both `.signal-chip` and `.chip` used mismatched staggered timings (200ms/180ms/160ms across three properties) and are now consolidated to a single `160ms ease` so all three properties animate in sync.
+- Admin UI/API: expanded host auto-update status into backend-derived states so the hosts table and host detail can distinguish disabled-but-running cron, missing daily check-ins, update-needed, update-succeeded, and "new release since last check" cases with compact emoji plus detailed tooltips.
+- Admin UI: the hosts table now includes an `Auto-updates` column with three compact states: `-` when cron auto-updates are not enabled, `✅` when the host has a recent cron check-in, and `⚠️` when auto-updates are enabled but the last cron check is missing or stale.
+- Admin UI: the login page now prefetches and idle-warms the main admin shell (`/admin/index.html`, dashboard CSS, and dashboard JS) so the first authenticated dashboard visit is less of a cold start.
+- cdx wrapper: shortened the skipped Codex auto-update note from `cron-managed auto-update enabled` to `cron-managed updates` so the `Versions` summary fits narrow terminals without losing the reason.
+- Admin UI: added a rail `?` help trigger that opens a keyboard-shortcuts modal, plus real admin-shell shortcuts for `?`, `n`, `/`, `r`, and `g` navigation chords (`d/h/l/s/p/u`) so the cheat sheet reflects live behavior instead of static copy.
+- cdx wrapper: fixed the `Versions` summary so skipped Codex update checks now report the real reason instead of always blaming privileges; cron-managed hosts now say `cron-managed auto-update enabled`, active-run and unsupported-platform skips stay distinct, and true privilege skips still include the detected UID. Wrapper bumped to `2026.03.24-01`.
+
+# 2026-03-24
+- Host sync/MCP API: fixed a controller helper regression that broke `/slash-commands`, `/skills`, `/agents/retrieve`, `/config/retrieve`, host lane/usage routes, and `/mcp` with HTTP 500 `Unexpected error` before auth completed; the controllers now call the autoloaded request/payload/version helper classes directly again.
 
 # 2026-03-24
 - Admin UI: fixed MCP Logs timestamp display — `initMcpLogs` was rendering raw ISO timestamp strings directly (e.g. `2026-03-24T10:15:00Z`) instead of formatting them like the API Logs and Events tables do (`24.03.26, 10:15`); added `parseTimestamp`/`formatTimestamp` helpers inside `initMcpLogs` and wired them into `formatTime`, matching the pattern already used by the other two log panels; cache-bumped `logs.js` to `v=2026-03-24-03`.
