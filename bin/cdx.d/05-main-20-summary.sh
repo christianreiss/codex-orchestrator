@@ -38,6 +38,18 @@ colorize() {
   esac
 }
 
+# Colorize an individual sync/pull status token for display in the doctor report.
+# ok → green; offline/concurrent/skip/no-python → yellow; unknown → plain; everything else → red.
+colorize_sync_status() {
+  local val="$1"
+  case "$val" in
+    ok) colorize "$val" "green" ;;
+    offline|concurrent|skip|no-python) colorize "$val" "yellow" ;;
+    unknown) printf "%s" "$val" ;;
+    *) colorize "$val" "red" ;;
+  esac
+}
+
 ROW_LABEL_WIDTH=12
 ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
