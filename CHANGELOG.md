@@ -1,4 +1,7 @@
 # 2026-03-24
+- Backend: extracted duplicated `hostId` and `assertSha256` helpers from six sync services (`AgentsService`, `ClientConfigService`, `MemoryService`, `ProjectCoordinationService`, `SkillService`, `SlashCommandService`) into a shared `HostServiceTrait`; no behaviour change.
+
+# 2026-03-24
 - cdx wrapper: added Runner row to `--doctor` output — the doctor report now includes a "Runner" row (between MCP and API) showing the current runner state (verified, failing, stale, or disabled), with green ✅ when healthy, yellow/red coloring when degraded, and a failure hint when `runner_tone` is red; the row is omitted when runner is entirely unconfigured with no state data. Rebuilt `bin/cdx`.
 
 # 2026-03-24

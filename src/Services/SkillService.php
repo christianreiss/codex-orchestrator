@@ -12,9 +12,11 @@ namespace App\Services;
 use App\Exceptions\ValidationException;
 use App\Repositories\LogRepository;
 use App\Repositories\SkillRepository;
+use App\Services\Traits\HostServiceTrait;
 
 class SkillService
 {
+    use HostServiceTrait;
     public const CANONICAL_URI_PREFIX = 'skill://';
     public const FALLBACK_SKILL_ROOT = '~/.agents/skills';
     public const LEGACY_FALLBACK_SKILL_ROOT = '~/.codex/skills';
@@ -224,33 +226,6 @@ class SkillService
         }
 
         return $normalized;
-    }
-
-    private function assertSha256(?string $sha, bool $allowNull = false, array &$errors = []): void
-    {
-        if ($sha === null) {
-            if ($allowNull) {
-                return;
-            }
-            $errors['sha256'][] = 'sha256 is required';
-            if ($errors) {
-                throw new ValidationException($errors);
-            }
-            return;
-        }
-
-        $value = trim($sha);
-        if (!preg_match('/^[A-Fa-f0-9]{64}$/', $value)) {
-            $errors['sha256'][] = 'sha256 must be 64 hex characters';
-            if ($errors) {
-                throw new ValidationException($errors);
-            }
-        }
-    }
-
-    private function hostId(?array $host): ?int
-    {
-        return isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
     }
 
     private function resolveSkill(string $slug): ?array

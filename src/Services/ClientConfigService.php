@@ -15,9 +15,11 @@ use App\Repositories\ClientConfigRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\McpSessionTokenRepository;
 use App\Repositories\VersionRepository;
+use App\Services\Traits\HostServiceTrait;
 
 class ClientConfigService
 {
+    use HostServiceTrait;
     /** @var list<string> */
     public const SUPPORTED_MODELS = ConfigNormalizer::SUPPORTED_MODELS;
 
@@ -406,12 +408,6 @@ class ClientConfigService
         }
 
         return $ttl;
-    }
-
-    private function hostId(?array $host): ?int
-    {
-        $hostId = $host['id'] ?? null;
-        return is_numeric($hostId) ? (int) $hostId : null;
     }
 
     /** @return list<string> */

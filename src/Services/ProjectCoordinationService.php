@@ -13,9 +13,11 @@ use App\Repositories\ProjectFileRepository;
 use App\Repositories\ProjectNoteRepository;
 use App\Repositories\ProjectRepository;
 use App\Repositories\ProjectTodoRepository;
+use App\Services\Traits\HostServiceTrait;
 
 class ProjectCoordinationService
 {
+    use HostServiceTrait;
     private readonly ProjectNormalizer $normalizer;
 
     public function __construct(
@@ -589,8 +591,4 @@ class ProjectCoordinationService
         return $summary;
     }
 
-    private function hostId(?array $host): ?int
-    {
-        return isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
-    }
 }

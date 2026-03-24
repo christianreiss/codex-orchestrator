@@ -12,9 +12,11 @@ namespace App\Services;
 use App\Exceptions\ValidationException;
 use App\Repositories\LogRepository;
 use App\Repositories\SlashCommandRepository;
+use App\Services\Traits\HostServiceTrait;
 
 class SlashCommandService
 {
+    use HostServiceTrait;
     public function __construct(
         private readonly SlashCommandRepository $commands,
         private readonly LogRepository $logs
@@ -202,28 +204,6 @@ class SlashCommandService
         return $normalized;
     }
 
-    private function assertSha256(?string $sha, bool $allowNull = false, array &$errors = []): void
-    {
-        if ($sha === null) {
-            if ($allowNull) {
-                return;
-            }
-            $errors['sha256'][] = 'sha256 is required';
-            if ($errors) {
-                throw new ValidationException($errors);
-            }
-            return;
-        }
-
-        $value = trim($sha);
-        if (!preg_match('/^[A-Fa-f0-9]{64}$/', $value)) {
-            $errors['sha256'][] = 'sha256 must be 64 hex characters';
-            if ($errors) {
-                throw new ValidationException($errors);
-            }
-        }
-    }
-
     private function parseFrontMatter(string $prompt): array
     {
         $description = null;
@@ -268,8 +248,4 @@ class SlashCommandService
         return [$description, $argumentHint];
     }
 
-    private function hostId(?array $host): ?int
-    {
-        return isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
-    }
 }

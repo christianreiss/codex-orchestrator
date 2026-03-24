@@ -12,9 +12,11 @@ namespace App\Services;
 use App\Exceptions\ValidationException;
 use App\Repositories\LogRepository;
 use App\Repositories\MemoryRepository;
+use App\Services\Traits\HostServiceTrait;
 
 class MemoryService
 {
+    use HostServiceTrait;
     private const MAX_CONTENT_LENGTH = 32000;
     private const MAX_TAGS = 32;
     private const MAX_TAG_LENGTH = 64;
@@ -410,8 +412,4 @@ class MemoryService
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
     }
 
-    private function hostId(?array $host): ?int
-    {
-        return isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
-    }
 }

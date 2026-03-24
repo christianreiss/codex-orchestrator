@@ -12,9 +12,11 @@ namespace App\Services;
 use App\Exceptions\ValidationException;
 use App\Repositories\AgentsRepository;
 use App\Repositories\LogRepository;
+use App\Services\Traits\HostServiceTrait;
 
 class AgentsService
 {
+    use HostServiceTrait;
     public function __construct(
         private readonly AgentsRepository $agents,
         private readonly LogRepository $logs
@@ -222,12 +224,6 @@ class AgentsService
         $this->logs->log(null, 'agents.delete', ['status' => 'deleted', 'version_id' => $versionId]);
 
         return $this->adminFetch();
-    }
-
-    private function hostId(?array $host): ?int
-    {
-        $hostId = $host['id'] ?? null;
-        return is_numeric($hostId) ? (int) $hostId : null;
     }
 
     private function assertSha(?string $sha, bool $allowNull = false, array &$errors = []): void
