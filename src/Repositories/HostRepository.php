@@ -198,52 +198,27 @@ class HostRepository
 
     public function updateIp4(int $hostId, string $ip4): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET ip4 = :ip4, updated_at = :updated_at WHERE id = :id'
-        );
-        $statement->execute([
-            'ip4' => $ip4,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'ip4 = :ip4', ['ip4' => $ip4]);
     }
 
     public function updateIp6(int $hostId, ?string $ip6): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET ip6 = :ip6, updated_at = :updated_at WHERE id = :id'
-        );
-        $statement->execute([
-            'ip6' => $ip6,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'ip6 = :ip6', ['ip6' => $ip6]);
     }
 
     public function updateClientVersions(int $hostId, string $clientVersion, ?string $wrapperVersion): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET client_version = :client_version, wrapper_version = :wrapper_version, updated_at = :updated_at WHERE id = :id'
-        );
-        $statement->execute([
+        $this->updateHostFields($hostId, 'client_version = :client_version, wrapper_version = :wrapper_version', [
             'client_version' => $clientVersion,
             'wrapper_version' => $wrapperVersion,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
         ]);
     }
 
     public function updateSyncState(int $hostId, string $lastRefresh, string $authDigest): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET last_refresh = :last_refresh, auth_digest = :auth_digest, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
+        $this->updateHostFields($hostId, 'last_refresh = :last_refresh, auth_digest = :auth_digest', [
             'last_refresh' => $lastRefresh,
             'auth_digest' => $authDigest,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
         ]);
     }
 
@@ -329,117 +304,45 @@ class HostRepository
 
     public function updateAllowRoaming(int $hostId, bool $allow): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET allow_roaming_ips = :allow WHERE id = :id'
-        );
-
-        $statement->execute([
-            'allow' => $allow ? 1 : 0,
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'allow_roaming_ips = :allow', ['allow' => $allow ? 1 : 0], false);
     }
 
     public function updateSecure(int $hostId, bool $secure): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET secure = :secure WHERE id = :id'
-        );
-
-        $statement->execute([
-            'secure' => $secure ? 1 : 0,
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'secure = :secure', ['secure' => $secure ? 1 : 0], false);
     }
 
     public function updateExpiresAt(int $hostId, ?string $expiresAt): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET expires_at = :expires_at, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
-            'expires_at' => $expiresAt,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'expires_at = :expires_at', ['expires_at' => $expiresAt]);
     }
 
     public function updateVip(int $hostId, bool $vip): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET vip = :vip WHERE id = :id'
-        );
-
-        $statement->execute([
-            'vip' => $vip ? 1 : 0,
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'vip = :vip', ['vip' => $vip ? 1 : 0], false);
     }
 
     public function updateModelOverrides(int $hostId, ?string $modelOverride, ?string $reasoningEffortOverride): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts
-             SET model_override = :model_override,
-                 reasoning_effort_override = :reasoning_effort_override,
-                 updated_at = :updated_at
-             WHERE id = :id'
-        );
-
-        $statement->execute([
+        $this->updateHostFields($hostId, 'model_override = :model_override, reasoning_effort_override = :reasoning_effort_override', [
             'model_override' => $modelOverride,
             'reasoning_effort_override' => $reasoningEffortOverride,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
         ]);
     }
 
     public function updateLanePreference(int $hostId, ?string $lanePreference): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts
-             SET lane_preference = :lane_preference,
-                 updated_at = :updated_at
-             WHERE id = :id'
-        );
-
-        $statement->execute([
-            'lane_preference' => $lanePreference,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'lane_preference = :lane_preference', ['lane_preference' => $lanePreference]);
     }
 
     public function updateClientVersionOverride(int $hostId, ?string $clientVersionOverride): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts
-             SET client_version_override = :client_version_override,
-                 updated_at = :updated_at
-             WHERE id = :id'
-        );
-
-        $statement->execute([
-            'client_version_override' => $clientVersionOverride,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'client_version_override = :client_version_override', ['client_version_override' => $clientVersionOverride]);
     }
 
     public function updateAgentsDocumentOverride(int $hostId, ?int $agentsDocumentId): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts
-             SET agents_document_id_override = :agents_document_id_override,
-                 updated_at = :updated_at
-             WHERE id = :id'
-        );
-
-        $statement->execute([
-            'agents_document_id_override' => $agentsDocumentId,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'agents_document_id_override = :agents_document_id_override', ['agents_document_id_override' => $agentsDocumentId]);
     }
 
     public function updateInsecureWindows(int $hostId, ?string $enabledUntil, ?string $graceUntil, ?int $windowMinutes = null): void
@@ -469,66 +372,47 @@ class HostRepository
 
     public function updateForceIpv4(int $hostId, bool $forceIpv4): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET force_ipv4 = :force_ipv4, ip4 = NULL, ip6 = NULL, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
-            'force_ipv4' => $forceIpv4 ? 1 : 0,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'force_ipv4 = :force_ipv4, ip4 = NULL, ip6 = NULL', ['force_ipv4' => $forceIpv4 ? 1 : 0]);
     }
 
     public function updateAutoUpdateOverride(int $hostId, ?bool $override): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET auto_update_override = :override, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
-            'override' => $override === null ? null : ($override ? 1 : 0),
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'auto_update_override = :override', ['override' => $override === null ? null : ($override ? 1 : 0)]);
     }
 
     public function touchLastCronCheck(int $hostId): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET last_cron_check = :now WHERE id = :id'
-        );
-
-        $statement->execute([
-            'now' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'last_cron_check = :now', ['now' => gmdate(DATE_ATOM)], false);
     }
 
     public function updateCurlInsecure(int $hostId, bool $curlInsecure): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET curl_insecure = :curl_insecure, updated_at = :updated_at WHERE id = :id'
-        );
-
-        $statement->execute([
-            'curl_insecure' => $curlInsecure ? 1 : 0,
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+        $this->updateHostFields($hostId, 'curl_insecure = :curl_insecure', ['curl_insecure' => $curlInsecure ? 1 : 0]);
     }
 
     public function updateReverseDnsMode(int $hostId, ?bool $enabled): void
     {
-        $statement = $this->database->connection()->prepare(
-            'UPDATE hosts SET reverse_dns_mode = :mode, updated_at = :updated_at WHERE id = :id'
-        );
+        $this->updateHostFields($hostId, 'reverse_dns_mode = :mode', ['mode' => $enabled === null ? null : ($enabled ? 1 : 0)]);
+    }
 
-        $statement->execute([
-            'mode' => $enabled === null ? null : ($enabled ? 1 : 0),
-            'updated_at' => gmdate(DATE_ATOM),
-            'id' => $hostId,
-        ]);
+    /**
+     * Execute a SET-clause UPDATE on the hosts table for a given host ID.
+     * $set must be a trusted internal string — never pass user input directly.
+     * When $touchUpdatedAt is true (the default), appends "updated_at = :updated_at".
+     *
+     * @param array<string, mixed> $params
+     */
+    private function updateHostFields(int $hostId, string $set, array $params, bool $touchUpdatedAt = true): void
+    {
+        if ($touchUpdatedAt) {
+            $set .= ', updated_at = :updated_at';
+            $params['updated_at'] = gmdate(DATE_ATOM);
+        }
+        $params['id'] = $hostId;
+        $statement = $this->database->connection()->prepare(
+            "UPDATE hosts SET {$set} WHERE id = :id"
+        );
+        $statement->execute($params);
     }
 
     /**

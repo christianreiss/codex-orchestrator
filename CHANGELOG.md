@@ -1,4 +1,7 @@
 # 2026-03-24
+- Backend: reduced code duplication in `HostRepository` — extracted a private `updateHostFields` helper that handles the common `UPDATE hosts SET … WHERE id = :id` pattern (including optional `updated_at` stamping); 15 public update methods now delegate to it, eliminating ~130 lines of repetitive prepare/execute boilerplate while preserving all existing behavior.
+
+# 2026-03-24
 - cdx wrapper: improved run exit footer — (1) a `Run summary` header line now appears above the post-run usage/cost/time/sync block, consistent with how the `--doctor` report section is headed; (2) run times under 1 second now display as milliseconds (e.g. `743ms`) instead of `0s`. Rebuilt `bin/cdx`.
 
 # 2026-03-24
