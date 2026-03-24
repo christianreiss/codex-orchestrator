@@ -50,17 +50,31 @@ class TokenUsageRepository
         ]);
     }
 
+    private const TOTALS_SELECT = 'SELECT COALESCE(SUM(total), 0) AS total,
+                    COALESCE(SUM(input_tokens), 0) AS input,
+                    COALESCE(SUM(output_tokens), 0) AS output,
+                    COALESCE(SUM(cached_tokens), 0) AS cached,
+                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
+                    COALESCE(SUM(cost), 0) AS cost,
+                    COUNT(*) AS events
+             FROM token_usages';
+
+    private function normalizeTotalsRow(array $row): array
+    {
+        return [
+            'total'     => isset($row['total'])     ? (int) $row['total']     : 0,
+            'input'     => isset($row['input'])     ? (int) $row['input']     : 0,
+            'output'    => isset($row['output'])    ? (int) $row['output']    : 0,
+            'cached'    => isset($row['cached'])    ? (int) $row['cached']    : 0,
+            'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
+            'cost'      => isset($row['cost'])      ? (float) $row['cost']    : 0.0,
+            'events'    => isset($row['events'])    ? (int) $row['events']    : 0,
+        ];
+    }
+
     public function totals(?int $hostId = null): array
     {
-        $sql = 'SELECT COALESCE(SUM(total), 0) AS total,
-                       COALESCE(SUM(input_tokens), 0) AS input,
-                       COALESCE(SUM(output_tokens), 0) AS output,
-                       COALESCE(SUM(cached_tokens), 0) AS cached,
-                       COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
-                       COALESCE(SUM(cost), 0) AS cost,
-                       COUNT(*) AS events
-                FROM token_usages';
-
+        $sql = self::TOTALS_SELECT;
         $params = [];
         if ($hostId !== null) {
             $sql .= ' WHERE host_id = :host_id';
@@ -69,79 +83,25 @@ class TokenUsageRepository
 
         $statement = $this->database->connection()->prepare($sql);
         $statement->execute($params);
-        $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
-
-        return [
-            'total' => isset($row['total']) ? (int) $row['total'] : 0,
-            'input' => isset($row['input']) ? (int) $row['input'] : 0,
-            'output' => isset($row['output']) ? (int) $row['output'] : 0,
-            'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
-            'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
-            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
-            'events' => isset($row['events']) ? (int) $row['events'] : 0,
-        ];
+        return $this->normalizeTotalsRow($statement->fetch(PDO::FETCH_ASSOC) ?: []);
     }
-
 
     public function totalsForRange(string $startIso, string $endIso): array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT COALESCE(SUM(total), 0) AS total,
-                    COALESCE(SUM(input_tokens), 0) AS input,
-                    COALESCE(SUM(output_tokens), 0) AS output,
-                    COALESCE(SUM(cached_tokens), 0) AS cached,
-                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
-                    COALESCE(SUM(cost), 0) AS cost,
-                    COUNT(*) AS events
-             FROM token_usages
-             WHERE created_at >= :start AND created_at < :end'
+            self::TOTALS_SELECT . ' WHERE created_at >= :start AND created_at < :end'
         );
-        $statement->execute([
-            'start' => $startIso,
-            'end' => $endIso,
-        ]);
-        $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
-
-        return [
-            'total' => isset($row['total']) ? (int) $row['total'] : 0,
-            'input' => isset($row['input']) ? (int) $row['input'] : 0,
-            'output' => isset($row['output']) ? (int) $row['output'] : 0,
-            'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
-            'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
-            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
-            'events' => isset($row['events']) ? (int) $row['events'] : 0,
-        ];
+        $statement->execute(['start' => $startIso, 'end' => $endIso]);
+        return $this->normalizeTotalsRow($statement->fetch(PDO::FETCH_ASSOC) ?: []);
     }
 
     public function totalsForHostRange(int $hostId, string $startIso, string $endIso): array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT COALESCE(SUM(total), 0) AS total,
-                    COALESCE(SUM(input_tokens), 0) AS input,
-                    COALESCE(SUM(output_tokens), 0) AS output,
-                    COALESCE(SUM(cached_tokens), 0) AS cached,
-                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning,
-                    COALESCE(SUM(cost), 0) AS cost,
-                    COUNT(*) AS events
-             FROM token_usages
-             WHERE host_id = :host_id AND created_at >= :start AND created_at < :end'
+            self::TOTALS_SELECT . ' WHERE host_id = :host_id AND created_at >= :start AND created_at < :end'
         );
-        $statement->execute([
-            'host_id' => $hostId,
-            'start' => $startIso,
-            'end' => $endIso,
-        ]);
-        $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
-
-        return [
-            'total' => isset($row['total']) ? (int) $row['total'] : 0,
-            'input' => isset($row['input']) ? (int) $row['input'] : 0,
-            'output' => isset($row['output']) ? (int) $row['output'] : 0,
-            'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
-            'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
-            'cost' => isset($row['cost']) ? (float) $row['cost'] : 0.0,
-            'events' => isset($row['events']) ? (int) $row['events'] : 0,
-        ];
+        $statement->execute(['host_id' => $hostId, 'start' => $startIso, 'end' => $endIso]);
+        return $this->normalizeTotalsRow($statement->fetch(PDO::FETCH_ASSOC) ?: []);
     }
 
     public function topHost(): ?array
