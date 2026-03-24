@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: Users table now has a live search filter — typing in the new filter input above the table instantly narrows the list by name, username, email, or access level; pressing Escape clears the filter; a "no users match the current filter" message is shown when the filter produces no results.
+
+# 2026-03-24
 - cdx wrapper: end-of-run usage reporting now fast-paths only the last ~256 KiB of the PTY capture for a final legacy `Token usage:` line before falling back to the older full-log/session-JSONL compatibility paths, so long interactive runs no longer need a full capture scan in the common case. `/usage` upload is now explicitly best effort with roughly a 3-second total budget across SSL-context attempts, and the stripped-line retry is skipped for slow/time-out network failures so wrapper exit stays prompt. Wrapper bumped to `2026.03.24-01` and rebuilt.
 - Tests/docs: added wrapper regression coverage for tail-fast-path parsing, full-log fallback when the tail misses usage, and bounded `/usage` timeout behavior; refreshed wrapper usage docs in `docs/interface-cdx.md`, `docs/USAGE.md`, and `docs/OVERVIEW.md`.
 

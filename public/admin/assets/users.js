@@ -4,6 +4,7 @@
 
   const navUsers = document.querySelector('[data-nav="users"]');
 
+  const filterInput = document.getElementById('users-filter');
   const addBtn = document.getElementById('usersAddBtn');
   const wipeBtn = document.getElementById('usersWipeBtn');
   const tableBody = document.querySelector('#users-table tbody');
@@ -32,6 +33,7 @@
   const wipeError = document.getElementById('usersWipeError');
 
   let users = [];
+  let userFilterText = '';
   let roles = {
     admin: 'Admin',
     fleet_operator: 'Fleet Operator',
@@ -125,8 +127,20 @@
 
   const ROLE_ORDER = { admin: 0, fleet_operator: 1, trusted_user: 2, user: 3 };
 
+  function filteredUsers() {
+    if (!userFilterText) return users;
+    const needle = userFilterText.toLowerCase();
+    return users.filter((u) => {
+      const access = (roles[u.access_level] || u.access_level || '').toLowerCase();
+      return (u.name || '').toLowerCase().includes(needle)
+        || (u.username || '').toLowerCase().includes(needle)
+        || (u.email || '').toLowerCase().includes(needle)
+        || access.includes(needle);
+    });
+  }
+
   function sortedUsers() {
-    const list = [...users];
+    const list = [...filteredUsers()];
     const { key, direction } = userSort;
     list.sort((a, b) => {
       let aVal, bVal;
@@ -182,10 +196,17 @@
       show(wipeBtn, false);
       return;
     }
-    show(emptyState, false);
     show(wipeBtn, true);
+    const visible = sortedUsers();
+    if (visible.length === 0) {
+      show(emptyState, true);
+      if (emptyState) emptyState.textContent = 'No users match the current filter.';
+      return;
+    }
+    show(emptyState, false);
+    if (emptyState) emptyState.textContent = 'No users yet. Create the first admin to enable login.';
 
-    tableBody.innerHTML = sortedUsers().map((user) => {
+    tableBody.innerHTML = visible.map((user) => {
       const access = roles[user.access_level] || user.access_level;
       const status = user.active ? 'Active' : 'Disabled';
       const lastLoginAt = user.last_login_at || '';
@@ -432,6 +453,21 @@
       showError(wipeError, err.message);
     }
   });
+
+  if (filterInput) {
+    filterInput.addEventListener('input', () => {
+      userFilterText = filterInput.value.trim().toLowerCase();
+      renderUsers();
+    });
+    filterInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && filterInput.value) {
+        e.preventDefault();
+        filterInput.value = '';
+        userFilterText = '';
+        renderUsers();
+      }
+    });
+  }
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
