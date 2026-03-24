@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: improved run exit footer — (1) a `Run summary` header line now appears above the post-run usage/cost/time/sync block, consistent with how the `--doctor` report section is headed; (2) run times under 1 second now display as milliseconds (e.g. `743ms`) instead of `0s`. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: optical polish — (1) sidebar nav tabs (hosts, logs, settings) split their combined `:hover, :focus-visible` rule so keyboard focus now shows a visible inset accent ring instead of only a barely-perceptible background tint; (2) modal inputs marked `aria-invalid="true"` restore a proper 3 px danger-tinted focus ring when focused, matching the ring size of normal field focus.
 
 # 2026-03-24

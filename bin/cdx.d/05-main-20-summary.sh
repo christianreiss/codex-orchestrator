@@ -366,7 +366,9 @@ print_run_exit_footer() {
     run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
     if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
       local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
-      if (( run_elapsed_s < 60 )); then
+      if (( run_elapsed_s == 0 )); then
+        run_time_text="${run_elapsed_ms}ms"
+      elif (( run_elapsed_s < 60 )); then
         run_time_text="${run_elapsed_s}s"
       else
         run_time_text="$(format_duration_short "$run_elapsed_s")"
@@ -385,6 +387,7 @@ print_run_exit_footer() {
   ROW_LABEL_WIDTH="$(compute_row_label_width "${footer_row_labels[@]}")"
 
   log_info "$(summary_divider)"
+  log_info "$(summary_header "Run summary")"
   log_info "$(format_simple_row "$usage_label" "$usage_text")"
   log_info "$(format_simple_row "$cost_label" "$cost_text")"
   if [[ -n "$run_time_text" ]]; then
