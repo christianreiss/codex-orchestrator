@@ -139,7 +139,7 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
         sys.exit(22)
     if exc.code == 423:
         if "approval pending" in msg_lower:
-            print("insecure host approval pending", file=sys.stderr)
+            print('Insecure host approval pending. Open Admin and click "Enable window" for this host.', file=sys.stderr)
             sys.exit(25)
         if "approval denied" in msg_lower:
             print("insecure host approval denied", file=sys.stderr)
@@ -895,7 +895,7 @@ PY
         AUTH_PULL_STATUS="pending"
         AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
         if (( wait_logged == 0 )); then
-          log_warn "Insecure host window closed; waiting for admin approval (polling every 5s)."
+          log_warn "Insecure host approval pending; open Admin and click \"Enable window\" for this host (polling every 5s)."
           wait_logged=1
         fi
         sleep 5
