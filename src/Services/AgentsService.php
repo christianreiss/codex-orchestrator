@@ -205,6 +205,59 @@ class AgentsService
         return $this->adminFetch();
     }
 
+    public function adminFetchVersion(int $versionId): array
+    {
+        if ($versionId <= 0) {
+            throw new ValidationException(['version_id' => ['version_id is required']]);
+        }
+
+        $row = $this->agents->findById($versionId);
+        if ($row === null) {
+            throw new ValidationException(['version_id' => ['version_id not found']]);
+        }
+
+        $state = $this->agents->state();
+        $latest = $this->agents->latest();
+        $served = $this->resolveServedDocument();
+
+        return [
+            'id' => (int) $row['id'],
+            'sha256' => $row['sha256'] ?? hash('sha256', (string) ($row['body'] ?? '')),
+            'updated_at' => $row['updated_at'] ?? null,
+            'created_at' => $row['created_at'] ?? null,
+            'size_bytes' => strlen((string) ($row['body'] ?? '')),
+            'content' => (string) ($row['body'] ?? ''),
+            'is_latest' => isset($latest['id']) && (int) $latest['id'] === (int) $row['id'],
+            'is_active' => isset($state['active_document_id']) && (int) $state['active_document_id'] === (int) $row['id'],
+            'is_served' => isset($served['id']) && (int) $served['id'] === (int) $row['id'],
+        ];
+    }
+
+    public function revertVersion(int $versionId): array
+    {
+        if ($versionId <= 0) {
+            throw new ValidationException(['version_id' => ['version_id is required']]);
+        }
+
+        $source = $this->agents->findById($versionId);
+        if ($source === null) {
+            throw new ValidationException(['version_id' => ['version_id not found']]);
+        }
+
+        $body = (string) ($source['body'] ?? '');
+        $sha = $source['sha256'] ?? hash('sha256', $body);
+        $created = $this->agents->createVersion($body, null, $sha);
+        $this->agents->updateState(AgentsRepository::MODE_LATEST, null);
+
+        $this->logs->log(null, 'agents.revert', [
+            'status' => 'reverted',
+            'source_version_id' => $versionId,
+            'new_version_id' => isset($created['id']) ? (int) $created['id'] : null,
+        ]);
+
+        return $this->adminFetch();
+    }
+
     public function deleteVersion(int $versionId): array
     {
         if ($versionId <= 0) {

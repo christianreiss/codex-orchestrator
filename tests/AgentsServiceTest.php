@@ -246,6 +246,48 @@ final class AgentsServiceTest extends TestCase
         $this->service->setServeMode('locked', 9999);
     }
 
+    public function testAdminFetchVersionReturnsStoredContentAndFlags(): void
+    {
+        $v1 = $this->service->store('# V1');
+        $this->service->store('# V2 latest');
+        $this->service->setServeMode('locked', $v1['version_id']);
+
+        $result = $this->service->adminFetchVersion($v1['version_id']);
+        $this->assertSame($v1['version_id'], $result['id']);
+        $this->assertSame('# V1', $result['content']);
+        $this->assertTrue($result['is_active']);
+        $this->assertTrue($result['is_served']);
+        $this->assertFalse($result['is_latest']);
+    }
+
+    public function testAdminFetchVersionRejectsMissingVersion(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->service->adminFetchVersion(9999);
+    }
+
+    public function testRevertVersionCreatesNewLatestAndResetsServeMode(): void
+    {
+        $v1 = $this->service->store('# V1');
+        $this->service->store('# V2 latest');
+        $this->service->setServeMode('locked', $v1['version_id']);
+
+        $result = $this->service->revertVersion($v1['version_id']);
+
+        $this->assertSame('latest', $result['mode']);
+        $this->assertNull($result['active_id']);
+        $this->assertSame($result['latest_id'], $result['served_id']);
+        $this->assertSame('# V1', $result['content']);
+        $this->assertCount(3, $result['versions']);
+        $this->assertNotSame($v1['version_id'], $result['latest_id']);
+    }
+
+    public function testRevertVersionRejectsMissingVersion(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->service->revertVersion(9999);
+    }
+
     public function testDeleteVersion(): void
     {
         $v1 = $this->service->store('# V1');

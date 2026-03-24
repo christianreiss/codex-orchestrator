@@ -117,6 +117,29 @@ class AdminConfigController
     }
 
     /**
+     * GET /admin/agents/versions/{id}
+     */
+    public function agentsVersion(int $versionId): void
+    {
+        requireAdminAccess();
+
+        try {
+            $result = $this->agentsService->adminFetchVersion($versionId);
+        } catch (ValidationException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $exception->getErrors(),
+            ], 422);
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    /**
      * POST /admin/agents/store
      */
     public function agentsStore(array $payload): void
@@ -162,6 +185,35 @@ class AdminConfigController
 
         try {
             $result = $this->agentsService->setServeMode($mode, $versionId);
+        } catch (ValidationException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $exception->getErrors(),
+            ], 422);
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    /**
+     * POST /admin/agents/revert
+     */
+    public function agentsRevert(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        $versionId = null;
+        if (is_array($payload) && isset($payload['version_id'])) {
+            $versionId = is_numeric($payload['version_id']) ? (int) $payload['version_id'] : null;
+        }
+
+        try {
+            $result = $this->agentsService->revertVersion($versionId ?? 0);
         } catch (ValidationException $exception) {
             Response::json([
                 'status' => 'error',

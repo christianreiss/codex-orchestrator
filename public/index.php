@@ -581,8 +581,10 @@ $router->add('POST', '#^/admin/config/store$#', fn() => $adminConfigCtrl->config
 
 // Admin agents
 $router->add('GET', '#^/admin/agents$#', fn() => $adminConfigCtrl->agents());
+$router->add('GET', '#^/admin/agents/versions/(\d+)$#', fn($id) => $adminConfigCtrl->agentsVersion((int) $id));
 $router->add('POST', '#^/admin/agents/store$#', fn() => $adminConfigCtrl->agentsStore($payload));
 $router->add('POST', '#^/admin/agents/serve$#', fn() => $adminConfigCtrl->agentsServe($payload));
+$router->add('POST', '#^/admin/agents/revert$#', fn() => $adminConfigCtrl->agentsRevert($payload));
 $router->add('DELETE', '#^/admin/agents/versions/(\d+)$#', fn($id) => $adminConfigCtrl->agentsDeleteVersion($id));
 
 // Admin memories

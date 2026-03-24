@@ -78,6 +78,11 @@
     const agentsDeleteStatus = document.getElementById('agentsDeleteStatus');
     const agentsDeleteCancel = document.getElementById('agentsDeleteCancel');
     const agentsDeleteConfirm = document.getElementById('agentsDeleteConfirm');
+    const agentsViewModal = document.getElementById('agentsViewModal');
+    const agentsViewMeta = document.getElementById('agentsViewMeta');
+    const agentsViewContent = document.getElementById('agentsViewContent');
+    const agentsViewStatus = document.getElementById('agentsViewStatus');
+    const agentsViewClose = document.getElementById('agentsViewClose');
     const hostDetailTitle = document.getElementById('hostDetailTitle');
     const hostDetailPills = document.getElementById('hostDetailPills');
     const hostDetailGrid = document.getElementById('hostDetailGrid');
@@ -225,6 +230,7 @@
     let pendingDeleteId = null;
     let pendingAgentsDeleteId = null;
     let pendingAgentsDeleteHosts = [];
+    let pendingAgentsViewId = null;
     const HOST_MODEL_REASONING = {
       'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
@@ -1982,8 +1988,8 @@
           const suffix = latestId ? `v${latestId}` : 'latest';
           agentsServeLabel.textContent = `Serving: latest (${suffix})`;
         } else {
-          const suffix = activeId ? `v${activeId}` : 'default';
-          agentsServeLabel.textContent = `Serving: default (${suffix})`;
+          const suffix = activeId ? `v${activeId}` : 'pinned';
+          agentsServeLabel.textContent = `Serving: pinned (${suffix})`;
         }
       }
       if (agentsServeLatest) {
@@ -2026,9 +2032,8 @@
             const isActive = !!version?.is_active;
             const statusChips = [];
             if (isServed) statusChips.push('<span class="pill ok">Serving</span>');
-            if (!isServed && isActive) statusChips.push('<span class="pill warn">Default</span>');
+            if (!isServed && isActive) statusChips.push('<span class="pill warn">Pinned</span>');
             if (isLatest) statusChips.push('<span class="pill">Latest</span>');
-            const serveLabel = mode === 'latest' ? 'Default' : 'Serve';
             return `
               <tr data-version-id="${Number.isFinite(id) ? id : ''}">
                 <td>#${Number.isFinite(id) ? id : '—'}</td>
@@ -2038,7 +2043,8 @@
                 <td class="agents-sha">${escapeHtml(sha ? sha.slice(0, 12) : '—')}</td>
                 <td class="agents-version-actions">
                   ${statusChips.join(' ')}
-                  ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-serve" data-version-id="${id}">${serveLabel}</button>`}
+                  <button class="ghost tiny-btn" data-action="agents-view" data-version-id="${id}">View</button>
+                  ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-revert" data-version-id="${id}">Revert</button>`}
                   ${isServed ? '<button class="ghost tiny-btn" disabled>Delete</button>' : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}">Delete</button>`}
                 </td>
               </tr>
@@ -2558,15 +2564,15 @@
 
     function agentsGlobalLabel(doc) {
       if (!doc || doc.status === 'missing') {
-        return 'Default (global - missing)';
+        return 'Global (fleet - missing)';
       }
       const mode = typeof doc.mode === 'string' ? doc.mode : 'latest';
       const latestId = normalizeAgentsVersionId(doc.latest_id);
       const activeId = normalizeAgentsVersionId(doc.active_id);
       if (mode === 'latest') {
-        return `Default (global - latest${latestId ? ` v${latestId}` : ''})`;
+        return `Global (fleet - latest${latestId ? ` v${latestId}` : ''})`;
       }
-      return `Default (global - default${activeId ? ` v${activeId}` : ''})`;
+      return `Global (fleet - pinned${activeId ? ` v${activeId}` : ''})`;
     }
 
     function buildAgentsVersionOptions(doc, { excludeId = null } = {}) {
@@ -2579,7 +2585,7 @@
         if (excludeId && id === excludeId) return;
         const tags = [];
         if (version?.is_served) tags.push('serving');
-        if (!version?.is_served && version?.is_active) tags.push('default');
+        if (!version?.is_served && version?.is_active) tags.push('pinned');
         if (version?.is_latest) tags.push('latest');
         const label = tags.length ? `v${id} (${tags.join(', ')})` : `v${id}`;
         options.push(`<option value="${id}">${label}</option>`);
@@ -7350,22 +7356,65 @@
       }
     }
 
-    async function serveAgentsVersion(versionId) {
+    function closeAgentsViewModal() {
+      if (!agentsViewModal) return;
+      agentsViewModal.classList.remove('show');
+      setInertBehindModal(agentsViewModal, false);
+      pendingAgentsViewId = null;
+      if (agentsViewMeta) agentsViewMeta.textContent = '';
+      if (agentsViewContent) agentsViewContent.textContent = '';
+      if (agentsViewStatus) agentsViewStatus.textContent = '';
+    }
+
+    async function viewAgentsVersion(versionId) {
       const id = Number(versionId);
       if (!Number.isFinite(id)) return;
-      if (agentsStatus) agentsStatus.textContent = `Serving v${id}…`;
+      pendingAgentsViewId = id;
+      if (agentsViewMeta) agentsViewMeta.textContent = `Loading v${id}…`;
+      if (agentsViewContent) agentsViewContent.textContent = '';
+      if (agentsViewStatus) agentsViewStatus.textContent = '';
+      if (agentsViewModal) {
+        agentsViewModal.classList.add('show');
+        setInertBehindModal(agentsViewModal, true);
+      }
       try {
-        await api('/admin/agents/serve', {
+        const response = await api(`/admin/agents/versions/${id}`);
+        const version = response?.data || response || {};
+        if (pendingAgentsViewId !== id) return;
+        const flags = [];
+        if (version?.is_served) flags.push('serving');
+        if (!version?.is_served && version?.is_active) flags.push('pinned');
+        if (version?.is_latest) flags.push('latest');
+        const size = Number(version?.size_bytes);
+        const sizeText = Number.isFinite(size) ? `${formatNumber(size)} bytes` : '—';
+        const updated = version?.updated_at ? formatTimestamp(version.updated_at) : 'unknown time';
+        const tags = flags.length ? ` · ${flags.join(' · ')}` : '';
+        if (agentsViewMeta) agentsViewMeta.textContent = `Version v${id} · updated ${updated} · ${sizeText}${tags}`;
+        if (agentsViewContent) agentsViewContent.textContent = typeof version?.content === 'string' ? version.content : '';
+      } catch (err) {
+        if (agentsViewStatus) agentsViewStatus.textContent = `View failed: ${err.message}`;
+      }
+    }
+
+    async function revertAgentsVersion(versionId) {
+      const id = Number(versionId);
+      if (!Number.isFinite(id)) return;
+      if (!await showConfirmModal('Revert AGENTS.md version', `Create a new latest AGENTS.md from version #${id} and serve it fleet-wide?`, { action: 'Revert' })) {
+        return;
+      }
+      if (agentsStatus) agentsStatus.textContent = `Reverting to v${id}…`;
+      try {
+        await api('/admin/agents/revert', {
           method: 'POST',
-          json: { mode: 'locked', version_id: id },
+          json: { version_id: id },
         });
         await loadAll();
-        if (agentsStatus) agentsStatus.textContent = `Serving v${id}`;
+        if (agentsStatus) agentsStatus.textContent = `Reverted v${id} into the new latest version`;
         setTimeout(() => {
-          if (agentsStatus && agentsStatus.textContent === `Serving v${id}`) agentsStatus.textContent = '';
-        }, 1500);
+          if (agentsStatus && agentsStatus.textContent === `Reverted v${id} into the new latest version`) agentsStatus.textContent = '';
+        }, 1800);
       } catch (err) {
-        if (agentsStatus) agentsStatus.textContent = `Serve failed: ${err.message}`;
+        if (agentsStatus) agentsStatus.textContent = `Revert failed: ${err.message}`;
       }
     }
 
@@ -7397,7 +7446,7 @@
       if (agentsDeleteIntro) {
         const count = pendingAgentsDeleteHosts.length;
         const hostLabel = count === 1 ? 'host' : 'hosts';
-        agentsDeleteIntro.textContent = `Version v${id} is the default for ${count} ${hostLabel} using it. Choose where to move them before deleting.`;
+        agentsDeleteIntro.textContent = `Version v${id} is selected by ${count} ${hostLabel}. Choose where to move them before deleting.`;
       }
       if (agentsDeleteSelect) {
         agentsDeleteSelect.innerHTML = buildAgentsVersionOptions(currentAgents, { excludeId: id });
@@ -8122,8 +8171,10 @@
         const action = btn.getAttribute('data-action');
         const versionId = btn.getAttribute('data-version-id');
         if (!versionId) return;
-        if (action === 'agents-serve') {
-          serveAgentsVersion(versionId);
+        if (action === 'agents-view') {
+          viewAgentsVersion(versionId);
+        } else if (action === 'agents-revert') {
+          revertAgentsVersion(versionId);
         } else if (action === 'agents-delete') {
           deleteAgentsVersion(versionId);
         }
@@ -8247,6 +8298,11 @@
         if (e.target === agentsDeleteModal) closeAgentsDeleteModal();
       });
     }
+    if (agentsViewModal) {
+      agentsViewModal.addEventListener('click', (e) => {
+        if (e.target === agentsViewModal) closeAgentsViewModal();
+      });
+    }
     const modalCloseMap = new Map([
       [helpModal,             () => closeHelpModal()],
       [newHostModal,          () => showNewHostModal(false)],
@@ -8254,6 +8310,7 @@
       [insecureHostsModal,    () => closeInsecureHostsModal()],
       [deleteHostModal,       () => closeDeleteModal()],
       [agentsDeleteModal,     () => closeAgentsDeleteModal()],
+      [agentsViewModal,       () => closeAgentsViewModal()],
       [runnerModal,           () => showRunnerModal(false)],
       [promptModal,           () => showPromptModal(false)],
       [skillModal,            () => showSkillModal(false)],
@@ -8331,6 +8388,9 @@
     }
     if (agentsDeleteConfirm) {
       agentsDeleteConfirm.addEventListener('click', () => confirmAgentsDelete());
+    }
+    if (agentsViewClose) {
+      agentsViewClose.addEventListener('click', () => closeAgentsViewModal());
     }
     if (apiToggle) {
       apiToggle.addEventListener('change', () => {

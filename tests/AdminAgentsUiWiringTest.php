@@ -73,6 +73,8 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="agentsSaveInline"', $html);
         $this->assertStringContainsString('id="agentsServeLatest"', $html);
         $this->assertStringContainsString('id="agentsVersions"', $html);
+        $this->assertStringContainsString('id="agentsViewModal"', $html);
+        $this->assertStringContainsString('id="agentsViewContent"', $html);
     }
 
     public function testAdminAgentsDeleteModalIncludesReassignmentControls(): void
@@ -84,6 +86,18 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="agentsDeleteSelect"', $html);
         $this->assertStringContainsString('id="agentsDeleteHosts"', $html);
         $this->assertStringContainsString('id="agentsDeleteConfirm"', $html);
+    }
+
+    public function testAdminAgentsHistoryActionsAreWiredForViewAndRevert(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString("data-action=\"agents-view\"", $js);
+        $this->assertStringContainsString("data-action=\"agents-revert\"", $js);
+        $this->assertStringContainsString('api(`/admin/agents/versions/', $js);
+        $this->assertStringContainsString("api('/admin/agents/revert'", $js);
+        $this->assertStringNotContainsString("data-action=\"agents-serve\"", $js);
     }
 
     public function testAdminConfigBuilderAssetsAreCacheBusted(): void

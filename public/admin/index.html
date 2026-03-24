@@ -308,7 +308,7 @@
             <div class="field">
               <label for="agentsDeleteSelect" class="modal-label">Move affected hosts to</label>
               <select id="agentsDeleteSelect"></select>
-              <div class="muted-note">Default follows the fleet AGENTS.md setting.</div>
+              <div class="muted-note">Global follows the fleet AGENTS.md setting.</div>
             </div>
             <div class="field">
               <label class="modal-label">Affected hosts</label>
@@ -318,6 +318,17 @@
             <div class="actions">
               <button class="ghost" id="agentsDeleteCancel">Cancel</button>
               <button class="danger" id="agentsDeleteConfirm">Move &amp; Delete</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="agentsViewModal" role="dialog" aria-modal="true">
+          <div class="modal">
+            <h3>View AGENTS.md version</h3>
+            <p id="agentsViewMeta" class="muted"></p>
+            <pre id="agentsViewContent" class="code-block" style="max-height:65vh; overflow:auto;"></pre>
+            <div id="agentsViewStatus" class="muted status-text"></div>
+            <div class="actions">
+              <button class="ghost" id="agentsViewClose">Close</button>
             </div>
           </div>
         </div>
