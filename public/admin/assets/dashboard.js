@@ -2285,10 +2285,48 @@
         if (!hostMatchesStatus(host)) return false;
         if (!hostFilterText) return true;
         const statusLabel = hostListStatus(host).label.toLowerCase();
-        const haystacks = [host.fqdn, host.client_version, statusLabel]
+        const autoUpdateLabel = hostAutoUpdateIndicator(host).label.toLowerCase();
+        const haystacks = [host.fqdn, host.client_version, statusLabel, autoUpdateLabel]
           .map((value) => (typeof value === 'string' ? value.toLowerCase() : ''));
         return haystacks.some(text => text.includes(hostFilterText));
       });
+    }
+
+    function hostAutoUpdateEnabled(host) {
+      if (host?.auto_update_override === true) return true;
+      if (host?.auto_update_override === false) return false;
+      return autoUpdateEnabled === true;
+    }
+
+    function hostAutoUpdateIndicator(host) {
+      if (!hostAutoUpdateEnabled(host)) {
+        return {
+          icon: '-',
+          label: 'Auto-updates disabled',
+          rank: 2,
+        };
+      }
+
+      const lastCheckDate = parseTimestamp(host?.last_cron_check);
+      if (lastCheckDate) {
+        const ageMs = Date.now() - lastCheckDate.getTime();
+        const recentWindowMs = 36 * 60 * 60 * 1000;
+        if (ageMs >= 0 && ageMs <= recentWindowMs) {
+          return {
+            icon: '✅',
+            label: `Auto-updates OK (${formatRelative(host.last_cron_check)})`,
+            rank: 0,
+          };
+        }
+      }
+
+      return {
+        icon: '⚠️',
+        label: host?.last_cron_check
+          ? `Auto-updates warning (${formatRelative(host.last_cron_check)})`
+          : 'Auto-updates warning (no recent cron check)',
+        rank: 1,
+      };
     }
 
     function hostSortValue(host, key) {
@@ -2303,6 +2341,8 @@
         }
         case 'client':
           return (host.client_version || '').toLowerCase();
+        case 'auto_updates':
+          return hostAutoUpdateIndicator(host).rank;
         default:
           return '';
       }
@@ -3253,6 +3293,7 @@
       const status = hostListStatus(host);
       const statusChip = `<span class="chip ${status.tone}">${status.label}</span>`;
       const lastSeenText = host.updated_at ? formatRelative(host.updated_at) : 'Never';
+      const autoUpdate = hostAutoUpdateIndicator(host);
       tr.classList.add('host-row');
       tr.setAttribute('data-id', host.id);
       tr.tabIndex = 0;
@@ -3271,6 +3312,7 @@
         <td data-label="Status" class="status-cell">${statusChip}</td>
         <td data-label="Last Seen"><span class="host-secondary">${escapeHtml(lastSeenText)}</span></td>
         <td data-label="Codex">${renderVersionTag(host.client_version, latestVersions.client)}</td>
+        <td data-label="Auto-updates" class="host-auto-updates-cell"><span class="host-auto-updates-indicator" title="${escapeHtml(autoUpdate.label)}" aria-label="${escapeHtml(autoUpdate.label)}">${autoUpdate.icon}</span></td>
         <td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>
       `;
       tr.addEventListener('click', () => openHostDetail(host.id));
@@ -3300,7 +3342,7 @@
       const filtered = applyHostFilters(currentHosts);
 
       hostsTbody.innerHTML = '';
-      const cols = 5;
+      const cols = 6;
       if (!filtered.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
         updateSortIndicators();

@@ -1703,6 +1703,17 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
   box-sizing: border-box;
 }
 .confirm-modal { max-width: 420px; }
+.host-auto-updates-cell {
+  text-align: center;
+}
+.host-auto-updates-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  font-size: 16px;
+  line-height: 1;
+}
 .shortcut-help-modal {
   max-width: 860px;
   width: min(860px, 96vw);

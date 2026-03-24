@@ -33,4 +33,21 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
         self::assertStringContainsString("document.addEventListener('keydown', handleGlobalShortcut);", $js);
     }
+
+    public function testHostsTableIncludesAutoUpdatesColumnAndIndicators(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        self::assertIsString($html);
+        self::assertStringContainsString('data-sort="auto_updates"', $html);
+        self::assertStringContainsString('Auto-updates', $html);
+
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        self::assertIsString($js);
+        self::assertStringContainsString('function hostAutoUpdateIndicator(host)', $js);
+        self::assertStringContainsString("icon: '-'", $js);
+        self::assertStringContainsString("icon: '✅'", $js);
+        self::assertStringContainsString("icon: '⚠️'", $js);
+        self::assertStringContainsString("case 'auto_updates':", $js);
+        self::assertStringContainsString('host-auto-updates-indicator', $js);
+    }
 }

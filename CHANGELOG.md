@@ -1,4 +1,5 @@
 # 2026-03-24
+- Admin UI: the hosts table now includes an `Auto-updates` column with three compact states: `-` when cron auto-updates are not enabled, `✅` when the host has a recent cron check-in, and `⚠️` when auto-updates are enabled but the last cron check is missing or stale.
 - Admin UI: the login page now prefetches and idle-warms the main admin shell (`/admin/index.html`, dashboard CSS, and dashboard JS) so the first authenticated dashboard visit is less of a cold start.
 - cdx wrapper: shortened the skipped Codex auto-update note from `cron-managed auto-update enabled` to `cron-managed updates` so the `Versions` summary fits narrow terminals without losing the reason.
 - Admin UI: added a rail `?` help trigger that opens a keyboard-shortcuts modal, plus real admin-shell shortcuts for `?`, `n`, `/`, `r`, and `g` navigation chords (`d/h/l/s/p/u`) so the cheat sheet reflects live behavior instead of static copy.
