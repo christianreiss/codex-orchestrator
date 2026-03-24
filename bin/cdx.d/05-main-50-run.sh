@@ -136,25 +136,19 @@ if m and m.group(1) == "true":
 PY
 }
 
-apply_codex_cli_toggles_from_config() {
-  if [[ ! -f "$CONFIG_PATH" ]]; then
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    return 0
-  fi
-  local line
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    case "$line" in
+# Apply config-derived CLI toggles at script scope so set -- modifies the
+# global $@ rather than a function-local copy.
+if [[ -f "$CONFIG_PATH" ]] && command -v python3 >/dev/null 2>&1; then
+  while IFS= read -r _cdx_cfg_toggle; do
+    [[ -z "$_cdx_cfg_toggle" ]] && continue
+    case "$_cdx_cfg_toggle" in
       --dangerously-bypass-approvals-and-sandbox)
-        set -- "$line" "$@"
+        set -- "$_cdx_cfg_toggle" "$@"
         ;;
     esac
   done < <(codex_cli_args_from_config_python 2>/dev/null || true)
-}
-
-apply_codex_cli_toggles_from_config
+  unset _cdx_cfg_toggle
+fi
 
 ensure_project_path_trusted_in_config() {
   local project_path="${1-}"

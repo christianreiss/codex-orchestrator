@@ -152,7 +152,7 @@
     roles = status?.roles || roles;
     if (!inputAccess) return;
     inputAccess.innerHTML = Object.entries(roles)
-      .map(([key, label]) => `<option value="${key}">${label}</option>`)
+      .map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`)
       .join('');
   }
 
