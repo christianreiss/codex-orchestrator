@@ -263,22 +263,6 @@ ensure_current_project_trusted_in_config() {
   fi
 }
 
-detect_script_flags() {
-  local help_output
-  SCRIPT_SUPPORTS_C=0
-  help_output="$(script --help 2>&1 || script -h 2>&1 || true)"
-  if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-c([[:space:],]|$)'; then
-    SCRIPT_SUPPORTS_C=1
-  fi
-  if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-F([[:space:],]|$)'; then
-    SCRIPT_FLAGS="-qFe"
-  elif printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-f([[:space:],]|$)'; then
-    SCRIPT_FLAGS="-qef"
-  else
-    SCRIPT_FLAGS="-qe"
-  fi
-}
-
 codex_args_include_exact_flag() {
   local wanted="$1"
   shift || true
@@ -317,16 +301,12 @@ run_codex_command() {
   fi
   set +e
   local prompt_toolkit_no_cpr_added=0
-  local pty_auto_disable_file="$HOME/.codex/.cdx_no_pty"
-  local pty_tty_error=0
-  # If we're not connected to a real TTY (common on some odd SSH/VM setups),
-  # forcing prompt-toolkit cursor position reports can hard-fail.
   if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]] && [[ ! -t 0 || ! -t 1 ]]; then
     export PROMPT_TOOLKIT_NO_CPR=1
     prompt_toolkit_no_cpr_added=1
   fi
 
-  if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
+  if (( CODEX_SSH_INTERACTIVE )); then
     case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
       0|false|no|off)
         ;;
@@ -343,156 +323,29 @@ run_codex_command() {
   fi
 
   if [[ -t 0 && -t 1 ]]; then
-    if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
-      # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
-      # Default to inline mode there because some SSH terminals misbehave in alt-screen.
-      "${exec_cmd[@]}"
-      status=$?
-    elif [[ "$CODEX_NO_PTY" == "1" ]]; then
-      # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
-      "${exec_cmd[@]}"
-      status=$?
-    elif [[ "${CODEX_FORCE_PTY:-0}" != "1" && -f "$pty_auto_disable_file" ]]; then
-      # Auto-detected incompatible PTY host; run direct unless explicitly overridden.
-      "${exec_cmd[@]}"
-      status=$?
-    else
-      if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
-        export PROMPT_TOOLKIT_NO_CPR=1
-        prompt_toolkit_no_cpr_added=1
-      fi
-      if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
-        # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
-        local cmd_str
-        cmd_str="$(printf '%q ' "${exec_cmd[@]}")"
-        detect_script_flags
-        if (( SCRIPT_SUPPORTS_C )); then
-          script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"
-        else
-          script $SCRIPT_FLAGS "$tmp_output" "${exec_cmd[@]}"
-        fi
-        status=$?
-      elif command -v python3 >/dev/null 2>&1; then
-        # Fallback PTY using Python's pty module when script is unavailable.
-        local -a pty_cmd=(python3 - "$tmp_output" "${cmd_line[@]}")
-        if (( use_cmd_prefix )); then
-          pty_cmd=("${cmd_prefix[@]}" "${pty_cmd[@]}")
-        fi
-        status=0
-        "${pty_cmd[@]}" <<'PY'
-import fcntl
-import os
-import pty
-import signal
-import sys
-import termios
-log_path = sys.argv[1]
-cmd = sys.argv[2:]
-
-def copy_winsize(from_fd, to_fd):
-    try:
-        winsize = fcntl.ioctl(from_fd, termios.TIOCGWINSZ, b"\0" * 8)
-    except OSError:
-        return
-    try:
-        fcntl.ioctl(to_fd, termios.TIOCSWINSZ, winsize)
-    except OSError:
-        pass
-
-stdout_fd = sys.stdout.fileno()
-winsize_source_fd = stdout_fd if os.isatty(stdout_fd) else None
-opened_tty_fd = None
-if winsize_source_fd is None:
-    try:
-        opened_tty_fd = os.open("/dev/tty", os.O_RDONLY)
-        winsize_source_fd = opened_tty_fd
-    except OSError:
-        winsize_source_fd = None
-with open(log_path, "wb") as log:
-    pid, fd = pty.fork()
-    if pid == 0:
-        os.execvp(cmd[0], cmd)
-    if winsize_source_fd is not None:
-        copy_winsize(winsize_source_fd, fd)
-    previous_winch_handler = signal.getsignal(signal.SIGWINCH)
-    if winsize_source_fd is not None:
-        def forward_winch(_signum, _frame):
-            copy_winsize(winsize_source_fd, fd)
-        signal.signal(signal.SIGWINCH, forward_winch)
-    try:
-        while True:
-            try:
-                data = os.read(fd, 1024)
-            except OSError:
-                break
-            if not data:
-                break
-            os.write(sys.stdout.fileno(), data)
-            log.write(data)
-            log.flush()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            signal.signal(signal.SIGWINCH, previous_winch_handler)
-        except Exception:
-            pass
-        if opened_tty_fd is not None:
-            try:
-                os.close(opened_tty_fd)
-            except OSError:
-                pass
-    _, status = os.waitpid(pid, 0)
-    sys.exit(os.WEXITSTATUS(status))
-PY
-        status=$?
-      else
-        # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
-        "${exec_cmd[@]}"
-        status=$?
-      fi
-
-      if [[ -f "$tmp_output" ]] && grep -Eiq '(stdout is not a terminal|stdin is not a terminal|stdin/stderr is not a TTY|stdin is not a tty|stdout is not a tty)' "$tmp_output"; then
-        pty_tty_error=1
-      fi
-      # Only retry when the PTY run itself failed and looks TTY-incompatible.
-      if (( pty_tty_error )) && [[ ${status:-1} -ne 0 ]]; then
-        mkdir -p "$(dirname "$pty_auto_disable_file")" >/dev/null 2>&1 || true
-        {
-          printf 'detected_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          printf 'wrapper_version=%s\n' "${WRAPPER_VERSION:-unknown}"
-        } > "$pty_auto_disable_file" 2>/dev/null || true
-        log_warn "PTY capture looks incompatible on this host; auto-disabling PTY capture. Remove $pty_auto_disable_file or set CODEX_FORCE_PTY=1 to retry."
-        "${exec_cmd[@]}"
-        status=$?
-      fi
-    fi
+    # TTY: direct exec — codex owns the terminal.
+    "${exec_cmd[@]}"
+    status=$?
+  elif [[ ! -t 1 ]] && (( $# == 0 )); then
+    log_error "stdout is not a TTY; interactive launch requires a terminal."
+    log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
+    status=1
   else
-    # Non-TTY stdout should not rewrite user intent (for example forcing `exec`).
-    # For interactive no-arg launches, fail fast with an explicit non-interactive hint.
-    if [[ ! -t 1 ]]; then
-      if (( $# == 0 )); then
-        log_error "stdout is not a TTY; interactive launch requires a terminal."
-        log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
-        status=1
-      else
-        "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
-        status=${PIPESTATUS[0]}
-      fi
-    else
-      "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
-      status=${PIPESTATUS[0]}
-    fi
+    # Non-TTY: capture output via tee for token usage extraction.
+    "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
   fi
   stop_codex_ipv4_proxy || true
   if (( prompt_toolkit_no_cpr_added )); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi
   set -e
-  if [[ -f "$tmp_output" ]]; then
+  if [[ -f "$tmp_output" ]] && [[ -s "$tmp_output" ]]; then
     send_token_usage_if_present "$tmp_output"
-    rm -f "$tmp_output"
+  else
+    send_token_usage_from_session_jsonl
   fi
+  rm -f "$tmp_output"
   return "$status"
 }
 

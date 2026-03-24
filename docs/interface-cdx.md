@@ -75,7 +75,7 @@ Help passthrough:
 | --- | --- |
 | `cdx --wrapper-version` / `cdx -W` | Print wrapper version and exit. |
 | `cdx status` / `cdx --status` | Run sync/update checks + summary, do not launch Codex. Exit `0` unless red/error state (`1`). |
-| `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, PTY state, SSH terminal hints, and Codex SSH-compatibility guard state). Exit non-zero on critical failures/red state. |
+| `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, SSH terminal hints). Exit non-zero on critical failures/red state. |
 | `cdx --update` / `cdx -U` | Force wrapper update attempt from server and exit immediately after the attempt. |
 | `cdx --uninstall` | Deregister host auth and remove Codex/wrapper artifacts. |
 | `cdx -4` | Force IPv4 for wrapper-managed network calls and Codex child outbound traffic for this invocation. |
@@ -185,19 +185,12 @@ Summary layout:
 - `TERM=dumb` or `CODEX_MINIMAL_OUTPUT=1` enables minimal summary mode and suppresses MOTD.
 - `CODEX_SILENT=1` suppresses info/warn/debug and MOTD.
 
-## PTY + Execution Behavior
-- PTY capture is used only when stdin/stdout are TTYs.
-- Interactive SSH sessions bypass wrapper PTY capture and launch Codex directly unless `CODEX_FORCE_PTY=1`, favoring TUI correctness over wrapper-side output capture on those runs.
-- Interactive SSH direct-launch now also defaults to `--no-alt-screen` so terminal CPR/alt-screen quirks on some SSH hosts do not instantly tear down the visible UI; set `CODEX_SSH_ALT_SCREEN=0` to keep fullscreen alt-screen mode.
-- PTY backends:
-  - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
-  - Python `pty` fallback
-  - direct execution fallback
-- Both Python PTY paths copy the current terminal window size into the child PTY before launch and forward `SIGWINCH`, so full-screen Codex UIs keep the correct geometry over SSH and other Python-PTY fallbacks.
-- `CODEX_NO_PTY=1` disables PTY capture.
-- PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
-- `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
-- Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues on non-TTY launches and wrapper-managed PTY capture paths; interactive SSH direct-launch instead prefers inline mode by default.
+## Execution Behavior
+- When stdin and stdout are TTYs, Codex is launched with direct terminal ownership (no intermediate PTY capture).
+- When stdout is not a TTY (pipe mode), Codex output is captured via `tee` for token usage extraction.
+- Non-TTY interactive launch (no args, no terminal) fails with guidance to use `--execute`.
+- Interactive SSH sessions inject `--no-alt-screen` by default so terminal CPR/alt-screen quirks on some SSH hosts do not tear down the visible UI; set `CODEX_SSH_ALT_SCREEN=0` to keep fullscreen alt-screen mode.
+- `PROMPT_TOOLKIT_NO_CPR=1` is set automatically when stdin or stdout is not a TTY.
 - When `CODEX_FORCE_IPV4=1`, the wrapper starts a short-lived loopback HTTP proxy and injects it only into the spawned Codex process (`HTTP[S]_PROXY`, `ALL_PROXY`, and `-c network.proxy_url=...`) so Codex traffic, including `chatgpt.com`, resolves/connects over IPv4 without changing the parent shell environment.
 
 `--execute` behavior:
@@ -208,9 +201,9 @@ Summary layout:
 - Forwards Codex exit code.
 
 ## Usage Reporting
-- Wrapper first reads only the last ~256 KiB of the captured PTY log; if that tail contains a valid final legacy `Token usage:` line, it uses that immediately and skips the full-file scan.
-- When the tail does not contain usable legacy usage, wrapper falls back to the broader compatibility path: resolve the captured Codex `session id` and read `~/.codex/sessions/.../*.jsonl` `token_count` events for structured usage (`total`, `input`, `output`, `cached`, `reasoning`); older CLIs still fall back to a full-file legacy `Token usage:` scan, and the current plain-text `tokens used` footer degrades to total-only usage when no session log can be resolved.
-- Interactive SSH direct-launch runs may not produce a wrapper-captured output log, so `Run usage`/`Run cost` can be unavailable for those sessions.
+- TTY sessions (direct exec) extract token usage from `~/.codex/sessions/.../*.jsonl` files, discovered by mtime and scoped to the current run's start time.
+- Non-TTY (pipe) sessions first try the captured output log for a `Token usage:` line or `session id:` reference, then fall back to JSONL session discovery.
+- Both paths parse structured `token_count` and `turn.completed` events for full breakdown (`total`, `input`, `output`, `cached`, `reasoning`).
 - Posted to `POST /usage` as one payload (`usages` array).
 - `/usage` upload is explicitly best effort: the wrapper keeps roughly a 3-second total request budget across SSL-context attempts, and only retries the stripped-line fallback for quick payload-shape failures instead of slow/time-out network failures.
 - Each entry may contain: `line`, `total`, `input`, `output`, `cached`, `reasoning`, optional `model`.
@@ -241,9 +234,9 @@ Codex updates:
 - Cron HTTPS probes build the same relaxed SSL context chain as the other wrapper sync paths: optional baked CA, `VERIFY_X509_STRICT` fallback disable when available, and insecure mode only when the host was explicitly baked with `curl_insecure` / `CODEX_SYNC_ALLOW_INSECURE=1`.
 - When a specific platform asset name is requested during release resolution, wrapper update paths fail closed if that exact asset is missing; generic `codex` fallback is only allowed when no explicit asset name was requested.
 - After a checksum-verified cron update installs successfully, report submission is retried and a persistent report failure exits non-zero so operators can see the incomplete rollout.
-- Linux prerequisite auto-install (`curl`, `unzip`, `script`) runs only when wrapper has root/passwordless sudo.
+- Linux prerequisite auto-install (`curl`, `unzip`) runs only when wrapper has root/passwordless sudo.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
-- `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and whether interactive SSH will launch direct TTY or forced PTY.
+- `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and SSH launch mode.
 
 Installer behavior:
 - Installer script downloads the server-targeted Codex version by default.

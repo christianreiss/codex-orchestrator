@@ -6,21 +6,21 @@ use PHPUnit\Framework\TestCase;
 
 final class CdxWrapperScriptDependencyTest extends TestCase
 {
-    public function testWrapperChecksScriptDependencyDuringLinuxPrereqInstall(): void
+    public function testWrapperDoesNotRequireScriptForLinuxPrereqInstall(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString(
+        self::assertStringNotContainsString(
             'ensure_commands curl unzip script',
             $wrapperSource,
-            'Linux prerequisite auto-install should include script for PTY capture support.'
+            'script is no longer a prereq — PTY capture removed in favour of direct exec.'
         );
         self::assertStringContainsString(
-            'pacman:script|apk:script',
+            'ensure_commands curl unzip',
             $wrapperSource,
-            'Wrapper should keep distro package mapping for script -> util-linux where needed.'
+            'Linux prerequisite auto-install should still include curl and unzip.'
         );
     }
 }

@@ -745,3 +745,174 @@ send_token_usage_if_present() {
   last_usage_payload="$payload"
   post_token_usage_payload "$payload" || true
 }
+
+extract_token_usage_from_session_jsonl() {
+  local run_start_epoch="${1:-}"
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$run_start_epoch" <<'PY'
+import json, pathlib, sys
+
+run_start_epoch = None
+if sys.argv[1]:
+    try:
+        run_start_epoch = float(sys.argv[1])
+    except Exception:
+        pass
+
+sessions_root = pathlib.Path.home() / ".codex" / "sessions"
+if not sessions_root.is_dir():
+    sys.exit(0)
+
+try:
+    all_jsonl = list(sessions_root.rglob("*.jsonl"))
+except Exception:
+    sys.exit(0)
+
+if not all_jsonl:
+    sys.exit(0)
+
+if run_start_epoch is not None:
+    all_jsonl = [f for f in all_jsonl
+                 if f.stat().st_mtime >= run_start_epoch]
+
+if not all_jsonl:
+    sys.exit(0)
+
+all_jsonl.sort(key=lambda f: (f.stat().st_mtime, f.name), reverse=True)
+
+
+def clean_int(val):
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, int):
+        return val if val >= 0 else None
+    if isinstance(val, float):
+        return int(val) if val >= 0 else None
+    try:
+        return int(str(val).replace(",", ""))
+    except Exception:
+        return None
+
+
+def build_entry(total=None, input_tokens=None, output_tokens=None,
+                cached_tokens=None, reasoning_tokens=None):
+    entry = {}
+    for key, val in [("total", total), ("input", input_tokens),
+                     ("output", output_tokens), ("cached", cached_tokens),
+                     ("reasoning", reasoning_tokens)]:
+        cleaned = clean_int(val)
+        if cleaned is not None:
+            entry[key] = cleaned
+    if not entry:
+        return None
+    parts = []
+    if "total" in entry:
+        parts.append(f"total={entry['total']}")
+    if "input" in entry:
+        p = f"input={entry['input']}"
+        if "cached" in entry:
+            p += f" (+ {entry['cached']} cached)"
+        parts.append(p)
+    if "output" in entry:
+        p = f"output={entry['output']}"
+        if "reasoning" in entry:
+            p += f" (reasoning {entry['reasoning']})"
+        parts.append(p)
+    if parts:
+        entry["line"] = "Token usage: " + " ".join(parts)
+    return entry
+
+
+def parse_jsonl(candidate):
+    entries = []
+    last_sig = None
+    try:
+        with candidate.open("r", encoding="utf-8", errors="ignore") as fh:
+            for raw_line in fh:
+                try:
+                    parsed = json.loads(raw_line)
+                except Exception:
+                    continue
+                entry = None
+                if parsed.get("type") == "event_msg":
+                    payload = parsed.get("payload")
+                    if isinstance(payload, dict) and payload.get("type") == "token_count":
+                        info = payload.get("info")
+                        if isinstance(info, dict):
+                            usage = info.get("last_token_usage")
+                            if not isinstance(usage, dict):
+                                usage = info.get("total_token_usage")
+                            if isinstance(usage, dict):
+                                entry = build_entry(
+                                    total=usage.get("total_tokens"),
+                                    input_tokens=usage.get("input_tokens"),
+                                    output_tokens=usage.get("output_tokens"),
+                                    cached_tokens=usage.get("cached_input_tokens"),
+                                    reasoning_tokens=usage.get("reasoning_output_tokens"),
+                                )
+                elif parsed.get("type") == "turn.completed":
+                    usage = parsed.get("usage")
+                    if isinstance(usage, dict):
+                        inp = clean_int(usage.get("input_tokens"))
+                        out = clean_int(usage.get("output_tokens"))
+                        tot = None
+                        if inp is not None or out is not None:
+                            tot = (inp or 0) + (out or 0)
+                        entry = build_entry(
+                            total=tot,
+                            input_tokens=inp,
+                            output_tokens=out,
+                            cached_tokens=usage.get("cached_input_tokens"),
+                            reasoning_tokens=usage.get("reasoning_output_tokens"),
+                        )
+                if not isinstance(entry, dict):
+                    continue
+                sig = tuple(entry.get(k) for k in
+                            ("total", "input", "output", "cached", "reasoning"))
+                if sig == last_sig:
+                    continue
+                entries.append(entry)
+                last_sig = sig
+    except Exception:
+        return []
+    return entries
+
+
+for candidate in all_jsonl:
+    entries = parse_jsonl(candidate)
+    if entries:
+        print(json.dumps({"usages": entries}, separators=(",", ":")))
+        sys.exit(0)
+
+sys.exit(0)
+PY
+}
+
+send_token_usage_from_session_jsonl() {
+  local run_start_epoch=""
+  if [[ "${CDX_RUN_START_NS:-}" =~ ^[0-9]+$ ]]; then
+    run_start_epoch=$(( CDX_RUN_START_NS / 1000000000 ))
+  fi
+  local payload
+  if ! payload="$(extract_token_usage_from_session_jsonl "$run_start_epoch")"; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="session JSONL extraction failed"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
+  if [[ -z "$payload" ]]; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="no token usage captured"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
+
+  last_usage_payload="$payload"
+  post_token_usage_payload "$payload" || true
+}

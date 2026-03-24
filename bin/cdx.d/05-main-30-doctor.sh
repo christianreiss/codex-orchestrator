@@ -5,10 +5,8 @@ print_doctor_report() {
 
   local dep_python="missing"
   local dep_curl="missing"
-  local dep_script="missing"
   command -v python3 >/dev/null 2>&1 && dep_python="ok"
   command -v curl >/dev/null 2>&1 && dep_curl="ok"
-  command -v script >/dev/null 2>&1 && dep_script="ok"
 
   dep_bits=()
   if [[ "$dep_python" == "ok" ]]; then
@@ -23,12 +21,6 @@ print_doctor_report() {
   else
     dep_bits+=("curl $(colorize "missing" "yellow")")
     hints+=("Install curl to enable wrapper/Codex download updates.")
-  fi
-  if [[ "$dep_script" == "ok" ]]; then
-    dep_bits+=("script ✅")
-  else
-    dep_bits+=("script $(colorize "missing" "yellow")")
-    hints+=("Install util-linux script for PTY capture, or run with CODEX_NO_PTY=1.")
   fi
 
   local auth_freshness=""
@@ -90,13 +82,6 @@ print_doctor_report() {
       hints+=("Check ${CODEX_SYNC_BASE_URL%/}/versions reachability, DNS/TLS, firewall, and CA settings.")
       ;;
   esac
-
-  local pty_file="$HOME/.codex/.cdx_no_pty"
-  local pty_label="auto-detect clear"
-  if [[ -f "$pty_file" ]]; then
-    pty_label="$(colorize "auto-disabled" "yellow") (${pty_file})"
-    hints+=("PTY capture is auto-disabled on this host; remove ${pty_file} or set CODEX_FORCE_PTY=1 to retest.")
-  fi
 
   local ssh_session_label="local"
   if (( CODEX_SSH_SESSION_ACTIVE )); then
@@ -299,18 +284,19 @@ else:
     cli_bits+=("boot=${boot_elapsed}ms")
   fi
   if (( CODEX_SSH_INTERACTIVE )); then
-    if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
-      cli_bits+=("ssh-launch=pty-forced")
-    elif [[ "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "0" || "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "false" || "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "no" || "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "off" ]]; then
-      cli_bits+=("ssh-launch=direct-tty")
-      cli_bits+=("alt-screen=enabled")
-    else
-      cli_bits+=("ssh-launch=direct-tty-inline")
-      cli_bits+=("alt-screen=disabled")
-    fi
+    case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
+      0|false|no|off)
+        cli_bits+=("ssh-launch=direct-tty")
+        cli_bits+=("alt-screen=enabled")
+        ;;
+      *)
+        cli_bits+=("ssh-launch=direct-tty-inline")
+        cli_bits+=("alt-screen=disabled")
+        ;;
+    esac
   fi
 
-  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "SSH env" "CLI")
   local saved_row_label_width="$ROW_LABEL_WIDTH"
   ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
 
@@ -337,7 +323,6 @@ else:
   fi
   log_info "$(format_simple_row "Disk" "$disk_label")"
   log_info "$(format_simple_row "Cron" "$cron_label")"
-  log_info "$(format_simple_row "PTY" "$pty_label")"
   log_info "$(format_simple_row "SSH env" "$ssh_env_label")"
   log_info "$(format_simple_row "CLI" "$(join_with_sep '; ' "${cli_bits[@]}")")"
 
