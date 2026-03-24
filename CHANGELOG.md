@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: fixed the `Versions` summary so skipped Codex update checks now report the real reason instead of always blaming privileges; cron-managed hosts now say `cron-managed auto-update enabled`, active-run and unsupported-platform skips stay distinct, and true privilege skips still include the detected UID. Wrapper bumped to `2026.03.24-01`.
+
+# 2026-03-24
 - Host sync/MCP API: fixed a controller helper regression that broke `/slash-commands`, `/skills`, `/agents/retrieve`, `/config/retrieve`, host lane/usage routes, and `/mcp` with HTTP 500 `Unexpected error` before auth completed; the controllers now call the autoloaded request/payload/version helper classes directly again.
 
 # 2026-03-21

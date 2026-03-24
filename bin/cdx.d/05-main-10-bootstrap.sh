@@ -112,12 +112,16 @@ fi
 
 asset_name=""
 skip_update_check=0
+skip_update_reason=""
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   skip_update_check=1
+  skip_update_reason="active_run"
 elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
   skip_update_check=1
+  skip_update_reason="cron_managed"
 elif (( ! can_manage_codex )); then
   skip_update_check=1
+  skip_update_reason="privilege"
 fi
 
 if (( ! skip_update_check )); then
@@ -127,6 +131,7 @@ if (( ! skip_update_check )); then
     arch_name="$(uname -m 2>/dev/null || echo unknown)"
     log_warn "Unsupported platform (${os_name}/${arch_name}); skipping update check."
     skip_update_check=1
+    skip_update_reason="unsupported_platform"
   fi
 fi
 
@@ -257,11 +262,20 @@ codex_installed_label="${LOCAL_VERSION:-unknown}"
 if (( skip_update_check )); then
   codex_target_label="${remote_version:-${LOCAL_VERSION:-unknown}}"
   codex_status_label="Check skipped"
-  if (( CDX_ACTIVE_RUN_DETECTED )); then
-    codex_status_note="active cdx run"
-  else
-    codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
-  fi
+  case "$skip_update_reason" in
+    active_run)
+      codex_status_note="active cdx run"
+      ;;
+    cron_managed)
+      codex_status_note="cron-managed auto-update enabled"
+      ;;
+    unsupported_platform)
+      codex_status_note="unsupported platform (${platform_os}/${platform_arch})"
+      ;;
+    *)
+      codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
+      ;;
+  esac
 elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
   codex_target_label="${norm_remote:-${remote_version:-unknown}}"
   codex_status_label="Deferred"
