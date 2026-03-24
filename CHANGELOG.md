@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: the run exit footer now shows a "Run time" row with the elapsed session duration (seconds-precision for runs under a minute, e.g. `45s`; minutes/hours for longer runs, e.g. `2h 34m`); the footer block is also now closed with a matching divider line so it visually matches the opening divider. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: improved Profiles editor UX — deleting a profile now requires confirmation via the standard confirm dialog (shows profile name) instead of removing it silently; profile name input shows a red inline error as you type if the value contains characters outside the allowed set (`A–Z a–z 0–9 _ -`), with `aria-invalid` set for screen-reader accessibility; the error clears as soon as the name becomes valid again. Cache-bumped `profiles.js` to `v=2026-03-24-02`.
 
 # 2026-03-24

@@ -281,6 +281,7 @@ print_run_exit_footer() {
 
   local usage_label="Run usage"
   local cost_label="Run cost"
+  local run_time_label="Run time"
   local cost_prefix=""
   if output_supports_unicode; then
     cost_prefix="💰 "
@@ -313,6 +314,20 @@ print_run_exit_footer() {
     fi
   fi
 
+  local run_time_text=""
+  if [[ -n "${CDX_RUN_START_NS:-}" ]]; then
+    local run_elapsed_ms
+    run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
+    if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
+      local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
+      if (( run_elapsed_s < 60 )); then
+        run_time_text="${run_elapsed_s}s"
+      else
+        run_time_text="$(format_duration_short "$run_elapsed_s")"
+      fi
+    fi
+  fi
+
   local usage_sync=""
   local auth_sync=""
   usage_sync="$(format_footer_sync_fragment "usage" "${USAGE_PUSH_RESULT:-}" "${USAGE_PUSH_REASON:-}")"
@@ -322,7 +337,11 @@ print_run_exit_footer() {
   log_info "$(summary_divider)"
   log_info "$(format_simple_row "$usage_label" "$usage_text")"
   log_info "$(format_simple_row "$cost_label" "$cost_text")"
+  if [[ -n "$run_time_text" ]]; then
+    log_info "$(format_simple_row "$run_time_label" "$run_time_text")"
+  fi
   log_info "$(format_simple_row "$sync_label" "$sync_text")"
+  log_info "$(summary_divider)"
 }
 
 section_bullet() {
