@@ -1,3 +1,327 @@
+CODEX_PY_HTTP_UTIL="$(cat <<'PY'
+import json
+import os
+import pathlib
+import socket
+import ssl
+import urllib.error
+import urllib.request
+
+def cdx_enable_force_ipv4():
+    if getattr(cdx_enable_force_ipv4, "_patched", False):
+        return
+    if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+        _orig_getaddrinfo = socket.getaddrinfo
+        def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        socket.getaddrinfo = _force_getaddrinfo
+    cdx_enable_force_ipv4._patched = True
+
+def cdx_build_ssl_contexts(cafile="", allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
+    contexts = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        contexts.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        contexts.append(fallback)
+    except Exception:
+        pass
+    allow_insecure = os.environ.get(allow_insecure_env, "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
+    return contexts or [None]
+
+def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    try:
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    except Exception as exc:
+        raise RuntimeError(f"request failed: {exc}") from exc
+    last_err = None
+    for ctx in cdx_build_ssl_contexts(cafile, allow_insecure_env=allow_insecure_env):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+_cdx_api_key = ""
+_cdx_cafile = ""
+
+def cdx_atomic_write_text(target, content, mode=None):
+    target = pathlib.Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+    if mode is not None:
+        try:
+            os.chmod(target, mode)
+        except PermissionError:
+            pass
+
+def cdx_short_request_json(method, url, payload=None):
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=_cdx_api_key, cafile=_cdx_cafile, payload=payload, timeout=20)
+PY
+)"
+export CODEX_PY_HTTP_UTIL
+
+CODEX_PY_IPV4_PROXY_UTIL="$(cat <<'PY'
+import os
+import select
+import signal
+import socket
+import socketserver
+import sys
+from urllib.parse import urlsplit
+
+
+def _connect_ipv4(host, port):
+    last_err = None
+    for family, socktype, proto, _canonname, sockaddr in socket.getaddrinfo(
+        host, port, socket.AF_INET, socket.SOCK_STREAM
+    ):
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(15.0)
+            sock.connect(sockaddr)
+            sock.settimeout(None)
+            return sock
+        except OSError as exc:
+            last_err = exc
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+    if last_err is None:
+        raise OSError(f"failed to resolve domain to IPv4 addresses: {host}")
+    raise last_err
+
+
+def _relay_bidirectional(left, right):
+    sockets = [left, right]
+    try:
+        for sock in sockets:
+            sock.setblocking(False)
+        while True:
+            readable, _, _ = select.select(sockets, [], [], 60.0)
+            if not readable:
+                continue
+            for source in readable:
+                target = right if source is left else left
+                try:
+                    chunk = source.recv(65536)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                view = memoryview(chunk)
+                while view:
+                    try:
+                        written = target.send(view)
+                    except OSError:
+                        return
+                    view = view[written:]
+    finally:
+        for sock in sockets:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class ProxyHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        request_line = self.rfile.readline(65537)
+        if not request_line:
+            return
+        if len(request_line) > 65536:
+            self._write_error(414, b"request line too long")
+            return
+        try:
+            method, target, version = request_line.decode("iso-8859-1").strip().split(" ", 2)
+        except ValueError:
+            self._write_error(400, b"bad request")
+            return
+
+        headers = []
+        while True:
+            line = self.rfile.readline(65537)
+            if not line:
+                return
+            if len(line) > 65536:
+                self._write_error(431, b"header line too long")
+                return
+            if line in (b"\r\n", b"\n"):
+                break
+            headers.append(line)
+
+        if method.upper() == "CONNECT":
+            self._handle_connect(target)
+            return
+
+        self._handle_forward(method, target, version, headers)
+
+    def _handle_connect(self, target):
+        if ":" not in target:
+            self._write_error(400, b"CONNECT target missing port")
+            return
+        host, port_text = target.rsplit(":", 1)
+        try:
+            port = int(port_text)
+        except ValueError:
+            self._write_error(400, b"invalid CONNECT port")
+            return
+        try:
+            upstream = _connect_ipv4(host, port)
+        except OSError as exc:
+            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
+            return
+        self.wfile.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        self.wfile.flush()
+        _relay_bidirectional(self.connection, upstream)
+
+    def _handle_forward(self, method, target, version, headers):
+        parts = urlsplit(target)
+        host = parts.hostname
+        if not host:
+            self._write_error(400, b"proxy request requires absolute URL")
+            return
+        scheme = (parts.scheme or "http").lower()
+        port = parts.port or (443 if scheme == "https" else 80)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+
+        content_length = 0
+        sanitized_headers = []
+        saw_host = False
+        for raw_header in headers:
+            lowered = raw_header.lower()
+            if lowered.startswith(b"proxy-connection:"):
+                continue
+            if lowered.startswith(b"host:"):
+                saw_host = True
+            if lowered.startswith(b"content-length:"):
+                try:
+                    content_length = int(raw_header.split(b":", 1)[1].strip() or b"0")
+                except ValueError:
+                    content_length = 0
+            sanitized_headers.append(raw_header)
+        if not saw_host:
+            host_value = host if parts.port is None else f"{host}:{port}"
+            sanitized_headers.append(f"Host: {host_value}\r\n".encode("iso-8859-1"))
+
+        body = b""
+        if content_length > 0:
+            body = self.rfile.read(content_length)
+
+        try:
+            upstream = _connect_ipv4(host, port)
+        except OSError as exc:
+            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
+            return
+
+        try:
+            upstream.sendall(f"{method} {path} {version}\r\n".encode("iso-8859-1"))
+            for raw_header in sanitized_headers:
+                upstream.sendall(raw_header)
+            upstream.sendall(b"\r\n")
+            if body:
+                upstream.sendall(body)
+            _relay_bidirectional(self.connection, upstream)
+        except OSError:
+            try:
+                upstream.close()
+            except OSError:
+                pass
+
+    def _write_error(self, code, message):
+        reason = {
+            400: b"Bad Request",
+            414: b"URI Too Long",
+            431: b"Request Header Fields Too Large",
+            502: b"Bad Gateway",
+        }.get(code, b"Proxy Error")
+        body = message + b"\n"
+        self.wfile.write(
+            b"HTTP/1.1 %d %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+            % (code, reason, len(body), body)
+        )
+        self.wfile.flush()
+
+
+def main():
+    state_dir = os.environ.get("CODEX_IPV4_PROXY_DIR", "")
+    if not state_dir:
+        print("missing CODEX_IPV4_PROXY_DIR", file=sys.stderr)
+        return 1
+    os.makedirs(state_dir, exist_ok=True)
+    port_file = os.path.join(state_dir, "port")
+
+    server = ThreadedTcpServer(("127.0.0.1", 0), ProxyHandler)
+    with open(port_file, "w", encoding="utf-8") as handle:
+        handle.write(str(server.server_address[1]))
+        handle.flush()
+
+    def _shutdown(_signum, _frame):
+        server.shutdown()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    try:
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        server.server_close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+)"
+export CODEX_PY_IPV4_PROXY_UTIL
+
 #!/usr/bin/env bash
 # Generated by scripts/build-cdx.sh; edit bin/cdx.d/* and rebuild.
 set -euo pipefail
@@ -1420,330 +1744,6 @@ cmd_uninstall() {
   log_info "Codex uninstall complete"
   exit 0
 }
-
-CODEX_PY_HTTP_UTIL="$(cat <<'PY'
-import json
-import os
-import pathlib
-import socket
-import ssl
-import urllib.error
-import urllib.request
-
-def cdx_enable_force_ipv4():
-    if getattr(cdx_enable_force_ipv4, "_patched", False):
-        return
-    if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-        _orig_getaddrinfo = socket.getaddrinfo
-        def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        socket.getaddrinfo = _force_getaddrinfo
-    cdx_enable_force_ipv4._patched = True
-
-def cdx_build_ssl_contexts(cafile="", allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
-    contexts = []
-    primary = ssl.create_default_context()
-    if cafile:
-        try:
-            primary.load_verify_locations(cafile)
-        except Exception:
-            primary = None
-    if primary is not None:
-        try:
-            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        contexts.append(primary)
-    try:
-        fallback = ssl.create_default_context()
-        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        contexts.append(fallback)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get(allow_insecure_env, "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            contexts.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return contexts or [None]
-
-def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
-    data = None
-    headers = {"X-API-Key": api_key}
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    try:
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    except Exception as exc:
-        raise RuntimeError(f"request failed: {exc}") from exc
-    last_err = None
-    for ctx in cdx_build_ssl_contexts(cafile, allow_insecure_env=allow_insecure_env):
-        try:
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", "ignore")
-            reason = f"http-{exc.code}"
-            if body:
-                reason = f"{reason}:{body.strip()[:80]}"
-            raise RuntimeError(reason) from exc
-        except Exception as exc:
-            last_err = exc
-            continue
-    raise RuntimeError(f"request failed: {last_err}")
-
-_cdx_api_key = ""
-_cdx_cafile = ""
-
-def cdx_atomic_write_text(target, content, mode=None):
-    target = pathlib.Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
-    if mode is not None:
-        try:
-            os.chmod(target, mode)
-        except PermissionError:
-            pass
-
-def cdx_short_request_json(method, url, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=_cdx_api_key, cafile=_cdx_cafile, payload=payload, timeout=20)
-PY
-)"
-export CODEX_PY_HTTP_UTIL
-
-CODEX_PY_IPV4_PROXY_UTIL="$(cat <<'PY'
-import os
-import select
-import signal
-import socket
-import socketserver
-import sys
-from urllib.parse import urlsplit
-
-
-def _connect_ipv4(host, port):
-    last_err = None
-    for family, socktype, proto, _canonname, sockaddr in socket.getaddrinfo(
-        host, port, socket.AF_INET, socket.SOCK_STREAM
-    ):
-        sock = None
-        try:
-            sock = socket.socket(family, socktype, proto)
-            sock.settimeout(15.0)
-            sock.connect(sockaddr)
-            sock.settimeout(None)
-            return sock
-        except OSError as exc:
-            last_err = exc
-            if sock is not None:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
-    if last_err is None:
-        raise OSError(f"failed to resolve domain to IPv4 addresses: {host}")
-    raise last_err
-
-
-def _relay_bidirectional(left, right):
-    sockets = [left, right]
-    try:
-        for sock in sockets:
-            sock.setblocking(False)
-        while True:
-            readable, _, _ = select.select(sockets, [], [], 60.0)
-            if not readable:
-                continue
-            for source in readable:
-                target = right if source is left else left
-                try:
-                    chunk = source.recv(65536)
-                except OSError:
-                    return
-                if not chunk:
-                    return
-                view = memoryview(chunk)
-                while view:
-                    try:
-                        written = target.send(view)
-                    except OSError:
-                        return
-                    view = view[written:]
-    finally:
-        for sock in sockets:
-            try:
-                sock.close()
-            except OSError:
-                pass
-
-
-class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-
-
-class ProxyHandler(socketserver.StreamRequestHandler):
-    def handle(self):
-        request_line = self.rfile.readline(65537)
-        if not request_line:
-            return
-        if len(request_line) > 65536:
-            self._write_error(414, b"request line too long")
-            return
-        try:
-            method, target, version = request_line.decode("iso-8859-1").strip().split(" ", 2)
-        except ValueError:
-            self._write_error(400, b"bad request")
-            return
-
-        headers = []
-        while True:
-            line = self.rfile.readline(65537)
-            if not line:
-                return
-            if len(line) > 65536:
-                self._write_error(431, b"header line too long")
-                return
-            if line in (b"\r\n", b"\n"):
-                break
-            headers.append(line)
-
-        if method.upper() == "CONNECT":
-            self._handle_connect(target)
-            return
-
-        self._handle_forward(method, target, version, headers)
-
-    def _handle_connect(self, target):
-        if ":" not in target:
-            self._write_error(400, b"CONNECT target missing port")
-            return
-        host, port_text = target.rsplit(":", 1)
-        try:
-            port = int(port_text)
-        except ValueError:
-            self._write_error(400, b"invalid CONNECT port")
-            return
-        try:
-            upstream = _connect_ipv4(host, port)
-        except OSError as exc:
-            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
-            return
-        self.wfile.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
-        self.wfile.flush()
-        _relay_bidirectional(self.connection, upstream)
-
-    def _handle_forward(self, method, target, version, headers):
-        parts = urlsplit(target)
-        host = parts.hostname
-        if not host:
-            self._write_error(400, b"proxy request requires absolute URL")
-            return
-        scheme = (parts.scheme or "http").lower()
-        port = parts.port or (443 if scheme == "https" else 80)
-        path = parts.path or "/"
-        if parts.query:
-            path += "?" + parts.query
-
-        content_length = 0
-        sanitized_headers = []
-        saw_host = False
-        for raw_header in headers:
-            lowered = raw_header.lower()
-            if lowered.startswith(b"proxy-connection:"):
-                continue
-            if lowered.startswith(b"host:"):
-                saw_host = True
-            if lowered.startswith(b"content-length:"):
-                try:
-                    content_length = int(raw_header.split(b":", 1)[1].strip() or b"0")
-                except ValueError:
-                    content_length = 0
-            sanitized_headers.append(raw_header)
-        if not saw_host:
-            host_value = host if parts.port is None else f"{host}:{port}"
-            sanitized_headers.append(f"Host: {host_value}\r\n".encode("iso-8859-1"))
-
-        body = b""
-        if content_length > 0:
-            body = self.rfile.read(content_length)
-
-        try:
-            upstream = _connect_ipv4(host, port)
-        except OSError as exc:
-            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
-            return
-
-        try:
-            upstream.sendall(f"{method} {path} {version}\r\n".encode("iso-8859-1"))
-            for raw_header in sanitized_headers:
-                upstream.sendall(raw_header)
-            upstream.sendall(b"\r\n")
-            if body:
-                upstream.sendall(body)
-            _relay_bidirectional(self.connection, upstream)
-        except OSError:
-            try:
-                upstream.close()
-            except OSError:
-                pass
-
-    def _write_error(self, code, message):
-        reason = {
-            400: b"Bad Request",
-            414: b"URI Too Long",
-            431: b"Request Header Fields Too Large",
-            502: b"Bad Gateway",
-        }.get(code, b"Proxy Error")
-        body = message + b"\n"
-        self.wfile.write(
-            b"HTTP/1.1 %d %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
-            % (code, reason, len(body), body)
-        )
-        self.wfile.flush()
-
-
-def main():
-    state_dir = os.environ.get("CODEX_IPV4_PROXY_DIR", "")
-    if not state_dir:
-        print("missing CODEX_IPV4_PROXY_DIR", file=sys.stderr)
-        return 1
-    os.makedirs(state_dir, exist_ok=True)
-    port_file = os.path.join(state_dir, "port")
-
-    server = ThreadedTcpServer(("127.0.0.1", 0), ProxyHandler)
-    with open(port_file, "w", encoding="utf-8") as handle:
-        handle.write(str(server.server_address[1]))
-        handle.flush()
-
-    def _shutdown(_signum, _frame):
-        server.shutdown()
-
-    signal.signal(signal.SIGTERM, _shutdown)
-    signal.signal(signal.SIGINT, _shutdown)
-
-    try:
-        server.serve_forever(poll_interval=0.5)
-    finally:
-        server.server_close()
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-PY
-)"
-export CODEX_PY_IPV4_PROXY_UTIL
 
 
 ensure_commands() {
@@ -4093,339 +4093,6 @@ PY
   return 0
 }
 
-
-sync_startup_bundle_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    return 1
-  fi
-
-  local summary status_code
-  local home_path="${HOME:-}"
-  set +e
-  summary="$(
-    startup_sync_bundle_python \
-      "$CODEX_SYNC_BASE_URL" \
-      "$CODEX_SYNC_API_KEY" \
-      "$PROMPT_DIR" \
-      "$SKILL_DIR" \
-      "$AGENTS_PATH" \
-      "$CONFIG_PATH" \
-      "$CODEX_SYNC_CA_FILE" \
-      "$PROMPT_BASELINE_FILE" \
-      "$SKILL_BASELINE_FILE" \
-      "$CURRENT_USER" \
-      "$home_path" \
-      "$LOCAL_HOSTNAME"
-  )"
-  status_code=$?
-  set -e
-
-  if (( status_code == 42 )); then
-    return 1
-  fi
-  if (( status_code != 0 )); then
-    return 1
-  fi
-
-  local parsed
-  parsed="$(SYNC_SUMMARY="$summary" python3 - <<'PY'
-import json
-import os
-import sys
-
-raw = os.environ.get("SYNC_SUMMARY", "")
-try:
-    parsed = json.loads(raw)
-except Exception:
-    sys.exit(1)
-
-if not isinstance(parsed, dict):
-    sys.exit(1)
-
-if str(parsed.get("status", "")).lower() != "ok":
-    sys.exit(1)
-
-phase = str(parsed.get("phase", "")).strip().lower() or "ok"
-print(f"phase={phase}")
-
-for key in ("prompt", "skill"):
-    block = parsed.get(key)
-    if not isinstance(block, dict):
-        continue
-    print(f"{key}_status={str(block.get('status') or 'ok').strip().lower() or 'ok'}")
-    for metric in ("updated", "errors", "remote", "local", "removed"):
-        val = block.get(metric)
-        if isinstance(val, (int, float)):
-            print(f"{key}_{metric}={int(val)}")
-
-agents = parsed.get("agents")
-if isinstance(agents, dict):
-    print(f"agents_status={str(agents.get('status') or 'ok').strip().lower() or 'ok'}")
-    print(f"agents_state={str(agents.get('state') or '').strip().lower()}")
-    print(f"agents_sha={str(agents.get('sha256') or '').strip()}")
-    print(f"agents_updated_at={str(agents.get('updated_at') or '').strip()}")
-    bytes_val = agents.get("bytes")
-    if isinstance(bytes_val, (int, float)):
-        print(f"agents_bytes={int(bytes_val)}")
-    removed_val = agents.get("removed")
-    if isinstance(removed_val, (int, float)):
-        print(f"agents_removed={int(removed_val)}")
-
-config = parsed.get("config")
-if isinstance(config, dict):
-    print(f"config_status={str(config.get('status') or 'ok').strip().lower() or 'ok'}")
-    print(f"config_state={str(config.get('state') or '').strip().lower()}")
-    print(f"config_sha={str(config.get('sha256') or '').strip()}")
-    print(f"config_updated_at={str(config.get('updated_at') or '').strip()}")
-    bytes_val = config.get("bytes")
-    if isinstance(bytes_val, (int, float)):
-        print(f"config_bytes={int(bytes_val)}")
-    removed_val = config.get("removed")
-    if isinstance(removed_val, (int, float)):
-        print(f"config_removed={int(removed_val)}")
-PY
-  )" || return 1
-
-  local line
-  for line in $parsed; do
-    case "$line" in
-      prompt_status=*) PROMPT_SYNC_STATUS="${line#prompt_status=}" ;;
-      prompt_updated=*) PROMPT_PULL_UPDATED="${line#prompt_updated=}" ;;
-      prompt_errors=*) PROMPT_PULL_ERRORS="${line#prompt_errors=}" ;;
-      prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
-      prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
-      prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
-      skill_status=*) SKILL_SYNC_STATUS="${line#skill_status=}" ;;
-      skill_updated=*) SKILL_PULL_UPDATED="${line#skill_updated=}" ;;
-      skill_errors=*) SKILL_PULL_ERRORS="${line#skill_errors=}" ;;
-      skill_remote=*) SKILL_REMOTE_COUNT="${line#skill_remote=}" ;;
-      skill_local=*) SKILL_LOCAL_COUNT="${line#skill_local=}" ;;
-      skill_removed=*) SKILL_REMOVED="${line#skill_removed=}" ;;
-      agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
-      agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
-      agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
-      agents_updated_at=*) AGENTS_REMOTE_UPDATED_AT="${line#agents_updated_at=}" ;;
-      agents_bytes=*) AGENTS_REMOTE_BYTES="${line#agents_bytes=}" ;;
-      agents_removed=*) AGENTS_REMOVED="${line#agents_removed=}" ;;
-      config_status=*) CONFIG_SYNC_STATUS="${line#config_status=}" ;;
-      config_state=*) CONFIG_STATE="${line#config_state=}" ;;
-      config_sha=*) CONFIG_REMOTE_SHA="${line#config_sha=}" ;;
-      config_updated_at=*) CONFIG_REMOTE_UPDATED_AT="${line#config_updated_at=}" ;;
-      config_bytes=*) CONFIG_REMOTE_BYTES="${line#config_bytes=}" ;;
-      config_removed=*) CONFIG_REMOVED="${line#config_removed=}" ;;
-    esac
-  done
-
-  PROMPT_SYNC_REASON=""
-  SKILL_SYNC_REASON=""
-  AGENTS_SYNC_REASON=""
-  CONFIG_SYNC_REASON=""
-  [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
-  [[ -z "$SKILL_SYNC_STATUS" ]] && SKILL_SYNC_STATUS="ok"
-  [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
-  [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
-  return 0
-}
-
-sync_config_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    CONFIG_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    CONFIG_SYNC_STATUS="no-python"
-    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
-      log_warn "python3 is required for config.toml sync; skipping."
-      SYNC_WARNED_NO_PYTHON=1
-    fi
-    return 1
-  fi
-  local current_sha=""
-  if [[ -f "$CONFIG_PATH" ]]; then
-    current_sha="$(python3 - "$CONFIG_PATH" <<'PY'
-import hashlib, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-try:
-    print(hashlib.sha256(path.read_bytes()).hexdigest())
-except Exception:
-    pass
-PY
-)"
-  fi
-  local summary status_code
-  set +e
-  summary="$(config_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$CONFIG_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
-  status_code=$?
-  set -e
-  CONFIG_SYNC_STATUS="error"
-  CONFIG_STATE=""
-  CONFIG_REMOTE_SHA=""
-  CONFIG_REMOTE_UPDATED_AT=""
-  CONFIG_REMOTE_BYTES=""
-  CONFIG_REMOVED=0
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
-    fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      CONFIG_SYNC_STATUS="offline"
-      CONFIG_SYNC_REASON="$reason"
-    else
-      CONFIG_SYNC_STATUS="error"
-      CONFIG_SYNC_REASON="$reason"
-    fi
-    return 1
-  fi
-  CONFIG_SYNC_STATUS="${summary%% *}"
-  CONFIG_SYNC_REASON=""
-  local part
-  for part in $summary; do
-    case "$part" in
-      status=*) CONFIG_STATE="${part#status=}" ;;
-      sha256=*) CONFIG_REMOTE_SHA="${part#sha256=}" ;;
-      updated_at=*) CONFIG_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
-      bytes=*) CONFIG_REMOTE_BYTES="${part#bytes=}" ;;
-      removed=*) CONFIG_REMOVED="${part#removed=}" ;;
-    esac
-  done
-  return 0
-}
-
-otel_env_from_config_python() {
-  python3 - "$CONFIG_PATH" <<'PY'
-import os, re, sys
-
-path = sys.argv[1]
-try:
-    raw = open(path, "r", encoding="utf-8", errors="ignore").read()
-except Exception:
-    sys.exit(0)
-
-def find_block(name: str) -> str:
-    # Allow an optional inline TOML comment after the closing bracket,
-    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
-    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
-    if not m:
-        return ""
-    start = m.end()
-    m2 = re.search(r'(?m)^\[', raw[start:])
-    end = start + (m2.start() if m2 else len(raw[start:]))
-    return raw[start:end]
-
-block = find_block("otel")
-if not block.strip():
-    sys.exit(0)
-
-def parse_value(v: str):
-    v = v.strip()
-    if v.startswith('"') and v.endswith('"'):
-        return v[1:-1]
-    if v.lower() in ("true", "false"):
-        return v.lower()
-    return v
-
-def parse_inline_table(v: str):
-    # Very small TOML-ish parser for { k = "v", ... } used by our builder.
-    v = v.strip()
-    if not (v.startswith("{") and v.endswith("}")):
-        return {}
-    inner = v[1:-1].strip()
-    if not inner:
-        return {}
-    parts = []
-    buf = ""
-    in_str = False
-    esc = False
-    for ch in inner:
-        if esc:
-            buf += ch
-            esc = False
-            continue
-        if ch == "\\":
-            buf += ch
-            esc = True
-            continue
-        if ch == '"':
-            in_str = not in_str
-            buf += ch
-            continue
-        if ch == "," and not in_str:
-            parts.append(buf)
-            buf = ""
-        else:
-            buf += ch
-    if buf.strip():
-        parts.append(buf)
-    out = {}
-    for part in parts:
-        if "=" not in part:
-            continue
-        k, val = part.split("=", 1)
-        k = k.strip()
-        out[k] = parse_value(val)
-    return out
-
-otel = {}
-for line in block.splitlines():
-    line = line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    k, v = line.split("=", 1)
-    k = k.strip()
-    otel[k] = v.strip()
-
-exporter = parse_value(otel.get("exporter", "")).strip()
-environment = parse_value(otel.get("environment", "")).strip()
-log_prompts = parse_value(otel.get("log_user_prompt", "")).strip()
-
-if exporter in ("", "none"):
-    sys.exit(0)
-
-endpoint = parse_value(otel.get("endpoint", "")).strip()
-protocol = parse_value(otel.get("protocol", "")).strip()
-headers = parse_inline_table(otel.get("headers", "{}"))
-
-def emit(k: str, v: str):
-    if v is None:
-        return
-    v = str(v).strip()
-    if v == "":
-        return
-    print(f"{k}={v}")
-
-# Emit env vars as k=v lines; shell will export them.
-emit("OTEL_SERVICE_NAME", "cdx")
-if environment:
-    emit("OTEL_RESOURCE_ATTRIBUTES", f"deployment.environment={environment}")
-
-if exporter == "otlp-http":
-    emit("OTEL_TRACES_EXPORTER", "otlp")
-    emit("OTEL_EXPORTER_OTLP_PROTOCOL", protocol or "http/protobuf")
-    if endpoint:
-        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
-elif exporter == "otlp-grpc":
-    emit("OTEL_TRACES_EXPORTER", "otlp")
-    emit("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-    if endpoint:
-        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
-
-if headers:
-    # OTEL expects comma-separated key=value
-    header_str = ",".join([f"{k}={v}" for k, v in headers.items() if str(k).strip() and str(v).strip()])
-    emit("OTEL_EXPORTER_OTLP_HEADERS", header_str)
-
-# Optional: prompt logging toggle. We expose as CODEX wrapper env, not OpenTelemetry standard.
-if log_prompts in ("true", "false"):
-    emit("CODEX_OTEL_LOG_USER_PROMPT", log_prompts)
-PY
-}
-
 config_sync_python() {
   local base="$1"
   local api_key="$2"
@@ -5018,6 +4685,339 @@ print(
     )
 )
 sys.exit(0)
+PY
+}
+
+
+sync_startup_bundle_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local summary status_code
+  local home_path="${HOME:-}"
+  set +e
+  summary="$(
+    startup_sync_bundle_python \
+      "$CODEX_SYNC_BASE_URL" \
+      "$CODEX_SYNC_API_KEY" \
+      "$PROMPT_DIR" \
+      "$SKILL_DIR" \
+      "$AGENTS_PATH" \
+      "$CONFIG_PATH" \
+      "$CODEX_SYNC_CA_FILE" \
+      "$PROMPT_BASELINE_FILE" \
+      "$SKILL_BASELINE_FILE" \
+      "$CURRENT_USER" \
+      "$home_path" \
+      "$LOCAL_HOSTNAME"
+  )"
+  status_code=$?
+  set -e
+
+  if (( status_code == 42 )); then
+    return 1
+  fi
+  if (( status_code != 0 )); then
+    return 1
+  fi
+
+  local parsed
+  parsed="$(SYNC_SUMMARY="$summary" python3 - <<'PY'
+import json
+import os
+import sys
+
+raw = os.environ.get("SYNC_SUMMARY", "")
+try:
+    parsed = json.loads(raw)
+except Exception:
+    sys.exit(1)
+
+if not isinstance(parsed, dict):
+    sys.exit(1)
+
+if str(parsed.get("status", "")).lower() != "ok":
+    sys.exit(1)
+
+phase = str(parsed.get("phase", "")).strip().lower() or "ok"
+print(f"phase={phase}")
+
+for key in ("prompt", "skill"):
+    block = parsed.get(key)
+    if not isinstance(block, dict):
+        continue
+    print(f"{key}_status={str(block.get('status') or 'ok').strip().lower() or 'ok'}")
+    for metric in ("updated", "errors", "remote", "local", "removed"):
+        val = block.get(metric)
+        if isinstance(val, (int, float)):
+            print(f"{key}_{metric}={int(val)}")
+
+agents = parsed.get("agents")
+if isinstance(agents, dict):
+    print(f"agents_status={str(agents.get('status') or 'ok').strip().lower() or 'ok'}")
+    print(f"agents_state={str(agents.get('state') or '').strip().lower()}")
+    print(f"agents_sha={str(agents.get('sha256') or '').strip()}")
+    print(f"agents_updated_at={str(agents.get('updated_at') or '').strip()}")
+    bytes_val = agents.get("bytes")
+    if isinstance(bytes_val, (int, float)):
+        print(f"agents_bytes={int(bytes_val)}")
+    removed_val = agents.get("removed")
+    if isinstance(removed_val, (int, float)):
+        print(f"agents_removed={int(removed_val)}")
+
+config = parsed.get("config")
+if isinstance(config, dict):
+    print(f"config_status={str(config.get('status') or 'ok').strip().lower() or 'ok'}")
+    print(f"config_state={str(config.get('state') or '').strip().lower()}")
+    print(f"config_sha={str(config.get('sha256') or '').strip()}")
+    print(f"config_updated_at={str(config.get('updated_at') or '').strip()}")
+    bytes_val = config.get("bytes")
+    if isinstance(bytes_val, (int, float)):
+        print(f"config_bytes={int(bytes_val)}")
+    removed_val = config.get("removed")
+    if isinstance(removed_val, (int, float)):
+        print(f"config_removed={int(removed_val)}")
+PY
+  )" || return 1
+
+  local line
+  for line in $parsed; do
+    case "$line" in
+      prompt_status=*) PROMPT_SYNC_STATUS="${line#prompt_status=}" ;;
+      prompt_updated=*) PROMPT_PULL_UPDATED="${line#prompt_updated=}" ;;
+      prompt_errors=*) PROMPT_PULL_ERRORS="${line#prompt_errors=}" ;;
+      prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
+      prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
+      prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
+      skill_status=*) SKILL_SYNC_STATUS="${line#skill_status=}" ;;
+      skill_updated=*) SKILL_PULL_UPDATED="${line#skill_updated=}" ;;
+      skill_errors=*) SKILL_PULL_ERRORS="${line#skill_errors=}" ;;
+      skill_remote=*) SKILL_REMOTE_COUNT="${line#skill_remote=}" ;;
+      skill_local=*) SKILL_LOCAL_COUNT="${line#skill_local=}" ;;
+      skill_removed=*) SKILL_REMOVED="${line#skill_removed=}" ;;
+      agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
+      agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
+      agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
+      agents_updated_at=*) AGENTS_REMOTE_UPDATED_AT="${line#agents_updated_at=}" ;;
+      agents_bytes=*) AGENTS_REMOTE_BYTES="${line#agents_bytes=}" ;;
+      agents_removed=*) AGENTS_REMOVED="${line#agents_removed=}" ;;
+      config_status=*) CONFIG_SYNC_STATUS="${line#config_status=}" ;;
+      config_state=*) CONFIG_STATE="${line#config_state=}" ;;
+      config_sha=*) CONFIG_REMOTE_SHA="${line#config_sha=}" ;;
+      config_updated_at=*) CONFIG_REMOTE_UPDATED_AT="${line#config_updated_at=}" ;;
+      config_bytes=*) CONFIG_REMOTE_BYTES="${line#config_bytes=}" ;;
+      config_removed=*) CONFIG_REMOVED="${line#config_removed=}" ;;
+    esac
+  done
+
+  PROMPT_SYNC_REASON=""
+  SKILL_SYNC_REASON=""
+  AGENTS_SYNC_REASON=""
+  CONFIG_SYNC_REASON=""
+  [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
+  [[ -z "$SKILL_SYNC_STATUS" ]] && SKILL_SYNC_STATUS="ok"
+  [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
+  [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
+  return 0
+}
+
+sync_config_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    CONFIG_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    CONFIG_SYNC_STATUS="no-python"
+    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+      log_warn "python3 is required for config.toml sync; skipping."
+      SYNC_WARNED_NO_PYTHON=1
+    fi
+    return 1
+  fi
+  local current_sha=""
+  if [[ -f "$CONFIG_PATH" ]]; then
+    current_sha="$(python3 - "$CONFIG_PATH" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try:
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+except Exception:
+    pass
+PY
+)"
+  fi
+  local summary status_code
+  set +e
+  summary="$(config_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$CONFIG_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
+  status_code=$?
+  set -e
+  CONFIG_SYNC_STATUS="error"
+  CONFIG_STATE=""
+  CONFIG_REMOTE_SHA=""
+  CONFIG_REMOTE_UPDATED_AT=""
+  CONFIG_REMOTE_BYTES=""
+  CONFIG_REMOVED=0
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      CONFIG_SYNC_STATUS="offline"
+      CONFIG_SYNC_REASON="$reason"
+    else
+      CONFIG_SYNC_STATUS="error"
+      CONFIG_SYNC_REASON="$reason"
+    fi
+    return 1
+  fi
+  CONFIG_SYNC_STATUS="${summary%% *}"
+  CONFIG_SYNC_REASON=""
+  local part
+  for part in $summary; do
+    case "$part" in
+      status=*) CONFIG_STATE="${part#status=}" ;;
+      sha256=*) CONFIG_REMOTE_SHA="${part#sha256=}" ;;
+      updated_at=*) CONFIG_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
+      bytes=*) CONFIG_REMOTE_BYTES="${part#bytes=}" ;;
+      removed=*) CONFIG_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
+otel_env_from_config_python() {
+  python3 - "$CONFIG_PATH" <<'PY'
+import os, re, sys
+
+path = sys.argv[1]
+try:
+    raw = open(path, "r", encoding="utf-8", errors="ignore").read()
+except Exception:
+    sys.exit(0)
+
+def find_block(name: str) -> str:
+    # Allow an optional inline TOML comment after the closing bracket,
+    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
+    if not m:
+        return ""
+    start = m.end()
+    m2 = re.search(r'(?m)^\[', raw[start:])
+    end = start + (m2.start() if m2 else len(raw[start:]))
+    return raw[start:end]
+
+block = find_block("otel")
+if not block.strip():
+    sys.exit(0)
+
+def parse_value(v: str):
+    v = v.strip()
+    if v.startswith('"') and v.endswith('"'):
+        return v[1:-1]
+    if v.lower() in ("true", "false"):
+        return v.lower()
+    return v
+
+def parse_inline_table(v: str):
+    # Very small TOML-ish parser for { k = "v", ... } used by our builder.
+    v = v.strip()
+    if not (v.startswith("{") and v.endswith("}")):
+        return {}
+    inner = v[1:-1].strip()
+    if not inner:
+        return {}
+    parts = []
+    buf = ""
+    in_str = False
+    esc = False
+    for ch in inner:
+        if esc:
+            buf += ch
+            esc = False
+            continue
+        if ch == "\\":
+            buf += ch
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            buf += ch
+            continue
+        if ch == "," and not in_str:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        parts.append(buf)
+    out = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        k, val = part.split("=", 1)
+        k = k.strip()
+        out[k] = parse_value(val)
+    return out
+
+otel = {}
+for line in block.splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    k = k.strip()
+    otel[k] = v.strip()
+
+exporter = parse_value(otel.get("exporter", "")).strip()
+environment = parse_value(otel.get("environment", "")).strip()
+log_prompts = parse_value(otel.get("log_user_prompt", "")).strip()
+
+if exporter in ("", "none"):
+    sys.exit(0)
+
+endpoint = parse_value(otel.get("endpoint", "")).strip()
+protocol = parse_value(otel.get("protocol", "")).strip()
+headers = parse_inline_table(otel.get("headers", "{}"))
+
+def emit(k: str, v: str):
+    if v is None:
+        return
+    v = str(v).strip()
+    if v == "":
+        return
+    print(f"{k}={v}")
+
+# Emit env vars as k=v lines; shell will export them.
+emit("OTEL_SERVICE_NAME", "cdx")
+if environment:
+    emit("OTEL_RESOURCE_ATTRIBUTES", f"deployment.environment={environment}")
+
+if exporter == "otlp-http":
+    emit("OTEL_TRACES_EXPORTER", "otlp")
+    emit("OTEL_EXPORTER_OTLP_PROTOCOL", protocol or "http/protobuf")
+    if endpoint:
+        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+elif exporter == "otlp-grpc":
+    emit("OTEL_TRACES_EXPORTER", "otlp")
+    emit("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    if endpoint:
+        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+
+if headers:
+    # OTEL expects comma-separated key=value
+    header_str = ",".join([f"{k}={v}" for k, v in headers.items() if str(k).strip() and str(v).strip()])
+    emit("OTEL_EXPORTER_OTLP_HEADERS", header_str)
+
+# Optional: prompt logging toggle. We expose as CODEX wrapper env, not OpenTelemetry standard.
+if log_prompts in ("true", "false"):
+    emit("CODEX_OTEL_LOG_USER_PROMPT", log_prompts)
 PY
 }
 
@@ -7150,6 +7150,10 @@ print_run_exit_footer() {
   auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
   local sync_text="${usage_sync}; ${auth_sync}"
 
+  local footer_row_labels=("$usage_label" "$cost_label" "$run_time_label" "$sync_label")
+  local saved_row_label_width="$ROW_LABEL_WIDTH"
+  ROW_LABEL_WIDTH="$(compute_row_label_width "${footer_row_labels[@]}")"
+
   log_info "$(summary_divider)"
   log_info "$(format_simple_row "$usage_label" "$usage_text")"
   log_info "$(format_simple_row "$cost_label" "$cost_text")"
@@ -7158,6 +7162,8 @@ print_run_exit_footer() {
   fi
   log_info "$(format_simple_row "$sync_label" "$sync_text")"
   log_info "$(summary_divider)"
+
+  ROW_LABEL_WIDTH="$saved_row_label_width"
 }
 
 section_bullet() {
@@ -7840,7 +7846,15 @@ print_doctor_report() {
   local ssh_env_label
   ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 
-  local sync_label="auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}") prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}") skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}") agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}") config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  local sync_bits=(
+    "auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}")"
+    "prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}")"
+    "skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}")"
+    "agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}")"
+    "config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  )
+  local sync_label
+  sync_label="$(join_with_sep ' | ' "${sync_bits[@]}")"
   case "$AUTH_PULL_STATUS" in
     invalid)
       failures=$(( failures + 1 ))

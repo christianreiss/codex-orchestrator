@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: `--doctor` Sync row now renders items separated by ` | ` (e.g. `auth=ok | prompts=ok | skills=ok | agents=ok | config=ok`) instead of plain spaces, matching the visual style of the Deps row and making each sync channel easier to scan. Run-exit footer (`print_run_exit_footer`) now locally computes its own `ROW_LABEL_WIDTH` from the footer's own label set so columns align tightly to "Run usage" / "Run cost" / "Run time" / "Sync" rather than inheriting the wider pre-run summary width. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: optical polish — panel filter inputs (hosts, users, logs) now use `var(--input-bg)` instead of a hardcoded `#fff` background, so they render correctly in dark mode instead of showing as stark white boxes; sort-link column headers now animate their label color and sort-indicator opacity with a 120 ms ease transition instead of snapping instantly on click.
 
 # 2026-03-24

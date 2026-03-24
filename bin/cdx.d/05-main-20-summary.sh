@@ -380,6 +380,10 @@ print_run_exit_footer() {
   auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
   local sync_text="${usage_sync}; ${auth_sync}"
 
+  local footer_row_labels=("$usage_label" "$cost_label" "$run_time_label" "$sync_label")
+  local saved_row_label_width="$ROW_LABEL_WIDTH"
+  ROW_LABEL_WIDTH="$(compute_row_label_width "${footer_row_labels[@]}")"
+
   log_info "$(summary_divider)"
   log_info "$(format_simple_row "$usage_label" "$usage_text")"
   log_info "$(format_simple_row "$cost_label" "$cost_text")"
@@ -388,6 +392,8 @@ print_run_exit_footer() {
   fi
   log_info "$(format_simple_row "$sync_label" "$sync_text")"
   log_info "$(summary_divider)"
+
+  ROW_LABEL_WIDTH="$saved_row_label_width"
 }
 
 section_bullet() {

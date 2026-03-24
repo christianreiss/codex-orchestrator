@@ -120,7 +120,15 @@ print_doctor_report() {
   local ssh_env_label
   ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 
-  local sync_label="auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}") prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}") skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}") agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}") config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  local sync_bits=(
+    "auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}")"
+    "prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}")"
+    "skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}")"
+    "agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}")"
+    "config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  )
+  local sync_label
+  sync_label="$(join_with_sep ' | ' "${sync_bits[@]}")"
   case "$AUTH_PULL_STATUS" in
     invalid)
       failures=$(( failures + 1 ))
