@@ -193,6 +193,7 @@
     tableBody.innerHTML = '';
     if (!Array.isArray(users) || users.length === 0) {
       show(emptyState, true);
+      if (emptyState) emptyState.textContent = 'No users yet. Create the first admin to enable login.';
       show(wipeBtn, false);
       return;
     }
@@ -204,7 +205,6 @@
       return;
     }
     show(emptyState, false);
-    if (emptyState) emptyState.textContent = 'No users yet. Create the first admin to enable login.';
 
     tableBody.innerHTML = visible.map((user) => {
       const access = roles[user.access_level] || user.access_level;

@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: fixed stale empty-state message in the Users table — when `loadUsers()` cleared the users array while a non-matching filter was still active, the empty state showed "No users match the current filter." instead of "No users yet. Create the first admin to enable login."; the fix sets the correct text before early-returning from `renderUsers()` in the empty-users branch; cache-bumped `users.js` to `v=2026-03-24-03`.
+
+# 2026-03-24
 - Tests: added `ReverseDnsValidatorTest` with 37 unit tests covering all testable public methods of `ReverseDnsValidator` — `normalizeHostname` (null/empty/whitespace/dots-only inputs, case folding, trailing-dot stripping, subdomain preservation), `reverseDnsName` (IPv4 reversal, IPv6 nibble reversal, IPv4-mapped IPv6 unwrapping, invalid/non-IP rejection), and `isReverseDnsRequired` (host-level boolean/int/string overrides, recognised string aliases like `enabled`/`yes`/`on`, fall-through to global `reverse_dns_enabled` flag via `VersionRepository`); `ReverseDnsValidator` previously had zero direct test coverage.
 - Backend: extracted the duplicate version-snapshot-with-host-override block in `AuthService::handleAuth` into a private `buildVersionSnapshotForHost` method; the identical 7-line block previously appeared twice in the method (once before and once after the runner preflight path).
 
