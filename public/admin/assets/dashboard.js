@@ -8679,10 +8679,26 @@
       function triggerRefresh() {
         const activePanel = document.querySelector('.panel-set:not([hidden])');
         if (!activePanel) return;
-        // Look for a visible refresh button in the active panel or global area.
-        const btn = activePanel.querySelector('[id*="refresh"], [id*="Refresh"], button[title*="refresh" i], button[aria-label*="refresh" i]')
-          || document.getElementById('version-check')
-          || document.getElementById('log-refresh')
+        const panelKey = activePanel.dataset?.panel || '';
+
+        // Hosts and dashboard panels: trigger the live data refresh directly.
+        if (panelKey === 'hosts' || panelKey === 'dashboard' || panelKey === 'host-detail') {
+          scheduleOverviewLiveRefresh(0);
+          return;
+        }
+
+        // Logs panel: click the refresh button of the currently-visible sub-panel only,
+        // so switching tabs doesn't accidentally fire the wrong refresh.
+        if (panelKey === 'logs') {
+          const visibleLogPanel = Array.from(activePanel.querySelectorAll('.log-panel')).find((p) => !p.hidden);
+          const btn = visibleLogPanel?.querySelector('[id$="refresh"]');
+          if (btn && !btn.disabled) btn.click();
+          return;
+        }
+
+        // All other panels: find the first non-disabled refresh button in the panel.
+        const btn = activePanel.querySelector('[id*="refresh"]:not([disabled]), [id*="Refresh"]:not([disabled])')
+          || activePanel.querySelector('button[title*="refresh" i]:not([disabled]), button[aria-label*="refresh" i]:not([disabled])')
           || document.getElementById('memoriesRefreshBtn');
         if (btn && !btn.disabled) btn.click();
       }
