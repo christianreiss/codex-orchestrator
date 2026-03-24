@@ -279,6 +279,18 @@ detect_script_flags() {
   fi
 }
 
+codex_args_include_exact_flag() {
+  local wanted="$1"
+  shift || true
+  local arg=""
+  for arg in "$@"; do
+    if [[ "$arg" == "$wanted" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 run_codex_command() {
   local tmp_output status
   local use_cmd_prefix=0
@@ -314,10 +326,26 @@ run_codex_command() {
     prompt_toolkit_no_cpr_added=1
   fi
 
+  if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
+    case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
+      0|false|no|off)
+        ;;
+      *)
+        if ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then
+          cmd_line+=("--no-alt-screen")
+          exec_cmd=("${cmd_line[@]}")
+          if (( use_cmd_prefix )); then
+            exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
+          fi
+        fi
+        ;;
+    esac
+  fi
+
   if [[ -t 0 && -t 1 ]]; then
     if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
       # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
-      # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
+      # Default to inline mode there because some SSH terminals misbehave in alt-screen.
       "${exec_cmd[@]}"
       status=$?
     elif [[ "$CODEX_NO_PTY" == "1" ]]; then

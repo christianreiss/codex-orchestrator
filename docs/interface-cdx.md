@@ -188,6 +188,7 @@ Summary layout:
 ## PTY + Execution Behavior
 - PTY capture is used only when stdin/stdout are TTYs.
 - Interactive SSH sessions bypass wrapper PTY capture and launch Codex directly unless `CODEX_FORCE_PTY=1`, favoring TUI correctness over wrapper-side output capture on those runs.
+- Interactive SSH direct-launch now also defaults to `--no-alt-screen` so terminal CPR/alt-screen quirks on some SSH hosts do not instantly tear down the visible UI; set `CODEX_SSH_ALT_SCREEN=0` to keep fullscreen alt-screen mode.
 - PTY backends:
   - `script` (preferred; auto-detects `-f`/`-F`/`-c` support)
   - Python `pty` fallback
@@ -196,7 +197,7 @@ Summary layout:
 - `CODEX_NO_PTY=1` disables PTY capture.
 - PTY incompatibility auto-disables future PTY use by writing `~/.codex/.cdx_no_pty`.
 - `CODEX_FORCE_PTY=1` ignores the auto-disable marker.
-- Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues on non-TTY launches and wrapper-managed PTY capture paths; interactive SSH direct-launch does not force it.
+- Wrapper sets `PROMPT_TOOLKIT_NO_CPR=1` when needed to avoid CPR/TTY issues on non-TTY launches and wrapper-managed PTY capture paths; interactive SSH direct-launch instead prefers inline mode by default.
 - When `CODEX_FORCE_IPV4=1`, the wrapper starts a short-lived loopback HTTP proxy and injects it only into the spawned Codex process (`HTTP[S]_PROXY`, `ALL_PROXY`, and `-c network.proxy_url=...`) so Codex traffic, including `chatgpt.com`, resolves/connects over IPv4 without changing the parent shell environment.
 
 `--execute` behavior:

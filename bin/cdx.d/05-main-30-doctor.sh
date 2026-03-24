@@ -301,8 +301,12 @@ else:
   if (( CODEX_SSH_INTERACTIVE )); then
     if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
       cli_bits+=("ssh-launch=pty-forced")
-    else
+    elif [[ "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "0" || "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "false" || "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "no" || "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" == "off" ]]; then
       cli_bits+=("ssh-launch=direct-tty")
+      cli_bits+=("alt-screen=enabled")
+    else
+      cli_bits+=("ssh-launch=direct-tty-inline")
+      cli_bits+=("alt-screen=disabled")
     fi
   fi
 
