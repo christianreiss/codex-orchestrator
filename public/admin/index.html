@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-24-06">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-24-07">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-24-01">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-24-01">
 </head>
@@ -117,28 +117,30 @@
     <div class="content">
       <main class="main">
         <!-- Keyboard shortcuts help modal -->
-        <div class="modal-backdrop" id="kbdShortcutsModal" role="dialog" aria-modal="true" aria-labelledby="kbdShortcutsTitle">
+        <div class="modal-backdrop" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
           <div class="modal kbd-shortcuts-modal">
-            <h3 id="kbdShortcutsTitle">Keyboard shortcuts</h3>
+            <h3 id="helpModalTitle">Keyboard shortcuts</h3>
+            <p class="muted">Fast paths for the admin shell. Shortcuts pause while you are typing in an input, textarea, select box, or editor.</p>
             <div class="kbd-shortcuts-grid">
               <div class="kbd-shortcuts-section">
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>d</kbd><span>Go to Dashboard</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>d</kbd><span>Go to Overview</span></div>
                 <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>h</kbd><span>Go to Hosts</span></div>
                 <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>l</kbd><span>Go to Logs</span></div>
                 <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>s</kbd><span>Go to Settings</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>p</kbd><span>Go to Projects settings</span></div>
                 <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>u</kbd><span>Go to Users</span></div>
                 <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>a</kbd><span>Go to Account</span></div>
               </div>
               <div class="kbd-shortcuts-section">
-                <div class="kbd-shortcut-row"><kbd>/</kbd><span>Focus search / filter</span></div>
-                <div class="kbd-shortcut-row"><kbd>r</kbd><span>Refresh current view</span></div>
+                <div class="kbd-shortcut-row"><kbd>/</kbd><span>Focus the active search / filter</span></div>
+                <div class="kbd-shortcut-row"><kbd>r</kbd><span>Refresh the current view</span></div>
                 <div class="kbd-shortcut-row"><kbd>n</kbd><span>New item (host / user / command / skill)</span></div>
                 <div class="kbd-shortcut-row"><kbd>?</kbd><span>Show this help</span></div>
                 <div class="kbd-shortcut-row"><kbd>Esc</kbd><span>Close modal / dismiss</span></div>
               </div>
             </div>
             <div class="actions">
-              <button class="ghost" id="kbdShortcutsClose">Close</button>
+              <button class="ghost" id="helpModalClose">Close</button>
             </div>
           </div>
         </div>
@@ -151,87 +153,6 @@
               <button class="ghost" id="confirmModalCancel">Cancel</button>
               <button class="btn-warn" id="confirmModalConfirm">Confirm</button>
             </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
-          <div class="modal shortcut-help-modal">
-            <div class="shortcut-help-head">
-              <div>
-                <div class="shortcut-help-eyebrow">Keyboard Guide</div>
-                <h3 id="helpModalTitle">Admin shortcuts</h3>
-              </div>
-              <button class="close-btn shortcut-help-close" id="helpModalClose" type="button" aria-label="Close keyboard shortcuts help">Close</button>
-            </div>
-            <p class="shortcut-help-copy">Fast paths for the admin shell. Shortcuts pause while you are typing in an input, textarea, select box, or editor.</p>
-            <div class="shortcut-help-table-wrap">
-              <table class="shortcut-help-table">
-                <thead>
-                  <tr>
-                    <th>Shortcut</th>
-                    <th>Action</th>
-                    <th>Context</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">?</kbd></span></td>
-                    <td>Open or close this help</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">Esc</kbd></span></td>
-                    <td>Close the active modal</td>
-                    <td>Any open modal</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">N</kbd></span></td>
-                    <td>Open <span class="shortcut-help-inline">New Host</span></td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">/</kbd></span></td>
-                    <td>Focus the host filter</td>
-                    <td>Hosts view</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">R</kbd></span></td>
-                    <td>Reload the current admin view</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">D</kbd></span></td>
-                    <td>Go to Overview</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">H</kbd></span></td>
-                    <td>Go to Hosts</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">L</kbd></span></td>
-                    <td>Go to Logs</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">S</kbd></span></td>
-                    <td>Go to Settings</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">P</kbd></span></td>
-                    <td>Go to Projects settings</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                  <tr>
-                    <td><span class="shortcut-key-group"><kbd class="shortcut-key">G</kbd><span class="shortcut-key-plus">then</span><kbd class="shortcut-key">U</kbd></span></td>
-                    <td>Go to Users</td>
-                    <td>Anywhere in the admin shell</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="shortcut-help-footer">Dry-run safe. No shortcuts fire while a text field has focus.</div>
           </div>
         </div>
         <!-- Modals (from legacy hosts/settings) -->
@@ -2091,7 +2012,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-24-03"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-24-04"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

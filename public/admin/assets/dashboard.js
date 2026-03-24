@@ -968,17 +968,95 @@
     }
 
     function focusHostsFilterShortcut() {
-      if ((document.body?.dataset?.viewMode || '').toLowerCase() !== 'hosts') {
-        toast('Host filter shortcut only applies in Hosts view.', 'info', { timeoutMs: 1800 });
+      const hostFilter = document.getElementById('host-filter');
+      const logSearch = document.getElementById('log-search');
+      const activePanel = document.querySelector('.panel-set:not([hidden])');
+      const panelSearch = activePanel?.querySelector('input[type="search"], input[type="text"][id*="search"], input[type="text"][id*="filter"], input[type="text"][id*="query"]');
+      const target = (hostFilter && !hostFilter.closest('[hidden]')) ? hostFilter
+        : (logSearch && !logSearch.closest('[hidden]')) ? logSearch
+        : panelSearch;
+      if (!target) {
+        toast('No search or filter field is active in this view.', 'info', { timeoutMs: 1800 });
         return;
       }
-      if (!filterInput) return;
-      filterInput.focus();
-      filterInput.select?.();
+      target.focus();
+      target.select?.();
     }
 
     function reloadCurrentViewShortcut() {
+      const activePanel = document.querySelector('.panel-set:not([hidden])');
+      if (!activePanel) {
+        window.location.reload();
+        return;
+      }
+      const panelKey = activePanel.dataset?.panel || '';
+
+      if (panelKey === 'hosts' || panelKey === 'dashboard' || panelKey === 'host-detail') {
+        scheduleOverviewLiveRefresh(0);
+        return;
+      }
+
+      if (panelKey === 'logs') {
+        const visibleLogPanel = Array.from(activePanel.querySelectorAll('.log-panel')).find((panel) => !panel.hidden);
+        const refreshButton = visibleLogPanel?.querySelector('[id$="refresh"]');
+        if (refreshButton && !refreshButton.disabled) {
+          refreshButton.click();
+          return;
+        }
+      }
+
+      const refreshButton = activePanel.querySelector('[id*="refresh"]:not([disabled]), [id*="Refresh"]:not([disabled])')
+        || activePanel.querySelector('button[title*="refresh" i]:not([disabled]), button[aria-label*="refresh" i]:not([disabled])')
+        || document.getElementById('memoriesRefreshBtn');
+      if (refreshButton && !refreshButton.disabled) {
+        refreshButton.click();
+        return;
+      }
+
       window.location.reload();
+    }
+
+    function triggerNewShortcut() {
+      const activePanel = document.querySelector('.panel-set:not([hidden])');
+      if (!activePanel) {
+        showNewHostModal(true);
+        return;
+      }
+      const panelKey = activePanel.dataset?.panel || '';
+
+      if (panelKey === 'hosts' || panelKey === 'host-detail') {
+        showNewHostModal(true);
+        return;
+      }
+
+      if (panelKey === 'users') {
+        const button = document.getElementById('usersAddBtn');
+        if (button && !button.disabled) {
+          button.click();
+        }
+        return;
+      }
+
+      if (panelKey === 'settings') {
+        const activeSubPanel = activePanel.querySelector('[data-settings-panel]:not([hidden])');
+        const subKey = activeSubPanel?.dataset?.settingsPanel || '';
+        if (subKey === 'prompts') {
+          const button = document.getElementById('newCommandBtn');
+          if (button && !button.disabled) {
+            button.click();
+          }
+          return;
+        }
+        if (subKey === 'skills') {
+          const button = document.getElementById('newSkillBtn');
+          if (button && !button.disabled) {
+            button.click();
+          }
+          return;
+        }
+      }
+
+      showNewHostModal(true);
     }
 
     function handleShortcutPrefixKey(key) {
@@ -990,6 +1068,7 @@
         s: '/admin/settings/general',
         p: '/admin/settings/projects',
         u: '/admin/users',
+        a: '/admin/account',
       };
       const route = routes[key];
       clearShortcutPrefix();
@@ -1037,7 +1116,7 @@
 
       if (normalizedKey === 'n') {
         event.preventDefault();
-        showNewHostModal(true);
+        triggerNewShortcut();
         clearShortcutPrefix();
         return;
       }
@@ -8843,191 +8922,3 @@
         }
       }
     }
-
-    // ── Keyboard shortcuts ────────────────────────────────────────────────────
-    (function initKeyboardShortcuts() {
-      const kbdModal = document.getElementById('kbdShortcutsModal');
-      const kbdClose = document.getElementById('kbdShortcutsClose');
-
-      function showKbdModal(on) {
-        if (!kbdModal) return;
-        kbdModal.classList.toggle('show', on);
-        if (on) kbdClose?.focus();
-      }
-
-      if (kbdClose) {
-        kbdClose.addEventListener('click', () => showKbdModal(false));
-      }
-      if (kbdModal) {
-        kbdModal.addEventListener('click', (e) => {
-          if (e.target === kbdModal) showKbdModal(false);
-        });
-      }
-
-      function isInputFocused() {
-        const el = document.activeElement;
-        if (!el) return false;
-        const tag = el.tagName.toLowerCase();
-        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
-        if (el.isContentEditable) return true;
-        return false;
-      }
-
-      function isModalOpen() {
-        return !!document.querySelector('.modal-backdrop.show');
-      }
-
-      function navigateTo(path) {
-        if (window.__applyRouting) {
-          history.pushState({}, '', path);
-          window.__applyRouting();
-        } else {
-          window.location.href = path;
-        }
-      }
-
-      function focusSearch() {
-        // Try the host filter first, then any visible search input in the active panel.
-        const hostFilter = document.getElementById('host-filter');
-        const logSearch = document.getElementById('log-search');
-        const activePanel = document.querySelector('.panel-set:not([hidden])');
-        const panelSearch = activePanel?.querySelector('input[type="search"], input[type="text"][id*="search"], input[type="text"][id*="filter"], input[type="text"][id*="query"]');
-        const target = (hostFilter && !hostFilter.closest('[hidden]')) ? hostFilter
-          : (logSearch && !logSearch.closest('[hidden]')) ? logSearch
-          : panelSearch;
-        if (target) {
-          target.focus();
-          target.select();
-        }
-      }
-
-      function triggerRefresh() {
-        const activePanel = document.querySelector('.panel-set:not([hidden])');
-        if (!activePanel) return;
-        const panelKey = activePanel.dataset?.panel || '';
-
-        // Hosts and dashboard panels: trigger the live data refresh directly.
-        if (panelKey === 'hosts' || panelKey === 'dashboard' || panelKey === 'host-detail') {
-          scheduleOverviewLiveRefresh(0);
-          return;
-        }
-
-        // Logs panel: click the refresh button of the currently-visible sub-panel only,
-        // so switching tabs doesn't accidentally fire the wrong refresh.
-        if (panelKey === 'logs') {
-          const visibleLogPanel = Array.from(activePanel.querySelectorAll('.log-panel')).find((p) => !p.hidden);
-          const btn = visibleLogPanel?.querySelector('[id$="refresh"]');
-          if (btn && !btn.disabled) btn.click();
-          return;
-        }
-
-        // All other panels: find the first non-disabled refresh button in the panel.
-        const btn = activePanel.querySelector('[id*="refresh"]:not([disabled]), [id*="Refresh"]:not([disabled])')
-          || activePanel.querySelector('button[title*="refresh" i]:not([disabled]), button[aria-label*="refresh" i]:not([disabled])')
-          || document.getElementById('memoriesRefreshBtn');
-        if (btn && !btn.disabled) btn.click();
-      }
-
-      function triggerNew() {
-        const activePanel = document.querySelector('.panel-set:not([hidden])');
-        if (!activePanel) return;
-        const panelKey = activePanel.dataset?.panel || '';
-
-        if (panelKey === 'hosts' || panelKey === 'host-detail') {
-          const btn = document.getElementById('newHostBtn');
-          if (btn && !btn.disabled) btn.click();
-          return;
-        }
-
-        if (panelKey === 'users') {
-          const btn = document.getElementById('usersAddBtn');
-          if (btn && !btn.disabled) btn.click();
-          return;
-        }
-
-        if (panelKey === 'settings') {
-          const activeSubPanel = activePanel.querySelector('[data-settings-panel]:not([hidden])');
-          const subKey = activeSubPanel?.dataset?.settingsPanel || '';
-          if (subKey === 'prompts') {
-            const btn = document.getElementById('newCommandBtn');
-            if (btn && !btn.disabled) btn.click();
-          } else if (subKey === 'skills') {
-            const btn = document.getElementById('newSkillBtn');
-            if (btn && !btn.disabled) btn.click();
-          }
-        }
-      }
-
-      // `g` prefix handling: wait up to 1.5 s for the second key.
-      let gPending = false;
-      let gTimer = null;
-
-      function clearGPending() {
-        gPending = false;
-        clearTimeout(gTimer);
-        gTimer = null;
-      }
-
-      const GO_MAP = {
-        d: '/admin/dashboard',
-        h: '/admin/hosts',
-        l: '/admin/logs',
-        s: '/admin/settings',
-        u: '/admin/users',
-        a: '/admin/account',
-      };
-
-      document.addEventListener('keydown', (e) => {
-        // Close the kbd shortcuts modal on Escape regardless of other state.
-        if (e.key === 'Escape' && kbdModal?.classList.contains('show')) {
-          e.preventDefault();
-          showKbdModal(false);
-          return;
-        }
-
-        // Never fire inside inputs or open modals (except Escape which is handled elsewhere).
-        if (isInputFocused()) { clearGPending(); return; }
-        if (isModalOpen()) { clearGPending(); return; }
-
-        if (gPending) {
-          clearGPending();
-          const dest = GO_MAP[e.key];
-          if (dest) {
-            e.preventDefault();
-            navigateTo(dest);
-          }
-          return;
-        }
-
-        if (e.key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          e.preventDefault();
-          gPending = true;
-          gTimer = setTimeout(clearGPending, 1500);
-          return;
-        }
-
-        if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
-          e.preventDefault();
-          focusSearch();
-          return;
-        }
-
-        if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
-          e.preventDefault();
-          showKbdModal(true);
-          return;
-        }
-
-        if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          e.preventDefault();
-          triggerRefresh();
-          return;
-        }
-
-        if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          e.preventDefault();
-          triggerNew();
-          return;
-        }
-      });
-    })();

@@ -13,9 +13,11 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
 
         self::assertStringContainsString('id="navHelpTrigger"', $html);
         self::assertStringContainsString('id="helpModal"', $html);
-        self::assertStringContainsString('Admin shortcuts', $html);
+        self::assertStringContainsString('Keyboard shortcuts', $html);
         self::assertStringContainsString('Go to Projects settings', $html);
-        self::assertStringContainsString('Focus the host filter', $html);
+        self::assertStringContainsString('Focus the active search / filter', $html);
+        self::assertStringContainsString('Go to Account', $html);
+        self::assertStringNotContainsString('id="kbdShortcutsModal"', $html);
     }
 
     public function testAdminDashboardWiresRealKeyboardShortcuts(): void
@@ -31,7 +33,10 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("if (key === '/') {", $js);
         self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
+        self::assertStringContainsString("a: '/admin/account'", $js);
+        self::assertStringContainsString('function triggerNewShortcut()', $js);
         self::assertStringContainsString("document.addEventListener('keydown', handleGlobalShortcut);", $js);
+        self::assertStringNotContainsString("const kbdModal = document.getElementById('kbdShortcutsModal');", $js);
     }
 
     public function testHostsTableIncludesAutoUpdatesColumnAndIndicators(): void
