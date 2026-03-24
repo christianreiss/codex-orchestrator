@@ -161,20 +161,20 @@ resolve_wrapper_target_url() {
 wrapper_self_update_needed() {
   local target_wrapper="${1:-}"
   local target_wrapper_sha="${2:-}"
-  local need_wrapper_update=0
 
   if [[ -n "$target_wrapper" && "$target_wrapper" != "${WRAPPER_VERSION:-}" ]]; then
-    need_wrapper_update=1
+    return 0
   fi
-  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
+  if [[ -n "$target_wrapper_sha" ]]; then
+    local current_wrapper_sha=""
     if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
       if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
-        need_wrapper_update=1
+        return 0
       fi
     fi
   fi
 
-  return $need_wrapper_update
+  return 1
 }
 
 WRAPPER_UPDATE_LAST_ERROR=""

@@ -435,7 +435,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-09"
+WRAPPER_VERSION="2026.03.24-10"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -6012,20 +6012,20 @@ resolve_wrapper_target_url() {
 wrapper_self_update_needed() {
   local target_wrapper="${1:-}"
   local target_wrapper_sha="${2:-}"
-  local need_wrapper_update=0
 
   if [[ -n "$target_wrapper" && "$target_wrapper" != "${WRAPPER_VERSION:-}" ]]; then
-    need_wrapper_update=1
+    return 0
   fi
-  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
+  if [[ -n "$target_wrapper_sha" ]]; then
+    local current_wrapper_sha=""
     if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
       if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
-        need_wrapper_update=1
+        return 0
       fi
     fi
   fi
 
-  return $need_wrapper_update
+  return 1
 }
 
 WRAPPER_UPDATE_LAST_ERROR=""
