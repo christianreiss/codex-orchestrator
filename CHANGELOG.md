@@ -1,4 +1,8 @@
 # 2026-03-24
+- cdx wrapper: end-of-run usage reporting now fast-paths only the last ~256 KiB of the PTY capture for a final legacy `Token usage:` line before falling back to the older full-log/session-JSONL compatibility paths, so long interactive runs no longer need a full capture scan in the common case. `/usage` upload is now explicitly best effort with roughly a 3-second total budget across SSL-context attempts, and the stripped-line retry is skipped for slow/time-out network failures so wrapper exit stays prompt. Wrapper bumped to `2026.03.24-01` and rebuilt.
+- Tests/docs: added wrapper regression coverage for tail-fast-path parsing, full-log fallback when the tail misses usage, and bounded `/usage` timeout behavior; refreshed wrapper usage docs in `docs/interface-cdx.md`, `docs/USAGE.md`, and `docs/OVERVIEW.md`.
+
+# 2026-03-24
 - cdx wrapper: `format_simple_row` now wraps ANSI-colorized text on narrow terminals — previously the fold logic was skipped whenever escape codes were present, so error/warning rows in `--doctor` and `--status` output (highlighted in red or yellow) could overflow the terminal width; the new path measures visible character width via `strip_ansi_sgr` and breaks on space boundaries, keeping value columns aligned with the label pipe just as plain-text rows do. Rebuilt `bin/cdx`.
 
 # 2026-03-24

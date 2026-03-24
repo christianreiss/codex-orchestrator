@@ -93,6 +93,72 @@ LOG);
         $this->assertStringContainsString('tokens used', strtolower((string) ($payload['usages'][0]['line'] ?? '')));
     }
 
+    public function testWrapperFastPathsTailTokenUsageBeforeSessionJsonlFallback(): void
+    {
+        $home = $this->createTempDir('home');
+        $sessionId = '019ce8c7-bade-79c0-a972-37a807af786f';
+        $sessionDir = $home . '/.codex/sessions/2026/03/24';
+        mkdir($sessionDir, 0777, true);
+
+        $sessionPath = $sessionDir . '/rollout-2026-03-24T12-00-00-' . $sessionId . '.jsonl';
+        $this->registerFileForCleanup($sessionPath);
+        $this->assertNotFalse(file_put_contents($sessionPath, implode("\n", [
+            json_encode([
+                'type' => 'event_msg',
+                'payload' => [
+                    'type' => 'token_count',
+                    'info' => [
+                        'last_token_usage' => [
+                            'input_tokens' => 900,
+                            'cached_input_tokens' => 400,
+                            'output_tokens' => 99,
+                            'reasoning_output_tokens' => 77,
+                            'total_tokens' => 999,
+                        ],
+                    ],
+                ],
+            ], JSON_UNESCAPED_SLASHES),
+            '',
+        ])));
+
+        $capturedOutput = implode("\n", [
+            'OpenAI Codex v0.113.0',
+            "session id: {$sessionId}",
+            str_repeat('prelude filler 0123456789abcdef' . "\n", 12000),
+            'Token usage: total=120 input=80 output=40',
+            '',
+        ]);
+
+        $payload = $this->parseUsagePayload($capturedOutput, $home);
+
+        $this->assertIsArray($payload);
+        $this->assertCount(1, $payload['usages'] ?? []);
+        $this->assertSame(120, $payload['usages'][0]['total'] ?? null);
+        $this->assertSame(80, $payload['usages'][0]['input'] ?? null);
+        $this->assertSame(40, $payload['usages'][0]['output'] ?? null);
+        $this->assertArrayNotHasKey('cached', $payload['usages'][0]);
+        $this->assertStringContainsString('Token usage:', (string) ($payload['usages'][0]['line'] ?? ''));
+    }
+
+    public function testWrapperFallsBackToFullFileLegacyParseWhenTailMissesTokenUsage(): void
+    {
+        $capturedOutput = implode("\n", [
+            'OpenAI Codex v0.113.0',
+            'Token usage: total=777 input=500 output=277',
+            str_repeat('trailing filler abcdefghijklmnop' . "\n", 12000),
+            '',
+        ]);
+
+        $payload = $this->parseUsagePayload($capturedOutput);
+
+        $this->assertIsArray($payload);
+        $this->assertCount(1, $payload['usages'] ?? []);
+        $this->assertSame(777, $payload['usages'][0]['total'] ?? null);
+        $this->assertSame(500, $payload['usages'][0]['input'] ?? null);
+        $this->assertSame(277, $payload['usages'][0]['output'] ?? null);
+        $this->assertStringContainsString('Token usage:', (string) ($payload['usages'][0]['line'] ?? ''));
+    }
+
     protected function tearDown(): void
     {
         foreach (array_reverse($this->cleanupPaths ?? []) as $path) {

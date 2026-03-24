@@ -447,7 +447,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.21-02"
+WRAPPER_VERSION="2026.03.24-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -4308,11 +4308,13 @@ except Exception:
     sys.exit(0)
 
 def find_block(name: str) -> str:
-    m = re.search(r'(?m)^\\[' + re.escape(name) + r'\\]\\s*$', raw)
+    # Allow an optional inline TOML comment after the closing bracket,
+    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
     if not m:
         return ""
     start = m.end()
-    m2 = re.search(r'(?m)^\\[', raw[start:])
+    m2 = re.search(r'(?m)^\[', raw[start:])
     end = start + (m2.start() if m2 else len(raw[start:]))
     return raw[start:end]
 
@@ -5108,14 +5110,18 @@ extract_token_usage_payload() {
 import json, pathlib, re, sys
 
 path = pathlib.Path(sys.argv[1])
-try:
-    content = path.read_text(encoding="utf-8", errors="ignore")
-except Exception:  # noqa: BLE001
-    sys.exit(0)
+TAIL_READ_BYTES = 262144
 
 ansi_csi = re.compile(r"\x1B\[[0-9;?]*[ -/]*[@-~]")
 ansi_osc = re.compile(r"\x1B\][^\a\x1b]*[\a\x1b\\]")
 control = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+pattern = re.compile(
+    r"Token usage:\s*total=(?P<total>[\d,]+)\s+input=(?P<input>[\d,]+)(?:\s*\(\+\s*(?P<cached>[\d,]+)\s*cached\))?\s+output=(?P<output>[\d,]+)(?:\s*\(reasoning\s*(?P<reasoning>[\d,]+)\))?",
+    re.IGNORECASE,
+)
+kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
+tokens_used_pattern = re.compile(r"tokens?\s+used(?:\s*[:=]\s*(?P<total>[\d,]+))?$", re.IGNORECASE)
+plain_total_pattern = re.compile(r"^(?:total\s*[:=]\s*)?(?P<total>[\d,]+)$", re.IGNORECASE)
 
 
 def strip_noise(text: str) -> str:
@@ -5123,10 +5129,6 @@ def strip_noise(text: str) -> str:
     text = ansi_csi.sub("", text)
     text = control.sub("", text)
     return text
-
-
-cleaned = strip_noise(content)
-
 
 def clean_int(val):
     if val is None or isinstance(val, bool):
@@ -5207,6 +5209,63 @@ def build_entry(total=None, input_tokens=None, output_tokens=None, cached_tokens
     if not entry:
         return None
     return entry
+
+
+def build_entry_from_usage_line(raw: str):
+    entry = {}
+    match = pattern.search(raw)
+    if match:
+        entry["total"] = clean_int(match.group("total"))
+        entry["input"] = clean_int(match.group("input"))
+        entry["output"] = clean_int(match.group("output"))
+        cached_val = clean_int(match.group("cached"))
+        if cached_val is not None:
+            entry["cached"] = cached_val
+        reasoning_val = clean_int(match.group("reasoning"))
+        if reasoning_val is not None:
+            entry["reasoning"] = reasoning_val
+    else:
+        for key, value in kv_pattern.findall(raw):
+            cleaned_val = clean_int(value)
+            if cleaned_val is not None:
+                entry[key.lower()] = cleaned_val
+        cached_match = re.search(r"\(\+\s*([\d,]+)\s*cached", raw, re.IGNORECASE)
+        if cached_match:
+            cached_val = clean_int(cached_match.group(1))
+            if cached_val is not None:
+                entry["cached"] = cached_val
+
+    safe_raw = safe_line(raw)
+    if safe_raw:
+        entry["line"] = safe_raw
+
+    if not entry:
+        return None
+    return entry
+
+
+def extract_tail_usage_entry(log_path: pathlib.Path):
+    try:
+        size = log_path.stat().st_size
+        with log_path.open("rb") as handle:
+            if size > TAIL_READ_BYTES:
+                handle.seek(-TAIL_READ_BYTES, 2)
+            tail = handle.read()
+    except Exception:
+        return None
+
+    cleaned_tail = strip_noise(tail.decode("utf-8", errors="ignore"))
+    for raw in reversed(cleaned_tail.splitlines()):
+        line = raw.strip()
+        if "token usage" not in line.lower():
+            continue
+        entry = build_entry_from_usage_line(line)
+        if not isinstance(entry, dict):
+            continue
+        for key in ("total", "input", "output", "cached", "reasoning"):
+            if isinstance(entry.get(key), int):
+                return [entry]
+    return None
 
 
 def extract_session_entries(text: str):
@@ -5294,46 +5353,23 @@ def extract_session_entries(text: str):
     return []
 
 
-pattern = re.compile(
-    r"Token usage:\s*total=(?P<total>[\d,]+)\s+input=(?P<input>[\d,]+)(?:\s*\(\+\s*(?P<cached>[\d,]+)\s*cached\))?\s+output=(?P<output>[\d,]+)(?:\s*\(reasoning\s*(?P<reasoning>[\d,]+)\))?",
-    re.IGNORECASE,
-)
-kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
-tokens_used_pattern = re.compile(r"tokens?\s+used(?:\s*[:=]\s*(?P<total>[\d,]+))?$", re.IGNORECASE)
-plain_total_pattern = re.compile(r"^(?:total\s*[:=]\s*)?(?P<total>[\d,]+)$", re.IGNORECASE)
+entries = extract_tail_usage_entry(path)
+if entries:
+    print(json.dumps({"usages": entries}, separators=(",", ":")))
+    sys.exit(0)
 
+try:
+    content = path.read_text(encoding="utf-8", errors="ignore")
+except Exception:  # noqa: BLE001
+    sys.exit(0)
+
+cleaned = strip_noise(content)
 entries = extract_session_entries(cleaned)
 
 if not entries:
     lines = [ln.strip() for ln in cleaned.splitlines() if "token usage" in ln.lower()]
     for raw in lines:
-        entry = {}
-        match = pattern.search(raw)
-        if match:
-            entry["total"] = clean_int(match.group("total"))
-            entry["input"] = clean_int(match.group("input"))
-            entry["output"] = clean_int(match.group("output"))
-            cached_val = clean_int(match.group("cached"))
-            if cached_val is not None:
-                entry["cached"] = cached_val
-            reasoning_val = clean_int(match.group("reasoning"))
-            if reasoning_val is not None:
-                entry["reasoning"] = reasoning_val
-        else:
-            for key, value in kv_pattern.findall(raw):
-                cleaned_val = clean_int(value)
-                if cleaned_val is not None:
-                    entry[key.lower()] = cleaned_val
-            cached_match = re.search(r"\(\+\s*([\d,]+)\s*cached", raw, re.IGNORECASE)
-            if cached_match:
-                cached_val = clean_int(cached_match.group(1))
-                if cached_val is not None:
-                    entry["cached"] = cached_val
-
-        safe_raw = safe_line(raw)
-        if safe_raw:
-            entry["line"] = safe_raw
-
+        entry = build_entry_from_usage_line(raw)
         if entry:
             entries.append(entry)
 
@@ -5387,7 +5423,7 @@ post_token_usage_payload_once() {
   local payload_json="$2"
   local ca_file="${3-}"
   CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
-import json, os, sys, urllib.error, urllib.request
+import json, os, socket, sys, time, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
@@ -5410,6 +5446,7 @@ body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
 headers = {"Content-Type": "application/json", "X-API-Key": api_key}
 url = f"{base}/usage"
 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+request_timeout = 3
 
 
 def build_contexts():
@@ -5482,11 +5519,25 @@ def parse_response_fields(body_text: str):
     return cost_value, recorded_value, reason_value
 
 
+def is_timeout_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return True
+    return "timed out" in str(exc).lower()
+
+
 last_err = None
 last_code = 1
+last_retryable = False
+deadline = time.monotonic() + request_timeout
 for ctx in build_contexts():
     try:
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("request timed out")
+        with urllib.request.urlopen(req, timeout=max(0.1, remaining), context=ctx) as resp:  # noqa: S310
             body_text = resp.read(65536).decode("utf-8", "replace")
             cost_val, recorded_val, reason_val = parse_response_fields(body_text)
             print(f"summary={format_summary(payload)}")
@@ -5511,13 +5562,16 @@ for ctx in build_contexts():
             body_snip = body_snip[:160] + "..."
         last_err = f"HTTP {exc.code}" + (f": {body_snip}" if body_snip else "")
         last_code = exc.code or 1
+        last_retryable = True
         continue
     except Exception as exc:  # noqa: BLE001
-        last_err = str(exc)
+        last_err = "request timed out" if is_timeout_error(exc) else str(exc)
+        last_retryable = False
         continue
 
 if last_err:
     print(f"error={last_err}")
+    print(f"retryable={'true' if last_retryable else 'false'}")
 sys.exit(last_code)
 PY
 }
@@ -5531,6 +5585,7 @@ post_token_usage_payload() {
   local cost=""
   local recorded=""
   local reason=""
+  local retryable="false"
 
   USAGE_PUSH_RESULT=""
   USAGE_PUSH_REASON=""
@@ -5564,6 +5619,7 @@ post_token_usage_payload() {
       cost=*) cost="${line#cost=}" ;;
       recorded=*) recorded="${line#recorded=}" ;;
       reason=*) reason="${line#reason=}" ;;
+      retryable=*) retryable="${line#retryable=}" ;;
       error=*)
         if [[ -z "$reason" ]]; then
           reason="${line#error=}"
@@ -5600,8 +5656,8 @@ post_token_usage_payload() {
   fi
 
   local primary_err="${reason:-$output}"
-  # Fallback: retry without the freeform line if present (avoid bad payloads/escape debris)
-  if [[ "$payload_json" == *'"line"'* ]]; then
+  # Best effort only: retry stripped payloads for quick payload-shape failures, not slow/wedged network paths.
+  if [[ "$retryable" == "true" && "$payload_json" == *'"line"'* ]]; then
     local fallback_payload=""
     fallback_payload="$(python3 - "$payload_json" <<'PY'
 import json, sys
@@ -5629,6 +5685,7 @@ PY
       cost=""
       recorded=""
       reason=""
+      retryable="false"
       output="$(post_token_usage_payload_once "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE")" || status=$?
       while IFS= read -r line; do
         case "$line" in
@@ -5636,6 +5693,7 @@ PY
           cost=*) cost="${line#cost=}" ;;
           recorded=*) recorded="${line#recorded=}" ;;
           reason=*) reason="${line#reason=}" ;;
+          retryable=*) retryable="${line#retryable=}" ;;
           error=*)
             if [[ -z "$reason" ]]; then
               reason="${line#error=}"
@@ -5728,7 +5786,14 @@ PY
 send_token_usage_if_present() {
   local log_path="$1"
   local payload
-  payload="$(extract_token_usage_payload "$log_path")" || return 0
+  if ! payload="$(extract_token_usage_payload "$log_path")"; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="usage extraction failed"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
@@ -6743,6 +6808,18 @@ colorize() {
   esac
 }
 
+# Colorize an individual sync/pull status token for display in the doctor report.
+# ok → green; offline/concurrent/skip/no-python → yellow; unknown → plain; everything else → red.
+colorize_sync_status() {
+  local val="$1"
+  case "$val" in
+    ok) colorize "$val" "green" ;;
+    offline|concurrent|skip|no-python) colorize "$val" "yellow" ;;
+    unknown) printf "%s" "$val" ;;
+    *) colorize "$val" "red" ;;
+  esac
+}
+
 ROW_LABEL_WIDTH=12
 ROW_VALUE_WIDTH=32
 QUOTA_BAR_WIDTH=24
@@ -6885,24 +6962,70 @@ format_status_row() {
 
 format_simple_row() {
   local label="$1" text="$2"
-  if [[ -t 1 && "$text" != *$'\033['* ]]; then
+  if [[ -t 1 ]]; then
     local cols="${COLUMNS:-}"
     if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
       cols="$(tput cols 2>/dev/null || true)"
     fi
     if [[ "$cols" =~ ^[0-9]+$ ]]; then
       local max=$(( cols - ROW_LABEL_WIDTH - 5 ))
-      if (( max >= 20 )) && (( ${#text} > max )); then
-        local first=1 chunk
-        while IFS= read -r chunk; do
-          if (( first )); then
-            printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
-            first=0
-          else
-            printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+      if (( max >= 20 )); then
+        if [[ "$text" != *$'\033['* ]]; then
+          # Plain text: use fold for reliable word-boundary wrapping.
+          if (( ${#text} > max )); then
+            local first=1 chunk
+            while IFS= read -r chunk; do
+              if (( first )); then
+                printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
+                first=0
+              else
+                printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
+              fi
+            done <<< "$(fold -s -w "$max" <<< "$text")"
+            return
           fi
-        done <<< "$(fold -s -w "$max" <<< "$text")"
-        return
+        else
+          # ANSI-colorized text: fold can't count visible width correctly, so
+          # measure via strip_ansi_sgr and break on space boundaries instead.
+          local plain
+          plain="$(strip_ansi_sgr "$text")"
+          if (( ${#plain} > max )); then
+            local out="" cur_line="" token rest="$text"
+            while [[ -n "$rest" ]]; do
+              if [[ "$rest" == *" "* ]]; then
+                token="${rest%% *}"
+                rest="${rest#* }"
+              else
+                token="$rest"
+                rest=""
+              fi
+              local cand="$cur_line"
+              [[ -n "$cand" ]] && cand+=" "
+              cand+="$token"
+              local cand_plain
+              cand_plain="$(strip_ansi_sgr "$cand")"
+              if (( ${#cand_plain} > max )) && [[ -n "$cur_line" ]]; then
+                if [[ -n "$out" ]]; then
+                  printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$cur_line"
+                else
+                  printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$cur_line"
+                fi
+                out="x"
+                cur_line="$token"
+              else
+                cur_line="$cand"
+              fi
+            done
+            if [[ -n "$cur_line" ]]; then
+              if [[ -n "$out" ]]; then
+                printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$cur_line"
+              else
+                printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$cur_line"
+              fi
+            fi
+            return
+          fi
+        fi
       fi
     fi
   fi
@@ -6956,7 +7079,14 @@ format_footer_sync_fragment() {
 format_run_cost_value() {
   local raw="$1"
   if [[ "$raw" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-    LC_NUMERIC=C printf "%.2f$" "$raw"
+    # Use 4 decimal places for sub-cent amounts so "$0.0012" shows instead of "$0.00".
+    local formatted
+    if LC_NUMERIC=C awk -v v="$raw" 'BEGIN { exit !(v < 0.01 && v > -0.01) }' 2>/dev/null; then
+      formatted="$(LC_NUMERIC=C printf "%.4f" "$raw")"
+    else
+      formatted="$(LC_NUMERIC=C printf "%.2f" "$raw")"
+    fi
+    printf '$%s' "$formatted"
     return
   fi
   printf "%s" "$raw"
@@ -6967,6 +7097,7 @@ print_run_exit_footer() {
 
   local usage_label="Run usage"
   local cost_label="Run cost"
+  local run_time_label="Run time"
   local cost_prefix=""
   if output_supports_unicode; then
     cost_prefix="💰 "
@@ -6999,6 +7130,20 @@ print_run_exit_footer() {
     fi
   fi
 
+  local run_time_text=""
+  if [[ -n "${CDX_RUN_START_NS:-}" ]]; then
+    local run_elapsed_ms
+    run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
+    if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
+      local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
+      if (( run_elapsed_s < 60 )); then
+        run_time_text="${run_elapsed_s}s"
+      else
+        run_time_text="$(format_duration_short "$run_elapsed_s")"
+      fi
+    fi
+  fi
+
   local usage_sync=""
   local auth_sync=""
   usage_sync="$(format_footer_sync_fragment "usage" "${USAGE_PUSH_RESULT:-}" "${USAGE_PUSH_REASON:-}")"
@@ -7008,7 +7153,11 @@ print_run_exit_footer() {
   log_info "$(summary_divider)"
   log_info "$(format_simple_row "$usage_label" "$usage_text")"
   log_info "$(format_simple_row "$cost_label" "$cost_text")"
+  if [[ -n "$run_time_text" ]]; then
+    log_info "$(format_simple_row "$run_time_label" "$run_time_text")"
+  fi
   log_info "$(format_simple_row "$sync_label" "$sync_text")"
+  log_info "$(summary_divider)"
 }
 
 section_bullet() {
@@ -7228,7 +7377,12 @@ toml_table_enabled() {
     BEGIN { in_table=0; found=0; disabled=0 }
     {
       line = trim($0)
-      if (line == header) { in_table=1; found=1; next }
+      # Match the header exactly or with a trailing inline comment
+      # (e.g. `[mcp_servers.cdx] # remark` is valid TOML and must still be matched).
+      if (line == header || \
+          (substr(line, 1, length(header)) == header && \
+           substr(line, length(header)+1) ~ /^[[:space:]]*(#.*)?$/)) \
+        { in_table=1; found=1; next }
       if (in_table && line ~ /^\[/) { in_table=0 }
       if (in_table && line ~ /^enabled[[:space:]]*=[[:space:]]*false([[:space:]]*(#.*)?)?$/) { disabled=1 }
     }
@@ -7686,7 +7840,7 @@ print_doctor_report() {
   local ssh_env_label
   ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 
-  local sync_label="auth=${AUTH_PULL_STATUS:-unknown} prompts=${PROMPT_SYNC_STATUS:-unknown} skills=${SKILL_SYNC_STATUS:-unknown} agents=${AGENTS_SYNC_STATUS:-unknown} config=${CONFIG_SYNC_STATUS:-unknown}"
+  local sync_label="auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}") prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}") skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}") agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}") config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
   case "$AUTH_PULL_STATUS" in
     invalid)
       failures=$(( failures + 1 ))
@@ -7758,7 +7912,9 @@ else:
             if stripped.startswith('#') or not stripped:
                 continue
             if stripped.startswith('['):
-                if not stripped.endswith(']'):
+                # Strip inline comment before checking: [section] # comment is valid TOML.
+                header_part = stripped.split('#')[0].rstrip()
+                if not header_part.endswith(']'):
                     print('unclosed table header: ' + stripped)
                     sys.exit(1)
         print('ok:' + method)
@@ -7849,29 +8005,58 @@ else:
     fi
   fi
 
-  log_info "$(format_simple_row "Doctor deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
-  log_info "$(format_simple_row "Doctor paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
-  log_info "$(format_simple_row "Doctor auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
-  log_info "$(format_simple_row "Doctor sync" "$sync_label")"
-  log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
-  log_info "$(format_simple_row "Doctor mcp" "$mcp_label")"
-  log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
+  local saved_row_label_width="$ROW_LABEL_WIDTH"
+  ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
+
+  log_info "$(summary_divider)"
+  log_info "$(summary_header "Doctor report")"
+  log_info "$(format_simple_row "Deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
+  log_info "$(format_simple_row "Paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
+  log_info "$(format_simple_row "Auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
+  log_info "$(format_simple_row "Sync" "$sync_label")"
+  log_info "$(format_simple_row "Config" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
+  log_info "$(format_simple_row "MCP" "$mcp_label")"
+  log_info "$(format_simple_row "API" "$api_probe_label")"
   if [[ -n "$api_latency_label" ]]; then
-    log_info "$(format_simple_row "Doctor lat" "$api_latency_label")"
+    log_info "$(format_simple_row "Latency" "$api_latency_label")"
   fi
-  log_info "$(format_simple_row "Doctor disk" "$disk_label")"
-  log_info "$(format_simple_row "Doctor cron" "$cron_label")"
-  log_info "$(format_simple_row "Doctor pty" "$pty_label")"
-  log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
-  log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"
+  log_info "$(format_simple_row "Disk" "$disk_label")"
+  log_info "$(format_simple_row "Cron" "$cron_label")"
+  log_info "$(format_simple_row "PTY" "$pty_label")"
+  log_info "$(format_simple_row "SSH env" "$ssh_env_label")"
+  log_info "$(format_simple_row "CLI" "$(join_with_sep '; ' "${cli_bits[@]}")")"
+
+  local result_summary=""
+  local hints_suffix=""
+  if (( ${#hints[@]} > 0 )); then
+    if output_supports_unicode; then
+      hints_suffix=" — see hints ↓"
+    else
+      hints_suffix=" — see hints below"
+    fi
+  fi
+  if (( failures == 0 )); then
+    result_summary="$(colorize "all checks passed" "green") ✅"
+  elif (( failures == 1 )); then
+    result_summary="$(colorize "1 failure" "red")${hints_suffix}"
+  else
+    result_summary="$(colorize "${failures} failures" "red")${hints_suffix}"
+  fi
+  log_info "$(format_simple_row "Result" "$result_summary")"
 
   if (( ${#hints[@]} )); then
+    log_info "$(summary_divider)"
+    local hint_index=1
     local hint
     for hint in "${hints[@]}"; do
-      log_warn "Doctor hint: ${hint}"
+      log_warn "$(format_simple_row "Hint ${hint_index}" "$hint")"
+      hint_index=$(( hint_index + 1 ))
     done
   fi
+  log_info "$(summary_divider)"
 
+  ROW_LABEL_WIDTH="$saved_row_label_width"
   DOCTOR_FAILURES=$failures
 }
 
@@ -9466,11 +9651,13 @@ except Exception:
     sys.exit(0)
 
 def find_block(name: str) -> str:
-    m = re.search(r'(?m)^\\[' + re.escape(name) + r'\\]\\s*$', raw)
+    # Allow an optional inline TOML comment after the closing bracket,
+    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
     if not m:
         return ""
     start = m.end()
-    m2 = re.search(r'(?m)^\\[', raw[start:])
+    m2 = re.search(r'(?m)^\[', raw[start:])
     end = start + (m2.start() if m2 else len(raw[start:]))
     return raw[start:end]
 
@@ -9478,7 +9665,7 @@ block = find_block("security")
 if not block:
     sys.exit(0)
 
-m = re.search(r'(?m)^\\s*dangerously_bypass_approvals_and_sandbox\\s*=\\s*(true|false)\\s*$', block)
+m = re.search(r'(?m)^\s*dangerously_bypass_approvals_and_sandbox\s*=\s*(true|false)\s*$', block)
 if m and m.group(1) == "true":
     print("--dangerously-bypass-approvals-and-sandbox")
 PY
@@ -9547,7 +9734,12 @@ changed = False
 
 def is_header(line: str) -> bool:
     stripped = line.strip()
-    return stripped.startswith("[") and stripped.endswith("]")
+    if not stripped.startswith("["):
+        return False
+    # Strip optional inline comment before the end-bracket check so that
+    # `[section] # comment` is correctly recognised as a table header.
+    without_comment = stripped.split("#")[0].rstrip()
+    return without_comment.endswith("]")
 
 
 table_index = None
@@ -9978,6 +10170,7 @@ fi
 ensure_current_project_trusted_in_config
 
 cdx_debug_phase "total-boot" "$CDX_BOOT_START_NS"
+CDX_RUN_START_NS="$(cdx_time_ms)"
 CODEX_COMMAND_STARTED=1
 if run_codex_command "$@"; then
   cmd_status=0

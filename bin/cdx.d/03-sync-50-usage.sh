@@ -87,14 +87,18 @@ extract_token_usage_payload() {
 import json, pathlib, re, sys
 
 path = pathlib.Path(sys.argv[1])
-try:
-    content = path.read_text(encoding="utf-8", errors="ignore")
-except Exception:  # noqa: BLE001
-    sys.exit(0)
+TAIL_READ_BYTES = 262144
 
 ansi_csi = re.compile(r"\x1B\[[0-9;?]*[ -/]*[@-~]")
 ansi_osc = re.compile(r"\x1B\][^\a\x1b]*[\a\x1b\\]")
 control = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+pattern = re.compile(
+    r"Token usage:\s*total=(?P<total>[\d,]+)\s+input=(?P<input>[\d,]+)(?:\s*\(\+\s*(?P<cached>[\d,]+)\s*cached\))?\s+output=(?P<output>[\d,]+)(?:\s*\(reasoning\s*(?P<reasoning>[\d,]+)\))?",
+    re.IGNORECASE,
+)
+kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
+tokens_used_pattern = re.compile(r"tokens?\s+used(?:\s*[:=]\s*(?P<total>[\d,]+))?$", re.IGNORECASE)
+plain_total_pattern = re.compile(r"^(?:total\s*[:=]\s*)?(?P<total>[\d,]+)$", re.IGNORECASE)
 
 
 def strip_noise(text: str) -> str:
@@ -102,10 +106,6 @@ def strip_noise(text: str) -> str:
     text = ansi_csi.sub("", text)
     text = control.sub("", text)
     return text
-
-
-cleaned = strip_noise(content)
-
 
 def clean_int(val):
     if val is None or isinstance(val, bool):
@@ -186,6 +186,63 @@ def build_entry(total=None, input_tokens=None, output_tokens=None, cached_tokens
     if not entry:
         return None
     return entry
+
+
+def build_entry_from_usage_line(raw: str):
+    entry = {}
+    match = pattern.search(raw)
+    if match:
+        entry["total"] = clean_int(match.group("total"))
+        entry["input"] = clean_int(match.group("input"))
+        entry["output"] = clean_int(match.group("output"))
+        cached_val = clean_int(match.group("cached"))
+        if cached_val is not None:
+            entry["cached"] = cached_val
+        reasoning_val = clean_int(match.group("reasoning"))
+        if reasoning_val is not None:
+            entry["reasoning"] = reasoning_val
+    else:
+        for key, value in kv_pattern.findall(raw):
+            cleaned_val = clean_int(value)
+            if cleaned_val is not None:
+                entry[key.lower()] = cleaned_val
+        cached_match = re.search(r"\(\+\s*([\d,]+)\s*cached", raw, re.IGNORECASE)
+        if cached_match:
+            cached_val = clean_int(cached_match.group(1))
+            if cached_val is not None:
+                entry["cached"] = cached_val
+
+    safe_raw = safe_line(raw)
+    if safe_raw:
+        entry["line"] = safe_raw
+
+    if not entry:
+        return None
+    return entry
+
+
+def extract_tail_usage_entry(log_path: pathlib.Path):
+    try:
+        size = log_path.stat().st_size
+        with log_path.open("rb") as handle:
+            if size > TAIL_READ_BYTES:
+                handle.seek(-TAIL_READ_BYTES, 2)
+            tail = handle.read()
+    except Exception:
+        return None
+
+    cleaned_tail = strip_noise(tail.decode("utf-8", errors="ignore"))
+    for raw in reversed(cleaned_tail.splitlines()):
+        line = raw.strip()
+        if "token usage" not in line.lower():
+            continue
+        entry = build_entry_from_usage_line(line)
+        if not isinstance(entry, dict):
+            continue
+        for key in ("total", "input", "output", "cached", "reasoning"):
+            if isinstance(entry.get(key), int):
+                return [entry]
+    return None
 
 
 def extract_session_entries(text: str):
@@ -273,46 +330,23 @@ def extract_session_entries(text: str):
     return []
 
 
-pattern = re.compile(
-    r"Token usage:\s*total=(?P<total>[\d,]+)\s+input=(?P<input>[\d,]+)(?:\s*\(\+\s*(?P<cached>[\d,]+)\s*cached\))?\s+output=(?P<output>[\d,]+)(?:\s*\(reasoning\s*(?P<reasoning>[\d,]+)\))?",
-    re.IGNORECASE,
-)
-kv_pattern = re.compile(r"\b(total|input|output|cached|reasoning)\s*[:=]\s*([\d,][\d,]*)", re.IGNORECASE)
-tokens_used_pattern = re.compile(r"tokens?\s+used(?:\s*[:=]\s*(?P<total>[\d,]+))?$", re.IGNORECASE)
-plain_total_pattern = re.compile(r"^(?:total\s*[:=]\s*)?(?P<total>[\d,]+)$", re.IGNORECASE)
+entries = extract_tail_usage_entry(path)
+if entries:
+    print(json.dumps({"usages": entries}, separators=(",", ":")))
+    sys.exit(0)
 
+try:
+    content = path.read_text(encoding="utf-8", errors="ignore")
+except Exception:  # noqa: BLE001
+    sys.exit(0)
+
+cleaned = strip_noise(content)
 entries = extract_session_entries(cleaned)
 
 if not entries:
     lines = [ln.strip() for ln in cleaned.splitlines() if "token usage" in ln.lower()]
     for raw in lines:
-        entry = {}
-        match = pattern.search(raw)
-        if match:
-            entry["total"] = clean_int(match.group("total"))
-            entry["input"] = clean_int(match.group("input"))
-            entry["output"] = clean_int(match.group("output"))
-            cached_val = clean_int(match.group("cached"))
-            if cached_val is not None:
-                entry["cached"] = cached_val
-            reasoning_val = clean_int(match.group("reasoning"))
-            if reasoning_val is not None:
-                entry["reasoning"] = reasoning_val
-        else:
-            for key, value in kv_pattern.findall(raw):
-                cleaned_val = clean_int(value)
-                if cleaned_val is not None:
-                    entry[key.lower()] = cleaned_val
-            cached_match = re.search(r"\(\+\s*([\d,]+)\s*cached", raw, re.IGNORECASE)
-            if cached_match:
-                cached_val = clean_int(cached_match.group(1))
-                if cached_val is not None:
-                    entry["cached"] = cached_val
-
-        safe_raw = safe_line(raw)
-        if safe_raw:
-            entry["line"] = safe_raw
-
+        entry = build_entry_from_usage_line(raw)
         if entry:
             entries.append(entry)
 
@@ -366,7 +400,7 @@ post_token_usage_payload_once() {
   local payload_json="$2"
   local ca_file="${3-}"
   CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
-import json, os, sys, urllib.error, urllib.request
+import json, os, socket, sys, time, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
@@ -389,6 +423,7 @@ body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
 headers = {"Content-Type": "application/json", "X-API-Key": api_key}
 url = f"{base}/usage"
 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+request_timeout = 3
 
 
 def build_contexts():
@@ -461,11 +496,25 @@ def parse_response_fields(body_text: str):
     return cost_value, recorded_value, reason_value
 
 
+def is_timeout_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return True
+    return "timed out" in str(exc).lower()
+
+
 last_err = None
 last_code = 1
+last_retryable = False
+deadline = time.monotonic() + request_timeout
 for ctx in build_contexts():
     try:
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:  # noqa: S310
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("request timed out")
+        with urllib.request.urlopen(req, timeout=max(0.1, remaining), context=ctx) as resp:  # noqa: S310
             body_text = resp.read(65536).decode("utf-8", "replace")
             cost_val, recorded_val, reason_val = parse_response_fields(body_text)
             print(f"summary={format_summary(payload)}")
@@ -490,13 +539,16 @@ for ctx in build_contexts():
             body_snip = body_snip[:160] + "..."
         last_err = f"HTTP {exc.code}" + (f": {body_snip}" if body_snip else "")
         last_code = exc.code or 1
+        last_retryable = True
         continue
     except Exception as exc:  # noqa: BLE001
-        last_err = str(exc)
+        last_err = "request timed out" if is_timeout_error(exc) else str(exc)
+        last_retryable = False
         continue
 
 if last_err:
     print(f"error={last_err}")
+    print(f"retryable={'true' if last_retryable else 'false'}")
 sys.exit(last_code)
 PY
 }
@@ -510,6 +562,7 @@ post_token_usage_payload() {
   local cost=""
   local recorded=""
   local reason=""
+  local retryable="false"
 
   USAGE_PUSH_RESULT=""
   USAGE_PUSH_REASON=""
@@ -543,6 +596,7 @@ post_token_usage_payload() {
       cost=*) cost="${line#cost=}" ;;
       recorded=*) recorded="${line#recorded=}" ;;
       reason=*) reason="${line#reason=}" ;;
+      retryable=*) retryable="${line#retryable=}" ;;
       error=*)
         if [[ -z "$reason" ]]; then
           reason="${line#error=}"
@@ -579,8 +633,8 @@ post_token_usage_payload() {
   fi
 
   local primary_err="${reason:-$output}"
-  # Fallback: retry without the freeform line if present (avoid bad payloads/escape debris)
-  if [[ "$payload_json" == *'"line"'* ]]; then
+  # Best effort only: retry stripped payloads for quick payload-shape failures, not slow/wedged network paths.
+  if [[ "$retryable" == "true" && "$payload_json" == *'"line"'* ]]; then
     local fallback_payload=""
     fallback_payload="$(python3 - "$payload_json" <<'PY'
 import json, sys
@@ -608,6 +662,7 @@ PY
       cost=""
       recorded=""
       reason=""
+      retryable="false"
       output="$(post_token_usage_payload_once "$CODEX_SYNC_BASE_URL" "$fallback_payload" "$CODEX_SYNC_CA_FILE")" || status=$?
       while IFS= read -r line; do
         case "$line" in
@@ -615,6 +670,7 @@ PY
           cost=*) cost="${line#cost=}" ;;
           recorded=*) recorded="${line#recorded=}" ;;
           reason=*) reason="${line#reason=}" ;;
+          retryable=*) retryable="${line#retryable=}" ;;
           error=*)
             if [[ -z "$reason" ]]; then
               reason="${line#error=}"
@@ -707,7 +763,14 @@ PY
 send_token_usage_if_present() {
   local log_path="$1"
   local payload
-  payload="$(extract_token_usage_payload "$log_path")" || return 0
+  if ! payload="$(extract_token_usage_payload "$log_path")"; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="usage extraction failed"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
