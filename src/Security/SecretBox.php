@@ -17,9 +17,9 @@ class SecretBox
     private const KID_PREFIX = 'kid=';
 
     /** @var array<string,string> */
-    private array $decryptionKeys = [];
-    private string $activeKid;
-    private string $activeKey;
+    private readonly array $decryptionKeys;
+    private readonly string $activeKid;
+    private readonly string $activeKey;
 
     /**
      * @param array<string,string> $decryptionKeys
@@ -38,10 +38,8 @@ class SecretBox
         if ($normalizedKid === '') {
             $normalizedKid = 'legacy';
         }
-        $this->activeKid = $normalizedKid;
-        $this->activeKey = $binaryKey;
-        $this->decryptionKeys[$this->activeKid] = $this->activeKey;
 
+        $allKeys = [$normalizedKid => $binaryKey];
         foreach ($decryptionKeys as $kid => $key) {
             if (!is_string($kid) || !is_string($key)) {
                 continue;
@@ -53,8 +51,12 @@ class SecretBox
             if (strlen($key) !== SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
                 throw new RuntimeException('AUTH_ENCRYPTION_KEYS must contain 32-byte key material');
             }
-            $this->decryptionKeys[$candidateKid] = $key;
+            $allKeys[$candidateKid] = $key;
         }
+
+        $this->activeKid = $normalizedKid;
+        $this->activeKey = $binaryKey;
+        $this->decryptionKeys = $allKeys;
     }
 
     public function encrypt(string $plaintext): string
