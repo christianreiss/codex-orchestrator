@@ -267,7 +267,7 @@ if (( skip_update_check )); then
       codex_status_note="active cdx run"
       ;;
     cron_managed)
-      codex_status_note="cron-managed auto-update enabled"
+      codex_status_note="cron-managed updates"
       ;;
     unsupported_platform)
       codex_status_note="unsupported platform (${platform_os}/${platform_arch})"

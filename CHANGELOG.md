@@ -1,4 +1,5 @@
 # 2026-03-24
+- cdx wrapper: shortened the skipped Codex auto-update note from `cron-managed auto-update enabled` to `cron-managed updates` so the `Versions` summary fits narrow terminals without losing the reason.
 - Admin UI: added a rail `?` help trigger that opens a keyboard-shortcuts modal, plus real admin-shell shortcuts for `?`, `n`, `/`, `r`, and `g` navigation chords (`d/h/l/s/p/u`) so the cheat sheet reflects live behavior instead of static copy.
 - cdx wrapper: fixed the `Versions` summary so skipped Codex update checks now report the real reason instead of always blaming privileges; cron-managed hosts now say `cron-managed auto-update enabled`, active-run and unsupported-platform skips stay distinct, and true privilege skips still include the detected UID. Wrapper bumped to `2026.03.24-01`.
 
