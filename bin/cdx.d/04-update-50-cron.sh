@@ -2,6 +2,8 @@
 # Cron auto-update mode: lightweight path that skips auth sync and interactive launch.
 # Invoked via: cdx --cron [install|remove]
 
+CRON_CHECK_RESPONSE=""
+
 cron_managed_marker() {
   printf '%s' '# cdx-managed-cron'
 }
@@ -246,6 +248,7 @@ cron_build_check_payload() {
 
 cron_ping_check_api() {
   local context_label="${1:-cron}"
+  CRON_CHECK_RESPONSE=""
   local check_payload
   check_payload="$(cron_build_check_payload)" || {
     log_warn "${context_label}: could not build /cron/check payload."
@@ -259,7 +262,7 @@ cron_ping_check_api() {
     return 1
   }
 
-  printf '%s' "$check_response"
+  CRON_CHECK_RESPONSE="$check_response"
 }
 
 cron_auto_update() {
@@ -281,10 +284,11 @@ cron_auto_update() {
   fi
 
   local check_response
-  check_response="$(cron_ping_check_api "cron")" || {
-    printf '[%s] cron: API check failed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$check_response"
+  cron_ping_check_api "cron" || {
+    printf '[%s] cron: API check failed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$CRON_CHECK_RESPONSE"
     return 1
   }
+  check_response="$CRON_CHECK_RESPONSE"
 
   local action target_version tag enforce_exact
   action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('action',''))" 2>/dev/null || true)"
