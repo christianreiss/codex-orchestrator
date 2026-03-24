@@ -1,4 +1,7 @@
 # 2026-03-24
+- Tests: added `PayloadHelperTest` with 41 unit tests covering all three public methods of `PayloadHelper` — `extractSyncAuthFingerprint` (defaults, auth-subkey extraction, digest validation/normalization, installation_id handling), `extractSyncAuthCandidate` (null/non-array inputs, missing key, valid/invalid candidate types), and `extractSyncHostUserInput` (flat vs. `host_user` subkey, whitespace trimming, partial fields, non-array subkey fallback); `PayloadHelper` previously had zero direct test coverage.
+
+# 2026-03-24
 - Backend: eliminated duplicated row-normalization logic in `TokenUsageIngestRepository` (extracted `normalizeIngestRow()`, used by both `recent()` and `search()`) and `TokenUsageRepository` (extracted `normalizeUsageRow()`, used by `latestForHost()`, `latestForHosts()`, and `recent()`); no behavior change.
 
 # 2026-03-24
