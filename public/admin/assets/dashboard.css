@@ -2926,6 +2926,7 @@ body.auth-locked .rail-tools {
   color: var(--muted);
   font-weight: 600;
   border-bottom: 2px solid transparent;
+  transition: color 140ms ease, border-color 140ms ease;
 }
 
 .host-tab:hover,
@@ -2938,7 +2939,7 @@ body.auth-locked .rail-tools {
 .host-tab.active,
 .log-tab.active {
   color: var(--text);
-  border-color: var(--text);
+  border-color: var(--accent);
 }
 
 /* Hosts navigation */
@@ -2987,6 +2988,7 @@ body.auth-locked .rail-tools {
   color: var(--muted);
   font-weight: 650;
   text-decoration: none;
+  transition: color 140ms ease, border-left-color 140ms ease, background 140ms ease;
 }
 
 .hosts-nav-link.host-tab:hover,
@@ -3049,6 +3051,7 @@ body.auth-locked .rail-tools {
   color: var(--muted);
   font-weight: 650;
   text-decoration: none;
+  transition: color 140ms ease, border-left-color 140ms ease, background 140ms ease;
 }
 
 .logs-nav-link.log-tab:hover,
@@ -4961,6 +4964,13 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
 
   .chip,
   .signal-chip {
+    transition: none !important;
+  }
+
+  .host-tab,
+  .log-tab,
+  .hosts-nav-link.host-tab,
+  .logs-nav-link.log-tab {
     transition: none !important;
   }
 }

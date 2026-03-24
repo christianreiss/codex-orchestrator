@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: polish — tab navigation transitions and active indicator consistency: `.host-tab` / `.log-tab` top tabs and `.hosts-nav-link.host-tab` / `.logs-nav-link.log-tab` sidebar links now animate color, border, and background changes with a 140 ms ease transition, matching the existing `.settings-tab` behavior so hover/focus state changes cross-fade instead of snapping; the active bottom-border indicator on `.host-tab.active` / `.log-tab.active` now uses `var(--accent)` instead of `var(--text)`, consistent with all other active-selection indicators in the dashboard (sidebar links, settings tabs). New selectors added to the existing `prefers-reduced-motion` block.
+
+# 2026-03-24
 - Admin UI: fixed three bugs in `users.js` — (1) delete confirmation fell through silently when `window.__confirm` was not yet defined, because the `!window.__confirm ||` short-circuit caused the whole action to return early instead of falling back to native `window.confirm`; fixed to always show a confirmation dialog; (2) edit/create API responses lacked null guards so a missing `user` object in the response would throw `Cannot read properties of null (reading 'id')` / crash the sort comparator; both now throw a clear error that is caught and shown to the user; (3) sort comparator after create guarded against null `username` with `|| ''`; cache-bumped `users.js` to `v=2026-03-24-04`.
 
 # 2026-03-24
