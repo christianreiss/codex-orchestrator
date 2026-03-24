@@ -31,14 +31,14 @@ Guardrails:
 3. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
 4. Sync auth via `POST /auth`.
 5. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
-6. If bundle pull fails, fallback pulls run: slash commands, skills, AGENTS, config.
+6. If bundle pull fails, fallback pulls run: slash commands, AGENTS, config.
 7. Compute local auth freshness:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
 8. Check/update Codex + wrapper.
 9. Render boot summary and enforce launch gates.
 10. Launch Codex (unless status/doctor/lane-only path exits first).
-11. Cleanup trap: prompt/skill push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
+11. Cleanup trap: prompt push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
 
 Concurrent-run guard behavior (`active cdx run detected`):
 - Skips pre-run mutating sync/update operations.
@@ -107,21 +107,17 @@ Profile shorthand:
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
 | Slash commands | `GET /slash-commands` + `POST /slash-commands/retrieve` | `POST /slash-commands/store` | `~/.codex/prompts/*`, baseline `~/.codex/.prompt-baseline.json` |
-| Skills | `GET /skills` + `POST /skills/retrieve` | `POST /skills/store` | Primary read path: MCP `skill://{slug}`. API metadata returns backward-compatible `uri` plus `canonical_uri`, `fallback_path`, and `legacy_fallback_path`. Synced fallback copy: `~/.agents/skills/<slug>/SKILL.md`, baseline `~/.agents/.skill-baseline.json` |
+| Skills | MCP `resource_read` / `resources/read` | None | No synced local skill file; hosts read canonical manifests from `skill://{slug}` |
 | AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot) |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
 Sync details:
-- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts/skills/AGENTS/config in one pass. Skills remain canonical via cdx/MCP `skill://{slug}`; bundle skill entries include canonical `uri` metadata, and the synced `SKILL.md` files are compatibility fallback copies.
+- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts, AGENTS, and config in one pass.
 - Wrapper falls back to legacy per-resource pulls if bundle path fails or endpoints are missing.
-- Deleted/retired remote prompts and skills are removed locally.
-- When the Projects module is enabled, the managed `coco` skill is included in the normal Skills sync flow, is read primarily through MCP `skill://coco`, and also lands at `~/.agents/skills/coco/SKILL.md` as the synced fallback copy. Its guidance is project-only for shared CoCo handoffs; host-scoped MCP memory is not treated as a cross-host fallback.
-- When the Projects module is later disabled, previously managed `coco` skill copies are pruned on the next sync if the server no longer advertises them.
-- Skill pull sync also removes stale legacy managed copies under `~/.codex/skills/<slug>` so an old pre-project `coco` skill cannot shadow the managed `~/.agents/skills/coco/SKILL.md` copy on upgraded clients.
-- Wrapper preserves `managed` metadata for synced Skills and skips pushing those managed entries back to `/skills/store`, so project-owned Skills stay read-only on the fleet side.
+- Deleted/retired remote prompts are removed locally.
+- Wrapper removes legacy local skill directories and baselines on upgrade so stale `~/.agents/skills` / `~/.codex/skills` trees stop shadowing MCP-first behavior.
 - `status:missing` from AGENTS/config retrieval deletes local file.
 - Prompt store reads frontmatter keys `description` and `argument-hint`.
-- Skill store reads frontmatter keys `name` and `description`.
 - Wrapper includes `username` + `home` when retrieving config so server can bake per-user trusted project settings.
 - Before launching Codex, wrapper also force-marks the current working directory (and `pwd -P` path when different) as `trust_level = "trusted"` in local `~/.codex/config.toml` to suppress interactive trust prompts.
 - Atomic writes (temp + `fsync` + replace) are used for auth, baselines, AGENTS, and config files.

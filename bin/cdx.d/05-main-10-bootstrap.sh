@@ -62,8 +62,8 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   AUTH_PULL_REASON="$concurrent_reason"
   PROMPT_SYNC_STATUS="skip"
   PROMPT_SYNC_REASON="active-run"
-  SKILL_SYNC_STATUS="skip"
-  SKILL_SYNC_REASON="active-run"
+  SKILL_SYNC_STATUS="mcp"
+  SKILL_SYNC_REASON=""
   AGENTS_SYNC_STATUS="skip"
   AGENTS_SYNC_REASON="active-run"
   CONFIG_SYNC_STATUS="skip"
@@ -80,10 +80,10 @@ else
   _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
   cdx_debug_phase "auth-sync" "$_t_auth"
+  sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
     sync_slash_commands_pull || true
-    sync_skills_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi

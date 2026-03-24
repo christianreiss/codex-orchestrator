@@ -118,7 +118,7 @@ The installer does not run `cdx` automatically; run it here to sync/auth or to r
 The wrapper is the supported entrypoint because it:
 
 - Pulls/pushes canonical `auth.json` via `/auth`.
-- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, slash command prompts, and Skills via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Use cdx/MCP `skill://{slug}` as the primary Skill interface; synced `~/.agents/skills/<slug>/SKILL.md` files are fallback copies. Skill APIs now also expose `canonical_uri`, `fallback_path`, and `legacy_fallback_path` so other clients can render the same preference order without guessing. Managed Skills such as the project-module `coco` skill stay read-only and are not pushed back to the server from the client.
+- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, and slash command prompts via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Skills are read through cdx/MCP `skill://{slug}` resources, and the wrapper removes legacy local skill mirrors on upgrade.
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
 - Reports token usage back to `/usage` on a best-effort basis. The wrapper first checks only the last ~256 KiB of the PTY capture for a final legacy `Token usage:` line, then falls back to session JSONL / full-log parsing only when needed. Slow or wedged `/usage` calls are capped to roughly a 3-second total budget so wrapper exit does not feel hung.
@@ -170,7 +170,7 @@ Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server
 - `~/.codex/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`).
 - `~/.codex/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
 - `~/.codex/prompts/` — slash commands synced from server startup sync (fallback `/slash-commands`); local edits push on exit when a baseline exists.
-- `~/.agents/skills/` — Skill manifests synced from server startup sync (fallback `/skills`); local edits push on exit when a baseline exists, except managed Skills such as the project-module `coco` skill.
+- No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}` and prunes stale `~/.agents/skills` / `~/.codex/skills` leftovers during upgrade.
 
 ## Secure vs insecure hosts (and why it matters)
 

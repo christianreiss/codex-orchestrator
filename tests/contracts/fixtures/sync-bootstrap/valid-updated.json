@@ -4,7 +4,6 @@
     "status": "update",
     "reasons": [
       "slash_commands_changed",
-      "skills_changed",
       "auth_stored"
     ],
     "slash_commands": {
@@ -37,31 +36,6 @@
           "filename": "legacy.md",
           "status": "deleted",
           "deleted_at": "2026-02-22T11:50:00Z"
-        }
-      ]
-    },
-    "skills": {
-      "status": "updated",
-      "changed_count": 1,
-      "updated_count": 1,
-      "removed_count": 0,
-      "remote_count": 1,
-      "local_count": 1,
-      "remote": [
-        {
-          "slug": "docker-restart",
-          "uri": "skill://docker-restart",
-          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "deleted_at": null
-        }
-      ],
-      "changed": [
-        {
-          "slug": "docker-restart",
-          "uri": "skill://docker-restart",
-          "status": "updated",
-          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "manifest": "# SKILL"
         }
       ]
     },

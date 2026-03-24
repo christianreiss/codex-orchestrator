@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Services\AgentsService;
 use App\Services\ClientConfigService;
-use App\Services\SkillService;
 use App\Services\SlashCommandService;
 use App\Services\StartupSyncService;
 use PHPUnit\Framework\TestCase;
@@ -15,7 +14,6 @@ final class StartupSyncServiceTest extends TestCase
 {
     private function createService(
         array $slashRows = [],
-        array $skillRows = [],
         array $agentsRetrieve = ['status' => 'missing'],
         array $configRetrieve = ['status' => 'missing']
     ): StartupSyncService {
@@ -33,13 +31,6 @@ final class StartupSyncServiceTest extends TestCase
             return null;
         });
 
-        $skills = $this->getMockBuilder(SkillService::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['listSkills', 'find'])
-            ->getMock();
-        $skills->method('listSkills')->willReturn($skillRows);
-        $skills->method('find')->willReturn(null);
-
         $agents = $this->getMockBuilder(AgentsService::class)
             ->disableOriginalConstructor()
             ->onlyMethods(['retrieve'])
@@ -52,7 +43,7 @@ final class StartupSyncServiceTest extends TestCase
             ->getMock();
         $configs->method('retrieve')->willReturn($configRetrieve);
 
-        return new StartupSyncService($slashCommands, $skills, $agents, $configs);
+        return new StartupSyncService($slashCommands, $agents, $configs);
     }
 
     public function testAllUnchangedReturnsOk(): void
@@ -148,39 +139,7 @@ final class StartupSyncServiceTest extends TestCase
         $result = $service->collect([], ['id' => 1], 'https://example.com', 'key-123');
 
         $this->assertArrayHasKey('slash_commands', $result);
-        $this->assertArrayHasKey('skills', $result);
         $this->assertArrayHasKey('agents', $result);
         $this->assertArrayHasKey('config', $result);
-    }
-
-    public function testSkillsChangedTriggersUpdate(): void
-    {
-        $sha = hash('sha256', 'skill manifest');
-        $service = $this->createService(
-            skillRows: [[
-                'slug' => 'deploy',
-                'sha256' => $sha,
-                'deleted_at' => null,
-                'managed' => false,
-                'canonical_uri' => 'skill://deploy',
-                'fallback_path' => '~/.agents/skills/deploy/SKILL.md',
-                'legacy_fallback_path' => '~/.codex/skills/deploy/SKILL.md',
-            ]],
-        );
-
-        $result = $service->collect(
-            ['skills' => []],
-            ['id' => 1],
-            'https://example.com',
-            'key-123'
-        );
-
-        $this->assertContains('skills_changed', $result['reasons']);
-        $this->assertSame(1, $result['skills']['changed_count']);
-        $this->assertSame('skill://deploy', $result['skills']['remote'][0]['uri']);
-        $this->assertSame('skill://deploy', $result['skills']['changed'][0]['uri']);
-        $this->assertSame('skill://deploy', $result['skills']['remote'][0]['canonical_uri']);
-        $this->assertSame('~/.agents/skills/deploy/SKILL.md', $result['skills']['changed'][0]['fallback_path']);
-        $this->assertSame('~/.codex/skills/deploy/SKILL.md', $result['skills']['changed'][0]['legacy_fallback_path']);
     }
 }

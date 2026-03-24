@@ -40,7 +40,7 @@ For CoCo specifically, shared state is project-only. `memory://...` resources re
 - `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`), `memory_store` (`memory://{scope}:{name}`), and `skill_manifest` (`skill://{slug}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
 - Memory/resource/project tool responses are wrapped in `CallToolResult.content` blocks.
 - `resources/list` always includes recent `memory://...` resources for the caller and synced Skills as `skill://{slug}` read-only markdown resources; when the Projects module is enabled it also includes concrete `project://{slug}` resources for each active shared project.
-- `resources/read` fetches a single memory as `text/plain` when given `uri=memory://{id}`, a Skill manifest as `text/markdown` when given `uri=skill://{slug}`, or a project bootstrap JSON document when given `uri=project://{slug}`. Clients should prefer `skill://{slug}` as the primary Skill read path; synced local `~/.agents/skills/<slug>/SKILL.md` files are compatibility fallback copies.
+- `resources/read` fetches a single memory as `text/plain` when given `uri=memory://{id}`, a Skill manifest as `text/markdown` when given `uri=skill://{slug}`, or a project bootstrap JSON document when given `uri=project://{slug}`. Clients should use `skill://{slug}` as the Skill read path.
 - The managed `coco` skill uses the `project_*` / `project://{slug}` side of that surface for shared handoffs; it does not treat `memory://...` as cross-host shared state.
 
 ## Example JSON-RPC call
@@ -92,6 +92,6 @@ curl -s "$BASE/mcp/memories/search" \
 ## Client hints
 
 - `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"`, static `Authorization` header, and `startup_timeout_sec = 30`.
-- When the Projects module is enabled, the normal Skills sync also ships a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill now explicitly tells operators that CoCo shared handoffs are project-only and blocks reserved `coco*` memory ids.
+- When the Projects module is enabled, MCP also publishes a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill explicitly tells operators that CoCo shared handoffs are project-only and blocks reserved `coco*` memory ids.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

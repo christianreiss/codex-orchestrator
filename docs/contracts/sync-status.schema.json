@@ -16,7 +16,6 @@
         "status",
         "reasons",
         "slash_commands",
-        "skills",
         "agents",
         "config",
         "host_users"
@@ -35,41 +34,6 @@
           }
         },
         "slash_commands": {
-          "type": "object",
-          "required": [
-            "status",
-            "changed_count",
-            "remote_count",
-            "local_count",
-            "remote",
-            "changed"
-          ],
-          "properties": {
-            "status": {
-              "enum": [
-                "unchanged",
-                "updated"
-              ]
-            },
-            "changed_count": {
-              "type": "integer"
-            },
-            "remote_count": {
-              "type": "integer"
-            },
-            "local_count": {
-              "type": "integer"
-            },
-            "remote": {
-              "type": "array"
-            },
-            "changed": {
-              "type": "array"
-            }
-          },
-          "additionalProperties": true
-        },
-        "skills": {
           "type": "object",
           "required": [
             "status",

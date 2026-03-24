@@ -15,7 +15,6 @@ class StartupSyncService
 {
     public function __construct(
         private readonly SlashCommandService $slashCommands,
-        private readonly SkillService $skills,
         private readonly AgentsService $agents,
         private readonly ClientConfigService $configs
     ) {
@@ -24,16 +23,12 @@ class StartupSyncService
     public function collect(array $payload, array $host, string $baseUrl, string $apiKey, bool $includeContent = false): array
     {
         $slash = $this->collectSlashCommands($payload['slash_commands'] ?? null, $host, $includeContent);
-        $skills = $this->collectSkills($payload['skills'] ?? null, $host, $includeContent);
         $agents = $this->collectAgents($payload['agents'] ?? null, $host, $includeContent);
         $config = $this->collectConfig($payload, $host, $baseUrl, $apiKey, $includeContent);
 
         $reasons = [];
         if ($slash['changed_count'] > 0) {
             $reasons[] = 'slash_commands_changed';
-        }
-        if ($skills['changed_count'] > 0) {
-            $reasons[] = 'skills_changed';
         }
         if (!empty($agents['changed'])) {
             $reasons[] = 'agents_changed';
@@ -46,7 +41,6 @@ class StartupSyncService
             'status' => $reasons === [] ? 'ok' : 'update',
             'reasons' => $reasons,
             'slash_commands' => $slash,
-            'skills' => $skills,
             'agents' => $agents,
             'config' => $config,
         ];
@@ -126,112 +120,6 @@ class StartupSyncService
                     $entry['description'] = isset($doc['description']) ? (string) $doc['description'] : $entry['description'];
                     $entry['argument_hint'] = isset($doc['argument_hint']) ? (string) $doc['argument_hint'] : $entry['argument_hint'];
                     $entry['updated_at'] = isset($doc['updated_at']) ? (string) $doc['updated_at'] : $entry['updated_at'];
-                }
-            }
-
-            $changed[] = $entry;
-        }
-
-        return [
-            'status' => $changed === [] ? 'unchanged' : 'updated',
-            'changed_count' => count($changed),
-            'updated_count' => $updatedCount,
-            'removed_count' => $removedCount,
-            'remote_count' => count($remote),
-            'local_count' => count($local),
-            'remote' => $remote,
-            'changed' => $changed,
-        ];
-    }
-
-    private function collectSkills(mixed $payload, ?array $host, bool $includeContent): array
-    {
-        $local = $this->normalizeNamedShaMap($payload, 'slug');
-        $rows = $this->skills->listSkills($host, true);
-
-        $remote = [];
-        $changed = [];
-        $updatedCount = 0;
-        $removedCount = 0;
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $slug = trim((string) ($row['slug'] ?? ''));
-            if ($slug === '') {
-                continue;
-            }
-
-            $remoteSha = $this->normalizeSha($row['sha256'] ?? null);
-            $deletedAt = isset($row['deleted_at']) && is_string($row['deleted_at']) && trim($row['deleted_at']) !== ''
-                ? (string) $row['deleted_at']
-                : null;
-            $isDeleted = $deletedAt !== null;
-            $localHas = array_key_exists($slug, $local);
-            $localSha = $localHas ? $local[$slug] : null;
-
-            $remote[] = [
-                'slug' => $slug,
-                'uri' => $this->skillUri($slug, $row['uri'] ?? null),
-                'sha256' => $remoteSha,
-                'deleted_at' => $deletedAt,
-                'managed' => !empty($row['managed']),
-                'canonical_uri' => $row['canonical_uri'] ?? null,
-                'fallback_path' => $row['fallback_path'] ?? null,
-                'legacy_fallback_path' => $row['legacy_fallback_path'] ?? null,
-            ];
-
-            if ($isDeleted) {
-                if (!$localHas) {
-                    continue;
-                }
-
-                $removedCount++;
-                $changed[] = [
-                    'slug' => $slug,
-                    'uri' => $this->skillUri($slug, $row['uri'] ?? null),
-                    'status' => 'deleted',
-                    'deleted_at' => $deletedAt,
-                ];
-                continue;
-            }
-
-            $matches = $localHas
-                && $localSha !== null
-                && $remoteSha !== null
-                && hash_equals($remoteSha, $localSha);
-
-            if ($matches) {
-                continue;
-            }
-
-            $updatedCount++;
-            $entry = [
-                'slug' => $slug,
-                'uri' => $this->skillUri($slug, $row['uri'] ?? null),
-                'status' => 'updated',
-                'sha256' => $remoteSha,
-                'managed' => !empty($row['managed']),
-                'display_name' => isset($row['display_name']) ? (string) $row['display_name'] : null,
-                'description' => isset($row['description']) ? (string) $row['description'] : null,
-                'updated_at' => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
-                'canonical_uri' => $row['canonical_uri'] ?? null,
-                'fallback_path' => $row['fallback_path'] ?? null,
-                'legacy_fallback_path' => $row['legacy_fallback_path'] ?? null,
-            ];
-
-            if ($includeContent) {
-                $doc = $this->skills->find($slug);
-                if ($doc !== null) {
-                    $entry['manifest'] = (string) ($doc['manifest'] ?? '');
-                    $entry['sha256'] = $this->normalizeSha($doc['sha256'] ?? null) ?? $entry['sha256'];
-                    $entry['display_name'] = isset($doc['display_name']) ? (string) $doc['display_name'] : $entry['display_name'];
-                    $entry['description'] = isset($doc['description']) ? (string) $doc['description'] : $entry['description'];
-                    $entry['updated_at'] = isset($doc['updated_at']) ? (string) $doc['updated_at'] : $entry['updated_at'];
-                    $entry['canonical_uri'] = $doc['canonical_uri'] ?? $entry['canonical_uri'];
-                    $entry['fallback_path'] = $doc['fallback_path'] ?? $entry['fallback_path'];
-                    $entry['legacy_fallback_path'] = $doc['legacy_fallback_path'] ?? $entry['legacy_fallback_path'];
                 }
             }
 
@@ -361,12 +249,4 @@ class StartupSyncService
         return $normalized === '' ? null : $normalized;
     }
 
-    private function skillUri(string $slug, mixed $candidate = null): string
-    {
-        if (is_string($candidate) && trim($candidate) !== '') {
-            return trim($candidate);
-        }
-
-        return 'skill://' . rawurlencode($slug);
-    }
 }

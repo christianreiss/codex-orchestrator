@@ -24,23 +24,6 @@
       ],
       "changed": []
     },
-    "skills": {
-      "status": "unchanged",
-      "changed_count": 0,
-      "updated_count": 0,
-      "removed_count": 0,
-      "remote_count": 1,
-      "local_count": 1,
-      "remote": [
-        {
-          "slug": "docker-restart",
-          "uri": "skill://docker-restart",
-          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "deleted_at": null
-        }
-      ],
-      "changed": []
-    },
     "agents": {
       "status": "unchanged",
       "changed": false,

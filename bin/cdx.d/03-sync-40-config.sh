@@ -16,12 +16,10 @@ sync_startup_bundle_pull() {
       "$CODEX_SYNC_BASE_URL" \
       "$CODEX_SYNC_API_KEY" \
       "$PROMPT_DIR" \
-      "$SKILL_DIR" \
       "$AGENTS_PATH" \
       "$CONFIG_PATH" \
       "$CODEX_SYNC_CA_FILE" \
       "$PROMPT_BASELINE_FILE" \
-      "$SKILL_BASELINE_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
       "$LOCAL_HOSTNAME"
@@ -57,7 +55,7 @@ if str(parsed.get("status", "")).lower() != "ok":
 phase = str(parsed.get("phase", "")).strip().lower() or "ok"
 print(f"phase={phase}")
 
-for key in ("prompt", "skill"):
+for key in ("prompt",):
     block = parsed.get(key)
     if not isinstance(block, dict):
         continue
@@ -104,12 +102,6 @@ PY
       prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
       prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
       prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
-      skill_status=*) SKILL_SYNC_STATUS="${line#skill_status=}" ;;
-      skill_updated=*) SKILL_PULL_UPDATED="${line#skill_updated=}" ;;
-      skill_errors=*) SKILL_PULL_ERRORS="${line#skill_errors=}" ;;
-      skill_remote=*) SKILL_REMOTE_COUNT="${line#skill_remote=}" ;;
-      skill_local=*) SKILL_LOCAL_COUNT="${line#skill_local=}" ;;
-      skill_removed=*) SKILL_REMOVED="${line#skill_removed=}" ;;
       agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
       agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
       agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
@@ -130,7 +122,7 @@ PY
   AGENTS_SYNC_REASON=""
   CONFIG_SYNC_REASON=""
   [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
-  [[ -z "$SKILL_SYNC_STATUS" ]] && SKILL_SYNC_STATUS="ok"
+  SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
   return 0

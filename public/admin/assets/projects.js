@@ -230,8 +230,8 @@
     if (projectsManagedSkill) {
       const slug = state?.managed_skill?.slug || 'coco';
       const copy = moduleEnabled
-        ? `Managed skill: ${slug} is deployed through the normal skills sync and carries the native CoCo toolkit/help. Shared handoffs stay project-only; host-scoped MCP memory is not a fallback.`
-        : `Managed skill: ${slug} stays withheld until the module is enabled and is removed from clients on the next sync when disabled.`;
+        ? `Managed skill: ${slug} is published through MCP and carries the native CoCo toolkit/help. Shared handoffs stay project-only; host-scoped MCP memory is not a fallback.`
+        : `Managed skill: ${slug} stays withheld until the module is enabled and is removed from the MCP resource list when disabled.`;
       projectsManagedSkill.innerHTML = copy.replace(slug, `<code>${slug}</code>`);
     }
   }

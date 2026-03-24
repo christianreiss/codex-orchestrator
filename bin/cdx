@@ -408,18 +408,8 @@ PROMPT_REMOTE_COUNT=""
 PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
-SKILL_DIR="$HOME/.agents/skills"
-SKILL_BASELINE_FILE="$HOME/.agents/.skill-baseline.json"
-SKILL_SYNC_STATUS="skip"
+SKILL_SYNC_STATUS="mcp"
 SKILL_SYNC_REASON=""
-SKILL_PULL_UPDATED=0
-SKILL_PULL_ERRORS=0
-SKILL_PUSHED=0
-SKILL_PUSH_ERRORS=0
-SKILL_PUSH_STATUS=""
-SKILL_REMOTE_COUNT=""
-SKILL_LOCAL_COUNT=""
-SKILL_LOCAL_CHANGED=""
 SKILL_REMOVED=0
 AGENTS_PATH="$HOME/.codex/AGENTS.md"
 AGENTS_SYNC_STATUS="skip"
@@ -447,7 +437,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-03"
+WRAPPER_VERSION="2026.03.24-04"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -3534,407 +3524,29 @@ sync_slash_commands_pull() {
   return 0
 }
 
+cleanup_legacy_skill_state() {
+  local removed=0
+  local path=""
 
-skill_sync_python() {
-  local mode="$1"
-  local base="$2"
-  local api_key="$3"
-  local skill_dir="$4"
-  local cafile="$5"
-  local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, shutil, sys
+  for path in "$HOME/.agents/skills" "$HOME/.codex/skills"; do
+    if [[ -e "$path" ]] && remove_path "$path" "legacy local skills" 2>/dev/null; then
+      removed=$((removed + 1))
+    fi
+  done
 
-py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
-if py_http_util:
-    exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
+  for path in "$HOME/.agents/.skill-baseline.json" "$HOME/.codex/.skill-baseline.json"; do
+    if [[ -e "$path" ]] && remove_path "$path" "legacy skill baseline" 2>/dev/null; then
+      removed=$((removed + 1))
+    fi
+  done
 
-mode = sys.argv[1] if len(sys.argv) > 1 else ""
-base = (sys.argv[2] or "").rstrip("/")
-skill_dir = pathlib.Path(sys.argv[3]).expanduser()
-cafile = sys.argv[4] if len(sys.argv) > 4 else ""
-baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else skill_dir.parent / ".skill-baseline.json"
-api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
-_cdx_api_key = api_key
-_cdx_cafile = cafile
-legacy_skill_dir = pathlib.Path.home() / ".codex" / "skills"
-
-request_json = cdx_short_request_json
-
-
-def load_local(include_content: bool = False):
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    skills = {}
-    for path in skill_dir.iterdir():
-        if not path.is_dir():
-            continue
-        skill_file = path / "SKILL.md"
-        if not skill_file.is_file():
-            continue
-        slug = path.name
-        read_path = skill_file
-        try:
-            content = read_path.read_text(encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            continue
-        sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        entry = {"slug": slug, "sha": sha}
-        if include_content:
-            entry["content"] = content
-        skills[slug] = entry
-    return skills
-
-
-atomic_write_text = cdx_atomic_write_text
-
-
-def save_baseline(skills: dict):
-    try:
-        baseline_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(baseline_file, json.dumps(skills, indent=2) + "\n")
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def prune_legacy_skill_copy(slug: str) -> int:
-    legacy_path = legacy_skill_dir / slug
-    try:
-        if legacy_path.is_dir():
-            shutil.rmtree(legacy_path, ignore_errors=True)
-            return 1
-        if legacy_path.exists():
-            legacy_path.unlink(missing_ok=True)
-            return 1
-    except Exception:  # noqa: BLE001
-        return 0
-    return 0
-
-
-def normalize_sha(value):
-    if not isinstance(value, str):
-        return None
-    value = value.strip().lower()
-    if len(value) != 64:
-        return None
-    if any(ch not in "0123456789abcdef" for ch in value):
-        return None
-    return value
-
-
-def extract_metadata(content: str):
-    display_name = None
-    description = None
-    text = content.strip()
-    if text.startswith("---"):
-        lines = text.splitlines()
-        if len(lines) >= 3:
-            try:
-                end_idx = lines[1:].index("---") + 1
-            except ValueError:
-                end_idx = -1
-            if end_idx > 0:
-                for line in lines[1:end_idx]:
-                    if ":" not in line:
-                        continue
-                    key, value = line.split(":", 1)
-                    key = key.strip().lower()
-                    value = value.strip().strip('"').strip("'")
-                    if key == "name":
-                        display_name = value
-                    elif key == "description":
-                        description = value
-                return display_name, description
-    try:
-        data = json.loads(content)
-        if isinstance(data, dict):
-            display_name = data.get("display_name") or data.get("name")
-            description = data.get("description")
-    except Exception:  # noqa: BLE001
-        pass
-    return display_name, description
-
-
-if not base:
-    print("error reason=missing-base")
-    sys.exit(1)
-if not api_key:
-    print("error reason=missing-api-key")
-    sys.exit(1)
-
-skill_dir.mkdir(parents=True, exist_ok=True)
-
-if mode == "pull":
-    try:
-        list_resp = request_json("GET", f"{base}/skills")
-    except Exception as exc:  # noqa: BLE001
-        print(f"error reason={str(exc).replace(' ', '_')}")
-        sys.exit(1)
-
-    skills = []
-    if isinstance(list_resp, dict):
-        data = list_resp.get("data") or {}
-        skills = data.get("skills") or []
-    try:
-        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8")) if baseline_file.exists() else {}
-    except Exception:  # noqa: BLE001
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-    downloaded = 0
-    errors = 0
-    removed = 0
-    local = load_local()
-    listed_slugs = set()
-
-    for skill in skills:
-        if not isinstance(skill, dict):
-            continue
-        slug = skill.get("slug")
-        rsha = skill.get("sha256")
-        deleted = bool(skill.get("deleted_at"))
-        if not slug:
-            continue
-        listed_slugs.add(slug)
-        if skill.get("managed"):
-            # Legacy managed-skill copies under ~/.codex/skills should not shadow synced skills.
-            removed += prune_legacy_skill_copy(slug)
-        target_path = skill_dir / slug
-        if deleted:
-            try:
-                if target_path.is_dir():
-                    shutil.rmtree(target_path, ignore_errors=True)
-                else:
-                    target_path.unlink(missing_ok=True)
-                removed += 1
-            except Exception:
-                pass
-            continue
-        if not rsha:
-            continue
-        local_sha = (local.get(slug) or {}).get("sha")
-        payload = {"slug": slug}
-        if local_sha:
-            payload["sha256"] = local_sha
-            if local_sha == rsha:
-                if target_path.is_file():
-                    try:
-                        content = target_path.read_text(encoding="utf-8")
-                        target_path.unlink(missing_ok=True)
-                        target_path.mkdir(parents=True, exist_ok=True)
-                        target_file = target_path / "SKILL.md"
-                        target_file.write_text(content, encoding="utf-8")
-                        downloaded += 1
-                    except Exception:  # noqa: BLE001
-                        errors += 1
-                    continue
-                continue
-        try:
-            resp = request_json("POST", f"{base}/skills/retrieve", payload)
-        except Exception:
-            errors += 1
-            continue
-        data = resp.get("data") if isinstance(resp, dict) else {}
-        status = (data or {}).get("status")
-        manifest = (data or {}).get("manifest")
-        if status == "unchanged":
-            continue
-        if not isinstance(manifest, str):
-            errors += 1
-            continue
-        try:
-            if target_path.exists() and target_path.is_file():
-                target_path.unlink(missing_ok=True)
-            target_path.mkdir(parents=True, exist_ok=True)
-            target_file = target_path / "SKILL.md"
-            target_file.write_text(manifest, encoding="utf-8")
-            downloaded += 1
-        except Exception:  # noqa: BLE001
-            errors += 1
-
-    # Managed skills that disappear from the remote list should be pruned locally on the next sync.
-    for slug, baseline_entry in baseline_data.items():
-        if not isinstance(slug, str) or slug.strip() == "":
-            continue
-        if slug in listed_slugs:
-            continue
-        if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):
-            continue
-        target_path = skill_dir / slug
-        try:
-            if target_path.is_dir():
-                shutil.rmtree(target_path, ignore_errors=True)
-            else:
-                target_path.unlink(missing_ok=True)
-            removed += prune_legacy_skill_copy(slug)
-            removed += 1
-        except Exception:
-            errors += 1
-
-    updated_local = load_local()
-    filtered_baseline = {}
-    for skill in skills:
-        if not isinstance(skill, dict):
-            continue
-        slug = skill.get("slug")
-        if not isinstance(slug, str) or slug.strip() == "" or skill.get("deleted_at"):
-            continue
-        local_entry = updated_local.get(slug)
-        if not isinstance(local_entry, dict):
-            continue
-        sha = normalize_sha(local_entry.get("sha"))
-        if sha is None:
-            continue
-        if skill.get("managed"):
-            filtered_baseline[slug] = {"sha": sha, "managed": True}
-        else:
-            filtered_baseline[slug] = sha
-    save_baseline(filtered_baseline)
-    print(
-        "ok "
-        f"updated={downloaded} "
-        f"errors={errors} "
-        f"remote={len(skills)} "
-        f"local={len(updated_local)} "
-        f"removed={removed}"
-    )
-    sys.exit(0)
-
-if mode == "push":
-    if not baseline_file.exists():
-        print("skip reason=no-baseline errors=0")
-        sys.exit(0)
-    try:
-        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-
-    def baseline_sha(entry):
-        if isinstance(entry, str):
-            return normalize_sha(entry)
-        if isinstance(entry, dict):
-            return normalize_sha(entry.get("sha") or entry.get("sha256"))
-        return None
-
-    def baseline_managed(entry):
-        return isinstance(entry, dict) and bool(entry.get("managed"))
-
-    current = load_local(include_content=True)
-    changes = []
-    for slug, entry in current.items():
-        baseline_entry = baseline_data.get(slug)
-        if baseline_managed(baseline_entry):
-            continue
-        if baseline_sha(baseline_entry) != entry.get("sha"):
-            changes.append(entry)
-
-    if not changes:
-        print("ok pushed=0 errors=0")
-        sys.exit(0)
-
-    errors = 0
-    pushed = 0
-    for entry in changes:
-        slug = entry.get("slug")
-        content = entry.get("content")
-        sha = entry.get("sha")
-        if not slug or not content or not sha:
-            continue
-        display_name, description = extract_metadata(content)
-        payload = {
-            "slug": slug,
-            "manifest": content,
-            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        }
-        if display_name:
-            payload["display_name"] = display_name
-        if description:
-            payload["description"] = description
-        try:
-            resp = request_json("POST", f"{base}/skills/store", payload)
-        except Exception:
-            errors += 1
-            continue
-        data = resp.get("data") if isinstance(resp, dict) else {}
-        status = (data or {}).get("status")
-        if status in ("created", "updated", "unchanged"):
-            pushed += 1
-        else:
-            errors += 1
-
-    if errors == 0:
-        latest_baseline = {}
-        for name, entry in current.items():
-            baseline_entry = baseline_data.get(name)
-            if baseline_managed(baseline_entry):
-                latest_baseline[name] = {"sha": entry["sha"], "managed": True}
-            else:
-                latest_baseline[name] = entry["sha"]
-        save_baseline(latest_baseline)
-
-    print(
-        "ok "
-        f"pushed={pushed} "
-        f"errors={errors} "
-        f"changes={len(changes)} "
-        f"local={len(current)}"
-    )
-    sys.exit(0)
-
-print("skip reason=unknown-mode errors=0")
-PY
+  SKILL_REMOVED="$removed"
 }
 
-
-
 sync_skills_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    SKILL_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    SKILL_SYNC_STATUS="no-python"
-    log_warn "python3 is required for skill sync; skipping."
-    return 1
-  fi
-  local summary status_code
-  set +e
-  summary="$(skill_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  SKILL_SYNC_STATUS="error"
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
-    fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      SKILL_SYNC_STATUS="offline"
-      SKILL_SYNC_REASON="$reason"
-      [[ -n "$summary" ]] && log_warn "Skill sync offline: $summary" || log_warn "Skill sync offline."
-      SKILL_PULL_ERRORS=0
-    else
-      [[ -n "$summary" ]] && log_warn "Skill sync failed: $summary" || log_warn "Skill sync failed."
-      SKILL_PULL_ERRORS=1
-    fi
-    return 1
-  fi
-  local part
+  cleanup_legacy_skill_state
+  SKILL_SYNC_STATUS="mcp"
   SKILL_SYNC_REASON=""
-  SKILL_SYNC_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      updated=*) SKILL_PULL_UPDATED="${part#updated=}" ;;
-      errors=*) SKILL_PULL_ERRORS="${part#errors=}" ;;
-      remote=*) SKILL_REMOTE_COUNT="${part#remote=}" ;;
-      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
-      removed=*) SKILL_REMOVED="${part#removed=}" ;;
-    esac
-  done
   return 0
 }
 
@@ -4111,12 +3723,10 @@ sync_startup_bundle_pull() {
       "$CODEX_SYNC_BASE_URL" \
       "$CODEX_SYNC_API_KEY" \
       "$PROMPT_DIR" \
-      "$SKILL_DIR" \
       "$AGENTS_PATH" \
       "$CONFIG_PATH" \
       "$CODEX_SYNC_CA_FILE" \
       "$PROMPT_BASELINE_FILE" \
-      "$SKILL_BASELINE_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
       "$LOCAL_HOSTNAME"
@@ -4152,7 +3762,7 @@ if str(parsed.get("status", "")).lower() != "ok":
 phase = str(parsed.get("phase", "")).strip().lower() or "ok"
 print(f"phase={phase}")
 
-for key in ("prompt", "skill"):
+for key in ("prompt",):
     block = parsed.get(key)
     if not isinstance(block, dict):
         continue
@@ -4199,12 +3809,6 @@ PY
       prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
       prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
       prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
-      skill_status=*) SKILL_SYNC_STATUS="${line#skill_status=}" ;;
-      skill_updated=*) SKILL_PULL_UPDATED="${line#skill_updated=}" ;;
-      skill_errors=*) SKILL_PULL_ERRORS="${line#skill_errors=}" ;;
-      skill_remote=*) SKILL_REMOTE_COUNT="${line#skill_remote=}" ;;
-      skill_local=*) SKILL_LOCAL_COUNT="${line#skill_local=}" ;;
-      skill_removed=*) SKILL_REMOVED="${line#skill_removed=}" ;;
       agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
       agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
       agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
@@ -4225,7 +3829,7 @@ PY
   AGENTS_SYNC_REASON=""
   CONFIG_SYNC_REASON=""
   [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
-  [[ -z "$SKILL_SYNC_STATUS" ]] && SKILL_SYNC_STATUS="ok"
+  SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
   return 0
@@ -4528,21 +4132,18 @@ startup_sync_bundle_python() {
   local base="$1"
   local api_key="$2"
   local prompt_dir="$3"
-  local skill_dir="$4"
-  local agents_file="$5"
-  local config_file="$6"
-  local cafile="$7"
-  local prompt_baseline_file="$8"
-  local skill_baseline_file="$9"
-  local username="${10}"
-  local home_path="${11}"
-  local hostname="${12}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$skill_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" "$skill_baseline_file" <<'PY'
+  local agents_file="$4"
+  local config_file="$5"
+  local cafile="$6"
+  local prompt_baseline_file="$7"
+  local username="${8}"
+  local home_path="${9}"
+  local hostname="${10}"
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
 import hashlib
 import json
 import os
 import pathlib
-import shutil
 import sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -4553,12 +4154,10 @@ if "cdx_enable_force_ipv4" in globals():
 
 base = (sys.argv[1] or "").rstrip("/")
 prompt_dir = pathlib.Path(sys.argv[2]).expanduser()
-skill_dir = pathlib.Path(sys.argv[3]).expanduser()
-agents_file = pathlib.Path(sys.argv[4]).expanduser()
-config_file = pathlib.Path(sys.argv[5]).expanduser()
-cafile = sys.argv[6] if len(sys.argv) > 6 else ""
-prompt_baseline = pathlib.Path(sys.argv[7]).expanduser() if len(sys.argv) > 7 else prompt_dir.parent / ".prompt-baseline.json"
-skill_baseline = pathlib.Path(sys.argv[8]).expanduser() if len(sys.argv) > 8 else skill_dir.parent / ".skill-baseline.json"
+agents_file = pathlib.Path(sys.argv[3]).expanduser()
+config_file = pathlib.Path(sys.argv[4]).expanduser()
+cafile = sys.argv[5] if len(sys.argv) > 5 else ""
+prompt_baseline = pathlib.Path(sys.argv[6]).expanduser() if len(sys.argv) > 6 else prompt_dir.parent / ".prompt-baseline.json"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 _cdx_api_key = api_key
 _cdx_cafile = cafile
@@ -4609,26 +4208,6 @@ def scan_prompts():
     items.sort(key=lambda item: item.get("filename", ""))
     return items
 
-
-def scan_skills():
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    items = []
-    for path in skill_dir.iterdir():
-        if not path.is_dir():
-            continue
-        skill_file = path / "SKILL.md"
-        if not skill_file.is_file():
-            continue
-        read_path = skill_file
-        slug = path.name
-        sha = file_sha(read_path)
-        if not sha:
-            continue
-        items.append({"slug": slug, "sha256": sha})
-    items.sort(key=lambda item: item.get("slug", ""))
-    return items
-
-
 def write_prompt_baseline(remote):
     data = {}
     if isinstance(remote, list):
@@ -4650,33 +4229,6 @@ def write_prompt_baseline(remote):
         atomic_write_text(prompt_baseline, json.dumps(data, indent=2) + "\n")
     except Exception:
         pass
-
-
-def write_skill_baseline(remote):
-    data = {}
-    if isinstance(remote, list):
-        for entry in remote:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            sha = normalize_sha(entry.get("sha256"))
-            deleted_at = entry.get("deleted_at")
-            if not isinstance(slug, str) or slug.strip() == "":
-                continue
-            if deleted_at:
-                continue
-            if sha is None:
-                continue
-            if entry.get("managed"):
-                data[slug] = {"sha": sha, "managed": True}
-            else:
-                data[slug] = sha
-    try:
-        skill_baseline.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(skill_baseline, json.dumps(data, indent=2) + "\n")
-    except Exception:
-        pass
-
 
 def apply_prompt_changes(block):
     changed = block.get("changed") if isinstance(block, dict) else []
@@ -4725,97 +4277,6 @@ def apply_prompt_changes(block):
         "remote": len(remote) if isinstance(remote, list) else 0,
         "local": local_count,
     }
-
-
-def apply_skill_changes(block):
-    changed = block.get("changed") if isinstance(block, dict) else []
-    remote = block.get("remote") if isinstance(block, dict) else []
-    updated = 0
-    removed = 0
-    errors = 0
-    listed_slugs = set()
-
-    if isinstance(changed, list):
-        for entry in changed:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            if not isinstance(slug, str) or slug.strip() == "":
-                continue
-            status = str(entry.get("status") or "").strip().lower()
-            target_dir = skill_dir / slug
-
-            if status == "deleted":
-                try:
-                    if target_dir.exists() and target_dir.is_file():
-                        target_dir.unlink(missing_ok=True)
-                    elif target_dir.exists():
-                        shutil.rmtree(target_dir, ignore_errors=True)
-                    removed += 1
-                except Exception:
-                    errors += 1
-                continue
-
-            manifest = entry.get("manifest")
-            if not isinstance(manifest, str):
-                errors += 1
-                continue
-
-            try:
-                if target_dir.exists() and target_dir.is_file():
-                    target_dir.unlink(missing_ok=True)
-                target_dir.mkdir(parents=True, exist_ok=True)
-                (target_dir / "SKILL.md").write_text(manifest, encoding="utf-8")
-                updated += 1
-            except Exception:
-                errors += 1
-
-    if isinstance(remote, list):
-        for entry in remote:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            if not isinstance(slug, str) or slug.strip() == "":
-                continue
-            listed_slugs.add(slug)
-
-    try:
-        baseline_data = json.loads(skill_baseline.read_text(encoding="utf-8")) if skill_baseline.exists() else {}
-    except Exception:
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-
-    # Managed skills that disappear from the remote list should be pruned locally on the next sync.
-    for slug, baseline_entry in baseline_data.items():
-        if not isinstance(slug, str) or slug.strip() == "":
-            continue
-        if slug in listed_slugs:
-            continue
-        if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):
-            continue
-        target_dir = skill_dir / slug
-        try:
-            if target_dir.exists() and target_dir.is_file():
-                target_dir.unlink(missing_ok=True)
-            elif target_dir.exists():
-                shutil.rmtree(target_dir, ignore_errors=True)
-            removed += 1
-        except Exception:
-            errors += 1
-
-    write_skill_baseline(remote if isinstance(remote, list) else [])
-    local_count = len(scan_skills())
-
-    return {
-        "status": "ok",
-        "updated": updated,
-        "removed": removed,
-        "errors": errors,
-        "remote": len(remote) if isinstance(remote, list) else 0,
-        "local": local_count,
-    }
-
 
 def apply_agents_change(block):
     status = str((block or {}).get("status") or "").strip().lower()
@@ -4918,7 +4379,6 @@ def apply_config_change(block):
 
 
 prompt_items = scan_prompts()
-skill_items = scan_skills()
 agents_sha = file_sha(agents_file) if agents_file.is_file() else None
 config_sha = file_sha(config_file) if config_file.is_file() else None
 
@@ -4930,9 +4390,6 @@ status_payload = {
     },
     "slash_commands": {
         "items": prompt_items,
-    },
-    "skills": {
-        "items": skill_items,
     },
     "agents": {
         "sha256": agents_sha,
@@ -4981,7 +4438,6 @@ if not isinstance(data, dict):
     sys.exit(1)
 
 prompt_result = apply_prompt_changes(data.get("slash_commands") if isinstance(data.get("slash_commands"), dict) else {})
-skill_result = apply_skill_changes(data.get("skills") if isinstance(data.get("skills"), dict) else {})
 agents_result = apply_agents_change(data.get("agents") if isinstance(data.get("agents"), dict) else {})
 config_result = apply_config_change(data.get("config") if isinstance(data.get("config"), dict) else {})
 
@@ -4994,7 +4450,6 @@ if agents_result.get("status") != "ok" or config_result.get("status") != "ok":
                 "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
                 "reasons": reasons,
                 "prompt": prompt_result,
-                "skill": skill_result,
                 "agents": agents_result,
                 "config": config_result,
             },
@@ -5010,7 +4465,6 @@ print(
             "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
             "reasons": reasons,
             "prompt": prompt_result,
-            "skill": skill_result,
             "agents": agents_result,
             "config": config_result,
         },
@@ -5055,44 +4509,6 @@ push_slash_commands_if_changed() {
       errors=*) PROMPT_PUSH_ERRORS="${part#errors=}" ;;
       changes=*) PROMPT_LOCAL_CHANGED="${part#changes=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
-    esac
-  done
-  return 0
-}
-
-push_skills_if_changed() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    SKILL_PUSH_STATUS="missing-config"
-    return 0
-  fi
-  if [[ ! -f "$SKILL_BASELINE_FILE" ]]; then
-    SKILL_PUSH_STATUS="no-baseline"
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    SKILL_PUSH_STATUS="no-python"
-    return 0
-  fi
-  local summary status_code
-  set +e
-  summary="$(skill_sync_python push "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  SKILL_PUSH_STATUS="error"
-  if (( status_code != 0 )); then
-    [[ -n "$summary" ]] && log_warn "Skill push failed: $summary" || log_warn "Skill push failed."
-    SKILL_PUSH_ERRORS=1
-    return 1
-  fi
-  local part
-  SKILL_PUSH_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      pushed=*) SKILL_PUSHED="${part#pushed=}" ;;
-      errors=*) SKILL_PUSH_ERRORS="${part#errors=}" ;;
-      changes=*) SKILL_LOCAL_CHANGED="${part#changes=}" ;;
-      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
     esac
   done
   return 0
@@ -6420,8 +5836,8 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   AUTH_PULL_REASON="$concurrent_reason"
   PROMPT_SYNC_STATUS="skip"
   PROMPT_SYNC_REASON="active-run"
-  SKILL_SYNC_STATUS="skip"
-  SKILL_SYNC_REASON="active-run"
+  SKILL_SYNC_STATUS="mcp"
+  SKILL_SYNC_REASON=""
   AGENTS_SYNC_STATUS="skip"
   AGENTS_SYNC_REASON="active-run"
   CONFIG_SYNC_STATUS="skip"
@@ -6438,10 +5854,10 @@ else
   _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
   cdx_debug_phase "auth-sync" "$_t_auth"
+  sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
     sync_slash_commands_pull || true
-    sync_skills_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi
@@ -8407,47 +7823,10 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_tone="red"
 fi
 
-skill_label="skills sync skipped"
-skill_tone="yellow"
-if [[ "$SKILL_SYNC_STATUS" == "ok" ]]; then
-  skill_label="skills synced"
-  counts=()
-  if [[ "$SKILL_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("local ${SKILL_LOCAL_COUNT}")
-  fi
-  if [[ "$SKILL_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("remote ${SKILL_REMOTE_COUNT}")
-  fi
-  if (( ${#counts[@]} )); then
-    skill_label+=" ($(join_with_semicolon "${counts[@]}"))"
-  fi
-  if [[ "$SKILL_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( SKILL_PULL_UPDATED > 0 )); then
-    skill_label+=" (${SKILL_PULL_UPDATED} updated)"
-  fi
-  if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
-    skill_label+=" (${SKILL_REMOVED} removed)"
-  fi
-  if [[ "$SKILL_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PULL_ERRORS > 0 )); then
-    skill_label+=" (${SKILL_PULL_ERRORS} fetch errors)"
-    skill_tone="yellow"
-  else
-    skill_tone="green"
-  fi
-elif [[ "$SKILL_SYNC_STATUS" == "missing-config" ]]; then
-  skill_label="sync config missing"
-  skill_tone="red"
-elif [[ "$SKILL_SYNC_STATUS" == "no-python" ]]; then
-  skill_label="sync requires python3"
-  skill_tone="yellow"
-elif [[ "$SKILL_SYNC_STATUS" == "offline" ]]; then
-  skill_label="sync unavailable"
-  if [[ -n "$SKILL_SYNC_REASON" ]]; then
-    skill_label+=" (${SKILL_SYNC_REASON})"
-  fi
-  skill_tone="yellow"
-elif [[ "$SKILL_SYNC_STATUS" == "error" ]]; then
-  skill_label="sync failed"
-  skill_tone="red"
+skill_label="skills via MCP"
+skill_tone="green"
+if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+  skill_label+=" (${SKILL_REMOVED} local legacy paths removed)"
 fi
 
 agents_label="AGENTS sync skipped"
@@ -8552,32 +7931,6 @@ case "$PROMPT_PUSH_STATUS" in
     ;;
 esac
 
-case "$SKILL_PUSH_STATUS" in
-  ok)
-    if [[ "$SKILL_PUSHED" =~ ^[0-9]+$ ]] && (( SKILL_PUSHED > 0 )); then
-      skill_label+="; pushed ${SKILL_PUSHED}"
-    fi
-    if [[ "$SKILL_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PUSH_ERRORS > 0 )); then
-      skill_label+="; push errors ${SKILL_PUSH_ERRORS}"
-      skill_tone="yellow"
-    fi
-    ;;
-  no-baseline)
-    skill_label+="; push skipped (no baseline)"
-    ;;
-  no-python)
-    skill_label+="; push skipped (python missing)"
-    ;;
-  missing-config)
-    skill_label+="; push skipped (config missing)"
-    skill_tone="red"
-    ;;
-  error)
-    skill_label+="; push failed"
-    skill_tone="red"
-    ;;
-esac
-
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
@@ -8678,44 +8031,11 @@ fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
 fi
-if [[ "$SKILL_SYNC_STATUS" == "ok" ]]; then
-  skill_result="skills synced"
-  if [[ "$SKILL_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    skill_result+=" (local ${SKILL_LOCAL_COUNT}"
-    if [[ "$SKILL_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-      skill_result+=", remote ${SKILL_REMOTE_COUNT}"
-    fi
-    skill_result+=")"
-  fi
-  if [[ "$SKILL_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( SKILL_PULL_UPDATED > 0 )); then
-    skill_result+=" (${SKILL_PULL_UPDATED} updated)"
-  fi
-  if [[ "$SKILL_PUSHED" =~ ^[0-9]+$ ]] && (( SKILL_PUSHED > 0 )); then
-    skill_result+="; pushed ${SKILL_PUSHED}"
-  fi
-  if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
-    skill_result+="; removed ${SKILL_REMOVED}"
-  fi
-  if [[ "$SKILL_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PUSH_ERRORS > 0 )); then
-    skill_result+="; push errors ${SKILL_PUSH_ERRORS}"
-  fi
-  result_parts+=("$skill_result")
-elif [[ "$SKILL_SYNC_STATUS" == "missing-config" ]]; then
-  result_parts+=("skills config missing")
-elif [[ "$SKILL_SYNC_STATUS" == "no-python" ]]; then
-  result_parts+=("skills python missing")
-elif [[ "$SKILL_SYNC_STATUS" == "offline" ]]; then
-  if [[ -n "$SKILL_SYNC_REASON" ]]; then
-    result_parts+=("skills offline (${SKILL_SYNC_REASON})")
-  else
-    result_parts+=("skills offline")
-  fi
-elif [[ "$SKILL_SYNC_STATUS" == "error" ]]; then
-  result_parts+=("skills sync failed")
+skill_result="skills via MCP"
+if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+  skill_result+="; cleanup removed ${SKILL_REMOVED}"
 fi
-if [[ "$SKILL_PUSH_STATUS" == "error" ]]; then
-  result_parts+=("skills push failed")
-fi
+result_parts+=("$skill_result")
 if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
   case "$AGENTS_STATE" in
     updated)
@@ -8859,11 +8179,7 @@ if (( ! HOST_IS_SECURE )); then
     && [[ "${PROMPT_PUSHED:-0}" == "0" ]] \
     && [[ "${PROMPT_REMOVED:-0}" == "0" ]] \
     && [[ "${PROMPT_PUSH_ERRORS:-0}" == "0" ]] \
-    && [[ "$SKILL_SYNC_STATUS" == "ok" ]] \
-    && [[ "${SKILL_PULL_UPDATED:-0}" == "0" ]] \
-    && [[ "${SKILL_PUSHED:-0}" == "0" ]] \
-    && [[ "${SKILL_REMOVED:-0}" == "0" ]] \
-    && [[ "${SKILL_PUSH_ERRORS:-0}" == "0" ]] \
+    && [[ "$SKILL_SYNC_STATUS" == "mcp" ]] \
     && [[ "$AGENTS_SYNC_STATUS" == "ok" ]] \
     && [[ "$AGENTS_STATE" == "unchanged" ]] \
     && [[ "$CONFIG_SYNC_STATUS" == "ok" ]] \
@@ -9718,7 +9034,6 @@ cleanup() {
   stop_codex_ipv4_proxy || true
   if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     push_slash_commands_if_changed || true
-    push_skills_if_changed || true
   fi
   if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
     push_auth_if_changed "push" || true

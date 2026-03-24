@@ -2,14 +2,15 @@
 
 **One command to rule your Codex fleet.**
 
-Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` handle the rest — syncing credentials, config, prompts, skills, and usage data so you never have to copy a token by hand again.
+Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` handle the rest — syncing credentials, config, prompts, and usage data while serving Skills canonically through MCP so you never have to copy a token by hand again.
 
 ![Host-specific installer baking and sync flow](docs/img/cdx.png)
 
 ## What does it actually do?
 
 **Sync everything, everywhere**
-- Your `auth.json`, `config.toml`, slash commands, skills, and `AGENTS.md` stay in sync across every host — automatically, every time you run `cdx`.
+- Your `auth.json`, `config.toml`, slash commands, and `AGENTS.md` stay in sync across every host — automatically, every time you run `cdx`.
+- Skills are served canonically through MCP `skill://{slug}` resources instead of per-host local copies.
 - Each host gets its own API key baked right into the wrapper. No shared secrets floating around.
 
 **Stay safe without thinking about it**

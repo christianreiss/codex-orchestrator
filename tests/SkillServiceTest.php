@@ -207,8 +207,8 @@ final class SkillServiceTest extends TestCase
         $this->assertSame('skill://lint', $unchanged['uri']);
         $this->assertArrayNotHasKey('manifest', $unchanged);
         $this->assertSame('skill://lint', $unchanged['canonical_uri']);
-        $this->assertSame('~/.agents/skills/lint/SKILL.md', $unchanged['fallback_path']);
-        $this->assertSame('~/.codex/skills/lint/SKILL.md', $unchanged['legacy_fallback_path']);
+        $this->assertArrayNotHasKey('fallback_path', $unchanged);
+        $this->assertArrayNotHasKey('legacy_fallback_path', $unchanged);
 
         $updated = $this->service->retrieve('lint', null, null);
         $this->assertSame('updated', $updated['status']);
@@ -216,7 +216,7 @@ final class SkillServiceTest extends TestCase
         $this->assertSame($payload['manifest'], $updated['manifest']);
     }
 
-    public function testListAndFindExposeCanonicalAndFallbackSkillPaths(): void
+    public function testListAndFindExposeCanonicalSkillUris(): void
     {
         $this->service->store([
             'slug' => 'deploy',
@@ -227,11 +227,11 @@ final class SkillServiceTest extends TestCase
         $found = $this->service->find('deploy');
 
         $this->assertSame('skill://deploy', $listed[0]['canonical_uri']);
-        $this->assertSame('~/.agents/skills/deploy/SKILL.md', $listed[0]['fallback_path']);
-        $this->assertSame('~/.codex/skills/deploy/SKILL.md', $listed[0]['legacy_fallback_path']);
         $this->assertSame('skill://deploy', $found['canonical_uri']);
-        $this->assertSame('~/.agents/skills/deploy/SKILL.md', $found['fallback_path']);
-        $this->assertSame('~/.codex/skills/deploy/SKILL.md', $found['legacy_fallback_path']);
+        $this->assertArrayNotHasKey('fallback_path', $listed[0]);
+        $this->assertArrayNotHasKey('legacy_fallback_path', $listed[0]);
+        $this->assertArrayNotHasKey('fallback_path', $found);
+        $this->assertArrayNotHasKey('legacy_fallback_path', $found);
     }
 
     public function testDeleteMarksSkill(): void

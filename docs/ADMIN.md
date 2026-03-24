@@ -97,7 +97,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).
   - Reverse DNS global flag: `GET/POST /admin/reverse-dns` (`settings.manage` for POST).
   - Insecure-approval global flag: `GET/POST /admin/insecure-approval` (`settings.manage` for POST).
-  - Projects module: `GET/POST /admin/projects/state` (`settings.manage` for POST). Enabling it also publishes the managed `coco` skill with embedded toolkit/help to hosts through the normal Skills sync; disabling it withdraws that managed skill on the next client sync.
+  - Projects module: `GET/POST /admin/projects/state` (`settings.manage` for POST). Enabling it also publishes the managed `coco` skill with embedded toolkit/help through MCP `skill://coco`; disabling it withdraws that managed skill from the MCP resource list.
   - Quota mode: `GET/POST /admin/quota-mode` (`settings.manage` for POST).
     - `hard_fail` boolean.
     - `limit_percent` normalized to `50..100` (default `100`).

@@ -6,11 +6,13 @@ use PHPUnit\Framework\TestCase;
 
 final class CdxWrapperSkillSyncDeleteImportTest extends TestCase
 {
-    public function testSkillSyncEmbeddedPythonImportsShutilForDeletePath(): void
+    public function testSkillCleanupRemovesLegacyDirectoriesAndBaselines(): void
     {
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
-        self::assertStringContainsString('import hashlib, json, os, pathlib, shutil, sys', $wrapperSource);
-        self::assertStringContainsString('shutil.rmtree(target_path, ignore_errors=True)', $wrapperSource);
+        self::assertStringContainsString('cleanup_legacy_skill_state()', $wrapperSource);
+        self::assertStringContainsString('"$HOME/.agents/skills"', $wrapperSource);
+        self::assertStringContainsString('"$HOME/.codex/skills"', $wrapperSource);
+        self::assertStringContainsString('"$HOME/.agents/.skill-baseline.json"', $wrapperSource);
     }
 }

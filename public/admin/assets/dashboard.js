@@ -3571,8 +3571,8 @@
       }
       if (skillModalSubtitle) {
         skillModalSubtitle.textContent = isEdit
-          ? `Updating ${slugLabel || 'this skill'} in cdx and refreshing the synced fallback copy on every host.`
-          : 'cdx is the primary skill source; hosts also get a synced ~/.agents/skills fallback copy.';
+          ? `Updating ${slugLabel || 'this skill'} in cdx so hosts read it through MCP resource URIs.`
+          : 'cdx is the canonical skill source; hosts read skills through MCP resource URIs.';
       }
       if (skillSave) {
         skillSave.textContent = isEdit ? 'Save changes' : 'Save';
@@ -3590,7 +3590,7 @@
       if (skillSlugNote) {
         skillSlugNote.innerHTML = isEdit
           ? 'Slug is locked during edit. Use <strong>New</strong> to create a separate skill.'
-          : 'cdx serves this skill canonically; hosts also sync <code>~/.agents/skills/&lt;slug&gt;/SKILL.md</code> as the fallback copy.';
+          : 'cdx serves this skill canonically through <code>skill://&lt;slug&gt;</code> MCP resources.';
       }
     }
 

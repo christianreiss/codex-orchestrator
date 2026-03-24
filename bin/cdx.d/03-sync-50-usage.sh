@@ -37,44 +37,6 @@ push_slash_commands_if_changed() {
   return 0
 }
 
-push_skills_if_changed() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    SKILL_PUSH_STATUS="missing-config"
-    return 0
-  fi
-  if [[ ! -f "$SKILL_BASELINE_FILE" ]]; then
-    SKILL_PUSH_STATUS="no-baseline"
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    SKILL_PUSH_STATUS="no-python"
-    return 0
-  fi
-  local summary status_code
-  set +e
-  summary="$(skill_sync_python push "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  SKILL_PUSH_STATUS="error"
-  if (( status_code != 0 )); then
-    [[ -n "$summary" ]] && log_warn "Skill push failed: $summary" || log_warn "Skill push failed."
-    SKILL_PUSH_ERRORS=1
-    return 1
-  fi
-  local part
-  SKILL_PUSH_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      pushed=*) SKILL_PUSHED="${part#pushed=}" ;;
-      errors=*) SKILL_PUSH_ERRORS="${part#errors=}" ;;
-      changes=*) SKILL_LOCAL_CHANGED="${part#changes=}" ;;
-      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
-    esac
-  done
-  return 0
-}
-
 extract_token_usage_payload() {
   local log_path="$1"
   if [[ ! -f "$log_path" ]]; then

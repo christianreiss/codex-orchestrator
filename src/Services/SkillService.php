@@ -18,8 +18,6 @@ class SkillService
 {
     use HostServiceTrait;
     public const CANONICAL_URI_PREFIX = 'skill://';
-    public const FALLBACK_SKILL_ROOT = '~/.agents/skills';
-    public const LEGACY_FALLBACK_SKILL_ROOT = '~/.codex/skills';
 
     public function __construct(
         private readonly SkillRepository $skills,
@@ -262,8 +260,6 @@ class SkillService
     {
         $payload['uri'] = $this->skillUri($slug);
         $payload['canonical_uri'] = $this->skillUri($slug);
-        $payload['fallback_path'] = $this->fallbackPath($slug);
-        $payload['legacy_fallback_path'] = $this->legacyFallbackPath($slug);
 
         return $payload;
     }
@@ -271,16 +267,6 @@ class SkillService
     private function skillUri(string $slug): string
     {
         return self::CANONICAL_URI_PREFIX . rawurlencode($slug);
-    }
-
-    private function fallbackPath(string $slug): string
-    {
-        return self::FALLBACK_SKILL_ROOT . '/' . $slug . '/SKILL.md';
-    }
-
-    private function legacyFallbackPath(string $slug): string
-    {
-        return self::LEGACY_FALLBACK_SKILL_ROOT . '/' . $slug . '/SKILL.md';
     }
 
     private function isManagedSlug(string $slug): bool
