@@ -1,4 +1,5 @@
 # 2026-03-24
+- Tests: added `ProjectNormalizerTest` with 62 unit tests covering all public methods of `ProjectNormalizer` — `normalizeSlug`, `normalizeAbout`, `normalizeRoster`, `normalizeNotePayload`, `normalizeTodoPayload`, `normalizeFilePayload`, `normalizeFeedbackPayload`, `normalizeStoredName`, and `normalizeOptionalString`; `ProjectNormalizer` previously had zero test coverage.
 - Backend: eliminated N+1 query pattern in `GET /admin/hosts` — added `TokenUsageRepository::latestForHosts()` and `HostUserRepository::listByHosts()` batch methods that fetch token-usage and user rows for all hosts in two queries instead of two-per-host; `AdminOverviewController::hosts()` now uses these batch methods and also hoists the `$normalizeTs` closure out of the per-host loop.
 - cdx wrapper: colorized individual sync status tokens in the `--doctor` Sync row — each status value (`ok`, `offline`, `concurrent`, etc.) is now rendered green/yellow/red instead of plain text, making it faster to spot failures at a glance. Rebuilt `bin/cdx`.
 
