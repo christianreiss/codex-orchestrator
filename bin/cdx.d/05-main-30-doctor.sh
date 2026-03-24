@@ -320,7 +320,7 @@ else:
     local hint_index=1
     local hint
     for hint in "${hints[@]}"; do
-      log_warn "  Hint ${hint_index}: ${hint}"
+      log_warn "$(format_simple_row "Hint ${hint_index}" "$hint")"
       hint_index=$(( hint_index + 1 ))
     done
   fi
