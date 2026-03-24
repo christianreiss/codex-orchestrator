@@ -1,4 +1,6 @@
 # 2026-03-24
+- Tests: added `TokenUsageTrackerTest` with 52 unit tests covering all public methods of `TokenUsageTracker` — `sanitizeUsageLine` (ANSI/OSC stripping, control-char removal, token-usage prefix extraction, truncation at 1000 chars), `normalizeCommand` (defaults, case-insensitive accept, invalid-value rejection), `normalizeUsageEntry` (all fields, line-only, numeric-only, string integers with commas/underscores, negative/invalid rejection, optional cached/reasoning), `normalizeUsagePayloads` (single entry, multiple entries, non-array skipping, empty rejection, path-in-error), and `normalizeUsageCost` (null when no billable fields, rounding to 6 decimals, NaN/negative/Inf → null, zero valid); `TokenUsageTracker` previously had zero direct test coverage.
+
 - Backend: optimized `HostAuthDigestRepository::prune()` to use a LIMIT/OFFSET query instead of fetching all digest IDs into PHP and slicing with `array_slice`; the query now returns only the rows that fall outside the retention window, reducing unnecessary data transfer on hosts with many digest entries.
 
 # 2026-03-24
