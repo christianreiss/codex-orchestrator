@@ -7758,7 +7758,9 @@ else:
             if stripped.startswith('#') or not stripped:
                 continue
             if stripped.startswith('['):
-                if not stripped.endswith(']'):
+                # Strip inline comment before checking: [section] # comment is valid TOML.
+                header_part = stripped.split('#')[0].rstrip()
+                if not header_part.endswith(']'):
                     print('unclosed table header: ' + stripped)
                     sys.exit(1)
         print('ok:' + method)
