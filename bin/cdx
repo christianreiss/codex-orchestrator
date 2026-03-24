@@ -7836,13 +7836,15 @@ print_doctor_report() {
   local ssh_bits=(
     "session=${ssh_session_label}"
     "TERM=${TERM:-unknown}"
-    "TERM_PROGRAM=${TERM_PROGRAM:-n/a}"
-    "KONSOLE_VERSION=${KONSOLE_VERSION:-n/a}"
-    "VTE_VERSION=${VTE_VERSION:-n/a}"
-    "KITTY_WINDOW_ID=${KITTY_WINDOW_ID:+set}"
-    "WEZTERM_VERSION=${WEZTERM_VERSION:-n/a}"
-    "WT_SESSION=${WT_SESSION:+set}"
   )
+  # Only include terminal identifier vars when they carry a real value; omit
+  # empty or unset vars so the SSH env row stays concise on most machines.
+  [[ -n "${TERM_PROGRAM:-}" ]] && ssh_bits+=("TERM_PROGRAM=${TERM_PROGRAM}")
+  [[ -n "${KONSOLE_VERSION:-}" ]] && ssh_bits+=("KONSOLE_VERSION=${KONSOLE_VERSION}")
+  [[ -n "${VTE_VERSION:-}" ]] && ssh_bits+=("VTE_VERSION=${VTE_VERSION}")
+  [[ -n "${KITTY_WINDOW_ID:-}" ]] && ssh_bits+=("KITTY_WINDOW_ID=set")
+  [[ -n "${WEZTERM_VERSION:-}" ]] && ssh_bits+=("WEZTERM_VERSION=${WEZTERM_VERSION}")
+  [[ -n "${WT_SESSION:-}" ]] && ssh_bits+=("WT_SESSION=set")
   local ssh_env_label
   ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 

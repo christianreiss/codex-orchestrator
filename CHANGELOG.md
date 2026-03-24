@@ -1,4 +1,7 @@
 # 2026-03-24
+- cdx wrapper: `--doctor` SSH env row now only shows terminal identifier env vars that are actually set (TERM_PROGRAM, KONSOLE_VERSION, VTE_VERSION, KITTY_WINDOW_ID, WEZTERM_VERSION, WT_SESSION); unset/empty vars are silently omitted so the row stays concise on most machines instead of printing a long chain of `n/a` and empty `KEY=` entries. Rebuilt `bin/cdx`.
+
+# 2026-03-24
 - Admin UI: optical polish — password-change form fields in the account panel now stack label-above-input (flex column) with full-width inputs, consistent padding, and a focus ring matching the rest of the dashboard; previously the label and input rendered inline side-by-side with no width constraint. Match hint colored states (ok/err) gain `font-weight: 600` and `line-height: 1.3` for legibility at 12 px.
 
 # 2026-03-24
