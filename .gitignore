@@ -10,3 +10,5 @@ __pycache__/
 /.home/
 /.docker-config/
 /.ssh/
+spawner.log
+.spawner-state.json

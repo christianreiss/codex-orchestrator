@@ -8618,3 +8618,139 @@
         }
       }
     }
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+    (function initKeyboardShortcuts() {
+      const kbdModal = document.getElementById('kbdShortcutsModal');
+      const kbdClose = document.getElementById('kbdShortcutsClose');
+
+      function showKbdModal(on) {
+        if (!kbdModal) return;
+        kbdModal.classList.toggle('show', on);
+        if (on) kbdClose?.focus();
+      }
+
+      if (kbdClose) {
+        kbdClose.addEventListener('click', () => showKbdModal(false));
+      }
+      if (kbdModal) {
+        kbdModal.addEventListener('click', (e) => {
+          if (e.target === kbdModal) showKbdModal(false);
+        });
+      }
+
+      function isInputFocused() {
+        const el = document.activeElement;
+        if (!el) return false;
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (el.isContentEditable) return true;
+        return false;
+      }
+
+      function isModalOpen() {
+        return !!document.querySelector('.modal-backdrop.show');
+      }
+
+      function navigateTo(path) {
+        if (window.__applyRouting) {
+          history.pushState({}, '', path);
+          window.__applyRouting();
+        } else {
+          window.location.href = path;
+        }
+      }
+
+      function focusSearch() {
+        // Try the host filter first, then any visible search input in the active panel.
+        const hostFilter = document.getElementById('host-filter');
+        const logSearch = document.getElementById('log-search');
+        const activePanel = document.querySelector('.panel-set:not([hidden])');
+        const panelSearch = activePanel?.querySelector('input[type="search"], input[type="text"][id*="search"], input[type="text"][id*="filter"], input[type="text"][id*="query"]');
+        const target = (hostFilter && !hostFilter.closest('[hidden]')) ? hostFilter
+          : (logSearch && !logSearch.closest('[hidden]')) ? logSearch
+          : panelSearch;
+        if (target) {
+          target.focus();
+          target.select();
+        }
+      }
+
+      function triggerRefresh() {
+        const activePanel = document.querySelector('.panel-set:not([hidden])');
+        if (!activePanel) return;
+        // Look for a visible refresh button in the active panel or global area.
+        const btn = activePanel.querySelector('[id*="refresh"], [id*="Refresh"], button[title*="refresh" i], button[aria-label*="refresh" i]')
+          || document.getElementById('version-check')
+          || document.getElementById('log-refresh')
+          || document.getElementById('memoriesRefreshBtn');
+        if (btn && !btn.disabled) btn.click();
+      }
+
+      // `g` prefix handling: wait up to 1.5 s for the second key.
+      let gPending = false;
+      let gTimer = null;
+
+      function clearGPending() {
+        gPending = false;
+        clearTimeout(gTimer);
+        gTimer = null;
+      }
+
+      const GO_MAP = {
+        d: '/admin/dashboard',
+        h: '/admin/hosts',
+        l: '/admin/logs',
+        s: '/admin/settings',
+        u: '/admin/users',
+        a: '/admin/account',
+      };
+
+      document.addEventListener('keydown', (e) => {
+        // Close the kbd shortcuts modal on Escape regardless of other state.
+        if (e.key === 'Escape' && kbdModal?.classList.contains('show')) {
+          e.preventDefault();
+          showKbdModal(false);
+          return;
+        }
+
+        // Never fire inside inputs or open modals (except Escape which is handled elsewhere).
+        if (isInputFocused()) { clearGPending(); return; }
+        if (isModalOpen()) { clearGPending(); return; }
+
+        if (gPending) {
+          clearGPending();
+          const dest = GO_MAP[e.key];
+          if (dest) {
+            e.preventDefault();
+            navigateTo(dest);
+          }
+          return;
+        }
+
+        if (e.key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          gPending = true;
+          gTimer = setTimeout(clearGPending, 1500);
+          return;
+        }
+
+        if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          focusSearch();
+          return;
+        }
+
+        if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          showKbdModal(true);
+          return;
+        }
+
+        if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          triggerRefresh();
+          return;
+        }
+      });
+    })();

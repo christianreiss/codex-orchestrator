@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-21-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-24-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-21-01">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
 </head>
@@ -112,6 +112,31 @@
   <div class="app">
     <div class="content">
       <main class="main">
+        <!-- Keyboard shortcuts help modal -->
+        <div class="modal-backdrop" id="kbdShortcutsModal" role="dialog" aria-modal="true" aria-labelledby="kbdShortcutsTitle">
+          <div class="modal kbd-shortcuts-modal">
+            <h3 id="kbdShortcutsTitle">Keyboard shortcuts</h3>
+            <div class="kbd-shortcuts-grid">
+              <div class="kbd-shortcuts-section">
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>d</kbd><span>Go to Dashboard</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>h</kbd><span>Go to Hosts</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>l</kbd><span>Go to Logs</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>s</kbd><span>Go to Settings</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>u</kbd><span>Go to Users</span></div>
+                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>a</kbd><span>Go to Account</span></div>
+              </div>
+              <div class="kbd-shortcuts-section">
+                <div class="kbd-shortcut-row"><kbd>/</kbd><span>Focus search / filter</span></div>
+                <div class="kbd-shortcut-row"><kbd>r</kbd><span>Refresh current view</span></div>
+                <div class="kbd-shortcut-row"><kbd>?</kbd><span>Show this help</span></div>
+                <div class="kbd-shortcut-row"><kbd>Esc</kbd><span>Close modal / dismiss</span></div>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="ghost" id="kbdShortcutsClose">Close</button>
+            </div>
+          </div>
+        </div>
         <!-- Generic confirm modal -->
         <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true">
           <div class="modal confirm-modal">
@@ -1969,7 +1994,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-21-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-24-01"></script>
   <script src="/admin/assets/logs.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

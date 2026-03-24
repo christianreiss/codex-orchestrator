@@ -1713,6 +1713,34 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
   box-sizing: border-box;
 }
 .confirm-modal { max-width: 420px; }
+.kbd-shortcuts-modal { max-width: 520px; }
+.kbd-shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  margin-bottom: 16px;
+}
+.kbd-shortcuts-section { display: flex; flex-direction: column; gap: 6px; }
+.kbd-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+.kbd-shortcut-row span { margin-left: 6px; color: var(--muted); }
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  line-height: 18px;
+  background: var(--surface, #f4f4f5);
+  border: 1px solid var(--border, #d4d4d8);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--border, #d4d4d8);
+  color: var(--fg, #18181b);
+  white-space: nowrap;
+}
 .table-subtext {
   font-size: 12px;
   color: var(--muted);
