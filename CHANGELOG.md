@@ -1,4 +1,5 @@
 # 2026-03-24
+- Tests: added `InsecureHostWindowServiceTest` with 34 unit tests covering all public methods of `InsecureHostWindowService` — `isTimestampActive`, `parseSessionStartedAt`, `resolveInsecureGraceUntil` (including env-override and max-clamp cases), and `enforceInsecureWindow` (secure pass-through, active window, grace-window store/retrieve distinction, fully-expired denial, and exception payload shape); `InsecureHostWindowService` previously had zero direct test coverage.
 - cdx wrapper: fixed run cost display — cost is now formatted as `$1.23` (dollar sign before the amount) instead of the previous `1.23$`; values below $0.01 now display four decimal places (e.g. `$0.0012`) rather than rounding to `$0.00`. Rebuilt `bin/cdx`.
 
 - Admin UI: added `n` keyboard shortcut to open the "new item" modal for the current panel — Hosts → New Host, Users → Add User, Settings/Slash Commands → New Command, Settings/Skills → New Skill; shortcut is listed in the `?` help modal alongside the existing `r` / `/` / `g+x` shortcuts.
