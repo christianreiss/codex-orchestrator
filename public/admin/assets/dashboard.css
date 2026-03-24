@@ -182,6 +182,7 @@ body {
   letter-spacing: 0.01em;
   font-weight: 700;
   color: var(--text);
+  transition: background 200ms ease, border-color 180ms ease, color 160ms ease;
 }
 .signal-chip.ok {
   background: rgba(16, 185, 129, 0.13);
@@ -486,6 +487,7 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
   line-height: 1.1;
   border: 1px solid var(--border);
   background: rgba(255,255,255,0.08);
+  transition: background 200ms ease, border-color 180ms ease, color 160ms ease;
 }
 .chip.ok { color: var(--success); border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.10); }
 .chip.warn { color: var(--warning); border-color: rgba(251, 191, 36, 0.32); background: rgba(251, 191, 36, 0.10); }
@@ -4909,5 +4911,10 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
   body[data-nav-version="2026"] .rail-toggle-glyph::after {
     transition: none !important;
     animation: none !important;
+  }
+
+  .chip,
+  .signal-chip {
+    transition: none !important;
   }
 }

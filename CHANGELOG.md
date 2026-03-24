@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: visual polish — `.chip` and `.signal-chip` status badges now animate background, border, and color changes with a 160–200 ms ease transition, so JS-driven state flips (e.g. secure→insecure, ok→warn) cross-fade instead of snapping; a matching `prefers-reduced-motion` block disables the new transitions for users who prefer reduced motion. Login page `card-enter` animation no longer animates `filter: blur()` — the scale + opacity entrance is equally smooth without forcing a GPU compositing layer per frame; a `prefers-reduced-motion` block on the login page now suppresses the card entrance, logo-glow, and button gradient-shift animations entirely.
+
+# 2026-03-24
 - Admin UI: fixed stale empty-state message in the Users table — when `loadUsers()` cleared the users array while a non-matching filter was still active, the empty state showed "No users match the current filter." instead of "No users yet. Create the first admin to enable login."; the fix sets the correct text before early-returning from `renderUsers()` in the empty-users branch; cache-bumped `users.js` to `v=2026-03-24-03`.
 
 # 2026-03-24

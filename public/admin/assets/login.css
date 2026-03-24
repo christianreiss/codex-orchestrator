@@ -36,12 +36,10 @@ body {
   from {
     opacity: 0;
     transform: translateY(16px) scale(0.97);
-    filter: blur(4px);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0);
   }
 }
 
@@ -271,5 +269,25 @@ body {
 
   .login-title {
     font-size: 20px;
+  }
+}
+
+/* ── Motion preferences ─────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card,
+  .brand-mark,
+  .login-submit {
+    animation: none !important;
+  }
+
+  .field input {
+    transition: border-color 200ms ease, box-shadow 200ms ease !important;
+    transform: none !important;
+  }
+
+  .login-submit {
+    transition: box-shadow 180ms ease !important;
+    transform: none !important;
   }
 }
