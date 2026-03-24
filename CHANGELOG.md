@@ -1,4 +1,5 @@
 # 2026-03-24
+- Tests: added `ConfigNormalizerTest` with 114 unit tests covering all public methods of `ConfigNormalizer` — `normalizeString`, `normalizeBool`, `normalizeWebSearchFeature`, `normalizeApprovalPolicy`, `normalizePersonality`, `normalizeReasoningSummary`, `normalizeReasoningEffortForModel`, `normalizeInt`, `normalizeStringList`, `normalizeStringMap`, `normalizeSupportedModel`, `modelSupportsReasoningEffort`, `isSparkCodexModel`, `isDetailedOnlyCodexModel`, `normalizeModelVerbosity`, `settingsHash`, `assertSha`, and a full `normalizeSettings` integration suite; `ConfigNormalizer` previously had zero test coverage.
 - Backend: reduced code duplication in `LogRepository` — extracted `buildInClauseParams()` and `normalizeActions()` private helpers so the identical IN-clause construction logic shared between `recentByActions()` and `countActionsSince()` lives in one place; added `@param`/`@return` PHPDoc annotations on the new helpers for static-analysis clarity.
 
 
