@@ -283,28 +283,48 @@ else:
     fi
   fi
 
-  log_info "$(format_simple_row "Doctor deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
-  log_info "$(format_simple_row "Doctor paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
-  log_info "$(format_simple_row "Doctor auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
-  log_info "$(format_simple_row "Doctor sync" "$sync_label")"
-  log_info "$(format_simple_row "Doctor cfg" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
-  log_info "$(format_simple_row "Doctor mcp" "$mcp_label")"
-  log_info "$(format_simple_row "Doctor api" "$api_probe_label")"
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
+  local saved_row_label_width="$ROW_LABEL_WIDTH"
+  ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
+
+  log_info "$(summary_divider)"
+  log_info "$(summary_header "Doctor report")"
+  log_info "$(format_simple_row "Deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
+  log_info "$(format_simple_row "Paths" "codex=${CODEX_REAL_BIN}; wrapper=${SCRIPT_REAL}")"
+  log_info "$(format_simple_row "Auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
+  log_info "$(format_simple_row "Sync" "$sync_label")"
+  log_info "$(format_simple_row "Config" "path=${CONFIG_PATH}; state=${config_state_label}; validity=${config_validity_label}")"
+  log_info "$(format_simple_row "MCP" "$mcp_label")"
+  log_info "$(format_simple_row "API" "$api_probe_label")"
   if [[ -n "$api_latency_label" ]]; then
-    log_info "$(format_simple_row "Doctor lat" "$api_latency_label")"
+    log_info "$(format_simple_row "Latency" "$api_latency_label")"
   fi
-  log_info "$(format_simple_row "Doctor disk" "$disk_label")"
-  log_info "$(format_simple_row "Doctor cron" "$cron_label")"
-  log_info "$(format_simple_row "Doctor pty" "$pty_label")"
-  log_info "$(format_simple_row "Doctor ssh" "$ssh_env_label")"
-  log_info "$(format_simple_row "Doctor cli" "$(join_with_sep '; ' "${cli_bits[@]}")")"
+  log_info "$(format_simple_row "Disk" "$disk_label")"
+  log_info "$(format_simple_row "Cron" "$cron_label")"
+  log_info "$(format_simple_row "PTY" "$pty_label")"
+  log_info "$(format_simple_row "SSH env" "$ssh_env_label")"
+  log_info "$(format_simple_row "CLI" "$(join_with_sep '; ' "${cli_bits[@]}")")"
+
+  local result_summary=""
+  if (( failures == 0 )); then
+    result_summary="$(colorize "all checks passed" "green") ✅"
+  elif (( failures == 1 )); then
+    result_summary="$(colorize "1 failure" "red") — see hints below"
+  else
+    result_summary="$(colorize "${failures} failures" "red") — see hints below"
+  fi
+  log_info "$(format_simple_row "Result" "$result_summary")"
 
   if (( ${#hints[@]} )); then
+    log_info "$(summary_divider)"
+    local hint_index=1
     local hint
     for hint in "${hints[@]}"; do
-      log_warn "Doctor hint: ${hint}"
+      log_warn "  Hint ${hint_index}: ${hint}"
+      hint_index=$(( hint_index + 1 ))
     done
   fi
 
+  ROW_LABEL_WIDTH="$saved_row_label_width"
   DOCTOR_FAILURES=$failures
 }
