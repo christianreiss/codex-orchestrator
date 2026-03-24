@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: added search and status-filter to the MCP Access Logs panel — the panel previously had only a Refresh button, while API Logs and Events both offered search/filter controls; a text search input (filters by host or tool name, Escape to clear) and a success/failure select are now wired into client-side filtering against the full loaded result set; a footer entry-count line ("N entries" / "N / M entries") mirrors the status footer used by the other log views.
+
+# 2026-03-24
 - Admin UI: visual polish — (1) sticky editorial-rail nav now uses `backdrop-filter: blur(12px)` with a slightly lower background opacity (82% → was 96%) so content scrolling beneath the nav blurs through the frosted surface, matching the depth treatment already used by cards, modals, and the login panel; (2) dashboard `input`, `select`, and `textarea` elements now animate their `border-color` and `box-shadow` properties over 180 ms so focus rings and hover border changes cross-fade instead of snapping, consistent with the login page's input transitions; both changes respect `prefers-reduced-motion`.
 
 # 2026-03-24

@@ -930,9 +930,15 @@
                   <div class="panel-head">
                     <div>
                       <h2>MCP Access Logs</h2>
-                      <p class="muted panel-subtitle">Recent MCP access events.</p>
+                      <p class="muted panel-subtitle">Recent MCP access events · search by host or tool.</p>
                     </div>
                     <div class="panel-actions log-actions">
+                      <input type="search" id="mcp-search" placeholder="Search host or tool">
+                      <select id="mcp-status-filter" title="Status filter">
+                        <option value="">All statuses</option>
+                        <option value="ok">Success only</option>
+                        <option value="fail">Failures only</option>
+                      </select>
                       <button id="mcp-refresh" class="ghost tiny-btn">↻ Refresh</button>
                     </div>
                   </div>
@@ -950,6 +956,9 @@
                         <tr class="loading-row"><td colspan="4">Loading…</td></tr>
                       </tbody>
                     </table>
+                  </div>
+                  <div class="log-footer">
+                    <div id="mcp-status" class="muted">Loading…</div>
                   </div>
                 </section>
                 <section class="card panel log-panel" id="events-logs-panel" hidden>

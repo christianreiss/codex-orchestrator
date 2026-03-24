@@ -595,7 +595,13 @@
   function initMcpLogs() {
     const tableBody = document.querySelector('#mcp-log-table tbody');
     const refreshBtn = document.getElementById('mcp-refresh');
+    const searchInput = document.getElementById('mcp-search');
+    const statusFilter = document.getElementById('mcp-status-filter');
+    const statusEl = document.getElementById('mcp-status');
     if (!tableBody) return;
+
+    let allRows = [];
+    const filterState = { q: '', status: '' };
 
     function escapeHtml(str) {
       return String(str)
@@ -620,28 +626,78 @@
     const formatTool = (item) => escapeHtml(item.name || item.method || '—');
     const formatTime = (ts) => escapeHtml(ts || '—');
 
+    function renderRows(items) {
+      if (!items.length) {
+        tableBody.innerHTML = '<tr class="empty-row"><td colspan="4">No matching logs.</td></tr>';
+        return;
+      }
+      tableBody.innerHTML = items.map((item) => {
+        const ts = formatTime(item.created_at);
+        const host = formatHost(item);
+        const tool = formatTool(item);
+        const status = formatStatus(item);
+        return `<tr><td>${ts}</td><td>${host}</td><td>${tool}</td><td>${status}</td></tr>`;
+      }).join('');
+    }
+
+    function applyFilters() {
+      const q = filterState.q.toLowerCase();
+      const filtered = allRows.filter((item) => {
+        if (filterState.status === 'ok' && !item.success) return false;
+        if (filterState.status === 'fail' && item.success) return false;
+        if (q) {
+          const host = (item.host_fqdn || item.host || '').toLowerCase();
+          const tool = (item.name || item.method || '').toLowerCase();
+          if (!host.includes(q) && !tool.includes(q)) return false;
+        }
+        return true;
+      });
+      renderRows(filtered);
+      if (statusEl) {
+        if (allRows.length === 0) {
+          statusEl.textContent = 'No logs';
+        } else if (filtered.length === allRows.length) {
+          statusEl.textContent = `${allRows.length} ${allRows.length === 1 ? 'entry' : 'entries'}`;
+        } else {
+          statusEl.textContent = `${filtered.length} / ${allRows.length} entries`;
+        }
+      }
+    }
+
     async function loadMcpLogs() {
       try {
         renderSkeletonRows(tableBody, ['100px', '130px', '110px', '80px']);
+        if (statusEl) statusEl.textContent = 'Loading…';
         const res = await fetch('/admin/mcp/logs', { headers: { Accept: 'application/json' } });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        const items = json?.data?.logs || [];
-        if (!items.length) {
-          tableBody.innerHTML = '<tr class="empty-row"><td colspan="4">No logs.</td></tr>';
-          return;
-        }
-        tableBody.innerHTML = items.map((item) => {
-          const ts = formatTime(item.created_at);
-          const host = formatHost(item);
-          const tool = formatTool(item);
-          const status = formatStatus(item);
-          return `<tr><td>${ts}</td><td>${host}</td><td>${tool}</td><td>${status}</td></tr>`;
-        }).join('');
+        allRows = json?.data?.logs || [];
+        applyFilters();
       } catch (err) {
+        allRows = [];
         tableBody.innerHTML = `<tr class="error-row"><td colspan="4">Failed: ${escapeHtml(err.message)}</td></tr>`;
+        if (statusEl) statusEl.textContent = 'Error loading logs';
       }
     }
+
+    searchInput?.addEventListener('input', (e) => {
+      filterState.q = e.target.value.trim();
+      applyFilters();
+    });
+
+    searchInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && searchInput.value) {
+        e.preventDefault();
+        searchInput.value = '';
+        filterState.q = '';
+        applyFilters();
+      }
+    });
+
+    statusFilter?.addEventListener('change', (e) => {
+      filterState.status = e.target.value;
+      applyFilters();
+    });
 
     refreshBtn?.addEventListener('click', (ev) => {
       ev.preventDefault();
