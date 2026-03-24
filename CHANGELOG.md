@@ -1,4 +1,7 @@
 # 2026-03-24
+- Admin UI: micro-polish on interactive elements — (1) added `transition: background 150ms ease, border-color 150ms ease, color 120ms ease` to `.config-section` sidebar buttons, which previously snapped on hover/active with no animation; (2) unified chip transition durations: both `.signal-chip` and `.chip` used mismatched staggered timings (200ms/180ms/160ms across three properties) and are now consolidated to a single `160ms ease` so all three properties animate in sync.
+
+# 2026-03-24
 - Admin UI: fixed MCP Logs timestamp display — `initMcpLogs` was rendering raw ISO timestamp strings directly (e.g. `2026-03-24T10:15:00Z`) instead of formatting them like the API Logs and Events tables do (`24.03.26, 10:15`); added `parseTimestamp`/`formatTimestamp` helpers inside `initMcpLogs` and wired them into `formatTime`, matching the pattern already used by the other two log panels; cache-bumped `logs.js` to `v=2026-03-24-03`.
 
 # 2026-03-24
