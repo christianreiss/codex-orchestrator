@@ -2361,6 +2361,9 @@
       if (host?.authed !== true) {
         return { label: 'Unprovisioned', tone: 'warn', rank: 2 };
       }
+      if (host?.auth_outdated) {
+        return { label: 'Outdated auth', tone: 'warn', rank: 1 };
+      }
       if (!isHostSecure(host)) {
         const { enabledActive, graceActive } = insecureState(host);
         if (!enabledActive && !graceActive) {

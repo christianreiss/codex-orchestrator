@@ -172,6 +172,15 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringNotContainsString('Wrong way around', $js);
     }
 
+    public function testHostListHealthyPillRequiresNonOutdatedAuth(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString("if (host?.auth_outdated) {\n        return { label: 'Outdated auth', tone: 'warn', rank: 1 };\n      }", $js);
+        $this->assertStringContainsString("return { label: 'Healthy', tone: 'ok', rank: 0 };", $js);
+    }
+
     public function testUsageWindowBulletMeterMarkupExists(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
