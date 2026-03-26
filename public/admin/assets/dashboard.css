@@ -3410,17 +3410,6 @@ body.embed .page-hero { display: none !important; }
 body.embed .rail-tools { display: none !important; }
 body.embed .hero-actions { display: none !important; }
 
-body[data-nav-version="2026"] .rail-status-cluster {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-body[data-nav-version="2026"] .rail-status-cluster .pill {
-  white-space: nowrap;
-}
-
 /* config builder styles reused inside settings tab */
 .config-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-top: 12px; }
 .config-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }

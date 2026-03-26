@@ -1,4 +1,5 @@
 # 2026-03-26
+- Admin UI: removed the temporary rail pills for websocket/mTLS status again. Cache-bumped `nav.js` to `v=2026-03-26-02` and `dashboard.js` to `v=2026-03-26-05`.
 - Admin UI: added a persistent rail status indicator for the admin websocket, so the shell now shows `Live: connected` when the live websocket is healthy and degrades to connecting/offline/error states when it is not. Cache-bumped `nav.js` to `v=2026-03-26-01` and `dashboard.js` to `v=2026-03-26-04`.
 - Admin UI/API: restored reliable insecure-host approval prompts by adding `GET /admin/insecure-approvals/pending` and rehydrating the admin approval queue on dashboard load plus websocket reconnect. Pending authorization requests no longer disappear just because the original live event was missed. Cache-bumped `dashboard.js` to `v=2026-03-26-03`.
 - Config/MCP: fixed insecure-host managed MCP auth so `config/retrieve` no longer reuses cached baked config with an expired short-lived MCP bearer. Insecure hosts now get a freshly baked MCP token on each config fetch, which avoids post-auth MCP startup failures during `initialize`.
