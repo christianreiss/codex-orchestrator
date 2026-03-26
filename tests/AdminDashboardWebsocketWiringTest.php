@@ -32,4 +32,17 @@ final class AdminDashboardWebsocketWiringTest extends TestCase
         $this->assertStringContainsString('WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS', $js);
         $this->assertStringContainsString('scheduleLiveDataRefresh(WS_UNKNOWN_ACTION_FALLBACK_DOMAINS, WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS);', $js);
     }
+
+    public function testDashboardRingsBellForNewInsecureApprovalRequests(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('INSECURE_APPROVAL_BELL_COOLDOWN_MS = 5000', $js);
+        $this->assertStringContainsString('async function ringInsecureApprovalBell()', $js);
+        $this->assertStringContainsString('window.AudioContext || window.webkitAudioContext', $js);
+        $this->assertStringContainsString('const queued = enqueueInsecureApproval({', $js);
+        $this->assertStringContainsString('if (queued) {', $js);
+        $this->assertStringContainsString('ringInsecureApprovalBell();', $js);
+    }
 }

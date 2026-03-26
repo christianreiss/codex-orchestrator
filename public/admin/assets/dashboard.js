@@ -510,6 +510,9 @@
     let activeInsecureApproval = null;
     const insecureApprovalQueue = [];
     let insecureApprovalBusy = false;
+    let insecureApprovalBellContext = null;
+    let lastInsecureApprovalBellAt = 0;
+    const INSECURE_APPROVAL_BELL_COOLDOWN_MS = 5000;
     const INSECURE_WINDOW_MIN = 0;
     const INSECURE_WINDOW_MAX = 480;
     const INSECURE_WINDOW_DEFAULT = 10;
@@ -1474,15 +1477,71 @@
       showInsecureApprovalModal(true);
     }
 
+    function getInsecureApprovalBellContext() {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (typeof AudioContextCtor !== 'function') return null;
+      if (insecureApprovalBellContext) return insecureApprovalBellContext;
+      try {
+        insecureApprovalBellContext = new AudioContextCtor();
+      } catch (err) {
+        console.warn('insecure approval bell unavailable', err);
+        insecureApprovalBellContext = null;
+      }
+      return insecureApprovalBellContext;
+    }
+
+    async function ringInsecureApprovalBell() {
+      const now = Date.now();
+      if ((now - lastInsecureApprovalBellAt) < INSECURE_APPROVAL_BELL_COOLDOWN_MS) return;
+      const ctx = getInsecureApprovalBellContext();
+      if (!ctx) return;
+      try {
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+        }
+      } catch (err) {
+        console.warn('insecure approval bell resume failed', err);
+        return;
+      }
+      if (ctx.state !== 'running') return;
+
+      lastInsecureApprovalBellAt = now;
+      const start = ctx.currentTime + 0.02;
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.0001, start);
+      master.gain.exponentialRampToValueAtTime(0.12, start + 0.02);
+      master.gain.exponentialRampToValueAtTime(0.0001, start + 1.15);
+      master.connect(ctx.destination);
+
+      [
+        { offset: 0, frequency: 1318.51, duration: 0.9, gain: 0.18, type: 'triangle' },
+        { offset: 0.08, frequency: 1760.0, duration: 0.65, gain: 0.08, type: 'sine' },
+        { offset: 0.18, frequency: 2637.02, duration: 0.45, gain: 0.04, type: 'sine' },
+      ].forEach((tone) => {
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.type = tone.type;
+        oscillator.frequency.setValueAtTime(tone.frequency, start + tone.offset);
+        gainNode.gain.setValueAtTime(0.0001, start + tone.offset);
+        gainNode.gain.exponentialRampToValueAtTime(tone.gain, start + tone.offset + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, start + tone.offset + tone.duration);
+        oscillator.connect(gainNode);
+        gainNode.connect(master);
+        oscillator.start(start + tone.offset);
+        oscillator.stop(start + tone.offset + tone.duration + 0.05);
+      });
+    }
+
     function enqueueInsecureApproval(request) {
-      if (!request || !request.id) return;
-      if (activeInsecureApproval && activeInsecureApproval.id === request.id) return;
-      if (insecureApprovalQueue.some((item) => item.id === request.id)) return;
+      if (!request || !request.id) return false;
+      if (activeInsecureApproval && activeInsecureApproval.id === request.id) return false;
+      if (insecureApprovalQueue.some((item) => item.id === request.id)) return false;
       insecureApprovalQueue.push(request);
       if (!activeInsecureApproval) {
         const next = insecureApprovalQueue.shift();
         if (next) presentInsecureApproval(next);
       }
+      return true;
     }
 
     function resolveInsecureApproval(requestId) {
@@ -8462,7 +8521,7 @@
         const details = detail.payload?.details || {};
         const requestId = Number(details.request_id || 0);
         if (Number.isFinite(requestId) && requestId > 0) {
-          enqueueInsecureApproval({
+          const queued = enqueueInsecureApproval({
             id: requestId,
             hostId: Number(detail.payload?.host_id || details.host_id || 0),
             fqdn: details.fqdn || '',
@@ -8470,6 +8529,9 @@
             createdAt: detail.payload?.created_at || null,
             command: details.command || '',
           });
+          if (queued) {
+            ringInsecureApprovalBell();
+          }
         }
       } else if (action === 'admin.insecure.approval' || action === 'admin.insecure.denied') {
         const details = detail.payload?.details || {};

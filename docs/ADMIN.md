@@ -151,6 +151,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - Insecure approval queue is only offered when both conditions are true:
   - `insecure_approval_enabled` flag is on.
   - WebSocket presence is fresh (`admin_ws_connections` heartbeat window).
+- A live `auth.insecure.pending` event now rings a short synthesized bell in the admin dashboard when a genuinely new insecure approval request arrives. Browser autoplay/user-gesture policy still applies, so the sound is best-effort rather than guaranteed on a never-interacted tab.
 - The Projects module is deliberately native to codex-orchestrator: Settings → Projects is now a compact index plus module toggle, while each project opens on its own `/admin/projects/<slug>` workspace page. The managed `coco` skill is derived from module state instead of being edited like a normal Skill row, doubles as the operator-facing CoCo toolkit/help document, and now tells operators to keep shared CoCo handoffs in Projects rather than host-scoped MCP memories.
 - Project creation remains API-driven for now; the admin UI intentionally focuses on browsing, opening, and deleting existing projects.
 - Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
