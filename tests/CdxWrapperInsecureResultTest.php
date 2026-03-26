@@ -26,7 +26,7 @@ final class CdxWrapperInsecureResultTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString('concurrent_compact_summary=1', $wrapperSource);
-        self::assertStringContainsString('Concurrent guard active; using local auth.json.', $wrapperSource);
+        self::assertStringContainsString('Using local auth.json.', $wrapperSource);
         self::assertStringContainsString('print_section_rows "Concurrent"', $wrapperSource);
     }
 }

@@ -69,10 +69,6 @@ if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
 fi
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
-  if (( CDX_RUN_GUARD_WARNING_EMITTED == 0 )); then
-    log_warn "${concurrent_reason}; skipping pre-run sync/update mutations for this run. Post-run auth/usage upload still runs. Use --allow-concurrent-sync to override."
-    CDX_RUN_GUARD_WARNING_EMITTED=1
-  fi
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
   PROMPT_SYNC_STATUS="skip"

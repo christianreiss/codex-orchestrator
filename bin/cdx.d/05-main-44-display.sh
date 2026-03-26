@@ -5,12 +5,12 @@
   if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     concurrent_compact_summary=1
     if (( HAS_VALID_LOCAL_AUTH )); then
-      concurrent_compact_note="Concurrent guard active; using local auth.json."
+      concurrent_compact_note="Using local auth.json."
     elif (( HAS_LOCAL_AUTH )); then
-      concurrent_compact_note="Concurrent guard active; local auth.json is invalid."
+      concurrent_compact_note="Local auth.json is invalid."
       concurrent_compact_tone="red"
     else
-      concurrent_compact_note="Concurrent guard active; local auth.json is missing."
+      concurrent_compact_note="Local auth.json is missing."
       concurrent_compact_tone="red"
     fi
   fi
@@ -125,4 +125,3 @@ if (( CODEX_STATUS_ONLY )); then
   release_run_lock_if_held || true
   exit 0
 fi
-

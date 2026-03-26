@@ -46,6 +46,8 @@ Concurrent-run guard behavior (`active cdx run detected`):
 - Requires valid local auth to proceed.
 - Still performs post-run auth/usage upload.
 - Skips insecure-host post-run `auth.json` purge in this path.
+- Surfaces in the compact `Concurrent` summary row instead of a separate pre-run warning line.
+- Successful concurrent launches do not emit an extra pre-launch warning line.
 
 ## Auth Contract Used By Wrapper
 - `/auth` command defaults to `retrieve`; wrapper also uses `store`.

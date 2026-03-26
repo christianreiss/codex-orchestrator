@@ -6172,10 +6172,6 @@ if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
 fi
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
-  if (( CDX_RUN_GUARD_WARNING_EMITTED == 0 )); then
-    log_warn "${concurrent_reason}; skipping pre-run sync/update mutations for this run. Post-run auth/usage upload still runs. Use --allow-concurrent-sync to override."
-    CDX_RUN_GUARD_WARNING_EMITTED=1
-  fi
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
   PROMPT_SYNC_STATUS="skip"
@@ -8968,12 +8964,12 @@ fi
   if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     concurrent_compact_summary=1
     if (( HAS_VALID_LOCAL_AUTH )); then
-      concurrent_compact_note="Concurrent guard active; using local auth.json."
+      concurrent_compact_note="Using local auth.json."
     elif (( HAS_LOCAL_AUTH )); then
-      concurrent_compact_note="Concurrent guard active; local auth.json is invalid."
+      concurrent_compact_note="Local auth.json is invalid."
       concurrent_compact_tone="red"
     else
-      concurrent_compact_note="Concurrent guard active; local auth.json is missing."
+      concurrent_compact_note="Local auth.json is missing."
       concurrent_compact_tone="red"
     fi
   fi
@@ -9089,7 +9085,6 @@ if (( CODEX_STATUS_ONLY )); then
   exit 0
 fi
 
-
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )); then
   if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
     release_run_lock_if_held || true
@@ -9149,7 +9144,6 @@ case "$AUTH_PULL_STATUS" in
   concurrent)
     if (( HAS_VALID_LOCAL_AUTH )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="Active cdx run detected; using local auth.json with sync/update mutations skipped"
     elif (( HAS_LOCAL_AUTH )); then
       AUTH_LAUNCH_REASON="Active cdx run detected and local auth.json is invalid."
     else
@@ -9183,8 +9177,6 @@ if (( AUTH_LAUNCH_ALLOWED == 0 )); then
   exit 1
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
-elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  log_warn "${AUTH_LAUNCH_REASON}."
 fi
 
 if (( CODEX_LANE_PERSIST_REQUEST )); then

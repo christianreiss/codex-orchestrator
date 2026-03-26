@@ -57,7 +57,6 @@ case "$AUTH_PULL_STATUS" in
   concurrent)
     if (( HAS_VALID_LOCAL_AUTH )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="Active cdx run detected; using local auth.json with sync/update mutations skipped"
     elif (( HAS_LOCAL_AUTH )); then
       AUTH_LAUNCH_REASON="Active cdx run detected and local auth.json is invalid."
     else
@@ -91,8 +90,6 @@ if (( AUTH_LAUNCH_ALLOWED == 0 )); then
   exit 1
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
-elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  log_warn "${AUTH_LAUNCH_REASON}."
 fi
 
 if (( CODEX_LANE_PERSIST_REQUEST )); then
