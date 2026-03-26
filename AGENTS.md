@@ -13,6 +13,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 
 - Run `git pull` before touching anything.
 - For each task: code → test → `git commit` → push.
+- Do not push to `github` unless the user explicitly says so. Default remote for pushes is `origin`.
 - Update `CHANGELOG.md` (newest date first, grouped under `# YYYY-MM-DD` headers with items listed below each date) for any behavior visible to humans.
 - If a change requires Docker services or the baked `cdx`, rebuild + restart the stack.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
