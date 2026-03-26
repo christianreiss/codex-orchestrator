@@ -15,4 +15,11 @@ final class McpRouteEphemeralAuthTest extends TestCase
         self::assertStringContainsString("listTools(McpServer::CAPABILITY_HOST)", $source);
         self::assertStringContainsString("dispatch(\$name, \$args, \$host, McpServer::CAPABILITY_HOST)", $source);
     }
+
+    public function testAdminPendingInsecureApprovalsRouteExists(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../public/index.php');
+        self::assertIsString($source);
+        self::assertStringContainsString('/admin/insecure-approvals/pending', $source);
+    }
 }

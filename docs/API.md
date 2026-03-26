@@ -152,6 +152,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/insecure/extend` — for active insecure hosts, resets each active window to `now + insecure_window_minutes` (with grace recalculated).
 - `POST /admin/hosts/insecure/disable-all` — closes all active insecure windows.
 - `GET /admin/insecure-approval` / `POST /admin/insecure-approval` — read/set insecure approval gate (`enabled` boolean).
+- `GET /admin/insecure-approvals/pending` — list unresolved insecure approval requests for the admin queue. Returns `requests[]` with `id`, `host_id`, `fqdn`, `request_ip`, `requested_at`, `updated_at`, and `status`.
 - `POST /admin/insecure-approvals/{id}/allow-domain` — approve pending request and add/update parent-domain auto-allow; optional `duration_minutes`.
 - `POST /admin/insecure-approvals/{id}/approve` — approve pending request and open host window; optional `duration_minutes`.
 - `POST /admin/insecure-approvals/{id}/deny` — deny pending request.

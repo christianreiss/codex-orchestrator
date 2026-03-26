@@ -68,6 +68,29 @@ class InsecureAuthRequestRepository
         return $row !== false ? $this->normalizeRow($row) : null;
     }
 
+    public function listPending(int $limit = 50): array
+    {
+        $limit = max(1, min($limit, 200));
+        $statement = $this->database->connection()->prepare(
+            'SELECT r.id, r.host_id, r.status, r.request_ip, r.requested_at, r.resolved_at, r.updated_at, h.fqdn
+             FROM insecure_auth_requests r
+             LEFT JOIN hosts h ON h.id = r.host_id
+             WHERE r.status = :status
+             ORDER BY r.id ASC
+             LIMIT :limit'
+        );
+        $statement->bindValue('status', 'pending');
+        $statement->bindValue('limit', $limit, PDO::PARAM_INT);
+        $statement->execute();
+
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        return array_map(fn(array $row): array => $this->normalizeRow($row), $rows);
+    }
+
     public function create(int $hostId, ?string $requestIp = null): array
     {
         $now = gmdate(DATE_ATOM);
@@ -134,6 +157,7 @@ class InsecureAuthRequestRepository
             'requested_at' => $row['requested_at'] ?? null,
             'resolved_at' => $row['resolved_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
+            'fqdn' => isset($row['fqdn']) && is_string($row['fqdn']) ? $row['fqdn'] : null,
         ];
     }
 }

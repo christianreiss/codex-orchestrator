@@ -45,4 +45,15 @@ final class AdminDashboardWebsocketWiringTest extends TestCase
         $this->assertStringContainsString('if (queued) {', $js);
         $this->assertStringContainsString('ringInsecureApprovalBell();', $js);
     }
+
+    public function testDashboardBootstrapsPendingInsecureApprovalsOnLoadAndWsReconnect(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString("api('/admin/insecure-approvals/pending')", $js);
+        $this->assertStringContainsString("window.addEventListener('admin-ws-status', (event) => {", $js);
+        $this->assertStringContainsString("if (status === 'open') {", $js);
+        $this->assertStringContainsString('loadPendingInsecureApprovals();', $js);
+    }
 }

@@ -1561,6 +1561,26 @@
       }
     }
 
+    async function loadPendingInsecureApprovals() {
+      if (!insecureApprovalModal) return;
+      try {
+        const res = await api('/admin/insecure-approvals/pending');
+        const requests = Array.isArray(res?.data?.requests) ? res.data.requests : [];
+        requests.forEach((request) => {
+          enqueueInsecureApproval({
+            id: Number(request.id || 0),
+            hostId: Number(request.host_id || 0),
+            fqdn: request.fqdn || '',
+            requestedAt: request.requested_at || null,
+            createdAt: request.updated_at || null,
+            command: request.command || '',
+          });
+        });
+      } catch (err) {
+        console.warn('pending insecure approvals unavailable', err);
+      }
+    }
+
     function setInsecureApprovalButtonsDisabled(disabled) {
       if (insecureApprovalApprove) insecureApprovalApprove.disabled = disabled;
       if (insecureApprovalDeny) insecureApprovalDeny.disabled = disabled;
@@ -8552,10 +8572,17 @@
         scheduleLiveDataRefresh(WS_UNKNOWN_ACTION_FALLBACK_DOMAINS, WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS);
       }
     });
+    window.addEventListener('admin-ws-status', (event) => {
+      const status = String(event?.detail?.status || '');
+      if (status === 'open') {
+        loadPendingInsecureApprovals();
+      }
+    });
     loadApiState();
     loadCdxSilent();
     loadReverseDns();
     loadInsecureApproval();
+    loadPendingInsecureApprovals();
     loadAutoUpdate();
 
     function wireNavShortcuts() {

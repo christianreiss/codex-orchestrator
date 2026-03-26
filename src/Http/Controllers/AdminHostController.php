@@ -400,6 +400,31 @@ class AdminHostController
         ]);
     }
 
+    public function insecureApprovalPending(): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_HOSTS_ACTIVATE);
+
+        $requests = array_map(function (array $request): array {
+            return [
+                'id' => (int) ($request['id'] ?? 0),
+                'host_id' => (int) ($request['host_id'] ?? 0),
+                'fqdn' => is_string($request['fqdn'] ?? null) ? $request['fqdn'] : '',
+                'request_ip' => $request['request_ip'] ?? null,
+                'requested_at' => $request['requested_at'] ?? null,
+                'updated_at' => $request['updated_at'] ?? null,
+                'status' => (string) ($request['status'] ?? ''),
+            ];
+        }, $this->insecureAuthRequestRepository->listPending());
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'requests' => $requests,
+            ],
+        ]);
+    }
+
     public function insecureApprovalAllowDomain(string $requestId, array $payload): void
     {
         requireAdminAccess();

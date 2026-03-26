@@ -528,6 +528,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', fn($id) => $adminHostCtrl->vi
 $router->add('POST', '#^/admin/hosts/(\d+)/auto-update$#', fn($id) => $adminHostCtrl->autoUpdate($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', fn($id) => $adminHostCtrl->insecureEnable($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', fn($id) => $adminHostCtrl->insecureDisable($id));
+$router->add('GET', '#^/admin/insecure-approvals/pending$#', fn() => $adminHostCtrl->insecureApprovalPending());
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', fn($id) => $adminHostCtrl->insecureApprovalAllowDomain($id, $payload));
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', fn($id) => $adminHostCtrl->insecureApprovalApprove($id, $payload));
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', fn($id) => $adminHostCtrl->insecureApprovalDeny($id));
