@@ -677,6 +677,36 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
     }
 
+    public function testRetrieveForInsecureHostBypassesBakeCacheAndRotatesManagedMcpToken(): void
+    {
+        $tokens = new SpyMcpSessionTokenRepository();
+        $service = new ClientConfigService($this->repository, $this->logs, null, $tokens);
+        $this->repository->upsert('body', [
+            'mcp_servers' => [
+                ['name' => 'user-custom', 'command' => '/bin/echo'],
+            ],
+        ]);
+
+        $host = ['id' => 12, 'secure' => 0];
+        $first = $service->retrieve(null, $host, 'https://coord.example', 'abc123');
+        $firstToken = $tokens->issued[0]['token'] ?? '';
+
+        $this->assertSame('updated', $first['status']);
+        $this->assertIsString($firstToken);
+        $this->assertStringStartsWith('mcp_', $firstToken);
+        $this->assertStringContainsString('Authorization = "Bearer ' . $firstToken . '"', $first['content'] ?? '');
+
+        $second = $service->retrieve($first['sha256'] ?? null, $host, 'https://coord.example', 'abc123');
+        $secondToken = $tokens->issued[1]['token'] ?? '';
+
+        $this->assertCount(2, $tokens->issued);
+        $this->assertIsString($secondToken);
+        $this->assertStringStartsWith('mcp_', $secondToken);
+        $this->assertNotSame($firstToken, $secondToken);
+        $this->assertSame('updated', $second['status']);
+        $this->assertStringContainsString('Authorization = "Bearer ' . $secondToken . '"', $second['content'] ?? '');
+    }
+
     public function testRenderRendersProfilesWithFeaturesAndSandboxOverrides(): void
     {
         $rendered = $this->service->render([

@@ -258,9 +258,10 @@ class ClientConfigService
         $body = (string) ($row['body'] ?? '');
         $baseSha = $row['sha256'] ?? hash('sha256', $body);
         $updatedAt = $row['updated_at'] ?? null;
+        $shouldBypassBakeCache = $this->shouldBypassBakeCache($host);
 
         $cacheKey = $this->cacheKey($baseSha, $updatedAt, $hostId, $apiKey, $baseUrl, $homePath);
-        $baked = self::$bakeCache[$cacheKey] ?? null;
+        $baked = $shouldBypassBakeCache ? null : (self::$bakeCache[$cacheKey] ?? null);
         if ($baked === null) {
             $settings = $row['settings'] ?? [];
             if (!is_array($settings)) {
@@ -281,7 +282,9 @@ class ClientConfigService
                 'updated_at' => $updatedAt,
                 'base_sha' => $baseSha,
             ];
-            self::$bakeCache[$cacheKey] = $baked;
+            if (!$shouldBypassBakeCache) {
+                self::$bakeCache[$cacheKey] = $baked;
+            }
         }
 
         $bakedStatus = ($sha256 !== null && hash_equals($baked['sha256'], $sha256)) ? 'unchanged' : 'updated';
@@ -305,6 +308,15 @@ class ClientConfigService
         ]);
 
         return $result;
+    }
+
+    private function shouldBypassBakeCache(?array $host): bool
+    {
+        if (!is_array($host)) {
+            return false;
+        }
+
+        return isset($host['secure']) && !(bool) (int) $host['secure'];
     }
 
     public static function resetCache(): void
