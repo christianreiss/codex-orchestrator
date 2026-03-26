@@ -271,7 +271,7 @@ cron_auto_update() {
 
   # Non-blocking lock to prevent concurrent cron runs.
   if command -v flock >/dev/null 2>&1; then
-    exec 9>"$lock_file" 2>/dev/null || {
+    exec 9>"$lock_file" || {
       printf '[%s] cron: cannot open lock file %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$lock_file"
       return 1
     }
@@ -281,6 +281,21 @@ cron_auto_update() {
     fi
   else
     log_warn "flock not available; cron concurrent-run guard disabled."
+  fi
+
+  local codex_bin local_version_raw local_version cron_asset_name
+  codex_bin="$(resolve_real_codex 2>/dev/null || true)"
+  if [[ -z "$codex_bin" ]]; then
+    printf '[%s] cron: codex binary not found on PATH.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+
+  local_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
+  local_version="$(normalize_version "$local_version_raw")"
+  cron_asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
+  if [[ -z "$cron_asset_name" ]]; then
+    printf '[%s] cron: unsupported platform; cannot determine Codex asset name.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
   fi
 
   local check_response
@@ -296,7 +311,12 @@ cron_auto_update() {
   wrapper_target_version="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('target_version',''))" 2>/dev/null || true)"
   wrapper_target_sha="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('sha256',''))" 2>/dev/null || true)"
   wrapper_target_url="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('url',''))" 2>/dev/null || true)"
-  wrapper_target_url="$(resolve_wrapper_target_url "$wrapper_target_url")"
+  if [[ -z "$wrapper_target_url" ]] && [[ -n "${CODEX_SYNC_BASE_URL:-}" ]]; then
+    wrapper_target_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
+  if [[ -n "$wrapper_target_url" && "$wrapper_target_url" != http* ]]; then
+    wrapper_target_url="${CODEX_SYNC_BASE_URL%/}${wrapper_target_url}"
+  fi
 
   if [[ "$action" == "disable" ]]; then
     printf '[%s] cron: auto-update disabled by server; removing cron job.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -439,18 +459,3 @@ cron_auto_update() {
     return 1
   fi
 }
-
-if (( CODEX_CRON_MODE )); then
-  if (( CODEX_CRON_INSTALL )); then
-    install_cron_job
-    exit $?
-  fi
-
-  if (( CODEX_CRON_REMOVE )); then
-    remove_cron_job
-    exit $?
-  fi
-
-  cron_auto_update
-  exit $?
-fi

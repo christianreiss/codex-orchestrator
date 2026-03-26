@@ -1,6 +1,21 @@
 
 API_RELEASES_URL="https://api.github.com/repos/openai/codex/releases"
 
+if (( CODEX_CRON_MODE )); then
+  if (( CODEX_CRON_INSTALL )); then
+    install_cron_job
+    exit $?
+  fi
+
+  if (( CODEX_CRON_REMOVE )); then
+    remove_cron_job
+    exit $?
+  fi
+
+  cron_auto_update
+  exit $?
+fi
+
 SCRIPT_REAL="$(real_path "$0")"
 CODEX_REAL_BIN="$(resolve_real_codex)"
 if [[ -z "$CODEX_REAL_BIN" ]]; then
