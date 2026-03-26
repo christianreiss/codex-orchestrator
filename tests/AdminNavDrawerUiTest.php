@@ -21,6 +21,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('class="rail-frame"', $html);
         $this->assertStringContainsString('id="navAccountTrigger"', $html);
         $this->assertStringContainsString('id="navThemeMenuTrigger"', $html);
+        $this->assertStringContainsString('id="wsStatus"', $html);
+        $this->assertStringContainsString('id="mtlsStatus"', $html);
         $this->assertStringContainsString('href="/admin/account/password"', $html);
         $this->assertStringContainsString('href="/admin/account/passkeys"', $html);
         $this->assertStringNotContainsString('id="themeToggle"', $html);
@@ -45,6 +47,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString("accountTab: String(document.body?.dataset?.accountTab || ''),", $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
+        $this->assertStringContainsString("window.addEventListener('admin-ws-status', (event) => {", $js);
+        $this->assertStringContainsString("setStatusChip(wsStatus, { label: 'Live: connected', variant: 'ok' });", $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);
         $this->assertStringContainsString("attributeFilter: ['data-view-mode']", $js);
     }
@@ -57,6 +61,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .rail-frame', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .rail-panel', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-status-cluster', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .rail-tools', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail-backdrop', $css);
         $this->assertStringContainsString('@media (max-width: 940px)', $css);

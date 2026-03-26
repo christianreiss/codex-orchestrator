@@ -9,6 +9,7 @@
   const menuToggle = document.getElementById('navMenuToggle');
   const backdrop = document.getElementById('navDrawerBackdrop');
   const mtlsStatus = document.getElementById('mtlsStatus');
+  const wsStatus = document.getElementById('wsStatus');
   if (!rail) return;
 
   const MOBILE_DRAWER_MEDIA = '(max-width: 940px)';
@@ -187,7 +188,32 @@
       }
       setStatusChip(mtlsStatus, { label: 'mTLS: none', variant: 'err' });
     },
+    setWs: (status) => {
+      if (!wsStatus) return;
+      const normalized = String(status || '').trim().toLowerCase();
+      if (normalized === 'open') {
+        setStatusChip(wsStatus, { label: 'Live: connected', variant: 'ok' });
+        return;
+      }
+      if (normalized === 'connecting') {
+        setStatusChip(wsStatus, { label: 'Live: connecting', variant: 'warn' });
+        return;
+      }
+      if (normalized === 'closed') {
+        setStatusChip(wsStatus, { label: 'Live: offline', variant: 'err' });
+        return;
+      }
+      if (normalized === 'error') {
+        setStatusChip(wsStatus, { label: 'Live: degraded', variant: 'err' });
+        return;
+      }
+      setStatusChip(wsStatus, { label: 'Live: unknown', variant: 'warn' });
+    },
   };
+
+  window.addEventListener('admin-ws-status', (event) => {
+    window.__navStatus.setWs(event?.detail?.status || '');
+  });
 
   async function hydrateStatus() {
     try {
@@ -204,6 +230,7 @@
     }
   }
 
+  window.__navStatus.setWs('connecting');
   hydrateStatus();
 
   const normalizePath = (path) => {
