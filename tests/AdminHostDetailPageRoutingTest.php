@@ -45,4 +45,14 @@ final class AdminHostDetailPageRoutingTest extends TestCase
         $this->assertStringContainsString('btn.onclick = async (ev) => {', $js);
         $this->assertStringContainsString("await showConfirmModal('Clear auth'", $js);
     }
+
+    public function testDashboardJsIgnoresInlineControlsWhenOpeningHostDetail(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('function shouldIgnoreHostRowNavigation(target) {', $js);
+        $this->assertStringContainsString("return !!target.closest('a, button, input, label, select, textarea, summary, [role=\"button\"], [role=\"link\"], [contenteditable=\"true\"], .insecure-inline-toggle');", $js);
+        $this->assertStringContainsString("if (shouldIgnoreHostRowNavigation(ev.target)) return;", $js);
+    }
 }

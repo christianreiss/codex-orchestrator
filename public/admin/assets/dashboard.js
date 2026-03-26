@@ -3373,6 +3373,11 @@
       window.location.assign(`/admin/hosts/${Math.trunc(numericId)}`);
     }
 
+    function shouldIgnoreHostRowNavigation(target) {
+      if (!(target instanceof Element)) return false;
+      return !!target.closest('a, button, input, label, select, textarea, summary, [role="button"], [role="link"], [contenteditable="true"], .insecure-inline-toggle');
+    }
+
     function isInsecureActive(host) {
       const state = insecureState(host);
       return state.enabledActive || state.graceActive;
@@ -3419,8 +3424,12 @@
         <td data-label="Auto-updates" class="host-auto-updates-cell"><span class="host-auto-updates-indicator" title="${escapeHtml(autoUpdate.label)}" aria-label="${escapeHtml(autoUpdate.label)}">${autoUpdate.icon}</span></td>
         <td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>
       `;
-      tr.addEventListener('click', () => openHostDetail(host.id));
+      tr.addEventListener('click', (ev) => {
+        if (shouldIgnoreHostRowNavigation(ev.target)) return;
+        openHostDetail(host.id);
+      });
       tr.addEventListener('keydown', (ev) => {
+        if (shouldIgnoreHostRowNavigation(ev.target)) return;
         if (ev.key === 'Enter' || ev.key === ' ') {
           ev.preventDefault();
           openHostDetail(host.id);
