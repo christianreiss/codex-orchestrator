@@ -389,11 +389,6 @@ class HostRepository
         $statement->execute($params);
     }
 
-    public function updateForceIpv4(int $hostId, bool $forceIpv4): void
-    {
-        $this->updateHostFields($hostId, 'force_ipv4 = :force_ipv4, ip4 = NULL, ip6 = NULL', ['force_ipv4' => $forceIpv4 ? 1 : 0]);
-    }
-
     public function updateAutoUpdateOverride(int $hostId, ?bool $override): void
     {
         $this->updateHostFields($hostId, 'auto_update_override = :override', ['override' => $override === null ? null : ($override ? 1 : 0)]);

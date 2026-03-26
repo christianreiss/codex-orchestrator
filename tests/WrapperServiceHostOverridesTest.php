@@ -64,7 +64,6 @@ CODEX_SYNC_FQDN="__CODEX_SYNC_FQDN__"
 CODEX_SYNC_CA_FILE="__CODEX_SYNC_CA_FILE__"
 CODEX_SYNC_ALLOW_INSECURE="__CODEX_SYNC_ALLOW_INSECURE__"
 CODEX_HOST_SECURE="__CODEX_HOST_SECURE__"
-CODEX_FORCE_IPV4="__CODEX_FORCE_IPV4__"
 CODEX_INSTALLATION_ID="__CODEX_INSTALLATION_ID__"
 CODEX_SILENT="__CODEX_SILENT__"
 SH;
@@ -79,7 +78,6 @@ SH;
             'fqdn' => 'host.test',
             'api_key_plain' => 'api-key-plain',
             'secure' => 1,
-            'force_ipv4' => 0,
             'curl_insecure' => 1,
             'model_override' => 'gpt-5.2',
             'reasoning_effort_override' => 'high',
@@ -147,7 +145,6 @@ SH;
                 'fqdn' => 'host.test',
                 'api_key_plain' => 'api-key-plain',
                 'secure' => 1,
-                'force_ipv4' => 0,
                 'curl_insecure' => 0,
             ];
             $baked = $service->bakedForHost($host, 'https://example.test');

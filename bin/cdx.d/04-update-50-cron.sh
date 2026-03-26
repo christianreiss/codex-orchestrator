@@ -171,14 +171,12 @@ cron_do_api_call() {
   local url="$1"
   local json_payload="$2"
   local action_label="$3"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
 import json, os, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
 
 url = sys.argv[1]
 payload_json = sys.argv[2]

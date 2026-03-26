@@ -2,20 +2,9 @@ CODEX_PY_HTTP_UTIL="$(cat <<'PY'
 import json
 import os
 import pathlib
-import socket
 import ssl
 import urllib.error
 import urllib.request
-
-def cdx_enable_force_ipv4():
-    if getattr(cdx_enable_force_ipv4, "_patched", False):
-        return
-    if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-        _orig_getaddrinfo = socket.getaddrinfo
-        def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        socket.getaddrinfo = _force_getaddrinfo
-    cdx_enable_force_ipv4._patched = True
 
 def cdx_build_ssl_contexts(cafile="", allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
     contexts = []

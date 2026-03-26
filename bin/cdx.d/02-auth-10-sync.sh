@@ -32,14 +32,12 @@ sync_auth_with_api() {
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, sys, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 path = pathlib.Path(sys.argv[2]).expanduser()

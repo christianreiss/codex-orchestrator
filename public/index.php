@@ -533,7 +533,6 @@ $router->add('POST', '#^/admin/insecure-approvals/(\d+)/allow-domain$#', fn($id)
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/approve$#', fn($id) => $adminHostCtrl->insecureApprovalApprove($id, $payload));
 $router->add('POST', '#^/admin/insecure-approvals/(\d+)/deny$#', fn($id) => $adminHostCtrl->insecureApprovalDeny($id));
 $router->add('POST', '#^/admin/insecure-domain-allows/(\d+)/revoke$#', fn($id) => $adminHostCtrl->insecureDomainRevoke($id));
-$router->add('POST', '#^/admin/hosts/(\d+)/ipv4$#', fn($id) => $adminHostCtrl->ipv4($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/curl-insecure$#', fn($id) => $adminHostCtrl->curlInsecure($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/reverse-dns$#', fn($id) => $adminHostCtrl->reverseDns($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/model$#', fn($id) => $adminHostCtrl->model($id, $payload));

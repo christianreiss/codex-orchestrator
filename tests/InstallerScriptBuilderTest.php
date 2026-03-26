@@ -25,13 +25,6 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString("DEFAULT_CURL_INSECURE='1'", $script);
     }
 
-    public function testTemplateAddsIpv4FlagWhenForced(): void
-    {
-        $script = $this->buildScript(['force_ipv4' => 1]);
-
-        $this->assertStringContainsString("CURL_FLAGS+=('-4')", $script);
-    }
-
     public function testTemplateIncludesMuslFallbackForOldGlibc(): void
     {
         $script = $this->buildScript();
@@ -77,7 +70,6 @@ final class InstallerScriptBuilderTest extends TestCase
     {
         $host = array_merge([
             'fqdn' => 'host.test',
-            'force_ipv4' => 0,
         ], $hostOverrides);
 
         $token = [

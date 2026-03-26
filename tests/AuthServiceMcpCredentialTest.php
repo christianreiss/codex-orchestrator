@@ -66,7 +66,6 @@ final class AuthServiceMcpCredentialTest extends TestCase
                 client_version_override TEXT NULL,
                 wrapper_version TEXT NULL,
                 api_calls INTEGER NOT NULL DEFAULT 0,
-                force_ipv4 INTEGER NOT NULL DEFAULT 0,
                 expires_at TEXT NULL,
                 lane_preference TEXT NULL,
                 created_at TEXT NOT NULL,

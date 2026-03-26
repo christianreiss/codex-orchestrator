@@ -60,7 +60,6 @@ PHP,
             'CODEX_SYNC_BASE_URL=' . escapeshellarg(sprintf('http://127.0.0.1:%d', $port)),
             'CODEX_SYNC_API_KEY=test-key',
             "CODEX_SYNC_CA_FILE=''",
-            'CODEX_FORCE_IPV4=0',
             'post_token_usage_payload ' . escapeshellarg($payload) . ' || true',
             'printf "result=%s\nreason=%s\n" "$USAGE_PUSH_RESULT" "$USAGE_PUSH_REASON"',
         ]);

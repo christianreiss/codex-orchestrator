@@ -65,7 +65,6 @@
             "allow_roaming_ips",
             "secure",
             "vip",
-            "force_ipv4",
             "lane_preference",
             "model_override",
             "reasoning_effort_override"
@@ -151,9 +150,6 @@
                 "integer",
                 "null"
               ]
-            },
-            "force_ipv4": {
-              "type": "boolean"
             },
             "lane_preference": {
               "type": [

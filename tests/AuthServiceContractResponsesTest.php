@@ -523,7 +523,6 @@ final class AuthServiceContractResponsesTest extends TestCase
             'insecure_enabled_until' => null,
             'insecure_grace_until' => null,
             'insecure_window_minutes' => null,
-            'force_ipv4' => 0,
             'lane_preference' => 'normal',
             'model_override' => null,
             'reasoning_effort_override' => null,

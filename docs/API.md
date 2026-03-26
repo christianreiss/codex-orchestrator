@@ -36,7 +36,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on retrieve paths that require upload.
-- `host`: `fqdn`, `status`, `last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `agents_document_id_override`, `wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `force_ipv4`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`.
+- `host`: `fqdn`, `status`, `last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `agents_document_id_override`, `wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`.
 - `api_calls`, `token_usage_month` (month-to-date totals including `cached`/`reasoning`/`cost`/`events`), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
 - `runner_applied` boolean plus optional `validation` when runner validation executed.
@@ -135,13 +135,12 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/users/{id}` — delete admin user (blocked if last active admin).
   - `POST /admin/users/wipe` — wipe all admin users (requires confirmation `confirm:"WIPE"`).
 - `POST /admin/toasts` — emit admin toast event (body: `message`, optional `title`, `level`, `timeout_ms`; aliases `body`/`text`, `tone`).
-- `GET /admin/hosts` — list hosts with digest/history, versions, API calls, IPs, roaming flag, `secure`, `vip`, optional `expires_at`, insecure-window fields, `force_ipv4`, `curl_insecure`, overrides (`client_version_override`, `agents_document_id_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`, `auto_update_override`), latest token usage, `auth_source`, recorded users, and derived auto-update status fields (`effective_auto_update_enabled`, `auto_update_state`, `auto_update_label`, `auto_update_emoji`, `auto_update_rank`, `auto_update_last_event_at`, `auto_update_target_version`).
+- `GET /admin/hosts` — list hosts with digest/history, versions, API calls, IPs, roaming flag, `secure`, `vip`, optional `expires_at`, insecure-window fields, `curl_insecure`, overrides (`client_version_override`, `agents_document_id_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`, `auto_update_override`), latest token usage, `auth_source`, recorded users, and derived auto-update status fields (`effective_auto_update_enabled`, `auto_update_state`, `auto_update_label`, `auto_update_emoji`, `auto_update_rank`, `auto_update_last_event_at`, `auto_update_target_version`).
 - `GET /admin/hosts/insecure` — insecure-host view with `{count, active, hosts[], domains[], domains_active}`.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional auth body via `?include_body=1`.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure/insecure mode.
 - `POST /admin/hosts/{id}/vip` — toggle VIP (VIP hosts always behave warn-only for quota hard-fail).
-- `POST /admin/hosts/{id}/ipv4` — toggle IPv4-only wrapper behavior (`force` boolean; clears stored IPs).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle sync TLS verification bypass (`allow` boolean).
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS mode (`mode`: `global` | `enabled` | `disabled`).
 - `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears). Supported models: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`; effort must be valid for selected model.

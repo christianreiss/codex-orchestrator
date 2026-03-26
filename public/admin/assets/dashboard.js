@@ -20,7 +20,6 @@
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
-    const ipv4Toggle = document.getElementById('ipv4Toggle');
     const vipToggle = document.getElementById('vipToggle');
     const createHostBtn = document.getElementById('createHost');
     const cancelNewHostBtn = document.getElementById('cancelNewHost');
@@ -2720,14 +2719,6 @@
         state: host.allow_roaming_ips ? 'Roaming allowed (any IP)' : 'Locked to first IPv4/IPv6 pair',
       }));
 
-      toggles.push(renderHostToggleRow({
-        action: 'ipv4',
-        checked: !!host.force_ipv4,
-        disabled: false,
-        title: 'Force IPv4',
-        state: host.force_ipv4 ? 'curl -4 enforced' : 'Dual-stack (IPv4/IPv6) allowed',
-      }));
-
       const insecureAvailable = !secure;
       const insecureSnapshot = insecureAvailable ? insecureState(host) : null;
       const insecureChecked = insecureAvailable && !!insecureSnapshot?.enabledActive;
@@ -2889,8 +2880,6 @@
               await toggleVip(host, null, desired);
             } else if (action === 'roaming') {
               await toggleRoaming(host.id, desired);
-            } else if (action === 'ipv4') {
-              await toggleIpv4(host, null, desired);
             } else if (action === 'insecure') {
               await toggleInsecureApi(host, null, desired);
             } else if (action === 'auto-update') {
@@ -3174,7 +3163,6 @@
       const securityChip = isHostSecure(host)
         ? '<span class="chip ok">Secure</span>'
         : '<span class="chip warn">Insecure</span>';
-      const ipv4Chip = host.force_ipv4 ? '<span class="chip neutral">IPv4 only</span>' : '';
       const primaryIp = host.ip4 ?? host.ip6 ?? null;
       const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
       const rows = [
@@ -3201,7 +3189,6 @@
               <div class="kv-rowline">
                 ${primaryIp ? `<code>${escapeHtml(primaryIp)}</code>` : 'Not yet bound'}
                 <span class="chip ${host.allow_roaming_ips ? 'warn' : 'ok'}">${host.allow_roaming_ips ? 'Roaming enabled' : 'IP locked'}</span>
-                ${ipv4Chip}
               </div>
               ${secondaryIp ? `
                 <div class="kv-rowline" style="margin-top:4px;">
@@ -5571,7 +5558,6 @@
         vip: 0,
         temporary: 0,
         roaming: 0,
-        ipv4Only: 0,
         behindVersion: 0,
       };
 
@@ -5601,7 +5587,6 @@
         if (host.vip) summary.vip += 1;
         if (host.expires_at) summary.temporary += 1;
         if (host.allow_roaming_ips) summary.roaming += 1;
-        if (host.force_ipv4) summary.ipv4Only += 1;
 
         if (isVersionBehind(host.client_version, latestVersions.client) || isVersionBehind(host.wrapper_version, latestVersions.wrapper)) {
           summary.behindVersion += 1;
@@ -8652,9 +8637,6 @@
       if (insecureToggle) {
         insecureToggle.checked = false;
       }
-      if (ipv4Toggle) {
-        ipv4Toggle.checked = false;
-      }
       if (vipToggle) {
         vipToggle.checked = false;
       }
@@ -8722,9 +8704,6 @@
       if (insecureToggle && existingHost) {
         insecureToggle.checked = !!existingHost.curl_insecure;
       }
-      if (ipv4Toggle && existingHost) {
-        ipv4Toggle.checked = !!existingHost.force_ipv4;
-      }
       if (vipToggle && existingHost) {
         vipToggle.checked = !!existingHost.vip;
       }
@@ -8757,9 +8736,6 @@
         if (insecureToggle?.checked) {
           cmd = addCurlFlag(cmd, '-k');
           cmd = addBashEnv(cmd, 'CODEX_INSTALL_CURL_INSECURE=1');
-        }
-        if (ipv4Toggle?.checked) {
-          cmd = addCurlFlag(cmd, '-4');
         }
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
@@ -9065,29 +9041,3 @@
       }
     }
 
-    async function toggleIpv4(host, button = null, desiredState = null) {
-      if (!host) {
-        toast('Host not found', 'warn');
-        return;
-      }
-      const target = typeof desiredState === 'boolean' ? desiredState : !host.force_ipv4;
-      const originalLabel = button ? button.textContent : null;
-      if (button) {
-        button.disabled = true;
-        button.textContent = target ? 'Forcing…' : 'Allowing…';
-      }
-      try {
-        await api(`/admin/hosts/${host.id}/ipv4`, {
-          method: 'POST',
-          json: { force: target },
-        });
-        await loadAll();
-      } catch (err) {
-        toast(err.message, 'error');
-      } finally {
-        if (button) {
-          button.disabled = false;
-          if (originalLabel !== null) button.textContent = originalLabel;
-        }
-      }
-    }

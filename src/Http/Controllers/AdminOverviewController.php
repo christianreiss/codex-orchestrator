@@ -678,7 +678,6 @@ class AdminOverviewController
                 'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
                     ? (int) $host['insecure_window_minutes']
                     : null,
-                'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
                 'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
                 'last_cron_check' => $normalizeTs($host['last_cron_check'] ?? null),
                 'reverse_dns_mode' => formatReverseDnsModeOutput($host['reverse_dns_mode'] ?? null),

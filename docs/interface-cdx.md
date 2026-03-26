@@ -15,7 +15,6 @@ At download time, the server bakes host-specific placeholders into the wrapper:
 - `CODEX_SYNC_FQDN`
 - `CODEX_SYNC_CA_FILE`
 - `CODEX_HOST_SECURE`
-- `CODEX_FORCE_IPV4`
 - `CODEX_INSTALLATION_ID`
 - `CODEX_SILENT`
 - `CODEX_SYNC_ALLOW_INSECURE`
@@ -194,8 +193,6 @@ Summary layout:
 - Non-TTY interactive launch (no args, no terminal) fails with guidance to use `--execute`.
 - Interactive SSH sessions inject `--no-alt-screen` by default so terminal CPR/alt-screen quirks on some SSH hosts do not tear down the visible UI; set `CODEX_SSH_ALT_SCREEN=0` to keep fullscreen alt-screen mode.
 - `PROMPT_TOOLKIT_NO_CPR=1` is set automatically when stdin or stdout is not a TTY.
-- When `CODEX_FORCE_IPV4=1`, the wrapper starts a short-lived loopback HTTP proxy and injects it only into the spawned Codex process (`HTTP[S]_PROXY`, `ALL_PROXY`, and `-c network.proxy_url=...`) so Codex traffic, including `chatgpt.com`, resolves/connects over IPv4 without changing the parent shell environment.
-
 `--execute` behavior:
 - `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.
 - Runs:

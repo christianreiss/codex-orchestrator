@@ -761,47 +761,6 @@ class AdminHostController
         ]);
     }
 
-    public function ipv4(string $hostId, array $payload): void
-    {
-        requireAdminAccess();
-        requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
-        $hostId = (int) $hostId;
-        $host = $this->hostRepository->findById($hostId);
-        if (!$host) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Host not found',
-            ], 404);
-        }
-
-        $forceRaw = $payload['force'] ?? null;
-        $force = normalizeBoolean($forceRaw);
-        if (!is_bool($force)) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'force must be boolean',
-            ], 422);
-        }
-
-        $this->hostRepository->updateForceIpv4($hostId, $force);
-        $this->logRepository->log($hostId, 'admin.host.force_ipv4', [
-            'fqdn' => $host['fqdn'] ?? null,
-            'force_ipv4' => $force,
-        ]);
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'host' => [
-                    'id' => $hostId,
-                    'force_ipv4' => $force,
-                    'ip4' => null,
-                    'ip6' => null,
-                ],
-            ],
-        ]);
-    }
-
     public function curlInsecure(string $hostId, array $payload): void
     {
         requireAdminAccess();

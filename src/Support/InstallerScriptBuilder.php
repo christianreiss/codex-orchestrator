@@ -33,8 +33,6 @@ final class InstallerScriptBuilder
         $clientVersion = is_string($versions['client_version'] ?? null) ? $versions['client_version'] : null;
         $codexVersion = CodexVersionPolicy::resolveEffective($clientVersion, false)['version'];
 
-        $forceIpv4 = isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false;
-        $curl4 = $forceIpv4 ? '-4' : '';
         $curlInsecure = self::resolveCurlInsecureFlag($host, $tokenRow) ? '1' : '0';
 
         $template = <<<'SCRIPT'
@@ -49,14 +47,10 @@ tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
-CURL4="__CURL4__"
 DEFAULT_CURL_INSECURE='__CURL_INSECURE__'
 CURL_INSECURE="${CODEX_INSTALL_CURL_INSECURE:-$DEFAULT_CURL_INSECURE}"
 
 CURL_FLAGS=()
-if [ -n "$CURL4" ]; then
-  CURL_FLAGS+=('-4')
-fi
 case "$CURL_INSECURE" in
   1|true|TRUE|True|t|T|yes|YES|Yes|y|Y)
     CURL_FLAGS+=('-k')
@@ -221,7 +215,6 @@ SCRIPT;
             '__API__' => self::escapeForSingleQuotes($apiKeyRaw),
             '__FQDN__' => self::escapeForSingleQuotes($fqdnRaw),
             '__CODEX__' => self::escapeForSingleQuotes((string) $codexVersion),
-            '__CURL4__' => $curl4,
             '__CURL_INSECURE__' => $curlInsecure,
         ]);
     }

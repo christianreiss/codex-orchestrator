@@ -1074,7 +1074,6 @@ class AuthService
             'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
                 ? (int) $host['insecure_window_minutes']
                 : null,
-            'force_ipv4' => isset($host['force_ipv4']) ? (bool) (int) $host['force_ipv4'] : false,
             'lane_preference' => self::normalizeQuotaLane($host['lane_preference'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,

@@ -894,7 +894,7 @@ doctor_probe_api_versions() {
 
   local probe=""
   local rc=0
-  probe="$(CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
+  probe="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json
 import os
 import sys
@@ -903,8 +903,6 @@ import urllib.request
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 cafile = sys.argv[2] if len(sys.argv) > 2 else ""
