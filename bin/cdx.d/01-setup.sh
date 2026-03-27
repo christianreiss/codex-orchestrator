@@ -1,24 +1,12 @@
 
-ensure_commands() {
-  local missing=()
-  local cmd
-  for cmd in "$@"; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      missing+=("$cmd")
-    fi
-  done
-
-  if (( ${#missing[@]} == 0 )); then
-    return 0
-  fi
-
+install_missing_commands() {
+  local missing=("$@")
   local os=""
   os="$(uname -s)"
   case "$os" in
     Darwin)
       if ! command -v brew >/dev/null 2>&1; then
-        log_error "Missing required commands: ${missing[*]}. Install Homebrew (brew) or add them manually."
-        exit 1
+        return 1
       fi
       local brew_missing=()
       local cmd pkg
@@ -30,13 +18,12 @@ ensure_commands() {
         brew_missing+=("$pkg")
       done
       log_info "Installing prerequisites (${missing[*]}) with Homebrew"
-      brew install "${brew_missing[@]}"
+      brew install "${brew_missing[@]}" || return 1
       ;;
     Linux)
       local pm=""
       if ! pm="$(detect_linux_package_manager)"; then
-        log_error "Missing required commands: ${missing[*]}. Unable to determine package manager for automatic installation."
-        exit 1
+        return 1
       fi
 
       local use_sudo=()
@@ -44,8 +31,7 @@ ensure_commands() {
         if command -v sudo >/dev/null 2>&1; then
           use_sudo=(sudo)
         else
-          log_error "Missing required commands: ${missing[*]}. Install them manually or rerun Codex as root to allow automatic installation."
-          exit 1
+          return 1
         fi
       fi
 
@@ -54,6 +40,9 @@ ensure_commands() {
       for dep in "${missing[@]}"; do
         pkg="$dep"
         case "$pm:$dep" in
+          apt-get:bwrap|dnf:bwrap|yum:bwrap)
+            pkg="bubblewrap"
+            ;;
           pacman:python3)
             pkg="python"
             ;;
@@ -69,63 +58,80 @@ ensure_commands() {
           log_info "Installing prerequisites (${missing[*]}) with apt-get"
           if (( ${#use_sudo[@]} > 0 )); then
             "${use_sudo[@]}" apt-get update -qq
-            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}"
+            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}" || return 1
           else
             apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}" || return 1
           fi
           ;;
         dnf)
           log_info "Installing prerequisites (${missing[*]}) with dnf"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" dnf install -y "${install_missing[@]}"
+            "${use_sudo[@]}" dnf install -y "${install_missing[@]}" || return 1
           else
-            dnf install -y "${install_missing[@]}"
+            dnf install -y "${install_missing[@]}" || return 1
           fi
           ;;
         yum)
           log_info "Installing prerequisites (${missing[*]}) with yum"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" yum install -y "${install_missing[@]}"
+            "${use_sudo[@]}" yum install -y "${install_missing[@]}" || return 1
           else
-            yum install -y "${install_missing[@]}"
+            yum install -y "${install_missing[@]}" || return 1
           fi
           ;;
         pacman)
           log_info "Installing prerequisites (${missing[*]}) with pacman"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" pacman -S --noconfirm --needed "${install_missing[@]}"
+            "${use_sudo[@]}" pacman -S --noconfirm --needed "${install_missing[@]}" || return 1
           else
-            pacman -S --noconfirm --needed "${install_missing[@]}"
+            pacman -S --noconfirm --needed "${install_missing[@]}" || return 1
           fi
           ;;
         zypper)
           log_info "Installing prerequisites (${missing[*]}) with zypper"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" zypper --non-interactive install --no-recommends "${install_missing[@]}"
+            "${use_sudo[@]}" zypper --non-interactive install --no-recommends "${install_missing[@]}" || return 1
           else
-            zypper --non-interactive install --no-recommends "${install_missing[@]}"
+            zypper --non-interactive install --no-recommends "${install_missing[@]}" || return 1
           fi
           ;;
         apk)
           log_info "Installing prerequisites (${missing[*]}) with apk"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" apk add --no-cache "${install_missing[@]}"
+            "${use_sudo[@]}" apk add --no-cache "${install_missing[@]}" || return 1
           else
-            apk add --no-cache "${install_missing[@]}"
+            apk add --no-cache "${install_missing[@]}" || return 1
           fi
           ;;
         *)
-          log_error "Unsupported package manager: ${pm}"
-          exit 1
+          return 1
           ;;
       esac
       ;;
     *)
-      log_error "Missing required commands: ${missing[*]}. Automatic installation is only supported on Linux or macOS with Homebrew."
-      exit 1
+      return 1
       ;;
   esac
+}
+
+ensure_commands() {
+  local missing=()
+  local cmd
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#missing[@]} == 0 )); then
+    return 0
+  fi
+
+  if ! install_missing_commands "${missing[@]}"; then
+    log_error "Missing required commands: ${missing[*]}. Install them manually or rerun Codex as root to allow automatic installation."
+    exit 1
+  fi
 
   local still_missing=()
   for cmd in "${missing[@]}"; do
@@ -137,6 +143,36 @@ ensure_commands() {
   if (( ${#still_missing[@]} > 0 )); then
     log_error "Failed to install required commands: ${still_missing[*]}"
     exit 1
+  fi
+}
+
+ensure_optional_commands() {
+  local missing=()
+  local cmd
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#missing[@]} == 0 )); then
+    return 0
+  fi
+
+  if ! install_missing_commands "${missing[@]}"; then
+    log_warn "Optional prerequisites unavailable (${missing[*]}). Continuing; Codex may use built-in fallbacks."
+    return 0
+  fi
+
+  local still_missing=()
+  for cmd in "${missing[@]}"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      still_missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#still_missing[@]} > 0 )); then
+    log_warn "Optional prerequisites still missing (${still_missing[*]}). Continuing; Codex may use built-in fallbacks."
   fi
 }
 
@@ -294,6 +330,24 @@ PY
     return 0
   fi
   return 1
+}
+
+ssh_should_force_no_alt_screen() {
+  case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
+    0|false|no|off)
+      return 1
+      ;;
+    1|true|yes|on|force)
+      return 0
+      ;;
+  esac
+
+  local local_version="${LOCAL_VERSION:-}"
+  if [[ -n "$local_version" ]] && ! version_lt "$local_version" "0.117.0"; then
+    return 1
+  fi
+
+  return 0
 }
 
 is_ssh_session() {

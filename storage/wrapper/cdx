@@ -123,6 +123,41 @@ strip_ansi_sgr() {
   sed "$SED_ERE_FLAG" 's/\x1B\[[0-9;]*[mK]//g' <<<"$text"
 }
 
+strip_zero_width_text() {
+  local text="${1-}"
+  text="${text//$'\uFE0E'/}"
+  text="${text//$'\uFE0F'/}"
+  text="${text//$'\u200D'/}"
+  printf '%s' "$text"
+}
+
+visible_text_width() {
+  local text="${1-}"
+  local plain
+  plain="$(strip_zero_width_text "$(strip_ansi_sgr "$text")")"
+  # Some terminals still render the lightning glyph double-width even in text
+  # presentation, so pad quota labels against that visual width.
+  plain="${plain//⚡/XX}"
+  printf '%d' "${#plain}"
+}
+
+pad_visible_text_right() {
+  local text="${1-}"
+  local target_width="${2-0}"
+  if [[ ! "$target_width" =~ ^[0-9]+$ ]]; then
+    target_width=0
+  fi
+
+  local plain_width
+  plain_width="$(visible_text_width "$text")"
+
+  local padding=$(( target_width - plain_width ))
+  (( padding < 0 )) && padding=0
+
+  printf '%s' "$text"
+  (( padding > 0 )) && printf '%*s' "$padding" ""
+}
+
 sha256_file() {
   local target="${1-}"
   [[ -n "$target" ]] || return 1
@@ -151,20 +186,69 @@ PY
   return 1
 }
 
-MOTD_TEXT="$(cat <<'EOF'
+BANNER_ART="$(cat <<'EOF'
  ██████╗  ██████╗  ██████╗  ██████╗
-██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗    codex
-██║      ██║   ██║██║      ██║   ██║    orchestrator
+██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗
+██║      ██║   ██║██║      ██║   ██║
 ██║      ██║   ██║██║      ██║   ██║
 ╚██████╗ ╚██████╔╝╚██████╗ ╚██████╔╝
  ╚═════╝  ╚═════╝  ╚═════╝  ╚═════╝
 EOF
 )"
 
+# Backward-compat shim: renders banner with "codex orchestrator" text (old style).
 print_motd() {
+  local i=0
   while IFS= read -r line; do
-    printf "%b %s%b\n" "${ORANGE}${BOLD}" "$line" "${RESET}"
-  done <<<"$MOTD_TEXT"
+    local suffix=""
+    case $i in
+      1) suffix="    codex" ;;
+      2) suffix="    orchestrator" ;;
+    esac
+    printf "%b %s%s%b\n" "${ORANGE}${BOLD}" "$line" "$suffix" "${RESET}"
+    i=$((i + 1))
+  done <<<"$BANNER_ART"
+}
+
+# Neofetch-style banner: art on the left, info lines on the right.
+# Usage: print_boot_banner "info0" "info1" "info2" "info3" "info4" "info5"
+print_boot_banner() {
+  local -a info_lines=("$@")
+  local art_pad=36
+  local gap="   "
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
+
+  local stacked=0
+  (( cols < 60 )) && stacked=1
+
+  local i=0
+  while IFS= read -r art_line; do
+    printf "%b %s" "${ORANGE}${BOLD}" "$art_line"
+    if (( ! stacked )); then
+      local art_len=${#art_line}
+      local pad_n=$(( art_pad - art_len ))
+      (( pad_n < 0 )) && pad_n=0
+      (( pad_n > 0 )) && printf '%*s' "$pad_n" ""
+    fi
+    printf "%b" "${RESET}"
+    if (( ! stacked )) && [[ -n "${info_lines[i]:-}" ]]; then
+      printf "%s%s" "$gap" "${info_lines[i]}"
+    fi
+    printf "\n"
+    i=$((i + 1))
+  done <<<"$BANNER_ART"
+
+  if (( stacked )); then
+    local info
+    for info in "${info_lines[@]}"; do
+      [[ -z "$info" ]] && continue
+      printf "  %s\n" "$info"
+    done
+  fi
 }
 
 mask_key() {
@@ -182,9 +266,265 @@ mask_key() {
 }
 
 emit_insecure_notice() {
+  # Silenced: insecure status is shown on the boot screen context line.
   (( HOST_SECURITY_NOTICE_EMITTED )) && return
-  log_warn "Host marked insecure; auth.json will be removed after this run."
   HOST_SECURITY_NOTICE_EMITTED=1
+}
+
+repeat_box_char() {
+  local char="${1-}"
+  local count="${2:-0}"
+  local out=""
+  while (( count > 0 )); do
+    out+="$char"
+    count=$(( count - 1 ))
+  done
+  printf '%s' "$out"
+}
+
+approval_box_terminal_columns() {
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1 && [[ -t 1 || -t 2 ]]; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 40 )); then
+    cols=80
+  fi
+  printf '%s' "$cols"
+}
+
+truncate_box_text() {
+  local text="${1-}"
+  local max_width="${2:-0}"
+  local ellipsis="..."
+  local keep_len=0
+  if (( max_width <= 0 )); then
+    printf ''
+    return 0
+  fi
+  if (( ${#text} <= max_width )); then
+    printf '%s' "$text"
+    return 0
+  fi
+  if (( max_width <= ${#ellipsis} )); then
+    printf '%.*s' "$max_width" "$ellipsis"
+    return 0
+  fi
+  keep_len=$(( max_width - ${#ellipsis} ))
+  printf '%s%s' "${text:0:keep_len}" "$ellipsis"
+}
+
+compact_display_path() {
+  local path="${1-}"
+  if [[ -z "$path" ]]; then
+    path="${PWD:-}"
+  fi
+  if [[ -z "$path" ]]; then
+    path="$(pwd -P 2>/dev/null || pwd 2>/dev/null || printf '.')"
+  fi
+  if [[ -n "${HOME:-}" && "$path" == "$HOME" ]]; then
+    printf '~'
+    return 0
+  fi
+  if [[ -n "${HOME:-}" && "$path" == "$HOME/"* ]]; then
+    printf ~/%s "${path#"$HOME"/}"
+    return 0
+  fi
+  printf '%s' "$path"
+}
+
+format_approval_box_field() {
+  local label="${1-}"
+  local value="${2-}"
+  printf '%-11s %s' "$label" "$value"
+}
+
+config_default_reasoning_effort() {
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+
+  local default_reasoning=""
+  default_reasoning="$(awk '
+    BEGIN { in_root = 1 }
+    /^[[:space:]]*\[/ {
+      in_root = 0
+      next
+    }
+    !in_root { next }
+    /^[[:space:]]*model_reasoning_effort[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*model_reasoning_effort[[:space:]]*=[[:space:]]*/, "", line)
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line ~ /^".*"$/) {
+        sub(/^"/, "", line)
+        sub(/"$/, "", line)
+      }
+      if (line != "") {
+        print line
+        exit 0
+      }
+    }
+  ' "$CONFIG_PATH" 2>/dev/null || true)"
+  if [[ -n "$default_reasoning" ]]; then
+    printf '%s\n' "$default_reasoning"
+    return 0
+  fi
+  return 1
+}
+
+detect_insecure_approval_model() {
+  local model=""
+  local reasoning=""
+  local default_model=""
+  local default_reasoning=""
+  if [[ -n "${CODEX_HOST_MODEL:-}" ]]; then
+    model="$CODEX_HOST_MODEL"
+  fi
+  if [[ -z "$model" ]]; then
+    case "${CODEX_LANE_TARGET:-}" in
+      spark)
+        model="gpt-5.3-codex-spark"
+        ;;
+      normal)
+        model="gpt-5.3-codex"
+        ;;
+    esac
+  fi
+  if [[ -z "$model" ]] && default_model="$(config_default_model 2>/dev/null)"; then
+    model="$default_model"
+  fi
+  if [[ -z "$model" ]]; then
+    model="gpt-5.4"
+  fi
+
+  if [[ -n "${CODEX_HOST_REASONING_EFFORT:-}" ]]; then
+    reasoning="$CODEX_HOST_REASONING_EFFORT"
+  elif default_reasoning="$(config_default_reasoning_effort 2>/dev/null)"; then
+    reasoning="$default_reasoning"
+  fi
+
+  if [[ -n "$reasoning" ]]; then
+    printf '%s %s' "$model" "$reasoning"
+    return 0
+  fi
+  printf '%s' "$model"
+}
+
+build_insecure_approval_pending_box() {
+  local checks="${1:-0}"
+  local last_check="${2-}"
+  local approval_status="${3:-Pending; open Admin, click Enable window}"
+  local title_suffix="${LOCAL_VERSION:-unknown}"
+  local title=""
+  local model_line=""
+  local directory_line=""
+  local status_line=""
+  local last_check_line=""
+  local checks_line=""
+  local cols=0
+  local max_content_width=0
+  local min_content_width=45
+  local content_width=0
+  local top_left="╭"
+  local top_right="╮"
+  local bottom_left="╰"
+  local bottom_right="╯"
+  local horizontal="─"
+  local vertical="│"
+  local line=""
+  local truncated=""
+  local -a lines=()
+
+  if (( CODEX_TERM_IS_DUMB )); then
+    top_left="+"
+    top_right="+"
+    bottom_left="+"
+    bottom_right="+"
+    horizontal="-"
+    vertical="|"
+  fi
+
+  if [[ -z "$last_check" ]]; then
+    last_check="waiting..."
+  fi
+  if [[ -z "$title_suffix" ]]; then
+    title=">_ OpenAI Codex"
+  else
+    title=">_ OpenAI Codex (v${title_suffix})"
+  fi
+  model_line="$(format_approval_box_field "model:" "$(detect_insecure_approval_model)")"
+  directory_line="$(format_approval_box_field "directory:" "$(compact_display_path "${PWD:-}")")"
+  status_line="$(format_approval_box_field "approval:" "$approval_status")"
+  last_check_line="$(format_approval_box_field "last check:" "$last_check")"
+  checks_line="$(format_approval_box_field "checks:" "$checks")"
+  lines=(
+    "$title"
+    ""
+    "$model_line"
+    "$directory_line"
+    "$status_line"
+    "$last_check_line"
+    "$checks_line"
+  )
+
+  cols="$(approval_box_terminal_columns)"
+  max_content_width=$(( cols - 4 ))
+  if (( max_content_width < 32 )); then
+    max_content_width=32
+  fi
+  content_width=$min_content_width
+  for line in "${lines[@]}"; do
+    if (( ${#line} > content_width )); then
+      content_width=${#line}
+    fi
+  done
+  if (( content_width > max_content_width )); then
+    content_width=$max_content_width
+  fi
+
+  printf '%s%s%s\n' "$top_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$top_right"
+  for line in "${lines[@]}"; do
+    truncated="$(truncate_box_text "$line" "$content_width")"
+    printf '%s %-*s %s\n' "$vertical" "$content_width" "$truncated" "$vertical"
+  done
+  printf '%s%s%s' "$bottom_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$bottom_right"
+}
+
+render_insecure_approval_pending_box() {
+  (( CODEX_SILENT )) && return 0
+  local checks="${1:-0}"
+  local last_check="${2-}"
+  local approval_status="${3:-Pending; open Admin, click Enable window}"
+  local can_redraw=0
+  local box_content=""
+  local line=""
+  local box_line_count=0
+  if [[ -t 2 ]] && (( ! CODEX_TERM_IS_DUMB )); then
+    can_redraw=1
+  fi
+  if (( INSECURE_APPROVAL_BOX_VISIBLE )) && (( ! can_redraw )); then
+    return 0
+  fi
+
+  box_content="$(build_insecure_approval_pending_box "$checks" "$last_check" "$approval_status")"
+  box_line_count="$(printf '%s\n' "$box_content" | awk 'END { print NR }')"
+
+  if (( can_redraw )) && (( INSECURE_APPROVAL_BOX_VISIBLE )) && (( INSECURE_APPROVAL_BOX_LINES > 0 )); then
+    printf '\033[%sA' "$INSECURE_APPROVAL_BOX_LINES" >&2
+  fi
+
+  while IFS= read -r line; do
+    if (( can_redraw )); then
+      printf '\033[2K\r%s\n' "$line" >&2
+    else
+      printf '%s\n' "$line" >&2
+    fi
+  done <<< "$box_content"
+
+  INSECURE_APPROVAL_BOX_VISIBLE=1
+  INSECURE_APPROVAL_BOX_LINES="$box_line_count"
 }
 
 normalize_hostname() {
@@ -234,8 +574,6 @@ enforce_baked_fqdn_guard() {
 }
 
 CODEX_DEBUG=${CODEX_DEBUG:-0}
-CODEX_NO_PTY=${CODEX_NO_PTY:-0}
-CODEX_NO_SCRIPT=${CODEX_NO_SCRIPT:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
 CODEX_DO_UNINSTALL=0
@@ -408,18 +746,8 @@ PROMPT_REMOTE_COUNT=""
 PROMPT_LOCAL_COUNT=""
 PROMPT_LOCAL_CHANGED=""
 PROMPT_REMOVED=0
-SKILL_DIR="$HOME/.agents/skills"
-SKILL_BASELINE_FILE="$HOME/.agents/.skill-baseline.json"
-SKILL_SYNC_STATUS="skip"
+SKILL_SYNC_STATUS="mcp"
 SKILL_SYNC_REASON=""
-SKILL_PULL_UPDATED=0
-SKILL_PULL_ERRORS=0
-SKILL_PUSHED=0
-SKILL_PUSH_ERRORS=0
-SKILL_PUSH_STATUS=""
-SKILL_REMOTE_COUNT=""
-SKILL_LOCAL_COUNT=""
-SKILL_LOCAL_CHANGED=""
 SKILL_REMOVED=0
 AGENTS_PATH="$HOME/.codex/AGENTS.md"
 AGENTS_SYNC_STATUS="skip"
@@ -447,7 +775,13 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.24-02"
+INSECURE_APPROVAL_BOX_VISIBLE=0
+INSECURE_APPROVAL_BOX_LINES=0
+INSECURE_APPROVAL_CHECK_COUNT=0
+INSECURE_APPROVAL_LAST_CHECK=""
+INSECURE_APPROVAL_LAST_STATUS=""
+
+WRAPPER_VERSION="2026.03.27-11"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -632,11 +966,11 @@ acquire_run_lock_or_mark_concurrent() {
   CDX_RUN_LOCK_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.lock"
   CDX_RUN_LOCK_META_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.meta"
 
-  exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH" 2>/dev/null || {
+  if ! { exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH"; } 2>/dev/null; then
     CDX_RUN_LOCK_FD=""
     log_warn "Cannot open run lock ${CDX_RUN_LOCK_PATH}; concurrent-run guard disabled."
     return 0
-  }
+  fi
 
   if flock -n "$CDX_RUN_LOCK_FD" 2>/dev/null; then
     CDX_RUN_LOCK_HELD=1
@@ -1144,7 +1478,7 @@ uninstall_api_deregister() {
   fi
   local url="${base}/auth?force=1"
   local args=(-fsS -X DELETE -H "X-API-Key: ${key}")
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     args+=("-4")
   fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
@@ -1179,7 +1513,7 @@ PY
 
   local url="${base}/host/users"
   local args=(-fsS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" --data "$payload")
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     args+=("-4")
   fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
@@ -1746,26 +2080,14 @@ PY
 export CODEX_PY_IPV4_PROXY_UTIL
 
 
-ensure_commands() {
-  local missing=()
-  local cmd
-  for cmd in "$@"; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-      missing+=("$cmd")
-    fi
-  done
-
-  if (( ${#missing[@]} == 0 )); then
-    return 0
-  fi
-
+install_missing_commands() {
+  local missing=("$@")
   local os=""
   os="$(uname -s)"
   case "$os" in
     Darwin)
       if ! command -v brew >/dev/null 2>&1; then
-        log_error "Missing required commands: ${missing[*]}. Install Homebrew (brew) or add them manually."
-        exit 1
+        return 1
       fi
       local brew_missing=()
       local cmd pkg
@@ -1777,13 +2099,12 @@ ensure_commands() {
         brew_missing+=("$pkg")
       done
       log_info "Installing prerequisites (${missing[*]}) with Homebrew"
-      brew install "${brew_missing[@]}"
+      brew install "${brew_missing[@]}" || return 1
       ;;
     Linux)
       local pm=""
       if ! pm="$(detect_linux_package_manager)"; then
-        log_error "Missing required commands: ${missing[*]}. Unable to determine package manager for automatic installation."
-        exit 1
+        return 1
       fi
 
       local use_sudo=()
@@ -1791,8 +2112,7 @@ ensure_commands() {
         if command -v sudo >/dev/null 2>&1; then
           use_sudo=(sudo)
         else
-          log_error "Missing required commands: ${missing[*]}. Install them manually or rerun Codex as root to allow automatic installation."
-          exit 1
+          return 1
         fi
       fi
 
@@ -1801,6 +2121,9 @@ ensure_commands() {
       for dep in "${missing[@]}"; do
         pkg="$dep"
         case "$pm:$dep" in
+          apt-get:bwrap|dnf:bwrap|yum:bwrap)
+            pkg="bubblewrap"
+            ;;
           pacman:python3)
             pkg="python"
             ;;
@@ -1816,63 +2139,80 @@ ensure_commands() {
           log_info "Installing prerequisites (${missing[*]}) with apt-get"
           if (( ${#use_sudo[@]} > 0 )); then
             "${use_sudo[@]}" apt-get update -qq
-            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}"
+            "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}" || return 1
           else
             apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}" || return 1
           fi
           ;;
         dnf)
           log_info "Installing prerequisites (${missing[*]}) with dnf"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" dnf install -y "${install_missing[@]}"
+            "${use_sudo[@]}" dnf install -y "${install_missing[@]}" || return 1
           else
-            dnf install -y "${install_missing[@]}"
+            dnf install -y "${install_missing[@]}" || return 1
           fi
           ;;
         yum)
           log_info "Installing prerequisites (${missing[*]}) with yum"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" yum install -y "${install_missing[@]}"
+            "${use_sudo[@]}" yum install -y "${install_missing[@]}" || return 1
           else
-            yum install -y "${install_missing[@]}"
+            yum install -y "${install_missing[@]}" || return 1
           fi
           ;;
         pacman)
           log_info "Installing prerequisites (${missing[*]}) with pacman"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" pacman -S --noconfirm --needed "${install_missing[@]}"
+            "${use_sudo[@]}" pacman -S --noconfirm --needed "${install_missing[@]}" || return 1
           else
-            pacman -S --noconfirm --needed "${install_missing[@]}"
+            pacman -S --noconfirm --needed "${install_missing[@]}" || return 1
           fi
           ;;
         zypper)
           log_info "Installing prerequisites (${missing[*]}) with zypper"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" zypper --non-interactive install --no-recommends "${install_missing[@]}"
+            "${use_sudo[@]}" zypper --non-interactive install --no-recommends "${install_missing[@]}" || return 1
           else
-            zypper --non-interactive install --no-recommends "${install_missing[@]}"
+            zypper --non-interactive install --no-recommends "${install_missing[@]}" || return 1
           fi
           ;;
         apk)
           log_info "Installing prerequisites (${missing[*]}) with apk"
           if (( ${#use_sudo[@]} > 0 )); then
-            "${use_sudo[@]}" apk add --no-cache "${install_missing[@]}"
+            "${use_sudo[@]}" apk add --no-cache "${install_missing[@]}" || return 1
           else
-            apk add --no-cache "${install_missing[@]}"
+            apk add --no-cache "${install_missing[@]}" || return 1
           fi
           ;;
         *)
-          log_error "Unsupported package manager: ${pm}"
-          exit 1
+          return 1
           ;;
       esac
       ;;
     *)
-      log_error "Missing required commands: ${missing[*]}. Automatic installation is only supported on Linux or macOS with Homebrew."
-      exit 1
+      return 1
       ;;
   esac
+}
+
+ensure_commands() {
+  local missing=()
+  local cmd
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#missing[@]} == 0 )); then
+    return 0
+  fi
+
+  if ! install_missing_commands "${missing[@]}"; then
+    log_error "Missing required commands: ${missing[*]}. Install them manually or rerun Codex as root to allow automatic installation."
+    exit 1
+  fi
 
   local still_missing=()
   for cmd in "${missing[@]}"; do
@@ -1884,6 +2224,36 @@ ensure_commands() {
   if (( ${#still_missing[@]} > 0 )); then
     log_error "Failed to install required commands: ${still_missing[*]}"
     exit 1
+  fi
+}
+
+ensure_optional_commands() {
+  local missing=()
+  local cmd
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#missing[@]} == 0 )); then
+    return 0
+  fi
+
+  if ! install_missing_commands "${missing[@]}"; then
+    log_warn "Optional prerequisites unavailable (${missing[*]}). Continuing; Codex may use built-in fallbacks."
+    return 0
+  fi
+
+  local still_missing=()
+  for cmd in "${missing[@]}"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      still_missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#still_missing[@]} > 0 )); then
+    log_warn "Optional prerequisites still missing (${still_missing[*]}). Continuing; Codex may use built-in fallbacks."
   fi
 }
 
@@ -2043,6 +2413,24 @@ PY
   return 1
 }
 
+ssh_should_force_no_alt_screen() {
+  case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
+    0|false|no|off)
+      return 1
+      ;;
+    1|true|yes|on|force)
+      return 0
+      ;;
+  esac
+
+  local local_version="${LOCAL_VERSION:-}"
+  if [[ -n "$local_version" ]] && ! version_lt "$local_version" "0.117.0"; then
+    return 1
+  fi
+
+  return 0
+}
+
 is_ssh_session() {
   [[ -n "${SSH_TTY:-}" || -n "${SSH_CONNECTION:-}" ]]
 }
@@ -2054,7 +2442,7 @@ probe_latest_version_tag() {
   fi
   local effective
   local curl_args=(-fsSLI -o /dev/null -w '%{url_effective}' -L)
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     curl_args+=("-4")
   fi
   if ! effective="$(curl "${curl_args[@]}" "$url" 2>/dev/null)"; then
@@ -2157,11 +2545,16 @@ sync_auth_with_api() {
   local api_status=0
   local offline_reason=""
   local deny_reason=""
-  local wait_logged=0
+  local approval_status_text='Pending; open Admin, click Enable window'
+  INSECURE_APPROVAL_BOX_VISIBLE=0
+  INSECURE_APPROVAL_BOX_LINES=0
+  INSECURE_APPROVAL_CHECK_COUNT=0
+  INSECURE_APPROVAL_LAST_CHECK=""
+  INSECURE_APPROVAL_LAST_STATUS=""
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, sys, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -2268,7 +2661,7 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
         sys.exit(22)
     if exc.code == 423:
         if "approval pending" in msg_lower:
-            print("insecure host approval pending", file=sys.stderr)
+            print("pending:approval")
             sys.exit(25)
         if "approval denied" in msg_lower:
             print("insecure host approval denied", file=sys.stderr)
@@ -3023,10 +3416,13 @@ PY
       if [[ "$api_status" == "25" ]]; then
         AUTH_PULL_STATUS="pending"
         AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
-        if (( wait_logged == 0 )); then
-          log_warn "Insecure host window closed; waiting for admin approval (polling every 5s)."
-          wait_logged=1
-        fi
+        INSECURE_APPROVAL_CHECK_COUNT=$(( INSECURE_APPROVAL_CHECK_COUNT + 1 ))
+        INSECURE_APPROVAL_LAST_CHECK="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+        INSECURE_APPROVAL_LAST_STATUS="$approval_status_text"
+        render_insecure_approval_pending_box \
+          "$INSECURE_APPROVAL_CHECK_COUNT" \
+          "$INSECURE_APPROVAL_LAST_CHECK" \
+          "$INSECURE_APPROVAL_LAST_STATUS"
         sleep 5
         continue
       fi
@@ -3259,7 +3655,7 @@ prompt_sync_python() {
   local prompt_dir="$4"
   local cafile="$5"
   local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
 import hashlib, json, os, pathlib, shutil, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -3534,407 +3930,29 @@ sync_slash_commands_pull() {
   return 0
 }
 
+cleanup_legacy_skill_state() {
+  local removed=0
+  local path=""
 
-skill_sync_python() {
-  local mode="$1"
-  local base="$2"
-  local api_key="$3"
-  local skill_dir="$4"
-  local cafile="$5"
-  local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$skill_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, shutil, sys
+  for path in "$HOME/.agents/skills" "$HOME/.codex/skills"; do
+    if [[ -e "$path" ]] && remove_path "$path" "legacy local skills" >/dev/null 2>&1; then
+      removed=$((removed + 1))
+    fi
+  done
 
-py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
-if py_http_util:
-    exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
+  for path in "$HOME/.agents/.skill-baseline.json" "$HOME/.codex/.skill-baseline.json"; do
+    if [[ -e "$path" ]] && remove_path "$path" "legacy skill baseline" >/dev/null 2>&1; then
+      removed=$((removed + 1))
+    fi
+  done
 
-mode = sys.argv[1] if len(sys.argv) > 1 else ""
-base = (sys.argv[2] or "").rstrip("/")
-skill_dir = pathlib.Path(sys.argv[3]).expanduser()
-cafile = sys.argv[4] if len(sys.argv) > 4 else ""
-baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else skill_dir.parent / ".skill-baseline.json"
-api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
-_cdx_api_key = api_key
-_cdx_cafile = cafile
-legacy_skill_dir = pathlib.Path.home() / ".codex" / "skills"
-
-request_json = cdx_short_request_json
-
-
-def load_local(include_content: bool = False):
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    skills = {}
-    for path in skill_dir.iterdir():
-        if not path.is_dir():
-            continue
-        skill_file = path / "SKILL.md"
-        if not skill_file.is_file():
-            continue
-        slug = path.name
-        read_path = skill_file
-        try:
-            content = read_path.read_text(encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            continue
-        sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        entry = {"slug": slug, "sha": sha}
-        if include_content:
-            entry["content"] = content
-        skills[slug] = entry
-    return skills
-
-
-atomic_write_text = cdx_atomic_write_text
-
-
-def save_baseline(skills: dict):
-    try:
-        baseline_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(baseline_file, json.dumps(skills, indent=2) + "\n")
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def prune_legacy_skill_copy(slug: str) -> int:
-    legacy_path = legacy_skill_dir / slug
-    try:
-        if legacy_path.is_dir():
-            shutil.rmtree(legacy_path, ignore_errors=True)
-            return 1
-        if legacy_path.exists():
-            legacy_path.unlink(missing_ok=True)
-            return 1
-    except Exception:  # noqa: BLE001
-        return 0
-    return 0
-
-
-def normalize_sha(value):
-    if not isinstance(value, str):
-        return None
-    value = value.strip().lower()
-    if len(value) != 64:
-        return None
-    if any(ch not in "0123456789abcdef" for ch in value):
-        return None
-    return value
-
-
-def extract_metadata(content: str):
-    display_name = None
-    description = None
-    text = content.strip()
-    if text.startswith("---"):
-        lines = text.splitlines()
-        if len(lines) >= 3:
-            try:
-                end_idx = lines[1:].index("---") + 1
-            except ValueError:
-                end_idx = -1
-            if end_idx > 0:
-                for line in lines[1:end_idx]:
-                    if ":" not in line:
-                        continue
-                    key, value = line.split(":", 1)
-                    key = key.strip().lower()
-                    value = value.strip().strip('"').strip("'")
-                    if key == "name":
-                        display_name = value
-                    elif key == "description":
-                        description = value
-                return display_name, description
-    try:
-        data = json.loads(content)
-        if isinstance(data, dict):
-            display_name = data.get("display_name") or data.get("name")
-            description = data.get("description")
-    except Exception:  # noqa: BLE001
-        pass
-    return display_name, description
-
-
-if not base:
-    print("error reason=missing-base")
-    sys.exit(1)
-if not api_key:
-    print("error reason=missing-api-key")
-    sys.exit(1)
-
-skill_dir.mkdir(parents=True, exist_ok=True)
-
-if mode == "pull":
-    try:
-        list_resp = request_json("GET", f"{base}/skills")
-    except Exception as exc:  # noqa: BLE001
-        print(f"error reason={str(exc).replace(' ', '_')}")
-        sys.exit(1)
-
-    skills = []
-    if isinstance(list_resp, dict):
-        data = list_resp.get("data") or {}
-        skills = data.get("skills") or []
-    try:
-        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8")) if baseline_file.exists() else {}
-    except Exception:  # noqa: BLE001
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-    downloaded = 0
-    errors = 0
-    removed = 0
-    local = load_local()
-    listed_slugs = set()
-
-    for skill in skills:
-        if not isinstance(skill, dict):
-            continue
-        slug = skill.get("slug")
-        rsha = skill.get("sha256")
-        deleted = bool(skill.get("deleted_at"))
-        if not slug:
-            continue
-        listed_slugs.add(slug)
-        if skill.get("managed"):
-            # Legacy managed-skill copies under ~/.codex/skills should not shadow synced skills.
-            removed += prune_legacy_skill_copy(slug)
-        target_path = skill_dir / slug
-        if deleted:
-            try:
-                if target_path.is_dir():
-                    shutil.rmtree(target_path, ignore_errors=True)
-                else:
-                    target_path.unlink(missing_ok=True)
-                removed += 1
-            except Exception:
-                pass
-            continue
-        if not rsha:
-            continue
-        local_sha = (local.get(slug) or {}).get("sha")
-        payload = {"slug": slug}
-        if local_sha:
-            payload["sha256"] = local_sha
-            if local_sha == rsha:
-                if target_path.is_file():
-                    try:
-                        content = target_path.read_text(encoding="utf-8")
-                        target_path.unlink(missing_ok=True)
-                        target_path.mkdir(parents=True, exist_ok=True)
-                        target_file = target_path / "SKILL.md"
-                        target_file.write_text(content, encoding="utf-8")
-                        downloaded += 1
-                    except Exception:  # noqa: BLE001
-                        errors += 1
-                    continue
-                continue
-        try:
-            resp = request_json("POST", f"{base}/skills/retrieve", payload)
-        except Exception:
-            errors += 1
-            continue
-        data = resp.get("data") if isinstance(resp, dict) else {}
-        status = (data or {}).get("status")
-        manifest = (data or {}).get("manifest")
-        if status == "unchanged":
-            continue
-        if not isinstance(manifest, str):
-            errors += 1
-            continue
-        try:
-            if target_path.exists() and target_path.is_file():
-                target_path.unlink(missing_ok=True)
-            target_path.mkdir(parents=True, exist_ok=True)
-            target_file = target_path / "SKILL.md"
-            target_file.write_text(manifest, encoding="utf-8")
-            downloaded += 1
-        except Exception:  # noqa: BLE001
-            errors += 1
-
-    # Managed skills that disappear from the remote list should be pruned locally on the next sync.
-    for slug, baseline_entry in baseline_data.items():
-        if not isinstance(slug, str) or slug.strip() == "":
-            continue
-        if slug in listed_slugs:
-            continue
-        if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):
-            continue
-        target_path = skill_dir / slug
-        try:
-            if target_path.is_dir():
-                shutil.rmtree(target_path, ignore_errors=True)
-            else:
-                target_path.unlink(missing_ok=True)
-            removed += prune_legacy_skill_copy(slug)
-            removed += 1
-        except Exception:
-            errors += 1
-
-    updated_local = load_local()
-    filtered_baseline = {}
-    for skill in skills:
-        if not isinstance(skill, dict):
-            continue
-        slug = skill.get("slug")
-        if not isinstance(slug, str) or slug.strip() == "" or skill.get("deleted_at"):
-            continue
-        local_entry = updated_local.get(slug)
-        if not isinstance(local_entry, dict):
-            continue
-        sha = normalize_sha(local_entry.get("sha"))
-        if sha is None:
-            continue
-        if skill.get("managed"):
-            filtered_baseline[slug] = {"sha": sha, "managed": True}
-        else:
-            filtered_baseline[slug] = sha
-    save_baseline(filtered_baseline)
-    print(
-        "ok "
-        f"updated={downloaded} "
-        f"errors={errors} "
-        f"remote={len(skills)} "
-        f"local={len(updated_local)} "
-        f"removed={removed}"
-    )
-    sys.exit(0)
-
-if mode == "push":
-    if not baseline_file.exists():
-        print("skip reason=no-baseline errors=0")
-        sys.exit(0)
-    try:
-        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-
-    def baseline_sha(entry):
-        if isinstance(entry, str):
-            return normalize_sha(entry)
-        if isinstance(entry, dict):
-            return normalize_sha(entry.get("sha") or entry.get("sha256"))
-        return None
-
-    def baseline_managed(entry):
-        return isinstance(entry, dict) and bool(entry.get("managed"))
-
-    current = load_local(include_content=True)
-    changes = []
-    for slug, entry in current.items():
-        baseline_entry = baseline_data.get(slug)
-        if baseline_managed(baseline_entry):
-            continue
-        if baseline_sha(baseline_entry) != entry.get("sha"):
-            changes.append(entry)
-
-    if not changes:
-        print("ok pushed=0 errors=0")
-        sys.exit(0)
-
-    errors = 0
-    pushed = 0
-    for entry in changes:
-        slug = entry.get("slug")
-        content = entry.get("content")
-        sha = entry.get("sha")
-        if not slug or not content or not sha:
-            continue
-        display_name, description = extract_metadata(content)
-        payload = {
-            "slug": slug,
-            "manifest": content,
-            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        }
-        if display_name:
-            payload["display_name"] = display_name
-        if description:
-            payload["description"] = description
-        try:
-            resp = request_json("POST", f"{base}/skills/store", payload)
-        except Exception:
-            errors += 1
-            continue
-        data = resp.get("data") if isinstance(resp, dict) else {}
-        status = (data or {}).get("status")
-        if status in ("created", "updated", "unchanged"):
-            pushed += 1
-        else:
-            errors += 1
-
-    if errors == 0:
-        latest_baseline = {}
-        for name, entry in current.items():
-            baseline_entry = baseline_data.get(name)
-            if baseline_managed(baseline_entry):
-                latest_baseline[name] = {"sha": entry["sha"], "managed": True}
-            else:
-                latest_baseline[name] = entry["sha"]
-        save_baseline(latest_baseline)
-
-    print(
-        "ok "
-        f"pushed={pushed} "
-        f"errors={errors} "
-        f"changes={len(changes)} "
-        f"local={len(current)}"
-    )
-    sys.exit(0)
-
-print("skip reason=unknown-mode errors=0")
-PY
+  SKILL_REMOVED="$removed"
 }
 
-
-
 sync_skills_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    SKILL_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    SKILL_SYNC_STATUS="no-python"
-    log_warn "python3 is required for skill sync; skipping."
-    return 1
-  fi
-  local summary status_code
-  set +e
-  summary="$(skill_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  SKILL_SYNC_STATUS="error"
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
-    fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      SKILL_SYNC_STATUS="offline"
-      SKILL_SYNC_REASON="$reason"
-      [[ -n "$summary" ]] && log_warn "Skill sync offline: $summary" || log_warn "Skill sync offline."
-      SKILL_PULL_ERRORS=0
-    else
-      [[ -n "$summary" ]] && log_warn "Skill sync failed: $summary" || log_warn "Skill sync failed."
-      SKILL_PULL_ERRORS=1
-    fi
-    return 1
-  fi
-  local part
+  cleanup_legacy_skill_state
+  SKILL_SYNC_STATUS="mcp"
   SKILL_SYNC_REASON=""
-  SKILL_SYNC_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      updated=*) SKILL_PULL_UPDATED="${part#updated=}" ;;
-      errors=*) SKILL_PULL_ERRORS="${part#errors=}" ;;
-      remote=*) SKILL_REMOTE_COUNT="${part#remote=}" ;;
-      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
-      removed=*) SKILL_REMOVED="${part#removed=}" ;;
-    esac
-  done
   return 0
 }
 
@@ -3944,7 +3962,7 @@ agents_sync_python() {
   local target_file="$3"
   local cafile="$4"
   local current_sha="$5"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
 import hashlib, json, os, pathlib, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -4111,12 +4129,10 @@ sync_startup_bundle_pull() {
       "$CODEX_SYNC_BASE_URL" \
       "$CODEX_SYNC_API_KEY" \
       "$PROMPT_DIR" \
-      "$SKILL_DIR" \
       "$AGENTS_PATH" \
       "$CONFIG_PATH" \
       "$CODEX_SYNC_CA_FILE" \
       "$PROMPT_BASELINE_FILE" \
-      "$SKILL_BASELINE_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
       "$LOCAL_HOSTNAME"
@@ -4152,7 +4168,7 @@ if str(parsed.get("status", "")).lower() != "ok":
 phase = str(parsed.get("phase", "")).strip().lower() or "ok"
 print(f"phase={phase}")
 
-for key in ("prompt", "skill"):
+for key in ("prompt",):
     block = parsed.get(key)
     if not isinstance(block, dict):
         continue
@@ -4199,12 +4215,6 @@ PY
       prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
       prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
       prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
-      skill_status=*) SKILL_SYNC_STATUS="${line#skill_status=}" ;;
-      skill_updated=*) SKILL_PULL_UPDATED="${line#skill_updated=}" ;;
-      skill_errors=*) SKILL_PULL_ERRORS="${line#skill_errors=}" ;;
-      skill_remote=*) SKILL_REMOTE_COUNT="${line#skill_remote=}" ;;
-      skill_local=*) SKILL_LOCAL_COUNT="${line#skill_local=}" ;;
-      skill_removed=*) SKILL_REMOVED="${line#skill_removed=}" ;;
       agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
       agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
       agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
@@ -4225,7 +4235,7 @@ PY
   AGENTS_SYNC_REASON=""
   CONFIG_SYNC_REASON=""
   [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
-  [[ -z "$SKILL_SYNC_STATUS" ]] && SKILL_SYNC_STATUS="ok"
+  SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
   return 0
@@ -4437,7 +4447,7 @@ config_sync_python() {
   if [[ -z "$home_path" && -n "$username" ]] && command -v getent >/dev/null 2>&1; then
     home_path="$(getent passwd "$username" | cut -d: -f6 2>/dev/null || true)"
   fi
-  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
 import hashlib, json, os, pathlib, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -4528,21 +4538,18 @@ startup_sync_bundle_python() {
   local base="$1"
   local api_key="$2"
   local prompt_dir="$3"
-  local skill_dir="$4"
-  local agents_file="$5"
-  local config_file="$6"
-  local cafile="$7"
-  local prompt_baseline_file="$8"
-  local skill_baseline_file="$9"
-  local username="${10}"
-  local home_path="${11}"
-  local hostname="${12}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$skill_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" "$skill_baseline_file" <<'PY'
+  local agents_file="$4"
+  local config_file="$5"
+  local cafile="$6"
+  local prompt_baseline_file="$7"
+  local username="${8}"
+  local home_path="${9}"
+  local hostname="${10}"
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
 import hashlib
 import json
 import os
 import pathlib
-import shutil
 import sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -4553,12 +4560,10 @@ if "cdx_enable_force_ipv4" in globals():
 
 base = (sys.argv[1] or "").rstrip("/")
 prompt_dir = pathlib.Path(sys.argv[2]).expanduser()
-skill_dir = pathlib.Path(sys.argv[3]).expanduser()
-agents_file = pathlib.Path(sys.argv[4]).expanduser()
-config_file = pathlib.Path(sys.argv[5]).expanduser()
-cafile = sys.argv[6] if len(sys.argv) > 6 else ""
-prompt_baseline = pathlib.Path(sys.argv[7]).expanduser() if len(sys.argv) > 7 else prompt_dir.parent / ".prompt-baseline.json"
-skill_baseline = pathlib.Path(sys.argv[8]).expanduser() if len(sys.argv) > 8 else skill_dir.parent / ".skill-baseline.json"
+agents_file = pathlib.Path(sys.argv[3]).expanduser()
+config_file = pathlib.Path(sys.argv[4]).expanduser()
+cafile = sys.argv[5] if len(sys.argv) > 5 else ""
+prompt_baseline = pathlib.Path(sys.argv[6]).expanduser() if len(sys.argv) > 6 else prompt_dir.parent / ".prompt-baseline.json"
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 _cdx_api_key = api_key
 _cdx_cafile = cafile
@@ -4609,26 +4614,6 @@ def scan_prompts():
     items.sort(key=lambda item: item.get("filename", ""))
     return items
 
-
-def scan_skills():
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    items = []
-    for path in skill_dir.iterdir():
-        if not path.is_dir():
-            continue
-        skill_file = path / "SKILL.md"
-        if not skill_file.is_file():
-            continue
-        read_path = skill_file
-        slug = path.name
-        sha = file_sha(read_path)
-        if not sha:
-            continue
-        items.append({"slug": slug, "sha256": sha})
-    items.sort(key=lambda item: item.get("slug", ""))
-    return items
-
-
 def write_prompt_baseline(remote):
     data = {}
     if isinstance(remote, list):
@@ -4650,33 +4635,6 @@ def write_prompt_baseline(remote):
         atomic_write_text(prompt_baseline, json.dumps(data, indent=2) + "\n")
     except Exception:
         pass
-
-
-def write_skill_baseline(remote):
-    data = {}
-    if isinstance(remote, list):
-        for entry in remote:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            sha = normalize_sha(entry.get("sha256"))
-            deleted_at = entry.get("deleted_at")
-            if not isinstance(slug, str) or slug.strip() == "":
-                continue
-            if deleted_at:
-                continue
-            if sha is None:
-                continue
-            if entry.get("managed"):
-                data[slug] = {"sha": sha, "managed": True}
-            else:
-                data[slug] = sha
-    try:
-        skill_baseline.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(skill_baseline, json.dumps(data, indent=2) + "\n")
-    except Exception:
-        pass
-
 
 def apply_prompt_changes(block):
     changed = block.get("changed") if isinstance(block, dict) else []
@@ -4725,97 +4683,6 @@ def apply_prompt_changes(block):
         "remote": len(remote) if isinstance(remote, list) else 0,
         "local": local_count,
     }
-
-
-def apply_skill_changes(block):
-    changed = block.get("changed") if isinstance(block, dict) else []
-    remote = block.get("remote") if isinstance(block, dict) else []
-    updated = 0
-    removed = 0
-    errors = 0
-    listed_slugs = set()
-
-    if isinstance(changed, list):
-        for entry in changed:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            if not isinstance(slug, str) or slug.strip() == "":
-                continue
-            status = str(entry.get("status") or "").strip().lower()
-            target_dir = skill_dir / slug
-
-            if status == "deleted":
-                try:
-                    if target_dir.exists() and target_dir.is_file():
-                        target_dir.unlink(missing_ok=True)
-                    elif target_dir.exists():
-                        shutil.rmtree(target_dir, ignore_errors=True)
-                    removed += 1
-                except Exception:
-                    errors += 1
-                continue
-
-            manifest = entry.get("manifest")
-            if not isinstance(manifest, str):
-                errors += 1
-                continue
-
-            try:
-                if target_dir.exists() and target_dir.is_file():
-                    target_dir.unlink(missing_ok=True)
-                target_dir.mkdir(parents=True, exist_ok=True)
-                (target_dir / "SKILL.md").write_text(manifest, encoding="utf-8")
-                updated += 1
-            except Exception:
-                errors += 1
-
-    if isinstance(remote, list):
-        for entry in remote:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            if not isinstance(slug, str) or slug.strip() == "":
-                continue
-            listed_slugs.add(slug)
-
-    try:
-        baseline_data = json.loads(skill_baseline.read_text(encoding="utf-8")) if skill_baseline.exists() else {}
-    except Exception:
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-
-    # Managed skills that disappear from the remote list should be pruned locally on the next sync.
-    for slug, baseline_entry in baseline_data.items():
-        if not isinstance(slug, str) or slug.strip() == "":
-            continue
-        if slug in listed_slugs:
-            continue
-        if not (isinstance(baseline_entry, dict) and baseline_entry.get("managed")):
-            continue
-        target_dir = skill_dir / slug
-        try:
-            if target_dir.exists() and target_dir.is_file():
-                target_dir.unlink(missing_ok=True)
-            elif target_dir.exists():
-                shutil.rmtree(target_dir, ignore_errors=True)
-            removed += 1
-        except Exception:
-            errors += 1
-
-    write_skill_baseline(remote if isinstance(remote, list) else [])
-    local_count = len(scan_skills())
-
-    return {
-        "status": "ok",
-        "updated": updated,
-        "removed": removed,
-        "errors": errors,
-        "remote": len(remote) if isinstance(remote, list) else 0,
-        "local": local_count,
-    }
-
 
 def apply_agents_change(block):
     status = str((block or {}).get("status") or "").strip().lower()
@@ -4918,7 +4785,6 @@ def apply_config_change(block):
 
 
 prompt_items = scan_prompts()
-skill_items = scan_skills()
 agents_sha = file_sha(agents_file) if agents_file.is_file() else None
 config_sha = file_sha(config_file) if config_file.is_file() else None
 
@@ -4930,9 +4796,6 @@ status_payload = {
     },
     "slash_commands": {
         "items": prompt_items,
-    },
-    "skills": {
-        "items": skill_items,
     },
     "agents": {
         "sha256": agents_sha,
@@ -4981,7 +4844,6 @@ if not isinstance(data, dict):
     sys.exit(1)
 
 prompt_result = apply_prompt_changes(data.get("slash_commands") if isinstance(data.get("slash_commands"), dict) else {})
-skill_result = apply_skill_changes(data.get("skills") if isinstance(data.get("skills"), dict) else {})
 agents_result = apply_agents_change(data.get("agents") if isinstance(data.get("agents"), dict) else {})
 config_result = apply_config_change(data.get("config") if isinstance(data.get("config"), dict) else {})
 
@@ -4994,7 +4856,6 @@ if agents_result.get("status") != "ok" or config_result.get("status") != "ok":
                 "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
                 "reasons": reasons,
                 "prompt": prompt_result,
-                "skill": skill_result,
                 "agents": agents_result,
                 "config": config_result,
             },
@@ -5010,7 +4871,6 @@ print(
             "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
             "reasons": reasons,
             "prompt": prompt_result,
-            "skill": skill_result,
             "agents": agents_result,
             "config": config_result,
         },
@@ -5055,44 +4915,6 @@ push_slash_commands_if_changed() {
       errors=*) PROMPT_PUSH_ERRORS="${part#errors=}" ;;
       changes=*) PROMPT_LOCAL_CHANGED="${part#changes=}" ;;
       local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
-    esac
-  done
-  return 0
-}
-
-push_skills_if_changed() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    SKILL_PUSH_STATUS="missing-config"
-    return 0
-  fi
-  if [[ ! -f "$SKILL_BASELINE_FILE" ]]; then
-    SKILL_PUSH_STATUS="no-baseline"
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    SKILL_PUSH_STATUS="no-python"
-    return 0
-  fi
-  local summary status_code
-  set +e
-  summary="$(skill_sync_python push "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$SKILL_DIR" "$CODEX_SYNC_CA_FILE" "$SKILL_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  SKILL_PUSH_STATUS="error"
-  if (( status_code != 0 )); then
-    [[ -n "$summary" ]] && log_warn "Skill push failed: $summary" || log_warn "Skill push failed."
-    SKILL_PUSH_ERRORS=1
-    return 1
-  fi
-  local part
-  SKILL_PUSH_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      pushed=*) SKILL_PUSHED="${part#pushed=}" ;;
-      errors=*) SKILL_PUSH_ERRORS="${part#errors=}" ;;
-      changes=*) SKILL_LOCAL_CHANGED="${part#changes=}" ;;
-      local=*) SKILL_LOCAL_COUNT="${part#local=}" ;;
     esac
   done
   return 0
@@ -5422,7 +5244,7 @@ post_token_usage_payload_once() {
   local base_url="$1"
   local payload_json="$2"
   local ca_file="${3-}"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
 import json, os, socket, sys, time, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -5807,9 +5629,182 @@ send_token_usage_if_present() {
   post_token_usage_payload "$payload" || true
 }
 
+extract_token_usage_from_session_jsonl() {
+  local run_start_epoch="${1:-}"
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$run_start_epoch" <<'PY'
+import json, pathlib, sys
+
+run_start_epoch = None
+if sys.argv[1]:
+    try:
+        run_start_epoch = float(sys.argv[1])
+    except Exception:
+        pass
+
+sessions_root = pathlib.Path.home() / ".codex" / "sessions"
+if not sessions_root.is_dir():
+    sys.exit(0)
+
+try:
+    all_jsonl = list(sessions_root.rglob("*.jsonl"))
+except Exception:
+    sys.exit(0)
+
+if not all_jsonl:
+    sys.exit(0)
+
+if run_start_epoch is not None:
+    all_jsonl = [f for f in all_jsonl
+                 if f.stat().st_mtime >= run_start_epoch]
+
+if not all_jsonl:
+    sys.exit(0)
+
+all_jsonl.sort(key=lambda f: (f.stat().st_mtime, f.name), reverse=True)
+
+
+def clean_int(val):
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, int):
+        return val if val >= 0 else None
+    if isinstance(val, float):
+        return int(val) if val >= 0 else None
+    try:
+        return int(str(val).replace(",", ""))
+    except Exception:
+        return None
+
+
+def build_entry(total=None, input_tokens=None, output_tokens=None,
+                cached_tokens=None, reasoning_tokens=None):
+    entry = {}
+    for key, val in [("total", total), ("input", input_tokens),
+                     ("output", output_tokens), ("cached", cached_tokens),
+                     ("reasoning", reasoning_tokens)]:
+        cleaned = clean_int(val)
+        if cleaned is not None:
+            entry[key] = cleaned
+    if not entry:
+        return None
+    parts = []
+    if "total" in entry:
+        parts.append(f"total={entry['total']}")
+    if "input" in entry:
+        p = f"input={entry['input']}"
+        if "cached" in entry:
+            p += f" (+ {entry['cached']} cached)"
+        parts.append(p)
+    if "output" in entry:
+        p = f"output={entry['output']}"
+        if "reasoning" in entry:
+            p += f" (reasoning {entry['reasoning']})"
+        parts.append(p)
+    if parts:
+        entry["line"] = "Token usage: " + " ".join(parts)
+    return entry
+
+
+def parse_jsonl(candidate):
+    entries = []
+    last_sig = None
+    try:
+        with candidate.open("r", encoding="utf-8", errors="ignore") as fh:
+            for raw_line in fh:
+                try:
+                    parsed = json.loads(raw_line)
+                except Exception:
+                    continue
+                entry = None
+                if parsed.get("type") == "event_msg":
+                    payload = parsed.get("payload")
+                    if isinstance(payload, dict) and payload.get("type") == "token_count":
+                        info = payload.get("info")
+                        if isinstance(info, dict):
+                            usage = info.get("last_token_usage")
+                            if not isinstance(usage, dict):
+                                usage = info.get("total_token_usage")
+                            if isinstance(usage, dict):
+                                entry = build_entry(
+                                    total=usage.get("total_tokens"),
+                                    input_tokens=usage.get("input_tokens"),
+                                    output_tokens=usage.get("output_tokens"),
+                                    cached_tokens=usage.get("cached_input_tokens"),
+                                    reasoning_tokens=usage.get("reasoning_output_tokens"),
+                                )
+                elif parsed.get("type") == "turn.completed":
+                    usage = parsed.get("usage")
+                    if isinstance(usage, dict):
+                        inp = clean_int(usage.get("input_tokens"))
+                        out = clean_int(usage.get("output_tokens"))
+                        tot = None
+                        if inp is not None or out is not None:
+                            tot = (inp or 0) + (out or 0)
+                        entry = build_entry(
+                            total=tot,
+                            input_tokens=inp,
+                            output_tokens=out,
+                            cached_tokens=usage.get("cached_input_tokens"),
+                            reasoning_tokens=usage.get("reasoning_output_tokens"),
+                        )
+                if not isinstance(entry, dict):
+                    continue
+                sig = tuple(entry.get(k) for k in
+                            ("total", "input", "output", "cached", "reasoning"))
+                if sig == last_sig:
+                    continue
+                entries.append(entry)
+                last_sig = sig
+    except Exception:
+        return []
+    return entries
+
+
+for candidate in all_jsonl:
+    entries = parse_jsonl(candidate)
+    if entries:
+        print(json.dumps({"usages": entries}, separators=(",", ":")))
+        sys.exit(0)
+
+sys.exit(0)
+PY
+}
+
+send_token_usage_from_session_jsonl() {
+  local run_start_epoch=""
+  if [[ "${CDX_RUN_START_NS:-}" =~ ^[0-9]+$ ]]; then
+    run_start_epoch=$(( CDX_RUN_START_NS / 1000000000 ))
+  fi
+  local payload
+  if ! payload="$(extract_token_usage_from_session_jsonl "$run_start_epoch")"; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="session JSONL extraction failed"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
+  if [[ -z "$payload" ]]; then
+    USAGE_PUSH_RESULT="skipped"
+    USAGE_PUSH_REASON="no token usage captured"
+    USAGE_PUSH_SUMMARY=""
+    USAGE_PUSH_COST=""
+    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
+    return 0
+  fi
+
+  last_usage_payload="$payload"
+  post_token_usage_payload "$payload" || true
+}
+
 
 # Cron auto-update mode: lightweight path that skips auth sync and interactive launch.
 # Invoked via: cdx --cron [install|remove]
+
+CRON_CHECK_RESPONSE=""
 
 cron_managed_marker() {
   printf '%s' '# cdx-managed-cron'
@@ -5857,7 +5852,29 @@ cron_filter_existing_entries() {
   done
 }
 
+cron_wrapper_entry_installed() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local cdx_path quoted_cdx_path marker current_crontab
+  cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+  if [[ ! -x "$cdx_path" ]]; then
+    return 1
+  fi
+
+  printf -v quoted_cdx_path '%q' "$cdx_path"
+  marker="$(cron_managed_marker)"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+  cron_has_wrapper_entry "$current_crontab" "$cdx_path" "$quoted_cdx_path" "$marker"
+}
+
 install_cron_job() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    log_error "Cannot install cdx cron job because crontab is unavailable."
+    return 1
+  fi
+
   local cdx_path
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
   if [[ ! -x "$cdx_path" ]]; then
@@ -5897,9 +5914,20 @@ install_cron_job() {
   } | crontab -
 
   printf 'cdx cron job installed (daily at %02d:%02d). Log: %s\n' "$rand_hour" "$rand_minute" "$log_file"
+
+  if cron_ping_check_api "cron install"; then
+    printf '%s\n' "cdx cron install pinged /cron/check successfully."
+  else
+    log_warn "cdx cron job was installed, but the initial /cron/check ping failed."
+  fi
 }
 
 remove_cron_job() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    printf '%s\n' "cdx cron job not found in crontab."
+    return 0
+  fi
+
   local cdx_path quoted_cdx_path marker current_crontab filtered_crontab
   cdx_path="$(real_path "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
   printf -v quoted_cdx_path '%q' "$cdx_path"
@@ -5916,11 +5944,36 @@ remove_cron_job() {
   printf '%s\n' "cdx cron job removed."
 }
 
+reconcile_cron_job_state() {
+  local desired_state="$1"
+
+  case "$desired_state" in
+    install)
+      if cron_wrapper_entry_installed; then
+        return 0
+      fi
+      install_cron_job
+      return $?
+      ;;
+    remove)
+      if ! cron_wrapper_entry_installed; then
+        return 0
+      fi
+      remove_cron_job
+      return $?
+      ;;
+    *)
+      log_error "Unknown cron reconciliation state: $desired_state"
+      return 1
+      ;;
+  esac
+}
+
 cron_do_api_call() {
   local url="$1"
   local json_payload="$2"
   local action_label="$3"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
 import json, os, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -5958,13 +6011,69 @@ except RuntimeError as exc:
 PY
 }
 
+cron_build_check_payload() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    log_error "sync config missing; cannot ping /cron/check."
+    return 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_error "python3 is required for /cron/check API calls."
+    return 1
+  fi
+
+  local codex_bin
+  codex_bin="$(resolve_real_codex 2>/dev/null || true)"
+  if [[ -z "$codex_bin" ]]; then
+    log_error "codex binary not found on PATH; cannot ping /cron/check."
+    return 1
+  fi
+
+  local local_version_raw local_version
+  local_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
+  local_version="$(normalize_version "$local_version_raw")"
+
+  local cron_asset_name
+  cron_asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
+  if [[ -z "$cron_asset_name" ]]; then
+    log_error "unsupported platform; cannot determine asset name for /cron/check."
+    return 1
+  fi
+
+  python3 -c "import json; print(json.dumps({
+    'client_version': '${local_version:-unknown}',
+    'wrapper_version': '${WRAPPER_VERSION:-unknown}',
+    'asset_name': '${cron_asset_name}'
+  }))"
+}
+
+cron_ping_check_api() {
+  local context_label="${1:-cron}"
+  CRON_CHECK_RESPONSE=""
+  local check_payload
+  check_payload="$(cron_build_check_payload)" || {
+    log_warn "${context_label}: could not build /cron/check payload."
+    return 1
+  }
+
+  local check_url="${CODEX_SYNC_BASE_URL}/cron/check"
+  local check_response
+  check_response="$(cron_do_api_call "$check_url" "$check_payload" "cron-check" 2>&1)" || {
+    log_warn "${context_label}: /cron/check failed: ${check_response}"
+    return 1
+  }
+
+  CRON_CHECK_RESPONSE="$check_response"
+}
+
 cron_auto_update() {
   local lock_file="$HOME/.codex/.cdx_cron.lock"
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
 
   # Non-blocking lock to prevent concurrent cron runs.
   if command -v flock >/dev/null 2>&1; then
-    exec 9>"$lock_file" 2>/dev/null || {
+    exec 9>"$lock_file" || {
       printf '[%s] cron: cannot open lock file %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$lock_file"
       return 1
     }
@@ -5976,61 +6085,69 @@ cron_auto_update() {
     log_warn "flock not available; cron concurrent-run guard disabled."
   fi
 
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    printf '[%s] cron: sync config missing; cannot check for updates.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 1
-  fi
-
-  local codex_bin
+  local codex_bin local_version_raw local_version cron_asset_name
   codex_bin="$(resolve_real_codex 2>/dev/null || true)"
   if [[ -z "$codex_bin" ]]; then
     printf '[%s] cron: codex binary not found on PATH.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     return 1
   fi
 
-  local local_version_raw local_version
   local_version_raw="$("$codex_bin" -V 2>/dev/null || true)"
   local_version="$(normalize_version "$local_version_raw")"
-
-  local cron_asset_name
   cron_asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
   if [[ -z "$cron_asset_name" ]]; then
-    printf '[%s] cron: unsupported platform; cannot determine asset name.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '[%s] cron: unsupported platform; cannot determine Codex asset name.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     return 1
   fi
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf '[%s] cron: python3 is required for API calls.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    return 1
-  fi
-
-  # Call POST /cron/check
-  local check_payload
-  check_payload="$(python3 -c "import json; print(json.dumps({
-    'client_version': '${local_version:-unknown}',
-    'wrapper_version': '${WRAPPER_VERSION:-unknown}',
-    'asset_name': '${cron_asset_name}'
-  }))")"
-
-  local check_url="${CODEX_SYNC_BASE_URL}/cron/check"
   local check_response
-  check_response="$(cron_do_api_call "$check_url" "$check_payload" "cron-check" 2>&1)" || {
-    printf '[%s] cron: API check failed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$check_response"
+  cron_ping_check_api "cron" || {
+    printf '[%s] cron: API check failed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$CRON_CHECK_RESPONSE"
     return 1
   }
+  check_response="$CRON_CHECK_RESPONSE"
 
-  local action target_version tag enforce_exact
+  local action target_version tag wrapper_action wrapper_target_version wrapper_target_sha wrapper_target_url
   action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('action',''))" 2>/dev/null || true)"
-
-  if [[ "$action" == "no_update" ]]; then
-    printf '[%s] cron: no update needed (current: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${local_version:-unknown}"
-    return 0
+  wrapper_action="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('action',''))" 2>/dev/null || true)"
+  wrapper_target_version="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('target_version',''))" 2>/dev/null || true)"
+  wrapper_target_sha="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('sha256',''))" 2>/dev/null || true)"
+  wrapper_target_url="$(printf '%s' "$check_response" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('wrapper',{}).get('url',''))" 2>/dev/null || true)"
+  if [[ -z "$wrapper_target_url" ]] && [[ -n "${CODEX_SYNC_BASE_URL:-}" ]]; then
+    wrapper_target_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
+  if [[ -n "$wrapper_target_url" && "$wrapper_target_url" != http* ]]; then
+    wrapper_target_url="${CODEX_SYNC_BASE_URL%/}${wrapper_target_url}"
   fi
 
   if [[ "$action" == "disable" ]]; then
     printf '[%s] cron: auto-update disabled by server; removing cron job.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     remove_cron_job
+    return 0
+  fi
+
+  if [[ "$wrapper_action" == "update" ]]; then
+    if [[ -z "$wrapper_target_version" || -z "$wrapper_target_url" ]]; then
+      printf '[%s] cron: wrapper update requested but target metadata is incomplete.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      return 1
+    fi
+
+    if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
+      printf '[%s] cron: wrapper update loop detected for target %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version"
+      return 1
+    fi
+
+    if perform_wrapper_self_update "$wrapper_target_version" "$wrapper_target_sha" "$wrapper_target_url"; then
+      printf '[%s] cron: wrapper updated to %s; restarting cron flow.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version"
+      exec env CODEX_WRAPPER_RESTARTED=1 "$SCRIPT_REAL" --cron
+    fi
+
+    printf '[%s] cron: wrapper update to %s failed (%s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wrapper_target_version" "${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
+    return 1
+  fi
+
+  if [[ "$action" == "no_update" ]]; then
+    printf '[%s] cron: no update needed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     return 0
   fi
 
@@ -6118,7 +6235,10 @@ cron_auto_update() {
 
     # Report success to API.
     local report_payload
-    report_payload="$(python3 -c "import json; print(json.dumps({'client_version': '${new_version:-$target_version}'}))")"
+    report_payload="$(python3 -c "import json; print(json.dumps({
+      'client_version': '${new_version:-$target_version}',
+      'wrapper_version': '${WRAPPER_VERSION:-unknown}'
+    }))")"
     local report_url="${CODEX_SYNC_BASE_URL}/cron/report"
     local report_attempt report_ok=0
     for report_attempt in 1 2 3; do
@@ -6130,11 +6250,11 @@ cron_auto_update() {
     done
 
     if (( report_ok == 0 )); then
-      printf '[%s] cron: update report failed after retries (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+      printf '[%s] cron: update report failed after retries (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
       return 1
     fi
 
-    printf '[%s] cron: update reported (version: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}"
+    printf '[%s] cron: update reported (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
     return 0
   else
     printf '[%s] cron: update to %s failed.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
@@ -6142,26 +6262,11 @@ cron_auto_update() {
   fi
 }
 
-if (( CODEX_CRON_MODE )); then
-  if (( CODEX_CRON_INSTALL )); then
-    install_cron_job
-    exit $?
-  fi
-
-  if (( CODEX_CRON_REMOVE )); then
-    remove_cron_job
-    exit $?
-  fi
-
-  cron_auto_update
-  exit $?
-fi
-
 
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
-  CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
+  CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$api_url" "$wanted_asset" <<'PY'
 import json, os, sys, time, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -6249,7 +6354,7 @@ perform_update() (
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
   local curl_args=(-fsSL)
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     curl_args+=("-4")
   fi
   if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
@@ -6304,8 +6409,123 @@ perform_update() (
   log_info "Codex updated to ${new_version}"
 )
 
+resolve_wrapper_target_url() {
+  local target_url="${1:-}"
+
+  if [[ -z "$target_url" ]] && [[ -n "${CODEX_SYNC_BASE_URL:-}" ]]; then
+    target_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
+  fi
+  if [[ -n "$target_url" && "$target_url" != http* ]]; then
+    target_url="${CODEX_SYNC_BASE_URL%/}${target_url}"
+  fi
+
+  printf '%s' "$target_url"
+}
+
+wrapper_self_update_needed() {
+  local target_wrapper="${1:-}"
+  local target_wrapper_sha="${2:-}"
+
+  if [[ -n "$target_wrapper" && "$target_wrapper" != "${WRAPPER_VERSION:-}" ]]; then
+    return 0
+  fi
+  if [[ -n "$target_wrapper_sha" ]]; then
+    local current_wrapper_sha=""
+    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
+      if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
+}
+
+WRAPPER_UPDATE_LAST_ERROR=""
+
+perform_wrapper_self_update() {
+  local target_wrapper="${1:-}"
+  local target_wrapper_sha="${2:-}"
+  local target_wrapper_url="${3:-}"
+  WRAPPER_UPDATE_LAST_ERROR=""
+
+  if [[ -z "$CODEX_SYNC_API_KEY" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="API key missing"
+    return 1
+  fi
+  if [[ -z "$target_wrapper_url" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="missing download URL"
+    return 1
+  fi
+
+  local tmpdir tmpwrapper dl_sha
+  tmpdir="$(mktemp -d)"
+  tmpwrapper="$tmpdir/cdx"
+  local -a curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
+    curl_args+=("-4")
+  fi
+  if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
+    curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
+  fi
+  case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
+    1|true|yes)
+      curl_args+=("-k")
+      ;;
+  esac
+
+  if ! curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
+    WRAPPER_UPDATE_LAST_ERROR="download error"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
+  if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
+    WRAPPER_UPDATE_LAST_ERROR="hash mismatch"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  chmod +x "$tmpwrapper"
+  if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
+    install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
+  elif (( CAN_SUDO )); then
+    if ! $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
+      WRAPPER_UPDATE_LAST_ERROR="sudo install denied"
+      rm -rf "$tmpdir"
+      return 1
+    fi
+  else
+    WRAPPER_UPDATE_LAST_ERROR="no permission"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  rm -rf "$tmpdir"
+  if [[ -n "$target_wrapper" ]]; then
+    WRAPPER_VERSION="$target_wrapper"
+  fi
+  return 0
+}
+
 
 API_RELEASES_URL="https://api.github.com/repos/openai/codex/releases"
+
+if (( CODEX_CRON_MODE )); then
+  if (( CODEX_CRON_INSTALL )); then
+    install_cron_job
+    exit $?
+  fi
+
+  if (( CODEX_CRON_REMOVE )); then
+    remove_cron_job
+    exit $?
+  fi
+
+  cron_auto_update
+  exit $?
+fi
 
 SCRIPT_REAL="$(real_path "$0")"
 CODEX_REAL_BIN="$(resolve_real_codex)"
@@ -6331,10 +6551,19 @@ fi
 
 if [[ "$platform_os" == "Linux" ]]; then
   if (( can_manage_codex )); then
-    ensure_commands curl unzip script
+    if (( CODEX_EXIT_AFTER_UPDATE )); then
+      ensure_commands curl
+    else
+      ensure_commands curl unzip
+      ensure_optional_commands bwrap
+    fi
   fi
 elif [[ "$platform_os" == "Darwin" ]]; then
-  ensure_commands python3 curl unzip
+  if (( CODEX_EXIT_AFTER_UPDATE )); then
+    ensure_commands curl
+  else
+    ensure_commands python3 curl unzip
+  fi
 fi
 
 LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
@@ -6360,16 +6589,12 @@ if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
 fi
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
-  if (( CDX_RUN_GUARD_WARNING_EMITTED == 0 )); then
-    log_warn "${concurrent_reason}; skipping pre-run sync/update mutations for this run. Post-run auth/usage upload still runs. Use --allow-concurrent-sync to override."
-    CDX_RUN_GUARD_WARNING_EMITTED=1
-  fi
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
   PROMPT_SYNC_STATUS="skip"
   PROMPT_SYNC_REASON="active-run"
-  SKILL_SYNC_STATUS="skip"
-  SKILL_SYNC_REASON="active-run"
+  SKILL_SYNC_STATUS="mcp"
+  SKILL_SYNC_REASON=""
   AGENTS_SYNC_STATUS="skip"
   AGENTS_SYNC_REASON="active-run"
   CONFIG_SYNC_STATUS="skip"
@@ -6386,10 +6611,10 @@ else
   _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
   cdx_debug_phase "auth-sync" "$_t_auth"
+  sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
     sync_slash_commands_pull || true
-    sync_skills_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi
@@ -6412,8 +6637,20 @@ if (( HAS_LOCAL_AUTH )) && validate_auth_json_file "$HOME/.codex/auth.json"; the
   HAS_VALID_LOCAL_AUTH=1
 fi
 
-if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
-  print_motd
+# Banner rendering is deferred to the display phase (print_boot_screen)
+# so that version/status info can be shown alongside the ASCII art.
+
+AUTO_UPDATE_CRON_READY=0
+if (( ! CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CRON_MODE )) && (( ! CODEX_DO_UNINSTALL )); then
+  if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+    if reconcile_cron_job_state install; then
+      AUTO_UPDATE_CRON_READY=1
+    else
+      log_warn "Cron-managed auto-update is enabled by the server, but the wrapper could not ensure the cron job; falling back to startup Codex update checks."
+    fi
+  else
+    reconcile_cron_job_state remove || log_warn "Server disabled cron-managed auto-update, but the wrapper could not remove the managed cron job."
+  fi
 fi
 
 asset_name=""
@@ -6422,7 +6659,7 @@ skip_update_reason=""
 if (( CDX_ACTIVE_RUN_DETECTED )); then
   skip_update_check=1
   skip_update_reason="active_run"
-elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && (( AUTO_UPDATE_CRON_READY )); then
   skip_update_check=1
   skip_update_reason="cron_managed"
 elif (( ! can_manage_codex )); then
@@ -6500,13 +6737,7 @@ defer_codex_update_for_wrapper=0
 if (( need_update )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) \
   && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
   precheck_target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
-  precheck_target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
-  if [[ -z "$precheck_target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
-    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
-  fi
-  if [[ -n "$precheck_target_wrapper_url" && "$precheck_target_wrapper_url" != http* ]]; then
-    precheck_target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${precheck_target_wrapper_url}"
-  fi
+  precheck_target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
   if [[ -n "$precheck_target_wrapper" && "$precheck_target_wrapper" != "$WRAPPER_VERSION" \
     && -n "$precheck_target_wrapper_url" && -n "$CODEX_SYNC_API_KEY" ]]; then
     defer_codex_update_for_wrapper=1
@@ -6661,26 +6892,12 @@ wrapper_target_label="$WRAPPER_VERSION"
 if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; }; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
-  target_wrapper_url="${SYNC_REMOTE_WRAPPER_URL:-}"
+  target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
   wrapper_target_label="${target_wrapper:-$WRAPPER_VERSION}"
 
-  if [[ -z "$target_wrapper_url" ]] && [[ -n "$CODEX_SYNC_BASE_URL" ]]; then
-    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}/wrapper/download"
-  fi
-  if [[ -n "$target_wrapper_url" && "$target_wrapper_url" != http* ]]; then
-    target_wrapper_url="${CODEX_SYNC_BASE_URL%/}${target_wrapper_url}"
-  fi
-
   need_wrapper_update=0
-  if [[ -n "$target_wrapper" && "$target_wrapper" != "$WRAPPER_VERSION" ]]; then
+  if wrapper_self_update_needed "$target_wrapper" "$target_wrapper_sha"; then
     need_wrapper_update=1
-  fi
-  if (( need_wrapper_update == 0 )) && [[ -n "$target_wrapper_sha" ]]; then
-    if current_wrapper_sha="$(sha256_file "$SCRIPT_REAL" 2>/dev/null)" && [[ -n "$current_wrapper_sha" ]]; then
-      if [[ "$current_wrapper_sha" != "$target_wrapper_sha" ]]; then
-        need_wrapper_update=1
-      fi
-    fi
   fi
   if (( CODEX_FORCE_WRAPPER_UPDATE )); then
     need_wrapper_update=1
@@ -6695,67 +6912,19 @@ if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODE
       wrapper_status_label="Update skipped"
       wrapper_status_note="API key missing"
     else
-      tmpdir="$(mktemp -d)"
-      tmpwrapper="$tmpdir/cdx"
-      curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
-      if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
-        curl_args+=("-4")
-      fi
-      if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
-        curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
-      fi
-      case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
-        1|true|yes)
-          curl_args+=("-k")
-          ;;
-      esac
-      if curl "${curl_args[@]}" "$target_wrapper_url" -o "$tmpwrapper"; then
-        dl_sha="$(sha256_file "$tmpwrapper" 2>/dev/null || true)"
-        if [[ -n "$target_wrapper_sha" && "$dl_sha" != "$target_wrapper_sha" ]]; then
-          log_warn "Wrapper update skipped: hash mismatch (expected ${target_wrapper_sha}, got ${dl_sha})"
-          wrapper_update_failed=1
-          wrapper_status_label="Update skipped"
-          wrapper_status_note="hash mismatch"
-        else
-          chmod +x "$tmpwrapper"
-          if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
-            install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
-            WRAPPER_VERSION="$target_wrapper"
-            wrapper_state="updated (${WRAPPER_VERSION})"
-            wrapper_updated=1
-            wrapper_status_label="Updated"
-            if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-              wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
-            fi
-          elif (( CAN_SUDO )); then
-            if $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
-              WRAPPER_VERSION="$target_wrapper"
-              wrapper_state="updated (${WRAPPER_VERSION})"
-              wrapper_updated=1
-              wrapper_status_label="Updated"
-              if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
-                wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
-              fi
-            else
-              log_warn "Wrapper update failed: sudo install denied"
-              wrapper_update_failed=1
-              wrapper_status_label="Update failed"
-              wrapper_status_note="sudo install denied"
-            fi
-          else
-            log_warn "Wrapper update skipped: insufficient permissions to write $(dirname "$SCRIPT_REAL")"
-            wrapper_update_failed=1
-            wrapper_status_label="Update skipped"
-            wrapper_status_note="no permission"
-          fi
+      if perform_wrapper_self_update "$target_wrapper" "$target_wrapper_sha" "$target_wrapper_url"; then
+        wrapper_state="updated (${WRAPPER_VERSION})"
+        wrapper_updated=1
+        wrapper_status_label="Updated"
+        if [[ "$WRAPPER_VERSION_INITIAL" != "$WRAPPER_VERSION" ]]; then
+          wrapper_status_note="${wrapper_status_note:-from ${WRAPPER_VERSION_INITIAL}}"
         fi
       else
-        log_warn "Wrapper update failed: download error"
+        log_warn "Wrapper update failed: ${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
         wrapper_update_failed=1
         wrapper_status_label="Update failed"
-        wrapper_status_note="download error"
+        wrapper_status_note="${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
       fi
-      rm -rf "$tmpdir"
     fi
   elif (( need_wrapper_update )) && [[ -z "$target_wrapper_url" ]]; then
     log_warn "Wrapper update skipped: API did not provide download URL"
@@ -6861,8 +7030,14 @@ summary_divider() {
   fi
   local w=$(( cols - 2 ))
   (( w < 20 )) && w=20
-  # Avoid box-drawing chars: some environments render them as mojibake.
-  printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
+  if output_supports_unicode; then
+    local line=""
+    local si
+    for (( si = 0; si < w; si++ )); do line+="─"; done
+    printf "%b" "${DIM}${line}${RESET}"
+  else
+    printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
+  fi
 }
 
 summary_header() {
@@ -6871,13 +7046,22 @@ summary_header() {
   if command -v date >/dev/null 2>&1; then
     ts="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
   fi
-  local left="cdx"
-  [[ -n "$ts" ]] && left+=" ${DIM}${ts}${RESET}"
+  local left
+  printf -v left "%b%bcdx%b" "${ORANGE}" "${BOLD}" "${RESET}"
+  [[ -n "$ts" ]] && left+=" $(printf '%b%s%b' "${DIM}" "$ts" "${RESET}")"
   local right=""
-  [[ -n "$title" ]] && right="$(colorize "$title" "$tone")"
+  if [[ -n "$title" ]]; then
+    if [[ -n "$tone" ]]; then
+      right="$(colorize "$title" "$tone")"
+    else
+      printf -v right "%b%s%b" "${BOLD}" "$title" "${RESET}"
+    fi
+  fi
+  local dot_sep
+  printf -v dot_sep "%b·%b" "${DIM}" "${RESET}"
   # Keep it single-line; row wrapping is handled below.
   if [[ -n "$right" ]]; then
-    printf "%s%s%s" "$left" "${SUMMARY_GUTTER}•${SUMMARY_GUTTER}" "$right"
+    printf "%s  %s  %s" "$left" "$dot_sep" "$right"
   else
     printf "%s" "$left"
   fi
@@ -7076,6 +7260,8 @@ format_footer_sync_fragment() {
       ;;
   esac
 
+  local dot="●"
+  output_supports_unicode || dot="*"
   local text="${name} ${state}"
   case "$result" in
     skipped|failed|error)
@@ -7084,10 +7270,12 @@ format_footer_sync_fragment() {
       fi
       ;;
   esac
+  local dot_colored
+  dot_colored="$(colorize "$dot" "$tone")"
   if [[ "$tone" != "green" ]]; then
     text="$(colorize "$text" "$tone")"
   fi
-  printf "%s" "$text"
+  printf "%s %s" "$dot_colored" "$text"
 }
 
 format_run_cost_value() {
@@ -7106,8 +7294,18 @@ format_run_cost_value() {
   printf "%s" "$raw"
 }
 
+should_suppress_empty_run_footer() {
+  [[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1
+  [[ -z "${last_usage_payload:-}" ]] || return 1
+  [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]] || return 1
+  [[ "${USAGE_PUSH_REASON:-}" == "no token usage captured" ]]
+}
+
 print_run_exit_footer() {
   (( CODEX_COMMAND_STARTED )) || return 0
+  if should_suppress_empty_run_footer; then
+    return 0
+  fi
 
   local usage_label="Run usage"
   local cost_label="Run cost"
@@ -7134,7 +7332,25 @@ print_run_exit_footer() {
   local cost_text=""
   local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
   if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
-    cost_text="${cost_prefix}$(format_run_cost_value "${USAGE_PUSH_COST}")"
+    local cost_raw="${USAGE_PUSH_COST}"
+    local cost_formatted
+    cost_formatted="$(format_run_cost_value "$cost_raw")"
+    # Colorize cost by magnitude.
+    local cost_tone=""
+    if [[ "$cost_raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      if LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 10) }' 2>/dev/null; then
+        cost_tone="orange"
+      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 2) }' 2>/dev/null; then
+        cost_tone="yellow"
+      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v < 0.50) }' 2>/dev/null; then
+        cost_tone="green"
+      fi
+    fi
+    if [[ -n "$cost_tone" ]]; then
+      cost_text="${cost_prefix}$(colorize "$cost_formatted" "$cost_tone")"
+    else
+      cost_text="${cost_prefix}${cost_formatted}"
+    fi
   else
     cost_text="${cost_prefix}unavailable (${cost_reason})"
     if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
@@ -7150,12 +7366,21 @@ print_run_exit_footer() {
     run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
     if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
       local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
+      local run_time_raw=""
       if (( run_elapsed_s == 0 )); then
-        run_time_text="${run_elapsed_ms}ms"
+        run_time_raw="${run_elapsed_ms}ms"
       elif (( run_elapsed_s < 60 )); then
-        run_time_text="${run_elapsed_s}s"
+        run_time_raw="${run_elapsed_s}s"
       else
-        run_time_text="$(format_duration_short "$run_elapsed_s")"
+        run_time_raw="$(format_duration_short "$run_elapsed_s")"
+      fi
+      # Colorize by duration.
+      if (( run_elapsed_s < 60 )); then
+        run_time_text="$(colorize "$run_time_raw" "green")"
+      elif (( run_elapsed_s > 300 )); then
+        run_time_text="$(colorize "$run_time_raw" "yellow")"
+      else
+        run_time_text="$run_time_raw"
       fi
     fi
   fi
@@ -7164,23 +7389,17 @@ print_run_exit_footer() {
   local auth_sync=""
   usage_sync="$(format_footer_sync_fragment "usage" "${USAGE_PUSH_RESULT:-}" "${USAGE_PUSH_REASON:-}")"
   auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
-  local sync_text="${usage_sync}; ${auth_sync}"
-
-  local footer_row_labels=("$usage_label" "$cost_label" "$run_time_label" "$sync_label")
-  local saved_row_label_width="$ROW_LABEL_WIDTH"
-  ROW_LABEL_WIDTH="$(compute_row_label_width "${footer_row_labels[@]}")"
+  local sync_text="${usage_sync}  ${auth_sync}"
 
   log_info "$(summary_divider)"
   log_info "$(summary_header "Run summary")"
-  log_info "$(format_simple_row "$usage_label" "$usage_text")"
-  log_info "$(format_simple_row "$cost_label" "$cost_text")"
+  log_info "$(summary_row "$usage_label" "$usage_text")"
+  log_info "$(summary_row "$cost_label" "$cost_text")"
   if [[ -n "$run_time_text" ]]; then
-    log_info "$(format_simple_row "$run_time_label" "$run_time_text")"
+    log_info "$(summary_row "$run_time_label" "$run_time_text")"
   fi
-  log_info "$(format_simple_row "$sync_label" "$sync_text")"
+  log_info "$(summary_row "$sync_label" "$sync_text")"
   log_info "$(summary_divider)"
-
-  ROW_LABEL_WIDTH="$saved_row_label_width"
 }
 
 section_bullet() {
@@ -7678,7 +7897,7 @@ doctor_probe_api_versions() {
 
   local probe=""
   local rc=0
-  probe="$(CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
+  probe="$(CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json
 import os
 import sys
@@ -7740,6 +7959,261 @@ PY
   return 1
 }
 
+# ── Boot screen helpers (neofetch-style display) ─────────────────────────
+
+format_compact_number() {
+  local n="$1"
+  [[ "$n" =~ ^[0-9]+$ ]] || { printf "%s" "$n"; return; }
+  if (( n >= 10000000 )); then
+    printf "%dM" $(( (n + 500000) / 1000000 ))
+  elif (( n >= 1000000 )); then
+    local m=$(( n / 1000000 ))
+    local frac=$(( (n % 1000000 + 50000) / 100000 ))
+    if (( frac >= 10 )); then m=$((m + 1)); frac=0; fi
+    if (( m >= 10 )); then
+      printf "%dM" "$m"
+    else
+      printf "%d.%dM" "$m" "$frac"
+    fi
+  elif (( n >= 100000 )); then
+    printf "%dK" $(( (n + 500) / 1000 ))
+  elif (( n >= 10000 )); then
+    local k=$(( n / 1000 ))
+    local frac=$(( (n % 1000 + 50) / 100 ))
+    if (( frac >= 10 )); then k=$((k + 1)); frac=0; fi
+    if (( k >= 100 )); then
+      printf "%dK" "$k"
+    else
+      printf "%d.%dK" "$k" "$frac"
+    fi
+  else
+    printf "%s" "$(format_grouped_int "$n")"
+  fi
+}
+
+build_health_dot() {
+  local name="$1" tone="$2"
+  local dot="●"
+  output_supports_unicode || dot="*"
+  printf "%s %s" "$(colorize "$dot" "$tone")" "$name"
+}
+
+print_boot_screen() {
+  (( CODEX_SILENT )) && return 0
+
+  local show_banner=1
+  (( CODEX_SKIP_MOTD )) && show_banner=0
+
+  # ── Info panel (alongside banner) ──
+  if (( show_banner )); then
+    local info=()
+    local sep_char="─"
+    output_supports_unicode || sep_char="-"
+    local dot_sep
+    printf -v dot_sep "%b·%b" "${DIM}" "${RESET}"
+
+    # L0: empty
+    info+=("")
+
+    # L1: title
+    local title
+    printf -v title "%b%bcodex orchestrator%b" "${ORANGE}" "${BOLD}" "${RESET}"
+    info+=("$title")
+
+    # L2: separator
+    local sep_line=""
+    local si
+    for (( si = 0; si < 25; si++ )); do sep_line+="$sep_char"; done
+    printf -v sep_line "%b%s%b" "${DIM}" "$sep_line" "${RESET}"
+    info+=("$sep_line")
+
+    # L3: codex version
+    local cdx_ver="${codex_ver_inst:-${LOCAL_VERSION:-unknown}}"
+    local cdx_ver_colored
+    cdx_ver_colored="$(colorize "$cdx_ver" "${codex_tone:-green}")"
+    local cdx_line="codex    ${cdx_ver_colored}"
+    if [[ -n "${codex_version_suffix:-}" ]]; then
+      cdx_line+=" $(printf '%b%s%b' "${DIM}" "$codex_version_suffix" "${RESET}")"
+    fi
+    if [[ -n "${codex_ver_target:-}" && "${codex_ver_target}" != "${cdx_ver}" && "${codex_tone:-green}" != "green" ]]; then
+      cdx_line+=" $(printf '%b→%b %s' "${DIM}" "${RESET}" "$(colorize "$codex_ver_target" "yellow")")"
+    fi
+    info+=("$cdx_line")
+
+    # L4: wrapper version
+    local wrap_ver="${wrapper_ver_inst:-${WRAPPER_VERSION:-unknown}}"
+    local wrap_ver_colored
+    wrap_ver_colored="$(colorize "$wrap_ver" "${wrapper_tone:-green}")"
+    local wrap_line="wrapper  ${wrap_ver_colored}"
+    if [[ -n "${wrapper_ver_target:-}" && "${wrapper_ver_target}" != "${wrap_ver}" && "${wrapper_tone:-green}" != "green" ]]; then
+      wrap_line+=" $(printf '%b→%b %s' "${DIM}" "${RESET}" "$(colorize "$wrapper_ver_target" "yellow")")"
+    fi
+    info+=("$wrap_line")
+
+    # L5: context line
+    local ctx_parts=()
+    if (( ! HOST_IS_SECURE )); then
+      local lock_icon="🔓"
+      output_supports_unicode || lock_icon="[!]"
+      ctx_parts+=("$(colorize "${lock_icon} insecure" "yellow")")
+    fi
+    if (( concurrent_compact_summary )); then
+      ctx_parts+=("$(colorize "concurrent run" "yellow")")
+    fi
+    local lane_name="${CODEX_EFFECTIVE_LANE:-normal}"
+    if [[ "$lane_name" == "spark" ]]; then
+      local spark_i="⚡"
+      output_supports_unicode || spark_i="[S]"
+      ctx_parts+=("${spark_i} spark")
+    else
+      ctx_parts+=("$lane_name")
+    fi
+    if [[ "${HOST_TOKENS_MONTH_TOTAL:-}" =~ ^[0-9]+$ ]] && (( HOST_TOKENS_MONTH_TOTAL > 0 )); then
+      ctx_parts+=("$(format_compact_number "$HOST_TOKENS_MONTH_TOTAL") tokens")
+    elif [[ "${HOST_API_CALLS:-}" =~ ^[0-9]+$ ]] && (( HOST_API_CALLS > 0 )); then
+      ctx_parts+=("$(format_compact_number "$HOST_API_CALLS") calls")
+    fi
+    local ctx_line="" cp
+    for cp in "${ctx_parts[@]}"; do
+      [[ -z "$cp" ]] && continue
+      [[ -n "$ctx_line" ]] && ctx_line+=" ${dot_sep} "
+      ctx_line+="$cp"
+    done
+    info+=("$ctx_line")
+
+    print_boot_banner "${info[@]}"
+  fi
+
+  # ── Health dots ──
+  if (( ! concurrent_compact_summary )); then
+    local dots="" dot_gap="  "
+
+    dots+="$(build_health_dot "api" "${api_tone:-yellow}")"
+    dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}")"
+
+    local prompt_dot_label="prompts"
+    if [[ "${PROMPT_LOCAL_COUNT:-}" =~ ^[0-9]+$ ]] && [[ "${PROMPT_REMOTE_COUNT:-}" =~ ^[0-9]+$ ]]; then
+      prompt_dot_label="prompts ${PROMPT_LOCAL_COUNT}/${PROMPT_REMOTE_COUNT}"
+    fi
+    dots+="${dot_gap}$(build_health_dot "$prompt_dot_label" "${prompt_tone:-yellow}")"
+    dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}")"
+
+    if [[ -n "${mcp_tone:-}" ]]; then
+      dots+="${dot_gap}$(build_health_dot "mcp" "$mcp_tone")"
+    fi
+    if [[ -n "${runner_label:-}" ]]; then
+      dots+="${dot_gap}$(build_health_dot "runner" "${runner_tone:-yellow}")"
+    fi
+
+    printf "\n  %s\n" "$dots"
+  else
+    local conc_note=""
+    [[ -n "${concurrent_compact_note:-}" ]] && conc_note="  $(printf '%b%s%b' "${DIM}" "$concurrent_compact_note" "${RESET}")"
+    printf "\n  %s%s\n" "$(build_health_dot "concurrent" "${concurrent_compact_tone:-yellow}")" "$conc_note"
+  fi
+
+  # ── Compact quota bars ──
+  local has_quota=0
+  [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
+  [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
+
+  if (( has_quota )); then
+    printf "\n"
+
+    local -a q_labels=() q_used=() q_reset=() q_proj=() q_spark=()
+    local active_spark=0
+    [[ "${CODEX_EFFECTIVE_LANE:-}" == "spark" ]] && active_spark=1
+
+    if [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]]; then
+      q_labels+=("5h");       q_used+=("$CHATGPT_PRIMARY_USED")
+      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}"); q_proj+=(""); q_spark+=("$active_spark")
+    fi
+    if [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]]; then
+      q_labels+=("weekly");   q_used+=("$CHATGPT_SECONDARY_USED")
+      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}"); q_proj+=("${projection_pct:-}"); q_spark+=("$active_spark")
+    fi
+    if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then
+      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("5h");       q_used+=("$other_lane_primary_used")
+      q_reset+=("${other_lane_primary_reset_after:-}"); q_proj+=(""); q_spark+=("$ol_s")
+    fi
+    if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then
+      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")
+      q_reset+=("${other_lane_secondary_reset_after:-}"); q_proj+=("${other_projection_pct:-}"); q_spark+=("$ol_s")
+    fi
+
+    # Compute label width for alignment
+    local max_lw=6 qi ql_tmp ql_width
+    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+      ql_tmp="${q_labels[qi]}"
+      (( ${q_spark[qi]} )) && ql_tmp="⚡︎ $ql_tmp"
+      ql_width="$(visible_text_width "$ql_tmp")"
+      (( ql_width > max_lw )) && max_lw=$ql_width
+    done
+    (( max_lw > 14 )) && max_lw=14
+
+    local bar_w="${QUOTA_BAR_WIDTH:-24}"
+    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+      local prefix=""
+      if (( ${q_spark[qi]} )); then
+        local spark_ch="⚡︎"
+        output_supports_unicode || spark_ch="S"
+        prefix="${spark_ch} "
+      fi
+      local full_label="${prefix}${q_labels[qi]}"
+
+      local pct="${q_used[qi]}"
+      (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
+
+      local bar
+      bar="$(build_quota_bar "$pct" "$bar_w")"
+
+      local pct_tone="green"
+      (( pct >= 95 )) && pct_tone="red"
+      (( pct >= 80 && pct < 95 )) && pct_tone="orange"
+      local pct_display
+      printf -v pct_display "%3d%%" "$pct"
+      pct_display="$(colorize "$pct_display" "$pct_tone")"
+
+      local dur=""
+      [[ "${q_reset[qi]}" =~ ^[0-9]+$ ]] && dur="$(format_duration_short "${q_reset[qi]}")"
+
+      local proj=""
+      if [[ "${q_proj[qi]}" =~ ^[0-9]+$ ]] && (( ${q_proj[qi]} > 0 )); then
+        if (( ${q_proj[qi]} >= 100 )); then
+          proj="$(colorize "~100%" "red")"
+        else
+          printf -v proj "%b~%d%%%b" "${DIM}" "${q_proj[qi]}" "${RESET}"
+        fi
+      fi
+
+      local note=""
+      [[ -n "$dur" ]] && note="$dur"
+      if [[ -n "$proj" ]]; then
+        [[ -n "$note" ]] && note+="  "
+        note+="$proj"
+      fi
+
+      local padded_label
+      padded_label="$(pad_visible_text_right "$full_label" "$max_lw")"
+      printf "  %s %s [%s]" "$padded_label" "$pct_display" "$bar"
+      [[ -n "$note" ]] && printf "  %s" "$note"
+      printf "\n"
+    done
+
+    if (( ${QUOTA_WARNING:-0} )) && [[ -n "${QUOTA_WARNING_REASON:-}" ]]; then
+      local warn_icon="⚠"
+      output_supports_unicode || warn_icon="!"
+      printf "  %s\n" "$(colorize "${warn_icon} ${QUOTA_WARNING_REASON}" "yellow")"
+    fi
+    if (( ${QUOTA_BLOCKED:-0} )) && [[ -n "${QUOTA_BLOCK_REASON:-}" ]]; then
+      local block_icon="⛔"
+      output_supports_unicode || block_icon="X"
+      printf "  %s\n" "$(colorize "${block_icon} ${QUOTA_BLOCK_REASON}" "red")"
+    fi
+  fi
+}
 
 DOCTOR_FAILURES=0
 print_doctor_report() {
@@ -7748,10 +8222,8 @@ print_doctor_report() {
 
   local dep_python="missing"
   local dep_curl="missing"
-  local dep_script="missing"
   command -v python3 >/dev/null 2>&1 && dep_python="ok"
   command -v curl >/dev/null 2>&1 && dep_curl="ok"
-  command -v script >/dev/null 2>&1 && dep_script="ok"
 
   dep_bits=()
   if [[ "$dep_python" == "ok" ]]; then
@@ -7766,12 +8238,6 @@ print_doctor_report() {
   else
     dep_bits+=("curl $(colorize "missing" "yellow")")
     hints+=("Install curl to enable wrapper/Codex download updates.")
-  fi
-  if [[ "$dep_script" == "ok" ]]; then
-    dep_bits+=("script ✅")
-  else
-    dep_bits+=("script $(colorize "missing" "yellow")")
-    hints+=("Install util-linux script for PTY capture, or run with CODEX_NO_PTY=1.")
   fi
 
   local auth_freshness=""
@@ -7833,13 +8299,6 @@ print_doctor_report() {
       hints+=("Check ${CODEX_SYNC_BASE_URL%/}/versions reachability, DNS/TLS, firewall, and CA settings.")
       ;;
   esac
-
-  local pty_file="$HOME/.codex/.cdx_no_pty"
-  local pty_label="auto-detect clear"
-  if [[ -f "$pty_file" ]]; then
-    pty_label="$(colorize "auto-disabled" "yellow") (${pty_file})"
-    hints+=("PTY capture is auto-disabled on this host; remove ${pty_file} or set CODEX_FORCE_PTY=1 to retest.")
-  fi
 
   local ssh_session_label="local"
   if (( CODEX_SSH_SESSION_ACTIVE )); then
@@ -8042,14 +8501,16 @@ else:
     cli_bits+=("boot=${boot_elapsed}ms")
   fi
   if (( CODEX_SSH_INTERACTIVE )); then
-    if [[ "${CODEX_FORCE_PTY:-0}" == "1" ]]; then
-      cli_bits+=("ssh-launch=pty-forced")
+    if ssh_should_force_no_alt_screen; then
+      cli_bits+=("ssh-launch=direct-tty-inline")
+      cli_bits+=("alt-screen=disabled")
     else
       cli_bits+=("ssh-launch=direct-tty")
+      cli_bits+=("alt-screen=enabled")
     fi
   fi
 
-  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "PTY" "SSH env" "CLI")
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "SSH env" "CLI")
   local saved_row_label_width="$ROW_LABEL_WIDTH"
   ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
 
@@ -8076,7 +8537,6 @@ else:
   fi
   log_info "$(format_simple_row "Disk" "$disk_label")"
   log_info "$(format_simple_row "Cron" "$cron_label")"
-  log_info "$(format_simple_row "PTY" "$pty_label")"
   log_info "$(format_simple_row "SSH env" "$ssh_env_label")"
   log_info "$(format_simple_row "CLI" "$(join_with_sep '; ' "${cli_bits[@]}")")"
 
@@ -8126,6 +8586,12 @@ wrapper_status_display="$wrapper_status_label"
 if [[ -n "$wrapper_status_note" ]]; then
   wrapper_status_display="${wrapper_status_display} (${wrapper_status_note})"
 fi
+
+codex_version_suffix=""
+case "${skip_update_reason:-}" in
+  cron_managed) codex_version_suffix="(auto)" ;;
+  privilege)    codex_version_suffix="(manual)" ;;
+esac
 
 codex_installed_display="$codex_installed_label"
 if [[ -n "$codex_installed_display" ]]; then
@@ -8342,47 +8808,10 @@ elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
   prompt_tone="red"
 fi
 
-skill_label="skills sync skipped"
-skill_tone="yellow"
-if [[ "$SKILL_SYNC_STATUS" == "ok" ]]; then
-  skill_label="skills synced"
-  counts=()
-  if [[ "$SKILL_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("local ${SKILL_LOCAL_COUNT}")
-  fi
-  if [[ "$SKILL_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("remote ${SKILL_REMOTE_COUNT}")
-  fi
-  if (( ${#counts[@]} )); then
-    skill_label+=" ($(join_with_semicolon "${counts[@]}"))"
-  fi
-  if [[ "$SKILL_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( SKILL_PULL_UPDATED > 0 )); then
-    skill_label+=" (${SKILL_PULL_UPDATED} updated)"
-  fi
-  if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
-    skill_label+=" (${SKILL_REMOVED} removed)"
-  fi
-  if [[ "$SKILL_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PULL_ERRORS > 0 )); then
-    skill_label+=" (${SKILL_PULL_ERRORS} fetch errors)"
-    skill_tone="yellow"
-  else
-    skill_tone="green"
-  fi
-elif [[ "$SKILL_SYNC_STATUS" == "missing-config" ]]; then
-  skill_label="sync config missing"
-  skill_tone="red"
-elif [[ "$SKILL_SYNC_STATUS" == "no-python" ]]; then
-  skill_label="sync requires python3"
-  skill_tone="yellow"
-elif [[ "$SKILL_SYNC_STATUS" == "offline" ]]; then
-  skill_label="sync unavailable"
-  if [[ -n "$SKILL_SYNC_REASON" ]]; then
-    skill_label+=" (${SKILL_SYNC_REASON})"
-  fi
-  skill_tone="yellow"
-elif [[ "$SKILL_SYNC_STATUS" == "error" ]]; then
-  skill_label="sync failed"
-  skill_tone="red"
+skill_label="skills via MCP"
+skill_tone="green"
+if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+  skill_label+=" (${SKILL_REMOVED} local legacy paths removed)"
 fi
 
 agents_label="AGENTS sync skipped"
@@ -8487,32 +8916,6 @@ case "$PROMPT_PUSH_STATUS" in
     ;;
 esac
 
-case "$SKILL_PUSH_STATUS" in
-  ok)
-    if [[ "$SKILL_PUSHED" =~ ^[0-9]+$ ]] && (( SKILL_PUSHED > 0 )); then
-      skill_label+="; pushed ${SKILL_PUSHED}"
-    fi
-    if [[ "$SKILL_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PUSH_ERRORS > 0 )); then
-      skill_label+="; push errors ${SKILL_PUSH_ERRORS}"
-      skill_tone="yellow"
-    fi
-    ;;
-  no-baseline)
-    skill_label+="; push skipped (no baseline)"
-    ;;
-  no-python)
-    skill_label+="; push skipped (python missing)"
-    ;;
-  missing-config)
-    skill_label+="; push skipped (config missing)"
-    skill_tone="red"
-    ;;
-  error)
-    skill_label+="; push failed"
-    skill_tone="red"
-    ;;
-esac
-
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
@@ -8613,44 +9016,11 @@ fi
 if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
   result_parts+=("prompts push failed")
 fi
-if [[ "$SKILL_SYNC_STATUS" == "ok" ]]; then
-  skill_result="skills synced"
-  if [[ "$SKILL_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    skill_result+=" (local ${SKILL_LOCAL_COUNT}"
-    if [[ "$SKILL_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-      skill_result+=", remote ${SKILL_REMOTE_COUNT}"
-    fi
-    skill_result+=")"
-  fi
-  if [[ "$SKILL_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( SKILL_PULL_UPDATED > 0 )); then
-    skill_result+=" (${SKILL_PULL_UPDATED} updated)"
-  fi
-  if [[ "$SKILL_PUSHED" =~ ^[0-9]+$ ]] && (( SKILL_PUSHED > 0 )); then
-    skill_result+="; pushed ${SKILL_PUSHED}"
-  fi
-  if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
-    skill_result+="; removed ${SKILL_REMOVED}"
-  fi
-  if [[ "$SKILL_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( SKILL_PUSH_ERRORS > 0 )); then
-    skill_result+="; push errors ${SKILL_PUSH_ERRORS}"
-  fi
-  result_parts+=("$skill_result")
-elif [[ "$SKILL_SYNC_STATUS" == "missing-config" ]]; then
-  result_parts+=("skills config missing")
-elif [[ "$SKILL_SYNC_STATUS" == "no-python" ]]; then
-  result_parts+=("skills python missing")
-elif [[ "$SKILL_SYNC_STATUS" == "offline" ]]; then
-  if [[ -n "$SKILL_SYNC_REASON" ]]; then
-    result_parts+=("skills offline (${SKILL_SYNC_REASON})")
-  else
-    result_parts+=("skills offline")
-  fi
-elif [[ "$SKILL_SYNC_STATUS" == "error" ]]; then
-  result_parts+=("skills sync failed")
+skill_result="skills via MCP"
+if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+  skill_result+="; cleanup removed ${SKILL_REMOVED}"
 fi
-if [[ "$SKILL_PUSH_STATUS" == "error" ]]; then
-  result_parts+=("skills push failed")
-fi
+result_parts+=("$skill_result")
 if [[ "$AGENTS_SYNC_STATUS" == "ok" ]]; then
   case "$AGENTS_STATE" in
     updated)
@@ -8794,11 +9164,7 @@ if (( ! HOST_IS_SECURE )); then
     && [[ "${PROMPT_PUSHED:-0}" == "0" ]] \
     && [[ "${PROMPT_REMOVED:-0}" == "0" ]] \
     && [[ "${PROMPT_PUSH_ERRORS:-0}" == "0" ]] \
-    && [[ "$SKILL_SYNC_STATUS" == "ok" ]] \
-    && [[ "${SKILL_PULL_UPDATED:-0}" == "0" ]] \
-    && [[ "${SKILL_PUSHED:-0}" == "0" ]] \
-    && [[ "${SKILL_REMOVED:-0}" == "0" ]] \
-    && [[ "${SKILL_PUSH_ERRORS:-0}" == "0" ]] \
+    && [[ "$SKILL_SYNC_STATUS" == "mcp" ]] \
     && [[ "$AGENTS_SYNC_STATUS" == "ok" ]] \
     && [[ "$AGENTS_STATE" == "unchanged" ]] \
     && [[ "$CONFIG_SYNC_STATUS" == "ok" ]] \
@@ -8905,7 +9271,7 @@ fi
   quota_lane_display="${quota_lane_label}"
   if [[ "$quota_lane_display" == "spark" ]]; then
     if output_supports_unicode; then
-      quota_lane_display="${quota_lane_display} ⚡"
+      quota_lane_display="${quota_lane_display} ⚡︎"
     else
       quota_lane_display="${quota_lane_display} (fast)"
     fi
@@ -9322,12 +9688,12 @@ fi
   if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     concurrent_compact_summary=1
     if (( HAS_VALID_LOCAL_AUTH )); then
-      concurrent_compact_note="Concurrent guard active; using local auth.json."
+      concurrent_compact_note="Using local auth.json."
     elif (( HAS_LOCAL_AUTH )); then
-      concurrent_compact_note="Concurrent guard active; local auth.json is invalid."
+      concurrent_compact_note="Local auth.json is invalid."
       concurrent_compact_tone="red"
     else
-      concurrent_compact_note="Concurrent guard active; local auth.json is missing."
+      concurrent_compact_note="Local auth.json is missing."
       concurrent_compact_tone="red"
     fi
   fi
@@ -9357,68 +9723,7 @@ fi
       log_info "$(format_simple_row "Health" "$minimal_health_line")"
       log_info "$(format_simple_row "Result" "$minimal_result_line")"
     else
-      if (( concurrent_compact_summary )); then
-        print_section_rows "Concurrent" "${bullet} $(colorize "$concurrent_compact_note" "$concurrent_compact_tone")"
-      else
-        print_section_rows "Health" "${health_rows[@]}"
-        print_section_rows "Versions" "${version_rows[@]}"
-        print_section_rows "Usage" "${usage_rows[@]}"
-      fi
-
-      quota_rows=()
-      quota_metric_labels=("Active lane")
-      if [[ -n "$primary_quota_segment" ]]; then
-        quota_metric_labels+=("5h window")
-      fi
-      if [[ -n "$secondary_quota_segment" ]]; then
-        quota_metric_labels+=("Weekly window")
-      fi
-      if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
-        quota_metric_labels+=("Daily allowance")
-      fi
-      if [[ -n "$other_lane_primary_quota_segment" ]]; then
-        quota_metric_labels+=("${other_lane_label} 5h window")
-      fi
-      if [[ -n "$other_lane_secondary_quota_segment" ]]; then
-        quota_metric_labels+=("${other_lane_label} weekly window")
-      fi
-      quota_metric_label_width=0
-      for quota_metric_label in "${quota_metric_labels[@]}"; do
-        quota_metric_len=${#quota_metric_label}
-        if (( quota_metric_len > quota_metric_label_width )); then
-          quota_metric_label_width=$quota_metric_len
-        fi
-      done
-      (( quota_metric_label_width < 12 )) && quota_metric_label_width=12
-      QUOTA_METRIC_LABEL_WIDTH="$quota_metric_label_width"
-
-      quota_rows+=("${bullet} $(format_quota_metric_row "Active lane" "${quota_lane_display}")")
-      if [[ -n "$primary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "5h window" "${primary_quota_segment}")")
-      fi
-      if [[ -n "$secondary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "Weekly window" "${secondary_quota_segment}")")
-      fi
-      if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
-        quota_rows+=("${bullet} $(format_quota_metric_row "Daily allowance" "${daily_quota_segment}")")
-      fi
-      if [[ -n "$other_lane_primary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "${other_lane_label} 5h window" "${other_lane_primary_quota_segment}")")
-      fi
-      if [[ -n "$other_lane_secondary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "${other_lane_label} weekly window" "${other_lane_secondary_quota_segment}")")
-      fi
-      if (( QUOTA_WARNING )) && [[ -n "$QUOTA_WARNING_REASON" ]]; then
-        quota_rows+=("${bullet} $(colorize "Near limit: ${QUOTA_WARNING_REASON}" "yellow")")
-      fi
-      if (( QUOTA_BLOCKED )) && [[ -n "$QUOTA_BLOCK_REASON" ]]; then
-        quota_rows+=("${bullet} $(colorize "Limit reached: ${QUOTA_BLOCK_REASON}" "red")")
-      fi
-      print_section_rows "Quota" "${quota_rows[@]}"
-
-      if (( ! concurrent_compact_summary )); then
-        print_section_rows "Result" "${bullet} ${result_line}"
-      fi
+      print_boot_screen
     fi
 
     ROW_LABEL_WIDTH="$row_label_width_default"
@@ -9442,7 +9747,6 @@ if (( CODEX_STATUS_ONLY )); then
   release_run_lock_if_held || true
   exit 0
 fi
-
 
 if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )); then
   if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
@@ -9503,7 +9807,6 @@ case "$AUTH_PULL_STATUS" in
   concurrent)
     if (( HAS_VALID_LOCAL_AUTH )); then
       AUTH_LAUNCH_ALLOWED=1
-      AUTH_LAUNCH_REASON="Active cdx run detected; using local auth.json with sync/update mutations skipped"
     elif (( HAS_LOCAL_AUTH )); then
       AUTH_LAUNCH_REASON="Active cdx run detected and local auth.json is invalid."
     else
@@ -9537,8 +9840,6 @@ if (( AUTH_LAUNCH_ALLOWED == 0 )); then
   exit 1
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
-elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  log_warn "${AUTH_LAUNCH_REASON}."
 fi
 
 if (( CODEX_LANE_PERSIST_REQUEST )); then
@@ -9601,7 +9902,7 @@ stop_codex_ipv4_proxy() {
 }
 
 start_codex_ipv4_proxy() {
-  if [[ "$CODEX_FORCE_IPV4" != "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" != "1" ]]; then
     return 1
   fi
   if [[ -n "${CODEX_IPV4_PROXY_URL:-}" ]]; then
@@ -9653,7 +9954,6 @@ cleanup() {
   stop_codex_ipv4_proxy || true
   if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     push_slash_commands_if_changed || true
-    push_skills_if_changed || true
   fi
   if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
     push_auth_if_changed "push" || true
@@ -9689,6 +9989,7 @@ apply_otel_env_from_config() {
         ;;
     esac
   done < <(otel_env_from_config_python 2>/dev/null || true)
+  return 0
 }
 
 apply_otel_env_from_config
@@ -9850,22 +10151,19 @@ ensure_current_project_trusted_in_config() {
   if [[ -n "$cwd_physical" && "$cwd_physical" != "$cwd_logical" ]]; then
     ensure_project_path_trusted_in_config "$cwd_physical"
   fi
+  return 0
 }
 
-detect_script_flags() {
-  local help_output
-  SCRIPT_SUPPORTS_C=0
-  help_output="$(script --help 2>&1 || script -h 2>&1 || true)"
-  if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-c([[:space:],]|$)'; then
-    SCRIPT_SUPPORTS_C=1
-  fi
-  if printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-F([[:space:],]|$)'; then
-    SCRIPT_FLAGS="-qFe"
-  elif printf '%s' "$help_output" | grep -Eq '(^|[[:space:]])-f([[:space:],]|$)'; then
-    SCRIPT_FLAGS="-qef"
-  else
-    SCRIPT_FLAGS="-qe"
-  fi
+codex_args_include_exact_flag() {
+  local wanted="$1"
+  shift || true
+  local arg=""
+  for arg in "$@"; do
+    if [[ "$arg" == "$wanted" ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 run_codex_command() {
@@ -9894,166 +10192,45 @@ run_codex_command() {
   fi
   set +e
   local prompt_toolkit_no_cpr_added=0
-  local pty_auto_disable_file="$HOME/.codex/.cdx_no_pty"
-  local pty_tty_error=0
-  # If we're not connected to a real TTY (common on some odd SSH/VM setups),
-  # forcing prompt-toolkit cursor position reports can hard-fail.
   if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]] && [[ ! -t 0 || ! -t 1 ]]; then
     export PROMPT_TOOLKIT_NO_CPR=1
     prompt_toolkit_no_cpr_added=1
   fi
 
+  if (( CODEX_SSH_INTERACTIVE )); then
+    if ssh_should_force_no_alt_screen && ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then
+      cmd_line+=("--no-alt-screen")
+      exec_cmd=("${cmd_line[@]}")
+      if (( use_cmd_prefix )); then
+        exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
+      fi
+    fi
+  fi
+
   if [[ -t 0 && -t 1 ]]; then
-    if (( CODEX_SSH_INTERACTIVE )) && [[ "${CODEX_FORCE_PTY:-0}" != "1" ]]; then
-      # Interactive SSH is more reliable with a direct TTY handoff than nested PTY capture.
-      # This favors a clean full-screen Codex UI over wrapper-side output capture on SSH runs.
-      "${exec_cmd[@]}"
-      status=$?
-    elif [[ "$CODEX_NO_PTY" == "1" ]]; then
-      # Preserve interactive TTY behavior when PTY capture is explicitly disabled.
-      "${exec_cmd[@]}"
-      status=$?
-    elif [[ "${CODEX_FORCE_PTY:-0}" != "1" && -f "$pty_auto_disable_file" ]]; then
-      # Auto-detected incompatible PTY host; run direct unless explicitly overridden.
-      "${exec_cmd[@]}"
-      status=$?
-    else
-      if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]]; then
-        export PROMPT_TOOLKIT_NO_CPR=1
-        prompt_toolkit_no_cpr_added=1
-      fi
-      if [[ "$CODEX_NO_SCRIPT" != "1" ]] && command -v script >/dev/null 2>&1; then
-        # Use script to keep a PTY and capture output to a typescript file while streaming to the real TTY.
-        local cmd_str
-        cmd_str="$(printf '%q ' "${exec_cmd[@]}")"
-        detect_script_flags
-        if (( SCRIPT_SUPPORTS_C )); then
-          script $SCRIPT_FLAGS "$tmp_output" -c "$cmd_str"
-        else
-          script $SCRIPT_FLAGS "$tmp_output" "${exec_cmd[@]}"
-        fi
-        status=$?
-      elif command -v python3 >/dev/null 2>&1; then
-        # Fallback PTY using Python's pty module when script is unavailable.
-        local -a pty_cmd=(python3 - "$tmp_output" "${cmd_line[@]}")
-        if (( use_cmd_prefix )); then
-          pty_cmd=("${cmd_prefix[@]}" "${pty_cmd[@]}")
-        fi
-        status=0
-        "${pty_cmd[@]}" <<'PY'
-import fcntl
-import os
-import pty
-import signal
-import sys
-import termios
-log_path = sys.argv[1]
-cmd = sys.argv[2:]
-
-def copy_winsize(from_fd, to_fd):
-    try:
-        winsize = fcntl.ioctl(from_fd, termios.TIOCGWINSZ, b"\0" * 8)
-    except OSError:
-        return
-    try:
-        fcntl.ioctl(to_fd, termios.TIOCSWINSZ, winsize)
-    except OSError:
-        pass
-
-stdout_fd = sys.stdout.fileno()
-winsize_source_fd = stdout_fd if os.isatty(stdout_fd) else None
-opened_tty_fd = None
-if winsize_source_fd is None:
-    try:
-        opened_tty_fd = os.open("/dev/tty", os.O_RDONLY)
-        winsize_source_fd = opened_tty_fd
-    except OSError:
-        winsize_source_fd = None
-with open(log_path, "wb") as log:
-    pid, fd = pty.fork()
-    if pid == 0:
-        os.execvp(cmd[0], cmd)
-    if winsize_source_fd is not None:
-        copy_winsize(winsize_source_fd, fd)
-    previous_winch_handler = signal.getsignal(signal.SIGWINCH)
-    if winsize_source_fd is not None:
-        def forward_winch(_signum, _frame):
-            copy_winsize(winsize_source_fd, fd)
-        signal.signal(signal.SIGWINCH, forward_winch)
-    try:
-        while True:
-            try:
-                data = os.read(fd, 1024)
-            except OSError:
-                break
-            if not data:
-                break
-            os.write(sys.stdout.fileno(), data)
-            log.write(data)
-            log.flush()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            signal.signal(signal.SIGWINCH, previous_winch_handler)
-        except Exception:
-            pass
-        if opened_tty_fd is not None:
-            try:
-                os.close(opened_tty_fd)
-            except OSError:
-                pass
-    _, status = os.waitpid(pid, 0)
-    sys.exit(os.WEXITSTATUS(status))
-PY
-        status=$?
-      else
-        # Last-resort: run directly to preserve TTY; no tee (token usage may be skipped).
-        "${exec_cmd[@]}"
-        status=$?
-      fi
-
-      if [[ -f "$tmp_output" ]] && grep -Eiq '(stdout is not a terminal|stdin is not a terminal|stdin/stderr is not a TTY|stdin is not a tty|stdout is not a tty)' "$tmp_output"; then
-        pty_tty_error=1
-      fi
-      # Only retry when the PTY run itself failed and looks TTY-incompatible.
-      if (( pty_tty_error )) && [[ ${status:-1} -ne 0 ]]; then
-        mkdir -p "$(dirname "$pty_auto_disable_file")" >/dev/null 2>&1 || true
-        {
-          printf 'detected_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          printf 'wrapper_version=%s\n' "${WRAPPER_VERSION:-unknown}"
-        } > "$pty_auto_disable_file" 2>/dev/null || true
-        log_warn "PTY capture looks incompatible on this host; auto-disabling PTY capture. Remove $pty_auto_disable_file or set CODEX_FORCE_PTY=1 to retry."
-        "${exec_cmd[@]}"
-        status=$?
-      fi
-    fi
+    # TTY: direct exec — codex owns the terminal.
+    "${exec_cmd[@]}"
+    status=$?
+  elif [[ ! -t 1 ]] && (( $# == 0 )); then
+    log_error "stdout is not a TTY; interactive launch requires a terminal."
+    log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
+    status=1
   else
-    # Non-TTY stdout should not rewrite user intent (for example forcing `exec`).
-    # For interactive no-arg launches, fail fast with an explicit non-interactive hint.
-    if [[ ! -t 1 ]]; then
-      if (( $# == 0 )); then
-        log_error "stdout is not a TTY; interactive launch requires a terminal."
-        log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
-        status=1
-      else
-        "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
-        status=${PIPESTATUS[0]}
-      fi
-    else
-      "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
-      status=${PIPESTATUS[0]}
-    fi
+    # Non-TTY: capture output via tee for token usage extraction.
+    "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
+    status=${PIPESTATUS[0]}
   fi
   stop_codex_ipv4_proxy || true
   if (( prompt_toolkit_no_cpr_added )); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi
   set -e
-  if [[ -f "$tmp_output" ]]; then
+  if [[ -f "$tmp_output" ]] && [[ -s "$tmp_output" ]]; then
     send_token_usage_if_present "$tmp_output"
-    rm -f "$tmp_output"
+  else
+    send_token_usage_from_session_jsonl
   fi
+  rm -f "$tmp_output"
   return "$status"
 }
 

@@ -45,6 +45,11 @@ final class CdxWrapperPackageManagerSupportTest extends TestCase
             $wrapperSource,
             'script dependency should map to util-linux for package managers where script is not a package name.'
         );
+        self::assertStringContainsString(
+            'ensure_optional_commands bwrap',
+            $wrapperSource,
+            'Linux hosts should attempt bubblewrap install best-effort instead of failing startup.'
+        );
     }
 
     public function testWrapperKeepsDnfPathAlongsideYumFallback(): void
@@ -54,5 +59,23 @@ final class CdxWrapperPackageManagerSupportTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString('dnf install -y "${install_missing[@]}"', $wrapperSource);
+    }
+
+    public function testWrapperMapsBwrapToBubblewrapForAptDnfAndYumHosts(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString(
+            'apt-get:bwrap|dnf:bwrap|yum:bwrap',
+            $wrapperSource,
+            'APT/DNF/YUM hosts should remap the bwrap command to the bubblewrap package name.'
+        );
+        self::assertStringContainsString(
+            'pkg="bubblewrap"',
+            $wrapperSource,
+            'APT/DNF/YUM hosts should install the bubblewrap package when bwrap is missing.'
+        );
     }
 }

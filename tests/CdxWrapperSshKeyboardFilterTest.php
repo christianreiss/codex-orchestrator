@@ -15,8 +15,9 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
 
         self::assertStringContainsString('is_ssh_session()', $wrapperSource);
         self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
+        self::assertStringContainsString('ssh_should_force_no_alt_screen()', $wrapperSource);
         self::assertStringContainsString('if (( CODEX_SSH_INTERACTIVE )); then', $wrapperSource);
-        self::assertStringContainsString('if ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then', $wrapperSource);
+        self::assertStringContainsString('if ssh_should_force_no_alt_screen && ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then', $wrapperSource);
         self::assertStringContainsString('cmd_line+=("--no-alt-screen")', $wrapperSource);
         // PTY capture removed: direct exec for TTY, tee for non-TTY.
         self::assertStringNotContainsString('CODEX_NO_PTY', $wrapperSource);
@@ -49,10 +50,12 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('session=${ssh_session_label}', $wrapperSource);
         self::assertStringContainsString('TERM=${TERM:-unknown}', $wrapperSource);
         self::assertStringContainsString('version=${LOCAL_VERSION:-unknown}', $wrapperSource);
+        self::assertStringContainsString('ssh_should_force_no_alt_screen', $wrapperSource);
         self::assertStringContainsString('ssh-launch=direct-tty-inline', $wrapperSource);
-        self::assertStringNotContainsString('ssh-launch=pty-forced', $wrapperSource);
-        self::assertStringContainsString('alt-screen=disabled', $wrapperSource);
+        self::assertStringContainsString('ssh-launch=direct-tty', $wrapperSource);
         self::assertStringContainsString('alt-screen=enabled', $wrapperSource);
+        self::assertStringContainsString('alt-screen=disabled', $wrapperSource);
+        self::assertStringNotContainsString('ssh-launch=pty-forced', $wrapperSource);
         self::assertStringNotContainsString('ssh-filter=${ssh_filter_label}', $wrapperSource);
         self::assertStringNotContainsString('Interactive SSH compatibility filter is active; wrapper strips Codex keyboard-protocol enable sequences', $wrapperSource);
         self::assertStringNotContainsString('Interactive SSH session detected, but ${CODEX_SSH_KEYBOARD_FILTER_REASON:-python3 is missing}', $wrapperSource);

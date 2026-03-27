@@ -4473,6 +4473,14 @@ body[data-nav-version="2026"] .rail-sub-link.is-active {
   color: var(--accent);
 }
 
+body[data-nav-version="2026"] .rail-panel .host-tab {
+  border-bottom: 0;
+}
+
+body[data-nav-version="2026"] .rail-panel .host-tab.active {
+  border-color: transparent;
+}
+
 body[data-nav-version="2026"] .rail-tools {
   flex-shrink: 0;
   display: inline-flex;

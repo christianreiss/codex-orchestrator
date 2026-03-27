@@ -40,10 +40,19 @@ fi
 
 if [[ "$platform_os" == "Linux" ]]; then
   if (( can_manage_codex )); then
-    ensure_commands curl unzip
+    if (( CODEX_EXIT_AFTER_UPDATE )); then
+      ensure_commands curl
+    else
+      ensure_commands curl unzip
+      ensure_optional_commands bwrap
+    fi
   fi
 elif [[ "$platform_os" == "Darwin" ]]; then
-  ensure_commands python3 curl unzip
+  if (( CODEX_EXIT_AFTER_UPDATE )); then
+    ensure_commands curl
+  else
+    ensure_commands python3 curl unzip
+  fi
 fi
 
 LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"

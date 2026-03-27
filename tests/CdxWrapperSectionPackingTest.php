@@ -41,6 +41,9 @@ final class CdxWrapperSectionPackingTest extends TestCase
         self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW_QUOTA=1', $wrapperSource);
         self::assertStringContainsString('if [[ "$label" == "Quota" ]]; then', $wrapperSource);
         self::assertStringContainsString('items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"', $wrapperSource);
+        self::assertStringContainsString('ql_width="$(visible_text_width "$ql_tmp")"', $wrapperSource);
+        self::assertStringContainsString('pad_visible_text_right "$full_label" "$max_lw"', $wrapperSource);
+        self::assertStringContainsString('XX}"', $wrapperSource);
     }
 
     public function testWrapperDefaultsVersionsSectionToTwoItemsPerRowForReadability(): void

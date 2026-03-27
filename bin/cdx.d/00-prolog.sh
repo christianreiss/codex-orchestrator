@@ -123,6 +123,41 @@ strip_ansi_sgr() {
   sed "$SED_ERE_FLAG" 's/\x1B\[[0-9;]*[mK]//g' <<<"$text"
 }
 
+strip_zero_width_text() {
+  local text="${1-}"
+  text="${text//$'\uFE0E'/}"
+  text="${text//$'\uFE0F'/}"
+  text="${text//$'\u200D'/}"
+  printf '%s' "$text"
+}
+
+visible_text_width() {
+  local text="${1-}"
+  local plain
+  plain="$(strip_zero_width_text "$(strip_ansi_sgr "$text")")"
+  # Some terminals still render the lightning glyph double-width even in text
+  # presentation, so pad quota labels against that visual width.
+  plain="${plain//⚡/XX}"
+  printf '%d' "${#plain}"
+}
+
+pad_visible_text_right() {
+  local text="${1-}"
+  local target_width="${2-0}"
+  if [[ ! "$target_width" =~ ^[0-9]+$ ]]; then
+    target_width=0
+  fi
+
+  local plain_width
+  plain_width="$(visible_text_width "$text")"
+
+  local padding=$(( target_width - plain_width ))
+  (( padding < 0 )) && padding=0
+
+  printf '%s' "$text"
+  (( padding > 0 )) && printf '%*s' "$padding" ""
+}
+
 sha256_file() {
   local target="${1-}"
   [[ -n "$target" ]] || return 1
@@ -746,7 +781,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.03.27-03"
+WRAPPER_VERSION="2026.03.27-11"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

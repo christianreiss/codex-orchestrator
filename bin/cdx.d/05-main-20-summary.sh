@@ -1191,11 +1191,12 @@ print_boot_screen() {
     fi
 
     # Compute label width for alignment
-    local max_lw=6 qi ql_tmp
+    local max_lw=6 qi ql_tmp ql_width
     for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
       ql_tmp="${q_labels[qi]}"
-      (( ${q_spark[qi]} )) && ql_tmp="X $ql_tmp"
-      (( ${#ql_tmp} > max_lw )) && max_lw=${#ql_tmp}
+      (( ${q_spark[qi]} )) && ql_tmp="⚡︎ $ql_tmp"
+      ql_width="$(visible_text_width "$ql_tmp")"
+      (( ql_width > max_lw )) && max_lw=$ql_width
     done
     (( max_lw > 14 )) && max_lw=14
 
@@ -1241,7 +1242,9 @@ print_boot_screen() {
         note+="$proj"
       fi
 
-      printf "  %-${max_lw}s %s [%s]" "$full_label" "$pct_display" "$bar"
+      local padded_label
+      padded_label="$(pad_visible_text_right "$full_label" "$max_lw")"
+      printf "  %s %s [%s]" "$padded_label" "$pct_display" "$bar"
       [[ -n "$note" ]] && printf "  %s" "$note"
       printf "\n"
     done

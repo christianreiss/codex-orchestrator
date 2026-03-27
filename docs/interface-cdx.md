@@ -191,7 +191,7 @@ Summary layout:
 - When stdin and stdout are TTYs, Codex is launched with direct terminal ownership (no intermediate PTY capture).
 - When stdout is not a TTY (pipe mode), Codex output is captured via `tee` for token usage extraction.
 - Non-TTY interactive launch (no args, no terminal) fails with guidance to use `--execute`.
-- Interactive SSH sessions inject `--no-alt-screen` by default so terminal CPR/alt-screen quirks on some SSH hosts do not tear down the visible UI; set `CODEX_SSH_ALT_SCREEN=0` to keep fullscreen alt-screen mode.
+- Interactive SSH sessions only force `--no-alt-screen` by default for older Codex builds. On `codex 0.117.0+`, alt-screen stays enabled unless you explicitly set `CODEX_SSH_ALT_SCREEN=1`; set `CODEX_SSH_ALT_SCREEN=0` to force fullscreen alt-screen mode on any version.
 - `PROMPT_TOOLKIT_NO_CPR=1` is set automatically when stdin or stdout is not a TTY.
 `--execute` behavior:
 - `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.
@@ -235,7 +235,8 @@ Codex updates:
 - Cron HTTPS probes build the same relaxed SSL context chain as the other wrapper sync paths: optional baked CA, `VERIFY_X509_STRICT` fallback disable when available, and insecure mode only when the host was explicitly baked with `curl_insecure` / `CODEX_SYNC_ALLOW_INSECURE=1`.
 - When a specific platform asset name is requested during release resolution, wrapper update paths fail closed if that exact asset is missing; generic `codex` fallback is only allowed when no explicit asset name was requested.
 - After a checksum-verified cron update installs successfully, report submission is retried and a persistent report failure exits non-zero so operators can see the incomplete rollout.
-- Linux prerequisite auto-install (`curl`, `unzip`) runs only when wrapper has root/passwordless sudo.
+- Linux prerequisite auto-install hard-requires `curl` and `unzip`; `bwrap`/Bubblewrap is best-effort only and never blocks launch because Codex can fall back to its vendored sandbox helper.
+- `cdx --update` is treated as a recovery path: before self-update it requires only `curl`, so stale wrappers can still replace themselves even when optional prerequisites or package mappings are broken locally.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
 - `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and SSH launch mode.
 

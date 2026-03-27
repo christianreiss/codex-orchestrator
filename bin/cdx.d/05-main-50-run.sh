@@ -248,19 +248,13 @@ run_codex_command() {
   fi
 
   if (( CODEX_SSH_INTERACTIVE )); then
-    case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
-      0|false|no|off)
-        ;;
-      *)
-        if ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then
-          cmd_line+=("--no-alt-screen")
-          exec_cmd=("${cmd_line[@]}")
-          if (( use_cmd_prefix )); then
-            exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
-          fi
-        fi
-        ;;
-    esac
+    if ssh_should_force_no_alt_screen && ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then
+      cmd_line+=("--no-alt-screen")
+      exec_cmd=("${cmd_line[@]}")
+      if (( use_cmd_prefix )); then
+        exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
+      fi
+    fi
   fi
 
   if [[ -t 0 && -t 1 ]]; then
