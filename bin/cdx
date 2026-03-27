@@ -155,7 +155,10 @@ pad_visible_text_right() {
   (( padding < 0 )) && padding=0
 
   printf '%s' "$text"
-  (( padding > 0 )) && printf '%*s' "$padding" ""
+  if (( padding > 0 )); then
+    printf '%*s' "$padding" ""
+  fi
+  return 0
 }
 
 sha256_file() {
