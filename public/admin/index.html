@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-24-07">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-24-01">
-  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-24-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-27-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-01">
+  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-27-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="editorial-rail">
@@ -494,24 +494,21 @@
 
         <!-- Dashboard -->
         <section class="panel-set dashboard-shell" data-panel="dashboard">
-          <section class="dashboard-hero">
-            <div class="dashboard-command-center">
-              <div class="dashboard-hero-head">
-              </div>
-              <div class="dashboard-signal-strip" id="dashboardSignalStrip">
-                <span class="signal-chip neutral">Loading fleet signals…</span>
-              </div>
-            </div>
-          </section>
-          <section class="dashboard-overview-grid">
-            <section class="card usage-card dashboard-equal-card" id="chatgpt-usage-card">
-              <div class="muted">Loading ChatGPT usage…</div>
+          <div class="dashboard-status-bar" id="dashboardStatusBar">
+            <span class="status-ok">Loading…</span>
+          </div>
+          <section class="dashboard-primary-grid" id="stats">
+            <section class="dashboard-primary-card" id="dashboardFleetCard">
+              <div class="muted">Loading fleet…</div>
             </section>
-            <section class="card ops-radar-card dashboard-equal-card" id="dashboardRadarCard">
-              <div class="muted">Loading ops radar…</div>
+            <section class="dashboard-primary-card" id="chatgpt-usage-card">
+              <div class="muted">Loading usage…</div>
             </section>
-            <section class="grid metrics metrics-2026 dashboard-stats-grid" id="stats"></section>
+            <section class="dashboard-primary-card" id="dashboardSpendCard">
+              <div class="muted">Loading spend…</div>
+            </section>
           </section>
+          <div class="dashboard-ops-strip" id="dashboardOpsStrip" hidden></div>
           <section class="dashboard-charts-grid" id="dashboardGrid"></section>
         </section>
 
@@ -2016,7 +2013,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-26-05"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-27-01"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

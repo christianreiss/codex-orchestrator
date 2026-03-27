@@ -136,8 +136,10 @@
     const memoriesTableWrap = document.getElementById('memoriesTableWrap');
 
     const dashboardMissionYear = document.getElementById('dashboardMissionYear');
-    const dashboardSignalStrip = document.getElementById('dashboardSignalStrip');
-    const dashboardRadarCard = document.getElementById('dashboardRadarCard');
+    const dashboardStatusBar = document.getElementById('dashboardStatusBar');
+    const dashboardOpsStrip = document.getElementById('dashboardOpsStrip');
+    const dashboardFleetCard = document.getElementById('dashboardFleetCard');
+    const dashboardSpendCard = document.getElementById('dashboardSpendCard');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
@@ -541,7 +543,7 @@
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
         copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
-        show: ['stats', 'chatgpt-usage-card'],
+        show: ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardStatusBar', 'dashboardOpsStrip', 'dashboardGrid'],
       },
       hosts: {
         eyebrow: 'Hosts',
@@ -627,7 +629,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -4164,25 +4166,24 @@
         secondaryRows.push({ label: 'Spark', data: sparkSecondary, windowKey: 'spark:secondary' });
       }
 
+      const activePrimaryRows = activeLane === 'spark' && hasSpark
+        ? [primaryRows.find((r) => r.label === 'Spark') || primaryRows[0]]
+        : [primaryRows[0]];
+      const activeSecondaryRows = activeLane === 'spark' && hasSpark
+        ? [secondaryRows.find((r) => r.label === 'Spark') || secondaryRows[0]]
+        : [secondaryRows[0]];
+
       chatgptUsageCard.innerHTML = `
-        <div class="usage-head">
-          <div>
-            <div class="stat-label">ChatGPT Account</div>
-            <div class="usage-plan ${isPro ? 'pro-plan' : ''}">${planLabel} ${isPro ? '🎉' : ''}</div>
-            <div class="usage-meta">
-              <span>Last check ${fetched}</span>
-              ${next ? `<span>Next ${next}</span>` : ''}
-              ${laneChip}
-              ${snapshot.rate_limit_reached ? '<span class="chip warn">Limit reached</span>' : ''}
-              ${hasSpark && sparkMeta ? `<span>${escapeHtml(sparkMeta)}</span>` : ''}
-            </div>
-          </div>
+        <div class="primary-card-head">
+          <span class="primary-card-label">Usage</span>
+          <span class="primary-card-badge">${escapeHtml(planLabel)}${snapshot.rate_limit_reached ? ' · limit reached' : ''}</span>
         </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
         <div class="usage-bars">
-          ${renderUsageWindowCard('5-hour limit', primaryRows)}
-          ${renderUsageWindowCard('Weekly limit', secondaryRows)}
+          ${renderUsageWindowCard('5-hour limit', activePrimaryRows)}
+          ${renderUsageWindowCard('Weekly limit', activeSecondaryRows)}
         </div>
+        <div class="primary-card-footer">Updated ${fetched}</div>
       `;
 
       wireChatGptControls();
@@ -5790,13 +5791,6 @@
       const planCost = selectedPlan ? selectedPlan.cost : 0;
       const monthPercentOfPlan = planCost > 0 ? (monthCost / planCost) * 100 : null;
       const isOverpaying = planCost > 0 && monthCost < planCost;
-      const overpayAmount = isOverpaying ? (planCost - monthCost) : 0;
-      const costLevelClass = (() => {
-        if (planCost <= 0) return '';
-        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 100) return 'cost-red';
-        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 85) return 'cost-yellow';
-        return isOverpaying ? '' : 'cost-green';
-      })();
 
       runnerSummary = runnerInfo;
       const validation = runnerInfo?.latest_validation || null;
@@ -5830,180 +5824,84 @@
 
       const plural = (value, singular, pluralValue = `${singular}s`) => `${value} ${value === 1 ? singular : pluralValue}`;
 
-      if (dashboardSignalStrip) {
-        const signalItems = [
-          { tone: 'neutral', label: `${formatNumber(hostTotal)} hosts tracked` },
-          {
-            tone: fleetSummary.locked > 0 ? 'danger' : 'ok',
-            label: fleetSummary.locked > 0
-              ? `${plural(fleetSummary.locked, 'locked window')}`
-              : 'No locked insecure windows',
-          },
-          {
-            tone: fleetSummary.staleAuth > 0 ? 'warn' : 'ok',
-            label: fleetSummary.staleAuth > 0
-              ? `${plural(fleetSummary.staleAuth, 'stale auth digest')}`
-              : 'Auth digests aligned',
-          },
-          { tone: runnerTone, label: `Runner ${runnerToneLabel}` },
-          {
-            tone: quotaHardFail ? 'warn' : 'ok',
-            label: `${quotaMode} @ ${quotaLimitPercent}%`,
-          },
-          {
-            tone: apiDisabled === true ? 'danger' : (apiDisabled === false ? 'ok' : 'neutral'),
-            label: `API ${apiState}`,
-          },
-        ];
-        dashboardSignalStrip.innerHTML = signalItems.map((item) => `
-          <span class="signal-chip ${item.tone}">${escapeHtml(item.label)}</span>
-        `).join('');
+      /* === Status bar: only show anomalies === */
+      if (dashboardStatusBar) {
+        const issues = [];
+        if (fleetSummary.locked > 0) issues.push({ tone: 'danger', label: `${plural(fleetSummary.locked, 'locked window')}` });
+        if (fleetSummary.staleAuth > 0) issues.push({ tone: 'warn', label: `${plural(fleetSummary.staleAuth, 'stale auth digest')}` });
+        if (runnerTone === 'danger') issues.push({ tone: 'danger', label: 'Runner failing' });
+        if (apiDisabled === true) issues.push({ tone: 'danger', label: 'API disabled' });
+        if (fleetSummary.behindVersion > 0) issues.push({ tone: 'warn', label: `${plural(fleetSummary.behindVersion, 'host')} behind target` });
+
+        dashboardStatusBar.innerHTML = issues.length === 0
+          ? '<span class="status-ok">All systems operational</span>'
+          : issues.map((i) => `<span class="status-issue status-${i.tone}">${escapeHtml(i.label)}</span>`).join('');
       }
 
-      if (dashboardRadarCard) {
-        const radarItems = pulse.radar.length
-          ? pulse.radar
-          : [{ tone: 'ok', title: 'No active blockers', detail: 'Everything looks quiet. Keep shipping.' }];
-        dashboardRadarCard.innerHTML = `
-          <div class="radar-head">
-            <div>
-              <div class="stat-label">Ops Radar</div>
-              <h3>${radarItems[0]?.title ? escapeHtml(radarItems[0].title) : 'Operational highlights'}</h3>
-              <p class="muted">Critical context for on-call and operators.</p>
+      /* === Ops strip: compact inline alerts === */
+      if (dashboardOpsStrip) {
+        const radarItems = pulse.radar.filter((item) => item.tone !== 'ok' && item.tone !== 'neutral');
+        if (radarItems.length === 0) {
+          dashboardOpsStrip.hidden = true;
+        } else {
+          dashboardOpsStrip.hidden = false;
+          dashboardOpsStrip.innerHTML = radarItems.map((item) => `
+            <div class="ops-item ops-${item.tone}">
+              <span class="ops-dot" aria-hidden="true"></span>
+              <span>${escapeHtml(item.title)}</span>
+            </div>
+          `).join('');
+        }
+      }
+
+      /* === Fleet card === */
+      const issueCount = fleetSummary.locked + fleetSummary.staleAuth + fleetSummary.insecure;
+      if (dashboardFleetCard) {
+        dashboardFleetCard.innerHTML = `
+          <div class="primary-card-head">
+            <span class="primary-card-label">Fleet</span>
+            <span class="primary-card-badge ${secureRatio >= 80 ? 'tone-ok' : (secureRatio >= 50 ? 'tone-warn' : 'tone-danger')}">${formatPercent(secureRatio, 0)} secure</span>
+          </div>
+          <div class="primary-card-value">${formatNumber(hostTotal)}</div>
+          <div class="primary-card-sub">Registered hosts</div>
+          <div class="primary-card-rows">
+            <div class="primary-card-row">
+              <span>Secure</span>
+              <strong>${formatNumber(fleetSummary.secure)}</strong>
+            </div>
+            <div class="primary-card-row">
+              <span>Issues</span>
+              <strong>${formatNumber(issueCount)}</strong>
             </div>
           </div>
-          <ul class="radar-list">
-            ${radarItems.map((item) => `
-              <li class="radar-item ${item.tone}">
-                <span class="radar-dot" aria-hidden="true"></span>
-                <div>
-                  <div class="radar-title">${escapeHtml(item.title)}</div>
-                  <div class="radar-copy">${escapeHtml(item.detail)}</div>
-                </div>
-              </li>
-            `).join('')}
-          </ul>
         `;
       }
 
-      const cards = [
-        `
-          <div class="card stat-card stat-card-2026 posture-card dashboard-equal-card dashboard-stat-card">
-            <div class="stat-head">
-              <span class="stat-label">Fleet posture</span>
-              <span class="stat-kicker">${formatPercent(secureRatio, 0)} secure</span>
-            </div>
-            <div class="stat-value">${formatNumber(hostTotal)}</div>
-            <small>Registered hosts</small>
-            <div class="stat-breakdown">
-              <div class="stat-row">
-                <span>Secure</span>
-                <strong>${formatNumber(fleetSummary.secure)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Insecure</span>
-                <strong>${formatNumber(fleetSummary.insecure)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Locked windows</span>
-                <strong>${formatNumber(fleetSummary.locked)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Stale auth</span>
-                <strong>${formatNumber(fleetSummary.staleAuth)}</strong>
-              </div>
-            </div>
+      /* === Spend card === */
+      const costValueClass = (() => {
+        if (planCost <= 0) return '';
+        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 100) return 'cost-red';
+        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 85) return 'cost-yellow';
+        return isOverpaying ? '' : 'cost-green';
+      })();
+      if (dashboardSpendCard) {
+        dashboardSpendCard.innerHTML = `
+          <div class="primary-card-head">
+            <span class="primary-card-label">Spend</span>
+            <span class="primary-card-actions">
+              <button class="ghost tiny-btn cost-history-btn" type="button" aria-label="Open cost trend">Trend</button>
+            </span>
           </div>
-        `,
-        `
-          <div class="card stat-card stat-card-2026 throughput-card dashboard-equal-card dashboard-stat-card">
-            <div class="stat-head">
-              <span class="stat-label">Token throughput</span>
-              <span class="stat-kicker">${formatCompactNumber(averageTokensPerHost)}/host</span>
+          <div class="primary-card-value ${costValueClass}">${formatCurrency(monthCost, planCurrency)}</div>
+          <div class="primary-card-sub">Estimated month total</div>
+          ${selectedPlan && monthPercentOfPlan !== null ? `
+            <div class="primary-cost-meta">
+              <span class="primary-cost-chip">${escapeHtml(selectedPlan.label)} ${formatCurrency(planCost, planCurrency)}</span>
+              <span class="primary-cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
             </div>
-            <div class="stat-value">${formatCompactNumber(monthTotal)}</div>
-            <small>Month-to-date tokens</small>
-            <div class="stat-trend">
-              <span class="trend-chip">Today ${formatCompactNumber(dayTotal)}</span>
-              <span class="trend-chip">Week ${formatCompactNumber(weekTotal)}</span>
-              <span class="trend-chip">Month ${formatCompactNumber(monthTotal)}</span>
-            </div>
-            <div class="stat-breakdown">
-              <div class="stat-row">
-                <span>Input</span>
-                <strong>${formatCompactNumber(monthInput)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Output</span>
-                <strong>${formatCompactNumber(monthOutput)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Cached</span>
-                <strong>${formatCompactNumber(monthCached)}</strong>
-              </div>
-            </div>
-            <div class="stat-note">Top emitter: ${escapeHtml(topHostLabel)}</div>
-          </div>
-        `,
-        `
-          <div class="card cost-card stat-card-2026 ${costLevelClass} dashboard-equal-card dashboard-stat-card">
-            <div class="stat-head">
-              <span class="stat-label">Spend intelligence</span>
-              <span class="stat-sub cost-head-actions">
-                <span class="cost-currency">${planCurrency}</span>
-                <button class="ghost tiny-btn cost-history-btn cost-history-emoji" type="button" aria-label="Open cost trend">📊</button>
-              </span>
-            </div>
-            <div class="stat-value">${formatCurrency(monthCost, planCurrency)}</div>
-            <small>Estimated month total</small>
-            ${selectedPlan && monthPercentOfPlan !== null ? `
-              <div class="cost-meta">
-                <span class="cost-chip">${selectedPlan.label} ${formatCurrency(planCost, planCurrency)}</span>
-                <span class="cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
-              </div>
-              ${isOverpaying ? `<div class="stat-note">Overpaying by ${formatCurrency(overpayAmount, planCurrency)}</div>` : ''}
-            ` : '<div class="stat-note">Plan baseline unavailable.</div>'}
-            <div class="stat-trend">
-              <span class="trend-chip">Today ${formatCurrency(dayCost, planCurrency)}</span>
-              <span class="trend-chip">Week ${formatCurrency(weekCost, planCurrency)}</span>
-              <span class="trend-chip">Month ${formatCurrency(monthCost, planCurrency)}</span>
-            </div>
-          </div>
-        `,
-        `
-          <div class="card stat-card stat-card-2026 runtime-card dashboard-equal-card dashboard-stat-card">
-            <div class="stat-head">
-              <span class="stat-label">Runtime guardrails</span>
-              <span class="stat-kicker tone-${runnerTone}">${runnerToneLabel}</span>
-            </div>
-            <div class="stat-value tone-${runnerTone}">${runnerToneLabel}</div>
-            <small>Runner ${escapeHtml(String(validationStatus))} · ${escapeHtml(runnerLast)}</small>
-            <div class="stat-breakdown">
-              <div class="stat-row">
-                <span>Validation latency</span>
-                <strong>${escapeHtml(validationLatency)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Quota mode</span>
-                <strong>${escapeHtml(quotaMode)} @ ${escapeHtml(String(quotaLimitPercent))}%</strong>
-              </div>
-              <div class="stat-row">
-                <span>API state</span>
-                <strong>${escapeHtml(apiState)}</strong>
-              </div>
-              <div class="stat-row">
-                <span>Codex target</span>
-                <strong>${codexVersion ? `<span class="upgrade-trigger clickable" data-version="${escapeHtml(codexVersion)}">v${escapeHtml(codexVersionDisplay)}</span>` : 'n/a'}</strong>
-              </div>
-            </div>
-            <div class="stat-note">Wrapper ${escapeHtml(versions.wrapper_version ?? 'n/a')} · reported ${escapeHtml(versions.reported_wrapper_version ?? 'n/a')} · checked ${escapeHtml(checkedAt)}</div>
-          </div>
-        `,
-      ];
-
-      statsEl.innerHTML = cards.join('\n');
-      wireRunnerCardControls();
-      wireUpgradeNotesControls();
+          ` : ''}
+        `;
+      }
 
       chatgptUsage = {
         snapshot: safeData.chatgpt_usage || null,

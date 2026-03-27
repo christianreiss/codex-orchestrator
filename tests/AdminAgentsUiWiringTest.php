@@ -163,12 +163,14 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('typeof host?.active ===', $js);
     }
 
-    public function testAdminCostOverpayMessageCopyIsShort(): void
+    public function testAdminCostOverpayMessageRemoved(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
 
-        $this->assertStringContainsString('Overpaying by', $js);
+        // Overpay note was removed as part of dashboard simplification.
+        // Cost data is available via the cost trend chart instead.
+        $this->assertStringNotContainsString('Overpaying by', $js);
         $this->assertStringNotContainsString('Wrong way around', $js);
     }
 
