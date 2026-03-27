@@ -1168,6 +1168,11 @@
 
       if (normalizedKey === 'h' || normalizedKey === 'l' || normalizedKey === 's') {
         event.preventDefault();
+        if (pendingShortcutPrefix === normalizedKey) {
+          clearShortcutPrefix();
+          window.__railNav?.toggleGroup?.(normalizedKey === 'h' ? 'hosts' : normalizedKey === 'l' ? 'logs' : 'settings');
+          return;
+        }
         armShortcutPrefix(normalizedKey);
         return;
       }

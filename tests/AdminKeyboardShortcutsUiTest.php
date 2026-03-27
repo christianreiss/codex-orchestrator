@@ -34,7 +34,9 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
         self::assertStringContainsString('function triggerNewShortcut()', $js);
+        self::assertStringContainsString("if (pendingShortcutPrefix === normalizedKey) {", $js);
         self::assertStringContainsString("window.__railNav?.toggleGroup?.(prefix === 'h' ? 'hosts' : prefix === 'l' ? 'logs' : prefix === 's' ? 'settings' : '');", $js);
+        self::assertStringContainsString("window.__railNav?.toggleGroup?.(normalizedKey === 'h' ? 'hosts' : normalizedKey === 'l' ? 'logs' : 'settings');", $js);
         self::assertStringContainsString("document.addEventListener('keydown', handleGlobalShortcut);", $js);
         self::assertStringNotContainsString("const kbdModal = document.getElementById('kbdShortcutsModal');", $js);
     }

@@ -1,4 +1,5 @@
 # 2026-03-27
+- Admin UI: pressing the same nav prefix hotkey twice now closes the already-open rail menu instead of only opening it and leaving the prefix armed. `h`, `l`, and `s` now behave as clean toggles from the keyboard.
 - cdx wrapper: macOS and other hosts without `flock` now use a portable atomic `mkdir` lock for both the normal concurrent-run guard and cron auto-update runs, instead of warning that locking is disabled. Wrapper bumped to `2026.03.27-14`.
 - cdx wrapper: preserve the full ASCII boot banner after a wrapper self-update restart instead of suppressing it via `CODEX_SKIP_MOTD`. Updated wrappers now restart into the normal boot screen before Codex launches. Wrapper bumped to `2026.03.27-13`.
 - cdx wrapper: print a blank line between the boot/quota summary and the Codex UI launch so interactive starts do not jam the first Codex frame directly against the wrapper output. Wrapper bumped to `2026.03.27-12`.
