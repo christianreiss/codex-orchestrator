@@ -142,6 +142,7 @@
     const agentsEditToggle = document.getElementById('agentsEditToggle');
     const agentsSaveInline = document.getElementById('agentsSaveInline');
     const agentsVersionsBody = document.querySelector('#agentsVersions tbody');
+    const agentsEmptyState = document.getElementById('agentsEmptyState');
     const apiToggle = document.getElementById('apiToggle');
     const apiToggleLabel = document.getElementById('apiToggleLabel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
@@ -238,6 +239,7 @@
     let currentMemories = [];
     let currentAgents = null;
     let agentsSaveInFlight = false;
+    let agentsDeleteInFlight = false;
     let settingsExpanded = true;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
@@ -2072,6 +2074,13 @@
       loadMemories();
     };
 
+    function setAgentsStatusMessage(text, tone) {
+      if (!agentsStatus) return;
+      agentsStatus.textContent = text;
+      agentsStatus.classList.remove('status-ok', 'status-warn', 'status-error');
+      if (tone) agentsStatus.classList.add(`status-${tone}`);
+    }
+
     function renderAgents(doc) {
       currentAgents = doc || null;
 
@@ -2084,11 +2093,14 @@
       const latestId = Number.isFinite(Number(doc?.latest_id)) ? Number(doc.latest_id) : null;
       const activeId = Number.isFinite(Number(doc?.active_id)) ? Number(doc.active_id) : null;
       const pinnedDraft = getPinnedAgentsDraft(doc);
-      if (agentsStatus) {
-        agentsStatus.textContent = status === 'ok'
-          ? ''
-          : (status === 'missing' ? 'No canonical AGENTS.md stored yet.' : `Status: ${status}`);
+      if (status === 'ok') {
+        setAgentsStatusMessage('', null);
+      } else if (status === 'missing') {
+        setAgentsStatusMessage('', null);
+      } else {
+        setAgentsStatusMessage(`Status: ${status}`, 'warn');
       }
+      if (agentsEmptyState) agentsEmptyState.hidden = status !== 'missing';
       if (agentsMeta) {
         const parts = [];
         parts.push(`updated ${updatedAt}`);
@@ -2116,7 +2128,7 @@
       if (agentsPreview) {
         const text = typeof doc?.content === 'string' ? doc.content : '';
         agentsPreview.textContent = text;
-        agentsPreview.classList.toggle('muted', status === 'missing');
+        agentsPreview.hidden = status === 'missing';
       }
 
       if (agentsEditorInline) {
@@ -2159,10 +2171,12 @@
                 <td>${formatNumber(hostCount)}</td>
                 <td class="agents-sha">${escapeHtml(sha ? sha.slice(0, 12) : '—')}</td>
                 <td class="agents-version-actions">
-                  ${statusChips.join(' ')}
-                  <button class="ghost tiny-btn" data-action="agents-view" data-version-id="${id}">View</button>
-                  ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-revert" data-version-id="${id}">Revert</button>`}
-                  ${isServed ? '<button class="ghost tiny-btn" disabled>Delete</button>' : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}">Delete</button>`}
+                  <span class="agents-version-pills">${statusChips.join(' ')}</span>
+                  <span class="agents-version-btns">
+                    <button class="ghost tiny-btn" data-action="agents-view" data-version-id="${id}">View</button>
+                    ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-revert" data-version-id="${id}">Revert</button>`}
+                    ${isServed ? '<button class="ghost tiny-btn" disabled>Delete</button>' : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}">Delete</button>`}
+                  </span>
                 </td>
               </tr>
             `;
@@ -7234,7 +7248,14 @@
 
     function setAgentsInlineEditing(editing) {
       const on = !!editing;
-      if (agentsPreview) agentsPreview.hidden = on;
+      if (!on && agentsEditorInline && !agentsEditorInline.hidden) {
+        const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
+        if (agentsEditorInline.value !== original) {
+          if (!confirm('You have unsaved changes. Discard them?')) return;
+        }
+      }
+      if (agentsPreview) agentsPreview.hidden = on || currentAgents?.status === 'missing';
+      if (agentsEmptyState) agentsEmptyState.hidden = on || currentAgents?.status !== 'missing';
       if (agentsEditorInline) agentsEditorInline.hidden = !on;
       if (agentsSaveInline) agentsSaveInline.hidden = !on;
       if (agentsEditToggle) agentsEditToggle.textContent = on ? 'Cancel' : 'Edit';
@@ -7255,7 +7276,7 @@
       agentsSaveInline.disabled = true;
       const original = agentsSaveInline.textContent;
       agentsSaveInline.textContent = 'Saving…';
-      if (agentsStatus) agentsStatus.textContent = 'Saving…';
+      setAgentsStatusMessage('Saving…', null);
       try {
         const response = await api('/admin/agents/store', {
           method: 'POST',
@@ -7269,21 +7290,18 @@
           const savedLabel = result?.status === 'unchanged'
             ? `Latest draft v${pinnedDraft.latestId} is already saved.`
             : `Saved as latest draft v${pinnedDraft.latestId}.`;
-          if (agentsStatus) {
-            agentsStatus.textContent = `${savedLabel} Fleet is still serving pinned v${pinnedDraft.servedId}. Use Serve latest to roll it out.`;
-          }
+          setAgentsStatusMessage(`${savedLabel} Fleet is still serving pinned v${pinnedDraft.servedId}. Use Serve latest to roll it out.`, 'warn');
         } else {
           setAgentsInlineEditing(false);
-          if (agentsStatus) {
-            agentsStatus.textContent = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
-          }
+          const msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
+          setAgentsStatusMessage(msg, 'ok');
         }
         setTimeout(() => {
           const text = agentsStatus?.textContent || '';
-          if (agentsStatus && (text === 'Saved' || text === 'No changes to save')) agentsStatus.textContent = '';
+          if (text === 'Saved' || text === 'No changes to save') setAgentsStatusMessage('', null);
         }, 1500);
       } catch (err) {
-        if (agentsStatus) agentsStatus.textContent = `Save failed: ${err.message}`;
+        setAgentsStatusMessage(`Save failed: ${err.message}`, 'error');
       } finally {
         agentsSaveInFlight = false;
         agentsSaveInline.disabled = false;
@@ -7295,19 +7313,19 @@
       if (agentsServeLatest) {
         agentsServeLatest.disabled = true;
       }
-      if (agentsStatus) agentsStatus.textContent = 'Switching to latest…';
+      setAgentsStatusMessage('Switching to latest…', null);
       try {
         await api('/admin/agents/serve', {
           method: 'POST',
           json: { mode: 'latest' },
         });
         await loadAll();
-        if (agentsStatus) agentsStatus.textContent = 'Serving latest';
+        setAgentsStatusMessage('Serving latest', 'ok');
         setTimeout(() => {
-          if (agentsStatus && agentsStatus.textContent === 'Serving latest') agentsStatus.textContent = '';
+          if (agentsStatus?.textContent === 'Serving latest') setAgentsStatusMessage('', null);
         }, 1500);
       } catch (err) {
-        if (agentsStatus) agentsStatus.textContent = `Serve latest failed: ${err.message}`;
+        setAgentsStatusMessage(`Serve latest failed: ${err.message}`, 'error');
       } finally {
         if (agentsServeLatest) agentsServeLatest.disabled = false;
       }
@@ -7328,7 +7346,7 @@
       if (!Number.isFinite(id)) return;
       pendingAgentsViewId = id;
       if (agentsViewMeta) agentsViewMeta.textContent = `Loading v${id}…`;
-      if (agentsViewContent) agentsViewContent.textContent = '';
+      if (agentsViewContent) agentsViewContent.innerHTML = '<span class="skeleton-cell" style="width:80%;display:block;margin-bottom:8px"></span><span class="skeleton-cell" style="width:60%;display:block;margin-bottom:8px"></span><span class="skeleton-cell" style="width:70%;display:block"></span>';
       if (agentsViewStatus) agentsViewStatus.textContent = '';
       if (agentsViewModal) {
         agentsViewModal.classList.add('show');
@@ -7359,19 +7377,19 @@
       if (!await showConfirmModal('Revert AGENTS.md version', `Create a new latest AGENTS.md from version #${id} and serve it fleet-wide?`, { action: 'Revert' })) {
         return;
       }
-      if (agentsStatus) agentsStatus.textContent = `Reverting to v${id}…`;
+      setAgentsStatusMessage(`Reverting to v${id}…`, null);
       try {
         await api('/admin/agents/revert', {
           method: 'POST',
           json: { version_id: id },
         });
         await loadAll();
-        if (agentsStatus) agentsStatus.textContent = `Reverted v${id} into the new latest version`;
+        setAgentsStatusMessage(`Reverted v${id} into the new latest version`, 'ok');
         setTimeout(() => {
-          if (agentsStatus && agentsStatus.textContent === `Reverted v${id} into the new latest version`) agentsStatus.textContent = '';
+          if (agentsStatus?.textContent === `Reverted v${id} into the new latest version`) setAgentsStatusMessage('', null);
         }, 1800);
       } catch (err) {
-        if (agentsStatus) agentsStatus.textContent = `Revert failed: ${err.message}`;
+        setAgentsStatusMessage(`Revert failed: ${err.message}`, 'error');
       }
     }
 
@@ -7427,13 +7445,14 @@
     }
 
     async function confirmAgentsDelete() {
-      if (!pendingAgentsDeleteId) return;
+      if (!pendingAgentsDeleteId || agentsDeleteInFlight) return;
       const id = pendingAgentsDeleteId;
       const selection = agentsDeleteSelect ? String(agentsDeleteSelect.value || 'global') : 'global';
       if (selection === String(id)) {
         if (agentsDeleteStatus) agentsDeleteStatus.textContent = 'Choose a different version (cannot re-pin to the one being deleted).';
         return;
       }
+      agentsDeleteInFlight = true;
       if (agentsDeleteConfirm) agentsDeleteConfirm.disabled = true;
       if (agentsDeleteCancel) agentsDeleteCancel.disabled = true;
       try {
@@ -7450,14 +7469,15 @@
         if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Deleting v${id}…`;
         await api(`/admin/agents/versions/${id}`, { method: 'DELETE' });
         await loadAll();
-        if (agentsStatus) agentsStatus.textContent = `Deleted v${id}`;
+        setAgentsStatusMessage(`Deleted v${id}`, 'ok');
         setTimeout(() => {
-          if (agentsStatus && agentsStatus.textContent === `Deleted v${id}`) agentsStatus.textContent = '';
+          if (agentsStatus?.textContent === `Deleted v${id}`) setAgentsStatusMessage('', null);
         }, 1500);
         closeAgentsDeleteModal();
       } catch (err) {
         if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Delete failed: ${err.message}`;
       } finally {
+        agentsDeleteInFlight = false;
         if (agentsDeleteConfirm) agentsDeleteConfirm.disabled = false;
         if (agentsDeleteCancel) agentsDeleteCancel.disabled = false;
       }
@@ -7465,7 +7485,7 @@
 
     async function deleteAgentsVersion(versionId) {
       const id = Number(versionId);
-      if (!Number.isFinite(id)) return;
+      if (!Number.isFinite(id) || agentsDeleteInFlight) return;
       const affectedHosts = agentsHostsUsingVersion(id);
       if (affectedHosts.length) {
         openAgentsDeleteModal(id, affectedHosts);
@@ -7474,16 +7494,19 @@
       if (!await showConfirmModal('Delete version', `Delete AGENTS.md version #${id}? This cannot be undone.`, { action: 'Delete' })) {
         return;
       }
-      if (agentsStatus) agentsStatus.textContent = `Deleting v${id}…`;
+      agentsDeleteInFlight = true;
+      setAgentsStatusMessage(`Deleting v${id}…`, null);
       try {
         await api(`/admin/agents/versions/${id}`, { method: 'DELETE' });
         await loadAll();
-        if (agentsStatus) agentsStatus.textContent = `Deleted v${id}`;
+        setAgentsStatusMessage(`Deleted v${id}`, 'ok');
         setTimeout(() => {
-          if (agentsStatus && agentsStatus.textContent === `Deleted v${id}`) agentsStatus.textContent = '';
+          if (agentsStatus?.textContent === `Deleted v${id}`) setAgentsStatusMessage('', null);
         }, 1500);
       } catch (err) {
-        if (agentsStatus) agentsStatus.textContent = `Delete failed: ${err.message}`;
+        setAgentsStatusMessage(`Delete failed: ${err.message}`, 'error');
+      } finally {
+        agentsDeleteInFlight = false;
       }
     }
 

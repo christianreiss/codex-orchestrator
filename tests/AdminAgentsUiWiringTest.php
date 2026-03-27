@@ -111,6 +111,31 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('Use Serve latest to roll it out.', $js);
     }
 
+    public function testAdminAgentsDeleteGuardsDuplicateClicks(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('let agentsDeleteInFlight = false;', $js);
+    }
+
+    public function testAdminAgentsPreviewUsesCorrectCssClass(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('class="agents-preview"', $html);
+        $this->assertStringNotContainsString('class="code-block"', $html);
+    }
+
+    public function testAdminAgentsEmptyStateExists(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="agentsEmptyState"', $html);
+    }
+
     public function testAdminConfigBuilderAssetsAreCacheBusted(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-27-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-27-03">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-27-02">
 </head>
@@ -325,10 +325,10 @@
           </div>
         </div>
         <div class="modal-backdrop" id="agentsViewModal" role="dialog" aria-modal="true">
-          <div class="modal">
+          <div class="modal agents-modal">
             <h3>View AGENTS.md version</h3>
             <p id="agentsViewMeta" class="muted"></p>
-            <pre id="agentsViewContent" class="code-block" style="max-height:65vh; overflow:auto;"></pre>
+            <pre id="agentsViewContent" class="agents-preview agents-modal-content"></pre>
             <div id="agentsViewStatus" class="muted status-text"></div>
             <div class="actions">
               <button class="ghost" id="agentsViewClose">Close</button>
@@ -1238,7 +1238,7 @@
                 <button class="primary tiny-btn" id="agentsSaveInline" hidden>Save</button>
               </div>
             </div>
-            <div id="agentsStatus" class="muted" style="margin-bottom:8px;"></div>
+            <div id="agentsStatus" class="agents-status"></div>
             <div id="agentsMeta" class="muted" style="margin-bottom:8px;"></div>
             <div class="agents-serve-row">
               <div class="agents-serve-meta muted" id="agentsServeLabel"></div>
@@ -1246,8 +1246,12 @@
                 <button class="ghost tiny-btn" id="agentsServeLatest" title="Serve the most recent version">Serve latest</button>
               </div>
             </div>
-            <pre id="agentsPreview" class="code-block" style="max-height:65vh; overflow:auto; cursor:text;"></pre>
-            <textarea id="agentsEditorInline" rows="18" spellcheck="false" hidden style="width:100%; max-height:65vh; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;"></textarea>
+            <pre id="agentsPreview" class="agents-preview" style="cursor:text;"></pre>
+            <textarea id="agentsEditorInline" class="agents-editor" rows="18" spellcheck="false" hidden></textarea>
+            <div id="agentsEmptyState" class="empty-state-box" hidden>
+              <div class="empty-state-title">No canonical AGENTS.md stored yet</div>
+              <div class="muted" style="margin-top:6px;">Click <strong>Edit</strong> to create one, or seed via the API.</div>
+            </div>
             <div class="agents-versions">
               <div class="table-wrap">
                 <table id="agentsVersions">
@@ -1968,7 +1972,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-27-04"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-27-05"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>
