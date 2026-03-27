@@ -2,59 +2,35 @@
    Shared admin theme primitives used by login, dashboard, and access/error pages. */
 
 @font-face {
-  font-family: 'Sora';
+  font-family: 'Inter';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/admin/assets/fonts/sora-400.ttf') format('truetype');
+  src: url('/admin/assets/fonts/inter-400.ttf') format('truetype');
 }
 
 @font-face {
-  font-family: 'Sora';
+  font-family: 'Inter';
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url('/admin/assets/fonts/sora-600.ttf') format('truetype');
+  src: url('/admin/assets/fonts/inter-600.ttf') format('truetype');
 }
 
 @font-face {
-  font-family: 'Sora';
+  font-family: 'Inter';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/admin/assets/fonts/sora-700.ttf') format('truetype');
+  src: url('/admin/assets/fonts/inter-700.ttf') format('truetype');
 }
 
 @font-face {
-  font-family: 'Sora';
+  font-family: 'Inter';
   font-style: normal;
   font-weight: 800;
   font-display: swap;
-  src: url('/admin/assets/fonts/sora-800.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/admin/assets/fonts/space-grotesk-400.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/admin/assets/fonts/space-grotesk-600.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/admin/assets/fonts/space-grotesk-700.ttf') format('truetype');
+  src: url('/admin/assets/fonts/inter-800.ttf') format('truetype');
 }
 
 @font-face {
@@ -74,8 +50,8 @@
 }
 
 :root {
-  --font-sans: 'Sora', 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Sora', 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
   --radius: 8px;

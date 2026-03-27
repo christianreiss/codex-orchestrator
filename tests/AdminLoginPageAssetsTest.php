@@ -13,8 +13,8 @@ final class AdminLoginPageAssetsTest extends TestCase
         $html = file_get_contents(__DIR__ . '/../public/admin/login.html');
         $this->assertIsString($html);
         $this->assertStringContainsString('rel="prefetch" href="/admin/index.html" as="document" data-admin-prefetch', $html);
-        $this->assertStringContainsString('/admin/assets/dashboard.css?v=2026-03-24-07', $html);
-        $this->assertStringContainsString('/admin/assets/dashboard-mobile.css?v=2026-03-24-01', $html);
+        $this->assertStringContainsString('/admin/assets/dashboard.css?v=2026-03-27-02', $html);
+        $this->assertStringContainsString('/admin/assets/dashboard-mobile.css?v=2026-03-27-02', $html);
         $this->assertStringContainsString('/admin/assets/dashboard.js?v=2026-03-24-05', $html);
         $this->assertStringContainsString('/admin/assets/theme.css?v=', $html);
         $this->assertStringContainsString('/admin/assets/login.css?v=', $html);

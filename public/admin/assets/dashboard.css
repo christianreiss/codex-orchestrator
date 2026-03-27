@@ -3855,7 +3855,7 @@ body[data-view-mode="dashboard"] .content {
 }
 
 .panel-set[data-panel="dashboard"] :is(.dashboard-status-bar, .dashboard-primary-grid, .dashboard-ops-strip, #stats) {
-  font-family: 'Sora', 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 /* Usage card within primary grid */

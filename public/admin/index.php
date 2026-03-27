@@ -65,7 +65,7 @@ function renderAdminErrorPage(int $status, string $title, string $message, ?stri
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator &mdash; Admin access</title>
-  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-17-01">
+  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-27-02">
 </head>
 <body class="admin-error-body" data-theme="auto">
   <main class="admin-error-shell" aria-labelledby="adminErrorTitle">

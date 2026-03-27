@@ -1,4 +1,5 @@
 # 2026-03-27
+- Admin UI: self-hosted Google Inter now replaces the previous sans/display fonts across the admin login page, dashboard, and shared admin error shell, while monospace UI stays on `JetBrains Mono`. Cache-bumped `theme.css`, `dashboard.css`, `dashboard-mobile.css`, and `login.css` to `v=2026-03-27-02`.
 - cdx wrapper: insecure-host approval waits now render as a single framed status box instead of repeated warning lines; the box refreshes in place every 5 seconds with `last check` and `checks` while the host is waiting for an admin to click `Enable window`. Wrapper bumped to `2026.03.27-02`.
 - cdx wrapper: empty runs no longer print the post-run `Run summary` footer when no token usage was captured, so insecure-host cleanup can finish without the noisy `Run usage | no token usage captured` / unavailable-cost block on no-op sessions. Wrapper bumped to `2026.03.27-01`.
 
