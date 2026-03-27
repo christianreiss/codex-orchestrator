@@ -1011,6 +1011,8 @@
 
     function triggerVisibleTogglerShortcut() {
       const candidates = [
+        insecureHostsCloseBtn,
+        navInsecureHosts,
         document.getElementById('navMenuToggle'),
         settingsToggle,
       ].filter(Boolean);
@@ -1116,6 +1118,13 @@
         return;
       }
 
+      if (normalizedKey === 't') {
+        event.preventDefault();
+        triggerVisibleTogglerShortcut();
+        clearShortcutPrefix();
+        return;
+      }
+
       if (modal) {
         clearShortcutPrefix();
         return;
@@ -1152,13 +1161,6 @@
       if (normalizedKey === 'n') {
         event.preventDefault();
         triggerNewShortcut();
-        clearShortcutPrefix();
-        return;
-      }
-
-      if (normalizedKey === 't') {
-        event.preventDefault();
-        triggerVisibleTogglerShortcut();
         clearShortcutPrefix();
         return;
       }
