@@ -1,3 +1,6 @@
+# 2026-03-27
+- cdx wrapper: empty runs no longer print the post-run `Run summary` footer when no token usage was captured, so insecure-host cleanup can finish without the noisy `Run usage | no token usage captured` / unavailable-cost block on no-op sessions. Wrapper bumped to `2026.03.27-01`.
+
 # 2026-03-26
 - Admin UI: removed the temporary rail pills for websocket/mTLS status again. Cache-bumped `nav.js` to `v=2026-03-26-02` and `dashboard.js` to `v=2026-03-26-05`.
 - Admin UI: added a persistent rail status indicator for the admin websocket, so the shell now shows `Live: connected` when the live websocket is healthy and degrades to connecting/offline/error states when it is not. Cache-bumped `nav.js` to `v=2026-03-26-01` and `dashboard.js` to `v=2026-03-26-04`.

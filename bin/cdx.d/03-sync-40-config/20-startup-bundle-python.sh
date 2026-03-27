@@ -9,7 +9,7 @@ startup_sync_bundle_python() {
   local username="${8}"
   local home_path="${9}"
   local hostname="${10}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
 import hashlib
 import json
 import os
@@ -19,6 +19,8 @@ import sys
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 prompt_dir = pathlib.Path(sys.argv[2]).expanduser()

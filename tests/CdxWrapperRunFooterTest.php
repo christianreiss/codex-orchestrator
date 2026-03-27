@@ -21,6 +21,20 @@ final class CdxWrapperRunFooterTest extends TestCase
         self::assertStringContainsString('print_run_exit_footer || true', $wrapperSource);
     }
 
+    public function testWrapperSuppressesFooterForEmptyRunsWithoutUsagePayload(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('should_suppress_empty_run_footer() {', $wrapperSource);
+        self::assertStringContainsString('[[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1', $wrapperSource);
+        self::assertStringContainsString('[[ -z "${last_usage_payload:-}" ]] || return 1', $wrapperSource);
+        self::assertStringContainsString('[[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]] || return 1', $wrapperSource);
+        self::assertStringContainsString('[[ "${USAGE_PUSH_REASON:-}" == "no token usage captured" ]]', $wrapperSource);
+        self::assertStringContainsString('if should_suppress_empty_run_footer; then', $wrapperSource);
+    }
+
     public function testWrapperRemovesLegacyPushFooterLines(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';

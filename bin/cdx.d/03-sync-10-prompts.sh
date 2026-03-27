@@ -6,12 +6,14 @@ prompt_sync_python() {
   local prompt_dir="$4"
   local cafile="$5"
   local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
 import hashlib, json, os, pathlib, shutil, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 base = (sys.argv[2] or "").rstrip("/")

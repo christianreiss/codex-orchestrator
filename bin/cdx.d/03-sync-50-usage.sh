@@ -361,12 +361,14 @@ post_token_usage_payload_once() {
   local base_url="$1"
   local payload_json="$2"
   local ca_file="${3-}"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
 import json, os, socket, sys, time, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 payload_raw = sys.argv[2]

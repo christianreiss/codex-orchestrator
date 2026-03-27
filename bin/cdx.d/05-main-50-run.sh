@@ -1,6 +1,7 @@
 cleanup() {
   local exit_status=$?
   trap - EXIT
+  stop_codex_ipv4_proxy || true
   if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
     push_slash_commands_if_changed || true
   fi
@@ -217,10 +218,28 @@ codex_args_include_exact_flag() {
 
 run_codex_command() {
   local tmp_output status
+  local use_cmd_prefix=0
+  local -a cmd_prefix=()
   local -a cmd_line=("$CODEX_REAL_BIN")
   tmp_output="$(mktemp)"
+  if start_codex_ipv4_proxy; then
+    use_cmd_prefix=1
+    cmd_line+=(
+      -c "network.proxy_url=\"$CODEX_IPV4_PROXY_URL\""
+      -c "network.allow_upstream_proxy=true"
+    )
+    cmd_prefix=(
+      env
+      HTTPS_PROXY="$CODEX_IPV4_PROXY_URL" https_proxy="$CODEX_IPV4_PROXY_URL"
+      HTTP_PROXY="$CODEX_IPV4_PROXY_URL" http_proxy="$CODEX_IPV4_PROXY_URL"
+      ALL_PROXY="$CODEX_IPV4_PROXY_URL" all_proxy="$CODEX_IPV4_PROXY_URL"
+    )
+  fi
   cmd_line+=("$@")
   local -a exec_cmd=("${cmd_line[@]}")
+  if (( use_cmd_prefix )); then
+    exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
+  fi
   set +e
   local prompt_toolkit_no_cpr_added=0
   if [[ -z "${PROMPT_TOOLKIT_NO_CPR:-}" ]] && [[ ! -t 0 || ! -t 1 ]]; then
@@ -236,6 +255,9 @@ run_codex_command() {
         if ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then
           cmd_line+=("--no-alt-screen")
           exec_cmd=("${cmd_line[@]}")
+          if (( use_cmd_prefix )); then
+            exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
+          fi
         fi
         ;;
     esac
@@ -254,6 +276,7 @@ run_codex_command() {
     "${exec_cmd[@]}" 2>&1 | tee "$tmp_output"
     status=${PIPESTATUS[0]}
   fi
+  stop_codex_ipv4_proxy || true
   if (( prompt_toolkit_no_cpr_added )); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi

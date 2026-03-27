@@ -208,10 +208,11 @@ Summary layout:
 - `/usage` upload is explicitly best effort: the wrapper keeps roughly a 3-second total request budget across SSL-context attempts, and only retries the stripped-line fallback for quick payload-shape failures instead of slow/time-out network failures.
 - Each entry may contain: `line`, `total`, `input`, `output`, `cached`, `reasoning`, optional `model`.
 - On retryable non-timeout `/usage` failures with `line` present, wrapper retries once with `line` stripped.
-- Exit footer reports:
+- Exit footer reports for non-empty runs:
   - `Run usage`
   - `Run cost` (uses response `data.cost` when present; remains unavailable when the client only reported total tokens without input/output/cached breakdown)
   - `Sync` (`usage` + `auth` push states)
+- Empty runs with no captured token usage skip the exit footer entirely.
 
 ## Update + Install Behavior
 Codex updates:

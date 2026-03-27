@@ -9,12 +9,14 @@ config_sync_python() {
   if [[ -z "$home_path" && -n "$username" ]] && command -v getent >/dev/null 2>&1; then
     home_path="$(getent passwd "$username" | cut -d: -f6 2>/dev/null || true)"
   fi
-  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
 import hashlib, json, os, pathlib, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 target = pathlib.Path(sys.argv[2]).expanduser()

@@ -2,12 +2,14 @@
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
-  python3 - "$api_url" "$wanted_asset" <<'PY'
+  CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$api_url" "$wanted_asset" <<'PY'
 import json, os, sys, time, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 url = sys.argv[1]
 wanted = sys.argv[2]
@@ -88,6 +90,9 @@ perform_update() (
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
   local curl_args=(-fsSL)
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
+    curl_args+=("-4")
+  fi
   if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
     log_error "Download failed from $url"
     exit 1
@@ -193,6 +198,9 @@ perform_wrapper_self_update() {
   tmpdir="$(mktemp -d)"
   tmpwrapper="$tmpdir/cdx"
   local -a curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
+    curl_args+=("-4")
+  fi
   if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
     curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
   fi

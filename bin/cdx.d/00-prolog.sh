@@ -285,6 +285,10 @@ CODEX_HOST_SECURE="__CODEX_HOST_SECURE__"
 if [[ "$CODEX_HOST_SECURE" == __CODEX_*__ ]]; then
   CODEX_HOST_SECURE="1"
 fi
+CODEX_FORCE_IPV4="__CODEX_FORCE_IPV4__"
+if [[ "$CODEX_FORCE_IPV4" == __CODEX_*__ ]]; then
+  CODEX_FORCE_IPV4="0"
+fi
 CODEX_INSTALLATION_ID="__CODEX_INSTALLATION_ID__"
 if [[ "$CODEX_INSTALLATION_ID" == __CODEX_*__ ]]; then
   CODEX_INSTALLATION_ID=""
@@ -324,6 +328,9 @@ RUNNER_LAST_OK=""
 RUNNER_LAST_FAIL=""
 RUNNER_LAST_CHECK=""
 RUNNER_ENABLED=0
+CODEX_IPV4_PROXY_PID=""
+CODEX_IPV4_PROXY_DIR=""
+CODEX_IPV4_PROXY_URL=""
 AUTH_PULL_STATUS="skip"
 AUTH_PULL_URL=""
 AUTH_PULL_REASON=""
@@ -428,7 +435,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.26-09"
+WRAPPER_VERSION="2026.03.27-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -745,6 +752,10 @@ if (( $# > 0 )); then
     if [[ "$arg" == "--" ]]; then
       saw_double_dash=1
       parsed_args+=("$arg")
+      continue
+    fi
+    if [[ "$arg" == "-4" ]]; then
+      CODEX_FORCE_IPV4=1
       continue
     fi
     if [[ "$arg" == "--allow-concurrent-sync" ]]; then
@@ -1121,6 +1132,9 @@ uninstall_api_deregister() {
   fi
   local url="${base}/auth?force=1"
   local args=(-fsS -X DELETE -H "X-API-Key: ${key}")
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
+    args+=("-4")
+  fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
   if curl "${args[@]}" "$url" >/dev/null 2>&1; then
     log_info "API deregistration succeeded"
@@ -1153,6 +1167,9 @@ PY
 
   local url="${base}/host/users"
   local args=(-fsS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" --data "$payload")
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
+    args+=("-4")
+  fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
   local response=""
   if ! response="$(curl "${args[@]}" "$url" 2>/dev/null)"; then
@@ -1217,6 +1234,8 @@ import sys
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (os.environ.get("CODEX_SYNC_BASE", "") or "").rstrip("/")
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "") or ""

@@ -307,6 +307,9 @@ probe_latest_version_tag() {
   fi
   local effective
   local curl_args=(-fsSLI -o /dev/null -w '%{url_effective}' -L)
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
+    curl_args+=("-4")
+  fi
   if ! effective="$(curl "${curl_args[@]}" "$url" 2>/dev/null)"; then
     return 1
   fi

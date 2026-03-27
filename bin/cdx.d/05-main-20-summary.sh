@@ -322,8 +322,18 @@ format_run_cost_value() {
   printf "%s" "$raw"
 }
 
+should_suppress_empty_run_footer() {
+  [[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1
+  [[ -z "${last_usage_payload:-}" ]] || return 1
+  [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]] || return 1
+  [[ "${USAGE_PUSH_REASON:-}" == "no token usage captured" ]]
+}
+
 print_run_exit_footer() {
   (( CODEX_COMMAND_STARTED )) || return 0
+  if should_suppress_empty_run_footer; then
+    return 0
+  fi
 
   local usage_label="Run usage"
   local cost_label="Run cost"
@@ -894,7 +904,7 @@ doctor_probe_api_versions() {
 
   local probe=""
   local rc=0
-  probe="$(python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
+  probe="$(CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json
 import os
 import sys
@@ -903,6 +913,8 @@ import urllib.request
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
 if py_http_util:
     exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
 cafile = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -953,4 +965,3 @@ PY
   printf "fail\t%s" "${probe:-unreachable}"
   return 1
 }
-

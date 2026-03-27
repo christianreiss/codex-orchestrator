@@ -435,7 +435,7 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.26-09"
+WRAPPER_VERSION="2026.03.27-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -1132,7 +1132,7 @@ uninstall_api_deregister() {
   fi
   local url="${base}/auth?force=1"
   local args=(-fsS -X DELETE -H "X-API-Key: ${key}")
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     args+=("-4")
   fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
@@ -1167,7 +1167,7 @@ PY
 
   local url="${base}/host/users"
   local args=(-fsS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" --data "$payload")
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     args+=("-4")
   fi
   [[ -n "$cafile" ]] && args+=(--cacert "$cafile")
@@ -2042,7 +2042,7 @@ probe_latest_version_tag() {
   fi
   local effective
   local curl_args=(-fsSLI -o /dev/null -w '%{url_effective}' -L)
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     curl_args+=("-4")
   fi
   if ! effective="$(curl "${curl_args[@]}" "$url" 2>/dev/null)"; then
@@ -2149,7 +2149,7 @@ sync_auth_with_api() {
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, sys, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -3247,7 +3247,7 @@ prompt_sync_python() {
   local prompt_dir="$4"
   local cafile="$5"
   local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
 import hashlib, json, os, pathlib, shutil, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -3554,7 +3554,7 @@ agents_sync_python() {
   local target_file="$3"
   local cafile="$4"
   local current_sha="$5"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
 import hashlib, json, os, pathlib, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -4039,7 +4039,7 @@ config_sync_python() {
   if [[ -z "$home_path" && -n "$username" ]] && command -v getent >/dev/null 2>&1; then
     home_path="$(getent passwd "$username" | cut -d: -f6 2>/dev/null || true)"
   fi
-  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
+  CODEX_CONFIG_USERNAME="$username" CODEX_CONFIG_HOME="$home_path" CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base" "$target_file" "$cafile" "$current_sha" <<'PY'
 import hashlib, json, os, pathlib, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -4137,7 +4137,7 @@ startup_sync_bundle_python() {
   local username="${8}"
   local home_path="${9}"
   local hostname="${10}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
 import hashlib
 import json
 import os
@@ -4836,7 +4836,7 @@ post_token_usage_payload_once() {
   local base_url="$1"
   local payload_json="$2"
   local ca_file="${3-}"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
 import json, os, socket, sys, time, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -5565,7 +5565,7 @@ cron_do_api_call() {
   local url="$1"
   local json_payload="$2"
   local action_label="$3"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
+  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$url" "$json_payload" "$action_label" "$CODEX_SYNC_CA_FILE" "$CODEX_SYNC_ALLOW_INSECURE" <<'PY'
 import json, os, sys
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -5858,7 +5858,7 @@ cron_auto_update() {
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
-  CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$api_url" "$wanted_asset" <<'PY'
+  CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$api_url" "$wanted_asset" <<'PY'
 import json, os, sys, time, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -5946,7 +5946,7 @@ perform_update() (
   log_info "Downloading Codex ${new_version}"
   local asset_file="$tmpdir/asset"
   local curl_args=(-fsSL)
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     curl_args+=("-4")
   fi
   if ! curl "${curl_args[@]}" "$url" -o "$asset_file"; then
@@ -6054,7 +6054,7 @@ perform_wrapper_self_update() {
   tmpdir="$(mktemp -d)"
   tmpwrapper="$tmpdir/cdx"
   local -a curl_args=(-fsSL -H "X-API-Key: $CODEX_SYNC_API_KEY")
-  if [[ "$CODEX_FORCE_IPV4" == "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" == "1" ]]; then
     curl_args+=("-4")
   fi
   if [[ -n "$CODEX_SYNC_CA_FILE" ]]; then
@@ -6859,8 +6859,18 @@ format_run_cost_value() {
   printf "%s" "$raw"
 }
 
+should_suppress_empty_run_footer() {
+  [[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1
+  [[ -z "${last_usage_payload:-}" ]] || return 1
+  [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]] || return 1
+  [[ "${USAGE_PUSH_REASON:-}" == "no token usage captured" ]]
+}
+
 print_run_exit_footer() {
   (( CODEX_COMMAND_STARTED )) || return 0
+  if should_suppress_empty_run_footer; then
+    return 0
+  fi
 
   local usage_label="Run usage"
   local cost_label="Run cost"
@@ -7431,7 +7441,7 @@ doctor_probe_api_versions() {
 
   local probe=""
   local rc=0
-  probe="$(CODEX_FORCE_IPV4="$CODEX_FORCE_IPV4" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
+  probe="$(CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json
 import os
 import sys
@@ -7492,7 +7502,6 @@ PY
   printf "fail\t%s" "${probe:-unreachable}"
   return 1
 }
-
 
 DOCTOR_FAILURES=0
 print_doctor_report() {
@@ -9239,7 +9248,7 @@ stop_codex_ipv4_proxy() {
 }
 
 start_codex_ipv4_proxy() {
-  if [[ "$CODEX_FORCE_IPV4" != "1" ]]; then
+  if [[ "${CODEX_FORCE_IPV4:-0}" != "1" ]]; then
     return 1
   fi
   if [[ -n "${CODEX_IPV4_PROXY_URL:-}" ]]; then
