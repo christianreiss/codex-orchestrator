@@ -134,16 +134,6 @@ class CliAuthRequestRepository
         $statement->execute(['cutoff' => $cutoff]);
     }
 
-    public function countPendingByIp(string $ip, string $since): int
-    {
-        $statement = $this->database->connection()->prepare(
-            "SELECT COUNT(*) FROM cli_auth_requests WHERE ip = :ip AND status = 'pending' AND created_at >= :since"
-        );
-        $statement->execute(['ip' => $ip, 'since' => $since]);
-
-        return (int) $statement->fetchColumn();
-    }
-
     private function hydrateRow(array $row, ?string $knownRequestId = null): array
     {
         if ($knownRequestId !== null) {
