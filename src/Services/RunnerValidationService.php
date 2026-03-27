@@ -24,7 +24,6 @@ class RunnerValidationService
     private const RUNNER_PREFLIGHT_INTERVAL_SECONDS = 28800; // 8 hours
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
-    private const RUNNER_STALE_OK_SECONDS = 21600; // 6 hours
     private const MAX_FUTURE_SKEW_SECONDS = 300;
     private const MIN_LAST_REFRESH_EPOCH = 946684800;
 
@@ -41,16 +40,6 @@ class RunnerValidationService
     ) {
         $configuredInterval = $runnerPreflightIntervalSeconds ?? (int) Config::get('AUTH_RUNNER_PREFLIGHT_SECONDS', self::RUNNER_PREFLIGHT_INTERVAL_SECONDS);
         $this->runnerPreflightIntervalSeconds = $configuredInterval > 0 ? $configuredInterval : self::RUNNER_PREFLIGHT_INTERVAL_SECONDS;
-    }
-
-    public function getRunnerVerifier(): ?RunnerVerifier
-    {
-        return $this->runnerVerifier;
-    }
-
-    public function getRunnerPreflightIntervalSeconds(): int
-    {
-        return $this->runnerPreflightIntervalSeconds;
     }
 
     /**
@@ -400,9 +389,7 @@ class RunnerValidationService
 
         $now = time();
         $lastFailTs = $this->parseTimestamp($this->versions->get('runner_last_fail'));
-        $lastOkTs = $this->parseTimestamp($this->versions->get('runner_last_ok'));
         $fifteenMinutesElapsed = $lastFailTs === null || ($now - $lastFailTs) >= self::RUNNER_FAILURE_RETRY_SECONDS;
-        $staleOk = $lastOkTs === null || ($now - $lastOkTs) >= self::RUNNER_STALE_OK_SECONDS;
 
         if ($bootChanged) {
             return [true, 'boot'];
@@ -410,14 +397,8 @@ class RunnerValidationService
         if (!$fifteenMinutesElapsed) {
             return [false, null];
         }
-        if ($fifteenMinutesElapsed) {
-            return [true, 'fail_backoff'];
-        }
-        if ($staleOk) {
-            return [true, 'stale_ok'];
-        }
 
-        return [false, null];
+        return [true, 'fail_backoff'];
     }
 
     public function recordCurrentBootId(): bool
