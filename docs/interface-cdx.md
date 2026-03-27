@@ -63,7 +63,7 @@ Concurrent-run guard behavior (`active cdx run detected`):
 - Wrapper deny-reason handling includes reverse DNS mismatches and installation ID mismatches.
 - Wrapper blocks launch when API kill-switch denies non-admin routes.
 - Insecure approval flow:
-  - approval pending returns 423; wrapper prints a console hint to open Admin and click `Enable window` for that host, then polls every 5 seconds.
+  - approval pending returns 423; wrapper renders one framed terminal status box, tells the operator to open Admin and click `Enable window`, and refreshes that same box in place every 5 seconds with `last check` and `checks` metadata while waiting.
   - approval denied blocks launch.
 - Installation ID mismatches block sync.
 

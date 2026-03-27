@@ -28,7 +28,12 @@ sync_auth_with_api() {
   local api_status=0
   local offline_reason=""
   local deny_reason=""
-  local wait_logged=0
+  local approval_status_text='Pending; open Admin, click Enable window'
+  INSECURE_APPROVAL_BOX_VISIBLE=0
+  INSECURE_APPROVAL_BOX_LINES=0
+  INSECURE_APPROVAL_CHECK_COUNT=0
+  INSECURE_APPROVAL_LAST_CHECK=""
+  INSECURE_APPROVAL_LAST_STATUS=""
   while true; do
     offline_reason=""
     deny_reason=""
@@ -139,7 +144,7 @@ def fail_with_http(exc: urllib.error.HTTPError, action: str):
         sys.exit(22)
     if exc.code == 423:
         if "approval pending" in msg_lower:
-            print('Insecure host approval pending. Open Admin and click "Enable window" for this host.', file=sys.stderr)
+            print("pending:approval")
             sys.exit(25)
         if "approval denied" in msg_lower:
             print("insecure host approval denied", file=sys.stderr)
@@ -894,10 +899,13 @@ PY
       if [[ "$api_status" == "25" ]]; then
         AUTH_PULL_STATUS="pending"
         AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
-        if (( wait_logged == 0 )); then
-          log_warn "Insecure host approval pending; open Admin and click \"Enable window\" for this host (polling every 5s)."
-          wait_logged=1
-        fi
+        INSECURE_APPROVAL_CHECK_COUNT=$(( INSECURE_APPROVAL_CHECK_COUNT + 1 ))
+        INSECURE_APPROVAL_LAST_CHECK="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+        INSECURE_APPROVAL_LAST_STATUS="$approval_status_text"
+        render_insecure_approval_pending_box \
+          "$INSECURE_APPROVAL_CHECK_COUNT" \
+          "$INSECURE_APPROVAL_LAST_CHECK" \
+          "$INSECURE_APPROVAL_LAST_STATUS"
         sleep 5
         continue
       fi

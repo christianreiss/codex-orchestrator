@@ -187,6 +187,262 @@ emit_insecure_notice() {
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 
+repeat_box_char() {
+  local char="${1-}"
+  local count="${2:-0}"
+  local out=""
+  while (( count > 0 )); do
+    out+="$char"
+    count=$(( count - 1 ))
+  done
+  printf '%s' "$out"
+}
+
+approval_box_terminal_columns() {
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1 && [[ -t 1 || -t 2 ]]; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 40 )); then
+    cols=80
+  fi
+  printf '%s' "$cols"
+}
+
+truncate_box_text() {
+  local text="${1-}"
+  local max_width="${2:-0}"
+  local ellipsis="..."
+  local keep_len=0
+  if (( max_width <= 0 )); then
+    printf ''
+    return 0
+  fi
+  if (( ${#text} <= max_width )); then
+    printf '%s' "$text"
+    return 0
+  fi
+  if (( max_width <= ${#ellipsis} )); then
+    printf '%.*s' "$max_width" "$ellipsis"
+    return 0
+  fi
+  keep_len=$(( max_width - ${#ellipsis} ))
+  printf '%s%s' "${text:0:keep_len}" "$ellipsis"
+}
+
+compact_display_path() {
+  local path="${1-}"
+  if [[ -z "$path" ]]; then
+    path="${PWD:-}"
+  fi
+  if [[ -z "$path" ]]; then
+    path="$(pwd -P 2>/dev/null || pwd 2>/dev/null || printf '.')"
+  fi
+  if [[ -n "${HOME:-}" && "$path" == "$HOME" ]]; then
+    printf '~'
+    return 0
+  fi
+  if [[ -n "${HOME:-}" && "$path" == "$HOME/"* ]]; then
+    printf '~/%s' "${path#"$HOME"/}"
+    return 0
+  fi
+  printf '%s' "$path"
+}
+
+format_approval_box_field() {
+  local label="${1-}"
+  local value="${2-}"
+  printf '%-11s %s' "$label" "$value"
+}
+
+config_default_reasoning_effort() {
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    return 1
+  fi
+
+  local default_reasoning=""
+  default_reasoning="$(awk '
+    BEGIN { in_root = 1 }
+    /^[[:space:]]*\[/ {
+      in_root = 0
+      next
+    }
+    !in_root { next }
+    /^[[:space:]]*model_reasoning_effort[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*model_reasoning_effort[[:space:]]*=[[:space:]]*/, "", line)
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line ~ /^".*"$/) {
+        sub(/^"/, "", line)
+        sub(/"$/, "", line)
+      }
+      if (line != "") {
+        print line
+        exit 0
+      }
+    }
+  ' "$CONFIG_PATH" 2>/dev/null || true)"
+  if [[ -n "$default_reasoning" ]]; then
+    printf '%s\n' "$default_reasoning"
+    return 0
+  fi
+  return 1
+}
+
+detect_insecure_approval_model() {
+  local model=""
+  local reasoning=""
+  local default_model=""
+  local default_reasoning=""
+  if [[ -n "${CODEX_HOST_MODEL:-}" ]]; then
+    model="$CODEX_HOST_MODEL"
+  fi
+  if [[ -z "$model" ]]; then
+    case "${CODEX_LANE_TARGET:-}" in
+      spark)
+        model="gpt-5.3-codex-spark"
+        ;;
+      normal)
+        model="gpt-5.3-codex"
+        ;;
+    esac
+  fi
+  if [[ -z "$model" ]] && default_model="$(config_default_model 2>/dev/null)"; then
+    model="$default_model"
+  fi
+  if [[ -z "$model" ]]; then
+    model="gpt-5.4"
+  fi
+
+  if [[ -n "${CODEX_HOST_REASONING_EFFORT:-}" ]]; then
+    reasoning="$CODEX_HOST_REASONING_EFFORT"
+  elif default_reasoning="$(config_default_reasoning_effort 2>/dev/null)"; then
+    reasoning="$default_reasoning"
+  fi
+
+  if [[ -n "$reasoning" ]]; then
+    printf '%s %s' "$model" "$reasoning"
+    return 0
+  fi
+  printf '%s' "$model"
+}
+
+build_insecure_approval_pending_box() {
+  local checks="${1:-0}"
+  local last_check="${2-}"
+  local approval_status="${3:-Pending; open Admin, click Enable window}"
+  local title_suffix="${LOCAL_VERSION:-unknown}"
+  local title=""
+  local model_line=""
+  local directory_line=""
+  local status_line=""
+  local last_check_line=""
+  local checks_line=""
+  local cols=0
+  local max_content_width=0
+  local min_content_width=45
+  local content_width=0
+  local top_left="╭"
+  local top_right="╮"
+  local bottom_left="╰"
+  local bottom_right="╯"
+  local horizontal="─"
+  local vertical="│"
+  local line=""
+  local truncated=""
+  local -a lines=()
+
+  if (( CODEX_TERM_IS_DUMB )); then
+    top_left="+"
+    top_right="+"
+    bottom_left="+"
+    bottom_right="+"
+    horizontal="-"
+    vertical="|"
+  fi
+
+  if [[ -z "$last_check" ]]; then
+    last_check="waiting..."
+  fi
+  if [[ -z "$title_suffix" ]]; then
+    title=">_ OpenAI Codex"
+  else
+    title=">_ OpenAI Codex (v${title_suffix})"
+  fi
+  model_line="$(format_approval_box_field "model:" "$(detect_insecure_approval_model)")"
+  directory_line="$(format_approval_box_field "directory:" "$(compact_display_path "${PWD:-}")")"
+  status_line="$(format_approval_box_field "approval:" "$approval_status")"
+  last_check_line="$(format_approval_box_field "last check:" "$last_check")"
+  checks_line="$(format_approval_box_field "checks:" "$checks")"
+  lines=(
+    "$title"
+    ""
+    "$model_line"
+    "$directory_line"
+    "$status_line"
+    "$last_check_line"
+    "$checks_line"
+  )
+
+  cols="$(approval_box_terminal_columns)"
+  max_content_width=$(( cols - 4 ))
+  if (( max_content_width < 32 )); then
+    max_content_width=32
+  fi
+  content_width=$min_content_width
+  for line in "${lines[@]}"; do
+    if (( ${#line} > content_width )); then
+      content_width=${#line}
+    fi
+  done
+  if (( content_width > max_content_width )); then
+    content_width=$max_content_width
+  fi
+
+  printf '%s%s%s\n' "$top_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$top_right"
+  for line in "${lines[@]}"; do
+    truncated="$(truncate_box_text "$line" "$content_width")"
+    printf '%s %-*s %s\n' "$vertical" "$content_width" "$truncated" "$vertical"
+  done
+  printf '%s%s%s' "$bottom_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$bottom_right"
+}
+
+render_insecure_approval_pending_box() {
+  (( CODEX_SILENT )) && return 0
+  local checks="${1:-0}"
+  local last_check="${2-}"
+  local approval_status="${3:-Pending; open Admin, click Enable window}"
+  local can_redraw=0
+  local box_content=""
+  local line=""
+  local box_line_count=0
+  if [[ -t 2 ]] && (( ! CODEX_TERM_IS_DUMB )); then
+    can_redraw=1
+  fi
+  if (( INSECURE_APPROVAL_BOX_VISIBLE )) && (( ! can_redraw )); then
+    return 0
+  fi
+
+  box_content="$(build_insecure_approval_pending_box "$checks" "$last_check" "$approval_status")"
+  box_line_count="$(printf '%s\n' "$box_content" | awk 'END { print NR }')"
+
+  if (( can_redraw )) && (( INSECURE_APPROVAL_BOX_VISIBLE )) && (( INSECURE_APPROVAL_BOX_LINES > 0 )); then
+    printf '\033[%sA' "$INSECURE_APPROVAL_BOX_LINES" >&2
+  fi
+
+  while IFS= read -r line; do
+    if (( can_redraw )); then
+      printf '\033[2K\r%s\n' "$line" >&2
+    else
+      printf '%s\n' "$line" >&2
+    fi
+  done <<< "$box_content"
+
+  INSECURE_APPROVAL_BOX_VISIBLE=1
+  INSECURE_APPROVAL_BOX_LINES="$box_line_count"
+}
+
 normalize_hostname() {
   local host="${1-}"
   # Drop newlines and trailing dots, and compare case-insensitively.
@@ -435,7 +691,13 @@ if [[ "$CODEX_SILENT" == __CODEX_*__ ]]; then
   CODEX_SILENT=0
 fi
 
-WRAPPER_VERSION="2026.03.27-01"
+INSECURE_APPROVAL_BOX_VISIBLE=0
+INSECURE_APPROVAL_BOX_LINES=0
+INSECURE_APPROVAL_CHECK_COUNT=0
+INSECURE_APPROVAL_LAST_CHECK=""
+INSECURE_APPROVAL_LAST_STATUS=""
+
+WRAPPER_VERSION="2026.03.27-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
