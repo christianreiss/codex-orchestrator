@@ -74,9 +74,6 @@
       </nav>
       <div class="rail-tools">
         <div class="rail-toolset">
-          <button class="rail-action rail-action-quiet rail-help-trigger" id="navHelpTrigger" type="button" aria-label="Open keyboard shortcuts help" title="Keyboard shortcuts">
-            <span class="rail-help-glyph" aria-hidden="true">?</span>
-          </button>
           <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Active Windows</button>
         </div>
         <div class="rail-group rail-group-account-menu" id="navAccountGroup" data-nav="account" style="display:none;">
@@ -101,6 +98,10 @@
                   <button class="rail-subpanel-item" id="navThemeOptionDark" type="button" data-theme-option="dark" role="menuitemradio" aria-checked="false">Dark</button>
                 </div>
               </div>
+              <button class="rail-menu-button" id="navHelpTrigger" type="button" role="menuitem" aria-label="Open keyboard shortcuts help" title="Keyboard shortcuts">
+                <span>Keyboard shortcuts</span>
+                <span class="rail-help-glyph" aria-hidden="true">?</span>
+              </button>
               <a class="rail-sub-link" id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;">Password change</a>
               <a class="rail-sub-link" id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;">Passkeys</a>
               <button class="rail-menu-button" id="navLogout" type="button" role="menuitem" style="display:none;">Logout</button>
@@ -497,11 +498,11 @@
             <span class="status-ok">Loading…</span>
           </div>
           <section class="dashboard-primary-grid" id="stats">
-            <section class="dashboard-primary-card" id="dashboardFleetCard">
-              <div class="muted">Loading fleet…</div>
-            </section>
             <section class="dashboard-primary-card" id="chatgpt-usage-card">
               <div class="muted">Loading usage…</div>
+            </section>
+            <section class="dashboard-primary-card" id="dashboardFleetCard">
+              <div class="muted">Loading fleet…</div>
             </section>
             <section class="dashboard-primary-card" id="dashboardSpendCard">
               <div class="muted">Loading spend…</div>

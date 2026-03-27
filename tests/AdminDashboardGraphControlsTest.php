@@ -24,4 +24,13 @@ final class AdminDashboardGraphControlsTest extends TestCase
         $this->assertStringContainsString('Export CSV', $js);
         $this->assertStringContainsString('refreshDashboardCharts', $js);
     }
+
+    public function testDashboardJsKeepsChartShellStableDuringLiveRefresh(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+        $this->assertStringContainsString('DASHBOARD_CHART_AUTO_REFRESH_MS', $js);
+        $this->assertStringContainsString('Live history refresh paused', $js);
+        $this->assertStringContainsString('hasChartShell', $js);
+    }
 }

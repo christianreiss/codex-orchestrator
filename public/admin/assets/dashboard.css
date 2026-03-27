@@ -149,10 +149,10 @@ body {
 .status-issue.status-warn::before { background: var(--warning); }
 .status-issue.status-ok::before { background: var(--success); }
 
-/* Primary grid: 3-column layout for key metrics */
+/* Primary grid: usage spans the first row, fleet/spend sit beneath it. */
 .dashboard-primary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--dash-gap);
   margin-top: 4px;
   animation: dashboard-rise 340ms ease both;
@@ -165,6 +165,9 @@ body {
   box-shadow: var(--dash-card-shadow);
   display: flex;
   flex-direction: column;
+}
+#chatgpt-usage-card {
+  grid-column: 1 / -1;
 }
 .primary-card-head {
   display: flex;
@@ -194,34 +197,35 @@ body {
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;
-  margin: 2px 0 6px;
+  margin: 2px 0 4px;
 }
 .primary-card-sub {
   font-size: 12px;
   color: var(--muted);
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
-.primary-card-rows {
+.primary-card-meta {
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: auto;
-  border-top: 1px solid var(--dash-subtle-border);
-  padding-top: 10px;
 }
-.primary-card-row {
-  display: flex;
-  justify-content: space-between;
+.primary-card-chip {
+  display: inline-flex;
   align-items: center;
-  padding: 5px 0;
-  font-size: 13px;
-}
-.primary-card-row + .primary-card-row {
-  border-top: 1px solid var(--dash-subtle-border);
-}
-.primary-card-row span { color: var(--muted); }
-.primary-card-row strong {
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--dash-card-radius-sm);
+  border: 1px solid var(--dash-subtle-border);
+  background: var(--dash-subtle-surface);
+  font-size: 11px;
   font-weight: 700;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.primary-card-chip strong {
+  color: var(--text);
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 .primary-card-footer {
@@ -242,24 +246,6 @@ body {
 .primary-card-value.cost-blue { color: #2563eb; }
 
 /* Cost meta chips */
-.primary-cost-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-.primary-cost-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: var(--dash-card-radius-sm);
-  border: 1px solid var(--dash-subtle-border);
-  background: var(--dash-subtle-surface);
-  font-size: 11px;
-  font-weight: 700;
-}
-
 /* Ops strip: compact row of alert items */
 .dashboard-ops-strip {
   display: flex;

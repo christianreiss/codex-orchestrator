@@ -507,6 +507,7 @@
     let dashboardCostPinnedIndex = null;
     let dashboardChartsWired = false;
     let dashboardChartRenderToken = 0;
+    let dashboardChartsLastLoadedAt = 0;
     let activeHostId = null;
     let activeInsecureApproval = null;
     const insecureApprovalQueue = [];
@@ -514,6 +515,7 @@
     let insecureApprovalBellContext = null;
     let lastInsecureApprovalBellAt = 0;
     const INSECURE_APPROVAL_BELL_COOLDOWN_MS = 5000;
+    const DASHBOARD_CHART_AUTO_REFRESH_MS = 60 * 1000;
     const INSECURE_WINDOW_MIN = 0;
     const INSECURE_WINDOW_MAX = 480;
     const INSECURE_WINDOW_DEFAULT = 10;
@@ -543,7 +545,7 @@
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
         copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
-        show: ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardStatusBar', 'dashboardOpsStrip', 'dashboardGrid'],
+        show: ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardGrid'],
       },
       hosts: {
         eyebrow: 'Hosts',
@@ -5824,34 +5826,14 @@
 
       const plural = (value, singular, pluralValue = `${singular}s`) => `${value} ${value === 1 ? singular : pluralValue}`;
 
-      /* === Status bar: only show anomalies === */
       if (dashboardStatusBar) {
-        const issues = [];
-        if (fleetSummary.locked > 0) issues.push({ tone: 'danger', label: `${plural(fleetSummary.locked, 'locked window')}` });
-        if (fleetSummary.staleAuth > 0) issues.push({ tone: 'warn', label: `${plural(fleetSummary.staleAuth, 'stale auth digest')}` });
-        if (runnerTone === 'danger') issues.push({ tone: 'danger', label: 'Runner failing' });
-        if (apiDisabled === true) issues.push({ tone: 'danger', label: 'API disabled' });
-        if (fleetSummary.behindVersion > 0) issues.push({ tone: 'warn', label: `${plural(fleetSummary.behindVersion, 'host')} behind target` });
-
-        dashboardStatusBar.innerHTML = issues.length === 0
-          ? '<span class="status-ok">All systems operational</span>'
-          : issues.map((i) => `<span class="status-issue status-${i.tone}">${escapeHtml(i.label)}</span>`).join('');
+        dashboardStatusBar.hidden = true;
+        dashboardStatusBar.innerHTML = '';
       }
 
-      /* === Ops strip: compact inline alerts === */
       if (dashboardOpsStrip) {
-        const radarItems = pulse.radar.filter((item) => item.tone !== 'ok' && item.tone !== 'neutral');
-        if (radarItems.length === 0) {
-          dashboardOpsStrip.hidden = true;
-        } else {
-          dashboardOpsStrip.hidden = false;
-          dashboardOpsStrip.innerHTML = radarItems.map((item) => `
-            <div class="ops-item ops-${item.tone}">
-              <span class="ops-dot" aria-hidden="true"></span>
-              <span>${escapeHtml(item.title)}</span>
-            </div>
-          `).join('');
-        }
+        dashboardOpsStrip.hidden = true;
+        dashboardOpsStrip.innerHTML = '';
       }
 
       /* === Fleet card === */
@@ -5864,15 +5846,9 @@
           </div>
           <div class="primary-card-value">${formatNumber(hostTotal)}</div>
           <div class="primary-card-sub">Registered hosts</div>
-          <div class="primary-card-rows">
-            <div class="primary-card-row">
-              <span>Secure</span>
-              <strong>${formatNumber(fleetSummary.secure)}</strong>
-            </div>
-            <div class="primary-card-row">
-              <span>Issues</span>
-              <strong>${formatNumber(issueCount)}</strong>
-            </div>
+          <div class="primary-card-meta">
+            <span class="primary-card-chip">Secure <strong>${formatNumber(fleetSummary.secure)}</strong></span>
+            <span class="primary-card-chip">Issues <strong>${formatNumber(issueCount)}</strong></span>
           </div>
         `;
       }
@@ -5894,12 +5870,15 @@
           </div>
           <div class="primary-card-value ${costValueClass}">${formatCurrency(monthCost, planCurrency)}</div>
           <div class="primary-card-sub">Estimated month total</div>
-          ${selectedPlan && monthPercentOfPlan !== null ? `
-            <div class="primary-cost-meta">
-              <span class="primary-cost-chip">${escapeHtml(selectedPlan.label)} ${formatCurrency(planCost, planCurrency)}</span>
-              <span class="primary-cost-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
-            </div>
-          ` : ''}
+          <div class="primary-card-meta">
+            ${selectedPlan && monthPercentOfPlan !== null ? `
+              <span class="primary-card-chip">${escapeHtml(selectedPlan.label)} <strong>${formatCurrency(planCost, planCurrency)}</strong></span>
+              <span class="primary-card-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
+            ` : `
+              <span class="primary-card-chip">Today <strong>${formatCurrency(dayCost, planCurrency)}</strong></span>
+              <span class="primary-card-chip">Week <strong>${formatCurrency(weekCost, planCurrency)}</strong></span>
+            `}
+          </div>
         `;
       }
 
@@ -6402,6 +6381,14 @@
 
       const quotaStatus = document.getElementById('dashboardQuotaStatus');
       const costStatus = document.getElementById('dashboardCostStatus');
+      const hasRenderedCharts = !!(dashboardQuotaChart && dashboardCostChart);
+      const now = Date.now();
+      if (!force && hasRenderedCharts && (now - dashboardChartsLastLoadedAt) < DASHBOARD_CHART_AUTO_REFRESH_MS) {
+        const secondsRemaining = Math.max(1, Math.ceil((DASHBOARD_CHART_AUTO_REFRESH_MS - (now - dashboardChartsLastLoadedAt)) / 1000));
+        if (quotaStatus) quotaStatus.textContent = `Live history refresh paused for ${secondsRemaining}s to keep the dashboard stable`;
+        if (costStatus) costStatus.textContent = `Live history refresh paused for ${secondsRemaining}s to keep the dashboard stable`;
+        return;
+      }
       if (quotaStatus) quotaStatus.textContent = 'Loading quota history…';
       if (costStatus) costStatus.textContent = 'Loading cost history…';
 
@@ -6695,6 +6682,7 @@
         wireDashboardChartCanvas(dashboardCostChart, 'cost');
         renderDashboardQuotaMeta();
         renderDashboardCostMeta();
+        dashboardChartsLastLoadedAt = Date.now();
         if (quotaStatus) quotaStatus.textContent = `Range ${rangeDays} days · interval ${quotaInterval}`;
         if (costStatus) costStatus.textContent = `Range ${rangeDays} days · interval ${costInterval}`;
       } catch (err) {
@@ -6705,8 +6693,11 @@
 
     function renderDashboardGrid(data, runnerInfo = null, hostsList = []) {
       if (!dashboardGrid) return;
-      dashboardChartsWired = false;
-      dashboardGrid.innerHTML = `
+      const hasChartShell = !!(document.getElementById('dashboardQuotaCanvas') && document.getElementById('dashboardCostCanvas'));
+      if (!hasChartShell) {
+        destroyDashboardCharts();
+        dashboardChartsWired = false;
+        dashboardGrid.innerHTML = `
         <section class="card dashboard-chart-shell">
           <div class="dashboard-chart-controls">
             <div class="dashboard-chart-ranges" role="group" aria-label="History range">
@@ -6755,7 +6746,12 @@
           </div>
         </section>
       `;
-      wireDashboardChartControls();
+      }
+      if (!dashboardChartsWired) {
+        wireDashboardChartControls();
+      } else {
+        updateDashboardChartControls();
+      }
       refreshDashboardCharts();
     }
 
