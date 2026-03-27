@@ -47,6 +47,12 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString("accountTab: String(document.body?.dataset?.accountTab || ''),", $js);
         $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
         $this->assertStringContainsString('new ResizeObserver(() => {', $js);
+        $this->assertStringContainsString('function groupByNav(navKey) {', $js);
+        $this->assertStringContainsString('function openGroupByNav(navKey) {', $js);
+        $this->assertStringContainsString('function toggleGroupByNav(navKey) {', $js);
+        $this->assertStringContainsString("window.__railNav = {", $js);
+        $this->assertStringContainsString('openGroup: openGroupByNav,', $js);
+        $this->assertStringContainsString('toggleGroup: toggleGroupByNav,', $js);
         $this->assertStringNotContainsString("window.addEventListener('admin-ws-status', (event) => {", $js);
         $this->assertStringNotContainsString('Live: connected', $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);

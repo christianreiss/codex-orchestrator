@@ -951,6 +951,7 @@
     function armShortcutPrefix(prefix) {
       clearShortcutPrefix();
       pendingShortcutPrefix = prefix;
+      window.__railNav?.toggleGroup?.(prefix === 'h' ? 'hosts' : prefix === 'l' ? 'logs' : prefix === 's' ? 'settings' : '');
       pendingShortcutTimer = window.setTimeout(() => {
         clearShortcutPrefix();
       }, SHORTCUT_SEQUENCE_TIMEOUT_MS);

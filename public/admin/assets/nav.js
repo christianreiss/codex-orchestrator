@@ -132,12 +132,40 @@
     closeDrawer({ focusToggle: true });
   });
 
+  function groupByNav(navKey) {
+    const key = String(navKey || '').trim().toLowerCase();
+    if (!key) return null;
+    return groups.find((entry) => String(entry.dataset?.nav || '').trim().toLowerCase() === key) || null;
+  }
+
+  function openGroupByNav(navKey) {
+    const group = groupByNav(navKey);
+    if (!group) return false;
+    if (isCompactRail()) {
+      applyDrawerState(true);
+    }
+    openGroup(group);
+    return true;
+  }
+
+  function toggleGroupByNav(navKey) {
+    const group = groupByNav(navKey);
+    if (!group) return false;
+    if (isCompactRail()) {
+      applyDrawerState(true);
+    }
+    toggleGroup(group);
+    return true;
+  }
+
   window.__railNav = {
     closeMenus: () => {
       closeAllGroups();
       closeDrawer();
     },
     closeGroups: closeAllGroups,
+    openGroup: openGroupByNav,
+    toggleGroup: toggleGroupByNav,
   };
 
   document.addEventListener('keydown', (event) => {

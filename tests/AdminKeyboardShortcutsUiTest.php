@@ -14,9 +14,9 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString('id="navHelpTrigger"', $html);
         self::assertStringContainsString('id="helpModal"', $html);
         self::assertStringContainsString('Keyboard shortcuts', $html);
-        self::assertStringContainsString('Go to Projects settings', $html);
+        self::assertStringContainsString('Settings: projects', $html);
         self::assertStringContainsString('Focus the active search / filter', $html);
-        self::assertStringContainsString('Go to Account', $html);
+        self::assertStringContainsString('Toggle the visible drawer/panel', $html);
         self::assertStringNotContainsString('id="kbdShortcutsModal"', $html);
     }
 
@@ -33,8 +33,8 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("if (key === '/') {", $js);
         self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
-        self::assertStringContainsString("a: '/admin/account'", $js);
         self::assertStringContainsString('function triggerNewShortcut()', $js);
+        self::assertStringContainsString("window.__railNav?.toggleGroup?.(prefix === 'h' ? 'hosts' : prefix === 'l' ? 'logs' : prefix === 's' ? 'settings' : '');", $js);
         self::assertStringContainsString("document.addEventListener('keydown', handleGlobalShortcut);", $js);
         self::assertStringNotContainsString("const kbdModal = document.getElementById('kbdShortcutsModal');", $js);
     }
