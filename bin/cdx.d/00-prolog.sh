@@ -580,6 +580,7 @@ CODEX_DEBUG=${CODEX_DEBUG:-0}
 CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
 CODEX_DO_UNINSTALL=0
+CODEX_DO_LOGIN=0
 CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
 CODEX_CRON_MODE=0
@@ -1283,6 +1284,10 @@ case "${1-}" in
     ;;
   doctor|--doctor)
     CODEX_DOCTOR_ONLY=1
+    shift
+    ;;
+  login|--login)
+    CODEX_DO_LOGIN=1
     shift
     ;;
   --uninstall)

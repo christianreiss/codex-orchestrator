@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Orchestrator &mdash; Authorize CLI</title>
+  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-27-02">
+  <link rel="stylesheet" href="/admin/assets/login.css?v=2026-03-27-02">
+</head>
+<body data-theme="auto">
+  <main class="login-shell" aria-labelledby="verifyTitle">
+    <div class="login-card">
+      <div class="brand-mark">
+        <img class="brand-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
+      </div>
+
+      <h1 id="verifyTitle" class="login-title">Authorize CLI</h1>
+      <p class="login-copy" id="verifyCopy">Enter the code displayed in your terminal.</p>
+
+      <!-- Step 1: Enter code -->
+      <form id="cliAuthCodeForm" class="login-form" novalidate>
+        <label class="field" for="cliAuthCode">
+          <span>Device Code</span>
+          <input type="text" id="cliAuthCode" autocomplete="off" required
+                 placeholder="ABCD-1234" maxlength="9"
+                 style="text-transform:uppercase; letter-spacing:.15em; font-size:1.25rem; text-align:center">
+        </label>
+
+        <div class="login-error" id="cliAuthError" role="alert"></div>
+        <button type="submit" class="login-submit" id="cliAuthLookup">
+          <span class="btn-label">Look up</span>
+          <kbd class="kbd-hint" aria-hidden="true">Enter &#x21B5;</kbd>
+        </button>
+      </form>
+
+      <!-- Step 2: Confirm & approve (hidden initially) -->
+      <div id="cliAuthConfirm" hidden>
+        <dl class="cli-auth-details">
+          <dt>Hostname</dt>
+          <dd id="cliAuthFqdn"></dd>
+          <dt>Requesting IP</dt>
+          <dd id="cliAuthIp"></dd>
+        </dl>
+
+        <div class="login-error" id="cliAuthApproveError" role="alert"></div>
+
+        <div class="cli-auth-actions">
+          <button type="button" class="login-submit" id="cliAuthApproveBtn">
+            <span class="btn-label">Approve</span>
+          </button>
+          <button type="button" class="login-submit cli-auth-deny" id="cliAuthDenyBtn">
+            <span class="btn-label">Deny</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Result -->
+      <div id="cliAuthResult" hidden>
+        <p class="login-copy" id="cliAuthResultMsg"></p>
+      </div>
+    </div>
+  </main>
+  <style>
+    .cli-auth-details {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: .25rem .75rem;
+      margin: 1rem 0 1.25rem;
+      font-size: .9rem;
+    }
+    .cli-auth-details dt {
+      font-weight: 600;
+      color: var(--text-secondary, #666);
+    }
+    .cli-auth-details dd {
+      margin: 0;
+      word-break: break-all;
+      font-family: var(--font-mono, monospace);
+    }
+    .cli-auth-actions {
+      display: flex;
+      gap: .5rem;
+    }
+    .cli-auth-actions .login-submit {
+      flex: 1;
+    }
+    .cli-auth-deny {
+      background: var(--danger-bg, #dc3545) !important;
+      border-color: var(--danger-border, #dc3545) !important;
+    }
+    .cli-auth-deny:hover {
+      opacity: .85;
+    }
+  </style>
+  <script src="/admin/assets/cli-auth-verify.js?v=2026-03-27-01"></script>
+</body>
+</html>

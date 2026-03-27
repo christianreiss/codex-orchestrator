@@ -386,9 +386,18 @@ load_sync_config() {
   if (( SYNC_CONFIG_LOADED )); then
     return 0
   fi
-  # Always prefer baked-in sync configuration; ignore local .env overrides.
-  CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
-  log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  # Check for CLI-login credentials first, then fall back to baked-in values.
+  local cred_file="${XDG_CONFIG_HOME:-$HOME/.config}/cdx/credentials.env"
+  if [[ -f "$cred_file" ]]; then
+    # shellcheck source=/dev/null
+    source "$cred_file"
+    CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL%/}"
+    log_debug "config (credentials.env) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none}"
+  else
+    # Always prefer baked-in sync configuration; ignore local .env overrides.
+    CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
+    log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  fi
   enforce_baked_fqdn_guard
   SYNC_CONFIG_LOADED=1
 }
@@ -429,6 +438,163 @@ detect_codex_asset_name() {
       ;;
   esac
 }
+
+## --- CLI login (device-code flow) ---
+
+save_cli_auth() {
+  local api_key="$1" base_url="$2" fqdn="$3" secure="$4"
+  local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/cdx"
+  mkdir -p "$config_dir"
+  chmod 700 "$config_dir"
+  cat > "$config_dir/credentials.env" <<CREDEOF
+CODEX_SYNC_API_KEY=$api_key
+CODEX_SYNC_BASE_URL=$base_url
+CODEX_SYNC_FQDN=$fqdn
+CODEX_HOST_SECURE=$secure
+CREDEOF
+  chmod 600 "$config_dir/credentials.env"
+}
+
+cmd_login() {
+  local base_url="${CODEX_SYNC_BASE_URL_DEFAULT:-}"
+
+  # If no baked base URL, prompt for it
+  if [[ -z "$base_url" || "$base_url" == "__CODEX_SYNC_BASE_URL__" ]]; then
+    # Check credentials.env for an existing base URL
+    local cred_file="${XDG_CONFIG_HOME:-$HOME/.config}/cdx/credentials.env"
+    if [[ -f "$cred_file" ]]; then
+      # shellcheck source=/dev/null
+      source "$cred_file"
+      base_url="${CODEX_SYNC_BASE_URL:-}"
+    fi
+    if [[ -z "$base_url" || "$base_url" == "__CODEX_SYNC_BASE_URL__" ]]; then
+      printf "Enter orchestrator URL: "
+      read -r base_url
+    fi
+  fi
+  base_url="${base_url%/}"
+
+  if [[ -z "$base_url" ]]; then
+    log_error "No orchestrator URL provided."
+    exit 1
+  fi
+
+  local fqdn
+  fqdn="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+
+  log_info "Starting CLI login for ${BOLD}${fqdn}${RESET}"
+
+  local start_response
+  start_response="$(python3 -c "
+import json, urllib.request, urllib.error, sys, ssl
+url = sys.argv[1] + '/cli/auth/start'
+data = json.dumps({'fqdn': sys.argv[2]}).encode('utf-8')
+req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'}, method='POST')
+try:
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+        print(resp.read().decode('utf-8'))
+except urllib.error.HTTPError as e:
+    body = e.read().decode('utf-8', 'ignore')
+    print(json.dumps({'status': 'error', 'message': body}), file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(json.dumps({'status': 'error', 'message': str(e)}), file=sys.stderr)
+    sys.exit(1)
+" "$base_url" "$fqdn" 2>&1)" || {
+    log_error "Failed to initiate login."
+    log_error "$start_response"
+    exit 1
+  }
+
+  local request_id user_code verify_url expires_in poll_interval
+  eval "$(python3 -c "
+import json, sys, shlex
+d = json.loads(sys.argv[1])['data']
+print('request_id=' + shlex.quote(d['request_id']))
+print('user_code=' + shlex.quote(d['user_code']))
+print('verify_url=' + shlex.quote(d['verify_url']))
+print('expires_in=' + shlex.quote(str(d['expires_in'])))
+print('poll_interval=' + shlex.quote(str(d['poll_interval'])))
+" "$start_response")"
+
+  printf '\n'
+  log_info "Open this URL in your browser:"
+  printf '  %b%s%b\n\n' "${BOLD}${CYAN}" "$verify_url" "${RESET}"
+  log_info "Then enter this code:"
+  printf '  %b%s%b\n\n' "${BOLD}${CYAN}" "$user_code" "${RESET}"
+
+  # Try to open browser (best effort)
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$verify_url" 2>/dev/null &
+  elif command -v open >/dev/null 2>&1; then
+    open "$verify_url" 2>/dev/null &
+  fi
+
+  log_info "Waiting for approval..."
+
+  local deadline=$((SECONDS + expires_in))
+  while (( SECONDS < deadline )); do
+    sleep "$poll_interval"
+
+    local poll_response poll_status
+    poll_response="$(python3 -c "
+import json, urllib.request, urllib.error, sys, ssl
+url = sys.argv[1] + '/cli/auth/poll/' + sys.argv[2]
+req = urllib.request.Request(url, data=b'', headers={'Content-Type': 'application/json'}, method='POST')
+try:
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+        print(resp.read().decode('utf-8'))
+except Exception:
+    print(json.dumps({'data': {'status': 'pending'}}))
+" "$base_url" "$request_id" 2>/dev/null)" || continue
+
+    poll_status="$(python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+print(d.get('data', {}).get('status', 'error'))
+" "$poll_response" 2>/dev/null)" || continue
+
+    case "$poll_status" in
+      approved)
+        eval "$(python3 -c "
+import json, sys, shlex
+d = json.loads(sys.argv[1])['data']
+print('CLI_API_KEY=' + shlex.quote(d['api_key']))
+print('CLI_BASE_URL=' + shlex.quote(d['base_url']))
+print('CLI_FQDN=' + shlex.quote(d['fqdn']))
+secure = '1' if d.get('secure', True) else '0'
+print('CLI_SECURE=' + shlex.quote(secure))
+" "$poll_response")"
+
+        save_cli_auth "$CLI_API_KEY" "$CLI_BASE_URL" "$CLI_FQDN" "$CLI_SECURE"
+        printf '\n'
+        log_info "Authenticated successfully as ${BOLD}${CLI_FQDN}${RESET}"
+        exit 0
+        ;;
+      denied)
+        printf '\n'
+        log_error "Login request was denied."
+        exit 1
+        ;;
+      expired)
+        printf '\n'
+        log_error "Login request expired. Run 'cdx login' to try again."
+        exit 1
+        ;;
+      pending)
+        ;;
+    esac
+  done
+
+  log_error "Login timed out. Run 'cdx login' to try again."
+  exit 1
+}
+
+if (( CODEX_DO_LOGIN )); then
+  cmd_login
+fi
 
 if (( CODEX_DO_UNINSTALL )); then
   cmd_uninstall

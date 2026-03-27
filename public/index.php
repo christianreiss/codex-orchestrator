@@ -98,6 +98,9 @@ use App\Http\Controllers\ProjectApiController;
 use App\Http\Controllers\HostApiController;
 use App\Http\Controllers\McpRouteController;
 use App\Http\Controllers\SkillApiController;
+use App\Http\Controllers\CliAuthController;
+use App\Repositories\CliAuthRequestRepository;
+use App\Services\CliAuthService;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -214,6 +217,7 @@ $digestRepository = new HostAuthDigestRepository($database);
 $hostUserRepository = new HostUserRepository($database);
 $installTokenRepository = new InstallTokenRepository($database, $secretBox);
 $seedTokenRepository = new AuthSeedTokenRepository($database, $secretBox);
+$cliAuthRequestRepository = new CliAuthRequestRepository($database, $secretBox);
 $authEntryRepository = new AuthEntryRepository($database, $secretBox);
 $authPayloadRepository = new AuthPayloadRepository($database, $authEntryRepository, $secretBox);
 $adminEventRepository = new AdminEventRepository($database);
@@ -307,6 +311,7 @@ $adminPasskeyService = new AdminPasskeyService(
     $logRepository
 );
 $GLOBALS['adminAuthService'] = $adminAuthService;
+$cliAuthService = new CliAuthService($cliAuthRequestRepository, $service, $logRepository, $rateLimiter);
 $projectModuleService = new ProjectModuleService($versionRepository);
 $skillService = new SkillService($skillRepository, $logRepository, $projectModuleService);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
@@ -373,7 +378,7 @@ if ($rawBody !== false && $rawBody !== '') {
 }
 
 $apiDisabled = $versionRepository->getFlag('api_disabled', false);
-$apiDisableBypass = $normalizedPath === '/admin/api/state';
+$apiDisableBypass = $normalizedPath === '/admin/api/state' || str_starts_with($normalizedPath, '/cli/auth/');
 if ($apiDisabled && !$apiDisableBypass) {
     Response::json([
         'status' => 'error',
@@ -427,6 +432,7 @@ $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsServic
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
+$cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);
 $authCtrl = new AuthController($service, $chatGptUsageService, $startupSyncService, $versionRepository);
 $configApiCtrl = new ConfigApiController($service, $agentsService, $clientConfigService);
 $projectApiCtrl = new ProjectApiController($service, $projectCoordinationService, $memoryService);
@@ -489,6 +495,14 @@ $router->add('GET', '#^/wrapper/download$#', fn() => $wrapperCtrl->download());
 $router->add('GET', '#^/install/([a-f0-9\-]{36})$#', fn($token) => $installCtrl->install($token));
 $router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#', fn($token) => $installCtrl->seedAuthScript($token));
 $router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#', fn($token) => $installCtrl->seedAuthStore($token));
+
+// CLI auth (device-code login flow)
+$router->add('POST', '#^/cli/auth/start$#', fn() => $cliAuthCtrl->start($payload));
+$router->add('POST', '#^/cli/auth/poll/([a-f0-9]{64})$#', fn($id) => $cliAuthCtrl->poll($id));
+$router->add('GET',  '#^/cli/auth/verify$#', fn() => $cliAuthCtrl->verifyPage());
+$router->add('POST', '#^/cli/auth/lookup$#', fn() => $cliAuthCtrl->lookup($payload));
+$router->add('POST', '#^/cli/auth/approve$#', fn() => $cliAuthCtrl->approve($payload));
+$router->add('POST', '#^/cli/auth/deny$#', fn() => $cliAuthCtrl->deny($payload));
 
 // Admin hosts
 $router->add('POST', '#^/admin/hosts/register$#', fn() => $adminHostCtrl->register($payload));

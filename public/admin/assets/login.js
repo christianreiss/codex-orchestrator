@@ -7,6 +7,17 @@
     }
   } catch (_) {}
 
+  // Resolve safe return URL from ?return= query param (same-origin paths only).
+  const loginReturnUrl = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get('return');
+      if (typeof p === 'string' && p.startsWith('/') && !p.startsWith('//')) {
+        return p;
+      }
+    } catch (_) {}
+    return '/admin/';
+  })();
+
   const form = document.getElementById('adminLoginForm');
   const loginCopy = document.getElementById('adminLoginCopy');
   const usernameInput = document.getElementById('adminLoginUsername');
@@ -135,7 +146,7 @@
       }
 
       if (status.authenticated || !status.enforced) {
-        window.location.replace('/admin/');
+        window.location.replace(loginReturnUrl);
         return;
       }
 
@@ -210,7 +221,7 @@
 
       if (method === 'passkey') {
         await beginPasskeyLogin(username);
-        window.location.replace('/admin/');
+        window.location.replace(loginReturnUrl);
         return;
       }
 
@@ -235,7 +246,7 @@
         method: 'POST',
         json: { username, password },
       });
-      window.location.replace('/admin/');
+      window.location.replace(loginReturnUrl);
     } catch (_) {
       setBusy(false);
       setError('Login failed. Check your credentials.');

@@ -80,6 +80,9 @@ final class AdminSessionHelper
         if (in_array($path, $bypass, true)) {
             return;
         }
+        if ($path === '/cli/auth/start' || str_starts_with($path, '/cli/auth/poll/')) {
+            return;
+        }
 
         $session = self::resolveAdminSession($adminAuthService);
         if ($session === null || !isset($session['user'])) {

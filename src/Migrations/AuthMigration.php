@@ -94,6 +94,33 @@ class AuthMigration implements MigrationInterface
             SQL
         );
 
+        $pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS cli_auth_requests (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                request_id CHAR(64) NOT NULL UNIQUE,
+                request_id_enc LONGTEXT NULL,
+                user_code CHAR(9) NOT NULL,
+                user_code_hash CHAR(64) NOT NULL,
+                fqdn VARCHAR(255) NOT NULL,
+                secure TINYINT(1) NOT NULL DEFAULT 1,
+                status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                approved_by_user_id BIGINT UNSIGNED NULL,
+                host_id BIGINT UNSIGNED NULL,
+                api_key_enc LONGTEXT NULL,
+                ip VARCHAR(64) NULL,
+                user_agent VARCHAR(255) NULL,
+                expires_at VARCHAR(100) NOT NULL,
+                created_at VARCHAR(100) NOT NULL,
+                approved_at VARCHAR(100) NULL,
+                consumed_at VARCHAR(100) NULL,
+                INDEX idx_cli_auth_user_code (user_code_hash),
+                INDEX idx_cli_auth_expires (expires_at),
+                INDEX idx_cli_auth_status (status)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
         // Backfill columns.
         $this->ensureColumnExists($pdo, $databaseName, 'auth_payloads', 'body', 'LONGTEXT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'install_tokens', 'base_url', 'VARCHAR(255) NULL');
