@@ -33,6 +33,20 @@ final class CdxWrapperConcurrentGuardTest extends TestCase
         self::assertStringNotContainsString('AUTH_PUSH_REASON="active cdx run"', $wrapperSource);
     }
 
+    public function testWrapperFallsBackToPortableMkdirLockWhenFlockIsMissing(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('CDX_RUN_LOCK_METHOD=""', $wrapperSource);
+        self::assertStringContainsString('if command -v flock >/dev/null 2>&1; then', $wrapperSource);
+        self::assertStringContainsString('if mkdir "$CDX_RUN_LOCK_PATH" 2>/dev/null; then', $wrapperSource);
+        self::assertStringContainsString('CDX_RUN_LOCK_METHOD="mkdir"', $wrapperSource);
+        self::assertStringContainsString('rmdir "$CDX_RUN_LOCK_PATH" 2>/dev/null || true', $wrapperSource);
+        self::assertStringNotContainsString('log_warn "flock not available; concurrent-run guard disabled."', $wrapperSource);
+    }
+
     public function testConcurrentAuthBranchUsesLocalValidation(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';

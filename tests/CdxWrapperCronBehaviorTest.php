@@ -21,13 +21,16 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString('CRON_CHECK_RESPONSE="$check_response"', $wrapperSource);
     }
 
-    public function testCronModeDegradesWithoutFlockAndRequiresReportSuccess(): void
+    public function testCronModeUsesPortableLockFallbackWithoutFlockAndRequiresReportSuccess(): void
     {
         $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('log_warn "flock not available; cron concurrent-run guard disabled."', $wrapperSource);
         self::assertStringContainsString('exec 9>"$lock_file" || {', $wrapperSource);
+        self::assertStringContainsString('local lock_dir_fallback="${lock_file}.d"', $wrapperSource);
+        self::assertStringContainsString('elif mkdir "$lock_dir_fallback" 2>/dev/null; then', $wrapperSource);
+        self::assertStringContainsString('trap \'rmdir "$lock_dir_fallback" 2>/dev/null || true\' RETURN', $wrapperSource);
+        self::assertStringNotContainsString('log_warn "flock not available; cron concurrent-run guard disabled."', $wrapperSource);
         self::assertStringContainsString('cron: update report failed after retries', $wrapperSource);
         self::assertStringContainsString('for report_attempt in 1 2 3; do', $wrapperSource);
         self::assertStringContainsString("'wrapper_version': '\${WRAPPER_VERSION:-unknown}'", $wrapperSource);

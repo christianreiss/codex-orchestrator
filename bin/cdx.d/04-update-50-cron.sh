@@ -267,6 +267,7 @@ cron_ping_check_api() {
 
 cron_auto_update() {
   local lock_file="$HOME/.codex/.cdx_cron.lock"
+  local lock_dir_fallback="${lock_file}.d"
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
 
   # Non-blocking lock to prevent concurrent cron runs.
@@ -279,8 +280,11 @@ cron_auto_update() {
       printf '[%s] cron: another cron run is active; skipping.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       return 0
     fi
+  elif mkdir "$lock_dir_fallback" 2>/dev/null; then
+    trap 'rmdir "$lock_dir_fallback" 2>/dev/null || true' RETURN
   else
-    log_warn "flock not available; cron concurrent-run guard disabled."
+    printf '[%s] cron: another cron run is active; skipping.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 0
   fi
 
   local codex_bin local_version_raw local_version cron_asset_name

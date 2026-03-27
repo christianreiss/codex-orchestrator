@@ -784,7 +784,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.03.27-13"
+WRAPPER_VERSION="2026.03.27-14"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -794,6 +794,7 @@ SCRIPT_FLAGS="-qe"
 CDX_ACTIVE_RUN_DETECTED=0
 CDX_RUN_LOCK_HELD=0
 CDX_RUN_LOCK_FD=""
+CDX_RUN_LOCK_METHOD=""
 CDX_RUN_LOCK_PATH=""
 CDX_RUN_LOCK_META_PATH=""
 CDX_RUN_LOCK_SCOPE_KEY=""
@@ -950,13 +951,9 @@ acquire_run_lock_or_mark_concurrent() {
   CDX_ACTIVE_RUN_DETECTED=0
   CDX_ACTIVE_RUN_INFO=""
   CDX_RUN_LOCK_HELD=0
+  CDX_RUN_LOCK_METHOD=""
 
   if (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
-    return 0
-  fi
-
-  if ! command -v flock >/dev/null 2>&1; then
-    log_warn "flock not available; concurrent-run guard disabled."
     return 0
   fi
 
@@ -969,16 +966,26 @@ acquire_run_lock_or_mark_concurrent() {
   CDX_RUN_LOCK_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.lock"
   CDX_RUN_LOCK_META_PATH="${lock_dir}/cdx-run-${CDX_RUN_LOCK_SCOPE_KEY}.meta"
 
-  if ! { exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH"; } 2>/dev/null; then
-    CDX_RUN_LOCK_FD=""
-    log_warn "Cannot open run lock ${CDX_RUN_LOCK_PATH}; concurrent-run guard disabled."
-    return 0
-  fi
+  if command -v flock >/dev/null 2>&1; then
+    if ! { exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH"; } 2>/dev/null; then
+      CDX_RUN_LOCK_FD=""
+      log_warn "Cannot open run lock ${CDX_RUN_LOCK_PATH}; concurrent-run guard disabled."
+      return 0
+    fi
 
-  if flock -n "$CDX_RUN_LOCK_FD" 2>/dev/null; then
-    CDX_RUN_LOCK_HELD=1
-    write_run_lock_metadata || true
-    return 0
+    if flock -n "$CDX_RUN_LOCK_FD" 2>/dev/null; then
+      CDX_RUN_LOCK_HELD=1
+      CDX_RUN_LOCK_METHOD="flock"
+      write_run_lock_metadata || true
+      return 0
+    fi
+  else
+    if mkdir "$CDX_RUN_LOCK_PATH" 2>/dev/null; then
+      CDX_RUN_LOCK_HELD=1
+      CDX_RUN_LOCK_METHOD="mkdir"
+      write_run_lock_metadata || true
+      return 0
+    fi
   fi
 
   CDX_ACTIVE_RUN_DETECTED=1
@@ -991,14 +998,18 @@ acquire_run_lock_or_mark_concurrent() {
 }
 
 release_run_lock_if_held() {
-  if (( CDX_RUN_LOCK_HELD )) && [[ -n "${CDX_RUN_LOCK_FD:-}" ]]; then
+  if (( CDX_RUN_LOCK_HELD )) && [[ "${CDX_RUN_LOCK_METHOD:-}" == "flock" ]] && [[ -n "${CDX_RUN_LOCK_FD:-}" ]]; then
     flock -u "$CDX_RUN_LOCK_FD" 2>/dev/null || true
   fi
   close_run_lock_fd
+  if (( CDX_RUN_LOCK_HELD )) && [[ "${CDX_RUN_LOCK_METHOD:-}" == "mkdir" ]] && [[ -n "$CDX_RUN_LOCK_PATH" ]]; then
+    rmdir "$CDX_RUN_LOCK_PATH" 2>/dev/null || true
+  fi
   if (( CDX_RUN_LOCK_HELD )) && [[ -n "$CDX_RUN_LOCK_META_PATH" ]]; then
     rm -f "$CDX_RUN_LOCK_META_PATH" 2>/dev/null || true
   fi
   CDX_RUN_LOCK_HELD=0
+  CDX_RUN_LOCK_METHOD=""
 }
 
 config_has_profile() {

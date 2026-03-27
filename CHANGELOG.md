@@ -1,4 +1,5 @@
 # 2026-03-27
+- cdx wrapper: macOS and other hosts without `flock` now use a portable atomic `mkdir` lock for both the normal concurrent-run guard and cron auto-update runs, instead of warning that locking is disabled. Wrapper bumped to `2026.03.27-14`.
 - cdx wrapper: preserve the full ASCII boot banner after a wrapper self-update restart instead of suppressing it via `CODEX_SKIP_MOTD`. Updated wrappers now restart into the normal boot screen before Codex launches. Wrapper bumped to `2026.03.27-13`.
 - cdx wrapper: print a blank line between the boot/quota summary and the Codex UI launch so interactive starts do not jam the first Codex frame directly against the wrapper output. Wrapper bumped to `2026.03.27-12`.
 - cdx wrapper: fixed an interactive launch regression that could make `cdx` exit right after printing the quota summary when the final Spark `⚡︎ weekly` row needed no extra label padding. `pad_visible_text_right()` now returns success on the no-op path, so the command substitution used by the boot screen no longer trips `set -e` before Codex starts. Wrapper should be rebuilt after fragment edits.
