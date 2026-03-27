@@ -117,9 +117,8 @@ if (( HAS_LOCAL_AUTH )) && validate_auth_json_file "$HOME/.codex/auth.json"; the
   HAS_VALID_LOCAL_AUTH=1
 fi
 
-if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
-  print_motd
-fi
+# Banner rendering is deferred to the display phase (print_boot_screen)
+# so that version/status info can be shown alongside the ASCII art.
 
 AUTO_UPDATE_CRON_READY=0
 if (( ! CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CRON_MODE )) && (( ! CODEX_DO_UNINSTALL )); then

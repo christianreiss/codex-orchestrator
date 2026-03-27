@@ -965,3 +965,256 @@ PY
   printf "fail\t%s" "${probe:-unreachable}"
   return 1
 }
+
+# ── Boot screen helpers (neofetch-style display) ─────────────────────────
+
+format_compact_number() {
+  local n="$1"
+  [[ "$n" =~ ^[0-9]+$ ]] || { printf "%s" "$n"; return; }
+  if (( n >= 10000000 )); then
+    printf "%dM" $(( (n + 500000) / 1000000 ))
+  elif (( n >= 1000000 )); then
+    local m=$(( n / 1000000 ))
+    local frac=$(( (n % 1000000 + 50000) / 100000 ))
+    if (( frac >= 10 )); then m=$((m + 1)); frac=0; fi
+    if (( m >= 10 )); then
+      printf "%dM" "$m"
+    else
+      printf "%d.%dM" "$m" "$frac"
+    fi
+  elif (( n >= 100000 )); then
+    printf "%dK" $(( (n + 500) / 1000 ))
+  elif (( n >= 10000 )); then
+    local k=$(( n / 1000 ))
+    local frac=$(( (n % 1000 + 50) / 100 ))
+    if (( frac >= 10 )); then k=$((k + 1)); frac=0; fi
+    if (( k >= 100 )); then
+      printf "%dK" "$k"
+    else
+      printf "%d.%dK" "$k" "$frac"
+    fi
+  else
+    printf "%s" "$(format_grouped_int "$n")"
+  fi
+}
+
+build_health_dot() {
+  local name="$1" tone="$2"
+  local dot="●"
+  output_supports_unicode || dot="*"
+  printf "%s %s" "$(colorize "$dot" "$tone")" "$name"
+}
+
+print_boot_screen() {
+  (( CODEX_SILENT )) && return 0
+
+  local show_banner=1
+  (( CODEX_SKIP_MOTD )) && show_banner=0
+
+  # ── Info panel (alongside banner) ──
+  if (( show_banner )); then
+    local info=()
+    local sep_char="─"
+    output_supports_unicode || sep_char="-"
+    local dot_sep
+    printf -v dot_sep "%b·%b" "${DIM}" "${RESET}"
+
+    # L0: empty
+    info+=("")
+
+    # L1: title
+    local title
+    printf -v title "%b%bcodex orchestrator%b" "${ORANGE}" "${BOLD}" "${RESET}"
+    info+=("$title")
+
+    # L2: separator
+    local sep_line=""
+    local si
+    for (( si = 0; si < 25; si++ )); do sep_line+="$sep_char"; done
+    printf -v sep_line "%b%s%b" "${DIM}" "$sep_line" "${RESET}"
+    info+=("$sep_line")
+
+    # L3: codex version
+    local cdx_ver="${codex_ver_inst:-${LOCAL_VERSION:-unknown}}"
+    local cdx_ver_colored
+    cdx_ver_colored="$(colorize "$cdx_ver" "${codex_tone:-green}")"
+    local cdx_line="codex    ${cdx_ver_colored}"
+    if [[ -n "${codex_version_suffix:-}" ]]; then
+      cdx_line+=" $(printf '%b%s%b' "${DIM}" "$codex_version_suffix" "${RESET}")"
+    fi
+    if [[ -n "${codex_ver_target:-}" && "${codex_ver_target}" != "${cdx_ver}" && "${codex_tone:-green}" != "green" ]]; then
+      cdx_line+=" $(printf '%b→%b %s' "${DIM}" "${RESET}" "$(colorize "$codex_ver_target" "yellow")")"
+    fi
+    info+=("$cdx_line")
+
+    # L4: wrapper version
+    local wrap_ver="${wrapper_ver_inst:-${WRAPPER_VERSION:-unknown}}"
+    local wrap_ver_colored
+    wrap_ver_colored="$(colorize "$wrap_ver" "${wrapper_tone:-green}")"
+    local wrap_line="wrapper  ${wrap_ver_colored}"
+    if [[ -n "${wrapper_ver_target:-}" && "${wrapper_ver_target}" != "${wrap_ver}" && "${wrapper_tone:-green}" != "green" ]]; then
+      wrap_line+=" $(printf '%b→%b %s' "${DIM}" "${RESET}" "$(colorize "$wrapper_ver_target" "yellow")")"
+    fi
+    info+=("$wrap_line")
+
+    # L5: context line
+    local ctx_parts=()
+    if (( ! HOST_IS_SECURE )); then
+      local lock_icon="🔓"
+      output_supports_unicode || lock_icon="[!]"
+      ctx_parts+=("$(colorize "${lock_icon} insecure" "yellow")")
+    fi
+    if (( concurrent_compact_summary )); then
+      ctx_parts+=("$(colorize "concurrent run" "yellow")")
+    fi
+    local lane_name="${CODEX_EFFECTIVE_LANE:-normal}"
+    if [[ "$lane_name" == "spark" ]]; then
+      local spark_i="⚡"
+      output_supports_unicode || spark_i="[S]"
+      ctx_parts+=("${spark_i} spark")
+    else
+      ctx_parts+=("$lane_name")
+    fi
+    if [[ "${HOST_TOKENS_MONTH_TOTAL:-}" =~ ^[0-9]+$ ]] && (( HOST_TOKENS_MONTH_TOTAL > 0 )); then
+      ctx_parts+=("$(format_compact_number "$HOST_TOKENS_MONTH_TOTAL") tokens")
+    elif [[ "${HOST_API_CALLS:-}" =~ ^[0-9]+$ ]] && (( HOST_API_CALLS > 0 )); then
+      ctx_parts+=("$(format_compact_number "$HOST_API_CALLS") calls")
+    fi
+    local ctx_line="" cp
+    for cp in "${ctx_parts[@]}"; do
+      [[ -z "$cp" ]] && continue
+      [[ -n "$ctx_line" ]] && ctx_line+=" ${dot_sep} "
+      ctx_line+="$cp"
+    done
+    info+=("$ctx_line")
+
+    print_boot_banner "${info[@]}"
+  fi
+
+  # ── Health dots ──
+  if (( ! concurrent_compact_summary )); then
+    local dots="" dot_gap="  "
+
+    dots+="$(build_health_dot "api" "${api_tone:-yellow}")"
+    dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}")"
+
+    local prompt_dot_label="prompts"
+    if [[ "${PROMPT_LOCAL_COUNT:-}" =~ ^[0-9]+$ ]] && [[ "${PROMPT_REMOTE_COUNT:-}" =~ ^[0-9]+$ ]]; then
+      prompt_dot_label="prompts ${PROMPT_LOCAL_COUNT}/${PROMPT_REMOTE_COUNT}"
+    fi
+    dots+="${dot_gap}$(build_health_dot "$prompt_dot_label" "${prompt_tone:-yellow}")"
+    dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}")"
+
+    if [[ -n "${mcp_tone:-}" ]]; then
+      dots+="${dot_gap}$(build_health_dot "mcp" "$mcp_tone")"
+    fi
+    if [[ -n "${runner_label:-}" ]]; then
+      dots+="${dot_gap}$(build_health_dot "runner" "${runner_tone:-yellow}")"
+    fi
+
+    printf "\n  %s\n" "$dots"
+  else
+    local conc_note=""
+    [[ -n "${concurrent_compact_note:-}" ]] && conc_note="  $(printf '%b%s%b' "${DIM}" "$concurrent_compact_note" "${RESET}")"
+    printf "\n  %s%s\n" "$(build_health_dot "concurrent" "${concurrent_compact_tone:-yellow}")" "$conc_note"
+  fi
+
+  # ── Compact quota bars ──
+  local has_quota=0
+  [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
+  [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
+
+  if (( has_quota )); then
+    printf "\n"
+
+    local -a q_labels=() q_used=() q_reset=() q_proj=() q_spark=()
+    local active_spark=0
+    [[ "${CODEX_EFFECTIVE_LANE:-}" == "spark" ]] && active_spark=1
+
+    if [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]]; then
+      q_labels+=("5h");       q_used+=("$CHATGPT_PRIMARY_USED")
+      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}"); q_proj+=(""); q_spark+=("$active_spark")
+    fi
+    if [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]]; then
+      q_labels+=("weekly");   q_used+=("$CHATGPT_SECONDARY_USED")
+      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}"); q_proj+=("${projection_pct:-}"); q_spark+=("$active_spark")
+    fi
+    if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then
+      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("5h");       q_used+=("$other_lane_primary_used")
+      q_reset+=("${other_lane_primary_reset_after:-}"); q_proj+=(""); q_spark+=("$ol_s")
+    fi
+    if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then
+      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")
+      q_reset+=("${other_lane_secondary_reset_after:-}"); q_proj+=("${other_projection_pct:-}"); q_spark+=("$ol_s")
+    fi
+
+    # Compute label width for alignment
+    local max_lw=6 qi ql_tmp
+    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+      ql_tmp="${q_labels[qi]}"
+      (( ${q_spark[qi]} )) && ql_tmp="X $ql_tmp"
+      (( ${#ql_tmp} > max_lw )) && max_lw=${#ql_tmp}
+    done
+    (( max_lw > 14 )) && max_lw=14
+
+    local bar_w="${QUOTA_BAR_WIDTH:-24}"
+    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+      local prefix=""
+      if (( ${q_spark[qi]} )); then
+        local spark_ch="⚡"
+        output_supports_unicode || spark_ch="S"
+        prefix="${spark_ch} "
+      fi
+      local full_label="${prefix}${q_labels[qi]}"
+
+      local pct="${q_used[qi]}"
+      (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
+
+      local bar
+      bar="$(build_quota_bar "$pct" "$bar_w")"
+
+      local pct_tone="green"
+      (( pct >= 95 )) && pct_tone="red"
+      (( pct >= 80 && pct < 95 )) && pct_tone="orange"
+      local pct_display
+      printf -v pct_display "%3d%%" "$pct"
+      pct_display="$(colorize "$pct_display" "$pct_tone")"
+
+      local dur=""
+      [[ "${q_reset[qi]}" =~ ^[0-9]+$ ]] && dur="$(format_duration_short "${q_reset[qi]}")"
+
+      local proj=""
+      if [[ "${q_proj[qi]}" =~ ^[0-9]+$ ]] && (( ${q_proj[qi]} > 0 )); then
+        if (( ${q_proj[qi]} >= 100 )); then
+          proj="$(colorize "~100%" "red")"
+        else
+          printf -v proj "%b~%d%%%b" "${DIM}" "${q_proj[qi]}" "${RESET}"
+        fi
+      fi
+
+      local note=""
+      [[ -n "$dur" ]] && note="$dur"
+      if [[ -n "$proj" ]]; then
+        [[ -n "$note" ]] && note+="  "
+        note+="$proj"
+      fi
+
+      printf "  %-${max_lw}s %s [%s]" "$full_label" "$pct_display" "$bar"
+      [[ -n "$note" ]] && printf "  %s" "$note"
+      printf "\n"
+    done
+
+    if (( ${QUOTA_WARNING:-0} )) && [[ -n "${QUOTA_WARNING_REASON:-}" ]]; then
+      local warn_icon="⚠"
+      output_supports_unicode || warn_icon="!"
+      printf "  %s\n" "$(colorize "${warn_icon} ${QUOTA_WARNING_REASON}" "yellow")"
+    fi
+    if (( ${QUOTA_BLOCKED:-0} )) && [[ -n "${QUOTA_BLOCK_REASON:-}" ]]; then
+      local block_icon="⛔"
+      output_supports_unicode || block_icon="X"
+      printf "  %s\n" "$(colorize "${block_icon} ${QUOTA_BLOCK_REASON}" "red")"
+    fi
+  fi
+}

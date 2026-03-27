@@ -3,13 +3,13 @@ cleanup_legacy_skill_state() {
   local path=""
 
   for path in "$HOME/.agents/skills" "$HOME/.codex/skills"; do
-    if [[ -e "$path" ]] && remove_path "$path" "legacy local skills" 2>/dev/null; then
+    if [[ -e "$path" ]] && remove_path "$path" "legacy local skills" >/dev/null 2>&1; then
       removed=$((removed + 1))
     fi
   done
 
   for path in "$HOME/.agents/.skill-baseline.json" "$HOME/.codex/.skill-baseline.json"; do
-    if [[ -e "$path" ]] && remove_path "$path" "legacy skill baseline" 2>/dev/null; then
+    if [[ -e "$path" ]] && remove_path "$path" "legacy skill baseline" >/dev/null 2>&1; then
       removed=$((removed + 1))
     fi
   done

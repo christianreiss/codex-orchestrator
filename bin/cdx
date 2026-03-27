@@ -1,3 +1,327 @@
+CODEX_PY_HTTP_UTIL="$(cat <<'PY'
+import json
+import os
+import pathlib
+import socket
+import ssl
+import urllib.error
+import urllib.request
+
+def cdx_enable_force_ipv4():
+    if getattr(cdx_enable_force_ipv4, "_patched", False):
+        return
+    if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
+        _orig_getaddrinfo = socket.getaddrinfo
+        def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        socket.getaddrinfo = _force_getaddrinfo
+    cdx_enable_force_ipv4._patched = True
+
+def cdx_build_ssl_contexts(cafile="", allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
+    contexts = []
+    primary = ssl.create_default_context()
+    if cafile:
+        try:
+            primary.load_verify_locations(cafile)
+        except Exception:
+            primary = None
+    if primary is not None:
+        try:
+            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        except AttributeError:
+            pass
+        contexts.append(primary)
+    try:
+        fallback = ssl.create_default_context()
+        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        contexts.append(fallback)
+    except Exception:
+        pass
+    allow_insecure = os.environ.get(allow_insecure_env, "").lower() in ("1", "true", "yes")
+    if allow_insecure:
+        try:
+            contexts.append(ssl._create_unverified_context())
+        except Exception:
+            pass
+    return contexts or [None]
+
+def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
+    data = None
+    headers = {"X-API-Key": api_key}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    try:
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    except Exception as exc:
+        raise RuntimeError(f"request failed: {exc}") from exc
+    last_err = None
+    for ctx in cdx_build_ssl_contexts(cafile, allow_insecure_env=allow_insecure_env):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "ignore")
+            reason = f"http-{exc.code}"
+            if body:
+                reason = f"{reason}:{body.strip()[:80]}"
+            raise RuntimeError(reason) from exc
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise RuntimeError(f"request failed: {last_err}")
+
+_cdx_api_key = ""
+_cdx_cafile = ""
+
+def cdx_atomic_write_text(target, content, mode=None):
+    target = pathlib.Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+    if mode is not None:
+        try:
+            os.chmod(target, mode)
+        except PermissionError:
+            pass
+
+def cdx_short_request_json(method, url, payload=None):
+    if "cdx_request_json" not in globals():
+        raise RuntimeError("request failed: missing-python-http-util")
+    return cdx_request_json(method=method, url=url, api_key=_cdx_api_key, cafile=_cdx_cafile, payload=payload, timeout=20)
+PY
+)"
+export CODEX_PY_HTTP_UTIL
+
+CODEX_PY_IPV4_PROXY_UTIL="$(cat <<'PY'
+import os
+import select
+import signal
+import socket
+import socketserver
+import sys
+from urllib.parse import urlsplit
+
+
+def _connect_ipv4(host, port):
+    last_err = None
+    for family, socktype, proto, _canonname, sockaddr in socket.getaddrinfo(
+        host, port, socket.AF_INET, socket.SOCK_STREAM
+    ):
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(15.0)
+            sock.connect(sockaddr)
+            sock.settimeout(None)
+            return sock
+        except OSError as exc:
+            last_err = exc
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+    if last_err is None:
+        raise OSError(f"failed to resolve domain to IPv4 addresses: {host}")
+    raise last_err
+
+
+def _relay_bidirectional(left, right):
+    sockets = [left, right]
+    try:
+        for sock in sockets:
+            sock.setblocking(False)
+        while True:
+            readable, _, _ = select.select(sockets, [], [], 60.0)
+            if not readable:
+                continue
+            for source in readable:
+                target = right if source is left else left
+                try:
+                    chunk = source.recv(65536)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                view = memoryview(chunk)
+                while view:
+                    try:
+                        written = target.send(view)
+                    except OSError:
+                        return
+                    view = view[written:]
+    finally:
+        for sock in sockets:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class ProxyHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        request_line = self.rfile.readline(65537)
+        if not request_line:
+            return
+        if len(request_line) > 65536:
+            self._write_error(414, b"request line too long")
+            return
+        try:
+            method, target, version = request_line.decode("iso-8859-1").strip().split(" ", 2)
+        except ValueError:
+            self._write_error(400, b"bad request")
+            return
+
+        headers = []
+        while True:
+            line = self.rfile.readline(65537)
+            if not line:
+                return
+            if len(line) > 65536:
+                self._write_error(431, b"header line too long")
+                return
+            if line in (b"\r\n", b"\n"):
+                break
+            headers.append(line)
+
+        if method.upper() == "CONNECT":
+            self._handle_connect(target)
+            return
+
+        self._handle_forward(method, target, version, headers)
+
+    def _handle_connect(self, target):
+        if ":" not in target:
+            self._write_error(400, b"CONNECT target missing port")
+            return
+        host, port_text = target.rsplit(":", 1)
+        try:
+            port = int(port_text)
+        except ValueError:
+            self._write_error(400, b"invalid CONNECT port")
+            return
+        try:
+            upstream = _connect_ipv4(host, port)
+        except OSError as exc:
+            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
+            return
+        self.wfile.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        self.wfile.flush()
+        _relay_bidirectional(self.connection, upstream)
+
+    def _handle_forward(self, method, target, version, headers):
+        parts = urlsplit(target)
+        host = parts.hostname
+        if not host:
+            self._write_error(400, b"proxy request requires absolute URL")
+            return
+        scheme = (parts.scheme or "http").lower()
+        port = parts.port or (443 if scheme == "https" else 80)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+
+        content_length = 0
+        sanitized_headers = []
+        saw_host = False
+        for raw_header in headers:
+            lowered = raw_header.lower()
+            if lowered.startswith(b"proxy-connection:"):
+                continue
+            if lowered.startswith(b"host:"):
+                saw_host = True
+            if lowered.startswith(b"content-length:"):
+                try:
+                    content_length = int(raw_header.split(b":", 1)[1].strip() or b"0")
+                except ValueError:
+                    content_length = 0
+            sanitized_headers.append(raw_header)
+        if not saw_host:
+            host_value = host if parts.port is None else f"{host}:{port}"
+            sanitized_headers.append(f"Host: {host_value}\r\n".encode("iso-8859-1"))
+
+        body = b""
+        if content_length > 0:
+            body = self.rfile.read(content_length)
+
+        try:
+            upstream = _connect_ipv4(host, port)
+        except OSError as exc:
+            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
+            return
+
+        try:
+            upstream.sendall(f"{method} {path} {version}\r\n".encode("iso-8859-1"))
+            for raw_header in sanitized_headers:
+                upstream.sendall(raw_header)
+            upstream.sendall(b"\r\n")
+            if body:
+                upstream.sendall(body)
+            _relay_bidirectional(self.connection, upstream)
+        except OSError:
+            try:
+                upstream.close()
+            except OSError:
+                pass
+
+    def _write_error(self, code, message):
+        reason = {
+            400: b"Bad Request",
+            414: b"URI Too Long",
+            431: b"Request Header Fields Too Large",
+            502: b"Bad Gateway",
+        }.get(code, b"Proxy Error")
+        body = message + b"\n"
+        self.wfile.write(
+            b"HTTP/1.1 %d %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+            % (code, reason, len(body), body)
+        )
+        self.wfile.flush()
+
+
+def main():
+    state_dir = os.environ.get("CODEX_IPV4_PROXY_DIR", "")
+    if not state_dir:
+        print("missing CODEX_IPV4_PROXY_DIR", file=sys.stderr)
+        return 1
+    os.makedirs(state_dir, exist_ok=True)
+    port_file = os.path.join(state_dir, "port")
+
+    server = ThreadedTcpServer(("127.0.0.1", 0), ProxyHandler)
+    with open(port_file, "w", encoding="utf-8") as handle:
+        handle.write(str(server.server_address[1]))
+        handle.flush()
+
+    def _shutdown(_signum, _frame):
+        server.shutdown()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    try:
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        server.server_close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+)"
+export CODEX_PY_IPV4_PROXY_UTIL
+
 #!/usr/bin/env bash
 # Generated by scripts/build-cdx.sh; edit bin/cdx.d/* and rebuild.
 set -euo pipefail
@@ -151,20 +475,69 @@ PY
   return 1
 }
 
-MOTD_TEXT="$(cat <<'EOF'
+BANNER_ART="$(cat <<'EOF'
  ██████╗  ██████╗  ██████╗  ██████╗
-██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗    codex
-██║      ██║   ██║██║      ██║   ██║    orchestrator
+██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗
+██║      ██║   ██║██║      ██║   ██║
 ██║      ██║   ██║██║      ██║   ██║
 ╚██████╗ ╚██████╔╝╚██████╗ ╚██████╔╝
  ╚═════╝  ╚═════╝  ╚═════╝  ╚═════╝
 EOF
 )"
 
+# Backward-compat shim: renders banner with "codex orchestrator" text (old style).
 print_motd() {
+  local i=0
   while IFS= read -r line; do
-    printf "%b %s%b\n" "${ORANGE}${BOLD}" "$line" "${RESET}"
-  done <<<"$MOTD_TEXT"
+    local suffix=""
+    case $i in
+      1) suffix="    codex" ;;
+      2) suffix="    orchestrator" ;;
+    esac
+    printf "%b %s%s%b\n" "${ORANGE}${BOLD}" "$line" "$suffix" "${RESET}"
+    i=$((i + 1))
+  done <<<"$BANNER_ART"
+}
+
+# Neofetch-style banner: art on the left, info lines on the right.
+# Usage: print_boot_banner "info0" "info1" "info2" "info3" "info4" "info5"
+print_boot_banner() {
+  local -a info_lines=("$@")
+  local art_pad=36
+  local gap="   "
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
+
+  local stacked=0
+  (( cols < 60 )) && stacked=1
+
+  local i=0
+  while IFS= read -r art_line; do
+    printf "%b %s" "${ORANGE}${BOLD}" "$art_line"
+    if (( ! stacked )); then
+      local art_len=${#art_line}
+      local pad_n=$(( art_pad - art_len ))
+      (( pad_n < 0 )) && pad_n=0
+      (( pad_n > 0 )) && printf '%*s' "$pad_n" ""
+    fi
+    printf "%b" "${RESET}"
+    if (( ! stacked )) && [[ -n "${info_lines[i]:-}" ]]; then
+      printf "%s%s" "$gap" "${info_lines[i]}"
+    fi
+    printf "\n"
+    i=$((i + 1))
+  done <<<"$BANNER_ART"
+
+  if (( stacked )); then
+    local info
+    for info in "${info_lines[@]}"; do
+      [[ -z "$info" ]] && continue
+      printf "  %s\n" "$info"
+    done
+  fi
 }
 
 mask_key() {
@@ -182,8 +555,8 @@ mask_key() {
 }
 
 emit_insecure_notice() {
+  # Silenced: insecure status is shown on the boot screen context line.
   (( HOST_SECURITY_NOTICE_EMITTED )) && return
-  log_warn "Host marked insecure; auth.json will be removed after this run."
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 
@@ -1670,330 +2043,6 @@ cmd_uninstall() {
   log_info "Codex uninstall complete"
   exit 0
 }
-
-CODEX_PY_HTTP_UTIL="$(cat <<'PY'
-import json
-import os
-import pathlib
-import socket
-import ssl
-import urllib.error
-import urllib.request
-
-def cdx_enable_force_ipv4():
-    if getattr(cdx_enable_force_ipv4, "_patched", False):
-        return
-    if os.environ.get("CODEX_FORCE_IPV4", "").lower() in ("1", "true", "yes"):
-        _orig_getaddrinfo = socket.getaddrinfo
-        def _force_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        socket.getaddrinfo = _force_getaddrinfo
-    cdx_enable_force_ipv4._patched = True
-
-def cdx_build_ssl_contexts(cafile="", allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
-    contexts = []
-    primary = ssl.create_default_context()
-    if cafile:
-        try:
-            primary.load_verify_locations(cafile)
-        except Exception:
-            primary = None
-    if primary is not None:
-        try:
-            primary.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        except AttributeError:
-            pass
-        contexts.append(primary)
-    try:
-        fallback = ssl.create_default_context()
-        fallback.verify_flags &= ~ssl.VERIFY_X509_STRICT
-        contexts.append(fallback)
-    except Exception:
-        pass
-    allow_insecure = os.environ.get(allow_insecure_env, "").lower() in ("1", "true", "yes")
-    if allow_insecure:
-        try:
-            contexts.append(ssl._create_unverified_context())
-        except Exception:
-            pass
-    return contexts or [None]
-
-def cdx_request_json(method, url, api_key, cafile="", payload=None, timeout=20, allow_insecure_env="CODEX_SYNC_ALLOW_INSECURE"):
-    data = None
-    headers = {"X-API-Key": api_key}
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    try:
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    except Exception as exc:
-        raise RuntimeError(f"request failed: {exc}") from exc
-    last_err = None
-    for ctx in cdx_build_ssl_contexts(cafile, allow_insecure_env=allow_insecure_env):
-        try:
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", "ignore")
-            reason = f"http-{exc.code}"
-            if body:
-                reason = f"{reason}:{body.strip()[:80]}"
-            raise RuntimeError(reason) from exc
-        except Exception as exc:
-            last_err = exc
-            continue
-    raise RuntimeError(f"request failed: {last_err}")
-
-_cdx_api_key = ""
-_cdx_cafile = ""
-
-def cdx_atomic_write_text(target, content, mode=None):
-    target = pathlib.Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(target)
-    if mode is not None:
-        try:
-            os.chmod(target, mode)
-        except PermissionError:
-            pass
-
-def cdx_short_request_json(method, url, payload=None):
-    if "cdx_request_json" not in globals():
-        raise RuntimeError("request failed: missing-python-http-util")
-    return cdx_request_json(method=method, url=url, api_key=_cdx_api_key, cafile=_cdx_cafile, payload=payload, timeout=20)
-PY
-)"
-export CODEX_PY_HTTP_UTIL
-
-CODEX_PY_IPV4_PROXY_UTIL="$(cat <<'PY'
-import os
-import select
-import signal
-import socket
-import socketserver
-import sys
-from urllib.parse import urlsplit
-
-
-def _connect_ipv4(host, port):
-    last_err = None
-    for family, socktype, proto, _canonname, sockaddr in socket.getaddrinfo(
-        host, port, socket.AF_INET, socket.SOCK_STREAM
-    ):
-        sock = None
-        try:
-            sock = socket.socket(family, socktype, proto)
-            sock.settimeout(15.0)
-            sock.connect(sockaddr)
-            sock.settimeout(None)
-            return sock
-        except OSError as exc:
-            last_err = exc
-            if sock is not None:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
-    if last_err is None:
-        raise OSError(f"failed to resolve domain to IPv4 addresses: {host}")
-    raise last_err
-
-
-def _relay_bidirectional(left, right):
-    sockets = [left, right]
-    try:
-        for sock in sockets:
-            sock.setblocking(False)
-        while True:
-            readable, _, _ = select.select(sockets, [], [], 60.0)
-            if not readable:
-                continue
-            for source in readable:
-                target = right if source is left else left
-                try:
-                    chunk = source.recv(65536)
-                except OSError:
-                    return
-                if not chunk:
-                    return
-                view = memoryview(chunk)
-                while view:
-                    try:
-                        written = target.send(view)
-                    except OSError:
-                        return
-                    view = view[written:]
-    finally:
-        for sock in sockets:
-            try:
-                sock.close()
-            except OSError:
-                pass
-
-
-class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-
-
-class ProxyHandler(socketserver.StreamRequestHandler):
-    def handle(self):
-        request_line = self.rfile.readline(65537)
-        if not request_line:
-            return
-        if len(request_line) > 65536:
-            self._write_error(414, b"request line too long")
-            return
-        try:
-            method, target, version = request_line.decode("iso-8859-1").strip().split(" ", 2)
-        except ValueError:
-            self._write_error(400, b"bad request")
-            return
-
-        headers = []
-        while True:
-            line = self.rfile.readline(65537)
-            if not line:
-                return
-            if len(line) > 65536:
-                self._write_error(431, b"header line too long")
-                return
-            if line in (b"\r\n", b"\n"):
-                break
-            headers.append(line)
-
-        if method.upper() == "CONNECT":
-            self._handle_connect(target)
-            return
-
-        self._handle_forward(method, target, version, headers)
-
-    def _handle_connect(self, target):
-        if ":" not in target:
-            self._write_error(400, b"CONNECT target missing port")
-            return
-        host, port_text = target.rsplit(":", 1)
-        try:
-            port = int(port_text)
-        except ValueError:
-            self._write_error(400, b"invalid CONNECT port")
-            return
-        try:
-            upstream = _connect_ipv4(host, port)
-        except OSError as exc:
-            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
-            return
-        self.wfile.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
-        self.wfile.flush()
-        _relay_bidirectional(self.connection, upstream)
-
-    def _handle_forward(self, method, target, version, headers):
-        parts = urlsplit(target)
-        host = parts.hostname
-        if not host:
-            self._write_error(400, b"proxy request requires absolute URL")
-            return
-        scheme = (parts.scheme or "http").lower()
-        port = parts.port or (443 if scheme == "https" else 80)
-        path = parts.path or "/"
-        if parts.query:
-            path += "?" + parts.query
-
-        content_length = 0
-        sanitized_headers = []
-        saw_host = False
-        for raw_header in headers:
-            lowered = raw_header.lower()
-            if lowered.startswith(b"proxy-connection:"):
-                continue
-            if lowered.startswith(b"host:"):
-                saw_host = True
-            if lowered.startswith(b"content-length:"):
-                try:
-                    content_length = int(raw_header.split(b":", 1)[1].strip() or b"0")
-                except ValueError:
-                    content_length = 0
-            sanitized_headers.append(raw_header)
-        if not saw_host:
-            host_value = host if parts.port is None else f"{host}:{port}"
-            sanitized_headers.append(f"Host: {host_value}\r\n".encode("iso-8859-1"))
-
-        body = b""
-        if content_length > 0:
-            body = self.rfile.read(content_length)
-
-        try:
-            upstream = _connect_ipv4(host, port)
-        except OSError as exc:
-            self._write_error(502, f"upstream connect failed: {exc}".encode("utf-8", "ignore"))
-            return
-
-        try:
-            upstream.sendall(f"{method} {path} {version}\r\n".encode("iso-8859-1"))
-            for raw_header in sanitized_headers:
-                upstream.sendall(raw_header)
-            upstream.sendall(b"\r\n")
-            if body:
-                upstream.sendall(body)
-            _relay_bidirectional(self.connection, upstream)
-        except OSError:
-            try:
-                upstream.close()
-            except OSError:
-                pass
-
-    def _write_error(self, code, message):
-        reason = {
-            400: b"Bad Request",
-            414: b"URI Too Long",
-            431: b"Request Header Fields Too Large",
-            502: b"Bad Gateway",
-        }.get(code, b"Proxy Error")
-        body = message + b"\n"
-        self.wfile.write(
-            b"HTTP/1.1 %d %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
-            % (code, reason, len(body), body)
-        )
-        self.wfile.flush()
-
-
-def main():
-    state_dir = os.environ.get("CODEX_IPV4_PROXY_DIR", "")
-    if not state_dir:
-        print("missing CODEX_IPV4_PROXY_DIR", file=sys.stderr)
-        return 1
-    os.makedirs(state_dir, exist_ok=True)
-    port_file = os.path.join(state_dir, "port")
-
-    server = ThreadedTcpServer(("127.0.0.1", 0), ProxyHandler)
-    with open(port_file, "w", encoding="utf-8") as handle:
-        handle.write(str(server.server_address[1]))
-        handle.flush()
-
-    def _shutdown(_signum, _frame):
-        server.shutdown()
-
-    signal.signal(signal.SIGTERM, _shutdown)
-    signal.signal(signal.SIGINT, _shutdown)
-
-    try:
-        server.serve_forever(poll_interval=0.5)
-    finally:
-        server.server_close()
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-PY
-)"
-export CODEX_PY_IPV4_PROXY_UTIL
 
 
 ensure_commands() {
@@ -3797,13 +3846,13 @@ cleanup_legacy_skill_state() {
   local path=""
 
   for path in "$HOME/.agents/skills" "$HOME/.codex/skills"; do
-    if [[ -e "$path" ]] && remove_path "$path" "legacy local skills" 2>/dev/null; then
+    if [[ -e "$path" ]] && remove_path "$path" "legacy local skills" >/dev/null 2>&1; then
       removed=$((removed + 1))
     fi
   done
 
   for path in "$HOME/.agents/.skill-baseline.json" "$HOME/.codex/.skill-baseline.json"; do
-    if [[ -e "$path" ]] && remove_path "$path" "legacy skill baseline" 2>/dev/null; then
+    if [[ -e "$path" ]] && remove_path "$path" "legacy skill baseline" >/dev/null 2>&1; then
       removed=$((removed + 1))
     fi
   done
@@ -3971,331 +4020,6 @@ PY
     esac
   done
   return 0
-}
-
-
-sync_startup_bundle_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    return 1
-  fi
-
-  local summary status_code
-  local home_path="${HOME:-}"
-  set +e
-  summary="$(
-    startup_sync_bundle_python \
-      "$CODEX_SYNC_BASE_URL" \
-      "$CODEX_SYNC_API_KEY" \
-      "$PROMPT_DIR" \
-      "$AGENTS_PATH" \
-      "$CONFIG_PATH" \
-      "$CODEX_SYNC_CA_FILE" \
-      "$PROMPT_BASELINE_FILE" \
-      "$CURRENT_USER" \
-      "$home_path" \
-      "$LOCAL_HOSTNAME"
-  )"
-  status_code=$?
-  set -e
-
-  if (( status_code == 42 )); then
-    return 1
-  fi
-  if (( status_code != 0 )); then
-    return 1
-  fi
-
-  local parsed
-  parsed="$(SYNC_SUMMARY="$summary" python3 - <<'PY'
-import json
-import os
-import sys
-
-raw = os.environ.get("SYNC_SUMMARY", "")
-try:
-    parsed = json.loads(raw)
-except Exception:
-    sys.exit(1)
-
-if not isinstance(parsed, dict):
-    sys.exit(1)
-
-if str(parsed.get("status", "")).lower() != "ok":
-    sys.exit(1)
-
-phase = str(parsed.get("phase", "")).strip().lower() or "ok"
-print(f"phase={phase}")
-
-for key in ("prompt",):
-    block = parsed.get(key)
-    if not isinstance(block, dict):
-        continue
-    print(f"{key}_status={str(block.get('status') or 'ok').strip().lower() or 'ok'}")
-    for metric in ("updated", "errors", "remote", "local", "removed"):
-        val = block.get(metric)
-        if isinstance(val, (int, float)):
-            print(f"{key}_{metric}={int(val)}")
-
-agents = parsed.get("agents")
-if isinstance(agents, dict):
-    print(f"agents_status={str(agents.get('status') or 'ok').strip().lower() or 'ok'}")
-    print(f"agents_state={str(agents.get('state') or '').strip().lower()}")
-    print(f"agents_sha={str(agents.get('sha256') or '').strip()}")
-    print(f"agents_updated_at={str(agents.get('updated_at') or '').strip()}")
-    bytes_val = agents.get("bytes")
-    if isinstance(bytes_val, (int, float)):
-        print(f"agents_bytes={int(bytes_val)}")
-    removed_val = agents.get("removed")
-    if isinstance(removed_val, (int, float)):
-        print(f"agents_removed={int(removed_val)}")
-
-config = parsed.get("config")
-if isinstance(config, dict):
-    print(f"config_status={str(config.get('status') or 'ok').strip().lower() or 'ok'}")
-    print(f"config_state={str(config.get('state') or '').strip().lower()}")
-    print(f"config_sha={str(config.get('sha256') or '').strip()}")
-    print(f"config_updated_at={str(config.get('updated_at') or '').strip()}")
-    bytes_val = config.get("bytes")
-    if isinstance(bytes_val, (int, float)):
-        print(f"config_bytes={int(bytes_val)}")
-    removed_val = config.get("removed")
-    if isinstance(removed_val, (int, float)):
-        print(f"config_removed={int(removed_val)}")
-PY
-  )" || return 1
-
-  local line
-  for line in $parsed; do
-    case "$line" in
-      prompt_status=*) PROMPT_SYNC_STATUS="${line#prompt_status=}" ;;
-      prompt_updated=*) PROMPT_PULL_UPDATED="${line#prompt_updated=}" ;;
-      prompt_errors=*) PROMPT_PULL_ERRORS="${line#prompt_errors=}" ;;
-      prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
-      prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
-      prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
-      agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
-      agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
-      agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
-      agents_updated_at=*) AGENTS_REMOTE_UPDATED_AT="${line#agents_updated_at=}" ;;
-      agents_bytes=*) AGENTS_REMOTE_BYTES="${line#agents_bytes=}" ;;
-      agents_removed=*) AGENTS_REMOVED="${line#agents_removed=}" ;;
-      config_status=*) CONFIG_SYNC_STATUS="${line#config_status=}" ;;
-      config_state=*) CONFIG_STATE="${line#config_state=}" ;;
-      config_sha=*) CONFIG_REMOTE_SHA="${line#config_sha=}" ;;
-      config_updated_at=*) CONFIG_REMOTE_UPDATED_AT="${line#config_updated_at=}" ;;
-      config_bytes=*) CONFIG_REMOTE_BYTES="${line#config_bytes=}" ;;
-      config_removed=*) CONFIG_REMOVED="${line#config_removed=}" ;;
-    esac
-  done
-
-  PROMPT_SYNC_REASON=""
-  SKILL_SYNC_REASON=""
-  AGENTS_SYNC_REASON=""
-  CONFIG_SYNC_REASON=""
-  [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
-  SKILL_SYNC_STATUS="mcp"
-  [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
-  [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
-  return 0
-}
-
-sync_config_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    CONFIG_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    CONFIG_SYNC_STATUS="no-python"
-    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
-      log_warn "python3 is required for config.toml sync; skipping."
-      SYNC_WARNED_NO_PYTHON=1
-    fi
-    return 1
-  fi
-  local current_sha=""
-  if [[ -f "$CONFIG_PATH" ]]; then
-    current_sha="$(python3 - "$CONFIG_PATH" <<'PY'
-import hashlib, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-try:
-    print(hashlib.sha256(path.read_bytes()).hexdigest())
-except Exception:
-    pass
-PY
-)"
-  fi
-  local summary status_code
-  set +e
-  summary="$(config_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$CONFIG_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
-  status_code=$?
-  set -e
-  CONFIG_SYNC_STATUS="error"
-  CONFIG_STATE=""
-  CONFIG_REMOTE_SHA=""
-  CONFIG_REMOTE_UPDATED_AT=""
-  CONFIG_REMOTE_BYTES=""
-  CONFIG_REMOVED=0
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
-    fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      CONFIG_SYNC_STATUS="offline"
-      CONFIG_SYNC_REASON="$reason"
-    else
-      CONFIG_SYNC_STATUS="error"
-      CONFIG_SYNC_REASON="$reason"
-    fi
-    return 1
-  fi
-  CONFIG_SYNC_STATUS="${summary%% *}"
-  CONFIG_SYNC_REASON=""
-  local part
-  for part in $summary; do
-    case "$part" in
-      status=*) CONFIG_STATE="${part#status=}" ;;
-      sha256=*) CONFIG_REMOTE_SHA="${part#sha256=}" ;;
-      updated_at=*) CONFIG_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
-      bytes=*) CONFIG_REMOTE_BYTES="${part#bytes=}" ;;
-      removed=*) CONFIG_REMOVED="${part#removed=}" ;;
-    esac
-  done
-  return 0
-}
-
-otel_env_from_config_python() {
-  python3 - "$CONFIG_PATH" <<'PY'
-import os, re, sys
-
-path = sys.argv[1]
-try:
-    raw = open(path, "r", encoding="utf-8", errors="ignore").read()
-except Exception:
-    sys.exit(0)
-
-def find_block(name: str) -> str:
-    # Allow an optional inline TOML comment after the closing bracket,
-    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
-    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
-    if not m:
-        return ""
-    start = m.end()
-    m2 = re.search(r'(?m)^\[', raw[start:])
-    end = start + (m2.start() if m2 else len(raw[start:]))
-    return raw[start:end]
-
-block = find_block("otel")
-if not block.strip():
-    sys.exit(0)
-
-def parse_value(v: str):
-    v = v.strip()
-    if v.startswith('"') and v.endswith('"'):
-        return v[1:-1]
-    if v.lower() in ("true", "false"):
-        return v.lower()
-    return v
-
-def parse_inline_table(v: str):
-    # Very small TOML-ish parser for { k = "v", ... } used by our builder.
-    v = v.strip()
-    if not (v.startswith("{") and v.endswith("}")):
-        return {}
-    inner = v[1:-1].strip()
-    if not inner:
-        return {}
-    parts = []
-    buf = ""
-    in_str = False
-    esc = False
-    for ch in inner:
-        if esc:
-            buf += ch
-            esc = False
-            continue
-        if ch == "\\":
-            buf += ch
-            esc = True
-            continue
-        if ch == '"':
-            in_str = not in_str
-            buf += ch
-            continue
-        if ch == "," and not in_str:
-            parts.append(buf)
-            buf = ""
-        else:
-            buf += ch
-    if buf.strip():
-        parts.append(buf)
-    out = {}
-    for part in parts:
-        if "=" not in part:
-            continue
-        k, val = part.split("=", 1)
-        k = k.strip()
-        out[k] = parse_value(val)
-    return out
-
-otel = {}
-for line in block.splitlines():
-    line = line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    k, v = line.split("=", 1)
-    k = k.strip()
-    otel[k] = v.strip()
-
-exporter = parse_value(otel.get("exporter", "")).strip()
-environment = parse_value(otel.get("environment", "")).strip()
-log_prompts = parse_value(otel.get("log_user_prompt", "")).strip()
-
-if exporter in ("", "none"):
-    sys.exit(0)
-
-endpoint = parse_value(otel.get("endpoint", "")).strip()
-protocol = parse_value(otel.get("protocol", "")).strip()
-headers = parse_inline_table(otel.get("headers", "{}"))
-
-def emit(k: str, v: str):
-    if v is None:
-        return
-    v = str(v).strip()
-    if v == "":
-        return
-    print(f"{k}={v}")
-
-# Emit env vars as k=v lines; shell will export them.
-emit("OTEL_SERVICE_NAME", "cdx")
-if environment:
-    emit("OTEL_RESOURCE_ATTRIBUTES", f"deployment.environment={environment}")
-
-if exporter == "otlp-http":
-    emit("OTEL_TRACES_EXPORTER", "otlp")
-    emit("OTEL_EXPORTER_OTLP_PROTOCOL", protocol or "http/protobuf")
-    if endpoint:
-        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
-elif exporter == "otlp-grpc":
-    emit("OTEL_TRACES_EXPORTER", "otlp")
-    emit("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-    if endpoint:
-        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
-
-if headers:
-    # OTEL expects comma-separated key=value
-    header_str = ",".join([f"{k}={v}" for k, v in headers.items() if str(k).strip() and str(v).strip()])
-    emit("OTEL_EXPORTER_OTLP_HEADERS", header_str)
-
-# Optional: prompt logging toggle. We expose as CODEX wrapper env, not OpenTelemetry standard.
-if log_prompts in ("true", "false"):
-    emit("CODEX_OTEL_LOG_USER_PROMPT", log_prompts)
-PY
 }
 
 config_sync_python() {
@@ -4740,6 +4464,331 @@ print(
     )
 )
 sys.exit(0)
+PY
+}
+
+
+sync_startup_bundle_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local summary status_code
+  local home_path="${HOME:-}"
+  set +e
+  summary="$(
+    startup_sync_bundle_python \
+      "$CODEX_SYNC_BASE_URL" \
+      "$CODEX_SYNC_API_KEY" \
+      "$PROMPT_DIR" \
+      "$AGENTS_PATH" \
+      "$CONFIG_PATH" \
+      "$CODEX_SYNC_CA_FILE" \
+      "$PROMPT_BASELINE_FILE" \
+      "$CURRENT_USER" \
+      "$home_path" \
+      "$LOCAL_HOSTNAME"
+  )"
+  status_code=$?
+  set -e
+
+  if (( status_code == 42 )); then
+    return 1
+  fi
+  if (( status_code != 0 )); then
+    return 1
+  fi
+
+  local parsed
+  parsed="$(SYNC_SUMMARY="$summary" python3 - <<'PY'
+import json
+import os
+import sys
+
+raw = os.environ.get("SYNC_SUMMARY", "")
+try:
+    parsed = json.loads(raw)
+except Exception:
+    sys.exit(1)
+
+if not isinstance(parsed, dict):
+    sys.exit(1)
+
+if str(parsed.get("status", "")).lower() != "ok":
+    sys.exit(1)
+
+phase = str(parsed.get("phase", "")).strip().lower() or "ok"
+print(f"phase={phase}")
+
+for key in ("prompt",):
+    block = parsed.get(key)
+    if not isinstance(block, dict):
+        continue
+    print(f"{key}_status={str(block.get('status') or 'ok').strip().lower() or 'ok'}")
+    for metric in ("updated", "errors", "remote", "local", "removed"):
+        val = block.get(metric)
+        if isinstance(val, (int, float)):
+            print(f"{key}_{metric}={int(val)}")
+
+agents = parsed.get("agents")
+if isinstance(agents, dict):
+    print(f"agents_status={str(agents.get('status') or 'ok').strip().lower() or 'ok'}")
+    print(f"agents_state={str(agents.get('state') or '').strip().lower()}")
+    print(f"agents_sha={str(agents.get('sha256') or '').strip()}")
+    print(f"agents_updated_at={str(agents.get('updated_at') or '').strip()}")
+    bytes_val = agents.get("bytes")
+    if isinstance(bytes_val, (int, float)):
+        print(f"agents_bytes={int(bytes_val)}")
+    removed_val = agents.get("removed")
+    if isinstance(removed_val, (int, float)):
+        print(f"agents_removed={int(removed_val)}")
+
+config = parsed.get("config")
+if isinstance(config, dict):
+    print(f"config_status={str(config.get('status') or 'ok').strip().lower() or 'ok'}")
+    print(f"config_state={str(config.get('state') or '').strip().lower()}")
+    print(f"config_sha={str(config.get('sha256') or '').strip()}")
+    print(f"config_updated_at={str(config.get('updated_at') or '').strip()}")
+    bytes_val = config.get("bytes")
+    if isinstance(bytes_val, (int, float)):
+        print(f"config_bytes={int(bytes_val)}")
+    removed_val = config.get("removed")
+    if isinstance(removed_val, (int, float)):
+        print(f"config_removed={int(removed_val)}")
+PY
+  )" || return 1
+
+  local line
+  for line in $parsed; do
+    case "$line" in
+      prompt_status=*) PROMPT_SYNC_STATUS="${line#prompt_status=}" ;;
+      prompt_updated=*) PROMPT_PULL_UPDATED="${line#prompt_updated=}" ;;
+      prompt_errors=*) PROMPT_PULL_ERRORS="${line#prompt_errors=}" ;;
+      prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
+      prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
+      prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
+      agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
+      agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
+      agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
+      agents_updated_at=*) AGENTS_REMOTE_UPDATED_AT="${line#agents_updated_at=}" ;;
+      agents_bytes=*) AGENTS_REMOTE_BYTES="${line#agents_bytes=}" ;;
+      agents_removed=*) AGENTS_REMOVED="${line#agents_removed=}" ;;
+      config_status=*) CONFIG_SYNC_STATUS="${line#config_status=}" ;;
+      config_state=*) CONFIG_STATE="${line#config_state=}" ;;
+      config_sha=*) CONFIG_REMOTE_SHA="${line#config_sha=}" ;;
+      config_updated_at=*) CONFIG_REMOTE_UPDATED_AT="${line#config_updated_at=}" ;;
+      config_bytes=*) CONFIG_REMOTE_BYTES="${line#config_bytes=}" ;;
+      config_removed=*) CONFIG_REMOVED="${line#config_removed=}" ;;
+    esac
+  done
+
+  PROMPT_SYNC_REASON=""
+  SKILL_SYNC_REASON=""
+  AGENTS_SYNC_REASON=""
+  CONFIG_SYNC_REASON=""
+  [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
+  SKILL_SYNC_STATUS="mcp"
+  [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
+  [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
+  return 0
+}
+
+sync_config_pull() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    CONFIG_SYNC_STATUS="missing-config"
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    CONFIG_SYNC_STATUS="no-python"
+    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+      log_warn "python3 is required for config.toml sync; skipping."
+      SYNC_WARNED_NO_PYTHON=1
+    fi
+    return 1
+  fi
+  local current_sha=""
+  if [[ -f "$CONFIG_PATH" ]]; then
+    current_sha="$(python3 - "$CONFIG_PATH" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+try:
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+except Exception:
+    pass
+PY
+)"
+  fi
+  local summary status_code
+  set +e
+  summary="$(config_sync_python "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$CONFIG_PATH" "$CODEX_SYNC_CA_FILE" "$current_sha")"
+  status_code=$?
+  set -e
+  CONFIG_SYNC_STATUS="error"
+  CONFIG_STATE=""
+  CONFIG_REMOTE_SHA=""
+  CONFIG_REMOTE_UPDATED_AT=""
+  CONFIG_REMOTE_BYTES=""
+  CONFIG_REMOVED=0
+  if (( status_code != 0 )); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      CONFIG_SYNC_STATUS="offline"
+      CONFIG_SYNC_REASON="$reason"
+    else
+      CONFIG_SYNC_STATUS="error"
+      CONFIG_SYNC_REASON="$reason"
+    fi
+    return 1
+  fi
+  CONFIG_SYNC_STATUS="${summary%% *}"
+  CONFIG_SYNC_REASON=""
+  local part
+  for part in $summary; do
+    case "$part" in
+      status=*) CONFIG_STATE="${part#status=}" ;;
+      sha256=*) CONFIG_REMOTE_SHA="${part#sha256=}" ;;
+      updated_at=*) CONFIG_REMOTE_UPDATED_AT="${part#updated_at=}" ;;
+      bytes=*) CONFIG_REMOTE_BYTES="${part#bytes=}" ;;
+      removed=*) CONFIG_REMOVED="${part#removed=}" ;;
+    esac
+  done
+  return 0
+}
+
+otel_env_from_config_python() {
+  python3 - "$CONFIG_PATH" <<'PY'
+import os, re, sys
+
+path = sys.argv[1]
+try:
+    raw = open(path, "r", encoding="utf-8", errors="ignore").read()
+except Exception:
+    sys.exit(0)
+
+def find_block(name: str) -> str:
+    # Allow an optional inline TOML comment after the closing bracket,
+    # e.g. `[otel] # my settings` is valid TOML and must still be matched.
+    m = re.search(r'(?m)^\[' + re.escape(name) + r'\]\s*(?:#.*)?$', raw)
+    if not m:
+        return ""
+    start = m.end()
+    m2 = re.search(r'(?m)^\[', raw[start:])
+    end = start + (m2.start() if m2 else len(raw[start:]))
+    return raw[start:end]
+
+block = find_block("otel")
+if not block.strip():
+    sys.exit(0)
+
+def parse_value(v: str):
+    v = v.strip()
+    if v.startswith('"') and v.endswith('"'):
+        return v[1:-1]
+    if v.lower() in ("true", "false"):
+        return v.lower()
+    return v
+
+def parse_inline_table(v: str):
+    # Very small TOML-ish parser for { k = "v", ... } used by our builder.
+    v = v.strip()
+    if not (v.startswith("{") and v.endswith("}")):
+        return {}
+    inner = v[1:-1].strip()
+    if not inner:
+        return {}
+    parts = []
+    buf = ""
+    in_str = False
+    esc = False
+    for ch in inner:
+        if esc:
+            buf += ch
+            esc = False
+            continue
+        if ch == "\\":
+            buf += ch
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            buf += ch
+            continue
+        if ch == "," and not in_str:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        parts.append(buf)
+    out = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        k, val = part.split("=", 1)
+        k = k.strip()
+        out[k] = parse_value(val)
+    return out
+
+otel = {}
+for line in block.splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    k = k.strip()
+    otel[k] = v.strip()
+
+exporter = parse_value(otel.get("exporter", "")).strip()
+environment = parse_value(otel.get("environment", "")).strip()
+log_prompts = parse_value(otel.get("log_user_prompt", "")).strip()
+
+if exporter in ("", "none"):
+    sys.exit(0)
+
+endpoint = parse_value(otel.get("endpoint", "")).strip()
+protocol = parse_value(otel.get("protocol", "")).strip()
+headers = parse_inline_table(otel.get("headers", "{}"))
+
+def emit(k: str, v: str):
+    if v is None:
+        return
+    v = str(v).strip()
+    if v == "":
+        return
+    print(f"{k}={v}")
+
+# Emit env vars as k=v lines; shell will export them.
+emit("OTEL_SERVICE_NAME", "cdx")
+if environment:
+    emit("OTEL_RESOURCE_ATTRIBUTES", f"deployment.environment={environment}")
+
+if exporter == "otlp-http":
+    emit("OTEL_TRACES_EXPORTER", "otlp")
+    emit("OTEL_EXPORTER_OTLP_PROTOCOL", protocol or "http/protobuf")
+    if endpoint:
+        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+elif exporter == "otlp-grpc":
+    emit("OTEL_TRACES_EXPORTER", "otlp")
+    emit("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    if endpoint:
+        emit("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+
+if headers:
+    # OTEL expects comma-separated key=value
+    header_str = ",".join([f"{k}={v}" for k, v in headers.items() if str(k).strip() and str(v).strip()])
+    emit("OTEL_EXPORTER_OTLP_HEADERS", header_str)
+
+# Optional: prompt logging toggle. We expose as CODEX wrapper env, not OpenTelemetry standard.
+if log_prompts in ("true", "false"):
+    emit("CODEX_OTEL_LOG_USER_PROMPT", log_prompts)
 PY
 }
 
@@ -6490,9 +6539,8 @@ if (( HAS_LOCAL_AUTH )) && validate_auth_json_file "$HOME/.codex/auth.json"; the
   HAS_VALID_LOCAL_AUTH=1
 fi
 
-if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then
-  print_motd
-fi
+# Banner rendering is deferred to the display phase (print_boot_screen)
+# so that version/status info can be shown alongside the ASCII art.
 
 AUTO_UPDATE_CRON_READY=0
 if (( ! CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CRON_MODE )) && (( ! CODEX_DO_UNINSTALL )); then
@@ -7773,6 +7821,259 @@ PY
   return 1
 }
 
+# ── Boot screen helpers (neofetch-style display) ─────────────────────────
+
+format_compact_number() {
+  local n="$1"
+  [[ "$n" =~ ^[0-9]+$ ]] || { printf "%s" "$n"; return; }
+  if (( n >= 10000000 )); then
+    printf "%dM" $(( (n + 500000) / 1000000 ))
+  elif (( n >= 1000000 )); then
+    local m=$(( n / 1000000 ))
+    local frac=$(( (n % 1000000 + 50000) / 100000 ))
+    if (( frac >= 10 )); then m=$((m + 1)); frac=0; fi
+    if (( m >= 10 )); then
+      printf "%dM" "$m"
+    else
+      printf "%d.%dM" "$m" "$frac"
+    fi
+  elif (( n >= 100000 )); then
+    printf "%dK" $(( (n + 500) / 1000 ))
+  elif (( n >= 10000 )); then
+    local k=$(( n / 1000 ))
+    local frac=$(( (n % 1000 + 50) / 100 ))
+    if (( frac >= 10 )); then k=$((k + 1)); frac=0; fi
+    if (( k >= 100 )); then
+      printf "%dK" "$k"
+    else
+      printf "%d.%dK" "$k" "$frac"
+    fi
+  else
+    printf "%s" "$(format_grouped_int "$n")"
+  fi
+}
+
+build_health_dot() {
+  local name="$1" tone="$2"
+  local dot="●"
+  output_supports_unicode || dot="*"
+  printf "%s %s" "$(colorize "$dot" "$tone")" "$name"
+}
+
+print_boot_screen() {
+  (( CODEX_SILENT )) && return 0
+
+  local show_banner=1
+  (( CODEX_SKIP_MOTD )) && show_banner=0
+
+  # ── Info panel (alongside banner) ──
+  if (( show_banner )); then
+    local info=()
+    local sep_char="─"
+    output_supports_unicode || sep_char="-"
+    local dot_sep
+    printf -v dot_sep "%b·%b" "${DIM}" "${RESET}"
+
+    # L0: empty
+    info+=("")
+
+    # L1: title
+    local title
+    printf -v title "%b%bcodex orchestrator%b" "${ORANGE}" "${BOLD}" "${RESET}"
+    info+=("$title")
+
+    # L2: separator
+    local sep_line=""
+    local si
+    for (( si = 0; si < 25; si++ )); do sep_line+="$sep_char"; done
+    printf -v sep_line "%b%s%b" "${DIM}" "$sep_line" "${RESET}"
+    info+=("$sep_line")
+
+    # L3: codex version
+    local cdx_ver="${codex_ver_inst:-${LOCAL_VERSION:-unknown}}"
+    local cdx_ver_colored
+    cdx_ver_colored="$(colorize "$cdx_ver" "${codex_tone:-green}")"
+    local cdx_line="codex    ${cdx_ver_colored}"
+    if [[ -n "${codex_version_suffix:-}" ]]; then
+      cdx_line+=" $(printf '%b%s%b' "${DIM}" "$codex_version_suffix" "${RESET}")"
+    fi
+    if [[ -n "${codex_ver_target:-}" && "${codex_ver_target}" != "${cdx_ver}" && "${codex_tone:-green}" != "green" ]]; then
+      cdx_line+=" $(printf '%b→%b %s' "${DIM}" "${RESET}" "$(colorize "$codex_ver_target" "yellow")")"
+    fi
+    info+=("$cdx_line")
+
+    # L4: wrapper version
+    local wrap_ver="${wrapper_ver_inst:-${WRAPPER_VERSION:-unknown}}"
+    local wrap_ver_colored
+    wrap_ver_colored="$(colorize "$wrap_ver" "${wrapper_tone:-green}")"
+    local wrap_line="wrapper  ${wrap_ver_colored}"
+    if [[ -n "${wrapper_ver_target:-}" && "${wrapper_ver_target}" != "${wrap_ver}" && "${wrapper_tone:-green}" != "green" ]]; then
+      wrap_line+=" $(printf '%b→%b %s' "${DIM}" "${RESET}" "$(colorize "$wrapper_ver_target" "yellow")")"
+    fi
+    info+=("$wrap_line")
+
+    # L5: context line
+    local ctx_parts=()
+    if (( ! HOST_IS_SECURE )); then
+      local lock_icon="🔓"
+      output_supports_unicode || lock_icon="[!]"
+      ctx_parts+=("$(colorize "${lock_icon} insecure" "yellow")")
+    fi
+    if (( concurrent_compact_summary )); then
+      ctx_parts+=("$(colorize "concurrent run" "yellow")")
+    fi
+    local lane_name="${CODEX_EFFECTIVE_LANE:-normal}"
+    if [[ "$lane_name" == "spark" ]]; then
+      local spark_i="⚡"
+      output_supports_unicode || spark_i="[S]"
+      ctx_parts+=("${spark_i} spark")
+    else
+      ctx_parts+=("$lane_name")
+    fi
+    if [[ "${HOST_TOKENS_MONTH_TOTAL:-}" =~ ^[0-9]+$ ]] && (( HOST_TOKENS_MONTH_TOTAL > 0 )); then
+      ctx_parts+=("$(format_compact_number "$HOST_TOKENS_MONTH_TOTAL") tokens")
+    elif [[ "${HOST_API_CALLS:-}" =~ ^[0-9]+$ ]] && (( HOST_API_CALLS > 0 )); then
+      ctx_parts+=("$(format_compact_number "$HOST_API_CALLS") calls")
+    fi
+    local ctx_line="" cp
+    for cp in "${ctx_parts[@]}"; do
+      [[ -z "$cp" ]] && continue
+      [[ -n "$ctx_line" ]] && ctx_line+=" ${dot_sep} "
+      ctx_line+="$cp"
+    done
+    info+=("$ctx_line")
+
+    print_boot_banner "${info[@]}"
+  fi
+
+  # ── Health dots ──
+  if (( ! concurrent_compact_summary )); then
+    local dots="" dot_gap="  "
+
+    dots+="$(build_health_dot "api" "${api_tone:-yellow}")"
+    dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}")"
+
+    local prompt_dot_label="prompts"
+    if [[ "${PROMPT_LOCAL_COUNT:-}" =~ ^[0-9]+$ ]] && [[ "${PROMPT_REMOTE_COUNT:-}" =~ ^[0-9]+$ ]]; then
+      prompt_dot_label="prompts ${PROMPT_LOCAL_COUNT}/${PROMPT_REMOTE_COUNT}"
+    fi
+    dots+="${dot_gap}$(build_health_dot "$prompt_dot_label" "${prompt_tone:-yellow}")"
+    dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}")"
+
+    if [[ -n "${mcp_tone:-}" ]]; then
+      dots+="${dot_gap}$(build_health_dot "mcp" "$mcp_tone")"
+    fi
+    if [[ -n "${runner_label:-}" ]]; then
+      dots+="${dot_gap}$(build_health_dot "runner" "${runner_tone:-yellow}")"
+    fi
+
+    printf "\n  %s\n" "$dots"
+  else
+    local conc_note=""
+    [[ -n "${concurrent_compact_note:-}" ]] && conc_note="  $(printf '%b%s%b' "${DIM}" "$concurrent_compact_note" "${RESET}")"
+    printf "\n  %s%s\n" "$(build_health_dot "concurrent" "${concurrent_compact_tone:-yellow}")" "$conc_note"
+  fi
+
+  # ── Compact quota bars ──
+  local has_quota=0
+  [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
+  [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
+
+  if (( has_quota )); then
+    printf "\n"
+
+    local -a q_labels=() q_used=() q_reset=() q_proj=() q_spark=()
+    local active_spark=0
+    [[ "${CODEX_EFFECTIVE_LANE:-}" == "spark" ]] && active_spark=1
+
+    if [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]]; then
+      q_labels+=("5h");       q_used+=("$CHATGPT_PRIMARY_USED")
+      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}"); q_proj+=(""); q_spark+=("$active_spark")
+    fi
+    if [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]]; then
+      q_labels+=("weekly");   q_used+=("$CHATGPT_SECONDARY_USED")
+      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}"); q_proj+=("${projection_pct:-}"); q_spark+=("$active_spark")
+    fi
+    if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then
+      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("5h");       q_used+=("$other_lane_primary_used")
+      q_reset+=("${other_lane_primary_reset_after:-}"); q_proj+=(""); q_spark+=("$ol_s")
+    fi
+    if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then
+      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")
+      q_reset+=("${other_lane_secondary_reset_after:-}"); q_proj+=("${other_projection_pct:-}"); q_spark+=("$ol_s")
+    fi
+
+    # Compute label width for alignment
+    local max_lw=6 qi ql_tmp
+    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+      ql_tmp="${q_labels[qi]}"
+      (( ${q_spark[qi]} )) && ql_tmp="X $ql_tmp"
+      (( ${#ql_tmp} > max_lw )) && max_lw=${#ql_tmp}
+    done
+    (( max_lw > 14 )) && max_lw=14
+
+    local bar_w="${QUOTA_BAR_WIDTH:-24}"
+    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+      local prefix=""
+      if (( ${q_spark[qi]} )); then
+        local spark_ch="⚡"
+        output_supports_unicode || spark_ch="S"
+        prefix="${spark_ch} "
+      fi
+      local full_label="${prefix}${q_labels[qi]}"
+
+      local pct="${q_used[qi]}"
+      (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
+
+      local bar
+      bar="$(build_quota_bar "$pct" "$bar_w")"
+
+      local pct_tone="green"
+      (( pct >= 95 )) && pct_tone="red"
+      (( pct >= 80 && pct < 95 )) && pct_tone="orange"
+      local pct_display
+      printf -v pct_display "%3d%%" "$pct"
+      pct_display="$(colorize "$pct_display" "$pct_tone")"
+
+      local dur=""
+      [[ "${q_reset[qi]}" =~ ^[0-9]+$ ]] && dur="$(format_duration_short "${q_reset[qi]}")"
+
+      local proj=""
+      if [[ "${q_proj[qi]}" =~ ^[0-9]+$ ]] && (( ${q_proj[qi]} > 0 )); then
+        if (( ${q_proj[qi]} >= 100 )); then
+          proj="$(colorize "~100%" "red")"
+        else
+          printf -v proj "%b~%d%%%b" "${DIM}" "${q_proj[qi]}" "${RESET}"
+        fi
+      fi
+
+      local note=""
+      [[ -n "$dur" ]] && note="$dur"
+      if [[ -n "$proj" ]]; then
+        [[ -n "$note" ]] && note+="  "
+        note+="$proj"
+      fi
+
+      printf "  %-${max_lw}s %s [%s]" "$full_label" "$pct_display" "$bar"
+      [[ -n "$note" ]] && printf "  %s" "$note"
+      printf "\n"
+    done
+
+    if (( ${QUOTA_WARNING:-0} )) && [[ -n "${QUOTA_WARNING_REASON:-}" ]]; then
+      local warn_icon="⚠"
+      output_supports_unicode || warn_icon="!"
+      printf "  %s\n" "$(colorize "${warn_icon} ${QUOTA_WARNING_REASON}" "yellow")"
+    fi
+    if (( ${QUOTA_BLOCKED:-0} )) && [[ -n "${QUOTA_BLOCK_REASON:-}" ]]; then
+      local block_icon="⛔"
+      output_supports_unicode || block_icon="X"
+      printf "  %s\n" "$(colorize "${block_icon} ${QUOTA_BLOCK_REASON}" "red")"
+    fi
+  fi
+}
+
 DOCTOR_FAILURES=0
 print_doctor_report() {
   local failures=0
@@ -8147,6 +8448,12 @@ wrapper_status_display="$wrapper_status_label"
 if [[ -n "$wrapper_status_note" ]]; then
   wrapper_status_display="${wrapper_status_display} (${wrapper_status_note})"
 fi
+
+codex_version_suffix=""
+case "${skip_update_reason:-}" in
+  cron_managed) codex_version_suffix="(auto)" ;;
+  privilege)    codex_version_suffix="(manual)" ;;
+esac
 
 codex_installed_display="$codex_installed_label"
 if [[ -n "$codex_installed_display" ]]; then
@@ -9278,68 +9585,7 @@ fi
       log_info "$(format_simple_row "Health" "$minimal_health_line")"
       log_info "$(format_simple_row "Result" "$minimal_result_line")"
     else
-      if (( concurrent_compact_summary )); then
-        print_section_rows "Concurrent" "${bullet} $(colorize "$concurrent_compact_note" "$concurrent_compact_tone")"
-      else
-        print_section_rows "Health" "${health_rows[@]}"
-        print_section_rows "Versions" "${version_rows[@]}"
-        print_section_rows "Usage" "${usage_rows[@]}"
-      fi
-
-      quota_rows=()
-      quota_metric_labels=("Active lane")
-      if [[ -n "$primary_quota_segment" ]]; then
-        quota_metric_labels+=("5h window")
-      fi
-      if [[ -n "$secondary_quota_segment" ]]; then
-        quota_metric_labels+=("Weekly window")
-      fi
-      if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
-        quota_metric_labels+=("Daily allowance")
-      fi
-      if [[ -n "$other_lane_primary_quota_segment" ]]; then
-        quota_metric_labels+=("${other_lane_label} 5h window")
-      fi
-      if [[ -n "$other_lane_secondary_quota_segment" ]]; then
-        quota_metric_labels+=("${other_lane_label} weekly window")
-      fi
-      quota_metric_label_width=0
-      for quota_metric_label in "${quota_metric_labels[@]}"; do
-        quota_metric_len=${#quota_metric_label}
-        if (( quota_metric_len > quota_metric_label_width )); then
-          quota_metric_label_width=$quota_metric_len
-        fi
-      done
-      (( quota_metric_label_width < 12 )) && quota_metric_label_width=12
-      QUOTA_METRIC_LABEL_WIDTH="$quota_metric_label_width"
-
-      quota_rows+=("${bullet} $(format_quota_metric_row "Active lane" "${quota_lane_display}")")
-      if [[ -n "$primary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "5h window" "${primary_quota_segment}")")
-      fi
-      if [[ -n "$secondary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "Weekly window" "${secondary_quota_segment}")")
-      fi
-      if [[ -n "$daily_quota_segment" ]] && (( QUOTA_WARNING || QUOTA_BLOCKED || CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )); then
-        quota_rows+=("${bullet} $(format_quota_metric_row "Daily allowance" "${daily_quota_segment}")")
-      fi
-      if [[ -n "$other_lane_primary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "${other_lane_label} 5h window" "${other_lane_primary_quota_segment}")")
-      fi
-      if [[ -n "$other_lane_secondary_quota_segment" ]]; then
-        quota_rows+=("${bullet} $(format_quota_metric_row "${other_lane_label} weekly window" "${other_lane_secondary_quota_segment}")")
-      fi
-      if (( QUOTA_WARNING )) && [[ -n "$QUOTA_WARNING_REASON" ]]; then
-        quota_rows+=("${bullet} $(colorize "Near limit: ${QUOTA_WARNING_REASON}" "yellow")")
-      fi
-      if (( QUOTA_BLOCKED )) && [[ -n "$QUOTA_BLOCK_REASON" ]]; then
-        quota_rows+=("${bullet} $(colorize "Limit reached: ${QUOTA_BLOCK_REASON}" "red")")
-      fi
-      print_section_rows "Quota" "${quota_rows[@]}"
-
-      if (( ! concurrent_compact_summary )); then
-        print_section_rows "Result" "${bullet} ${result_line}"
-      fi
+      print_boot_screen
     fi
 
     ROW_LABEL_WIDTH="$row_label_width_default"

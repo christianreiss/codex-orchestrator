@@ -151,20 +151,69 @@ PY
   return 1
 }
 
-MOTD_TEXT="$(cat <<'EOF'
+BANNER_ART="$(cat <<'EOF'
  ██████╗  ██████╗  ██████╗  ██████╗
-██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗    codex
-██║      ██║   ██║██║      ██║   ██║    orchestrator
+██╔════╝ ██╔═══██╗██╔════╝ ██╔═══██╗
+██║      ██║   ██║██║      ██║   ██║
 ██║      ██║   ██║██║      ██║   ██║
 ╚██████╗ ╚██████╔╝╚██████╗ ╚██████╔╝
  ╚═════╝  ╚═════╝  ╚═════╝  ╚═════╝
 EOF
 )"
 
+# Backward-compat shim: renders banner with "codex orchestrator" text (old style).
 print_motd() {
+  local i=0
   while IFS= read -r line; do
-    printf "%b %s%b\n" "${ORANGE}${BOLD}" "$line" "${RESET}"
-  done <<<"$MOTD_TEXT"
+    local suffix=""
+    case $i in
+      1) suffix="    codex" ;;
+      2) suffix="    orchestrator" ;;
+    esac
+    printf "%b %s%s%b\n" "${ORANGE}${BOLD}" "$line" "$suffix" "${RESET}"
+    i=$((i + 1))
+  done <<<"$BANNER_ART"
+}
+
+# Neofetch-style banner: art on the left, info lines on the right.
+# Usage: print_boot_banner "info0" "info1" "info2" "info3" "info4" "info5"
+print_boot_banner() {
+  local -a info_lines=("$@")
+  local art_pad=36
+  local gap="   "
+  local cols="${COLUMNS:-}"
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
+
+  local stacked=0
+  (( cols < 60 )) && stacked=1
+
+  local i=0
+  while IFS= read -r art_line; do
+    printf "%b %s" "${ORANGE}${BOLD}" "$art_line"
+    if (( ! stacked )); then
+      local art_len=${#art_line}
+      local pad_n=$(( art_pad - art_len ))
+      (( pad_n < 0 )) && pad_n=0
+      (( pad_n > 0 )) && printf '%*s' "$pad_n" ""
+    fi
+    printf "%b" "${RESET}"
+    if (( ! stacked )) && [[ -n "${info_lines[i]:-}" ]]; then
+      printf "%s%s" "$gap" "${info_lines[i]}"
+    fi
+    printf "\n"
+    i=$((i + 1))
+  done <<<"$BANNER_ART"
+
+  if (( stacked )); then
+    local info
+    for info in "${info_lines[@]}"; do
+      [[ -z "$info" ]] && continue
+      printf "  %s\n" "$info"
+    done
+  fi
 }
 
 mask_key() {
@@ -182,8 +231,8 @@ mask_key() {
 }
 
 emit_insecure_notice() {
+  # Silenced: insecure status is shown on the boot screen context line.
   (( HOST_SECURITY_NOTICE_EMITTED )) && return
-  log_warn "Host marked insecure; auth.json will be removed after this run."
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 

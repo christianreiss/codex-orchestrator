@@ -12,6 +12,12 @@ if [[ -n "$wrapper_status_note" ]]; then
   wrapper_status_display="${wrapper_status_display} (${wrapper_status_note})"
 fi
 
+codex_version_suffix=""
+case "${skip_update_reason:-}" in
+  cron_managed) codex_version_suffix="(auto)" ;;
+  privilege)    codex_version_suffix="(manual)" ;;
+esac
+
 codex_installed_display="$codex_installed_label"
 if [[ -n "$codex_installed_display" ]]; then
   codex_installed_display+=" installed"
