@@ -4868,7 +4868,9 @@ def extract_session_entries(text: str):
         candidates = []
 
     for candidate in candidates:
-        entries = []
+        turn_entries = []
+        delta_entries = []
+        cumulative_entry = None
         last_signature = None
         try:
             with candidate.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -4879,6 +4881,7 @@ def extract_session_entries(text: str):
                         continue
 
                     entry = None
+                    is_cumulative = False
                     if parsed.get("type") == "event_msg":
                         payload = parsed.get("payload")
                         if isinstance(payload, dict) and payload.get("type") == "token_count":
@@ -4887,6 +4890,7 @@ def extract_session_entries(text: str):
                                 usage = info.get("last_token_usage")
                                 if not isinstance(usage, dict):
                                     usage = info.get("total_token_usage")
+                                    is_cumulative = True
                                 if isinstance(usage, dict):
                                     entry = build_entry(
                                         total=usage.get("total_tokens"),
@@ -4917,12 +4921,21 @@ def extract_session_entries(text: str):
                     signature = tuple(entry.get(key) for key in ("total", "input", "output", "cached", "reasoning"))
                     if signature == last_signature:
                         continue
-
-                    entries.append(entry)
                     last_signature = signature
+
+                    if parsed.get("type") == "turn.completed":
+                        turn_entries.append(entry)
+                    elif is_cumulative:
+                        cumulative_entry = entry
+                    else:
+                        delta_entries.append(entry)
         except Exception:
             continue
 
+        # Prefer turn.completed entries (per-turn deltas, no overlap).
+        # Fall back to event_msg/token_count deltas (last_token_usage).
+        # If only cumulative total_token_usage available, use last snapshot only.
+        entries = turn_entries or delta_entries or ([cumulative_entry] if cumulative_entry else [])
         if entries:
             return entries
 
@@ -5463,7 +5476,9 @@ def build_entry(total=None, input_tokens=None, output_tokens=None,
 
 
 def parse_jsonl(candidate):
-    entries = []
+    turn_entries = []
+    delta_entries = []
+    cumulative_entry = None
     last_sig = None
     try:
         with candidate.open("r", encoding="utf-8", errors="ignore") as fh:
@@ -5473,6 +5488,7 @@ def parse_jsonl(candidate):
                 except Exception:
                     continue
                 entry = None
+                is_cumulative = False
                 if parsed.get("type") == "event_msg":
                     payload = parsed.get("payload")
                     if isinstance(payload, dict) and payload.get("type") == "token_count":
@@ -5481,6 +5497,7 @@ def parse_jsonl(candidate):
                             usage = info.get("last_token_usage")
                             if not isinstance(usage, dict):
                                 usage = info.get("total_token_usage")
+                                is_cumulative = True
                             if isinstance(usage, dict):
                                 entry = build_entry(
                                     total=usage.get("total_tokens"),
@@ -5510,11 +5527,17 @@ def parse_jsonl(candidate):
                             ("total", "input", "output", "cached", "reasoning"))
                 if sig == last_sig:
                     continue
-                entries.append(entry)
                 last_sig = sig
+
+                if parsed.get("type") == "turn.completed":
+                    turn_entries.append(entry)
+                elif is_cumulative:
+                    cumulative_entry = entry
+                else:
+                    delta_entries.append(entry)
     except Exception:
         return []
-    return entries
+    return turn_entries or delta_entries or ([cumulative_entry] if cumulative_entry else [])
 
 
 for candidate in all_jsonl:

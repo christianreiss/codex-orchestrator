@@ -298,7 +298,8 @@ class TokenUsageRepository
             'SELECT SUBSTRING(created_at, 1, 10) AS day,
                     COALESCE(SUM(input_tokens), 0) AS input,
                     COALESCE(SUM(output_tokens), 0) AS output,
-                    COALESCE(SUM(cached_tokens), 0) AS cached
+                    COALESCE(SUM(cached_tokens), 0) AS cached,
+                    SUM(cost) AS cost
              FROM token_usages
              WHERE created_at >= :start
              GROUP BY day
@@ -317,6 +318,7 @@ class TokenUsageRepository
                 'input' => isset($row['input']) ? (int) $row['input'] : 0,
                 'output' => isset($row['output']) ? (int) $row['output'] : 0,
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
+                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
             ];
         }
 

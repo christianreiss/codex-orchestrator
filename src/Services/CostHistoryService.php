@@ -92,14 +92,20 @@ class CostHistoryService
                 'input' => (int) ($row['input'] ?? 0),
                 'output' => (int) ($row['output'] ?? 0),
                 'cached' => (int) ($row['cached'] ?? 0),
+                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
             ];
         }
 
         $dailyPoints = [];
         for ($cursor = $startDate; $cursor <= $endDate; $cursor = $cursor->add(new DateInterval('P1D'))) {
             $dayKey = $cursor->format('Y-m-d');
-            $tokens = $pointMap[$dayKey] ?? ['input' => 0, 'output' => 0, 'cached' => 0];
-            $costs = $this->calculateCosts($tokens, $pricing, $hasPricing);
+            $tokens = $pointMap[$dayKey] ?? ['input' => 0, 'output' => 0, 'cached' => 0, 'cost' => null];
+            $storedCost = $tokens['cost'] ?? null;
+            if ($storedCost !== null && $storedCost > 0) {
+                $costs = $this->splitStoredCost($storedCost, $tokens, $pricing, $hasPricing);
+            } else {
+                $costs = $this->calculateCosts($tokens, $pricing, $hasPricing);
+            }
             $dailyPoints[] = [
                 'date' => $dayKey,
                 'tokens' => [
@@ -166,27 +172,31 @@ class CostHistoryService
                         'cached' => 0,
                         'total' => 0,
                     ],
+                    'costs' => [
+                        'input' => 0.0,
+                        'output' => 0.0,
+                        'cached' => 0.0,
+                        'total' => 0.0,
+                    ],
                 ];
             }
             $buckets[$key]['tokens']['input'] += (int) ($point['tokens']['input'] ?? 0);
             $buckets[$key]['tokens']['output'] += (int) ($point['tokens']['output'] ?? 0);
             $buckets[$key]['tokens']['cached'] += (int) ($point['tokens']['cached'] ?? 0);
             $buckets[$key]['tokens']['total'] += (int) ($point['tokens']['total'] ?? 0);
+            $buckets[$key]['costs']['input'] += (float) ($point['costs']['input'] ?? 0.0);
+            $buckets[$key]['costs']['output'] += (float) ($point['costs']['output'] ?? 0.0);
+            $buckets[$key]['costs']['cached'] += (float) ($point['costs']['cached'] ?? 0.0);
+            $buckets[$key]['costs']['total'] += (float) ($point['costs']['total'] ?? 0.0);
         }
 
         ksort($buckets);
         $weekly = [];
         foreach ($buckets as $bucket) {
-            $tokens = $bucket['tokens'];
-            $costs = $this->calculateCosts([
-                'input' => (int) $tokens['input'],
-                'output' => (int) $tokens['output'],
-                'cached' => (int) $tokens['cached'],
-            ], $pricing, $hasPricing);
             $weekly[] = [
                 'date' => $bucket['date'],
-                'tokens' => $tokens,
-                'costs' => $costs,
+                'tokens' => $bucket['tokens'],
+                'costs' => $bucket['costs'],
             ];
         }
 
@@ -281,6 +291,37 @@ class CostHistoryService
         return ($pricing['input_price_per_1k'] ?? 0) > 0
             || ($pricing['output_price_per_1k'] ?? 0) > 0
             || ($pricing['cached_price_per_1k'] ?? 0) > 0;
+    }
+
+    private function splitStoredCost(float $totalCost, array $tokens, array $pricing, bool $hasPricing): array
+    {
+        if (!$hasPricing || $totalCost <= 0) {
+            return [
+                'input' => 0.0,
+                'output' => 0.0,
+                'cached' => 0.0,
+                'total' => $totalCost,
+            ];
+        }
+
+        $calculated = $this->calculateCosts($tokens, $pricing, $hasPricing);
+        $calculatedTotal = $calculated['total'];
+        if ($calculatedTotal > 0) {
+            $ratio = $totalCost / $calculatedTotal;
+            return [
+                'input' => $calculated['input'] * $ratio,
+                'output' => $calculated['output'] * $ratio,
+                'cached' => $calculated['cached'] * $ratio,
+                'total' => $totalCost,
+            ];
+        }
+
+        return [
+            'input' => 0.0,
+            'output' => 0.0,
+            'cached' => 0.0,
+            'total' => $totalCost,
+        ];
     }
 
     private function calculateCosts(array $tokens, array $pricing, bool $hasPricing): array
