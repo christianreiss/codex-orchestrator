@@ -11,6 +11,7 @@ namespace App\Repositories;
 
 use App\Database;
 use PDO;
+use Throwable;
 
 class AgentsRepository
 {
@@ -87,6 +88,84 @@ class AgentsRepository
 
         $id = (int) $this->database->connection()->lastInsertId();
         return $this->findById($id) ?? [];
+    }
+
+    public function storeVersionIfChanged(string $body, ?int $sourceHostId = null, ?string $sha256 = null): array
+    {
+        $pdo = $this->database->connection();
+        $sha = $sha256 ?? hash('sha256', $body);
+        $now = gmdate(DATE_ATOM);
+
+        $pdo->beginTransaction();
+
+        try {
+            // Serialize AGENTS.md writes so overlapping saves cannot fan out duplicate versions.
+            $bootstrapState = $pdo->prepare(
+                'INSERT INTO agents_document_state (id, mode, active_document_id, created_at, updated_at)
+                 VALUES (:id, :mode, :active_document_id, :created_at, :updated_at)
+                 ON DUPLICATE KEY UPDATE id = id'
+            );
+            $bootstrapState->execute([
+                'id' => self::STATE_ID,
+                'mode' => self::MODE_LATEST,
+                'active_document_id' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            $stateLock = $pdo->prepare(
+                'SELECT id
+                 FROM agents_document_state
+                 WHERE id = :id
+                 LIMIT 1
+                 FOR UPDATE'
+            );
+            $stateLock->execute(['id' => self::STATE_ID]);
+
+            $latestStatement = $pdo->query(
+                'SELECT id, sha256, body, source_host_id, created_at, updated_at
+                 FROM agents_documents
+                 ORDER BY id DESC
+                 LIMIT 1
+                 FOR UPDATE'
+            );
+            $latest = $latestStatement->fetch(PDO::FETCH_ASSOC);
+
+            if (is_array($latest) && hash_equals((string) ($latest['sha256'] ?? ''), $sha)) {
+                $pdo->commit();
+
+                return [
+                    'status' => 'unchanged',
+                    'row' => $latest,
+                ];
+            }
+
+            $statement = $pdo->prepare(
+                'INSERT INTO agents_documents (sha256, body, source_host_id, created_at, updated_at)
+                 VALUES (:sha256, :body, :source_host_id, :created_at, :updated_at)'
+            );
+            $statement->execute([
+                'sha256' => $sha,
+                'body' => $body,
+                'source_host_id' => $sourceHostId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            $id = (int) $pdo->lastInsertId();
+            $pdo->commit();
+
+            return [
+                'status' => is_array($latest) ? 'updated' : 'created',
+                'row' => $this->findById($id) ?? [],
+            ];
+        } catch (Throwable $throwable) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            throw $throwable;
+        }
     }
 
     public function deleteVersion(int $id): bool

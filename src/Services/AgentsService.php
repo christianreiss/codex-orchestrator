@@ -74,13 +74,8 @@ class AgentsService
         }
 
         $sha = hash('sha256', $body);
-        $existing = $this->agents->latest();
-        $existingSha = $existing['sha256'] ?? hash('sha256', (string) ($existing['body'] ?? ''));
-        $status = $existing === null ? 'created' : (hash_equals((string) $existingSha, $sha) ? 'unchanged' : 'updated');
-
-        if ($status !== 'unchanged') {
-            $this->agents->createVersion($body, null, $sha);
-        }
+        $stored = $this->agents->storeVersionIfChanged($body, null, $sha);
+        $status = (string) ($stored['status'] ?? 'missing');
 
         $this->logs->log(null, 'agents.seed', [
             'status' => $status,
@@ -160,17 +155,15 @@ class AgentsService
             throw new ValidationException($errors);
         }
 
-        $existing = $this->agents->latest();
-        $existingSha = $existing['sha256'] ?? null;
-        $status = $existing === null ? 'created' : (hash_equals((string) $existingSha, $computedSha) ? 'unchanged' : 'updated');
-
-        $saved = $status === 'unchanged' ? $existing : $this->agents->createVersion($body, $this->hostId($host), $computedSha);
+        $stored = $this->agents->storeVersionIfChanged($body, $this->hostId($host), $computedSha);
+        $status = (string) ($stored['status'] ?? 'created');
+        $saved = is_array($stored['row'] ?? null) ? $stored['row'] : [];
 
         $this->logs->log($this->hostId($host), 'agents.store', ['status' => $status]);
 
         return [
             'status' => $status,
-            'version_id' => $saved['id'] ?? ($existing['id'] ?? null),
+            'version_id' => $saved['id'] ?? null,
             'sha256' => $saved['sha256'] ?? $computedSha,
             'updated_at' => $saved['updated_at'] ?? gmdate(DATE_ATOM),
             'size_bytes' => strlen((string) ($saved['body'] ?? $body)),

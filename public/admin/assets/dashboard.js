@@ -237,6 +237,7 @@
     let currentSkills = [];
     let currentMemories = [];
     let currentAgents = null;
+    let agentsSaveInFlight = false;
     let settingsExpanded = true;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
@@ -2082,6 +2083,7 @@
       const servedId = Number.isFinite(Number(doc?.served_id)) ? Number(doc.served_id) : null;
       const latestId = Number.isFinite(Number(doc?.latest_id)) ? Number(doc.latest_id) : null;
       const activeId = Number.isFinite(Number(doc?.active_id)) ? Number(doc.active_id) : null;
+      const pinnedDraft = getPinnedAgentsDraft(doc);
       if (agentsStatus) {
         agentsStatus.textContent = status === 'ok'
           ? ''
@@ -2091,6 +2093,7 @@
         const parts = [];
         parts.push(`updated ${updatedAt}`);
         if (sizeLabel !== '—') parts.push(sizeLabel);
+        if (pinnedDraft) parts.push(`latest draft v${pinnedDraft.latestId}`);
         agentsMeta.textContent = parts.join(' · ');
       }
       if (agentsServeLabel) {
@@ -2101,7 +2104,9 @@
           agentsServeLabel.textContent = `Serving: latest (${suffix})`;
         } else {
           const suffix = activeId ? `v${activeId}` : 'pinned';
-          agentsServeLabel.textContent = `Serving: pinned (${suffix})`;
+          agentsServeLabel.textContent = pinnedDraft
+            ? `Serving: pinned (${suffix}) · latest draft: v${pinnedDraft.latestId}`
+            : `Serving: pinned (${suffix})`;
         }
       }
       if (agentsServeLatest) {
@@ -2164,6 +2169,15 @@
           }).join('');
         }
       }
+    }
+
+    function getPinnedAgentsDraft(doc = currentAgents) {
+      const mode = typeof doc?.mode === 'string' ? doc.mode : 'latest';
+      if (mode !== 'locked') return null;
+      const servedId = normalizeAgentsVersionId(doc?.served_id);
+      const latestId = normalizeAgentsVersionId(doc?.latest_id);
+      if (!servedId || !latestId || servedId === latestId) return null;
+      return { servedId, latestId };
     }
 
     function formatMinutesAgo(value) {
@@ -7235,26 +7249,43 @@
     }
 
     async function saveAgentsInline() {
-      if (!agentsEditorInline || !agentsSaveInline) return;
+      if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;
       const content = agentsEditorInline.value;
+      agentsSaveInFlight = true;
       agentsSaveInline.disabled = true;
       const original = agentsSaveInline.textContent;
       agentsSaveInline.textContent = 'Saving…';
       if (agentsStatus) agentsStatus.textContent = 'Saving…';
       try {
-        await api('/admin/agents/store', {
+        const response = await api('/admin/agents/store', {
           method: 'POST',
           json: { content },
         });
         await loadAll();
-        setAgentsInlineEditing(false);
-        if (agentsStatus) agentsStatus.textContent = 'Saved';
+        const result = response?.data || response || {};
+        const pinnedDraft = getPinnedAgentsDraft(currentAgents);
+        if (pinnedDraft) {
+          if (agentsEditorInline) agentsEditorInline.value = content;
+          const savedLabel = result?.status === 'unchanged'
+            ? `Latest draft v${pinnedDraft.latestId} is already saved.`
+            : `Saved as latest draft v${pinnedDraft.latestId}.`;
+          if (agentsStatus) {
+            agentsStatus.textContent = `${savedLabel} Fleet is still serving pinned v${pinnedDraft.servedId}. Use Serve latest to roll it out.`;
+          }
+        } else {
+          setAgentsInlineEditing(false);
+          if (agentsStatus) {
+            agentsStatus.textContent = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
+          }
+        }
         setTimeout(() => {
-          if (agentsStatus && agentsStatus.textContent === 'Saved') agentsStatus.textContent = '';
+          const text = agentsStatus?.textContent || '';
+          if (agentsStatus && (text === 'Saved' || text === 'No changes to save')) agentsStatus.textContent = '';
         }, 1500);
       } catch (err) {
         if (agentsStatus) agentsStatus.textContent = `Save failed: ${err.message}`;
       } finally {
+        agentsSaveInFlight = false;
         agentsSaveInline.disabled = false;
         agentsSaveInline.textContent = original;
       }

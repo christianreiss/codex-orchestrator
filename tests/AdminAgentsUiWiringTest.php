@@ -100,6 +100,17 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringNotContainsString("data-action=\"agents-serve\"", $js);
     }
 
+    public function testAdminAgentsInlineSaveGuardsDuplicateClicksAndExplainsPinnedDrafts(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('let agentsSaveInFlight = false;', $js);
+        $this->assertStringContainsString('if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;', $js);
+        $this->assertStringContainsString('Saved as latest draft v', $js);
+        $this->assertStringContainsString('Use Serve latest to roll it out.', $js);
+    }
+
     public function testAdminConfigBuilderAssetsAreCacheBusted(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');

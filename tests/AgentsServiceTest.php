@@ -59,6 +59,24 @@ final class InMemoryAgentsRepository extends AgentsRepository
         return $row;
     }
 
+    public function storeVersionIfChanged(string $body, ?int $sourceHostId = null, ?string $sha256 = null): array
+    {
+        $latest = $this->latest();
+        $sha = $sha256 ?? hash('sha256', $body);
+
+        if (is_array($latest) && hash_equals((string) ($latest['sha256'] ?? ''), $sha)) {
+            return [
+                'status' => 'unchanged',
+                'row' => $latest,
+            ];
+        }
+
+        return [
+            'status' => is_array($latest) ? 'updated' : 'created',
+            'row' => $this->createVersion($body, $sourceHostId, $sha),
+        ];
+    }
+
     public function deleteVersion(int $id): bool
     {
         if (!isset($this->versions[$id])) {
@@ -148,6 +166,19 @@ final class AgentsServiceTest extends TestCase
         $this->service->store('# AGENTS v1');
         $result = $this->service->store('# AGENTS v2');
         $this->assertSame('updated', $result['status']);
+    }
+
+    public function testStoreDetectsUnchangedEvenWhenServeModeIsLockedToOlderVersion(): void
+    {
+        $v1 = $this->service->store('# AGENTS v1');
+        $v2 = $this->service->store('# AGENTS v2 latest');
+        $this->service->setServeMode('locked', $v1['version_id']);
+
+        $result = $this->service->store('# AGENTS v2 latest');
+
+        $this->assertSame('unchanged', $result['status']);
+        $this->assertSame($v2['version_id'], $result['version_id']);
+        $this->assertCount(2, $this->repository->versions);
     }
 
     public function testStoreRejectsInvalidSha(): void
