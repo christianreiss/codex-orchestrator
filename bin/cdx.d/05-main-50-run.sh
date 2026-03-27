@@ -257,6 +257,10 @@ run_codex_command() {
     fi
   fi
 
+  if [[ -t 1 ]]; then
+    printf '\n'
+  fi
+
   if [[ -t 0 && -t 1 ]]; then
     # TTY: direct exec — codex owns the terminal.
     "${exec_cmd[@]}"
