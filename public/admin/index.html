@@ -31,6 +31,7 @@
             <a class="rail-sub-link host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem">Secure</a>
             <a class="rail-sub-link host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem">Insecure</a>
             <a class="rail-sub-link host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
+            <button class="rail-menu-button" id="newHostBtn" type="button" role="menuitem">New Host</button>
           </div>
         </div>
         <div class="rail-group" data-nav="logs">
@@ -75,10 +76,8 @@
         <div class="rail-toolset">
           <button class="rail-action rail-action-quiet rail-help-trigger" id="navHelpTrigger" type="button" aria-label="Open keyboard shortcuts help" title="Keyboard shortcuts">
             <span class="rail-help-glyph" aria-hidden="true">?</span>
-            <span class="rail-help-label">Shortcuts</span>
           </button>
           <button class="rail-action rail-action-quiet" id="navInsecureHosts" style="display:none;">Active Windows</button>
-          <button class="rail-action rail-action-accent" id="navNewHost">New Host</button>
         </div>
         <div class="rail-group rail-group-account-menu" id="navAccountGroup" data-nav="account" style="display:none;">
           <button class="rail-account-trigger rail-disclosure" id="navAccountTrigger" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true" aria-label="Open account menu">

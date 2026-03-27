@@ -8469,13 +8469,6 @@
     loadAutoUpdate();
 
     function wireNavShortcuts() {
-      const navNewHost = document.getElementById('navNewHost');
-      if (navNewHost) {
-        navNewHost.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          showNewHostModal(true);
-        });
-      }
       document.querySelectorAll('[data-nav-host]').forEach((el) => {
         if (el.href && el.href.includes('view=')) return; // new pages handle navigation
         el.addEventListener('click', (ev) => {
@@ -8938,4 +8931,3 @@
         }
       }
     }
-
