@@ -21,25 +21,6 @@ trait MigrationHelper
         return (int) $statement->fetchColumn() > 0;
     }
 
-    protected function dropTableIfExists(PDO $pdo, string $databaseName, string $table): void
-    {
-        $statement = $pdo->prepare(
-            'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table'
-        );
-
-        $statement->execute([
-            'schema' => $databaseName,
-            'table' => $table,
-        ]);
-
-        $exists = (int) $statement->fetchColumn() > 0;
-        if (!$exists) {
-            return;
-        }
-
-        $pdo->exec(sprintf('DROP TABLE %s', $table));
-    }
-
     protected function ensureColumnExists(PDO $pdo, string $databaseName, string $table, string $column, string $definition): void
     {
         $statement = $pdo->prepare(
