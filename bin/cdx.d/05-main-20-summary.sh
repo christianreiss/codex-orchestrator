@@ -77,8 +77,14 @@ summary_divider() {
   fi
   local w=$(( cols - 2 ))
   (( w < 20 )) && w=20
-  # Avoid box-drawing chars: some environments render them as mojibake.
-  printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
+  if output_supports_unicode; then
+    local line=""
+    local si
+    for (( si = 0; si < w; si++ )); do line+="─"; done
+    printf "%b" "${DIM}${line}${RESET}"
+  else
+    printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
+  fi
 }
 
 summary_header() {
@@ -87,13 +93,22 @@ summary_header() {
   if command -v date >/dev/null 2>&1; then
     ts="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
   fi
-  local left="cdx"
-  [[ -n "$ts" ]] && left+=" ${DIM}${ts}${RESET}"
+  local left
+  printf -v left "%b%bcdx%b" "${ORANGE}" "${BOLD}" "${RESET}"
+  [[ -n "$ts" ]] && left+=" $(printf '%b%s%b' "${DIM}" "$ts" "${RESET}")"
   local right=""
-  [[ -n "$title" ]] && right="$(colorize "$title" "$tone")"
+  if [[ -n "$title" ]]; then
+    if [[ -n "$tone" ]]; then
+      right="$(colorize "$title" "$tone")"
+    else
+      printf -v right "%b%s%b" "${BOLD}" "$title" "${RESET}"
+    fi
+  fi
+  local dot_sep
+  printf -v dot_sep "%b·%b" "${DIM}" "${RESET}"
   # Keep it single-line; row wrapping is handled below.
   if [[ -n "$right" ]]; then
-    printf "%s%s%s" "$left" "${SUMMARY_GUTTER}•${SUMMARY_GUTTER}" "$right"
+    printf "%s  %s  %s" "$left" "$dot_sep" "$right"
   else
     printf "%s" "$left"
   fi
@@ -292,6 +307,8 @@ format_footer_sync_fragment() {
       ;;
   esac
 
+  local dot="●"
+  output_supports_unicode || dot="*"
   local text="${name} ${state}"
   case "$result" in
     skipped|failed|error)
@@ -300,10 +317,12 @@ format_footer_sync_fragment() {
       fi
       ;;
   esac
+  local dot_colored
+  dot_colored="$(colorize "$dot" "$tone")"
   if [[ "$tone" != "green" ]]; then
     text="$(colorize "$text" "$tone")"
   fi
-  printf "%s" "$text"
+  printf "%s %s" "$dot_colored" "$text"
 }
 
 format_run_cost_value() {
@@ -360,7 +379,25 @@ print_run_exit_footer() {
   local cost_text=""
   local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
   if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
-    cost_text="${cost_prefix}$(format_run_cost_value "${USAGE_PUSH_COST}")"
+    local cost_raw="${USAGE_PUSH_COST}"
+    local cost_formatted
+    cost_formatted="$(format_run_cost_value "$cost_raw")"
+    # Colorize cost by magnitude.
+    local cost_tone=""
+    if [[ "$cost_raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      if LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 10) }' 2>/dev/null; then
+        cost_tone="orange"
+      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 2) }' 2>/dev/null; then
+        cost_tone="yellow"
+      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v < 0.50) }' 2>/dev/null; then
+        cost_tone="green"
+      fi
+    fi
+    if [[ -n "$cost_tone" ]]; then
+      cost_text="${cost_prefix}$(colorize "$cost_formatted" "$cost_tone")"
+    else
+      cost_text="${cost_prefix}${cost_formatted}"
+    fi
   else
     cost_text="${cost_prefix}unavailable (${cost_reason})"
     if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
@@ -376,12 +413,21 @@ print_run_exit_footer() {
     run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
     if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
       local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
+      local run_time_raw=""
       if (( run_elapsed_s == 0 )); then
-        run_time_text="${run_elapsed_ms}ms"
+        run_time_raw="${run_elapsed_ms}ms"
       elif (( run_elapsed_s < 60 )); then
-        run_time_text="${run_elapsed_s}s"
+        run_time_raw="${run_elapsed_s}s"
       else
-        run_time_text="$(format_duration_short "$run_elapsed_s")"
+        run_time_raw="$(format_duration_short "$run_elapsed_s")"
+      fi
+      # Colorize by duration.
+      if (( run_elapsed_s < 60 )); then
+        run_time_text="$(colorize "$run_time_raw" "green")"
+      elif (( run_elapsed_s > 300 )); then
+        run_time_text="$(colorize "$run_time_raw" "yellow")"
+      else
+        run_time_text="$run_time_raw"
       fi
     fi
   fi
@@ -390,23 +436,17 @@ print_run_exit_footer() {
   local auth_sync=""
   usage_sync="$(format_footer_sync_fragment "usage" "${USAGE_PUSH_RESULT:-}" "${USAGE_PUSH_REASON:-}")"
   auth_sync="$(format_footer_sync_fragment "auth" "${AUTH_PUSH_RESULT:-}" "${AUTH_PUSH_REASON:-}")"
-  local sync_text="${usage_sync}; ${auth_sync}"
-
-  local footer_row_labels=("$usage_label" "$cost_label" "$run_time_label" "$sync_label")
-  local saved_row_label_width="$ROW_LABEL_WIDTH"
-  ROW_LABEL_WIDTH="$(compute_row_label_width "${footer_row_labels[@]}")"
+  local sync_text="${usage_sync}  ${auth_sync}"
 
   log_info "$(summary_divider)"
   log_info "$(summary_header "Run summary")"
-  log_info "$(format_simple_row "$usage_label" "$usage_text")"
-  log_info "$(format_simple_row "$cost_label" "$cost_text")"
+  log_info "$(summary_row "$usage_label" "$usage_text")"
+  log_info "$(summary_row "$cost_label" "$cost_text")"
   if [[ -n "$run_time_text" ]]; then
-    log_info "$(format_simple_row "$run_time_label" "$run_time_text")"
+    log_info "$(summary_row "$run_time_label" "$run_time_text")"
   fi
-  log_info "$(format_simple_row "$sync_label" "$sync_text")"
+  log_info "$(summary_row "$sync_label" "$sync_text")"
   log_info "$(summary_divider)"
-
-  ROW_LABEL_WIDTH="$saved_row_label_width"
 }
 
 section_bullet() {
