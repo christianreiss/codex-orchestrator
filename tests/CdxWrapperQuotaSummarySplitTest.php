@@ -40,7 +40,7 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('quota_lane_display="${quota_lane_display} ⚡"', $wrapperSource);
+        self::assertStringContainsString('quota_lane_display="${quota_lane_display} ⚡︎"', $wrapperSource);
         self::assertStringContainsString('quota_lane_display="${quota_lane_display} (fast)"', $wrapperSource);
         self::assertStringContainsString('if [[ "$quota_lane_label" == "spark" && -n "$CHATGPT_SPARK_LIMIT_NAME" ]]; then', $wrapperSource);
     }

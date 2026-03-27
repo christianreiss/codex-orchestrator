@@ -85,7 +85,7 @@
   quota_lane_display="${quota_lane_label}"
   if [[ "$quota_lane_display" == "spark" ]]; then
     if output_supports_unicode; then
-      quota_lane_display="${quota_lane_display} ⚡"
+      quota_lane_display="${quota_lane_display} ⚡︎"
     else
       quota_lane_display="${quota_lane_display} (fast)"
     fi

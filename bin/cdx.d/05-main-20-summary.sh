@@ -1163,7 +1163,7 @@ print_boot_screen() {
     for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
       local prefix=""
       if (( ${q_spark[qi]} )); then
-        local spark_ch="⚡"
+        local spark_ch="⚡︎"
         output_supports_unicode || spark_ch="S"
         prefix="${spark_ch} "
       fi
