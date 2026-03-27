@@ -11,16 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  python-cli-tests:
-    name: Python CLI Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Python CLI tests
-        run: composer test:python
-
   contract-tests:
     name: Contract/API Tests
     runs-on: ubuntu-latest

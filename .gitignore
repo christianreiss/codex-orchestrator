@@ -4,11 +4,11 @@
 /storage/*.db
 /vendor
 /storage/backups/
+/storage/phpstan/
 .env.local
 __pycache__/
 *.pyc
+/.phpunit.cache/
 /.home/
 /.docker-config/
 /.ssh/
-spawner.log
-.spawner-state.json
