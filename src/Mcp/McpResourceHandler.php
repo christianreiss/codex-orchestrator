@@ -532,11 +532,6 @@ class McpResourceHandler
         return 'memory://' . rawurlencode($id);
     }
 
-    private function projectUri(string $slug): string
-    {
-        return 'project://' . rawurlencode($slug);
-    }
-
     private function skillUri(string $slug): string
     {
         return 'skill://' . rawurlencode($slug);
