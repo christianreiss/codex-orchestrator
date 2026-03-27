@@ -243,7 +243,7 @@ compact_display_path() {
     return 0
   fi
   if [[ -n "${HOME:-}" && "$path" == "$HOME/"* ]]; then
-    printf '~/%s' "${path#"$HOME"/}"
+    printf ~/%s "${path#"$HOME"/}"
     return 0
   fi
   printf '%s' "$path"

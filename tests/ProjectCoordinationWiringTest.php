@@ -2,9 +2,87 @@
 
 declare(strict_types=1);
 
+use App\Repositories\LogRepository;
+use App\Repositories\SkillRepository;
+use App\Services\ProjectModuleService;
+use App\Services\SkillService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
+
+final class ProjectCoordinationWiringSkillRepository extends SkillRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function all(bool $includeDeleted = false): array
+    {
+        return [];
+    }
+
+    public function findBySlug(string $slug): ?array
+    {
+        return null;
+    }
+
+    public function upsert(
+        string $slug,
+        string $sha256,
+        ?string $displayName,
+        ?string $description,
+        string $manifest,
+        ?int $sourceHostId
+    ): array {
+        return [];
+    }
+
+    public function delete(string $slug): bool
+    {
+        return false;
+    }
+}
+
+final class ProjectCoordinationWiringLogRepository extends LogRepository
+{
+    public function __construct()
+    {
+    }
+
+    public function log(?int $hostId, string $action, array $details = []): void
+    {
+    }
+}
+
+final class ProjectCoordinationWiringProjectModuleService extends ProjectModuleService
+{
+    public function __construct()
+    {
+    }
+
+    public function isEnabled(): bool
+    {
+        return true;
+    }
+
+    public function managedSkill(): ?array
+    {
+        $manifest = "# Managed CoCo\n";
+
+        return [
+            'id' => null,
+            'slug' => self::MANAGED_SKILL_SLUG,
+            'uri' => self::MANAGED_SKILL_URI,
+            'sha256' => hash('sha256', $manifest),
+            'display_name' => 'CoCo Projects',
+            'description' => 'Managed project coordination skill',
+            'manifest' => $manifest,
+            'updated_at' => '2026-03-27T12:00:00Z',
+            'deleted_at' => null,
+            'managed' => true,
+        ];
+    }
+}
 
 final class ProjectCoordinationWiringTest extends TestCase
 {
@@ -78,11 +156,24 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString('await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: \'DELETE\' });', $js);
     }
 
-    public function testStartupSyncCarriesManagedSkillMetadata(): void
+    public function testManagedSkillMetadataIsServedThroughSkillService(): void
     {
-        $source = file_get_contents(__DIR__ . '/../src/Services/StartupSyncService.php');
-        $this->assertIsString($source);
+        $service = new SkillService(
+            new ProjectCoordinationWiringSkillRepository(),
+            new ProjectCoordinationWiringLogRepository(),
+            new ProjectCoordinationWiringProjectModuleService()
+        );
 
-        $this->assertStringContainsString("'managed' => !empty(\$row['managed'])", $source);
+        $skills = $service->listSkills();
+        $retrieved = $service->retrieve('coco', null, null);
+
+        $this->assertCount(1, $skills);
+        $this->assertSame('coco', $skills[0]['slug']);
+        $this->assertSame('skill://coco', $skills[0]['uri']);
+        $this->assertTrue($skills[0]['managed']);
+        $this->assertSame('updated', $retrieved['status']);
+        $this->assertSame('skill://coco', $retrieved['uri']);
+        $this->assertTrue($retrieved['managed']);
+        $this->assertStringContainsString('# Managed CoCo', $retrieved['manifest']);
     }
 }

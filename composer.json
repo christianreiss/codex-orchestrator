@@ -20,7 +20,12 @@
         }
     },
     "scripts": {
-        "test": "vendor/bin/phpunit -c phpunit.xml.dist",
+        "test:phpunit": "vendor/bin/phpunit -c phpunit.xml.dist",
+        "test:python": "python3 -m unittest tests.spawner_cli_test",
+        "test": [
+            "@test:phpunit",
+            "@test:python"
+        ],
         "test:contracts": [
             "php scripts/verify-interface-contracts.php",
             "vendor/bin/phpunit -c phpunit.xml.dist tests/ContractSchemasTest.php tests/AuthServiceContractResponsesTest.php tests/AuthReasonContractsTest.php"
