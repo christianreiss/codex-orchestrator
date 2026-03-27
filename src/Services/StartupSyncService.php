@@ -14,7 +14,6 @@ namespace App\Services;
 class StartupSyncService
 {
     public function __construct(
-        private readonly SlashCommandService $slashCommands,
         private readonly AgentsService $agents,
         private readonly ClientConfigService $configs
     ) {
@@ -22,14 +21,10 @@ class StartupSyncService
 
     public function collect(array $payload, array $host, string $baseUrl, string $apiKey, bool $includeContent = false): array
     {
-        $slash = $this->collectSlashCommands($payload['slash_commands'] ?? null, $host, $includeContent);
         $agents = $this->collectAgents($payload['agents'] ?? null, $host, $includeContent);
         $config = $this->collectConfig($payload, $host, $baseUrl, $apiKey, $includeContent);
 
         $reasons = [];
-        if ($slash['changed_count'] > 0) {
-            $reasons[] = 'slash_commands_changed';
-        }
         if (!empty($agents['changed'])) {
             $reasons[] = 'agents_changed';
         }
@@ -40,101 +35,8 @@ class StartupSyncService
         return [
             'status' => $reasons === [] ? 'ok' : 'update',
             'reasons' => $reasons,
-            'slash_commands' => $slash,
             'agents' => $agents,
             'config' => $config,
-        ];
-    }
-
-    private function collectSlashCommands(mixed $payload, ?array $host, bool $includeContent): array
-    {
-        $local = $this->normalizeNamedShaMap($payload, 'filename');
-        $rows = $this->slashCommands->listCommands($host, true);
-
-        $remote = [];
-        $changed = [];
-        $updatedCount = 0;
-        $removedCount = 0;
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $filename = trim((string) ($row['filename'] ?? ''));
-            if ($filename === '') {
-                continue;
-            }
-
-            $remoteSha = $this->normalizeSha($row['sha256'] ?? null);
-            $deletedAt = isset($row['deleted_at']) && is_string($row['deleted_at']) && trim($row['deleted_at']) !== ''
-                ? (string) $row['deleted_at']
-                : null;
-            $isDeleted = $deletedAt !== null;
-            $localHas = array_key_exists($filename, $local);
-            $localSha = $localHas ? $local[$filename] : null;
-
-            $remote[] = [
-                'filename' => $filename,
-                'sha256' => $remoteSha,
-                'deleted_at' => $deletedAt,
-            ];
-
-            if ($isDeleted) {
-                if (!$localHas) {
-                    continue;
-                }
-
-                $removedCount++;
-                $changed[] = [
-                    'filename' => $filename,
-                    'status' => 'deleted',
-                    'deleted_at' => $deletedAt,
-                ];
-                continue;
-            }
-
-            $matches = $localHas
-                && $localSha !== null
-                && $remoteSha !== null
-                && hash_equals($remoteSha, $localSha);
-
-            if ($matches) {
-                continue;
-            }
-
-            $updatedCount++;
-            $entry = [
-                'filename' => $filename,
-                'status' => 'updated',
-                'sha256' => $remoteSha,
-                'description' => isset($row['description']) ? (string) $row['description'] : null,
-                'argument_hint' => isset($row['argument_hint']) ? (string) $row['argument_hint'] : null,
-                'updated_at' => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
-            ];
-
-            if ($includeContent) {
-                $doc = $this->slashCommands->find($filename);
-                if ($doc !== null) {
-                    $entry['prompt'] = (string) ($doc['prompt'] ?? '');
-                    $entry['sha256'] = $this->normalizeSha($doc['sha256'] ?? null) ?? $entry['sha256'];
-                    $entry['description'] = isset($doc['description']) ? (string) $doc['description'] : $entry['description'];
-                    $entry['argument_hint'] = isset($doc['argument_hint']) ? (string) $doc['argument_hint'] : $entry['argument_hint'];
-                    $entry['updated_at'] = isset($doc['updated_at']) ? (string) $doc['updated_at'] : $entry['updated_at'];
-                }
-            }
-
-            $changed[] = $entry;
-        }
-
-        return [
-            'status' => $changed === [] ? 'unchanged' : 'updated',
-            'changed_count' => count($changed),
-            'updated_count' => $updatedCount,
-            'removed_count' => $removedCount,
-            'remote_count' => count($remote),
-            'local_count' => count($local),
-            'remote' => $remote,
-            'changed' => $changed,
         ];
     }
 
@@ -189,38 +91,6 @@ class StartupSyncService
             'content' => $includeContent ? ($result['content'] ?? null) : null,
         ];
     }
-
-    /**
-     * @return array<string, string|null>
-     */
-    private function normalizeNamedShaMap(mixed $payload, string $key): array
-    {
-        $items = [];
-        if (is_array($payload)) {
-            if (array_key_exists('items', $payload) && is_array($payload['items'])) {
-                $items = $payload['items'];
-            } else {
-                $items = $payload;
-            }
-        }
-
-        $normalized = [];
-        foreach ($items as $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-
-            $name = trim((string) ($entry[$key] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-
-            $normalized[$name] = $this->normalizeSha($entry['sha256'] ?? null);
-        }
-
-        return $normalized;
-    }
-
     private function normalizeSha(mixed $value): ?string
     {
         if (!is_string($value)) {

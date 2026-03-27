@@ -3,42 +3,8 @@
   "data": {
     "status": "update",
     "reasons": [
-      "slash_commands_changed",
       "auth_stored"
     ],
-    "slash_commands": {
-      "status": "updated",
-      "changed_count": 2,
-      "updated_count": 1,
-      "removed_count": 1,
-      "remote_count": 2,
-      "local_count": 2,
-      "remote": [
-        {
-          "filename": "deploy.md",
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "deleted_at": null
-        },
-        {
-          "filename": "legacy.md",
-          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "deleted_at": "2026-02-22T11:50:00Z"
-        }
-      ],
-      "changed": [
-        {
-          "filename": "deploy.md",
-          "status": "updated",
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "prompt": "# Deploy"
-        },
-        {
-          "filename": "legacy.md",
-          "status": "deleted",
-          "deleted_at": "2026-02-22T11:50:00Z"
-        }
-      ]
-    },
     "agents": {
       "status": "updated",
       "changed": true,

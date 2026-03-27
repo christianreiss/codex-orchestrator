@@ -582,10 +582,6 @@ body[data-view="mobile"] .command-box {
   align-items: flex-start;
 }
 
-body[data-view="mobile"] #prompts-panel .table-wrap {
-  margin-top: 8px;
-}
-
 body[data-view="mobile"] .log-actions {
   width: 100%;
   flex-direction: column;

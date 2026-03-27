@@ -190,49 +190,6 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
   fi
 fi
 
-prompt_label="sync skipped"
-prompt_tone="yellow"
-if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
-  prompt_label="synced"
-  counts=()
-  if [[ "$PROMPT_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("local ${PROMPT_LOCAL_COUNT}")
-  fi
-  if [[ "$PROMPT_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("remote ${PROMPT_REMOTE_COUNT}")
-  fi
-  if (( ${#counts[@]} )); then
-    prompt_label+=" ($(join_with_semicolon "${counts[@]}"))"
-  fi
-  if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
-    prompt_label+=" (${PROMPT_PULL_UPDATED} updated)"
-  fi
-  if [[ "$PROMPT_REMOVED" =~ ^[0-9]+$ ]] && (( PROMPT_REMOVED > 0 )); then
-    prompt_label+=" (${PROMPT_REMOVED} removed)"
-  fi
-  if [[ "$PROMPT_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_ERRORS > 0 )); then
-    prompt_label+=" (${PROMPT_PULL_ERRORS} fetch errors)"
-    prompt_tone="yellow"
-  else
-    prompt_tone="green"
-  fi
-elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
-  prompt_label="sync config missing"
-  prompt_tone="red"
-elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
-  prompt_label="sync requires python3"
-  prompt_tone="yellow"
-elif [[ "$PROMPT_SYNC_STATUS" == "offline" ]]; then
-  prompt_label="sync unavailable"
-  if [[ -n "$PROMPT_SYNC_REASON" ]]; then
-    prompt_label+=" (${PROMPT_SYNC_REASON})"
-  fi
-  prompt_tone="yellow"
-elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
-  prompt_label="sync failed"
-  prompt_tone="red"
-fi
-
 skill_label="skills via MCP"
 skill_tone="green"
 if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
@@ -315,32 +272,6 @@ elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
   config_tone="red"
 fi
 
-case "$PROMPT_PUSH_STATUS" in
-  ok)
-    if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
-      prompt_label+="; pushed ${PROMPT_PUSHED}"
-    fi
-    if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
-      prompt_label+="; push errors ${PROMPT_PUSH_ERRORS}"
-      prompt_tone="yellow"
-    fi
-    ;;
-  no-baseline)
-    prompt_label+="; push skipped (no baseline)"
-    ;;
-  no-python)
-    prompt_label+="; push skipped (python missing)"
-    ;;
-  missing-config)
-    prompt_label+="; push skipped (config missing)"
-    prompt_tone="red"
-    ;;
-  error)
-    prompt_label+="; push failed"
-    prompt_tone="red"
-    ;;
-esac
-
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
@@ -402,44 +333,6 @@ elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
   fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   result_parts+=("auth unavailable")
-fi
-if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
-  prompt_result="prompts synced"
-  if [[ "$PROMPT_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    prompt_result+=" (local ${PROMPT_LOCAL_COUNT}"
-    if [[ "$PROMPT_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-      prompt_result+=", remote ${PROMPT_REMOTE_COUNT}"
-    fi
-    prompt_result+=")"
-  fi
-  if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
-    prompt_result+=" (${PROMPT_PULL_UPDATED} updated)"
-  fi
-  if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
-    prompt_result+="; pushed ${PROMPT_PUSHED}"
-  fi
-  if [[ "$PROMPT_REMOVED" =~ ^[0-9]+$ ]] && (( PROMPT_REMOVED > 0 )); then
-    prompt_result+="; removed ${PROMPT_REMOVED}"
-  fi
-  if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
-    prompt_result+="; push errors ${PROMPT_PUSH_ERRORS}"
-  fi
-  result_parts+=("$prompt_result")
-elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
-  result_parts+=("prompts config missing")
-elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
-  result_parts+=("prompts python missing")
-elif [[ "$PROMPT_SYNC_STATUS" == "offline" ]]; then
-  if [[ -n "$PROMPT_SYNC_REASON" ]]; then
-    result_parts+=("prompts offline (${PROMPT_SYNC_REASON})")
-  else
-    result_parts+=("prompts offline")
-  fi
-elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
-  result_parts+=("prompts sync failed")
-fi
-if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
-  result_parts+=("prompts push failed")
 fi
 skill_result="skills via MCP"
 if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
@@ -558,12 +451,6 @@ elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
 elif [[ "$(lowercase "$codex_status_label")" == "update available" ]] || [[ "$(lowercase "$wrapper_status_label")" == "update available" ]]; then
   result_tone="yellow"
-elif [[ "$PROMPT_SYNC_STATUS" == "error" || "$PROMPT_PUSH_STATUS" == "error" ]]; then
-  result_tone="red"
-elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; then
-  result_tone="yellow"
-elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
-  result_tone="yellow"
 elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   result_tone="red"
 elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
@@ -584,11 +471,6 @@ if (( ! HOST_IS_SECURE )); then
     && (( ! wrapper_updated )) && (( ! wrapper_update_failed )) \
     && [[ "$AUTH_PULL_STATUS" == "ok" ]] \
     && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]] \
-    && [[ "$PROMPT_SYNC_STATUS" == "ok" ]] \
-    && [[ "${PROMPT_PULL_UPDATED:-0}" == "0" ]] \
-    && [[ "${PROMPT_PUSHED:-0}" == "0" ]] \
-    && [[ "${PROMPT_REMOVED:-0}" == "0" ]] \
-    && [[ "${PROMPT_PUSH_ERRORS:-0}" == "0" ]] \
     && [[ "$SKILL_SYNC_STATUS" == "mcp" ]] \
     && [[ "$AGENTS_SYNC_STATUS" == "ok" ]] \
     && [[ "$AGENTS_STATE" == "unchanged" ]] \

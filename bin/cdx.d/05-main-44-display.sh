@@ -21,7 +21,7 @@
     ROW_LABEL_WIDTH="$(compute_row_label_width "${summary_row_labels[@]}")"
 
     if (( CODEX_MINIMAL_OUTPUT )); then
-      minimal_health_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
+      minimal_health_line="api=${api_tone} auth=${auth_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
       if [[ -n "$agents_label" ]]; then
         minimal_health_line+=" agents=${agents_tone}"
       fi

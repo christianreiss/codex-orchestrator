@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 use App\Config;
 use App\Database;
+use App\DatabaseMigrator;
 use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Http\Response;
@@ -45,7 +46,6 @@ use App\Repositories\ProjectFileRepository;
 use App\Repositories\ProjectNoteRepository;
 use App\Repositories\ProjectRepository;
 use App\Repositories\ProjectTodoRepository;
-use App\Repositories\SlashCommandRepository;
 use App\Repositories\AgentsRepository;
 use App\Repositories\SkillRepository;
 use App\Repositories\MemoryRepository;
@@ -64,7 +64,6 @@ use App\Services\CostHistoryService;
 use App\Services\ProjectCoordinationService;
 use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
-use App\Services\SlashCommandService;
 use App\Services\AgentsService;
 use App\Services\SkillService;
 use App\Services\MemoryService;
@@ -96,9 +95,9 @@ use App\Http\Controllers\InstallController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ConfigApiController;
 use App\Http\Controllers\ProjectApiController;
-use App\Http\Controllers\SlashCommandApiController;
 use App\Http\Controllers\HostApiController;
 use App\Http\Controllers\McpRouteController;
+use App\Http\Controllers\SkillApiController;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -157,8 +156,8 @@ $dbConfig = [
 ];
 $database = new Database($dbConfig);
 // Avoid running full schema DDL on every request (can add seconds of latency under Apache/mod_php).
-// Use a durable sentinel keyed to the Database.php content hash so schema changes trigger a new migrate.
-$schemaHash = hash_file('sha256', $root . '/src/Database.php') ?: '';
+// Use a durable sentinel keyed to the schema source fingerprint so migration edits trigger a new migrate.
+$schemaHash = DatabaseMigrator::schemaFingerprint($root);
 $schemaKey = $schemaHash !== '' ? substr($schemaHash, 0, 12) : 'unknown';
 $sentinelDir = $root . '/storage/wrapper';
 if (!is_dir($sentinelDir)) {
@@ -226,7 +225,6 @@ $mailer = new Mailer();
 $insecureAuthRequestRepository = new InsecureAuthRequestRepository($database);
 $insecureDomainAllowRepository = new InsecureDomainAllowRepository($database);
 $chatGptUsageRepository = new ChatGptUsageRepository($database);
-$slashCommandRepository = new SlashCommandRepository($database);
 $skillRepository = new SkillRepository($database);
 $agentsRepository = new AgentsRepository($database);
 $memoryRepository = new MemoryRepository($database);
@@ -309,7 +307,6 @@ $adminPasskeyService = new AdminPasskeyService(
     $logRepository
 );
 $GLOBALS['adminAuthService'] = $adminAuthService;
-$slashCommandService = new SlashCommandService($slashCommandRepository, $logRepository);
 $projectModuleService = new ProjectModuleService($versionRepository);
 $skillService = new SkillService($skillRepository, $logRepository, $projectModuleService);
 $agentsService = new AgentsService($agentsRepository, $logRepository);
@@ -326,7 +323,7 @@ $projectCoordinationService = new ProjectCoordinationService(
 );
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
-$startupSyncService = new StartupSyncService($slashCommandService, $agentsService, $clientConfigService);
+$startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -426,14 +423,14 @@ $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository
 $adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository);
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository);
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $pricingModel);
-$adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $slashCommandRepository, $slashCommandService, $mcpAccessLogRepository);
+$adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
 $authCtrl = new AuthController($service, $chatGptUsageService, $startupSyncService, $versionRepository);
 $configApiCtrl = new ConfigApiController($service, $agentsService, $clientConfigService);
 $projectApiCtrl = new ProjectApiController($service, $projectCoordinationService, $memoryService);
-$slashCommandApiCtrl = new SlashCommandApiController($service, $slashCommandService, $skillService);
+$skillApiCtrl = new SkillApiController($service, $skillService);
 $hostApiCtrl = new HostApiController($service, $hostRepository, $logRepository, $versionRepository);
 $mcpRouteCtrl = new McpRouteController($service, $mcpServer, $mcpAccessLogRepository);
 
@@ -453,7 +450,7 @@ $router->add('GET', '#^/admin/hosts/(\d+)$#', fn() => $adminPageCtrl->host());
 $router->add('GET', '#^/admin/dashboard$#', fn() => $adminPageCtrl->dashboard());
 $router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', fn() => $adminPageCtrl->account());
 $router->add('GET', '#^/admin/settings$#', fn() => $adminPageCtrl->settings());
-$router->add('GET', '#^/admin/settings/(general|agents|prompts|memories|projects|profiles|skills|config)$#', fn() => $adminPageCtrl->settingsSection());
+$router->add('GET', '#^/admin/settings/(general|agents|memories|projects|profiles|skills|config)$#', fn() => $adminPageCtrl->settingsSection());
 $router->add('GET', '#^/admin/hosts/secure$#', fn() => $adminPageCtrl->hostsSecure());
 $router->add('GET', '#^/admin/hosts/unprovisioned$#', fn() => $adminPageCtrl->hostsUnprovisioned());
 $router->add('GET', '#^/admin/logs/(mcp|events)$#', fn() => $adminPageCtrl->logs());
@@ -591,12 +588,6 @@ $router->add('DELETE', '#^/admin/agents/versions/(\d+)$#', fn($id) => $adminConf
 $router->add('GET', '#^/admin/mcp/memories$#', fn() => $adminConfigCtrl->memories());
 $router->add('DELETE', '#^/admin/mcp/memories/(\d+)$#', fn($id) => $adminConfigCtrl->memoriesDelete($id));
 
-// Admin slash commands
-$router->add('GET', '#^/admin/slash-commands$#', fn() => $adminConfigCtrl->slashCommands());
-$router->add('GET', '#^/admin/slash-commands/([^/]+)$#', fn($f) => $adminConfigCtrl->slashCommandShow($f));
-$router->add('POST', '#^/admin/slash-commands/store$#', fn() => $adminConfigCtrl->slashCommandStore($payload));
-$router->add('DELETE', '#^/admin/slash-commands/([^/]+)$#', fn($f) => $adminConfigCtrl->slashCommandDelete($f));
-
 // Admin skills
 $router->add('GET', '#^/admin/skills$#', fn() => $adminConfigCtrl->skills());
 $router->add('GET', '#^/admin/skills/([^/]+)$#', fn($slug) => $adminConfigCtrl->skillShow($slug));
@@ -674,15 +665,10 @@ $router->add('DELETE', '#^/mcp/memories/([^/]+)$#', fn($id) => $projectApiCtrl->
 $router->add('POST', '#^/mcp/memories/retrieve$#', fn() => $projectApiCtrl->memoriesRetrieve($payload));
 $router->add('POST', '#^/mcp/memories/search$#', fn() => $projectApiCtrl->memoriesSearch($payload));
 
-// Slash commands API
-$router->add('GET', '#^/slash-commands$#', fn() => $slashCommandApiCtrl->listCommands());
-$router->add('POST', '#^/slash-commands/retrieve$#', fn() => $slashCommandApiCtrl->retrieveCommand($payload));
-$router->add('POST', '#^/slash-commands/store$#', fn() => $slashCommandApiCtrl->storeCommand($payload));
-
 // Skills API
-$router->add('GET', '#^/skills$#', fn() => $slashCommandApiCtrl->listSkills());
-$router->add('POST', '#^/skills/retrieve$#', fn() => $slashCommandApiCtrl->retrieveSkill($payload));
-$router->add('POST', '#^/skills/store$#', fn() => $slashCommandApiCtrl->storeSkill($payload));
+$router->add('GET', '#^/skills$#', fn() => $skillApiCtrl->listSkills());
+$router->add('POST', '#^/skills/retrieve$#', fn() => $skillApiCtrl->retrieveSkill($payload));
+$router->add('POST', '#^/skills/store$#', fn() => $skillApiCtrl->storeSkill($payload));
 
 // Host API
 $router->add('POST', '#^/host/users$#', fn() => $hostApiCtrl->recordUsers($payload));

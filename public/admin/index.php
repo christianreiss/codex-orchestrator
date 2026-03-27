@@ -126,7 +126,7 @@ try {
     ]);
 
     // Keep schema bootstrap behavior aligned with public/index.php.
-    $schemaHash = hash_file('sha256', $root . '/src/Database.php') ?: '';
+    $schemaHash = App\DatabaseMigrator::schemaFingerprint($root);
     $schemaKey = $schemaHash !== '' ? substr($schemaHash, 0, 12) : 'unknown';
     $sentinelDir = $root . '/storage/wrapper';
     if (!is_dir($sentinelDir)) {

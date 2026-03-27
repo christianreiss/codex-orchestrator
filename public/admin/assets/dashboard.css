@@ -1680,23 +1680,6 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
     .daily-note { font-size: 11px; color: var(--muted); margin-left: 6px; }
     .overline { margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; }
     .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-    /* Slash commands table follows shared palette */
-    #prompts-panel table thead tr {
-      background: var(--table-header);
-      border-bottom: 1px solid var(--accent-ring);
-    }
-    #prompts-panel table th {
-      color: var(--accent-2);
-      letter-spacing: 0.08em;
-    }
-    #prompts-panel tbody tr:nth-child(odd) { background: var(--table-row); }
-    #prompts-panel tbody tr:nth-child(even) { background: var(--table-row-alt); }
-    #prompts-panel tbody tr { border-bottom: 1px solid var(--panel-strong); }
-    #prompts-panel tbody td code {
-      background: rgba(var(--accent-rgb),0.12);
-      color: var(--accent);
-      border: 1px solid rgba(var(--accent-rgb),0.25);
-    }
     .error { color: var(--danger); font-weight: 700; }
     /* Modal */
     .modal-backdrop {
@@ -2865,9 +2848,6 @@ body.auth-locked .rail-tools {
 }
 .group-toggle:hover {
   color: var(--accent);
-}
-.prompts-collapsed .table-wrap {
-  display: none;
 }
 .agents-preview .muted { color: rgba(229,231,235,0.7); }
 .agents-serve-row {

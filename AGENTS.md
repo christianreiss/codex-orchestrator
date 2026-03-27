@@ -28,10 +28,10 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight/recovery, token usage logging, and pruning.
 - `RunnerVerifier` probes `AUTH_RUNNER_URL`, validates uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
 - `WrapperService` seeds/stores the baked `bin/cdx`, tracks wrapper version/sha, and renders host-baked wrapper content for `/wrapper` + `/wrapper/download`.
-- `SlashCommandService`, `SkillService`, `AgentsService`, `ClientConfigService`, and `MemoryService` back slash-command, skill, AGENTS, config, and MCP-memory sync APIs/tables.
+- `SkillService`, `AgentsService`, `ClientConfigService`, and `MemoryService` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
 - `App\Security\RateLimiter` + `IpRateLimitRepository` enforce the `global` bucket (defaults 120/min) and `auth-fail` bucket (defaults 20 misses / 10 min with 30 min block).
 - `PricingService`, `UsageCostService`, and `CostHistoryService` refresh pricing, compute per-entry/aggregate costs for `/usage`, and expose up-to-180-day cost history.
-- MySQL schema is codified in `Database::migrate()`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, slash commands, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, pricing snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
+- MySQL schema is codified in `Database::migrate()`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, pricing snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
 
 ## Request Flow & Behavior Cheatsheet
 
@@ -55,7 +55,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 4. **Telemetry + sync extras**
    - `/usage` accepts `line` and/or numeric fields (`total`, `input`, `output`, `cached`, `reasoning`; commas allowed), stores per-entry + ingest rows, computes `cost`, and returns HTTP 200 with `recorded:false` if ingestion throws.
    - `/host/users` records username/hostname combos for uninstall cleanup and returns known users.
-   - `/slash-commands` + `/skills` list/retrieve/store prompt/skill documents by sha.
+   - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
    - `/host/lane` gets/sets lane preference (`normal`, `spark`, `null`) with insecure-window enforcement.
    - `/wrapper` returns host-baked wrapper metadata; `/wrapper/download` streams host-baked wrapper script with sha/etag headers.
@@ -67,7 +67,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.
    - `/admin/quota-mode` manages `quota_hard_fail`, `quota_limit_percent` (clamped 50–100), and `quota_week_partition` (`off|5|7`); `/admin/hosts/{id}/vip` forces warn-only behavior for VIP hosts.
-   - `/admin/usage*`, `/admin/chatgpt/usage*`, `/admin/config*`, `/admin/agents*`, `/admin/slash-commands*`, `/admin/skills*`, `/admin/mcp/*`, `/admin/logs`, `/admin/tokens`, and `/admin/ws/info` back dashboard operations.
+   - `/admin/usage*`, `/admin/chatgpt/usage*`, `/admin/config*`, `/admin/agents*`, `/admin/skills*`, `/admin/mcp/*`, `/admin/logs`, `/admin/tokens`, and `/admin/ws/info` back dashboard operations.
 
 ## Operational Checkpoints
 
@@ -82,7 +82,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 
 - Wrapper source is `bin/cdx` assembled from `bin/cdx.d/*.sh` via `scripts/build-cdx.sh`. Do not edit `bin/cdx` directly; edit fragments and rebuild.
 - `cdx` workflow:
-  - Acquires a run lock (unless `--allow-concurrent-sync`), pulls auth, then syncs slash commands, AGENTS.md, and config before launch.
+  - Acquires a run lock (unless `--allow-concurrent-sync`), pulls auth, prunes legacy prompt state, then syncs skills/AGENTS.md/config before launch.
   - Treat `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
   - Uses local-auth freshness windows of 24h (`MAX_LOCAL_AUTH_AGE_SECONDS`) and secure-host fallback up to 7 days (`MAX_LOCAL_AUTH_RECENT_SECONDS`) during API outages.
   - Reports host users, handles lane preference sync via `/host/lane`, parses Codex token output, and POSTs `/usage`.

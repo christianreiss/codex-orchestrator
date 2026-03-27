@@ -15,9 +15,9 @@ final class CdxWrapperRunFooterTest extends TestCase
         self::assertStringContainsString('print_run_exit_footer() {', $wrapperSource);
         self::assertStringContainsString('usage_label="Run usage"', $wrapperSource);
         self::assertStringContainsString('sync_label="Sync"', $wrapperSource);
-        self::assertStringContainsString('format_simple_row "$usage_label" "$usage_text"', $wrapperSource);
-        self::assertStringContainsString('format_simple_row "$cost_label" "$cost_text"', $wrapperSource);
-        self::assertStringContainsString('format_simple_row "$sync_label" "$sync_text"', $wrapperSource);
+        self::assertStringContainsString('summary_row "$usage_label" "$usage_text"', $wrapperSource);
+        self::assertStringContainsString('summary_row "$cost_label" "$cost_text"', $wrapperSource);
+        self::assertStringContainsString('summary_row "$sync_label" "$sync_text"', $wrapperSource);
         self::assertStringContainsString('print_run_exit_footer || true', $wrapperSource);
     }
 
@@ -71,6 +71,7 @@ final class CdxWrapperRunFooterTest extends TestCase
         // Sub-cent values use 4 decimal places; larger amounts use 2.
         self::assertStringContainsString('LC_NUMERIC=C printf "%.4f" "$raw"', $wrapperSource);
         self::assertStringContainsString('LC_NUMERIC=C printf "%.2f" "$raw"', $wrapperSource);
-        self::assertStringContainsString('cost_text="${cost_prefix}$(format_run_cost_value "${USAGE_PUSH_COST}")"', $wrapperSource);
+        self::assertStringContainsString('cost_formatted="$(format_run_cost_value "$cost_raw")"', $wrapperSource);
+        self::assertStringContainsString('cost_text="${cost_prefix}${cost_formatted}"', $wrapperSource);
     }
 }

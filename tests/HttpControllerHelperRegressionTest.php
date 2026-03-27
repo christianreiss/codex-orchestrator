@@ -14,7 +14,7 @@ final class HttpControllerHelperRegressionTest extends TestCase
             __DIR__ . '/../src/Http/Controllers/HostApiController.php',
             __DIR__ . '/../src/Http/Controllers/McpRouteController.php',
             __DIR__ . '/../src/Http/Controllers/ProjectApiController.php',
-            __DIR__ . '/../src/Http/Controllers/SlashCommandApiController.php',
+            __DIR__ . '/../src/Http/Controllers/SkillApiController.php',
         ];
 
         foreach ($files as $file) {
@@ -26,16 +26,16 @@ final class HttpControllerHelperRegressionTest extends TestCase
 
     public function testCriticalControllersReferenceConcreteHelperClasses(): void
     {
-        $slash = file_get_contents(__DIR__ . '/../src/Http/Controllers/SlashCommandApiController.php');
+        $skill = file_get_contents(__DIR__ . '/../src/Http/Controllers/SkillApiController.php');
         $config = file_get_contents(__DIR__ . '/../src/Http/Controllers/ConfigApiController.php');
         $mcp = file_get_contents(__DIR__ . '/../src/Http/Controllers/McpRouteController.php');
 
-        self::assertIsString($slash);
+        self::assertIsString($skill);
         self::assertIsString($config);
         self::assertIsString($mcp);
 
-        self::assertStringContainsString('RequestHelper::resolveApiKey()', $slash);
-        self::assertStringContainsString('RequestHelper::resolveClientIp()', $slash);
+        self::assertStringContainsString('RequestHelper::resolveApiKey()', $skill);
+        self::assertStringContainsString('RequestHelper::resolveClientIp()', $skill);
         self::assertStringContainsString('RequestHelper::resolveApiKey()', $config);
         self::assertStringContainsString('RequestHelper::resolveBaseUrl()', $config);
         self::assertStringContainsString('RequestHelper::resolveApiKey()', $mcp);

@@ -27,14 +27,14 @@ final class CdxWrapperHelpPassthroughTest extends TestCase
 
         $helpExecPos = strpos($wrapperSource, 'exec "$CODEX_REAL_BIN" "$@"');
         $lockPos = strpos($wrapperSource, 'acquire_run_lock_or_mark_concurrent || true');
-        $motdPos = strpos($wrapperSource, "if (( ! CODEX_SKIP_MOTD )) && (( ! CODEX_SILENT )); then\n  print_motd\nfi");
+        $bootScreenPos = strpos($wrapperSource, 'print_boot_screen');
 
         self::assertNotFalse($helpExecPos, 'Expected help passthrough exec in wrapper source');
         self::assertNotFalse($lockPos, 'Expected concurrent guard bootstrap in wrapper source');
-        self::assertNotFalse($motdPos, 'Expected MOTD render path in wrapper source');
+        self::assertNotFalse($bootScreenPos, 'Expected boot screen render path in wrapper source');
         self::assertStringContainsString('is_codex_help_passthrough_invocation "$@"', $wrapperSource);
         self::assertLessThan($lockPos, $helpExecPos, 'Expected help passthrough to run before lock acquisition');
-        self::assertLessThan($motdPos, $helpExecPos, 'Expected help passthrough to run before MOTD rendering');
+        self::assertLessThan($bootScreenPos, $helpExecPos, 'Expected help passthrough to run before boot screen rendering');
     }
 
     public function testWrapperKeepsWrapperOwnedCommandsOutOfHelpPassthrough(): void

@@ -27,6 +27,6 @@ final class CdxWrapperInsecureResultTest extends TestCase
 
         self::assertStringContainsString('concurrent_compact_summary=1', $wrapperSource);
         self::assertStringContainsString('Using local auth.json.', $wrapperSource);
-        self::assertStringContainsString('print_section_rows "Concurrent"', $wrapperSource);
+        self::assertStringContainsString('ctx_parts+=("$(colorize "concurrent run" "yellow")")', $wrapperSource);
     }
 }

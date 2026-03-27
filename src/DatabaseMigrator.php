@@ -26,6 +26,39 @@ class DatabaseMigrator
     {
     }
 
+    public static function schemaFingerprint(string $root): string
+    {
+        $paths = [
+            $root . '/src/Database.php',
+            $root . '/src/DatabaseMigrator.php',
+        ];
+
+        foreach (glob($root . '/src/Migrations/*.php') ?: [] as $path) {
+            if (is_string($path)) {
+                $paths[] = $path;
+            }
+        }
+
+        $hash = hash_init('sha256');
+        foreach ($paths as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $data = @file_get_contents($path);
+            if (!is_string($data)) {
+                continue;
+            }
+
+            hash_update($hash, $path);
+            hash_update($hash, "\n");
+            hash_update($hash, $data);
+            hash_update($hash, "\n");
+        }
+
+        return hash_final($hash);
+    }
+
     public function migrate(): void
     {
         $collation = 'DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';

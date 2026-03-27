@@ -12,20 +12,7 @@ class ContentMigration implements MigrationInterface
     {
         $pdo->exec(
             <<<SQL
-            CREATE TABLE IF NOT EXISTS slash_commands (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                filename VARCHAR(255) NOT NULL UNIQUE,
-                sha256 CHAR(64) NOT NULL,
-                description TEXT NULL,
-                argument_hint VARCHAR(255) NULL,
-                prompt LONGTEXT NOT NULL,
-                source_host_id BIGINT UNSIGNED NULL,
-                created_at VARCHAR(100) NOT NULL,
-                updated_at VARCHAR(100) NOT NULL,
-                deleted_at VARCHAR(100) NULL,
-                INDEX idx_slash_commands_updated_at (updated_at),
-                CONSTRAINT fk_slash_commands_host FOREIGN KEY (source_host_id) REFERENCES hosts(id) ON DELETE SET NULL
-            ) ENGINE=InnoDB {$collation};
+            DROP TABLE IF EXISTS slash_commands;
             SQL
         );
 
@@ -115,7 +102,6 @@ class ContentMigration implements MigrationInterface
         );
 
         // Backfill columns.
-        $this->ensureColumnExists($pdo, $databaseName, 'slash_commands', 'deleted_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'skills', 'deleted_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'client_config_documents', 'settings', 'JSON NULL');

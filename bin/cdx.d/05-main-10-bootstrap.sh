@@ -80,8 +80,6 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
-  PROMPT_SYNC_STATUS="skip"
-  PROMPT_SYNC_REASON="active-run"
   SKILL_SYNC_STATUS="mcp"
   SKILL_SYNC_REASON=""
   AGENTS_SYNC_STATUS="skip"
@@ -100,10 +98,10 @@ else
   _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
   cdx_debug_phase "auth-sync" "$_t_auth"
+  cleanup_legacy_prompt_state || true
   sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
-    sync_slash_commands_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi

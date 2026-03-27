@@ -59,7 +59,6 @@
             </section>
             <section class="rail-section" aria-label="Authoring settings">
               <div class="rail-section-label">Authoring</div>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem"><span>Slash Commands</span><span class="rail-shortcut">[s][x]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem"><span>Skills</span><span class="rail-shortcut">[s][k]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem"><span>Memories</span><span class="rail-shortcut">[s][m]</span></a>
             </section>
@@ -356,31 +355,6 @@
             <div class="actions">
               <button class="ghost" id="upgradeGithubLink" type="button">Open on GitHub</button>
               <button class="ghost" id="upgradeClose">Close</button>
-            </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="promptModal" role="dialog" aria-modal="true">
-          <div class="modal">
-            <h3>Slash command</h3>
-            <div class="field">
-              <label for="promptFilename" class="modal-label">Filename</label>
-              <input type="text" id="promptFilename" placeholder="example.sh">
-            </div>
-            <div class="field">
-              <label for="promptDescription" class="modal-label">Description</label>
-              <input type="text" id="promptDescription" placeholder="Optional summary">
-            </div>
-            <div class="field">
-              <label for="promptArgument" class="modal-label">Argument hint</label>
-              <input type="text" id="promptArgument" placeholder="Optional usage hint">
-            </div>
-            <div class="field">
-              <label for="promptBody" class="modal-label">Prompt</label>
-              <textarea id="promptBody" rows="10" spellcheck="false" placeholder="---&#10;description: ...&#10;---&#10;Prompt body..."></textarea>
-            </div>
-            <div class="actions">
-              <button class="ghost" id="promptCancel">Cancel</button>
-              <button id="promptSave">Save</button>
             </div>
           </div>
         </div>
@@ -1048,7 +1022,6 @@
           <nav class="settings-mobile-nav" aria-label="Settings tabs">
             <a class="settings-tab settings-mobile-tab active" data-settings-tab="general" href="/admin/settings/general">General</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="agents" href="/admin/settings/agents">Agents</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="prompts" href="/admin/settings/prompts">Slash commands</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="memories" href="/admin/settings/memories">Memories</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
@@ -1060,7 +1033,6 @@
               <div class="settings-nav-list">
                 <a class="settings-tab settings-nav-link active" data-settings-tab="general" href="/admin/settings/general">General</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="agents" href="/admin/settings/agents">Agents</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="prompts" href="/admin/settings/prompts">Slash commands</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="memories" href="/admin/settings/memories">Memories</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
@@ -1294,34 +1266,6 @@
                 </table>
               </div>
             </div>
-          </section>
-          <section class="card panel" data-settings-panel="prompts" hidden>
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Slash commands</p>
-                <h2>Server-stored prompts</h2>
-                <p class="muted">Edit the prompts baked into hosts.</p>
-              </div>
-              <div class="panel-actions">
-                <button class="ghost tiny-btn" id="newCommandBtn">New</button>
-              </div>
-            </div>
-            <div class="panel-body">
-              <div class="table-wrap">
-                <table id="prompts">
-                  <thead>
-                    <tr>
-                      <th>File</th>
-                      <th>Description</th>
-                      <th>Argument</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-            <div class="muted panel-meta" id="promptStatus"></div>
           </section>
 	          <section class="card panel" data-settings-panel="memories" hidden>
 	            <div class="panel-head">

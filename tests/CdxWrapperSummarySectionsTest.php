@@ -12,11 +12,11 @@ final class CdxWrapperSummarySectionsTest extends TestCase
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('print_section_rows "Health"', $wrapperSource);
-        self::assertStringContainsString('print_section_rows "Versions"', $wrapperSource);
-        self::assertStringContainsString('print_section_rows "Usage"', $wrapperSource);
-        self::assertStringContainsString('print_section_rows "Quota"', $wrapperSource);
-        self::assertStringContainsString('print_section_rows "Result"', $wrapperSource);
+        self::assertStringContainsString('print_boot_screen() {', $wrapperSource);
+        self::assertStringContainsString('print_boot_banner "${info[@]}"', $wrapperSource);
+        self::assertStringContainsString('build_health_dot "api"', $wrapperSource);
+        self::assertStringContainsString('build_health_dot "auth"', $wrapperSource);
+        self::assertStringContainsString('build_health_dot "skills"', $wrapperSource);
     }
 
     public function testWrapperUsesReadableUsageLabels(): void
@@ -27,7 +27,7 @@ final class CdxWrapperSummarySectionsTest extends TestCase
 
         self::assertStringContainsString('API calls (host total)', $wrapperSource);
         self::assertStringContainsString('Tokens this month', $wrapperSource);
-        self::assertStringContainsString('5h window', $wrapperSource);
-        self::assertStringContainsString('Weekly window', $wrapperSource);
+        self::assertStringContainsString('q_labels+=("5h")', $wrapperSource);
+        self::assertStringContainsString('q_labels+=("weekly")', $wrapperSource);
     }
 }

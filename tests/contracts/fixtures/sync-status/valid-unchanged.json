@@ -3,27 +3,6 @@
   "data": {
     "status": "ok",
     "reasons": [],
-    "slash_commands": {
-      "status": "unchanged",
-      "changed_count": 0,
-      "updated_count": 0,
-      "removed_count": 0,
-      "remote_count": 2,
-      "local_count": 2,
-      "remote": [
-        {
-          "filename": "deploy.md",
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "deleted_at": null
-        },
-        {
-          "filename": "ops.md",
-          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "deleted_at": null
-        }
-      ],
-      "changed": []
-    },
     "agents": {
       "status": "unchanged",
       "changed": false,

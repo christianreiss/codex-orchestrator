@@ -2,9 +2,6 @@ cleanup() {
   local exit_status=$?
   trap - EXIT
   stop_codex_ipv4_proxy || true
-  if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
-    push_slash_commands_if_changed || true
-  fi
   if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
     push_auth_if_changed "push" || true
   fi

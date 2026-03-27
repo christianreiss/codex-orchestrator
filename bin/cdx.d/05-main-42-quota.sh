@@ -119,17 +119,6 @@
   fi
   health_rows+=("${bullet} Auth: ${auth_state}")
 
-  prompt_state="in sync"
-  if [[ "$prompt_tone" == "green" ]]; then
-    if [[ "$prompt_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
-      prompt_state="in sync (${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
-    fi
-  else
-    prompt_state="${prompt_label:-needs attention}"
-    prompt_state="$(colorize "$prompt_state" "$prompt_tone")"
-  fi
-  health_rows+=("${bullet} Prompts: ${prompt_state}")
-
   skill_state="in sync"
   if [[ "$skill_tone" == "green" ]]; then
     if [[ "$skill_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then

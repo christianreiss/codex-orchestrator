@@ -47,7 +47,6 @@ final class CdxWrapperIpv4SupportTest extends TestCase
         $httpHelper = $this->readFile(__DIR__ . '/../bin/cdx.d/00-prolog/10-python-http.sh');
         $proxyHelper = $this->readFile(__DIR__ . '/../bin/cdx.d/00-prolog/11-python-ipv4-proxy.sh');
         $authSync = $this->readFile(__DIR__ . '/../bin/cdx.d/02-auth-10-sync.sh');
-        $promptSync = $this->readFile(__DIR__ . '/../bin/cdx.d/03-sync-10-prompts.sh');
         $agentsSync = $this->readFile(__DIR__ . '/../bin/cdx.d/03-sync-30-agents.sh');
         $configSync = $this->readFile(__DIR__ . '/../bin/cdx.d/03-sync-40-config/10-config-sync-python.sh');
         $startupBundle = $this->readFile(__DIR__ . '/../bin/cdx.d/03-sync-40-config/20-startup-bundle-python.sh');
@@ -60,7 +59,6 @@ final class CdxWrapperIpv4SupportTest extends TestCase
         self::assertStringContainsString('socket.AF_INET', $httpHelper);
         self::assertStringContainsString('ThreadedTcpServer(("127.0.0.1", 0), ProxyHandler)', $proxyHelper);
         self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $authSync);
-        self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $promptSync);
         self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $agentsSync);
         self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $configSync);
         self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $startupBundle);
@@ -69,7 +67,6 @@ final class CdxWrapperIpv4SupportTest extends TestCase
         self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $updateScript);
         self::assertStringContainsString('CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}"', $summaryScript);
         self::assertStringContainsString('cdx_enable_force_ipv4()', $authSync);
-        self::assertStringContainsString('cdx_enable_force_ipv4()', $promptSync);
         self::assertStringContainsString('cdx_enable_force_ipv4()', $agentsSync);
         self::assertStringContainsString('cdx_enable_force_ipv4()', $configSync);
         self::assertStringContainsString('cdx_enable_force_ipv4()', $startupBundle);

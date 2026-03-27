@@ -8,7 +8,7 @@ This doc is the “day 2” guide: how to provision hosts and how to actually ru
 ## Roles (who does what)
 
 - **Operator / admin**: provisions hosts in the `/admin/` UI (or admin API), seeds canonical `auth.json`, manages secure/insecure windows, and handles quota / kill-switch policy.
-- **Host user**: runs `cdx …` on a provisioned machine to sync auth/config/prompts and launch the Codex CLI.
+- **Host user**: runs `cdx …` on a provisioned machine to sync auth/config/AGENTS and launch the Codex CLI.
 
 ## Preconditions
 
@@ -118,7 +118,7 @@ The installer does not run `cdx` automatically; run it here to sync/auth or to r
 The wrapper is the supported entrypoint because it:
 
 - Pulls/pushes canonical `auth.json` via `/auth`.
-- Syncs `~/.codex/config.toml`, `~/.codex/AGENTS.md`, and slash command prompts via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Skills are read through cdx/MCP `skill://{slug}` resources, and the wrapper removes legacy local skill mirrors on upgrade.
+- Syncs `~/.codex/config.toml` and `~/.codex/AGENTS.md` via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Skills are read through cdx/MCP `skill://{slug}` resources, and the wrapper removes legacy local skill mirrors on upgrade.
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
 - Reports token usage back to `/usage` on a best-effort basis. The wrapper first checks only the last ~256 KiB of the PTY capture for a final legacy `Token usage:` line, then falls back to session JSONL / full-log parsing only when needed. Slow or wedged `/usage` calls are capped to roughly a 3-second total budget so wrapper exit does not feel hung.
@@ -169,7 +169,7 @@ Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server
 - `~/.codex/auth.json` — pulled from the server; insecure hosts purge this after each run (except concurrent-run guarded sessions).
 - `~/.codex/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`).
 - `~/.codex/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
-- `~/.codex/prompts/` — slash commands synced from server startup sync (fallback `/slash-commands`); local edits push on exit when a baseline exists.
+- Legacy `~/.codex/prompts/` and `.prompt-baseline.json` state is removed automatically by current wrappers.
 - No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}` and prunes stale `~/.agents/skills` / `~/.codex/skills` leftovers during upgrade.
 
 ## Secure vs insecure hosts (and why it matters)

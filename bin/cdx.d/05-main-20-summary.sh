@@ -1137,12 +1137,6 @@ print_boot_screen() {
 
     dots+="$(build_health_dot "api" "${api_tone:-yellow}")"
     dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}")"
-
-    local prompt_dot_label="prompts"
-    if [[ "${PROMPT_LOCAL_COUNT:-}" =~ ^[0-9]+$ ]] && [[ "${PROMPT_REMOTE_COUNT:-}" =~ ^[0-9]+$ ]]; then
-      prompt_dot_label="prompts ${PROMPT_LOCAL_COUNT}/${PROMPT_REMOTE_COUNT}"
-    fi
-    dots+="${dot_gap}$(build_health_dot "$prompt_dot_label" "${prompt_tone:-yellow}")"
     dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}")"
 
     if [[ -n "${mcp_tone:-}" ]]; then

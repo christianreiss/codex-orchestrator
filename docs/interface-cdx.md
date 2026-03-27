@@ -30,14 +30,14 @@ Guardrails:
 3. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
 4. Sync auth via `POST /auth`.
 5. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
-6. If bundle pull fails, fallback pulls run: slash commands, AGENTS, config.
+6. If bundle pull fails, fallback pulls run: AGENTS, config.
 7. Compute local auth freshness:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
 8. Check/update Codex + wrapper.
 9. Render boot summary and enforce launch gates. No-op helper paths must not abort launch here: empty OTel exports and unchanged logical/physical cwd trust writes both return success under `set -e`.
 10. Launch Codex (unless status/doctor/lane-only path exits first).
-11. Cleanup trap: prompt push, auth push, usage push, insecure-host auth purge (when applicable), lock release.
+11. Cleanup trap: auth push, usage push, insecure-host auth purge (when applicable), lock release.
 
 Concurrent-run guard behavior (`active cdx run detected`):
 - Skips pre-run mutating sync/update operations.
@@ -107,22 +107,20 @@ Profile shorthand:
 ## Synced Local State
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
-| Slash commands | `GET /slash-commands` + `POST /slash-commands/retrieve` | `POST /slash-commands/store` | `~/.codex/prompts/*`, baseline `~/.codex/.prompt-baseline.json` |
 | Skills | MCP `resource_read` / `resources/read` | None | No synced local skill file; hosts read canonical manifests from `skill://{slug}` |
 | AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot) |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
 Sync details:
-- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies prompts, AGENTS, and config in one pass.
-- Wrapper falls back to legacy per-resource pulls if bundle path fails or endpoints are missing.
-- Deleted/retired remote prompts are removed locally.
+- Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies AGENTS and config in one pass.
+- Wrapper falls back to per-resource AGENTS/config pulls if bundle path fails or endpoints are missing.
+- Wrapper removes legacy prompt directories and prompt baselines on startup so stale local prompt state does not linger after the custom-prompt system was removed.
 - Wrapper removes legacy local skill directories and baselines on upgrade so stale `~/.agents/skills` / `~/.codex/skills` trees stop shadowing MCP-first behavior.
 - `status:missing` from AGENTS/config retrieval deletes local file.
-- Prompt store reads frontmatter keys `description` and `argument-hint`.
 - Wrapper includes `username` + `home` when retrieving config so server can bake per-user trusted project settings.
 - Before launching Codex, wrapper also force-marks the current working directory (and `pwd -P` path when different) as `trust_level = "trusted"` in local `~/.codex/config.toml` to suppress interactive trust prompts.
 - Pre-launch helpers are no-op safe: an empty OTel export set or an unchanged trust target must not terminate `cdx`.
-- Atomic writes (temp + `fsync` + replace) are used for auth, baselines, AGENTS, and config files.
+- Atomic writes (temp + `fsync` + replace) are used for auth, AGENTS, and config files.
 
 ## Config Bake Rules (`/config/retrieve`)
 - Response statuses: `updated`, `unchanged`, `missing`.
@@ -272,9 +270,6 @@ Wrapper updates:
 | `DELETE` | `/auth?force=1` | Uninstall deregistration |
 | `POST` | `/sync/status` | Startup bundle status diff |
 | `POST` | `/sync/bootstrap` | Startup bundle content fetch when update needed |
-| `GET` | `/slash-commands` | Prompt list |
-| `POST` | `/slash-commands/retrieve` | Prompt content fetch by sha |
-| `POST` | `/slash-commands/store` | Prompt push |
 | `GET` | `/skills` | Skill list |
 | `POST` | `/skills/retrieve` | Skill manifest fetch by sha |
 | `POST` | `/skills/store` | Skill push |

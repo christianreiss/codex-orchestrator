@@ -109,7 +109,6 @@ print_doctor_report() {
 
   local sync_bits=(
     "auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}")"
-    "prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}")"
     "skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}")"
     "agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}")"
     "config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"

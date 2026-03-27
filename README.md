@@ -2,7 +2,7 @@
 
 **One command to rule your Codex fleet.**
 
-Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` handle the rest — syncing credentials, config, prompts, and usage data while serving Skills canonically through MCP so you never have to copy a token by hand again.
+Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` handle the rest — syncing credentials, config, AGENTS.md, and usage data while serving Skills canonically through MCP so you never have to copy a token by hand again.
 
 ![Host-specific installer baking and sync flow](docs/img/cdx.png)
 
@@ -39,7 +39,7 @@ You'll get the most out of this if:
 - You run Codex on **more than one machine** and want a single source of truth for auth and config.
 - You want **per-host API keys** with IP binding, instead of one token pasted everywhere.
 - You need **visibility** into who's using what, how much it costs, and a way to set limits.
-- You'd like to manage **prompts, skills, and AGENTS.md** from one place instead of scattering files across machines.
+- You'd like to manage **skills and AGENTS.md** from one place instead of scattering files across machines.
 - You want a **kill switch** and quota controls you can pull from a dashboard.
 
 If you only use Codex on one laptop, this is probably overkill — but we won't judge if you set it up anyway.

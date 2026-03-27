@@ -15,11 +15,9 @@ sync_startup_bundle_pull() {
     startup_sync_bundle_python \
       "$CODEX_SYNC_BASE_URL" \
       "$CODEX_SYNC_API_KEY" \
-      "$PROMPT_DIR" \
       "$AGENTS_PATH" \
       "$CONFIG_PATH" \
       "$CODEX_SYNC_CA_FILE" \
-      "$PROMPT_BASELINE_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
       "$LOCAL_HOSTNAME"
@@ -55,16 +53,6 @@ if str(parsed.get("status", "")).lower() != "ok":
 phase = str(parsed.get("phase", "")).strip().lower() or "ok"
 print(f"phase={phase}")
 
-for key in ("prompt",):
-    block = parsed.get(key)
-    if not isinstance(block, dict):
-        continue
-    print(f"{key}_status={str(block.get('status') or 'ok').strip().lower() or 'ok'}")
-    for metric in ("updated", "errors", "remote", "local", "removed"):
-        val = block.get(metric)
-        if isinstance(val, (int, float)):
-            print(f"{key}_{metric}={int(val)}")
-
 agents = parsed.get("agents")
 if isinstance(agents, dict):
     print(f"agents_status={str(agents.get('status') or 'ok').strip().lower() or 'ok'}")
@@ -96,12 +84,6 @@ PY
   local line
   for line in $parsed; do
     case "$line" in
-      prompt_status=*) PROMPT_SYNC_STATUS="${line#prompt_status=}" ;;
-      prompt_updated=*) PROMPT_PULL_UPDATED="${line#prompt_updated=}" ;;
-      prompt_errors=*) PROMPT_PULL_ERRORS="${line#prompt_errors=}" ;;
-      prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
-      prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
-      prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
       agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
       agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
       agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
@@ -117,11 +99,9 @@ PY
     esac
   done
 
-  PROMPT_SYNC_REASON=""
   SKILL_SYNC_REASON=""
   AGENTS_SYNC_REASON=""
   CONFIG_SYNC_REASON=""
-  [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
   SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"

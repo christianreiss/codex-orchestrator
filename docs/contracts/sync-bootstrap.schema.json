@@ -15,7 +15,6 @@
       "required": [
         "status",
         "reasons",
-        "slash_commands",
         "agents",
         "config",
         "host_users"
@@ -32,33 +31,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "slash_commands": {
-          "type": "object",
-          "required": [
-            "status",
-            "changed_count",
-            "remote",
-            "changed"
-          ],
-          "properties": {
-            "status": {
-              "enum": [
-                "unchanged",
-                "updated"
-              ]
-            },
-            "changed_count": {
-              "type": "integer"
-            },
-            "remote": {
-              "type": "array"
-            },
-            "changed": {
-              "type": "array"
-            }
-          },
-          "additionalProperties": true
         },
         "agents": {
           "type": "object",

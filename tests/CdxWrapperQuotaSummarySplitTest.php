@@ -14,11 +14,10 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
 
         self::assertStringContainsString('other_lane_label="Spark"', $wrapperSource);
         self::assertStringContainsString('other_lane_label="Normal"', $wrapperSource);
-        self::assertStringContainsString('other_lane_primary_quota_segment=', $wrapperSource);
-        self::assertStringContainsString('other_lane_secondary_quota_segment=', $wrapperSource);
-        self::assertStringContainsString('format_quota_metric_row "${other_lane_label} 5h window" "${other_lane_primary_quota_segment}"', $wrapperSource);
-        self::assertStringContainsString('format_quota_metric_row "${other_lane_label} weekly window" "${other_lane_secondary_quota_segment}"', $wrapperSource);
-        self::assertStringContainsString('print_section_rows "Quota" "${quota_rows[@]}"', $wrapperSource);
+        self::assertStringContainsString('if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then', $wrapperSource);
+        self::assertStringContainsString('if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then', $wrapperSource);
+        self::assertStringContainsString('q_labels+=("5h");       q_used+=("$other_lane_primary_used")', $wrapperSource);
+        self::assertStringContainsString('q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")', $wrapperSource);
         self::assertStringNotContainsString('other_lane_usage_value="Spark: 5h ${spark_5h}, week ${spark_wk}"', $wrapperSource);
     }
 
@@ -30,8 +29,9 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
 
         self::assertStringContainsString('format_quota_metric_row() {', $wrapperSource);
         self::assertStringContainsString('printf "%-${width}s: %s" "$label" "$value"', $wrapperSource);
-        self::assertStringContainsString('quota_rows+=("${bullet} $(format_quota_metric_row "5h window" "${primary_quota_segment}")")', $wrapperSource);
-        self::assertStringContainsString('quota_rows+=("${bullet} $(format_quota_metric_row "Weekly window" "${secondary_quota_segment}")")', $wrapperSource);
+        self::assertStringContainsString('padded_label="$(pad_visible_text_right "$full_label" "$max_lw")"', $wrapperSource);
+        self::assertStringContainsString('printf "  %s %s [%s]" "$padded_label" "$pct_display" "$bar"', $wrapperSource);
+        self::assertStringContainsString('[[ -n "$note" ]] && printf "  %s" "$note"', $wrapperSource);
     }
 
     public function testWrapperAddsSparkFastnessMarkerInActiveLaneDisplay(): void

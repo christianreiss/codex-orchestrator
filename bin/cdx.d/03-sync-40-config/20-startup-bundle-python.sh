@@ -1,15 +1,13 @@
 startup_sync_bundle_python() {
   local base="$1"
   local api_key="$2"
-  local prompt_dir="$3"
-  local agents_file="$4"
-  local config_file="$5"
-  local cafile="$6"
-  local prompt_baseline_file="$7"
-  local username="${8}"
-  local home_path="${9}"
-  local hostname="${10}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
+  local agents_file="$3"
+  local config_file="$4"
+  local cafile="$5"
+  local username="${6}"
+  local home_path="${7}"
+  local hostname="${8}"
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$agents_file" "$config_file" "$cafile" <<'PY'
 import hashlib
 import json
 import os
@@ -23,11 +21,9 @@ if "cdx_enable_force_ipv4" in globals():
     cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
-prompt_dir = pathlib.Path(sys.argv[2]).expanduser()
-agents_file = pathlib.Path(sys.argv[3]).expanduser()
-config_file = pathlib.Path(sys.argv[4]).expanduser()
-cafile = sys.argv[5] if len(sys.argv) > 5 else ""
-prompt_baseline = pathlib.Path(sys.argv[6]).expanduser() if len(sys.argv) > 6 else prompt_dir.parent / ".prompt-baseline.json"
+agents_file = pathlib.Path(sys.argv[2]).expanduser()
+config_file = pathlib.Path(sys.argv[3]).expanduser()
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 _cdx_api_key = api_key
 _cdx_cafile = cafile
@@ -64,89 +60,6 @@ def file_sha(path: pathlib.Path):
     except Exception:
         return None
 
-
-def scan_prompts():
-    prompt_dir.mkdir(parents=True, exist_ok=True)
-    items = []
-    for path in prompt_dir.iterdir():
-        if not path.is_file():
-            continue
-        sha = file_sha(path)
-        if not sha:
-            continue
-        items.append({"filename": path.name, "sha256": sha})
-    items.sort(key=lambda item: item.get("filename", ""))
-    return items
-
-def write_prompt_baseline(remote):
-    data = {}
-    if isinstance(remote, list):
-        for entry in remote:
-            if not isinstance(entry, dict):
-                continue
-            filename = entry.get("filename")
-            sha = normalize_sha(entry.get("sha256"))
-            deleted_at = entry.get("deleted_at")
-            if not isinstance(filename, str) or filename.strip() == "":
-                continue
-            if deleted_at:
-                continue
-            if sha is None:
-                continue
-            data[filename] = sha
-    try:
-        prompt_baseline.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(prompt_baseline, json.dumps(data, indent=2) + "\n")
-    except Exception:
-        pass
-
-def apply_prompt_changes(block):
-    changed = block.get("changed") if isinstance(block, dict) else []
-    remote = block.get("remote") if isinstance(block, dict) else []
-    updated = 0
-    removed = 0
-    errors = 0
-
-    if isinstance(changed, list):
-        for entry in changed:
-            if not isinstance(entry, dict):
-                continue
-            filename = entry.get("filename")
-            if not isinstance(filename, str) or filename.strip() == "":
-                continue
-            status = str(entry.get("status") or "").strip().lower()
-            target = prompt_dir / filename
-
-            if status == "deleted":
-                try:
-                    target.unlink(missing_ok=True)
-                    removed += 1
-                except Exception:
-                    errors += 1
-                continue
-
-            prompt = entry.get("prompt")
-            if not isinstance(prompt, str):
-                errors += 1
-                continue
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(prompt, encoding="utf-8")
-                updated += 1
-            except Exception:
-                errors += 1
-
-    write_prompt_baseline(remote if isinstance(remote, list) else [])
-    local_count = len(scan_prompts())
-
-    return {
-        "status": "ok",
-        "updated": updated,
-        "removed": removed,
-        "errors": errors,
-        "remote": len(remote) if isinstance(remote, list) else 0,
-        "local": local_count,
-    }
 
 def apply_agents_change(block):
     status = str((block or {}).get("status") or "").strip().lower()
@@ -247,8 +160,6 @@ def apply_config_change(block):
         "removed": removed,
     }
 
-
-prompt_items = scan_prompts()
 agents_sha = file_sha(agents_file) if agents_file.is_file() else None
 config_sha = file_sha(config_file) if config_file.is_file() else None
 
@@ -257,9 +168,6 @@ status_payload = {
     "host_user": {
         "username": username,
         "hostname": hostname,
-    },
-    "slash_commands": {
-        "items": prompt_items,
     },
     "agents": {
         "sha256": agents_sha,
@@ -307,7 +215,6 @@ if not isinstance(data, dict):
     print("error reason=invalid-sync-response")
     sys.exit(1)
 
-prompt_result = apply_prompt_changes(data.get("slash_commands") if isinstance(data.get("slash_commands"), dict) else {})
 agents_result = apply_agents_change(data.get("agents") if isinstance(data.get("agents"), dict) else {})
 config_result = apply_config_change(data.get("config") if isinstance(data.get("config"), dict) else {})
 
@@ -319,7 +226,6 @@ if agents_result.get("status") != "ok" or config_result.get("status") != "ok":
                 "reason": agents_result.get("reason") or config_result.get("reason") or "sync-apply-failed",
                 "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
                 "reasons": reasons,
-                "prompt": prompt_result,
                 "agents": agents_result,
                 "config": config_result,
             },
@@ -334,7 +240,6 @@ print(
             "status": "ok",
             "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
             "reasons": reasons,
-            "prompt": prompt_result,
             "agents": agents_result,
             "config": config_result,
         },

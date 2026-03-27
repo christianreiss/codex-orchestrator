@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Services\AgentsService;
 use App\Services\ClientConfigService;
-use App\Services\SlashCommandService;
 use App\Services\StartupSyncService;
 use PHPUnit\Framework\TestCase;
 
@@ -13,24 +12,9 @@ require_once __DIR__ . '/../vendor/autoload.php';
 final class StartupSyncServiceTest extends TestCase
 {
     private function createService(
-        array $slashRows = [],
         array $agentsRetrieve = ['status' => 'missing'],
         array $configRetrieve = ['status' => 'missing']
     ): StartupSyncService {
-        $slashCommands = $this->getMockBuilder(SlashCommandService::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['listCommands', 'find'])
-            ->getMock();
-        $slashCommands->method('listCommands')->willReturn($slashRows);
-        $slashCommands->method('find')->willReturnCallback(function (string $filename) use ($slashRows) {
-            foreach ($slashRows as $row) {
-                if (($row['filename'] ?? '') === $filename) {
-                    return $row;
-                }
-            }
-            return null;
-        });
-
         $agents = $this->getMockBuilder(AgentsService::class)
             ->disableOriginalConstructor()
             ->onlyMethods(['retrieve'])
@@ -43,18 +27,15 @@ final class StartupSyncServiceTest extends TestCase
             ->getMock();
         $configs->method('retrieve')->willReturn($configRetrieve);
 
-        return new StartupSyncService($slashCommands, $agents, $configs);
+        return new StartupSyncService($agents, $configs);
     }
 
     public function testAllUnchangedReturnsOk(): void
     {
-        $sha = hash('sha256', 'prompt');
-        $service = $this->createService(
-            slashRows: [['filename' => 'a.md', 'sha256' => $sha, 'deleted_at' => null]],
-        );
+        $service = $this->createService();
 
         $result = $service->collect(
-            ['slash_commands' => [['filename' => 'a.md', 'sha256' => $sha]]],
+            [],
             ['id' => 1],
             'https://example.com',
             'key-123'
@@ -62,43 +43,6 @@ final class StartupSyncServiceTest extends TestCase
 
         $this->assertSame('ok', $result['status']);
         $this->assertEmpty($result['reasons']);
-    }
-
-    public function testNewSlashCommandTriggersUpdate(): void
-    {
-        $sha = hash('sha256', 'deploy prompt');
-        $service = $this->createService(
-            slashRows: [['filename' => 'deploy.md', 'sha256' => $sha, 'deleted_at' => null]],
-        );
-
-        $result = $service->collect(
-            ['slash_commands' => []],
-            ['id' => 1],
-            'https://example.com',
-            'key-123'
-        );
-
-        $this->assertSame('update', $result['status']);
-        $this->assertContains('slash_commands_changed', $result['reasons']);
-        $this->assertSame(1, $result['slash_commands']['changed_count']);
-    }
-
-    public function testDeletedSlashCommandDetected(): void
-    {
-        $sha = hash('sha256', 'content');
-        $service = $this->createService(
-            slashRows: [['filename' => 'old.md', 'sha256' => $sha, 'deleted_at' => '2026-01-01T00:00:00Z']],
-        );
-
-        $result = $service->collect(
-            ['slash_commands' => [['filename' => 'old.md', 'sha256' => $sha]]],
-            ['id' => 1],
-            'https://example.com',
-            'key-123'
-        );
-
-        $this->assertSame('update', $result['status']);
-        $this->assertSame(1, $result['slash_commands']['removed_count']);
     }
 
     public function testAgentsChangedTriggersUpdate(): void
@@ -138,7 +82,6 @@ final class StartupSyncServiceTest extends TestCase
         $service = $this->createService();
         $result = $service->collect([], ['id' => 1], 'https://example.com', 'key-123');
 
-        $this->assertArrayHasKey('slash_commands', $result);
         $this->assertArrayHasKey('agents', $result);
         $this->assertArrayHasKey('config', $result);
     }

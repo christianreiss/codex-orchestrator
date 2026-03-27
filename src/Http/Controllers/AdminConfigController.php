@@ -8,13 +8,11 @@ use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Http\Response;
 use App\Repositories\McpAccessLogRepository;
-use App\Repositories\SlashCommandRepository;
 use App\Services\AdminAuthService;
 use App\Services\AgentsService;
 use App\Services\ClientConfigService;
 use App\Services\MemoryService;
 use App\Services\SkillService;
-use App\Services\SlashCommandService;
 
 class AdminConfigController
 {
@@ -23,8 +21,6 @@ class AdminConfigController
         private AgentsService $agentsService,
         private MemoryService $memoryService,
         private SkillService $skillService,
-        private SlashCommandRepository $slashCommandRepository,
-        private SlashCommandService $slashCommandService,
         private McpAccessLogRepository $mcpAccessLogRepository,
     ) {}
 
@@ -301,113 +297,6 @@ class AdminConfigController
         Response::json([
             'status' => 'ok',
             'data' => $result,
-        ]);
-    }
-
-    /**
-     * GET /admin/slash-commands
-     */
-    public function slashCommands(): void
-    {
-        requireAdminAccess();
-
-        $commands = $this->slashCommandRepository->all();
-
-        Response::json([
-            'status' => 'ok',
-            'data' => ['commands' => $commands],
-        ]);
-    }
-
-    /**
-     * GET /admin/slash-commands/{filename}
-     */
-    public function slashCommandShow(string $filename): void
-    {
-        requireAdminAccess();
-        $filename = urldecode($filename);
-        try {
-            $command = $this->slashCommandService->find($filename);
-        } catch (ValidationException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Validation failed',
-                'errors' => $exception->getErrors(),
-            ], 422);
-        }
-
-        if ($command === null) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Slash command not found',
-            ], 404);
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $command,
-        ]);
-    }
-
-    /**
-     * POST /admin/slash-commands/store
-     */
-    public function slashCommandStore(array $payload): void
-    {
-        requireAdminAccess();
-        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-
-        try {
-            $result = $this->slashCommandService->store(is_array($payload) ? $payload : [], null);
-        } catch (ValidationException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Validation failed',
-                'errors' => $exception->getErrors(),
-            ], 422);
-        } catch (HttpException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => $exception->getMessage(),
-            ], $exception->getStatusCode());
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $result,
-        ]);
-    }
-
-    /**
-     * DELETE /admin/slash-commands/{filename}
-     */
-    public function slashCommandDelete(string $filename): void
-    {
-        requireAdminAccess();
-        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-        $filename = urldecode($filename);
-        try {
-            $deleted = $this->slashCommandService->delete($filename);
-        } catch (ValidationException $exception) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Validation failed',
-                'errors' => $exception->getErrors(),
-            ], 422);
-        }
-
-        if (!$deleted) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Slash command not found',
-            ], 404);
-        }
-
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'deleted' => $filename,
-            ],
         ]);
     }
 

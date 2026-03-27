@@ -2,7 +2,7 @@
 
 ## What it is
 
-Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships slash commands, Skills, shared project coordination, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
+Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships Skills, shared project coordination, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
 
 ## Primary use cases
 
@@ -29,18 +29,17 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth on scheduled preflight checks (default ~8h) and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (store uploads require a reachable runner; admin uploads bypass).
-- Extras ride the same API: slash-command + Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and pricing pulls for dashboard costs.
+- Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and pricing pulls for dashboard costs.
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/slash/skills/projects/agents/config/MCP/usage/pricing/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
+- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/skills/projects/agents/config/MCP/usage/pricing/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, and returns updated auth + telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`. If storage drift is detected but `storage/wrapper/cdx` is not writable, it serves bundled `bin/cdx` directly and logs a warning so stale wrappers are not served.
-- **`SlashCommandService`** — CRUD for prompts stored in MySQL, hashed by sha256, with delete markers for retirements.
 - **`ProjectModuleService`** — tracks whether native shared-project coordination is enabled and derives the managed `coco` skill manifest published through MCP `skill://coco`, with the CoCo toolkit/help embedded in the skill itself and explicitly constrained to project-only shared state.
 - **`ProjectCoordinationService`** — owns `/projects*` and `/admin/projects*`: project creation, about/roster edits, shared notes/todos/files/feedback, project resource exports for MCP, and append-only event history.
-- **`StartupSyncService`** — computes combined startup diffs/payloads for prompts, AGENTS.md, and config (`/sync/status`, `/sync/bootstrap`) so wrappers can reduce pre-run API fan-out.
+- **`StartupSyncService`** — computes combined startup diffs/payloads for AGENTS.md and config (`/sync/status`, `/sync/bootstrap`) so wrappers can reduce pre-run API fan-out.
 - **`AgentsService`** — stores versioned AGENTS.md editions, serves either the latest/pinned fleet version or a per-host pin, exposes read-only history fetches for the admin UI, and can revert an older edition by cloning it into a fresh latest version while returning fleet serving to `latest`.
 - **`MemoryService` + `McpServer`** — MCP memory storage per host (content, tags, optional metadata) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`), host-safe resource helpers, unconditional `skill://{slug}` read-only resources for synced Skill manifests, and optional project-aware MCP tools/resources (`project_*`, `project://{slug}`) when the Projects module is enabled. Coordinator filesystem helpers are retained for operator/internal use and are not exposed on the host-authenticated `/mcp` route.
 - **`ClientConfigService`** — renders/stores canonical `config.toml` from structured settings (sha + TOML body + saved builder payload) for the admin config page and wrapper sync; `/config/retrieve` bakes a per-host copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry.
@@ -50,7 +49,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 - Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated) and a username-first flow that requires passkeys for passkey-enabled admins. Personal session controls now live under the navbar brand account menu: theme selection is always available, while authenticated users also get self-service password change (`/admin/account/password`), personal passkey management (`/admin/account/passkeys`), and logout. Admin users and roles stay in the Users panel; personal passkeys no longer live there, and password reset endpoints remain disabled.
 - Host management now uses dedicated host detail pages at `/admin/hosts/{id}` (Action Items, Features, Stats, Infos) instead of the legacy host detail modal.
 - **Repositories + `SecretBox`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; supports legacy `sbox:v1` plus key-id ciphertext for rotation.
-- **Admin websocket server (optional)** — `scripts/admin-ws.php` streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps `log.created` actions to targeted panel refreshes (overview/hosts/settings/prompts/skills/projects/agents/memories/users/config/profiles) and falls back to overview+hosts for unknown actions.
+- **Admin websocket server (optional)** — `scripts/admin-ws.php` streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps `log.created` actions to targeted panel refreshes (overview/hosts/settings/skills/projects/agents/memories/users/config/profiles) and falls back to overview+hosts for unknown actions.
 
 ## How the flow works
 
@@ -73,7 +72,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - `/wrapper` returns metadata; `/wrapper/download` returns the baked script with per-host hash/size headers. Wrapper content is the source of truth—rebuild the image or replace `storage/wrapper/cdx` to roll a new version (bump `WRAPPER_VERSION`).
    - The wrapper exposes a short Spark-lane alias: `cdx ls` rewrites to `cdx lane spark` before normal lane/profile parsing, so it supports the same `--persist` and passthrough argument handling.
    - Help-only invocations (`cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help such as `cdx exec --help`) bypass wrapper startup noise and print only upstream Codex help text; the wrapper skips lock/sync/update/MOTD/footer work in that path.
-- Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (prompts/AGENTS/config in one flow). Older servers automatically fall back to legacy per-resource pull endpoints.
+- Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (AGENTS/config in one flow). Older servers automatically fall back to legacy per-resource pull endpoints.
 - Wrapper Codex updates now key off `/auth` `client_version_enforce_exact`: floor-only targets only trigger upgrades, while explicit above-floor pins can still downgrade to match.
   - When the Projects module is enabled, the managed `coco` skill is published through MCP `skill://coco`; there is no separate wrapper-side project bootstrap pass. When the module turns off again, the managed skill disappears from the MCP resource list, and wrapper cleanup removes stale local skill directories so old CoCo docs cannot shadow the project-only skill.
    - `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: if auth is `missing`/`upload_required` and `auth_candidate` is provided, the server attempts an inline store and reports `auth_stored` (or `auth_*` reasons).
@@ -88,11 +87,10 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - Summary blocks are compacted into aligned columns (default up to three entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW`), with Quota defaulting to one metric per row via `CODEX_SUMMARY_ITEMS_PER_ROW_QUOTA=1` and Versions defaulting to two entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW_VERSIONS=2`.
    - Quota rendering aligns metric labels for graph rows and now includes non-active lane 5-hour/weekly bar rows (Spark or Normal) instead of a compact text-only lane summary.
 
-5) **Usage, prompts, and host telemetry**
+5) **Usage and host telemetry**
    - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot (env fallbacks when remote pricing is absent) when billable token splits are present, stores per-row entries, and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and total cost.
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/host/lane` exposes/stores host lane preference (`normal|spark|null`) so wrappers can persist lane steering without admin login.
-   - Host sync uses `/slash-commands` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync.
    - Host sync uses `/skills` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync. When project coordination is enabled, this same path auto-ships the managed `coco` skill to clients.
    - Shared project state itself is served live through `/projects*` and project-aware MCP tools/resources rather than through startup sync payloads.
 
@@ -113,7 +111,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 - Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). `host_auth_states` tracks what each host last saw; `host_auth_digests` caches up to 3 recent digests per host.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
-- Logs, token usages, slash commands, Skills, project coordination tables, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
+- Logs, token usages, Skills, project coordination tables, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
 
 ## Fleet workflow at a glance
 

@@ -95,18 +95,6 @@
     const hostDetailEmptyTitle = document.getElementById('hostDetailEmptyTitle');
     const hostDetailEmptyBody = document.getElementById('hostDetailEmptyBody');
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
-    const promptsTbody = document.querySelector('#prompts tbody');
-    const promptsToggle = document.getElementById('promptsToggle');
-    const newCommandBtn = document.getElementById('newCommandBtn');
-    const promptModal = document.getElementById('promptModal');
-    const promptFilename = document.getElementById('promptFilename');
-    const promptDescription = document.getElementById('promptDescription');
-    const promptArgument = document.getElementById('promptArgument');
-    const promptBody = document.getElementById('promptBody');
-    const promptSave = document.getElementById('promptSave');
-    const promptCancel = document.getElementById('promptCancel');
-    const promptStatus = document.getElementById('promptStatus');
-    const promptsPanel = document.getElementById('prompts-panel');
     const skillsTbody = document.querySelector('#skills tbody');
     const newSkillBtn = document.getElementById('newSkillBtn');
     const skillModal = document.getElementById('skillModal');
@@ -246,11 +234,9 @@
 
     const upgradeNotesCache = {};
     let currentHosts = [];
-    let currentPrompts = [];
     let currentSkills = [];
     let currentMemories = [];
     let currentAgents = null;
-    let promptsExpanded = true;
     let settingsExpanded = true;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
@@ -583,12 +569,6 @@
         copy: 'Synced to every host via cdx.',
         show: ['settings-panel'],
       },
-      prompts: {
-        eyebrow: 'Slash commands',
-        title: 'Server-stored prompts',
-        copy: 'Edit the prompts baked into hosts.',
-        show: ['prompts-panel'],
-      },
       memories: {
         eyebrow: 'Memories',
         title: 'Host memories',
@@ -631,7 +611,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'prompts-panel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -1072,13 +1052,6 @@
       if (panelKey === 'settings') {
         const activeSubPanel = activePanel.querySelector('[data-settings-panel]:not([hidden])');
         const subKey = activeSubPanel?.dataset?.settingsPanel || '';
-        if (subKey === 'prompts') {
-          const button = document.getElementById('newCommandBtn');
-          if (button && !button.disabled) {
-            button.click();
-          }
-          return;
-        }
         if (subKey === 'skills') {
           const button = document.getElementById('newSkillBtn');
           if (button && !button.disabled) {
@@ -1110,7 +1083,6 @@
           g: '/admin/settings/general',
           a: '/admin/settings/agents',
           c: '/admin/settings/config',
-          x: '/admin/settings/prompts',
           k: '/admin/settings/skills',
           m: '/admin/settings/memories',
           p: '/admin/settings/projects',
@@ -2054,16 +2026,6 @@
 
     function renderVipCrown() {
       return '<span class="vip-crown" title="VIP host: quota hard-fail disabled">👑</span>';
-    }
-
-    function setPromptsExpanded(expanded) {
-      promptsExpanded = !!expanded;
-      if (promptsToggle) {
-        promptsToggle.textContent = promptsExpanded ? 'Hide' : 'Show';
-      }
-      if (promptsPanel) {
-        promptsPanel.classList.toggle('prompts-collapsed', !promptsExpanded);
-      }
     }
 
     function setSettingsExpanded(expanded) {
@@ -3610,47 +3572,6 @@
       paintHosts();
     }
 
-    function renderPrompts(prompts) {
-      currentPrompts = Array.isArray(prompts) ? prompts : [];
-      if (promptsPanel) {
-        promptsPanel.style.display = 'block';
-        setPromptsExpanded(promptsExpanded);
-      }
-      if (!promptsTbody) return;
-      if (currentPrompts.length === 0) {
-        promptsTbody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:14px;">No slash commands stored</td></tr>`;
-        return;
-      }
-      promptsTbody.innerHTML = currentPrompts.map((p) => {
-        const desc = (p.description || '').replace(/</g, '&lt;');
-        const retired = p.deleted_at ? '<span class="muted">(retired)</span>' : '';
-        return `<tr>
-          <td data-label="Filename"><code>${p.filename}</code> ${retired}</td>
-          <td data-label="Description">${desc || '—'}</td>
-          <td data-label="Argument">${(p.argument_hint || '').replace(/</g, '&lt;') || '—'}</td>
-          <td data-label="Actions">
-            <div class="table-actions">
-              <button class="ghost tiny-btn prompt-edit" data-filename="${p.filename}">Edit</button>
-              <button class="ghost tiny-btn danger prompt-delete" data-filename="${p.filename}" ${p.deleted_at ? 'disabled' : ''}>Retire</button>
-            </div>
-          </td>
-        </tr>`;
-      }).join('');
-
-      promptsTbody.querySelectorAll('.prompt-edit').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const name = btn.getAttribute('data-filename');
-          openPromptModal(name);
-        });
-      });
-      promptsTbody.querySelectorAll('.prompt-delete').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const name = btn.getAttribute('data-filename');
-          retirePrompt(name);
-        });
-      });
-    }
-
     function renderSkills(skills) {
       currentSkills = Array.isArray(skills) ? skills : [];
       if (!skillsTbody) return;
@@ -4259,7 +4180,6 @@
       'overview',
       'hosts',
       'settings-general',
-      'prompts',
       'skills',
       'projects',
       'agents',
@@ -4289,7 +4209,6 @@
       'admin.quota_mode',
       'admin.prune_policy',
     ]);
-    const PROMPT_LIVE_ACTIONS = new Set(['slash.store', 'slash.delete']);
     const SKILL_LIVE_ACTIONS = new Set(['skill.store', 'skill.delete']);
     const PROJECT_LIVE_PREFIXES = ['project.', 'admin.project.'];
     const AGENTS_LIVE_ACTIONS = new Set(['agents.store', 'agents.delete']);
@@ -4313,10 +4232,6 @@
 
       if (SETTINGS_GENERAL_LIVE_ACTIONS.has(normalized)) {
         domains.add('settings-general');
-      }
-
-      if (PROMPT_LIVE_ACTIONS.has(normalized)) {
-        domains.add('prompts');
       }
 
       if (SKILL_LIVE_ACTIONS.has(normalized)) {
@@ -4388,7 +4303,6 @@
       const needOverview = requested.has('overview');
       const needHosts = requested.has('hosts');
       const needRunner = needOverview;
-      const needPrompts = requested.has('prompts');
       const needSkills = requested.has('skills');
       const needAgents = requested.has('agents');
       const needMemories = requested.has('memories');
@@ -4397,7 +4311,6 @@
       let overviewResponse = null;
       let hostsResponse = null;
       let runnerResponse = null;
-      let promptsResponse = null;
       let skillsResponse = null;
       let agentsResponse = null;
       const requests = [];
@@ -4416,11 +4329,6 @@
         requests.push(api('/admin/runner')
           .then((res) => { runnerResponse = res; })
           .catch((err) => console.warn('Runner status unavailable', err)));
-      }
-      if (needPrompts) {
-        requests.push(api('/admin/slash-commands')
-          .then((res) => { promptsResponse = res; })
-          .catch((err) => console.warn('Live slash-command refresh failed', err)));
       }
       if (needSkills) {
         requests.push(api('/admin/skills')
@@ -4497,9 +4405,6 @@
         await loadCodexVersionControl();
       }
 
-      if (needPrompts && promptsResponse) {
-        renderPrompts(promptsResponse?.data?.commands || []);
-      }
       if (needSkills && skillsResponse) {
         renderSkills(skillsResponse?.data?.skills || []);
       }
@@ -6897,15 +6802,11 @@
 
     async function loadAll() {
       try {
-        const [overview, hosts, runner, prompts, skills, agents] = await Promise.all([
+        const [overview, hosts, runner, skills, agents] = await Promise.all([
           api('/admin/overview'),
           api('/admin/hosts'),
           api('/admin/runner').catch(err => {
             console.warn('Runner status unavailable', err);
-            return null;
-          }),
-          api('/admin/slash-commands').catch(err => {
-            console.warn('Slash commands unavailable', err);
             return null;
           }),
           api('/admin/skills').catch(err => {
@@ -6932,7 +6833,6 @@
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
         renderInsecureHostsQuickButton(hostsList);
-        renderPrompts(prompts?.data?.commands || []);
         renderSkills(skills?.data?.skills || []);
         renderAgents(agents?.data || { status: 'missing' });
         await loadMemories();
@@ -7316,18 +7216,6 @@
       }
     }
 
-    function showPromptModal(show) {
-      if (!promptModal) return;
-      if (show) {
-        promptModal.classList.add('show');
-        setInertBehindModal(promptModal, true);
-      } else {
-        promptModal.classList.remove('show');
-        setInertBehindModal(promptModal, false);
-        if (promptStatus) promptStatus.textContent = '';
-      }
-    }
-
     function setAgentsInlineEditing(editing) {
       const on = !!editing;
       if (agentsPreview) agentsPreview.hidden = on;
@@ -7563,76 +7451,6 @@
         }, 1500);
       } catch (err) {
         if (agentsStatus) agentsStatus.textContent = `Delete failed: ${err.message}`;
-      }
-    }
-
-    async function openPromptModal(filename) {
-      if (!promptFilename || !promptDescription || !promptBody) return;
-      const target = typeof filename === 'string' ? filename.trim() : '';
-      promptFilename.value = target;
-      promptDescription.value = '';
-      promptArgument.value = '';
-      promptBody.value = '';
-      if (!target) {
-        if (promptStatus) promptStatus.textContent = '';
-        showPromptModal(true);
-        return;
-      }
-      if (promptStatus) promptStatus.textContent = 'Loading…';
-      showPromptModal(true);
-      try {
-        const resp = await api(`/admin/slash-commands/${encodeURIComponent(target)}`);
-        const data = resp?.data || {};
-        promptFilename.value = data.filename || target || '';
-        promptDescription.value = data.description || '';
-        promptArgument.value = data.argument_hint || '';
-        promptBody.value = data.prompt || '';
-        if (promptStatus) promptStatus.textContent = '';
-      } catch (err) {
-        if (promptStatus) promptStatus.textContent = `Load failed: ${err.message}`;
-      }
-    }
-
-    async function retirePrompt(filename) {
-      if (!filename) return;
-      if (!await showConfirmModal('Retire command', `Retire slash command "${filename}"? This removes it from hosts on next sync.`, { action: 'Retire' })) {
-        return;
-      }
-      try {
-        await api(`/admin/slash-commands/${encodeURIComponent(filename)}`, { method: 'DELETE' });
-        await loadAll();
-      } catch (err) {
-        toast(`Retire failed: ${err.message}`, 'error');
-      }
-    }
-
-    async function savePrompt() {
-      if (!promptFilename || !promptBody) return;
-      const payload = {
-        filename: promptFilename.value.trim(),
-        description: promptDescription?.value ?? '',
-        argument_hint: promptArgument?.value ?? '',
-        prompt: promptBody.value,
-      };
-      if (!payload.filename) {
-        if (promptStatus) promptStatus.textContent = 'Filename is required';
-        return;
-      }
-      if (!payload.prompt.trim()) {
-        if (promptStatus) promptStatus.textContent = 'Prompt is required';
-        return;
-      }
-      if (promptStatus) promptStatus.textContent = 'Saving…';
-      try {
-        await api('/admin/slash-commands/store', {
-          method: 'POST',
-          json: payload,
-        });
-        if (promptStatus) promptStatus.textContent = 'Saved';
-        await loadAll();
-        showPromptModal(false);
-      } catch (err) {
-        if (promptStatus) promptStatus.textContent = `Save failed: ${err.message}`;
       }
     }
 
@@ -8172,12 +7990,6 @@
         if (!memoriesLoading) loadMemories();
       });
     }
-    if (newCommandBtn) {
-      newCommandBtn.addEventListener('click', (event) => {
-        event.preventDefault();
-        openPromptModal('');
-      });
-    }
     if (newSkillBtn) {
       newSkillBtn.addEventListener('click', (event) => {
         event.preventDefault();
@@ -8214,12 +8026,6 @@
         } else if (action === 'agents-delete') {
           deleteAgentsVersion(versionId);
         }
-      });
-    }
-    if (promptsToggle) {
-      promptsToggle.addEventListener('click', (event) => {
-        event.preventDefault();
-        setPromptsExpanded(!promptsExpanded);
       });
     }
     if (uploadAuthBtn) {
@@ -8262,21 +8068,10 @@
         if (e.target === seedModal) showSeedModal(false);
       });
     }
-    if (promptModal) {
-      promptModal.addEventListener('click', (e) => {
-        if (e.target === promptModal) showPromptModal(false);
-      });
-    }
     if (skillModal) {
       skillModal.addEventListener('click', (e) => {
         if (e.target === skillModal) showSkillModal(false);
       });
-    }
-    if (promptCancel) {
-      promptCancel.addEventListener('click', () => showPromptModal(false));
-    }
-    if (promptSave) {
-      promptSave.addEventListener('click', () => savePrompt());
     }
     if (skillCancel) {
       skillCancel.addEventListener('click', () => showSkillModal(false));
@@ -8348,7 +8143,6 @@
       [agentsDeleteModal,     () => closeAgentsDeleteModal()],
       [agentsViewModal,       () => closeAgentsViewModal()],
       [runnerModal,           () => showRunnerModal(false)],
-      [promptModal,           () => showPromptModal(false)],
       [skillModal,            () => showSkillModal(false)],
       [upgradeModal,          () => showUpgradeNotesModal(false)],
       [usageHistoryModal,     () => showUsageHistoryModal(false)],
@@ -8543,14 +8337,13 @@
           const targetKey = el.getAttribute('data-nav-jump');
           const samePage = ['/admin', '/admin/'].includes(window.location.pathname);
           if (!samePage) return;
-          ev.preventDefault();
-          const targetId = `${targetKey}-panel`;
-          const section = document.getElementById(targetId);
-          if (targetKey === 'settings') setSettingsExpanded(true);
-          if (targetKey === 'prompts') setPromptsExpanded(true);
-          if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
+        ev.preventDefault();
+        const targetId = `${targetKey}-panel`;
+        const section = document.getElementById(targetId);
+        if (targetKey === 'settings') setSettingsExpanded(true);
+        if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
+    });
     }
 
     wireNavShortcuts();

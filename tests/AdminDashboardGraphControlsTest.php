@@ -51,7 +51,6 @@ final class AdminDashboardGraphControlsTest extends TestCase
         $this->assertStringContainsString("a: '/admin/hosts'", $js);
         $this->assertStringContainsString("n: '__new_host__'", $js);
         $this->assertStringContainsString("c: '/admin/logs'", $js);
-        $this->assertStringContainsString("x: '/admin/settings/prompts'", $js);
         $this->assertStringContainsString("p: '/admin/settings/projects'", $js);
         $this->assertStringContainsString("normalizedKey === 'd'", $js);
         $this->assertStringContainsString("normalizedKey === 't'", $js);

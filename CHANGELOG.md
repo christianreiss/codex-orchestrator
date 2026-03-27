@@ -1,4 +1,5 @@
 # 2026-03-27
+- Custom prompts: removed the slash-command/custom-prompt system end-to-end. The API/admin routes are gone, startup sync now carries only AGENTS.md + config, current wrappers prune legacy local prompt directories/baselines instead of syncing or pushing them, and the content migration now drops the obsolete `slash_commands` table on boot/manual migrate. Wrapper bumped to `2026.03.27-15`.
 - Admin UI: pressing the same nav prefix hotkey twice now closes the already-open rail menu instead of only opening it and leaving the prefix armed. `h`, `l`, and `s` now behave as clean toggles from the keyboard.
 - cdx wrapper: macOS and other hosts without `flock` now use a portable atomic `mkdir` lock for both the normal concurrent-run guard and cron auto-update runs, instead of warning that locking is disabled. Wrapper bumped to `2026.03.27-14`.
 - cdx wrapper: preserve the full ASCII boot banner after a wrapper self-update restart instead of suppressing it via `CODEX_SKIP_MOTD`. Updated wrappers now restart into the normal boot screen before Codex launches. Wrapper bumped to `2026.03.27-13`.

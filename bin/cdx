@@ -736,19 +736,6 @@ HOST_LANE_PREFERENCE=""
 CODEX_EFFECTIVE_LANE=""
 CODEX_EFFECTIVE_LANE_SOURCE=""
 CODEX_EFFECTIVE_LANE_SELECTOR=""
-PROMPT_DIR="$HOME/.codex/prompts"
-PROMPT_BASELINE_FILE="$HOME/.codex/.prompt-baseline.json"
-PROMPT_SYNC_STATUS="skip"
-PROMPT_SYNC_REASON=""
-PROMPT_PULL_UPDATED=0
-PROMPT_PULL_ERRORS=0
-PROMPT_PUSHED=0
-PROMPT_PUSH_ERRORS=0
-PROMPT_PUSH_STATUS=""
-PROMPT_REMOTE_COUNT=""
-PROMPT_LOCAL_COUNT=""
-PROMPT_LOCAL_CHANGED=""
-PROMPT_REMOVED=0
 SKILL_SYNC_STATUS="mcp"
 SKILL_SYNC_REASON=""
 SKILL_REMOVED=0
@@ -784,7 +771,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.03.27-14"
+WRAPPER_VERSION="2026.03.27-15"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -3661,286 +3648,22 @@ push_auth_if_changed() {
   return 1
 }
 
+cleanup_legacy_prompt_state() {
+  local removed=0
+  local path=""
 
-prompt_sync_python() {
-  local mode="$1"
-  local base="$2"
-  local api_key="$3"
-  local prompt_dir="$4"
-  local cafile="$5"
-  local baseline_file="$6"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$mode" "$base" "$prompt_dir" "$cafile" "$baseline_file" <<'PY'
-import hashlib, json, os, pathlib, shutil, sys
-
-py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
-if py_http_util:
-    exec(py_http_util, globals())
-if "cdx_enable_force_ipv4" in globals():
-    cdx_enable_force_ipv4()
-
-mode = sys.argv[1] if len(sys.argv) > 1 else ""
-base = (sys.argv[2] or "").rstrip("/")
-prompt_dir = pathlib.Path(sys.argv[3]).expanduser()
-cafile = sys.argv[4] if len(sys.argv) > 4 else ""
-baseline_file = pathlib.Path(sys.argv[5]).expanduser() if len(sys.argv) > 5 else prompt_dir.parent / ".prompt-baseline.json"
-api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
-_cdx_api_key = api_key
-_cdx_cafile = cafile
-
-request_json = cdx_short_request_json
-
-
-def parse_front_matter(text: str):
-    description = None
-    argument_hint = None
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return description, argument_hint
-    end_idx = None
-    for idx in range(1, len(lines)):
-        if lines[idx].strip() == "---":
-            end_idx = idx
-            break
-    if end_idx is None:
-        return description, argument_hint
-    for idx in range(1, end_idx):
-        line = lines[idx].strip()
-        if not line or ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip().lower()
-        value = value.strip()
-        if key == "description":
-            description = value
-        elif key == "argument-hint":
-            argument_hint = value
-    return description, argument_hint
-
-
-def load_local(include_content: bool = False):
-    prompt_dir.mkdir(parents=True, exist_ok=True)
-    prompts = {}
-    for path in prompt_dir.iterdir():
-        if not path.is_file():
-            continue
-        try:
-            content = path.read_text(encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            continue
-        sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        entry = {"filename": path.name, "sha": sha}
-        if include_content:
-            entry["content"] = content
-        prompts[path.name] = entry
-    return prompts
-
-
-atomic_write_text = cdx_atomic_write_text
-
-
-def save_baseline(prompts: dict):
-    try:
-        baseline_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(baseline_file, json.dumps(prompts, indent=2) + "\n")
-    except Exception:  # noqa: BLE001
-        pass
-
-
-if not base:
-    print("error reason=missing-base")
-    sys.exit(1)
-if not api_key:
-    print("error reason=missing-api-key")
-    sys.exit(1)
-
-prompt_dir.mkdir(parents=True, exist_ok=True)
-
-if mode == "pull":
-    try:
-        list_resp = request_json("GET", f"{base}/slash-commands")
-    except Exception as exc:  # noqa: BLE001
-        print(f"error reason={str(exc).replace(' ', '_')}")
-        sys.exit(1)
-
-    commands = []
-    if isinstance(list_resp, dict):
-        data = list_resp.get("data") or {}
-        commands = data.get("commands") or []
-    downloaded = 0
-    errors = 0
-    removed = 0
-    local = load_local()
-
-    for cmd in commands:
-        if not isinstance(cmd, dict):
-            continue
-        fname = cmd.get("filename")
-        rsha = cmd.get("sha256")
-        deleted = bool(cmd.get("deleted_at"))
-        if not fname:
-            continue
-        if deleted:
-            try:
-                (prompt_dir / fname).unlink(missing_ok=True)
-                removed += 1
-            except Exception:
-                pass
-            continue
-        if not rsha:
-            continue
-        local_sha = (local.get(fname) or {}).get("sha")
-        if local_sha and local_sha == rsha:
-            continue
-        payload = {"filename": fname}
-        if local_sha:
-            payload["sha256"] = local_sha
-        try:
-            resp = request_json("POST", f"{base}/slash-commands/retrieve", payload)
-        except Exception as exc:  # noqa: BLE001
-            errors += 1
-            continue
-        data = resp.get("data") if isinstance(resp, dict) else {}
-        status = (data or {}).get("status")
-        prompt = (data or {}).get("prompt")
-        if status == "unchanged":
-            continue
-        if not isinstance(prompt, str):
-            errors += 1
-            continue
-        try:
-            (prompt_dir / fname).write_text(prompt, encoding="utf-8")
-            downloaded += 1
-        except Exception:  # noqa: BLE001
-            errors += 1
-
-    updated_local = load_local()
-    baseline = {name: entry["sha"] for name, entry in updated_local.items()}
-    remote_names = {cmd["filename"] for cmd in commands if isinstance(cmd, dict) and cmd.get("filename") and not cmd.get("deleted_at")}
-    filtered_baseline = {name: sha for name, sha in baseline.items() if name in remote_names}
-    save_baseline(filtered_baseline)
-    print(
-        "ok "
-        f"updated={downloaded} "
-        f"errors={errors} "
-        f"remote={len(commands)} "
-        f"local={len(updated_local)} "
-        f"removed={removed}"
-    )
-    sys.exit(0)
-
-if mode == "push":
-    if not baseline_file.exists():
-        print("skip reason=no-baseline errors=0")
-        sys.exit(0)
-    try:
-        baseline_data = json.loads(baseline_file.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        baseline_data = {}
-    if not isinstance(baseline_data, dict):
-        baseline_data = {}
-
-    current = load_local(include_content=True)
-    changes = []
-    for name, entry in current.items():
-        if baseline_data.get(name) != entry.get("sha"):
-            changes.append(entry)
-
-    if not changes:
-        print("ok pushed=0 errors=0")
-        sys.exit(0)
-
-    errors = 0
-    pushed = 0
-    for entry in changes:
-        fname = entry.get("filename")
-        content = entry.get("content")
-        sha = entry.get("sha")
-        if not fname or not content or not sha:
-            continue
-        desc, arg_hint = parse_front_matter(content)
-        payload = {
-            "filename": fname,
-            "prompt": content,
-            "sha256": sha,
-        }
-        if desc:
-            payload["description"] = desc
-        if arg_hint:
-            payload["argument_hint"] = arg_hint
-        try:
-            resp = request_json("POST", f"{base}/slash-commands/store", payload)
-        except Exception:  # noqa: BLE001
-            errors += 1
-            continue
-        data = resp.get("data") if isinstance(resp, dict) else {}
-        status = (data or {}).get("status")
-        if status in ("created", "updated", "unchanged"):
-            pushed += 1
-        else:
-            errors += 1
-
-    if errors == 0:
-        latest_baseline = {name: entry["sha"] for name, entry in current.items()}
-        save_baseline(latest_baseline)
-
-    print(
-        "ok "
-        f"pushed={pushed} "
-        f"errors={errors} "
-        f"changes={len(changes)} "
-        f"local={len(current)}"
-    )
-    sys.exit(0)
-
-print("skip reason=unknown-mode errors=0")
-PY
-}
-
-sync_slash_commands_pull() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    PROMPT_SYNC_STATUS="missing-config"
-    return 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    PROMPT_SYNC_STATUS="no-python"
-    log_warn "python3 is required for slash command sync; skipping."
-    return 1
-  fi
-  local summary status_code
-  set +e
-  summary="$(prompt_sync_python pull "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$PROMPT_DIR" "$CODEX_SYNC_CA_FILE" "$PROMPT_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  PROMPT_SYNC_STATUS="error"
-  if (( status_code != 0 )); then
-    local reason=""
-    if [[ "$summary" == error\ reason=* ]]; then
-      reason="${summary#error reason=}"
+  for path in "$HOME/.agents/prompts" "$HOME/.codex/prompts"; do
+    if [[ -e "$path" ]] && remove_path "$path" "legacy local prompts" >/dev/null 2>&1; then
+      removed=$((removed + 1))
     fi
-    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
-      PROMPT_SYNC_STATUS="offline"
-      PROMPT_SYNC_REASON="$reason"
-      [[ -n "$summary" ]] && log_warn "Slash command sync offline: $summary" || log_warn "Slash command sync offline."
-      PROMPT_PULL_ERRORS=0
-    else
-      [[ -n "$summary" ]] && log_warn "Slash command sync failed: $summary" || log_warn "Slash command sync failed."
-      PROMPT_PULL_ERRORS=1
-    fi
-    return 1
-  fi
-  local part
-  PROMPT_SYNC_REASON=""
-  PROMPT_SYNC_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      updated=*) PROMPT_PULL_UPDATED="${part#updated=}" ;;
-      errors=*) PROMPT_PULL_ERRORS="${part#errors=}" ;;
-      remote=*) PROMPT_REMOTE_COUNT="${part#remote=}" ;;
-      local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
-      removed=*) PROMPT_REMOVED="${part#removed=}" ;;
-    esac
   done
+
+  for path in "$HOME/.agents/.prompt-baseline.json" "$HOME/.codex/.prompt-baseline.json"; do
+    if [[ -e "$path" ]] && remove_path "$path" "legacy prompt baseline" >/dev/null 2>&1; then
+      removed=$((removed + 1))
+    fi
+  done
+
   return 0
 }
 
@@ -4142,11 +3865,9 @@ sync_startup_bundle_pull() {
     startup_sync_bundle_python \
       "$CODEX_SYNC_BASE_URL" \
       "$CODEX_SYNC_API_KEY" \
-      "$PROMPT_DIR" \
       "$AGENTS_PATH" \
       "$CONFIG_PATH" \
       "$CODEX_SYNC_CA_FILE" \
-      "$PROMPT_BASELINE_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
       "$LOCAL_HOSTNAME"
@@ -4182,16 +3903,6 @@ if str(parsed.get("status", "")).lower() != "ok":
 phase = str(parsed.get("phase", "")).strip().lower() or "ok"
 print(f"phase={phase}")
 
-for key in ("prompt",):
-    block = parsed.get(key)
-    if not isinstance(block, dict):
-        continue
-    print(f"{key}_status={str(block.get('status') or 'ok').strip().lower() or 'ok'}")
-    for metric in ("updated", "errors", "remote", "local", "removed"):
-        val = block.get(metric)
-        if isinstance(val, (int, float)):
-            print(f"{key}_{metric}={int(val)}")
-
 agents = parsed.get("agents")
 if isinstance(agents, dict):
     print(f"agents_status={str(agents.get('status') or 'ok').strip().lower() or 'ok'}")
@@ -4223,12 +3934,6 @@ PY
   local line
   for line in $parsed; do
     case "$line" in
-      prompt_status=*) PROMPT_SYNC_STATUS="${line#prompt_status=}" ;;
-      prompt_updated=*) PROMPT_PULL_UPDATED="${line#prompt_updated=}" ;;
-      prompt_errors=*) PROMPT_PULL_ERRORS="${line#prompt_errors=}" ;;
-      prompt_remote=*) PROMPT_REMOTE_COUNT="${line#prompt_remote=}" ;;
-      prompt_local=*) PROMPT_LOCAL_COUNT="${line#prompt_local=}" ;;
-      prompt_removed=*) PROMPT_REMOVED="${line#prompt_removed=}" ;;
       agents_status=*) AGENTS_SYNC_STATUS="${line#agents_status=}" ;;
       agents_state=*) AGENTS_STATE="${line#agents_state=}" ;;
       agents_sha=*) AGENTS_REMOTE_SHA="${line#agents_sha=}" ;;
@@ -4244,11 +3949,9 @@ PY
     esac
   done
 
-  PROMPT_SYNC_REASON=""
   SKILL_SYNC_REASON=""
   AGENTS_SYNC_REASON=""
   CONFIG_SYNC_REASON=""
-  [[ -z "$PROMPT_SYNC_STATUS" ]] && PROMPT_SYNC_STATUS="ok"
   SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
@@ -4551,15 +4254,13 @@ PY
 startup_sync_bundle_python() {
   local base="$1"
   local api_key="$2"
-  local prompt_dir="$3"
-  local agents_file="$4"
-  local config_file="$5"
-  local cafile="$6"
-  local prompt_baseline_file="$7"
-  local username="${8}"
-  local home_path="${9}"
-  local hostname="${10}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$prompt_dir" "$agents_file" "$config_file" "$cafile" "$prompt_baseline_file" <<'PY'
+  local agents_file="$3"
+  local config_file="$4"
+  local cafile="$5"
+  local username="${6}"
+  local home_path="${7}"
+  local hostname="${8}"
+  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$agents_file" "$config_file" "$cafile" <<'PY'
 import hashlib
 import json
 import os
@@ -4573,11 +4274,9 @@ if "cdx_enable_force_ipv4" in globals():
     cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
-prompt_dir = pathlib.Path(sys.argv[2]).expanduser()
-agents_file = pathlib.Path(sys.argv[3]).expanduser()
-config_file = pathlib.Path(sys.argv[4]).expanduser()
-cafile = sys.argv[5] if len(sys.argv) > 5 else ""
-prompt_baseline = pathlib.Path(sys.argv[6]).expanduser() if len(sys.argv) > 6 else prompt_dir.parent / ".prompt-baseline.json"
+agents_file = pathlib.Path(sys.argv[2]).expanduser()
+config_file = pathlib.Path(sys.argv[3]).expanduser()
+cafile = sys.argv[4] if len(sys.argv) > 4 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 _cdx_api_key = api_key
 _cdx_cafile = cafile
@@ -4614,89 +4313,6 @@ def file_sha(path: pathlib.Path):
     except Exception:
         return None
 
-
-def scan_prompts():
-    prompt_dir.mkdir(parents=True, exist_ok=True)
-    items = []
-    for path in prompt_dir.iterdir():
-        if not path.is_file():
-            continue
-        sha = file_sha(path)
-        if not sha:
-            continue
-        items.append({"filename": path.name, "sha256": sha})
-    items.sort(key=lambda item: item.get("filename", ""))
-    return items
-
-def write_prompt_baseline(remote):
-    data = {}
-    if isinstance(remote, list):
-        for entry in remote:
-            if not isinstance(entry, dict):
-                continue
-            filename = entry.get("filename")
-            sha = normalize_sha(entry.get("sha256"))
-            deleted_at = entry.get("deleted_at")
-            if not isinstance(filename, str) or filename.strip() == "":
-                continue
-            if deleted_at:
-                continue
-            if sha is None:
-                continue
-            data[filename] = sha
-    try:
-        prompt_baseline.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(prompt_baseline, json.dumps(data, indent=2) + "\n")
-    except Exception:
-        pass
-
-def apply_prompt_changes(block):
-    changed = block.get("changed") if isinstance(block, dict) else []
-    remote = block.get("remote") if isinstance(block, dict) else []
-    updated = 0
-    removed = 0
-    errors = 0
-
-    if isinstance(changed, list):
-        for entry in changed:
-            if not isinstance(entry, dict):
-                continue
-            filename = entry.get("filename")
-            if not isinstance(filename, str) or filename.strip() == "":
-                continue
-            status = str(entry.get("status") or "").strip().lower()
-            target = prompt_dir / filename
-
-            if status == "deleted":
-                try:
-                    target.unlink(missing_ok=True)
-                    removed += 1
-                except Exception:
-                    errors += 1
-                continue
-
-            prompt = entry.get("prompt")
-            if not isinstance(prompt, str):
-                errors += 1
-                continue
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(prompt, encoding="utf-8")
-                updated += 1
-            except Exception:
-                errors += 1
-
-    write_prompt_baseline(remote if isinstance(remote, list) else [])
-    local_count = len(scan_prompts())
-
-    return {
-        "status": "ok",
-        "updated": updated,
-        "removed": removed,
-        "errors": errors,
-        "remote": len(remote) if isinstance(remote, list) else 0,
-        "local": local_count,
-    }
 
 def apply_agents_change(block):
     status = str((block or {}).get("status") or "").strip().lower()
@@ -4797,8 +4413,6 @@ def apply_config_change(block):
         "removed": removed,
     }
 
-
-prompt_items = scan_prompts()
 agents_sha = file_sha(agents_file) if agents_file.is_file() else None
 config_sha = file_sha(config_file) if config_file.is_file() else None
 
@@ -4807,9 +4421,6 @@ status_payload = {
     "host_user": {
         "username": username,
         "hostname": hostname,
-    },
-    "slash_commands": {
-        "items": prompt_items,
     },
     "agents": {
         "sha256": agents_sha,
@@ -4857,7 +4468,6 @@ if not isinstance(data, dict):
     print("error reason=invalid-sync-response")
     sys.exit(1)
 
-prompt_result = apply_prompt_changes(data.get("slash_commands") if isinstance(data.get("slash_commands"), dict) else {})
 agents_result = apply_agents_change(data.get("agents") if isinstance(data.get("agents"), dict) else {})
 config_result = apply_config_change(data.get("config") if isinstance(data.get("config"), dict) else {})
 
@@ -4869,7 +4479,6 @@ if agents_result.get("status") != "ok" or config_result.get("status") != "ok":
                 "reason": agents_result.get("reason") or config_result.get("reason") or "sync-apply-failed",
                 "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
                 "reasons": reasons,
-                "prompt": prompt_result,
                 "agents": agents_result,
                 "config": config_result,
             },
@@ -4884,7 +4493,6 @@ print(
             "status": "ok",
             "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
             "reasons": reasons,
-            "prompt": prompt_result,
             "agents": agents_result,
             "config": config_result,
         },
@@ -4893,45 +4501,6 @@ print(
 )
 sys.exit(0)
 PY
-}
-
-
-push_slash_commands_if_changed() {
-  load_sync_config
-  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
-    PROMPT_PUSH_STATUS="missing-config"
-    return 0
-  fi
-  if [[ ! -f "$PROMPT_BASELINE_FILE" ]]; then
-    PROMPT_PUSH_STATUS="no-baseline"
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    PROMPT_PUSH_STATUS="no-python"
-    return 0
-  fi
-  local summary status_code
-  set +e
-  summary="$(prompt_sync_python push "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_API_KEY" "$PROMPT_DIR" "$CODEX_SYNC_CA_FILE" "$PROMPT_BASELINE_FILE")"
-  status_code=$?
-  set -e
-  PROMPT_PUSH_STATUS="error"
-  if (( status_code != 0 )); then
-    [[ -n "$summary" ]] && log_warn "Slash command push failed: $summary" || log_warn "Slash command push failed."
-    PROMPT_PUSH_ERRORS=1
-    return 1
-  fi
-  local part
-  PROMPT_PUSH_STATUS="${summary%% *}"
-  for part in $summary; do
-    case "$part" in
-      pushed=*) PROMPT_PUSHED="${part#pushed=}" ;;
-      errors=*) PROMPT_PUSH_ERRORS="${part#errors=}" ;;
-      changes=*) PROMPT_LOCAL_CHANGED="${part#changes=}" ;;
-      local=*) PROMPT_LOCAL_COUNT="${part#local=}" ;;
-    esac
-  done
-  return 0
 }
 
 extract_token_usage_payload() {
@@ -6609,8 +6178,6 @@ if (( CDX_ACTIVE_RUN_DETECTED )); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
-  PROMPT_SYNC_STATUS="skip"
-  PROMPT_SYNC_REASON="active-run"
   SKILL_SYNC_STATUS="mcp"
   SKILL_SYNC_REASON=""
   AGENTS_SYNC_STATUS="skip"
@@ -6629,10 +6196,10 @@ else
   _t_auth="$(cdx_time_ms)"
   sync_auth_with_api "pull" || true
   cdx_debug_phase "auth-sync" "$_t_auth"
+  cleanup_legacy_prompt_state || true
   sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
-    sync_slash_commands_pull || true
     sync_agents_pull || true
     sync_config_pull || true
   fi
@@ -8108,12 +7675,6 @@ print_boot_screen() {
 
     dots+="$(build_health_dot "api" "${api_tone:-yellow}")"
     dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}")"
-
-    local prompt_dot_label="prompts"
-    if [[ "${PROMPT_LOCAL_COUNT:-}" =~ ^[0-9]+$ ]] && [[ "${PROMPT_REMOTE_COUNT:-}" =~ ^[0-9]+$ ]]; then
-      prompt_dot_label="prompts ${PROMPT_LOCAL_COUNT}/${PROMPT_REMOTE_COUNT}"
-    fi
-    dots+="${dot_gap}$(build_health_dot "$prompt_dot_label" "${prompt_tone:-yellow}")"
     dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}")"
 
     if [[ -n "${mcp_tone:-}" ]]; then
@@ -8344,7 +7905,6 @@ print_doctor_report() {
 
   local sync_bits=(
     "auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}")"
-    "prompts=$(colorize_sync_status "${PROMPT_SYNC_STATUS:-unknown}")"
     "skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}")"
     "agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}")"
     "config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
@@ -8783,49 +8343,6 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
   fi
 fi
 
-prompt_label="sync skipped"
-prompt_tone="yellow"
-if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
-  prompt_label="synced"
-  counts=()
-  if [[ "$PROMPT_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("local ${PROMPT_LOCAL_COUNT}")
-  fi
-  if [[ "$PROMPT_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-    counts+=("remote ${PROMPT_REMOTE_COUNT}")
-  fi
-  if (( ${#counts[@]} )); then
-    prompt_label+=" ($(join_with_semicolon "${counts[@]}"))"
-  fi
-  if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
-    prompt_label+=" (${PROMPT_PULL_UPDATED} updated)"
-  fi
-  if [[ "$PROMPT_REMOVED" =~ ^[0-9]+$ ]] && (( PROMPT_REMOVED > 0 )); then
-    prompt_label+=" (${PROMPT_REMOVED} removed)"
-  fi
-  if [[ "$PROMPT_PULL_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_ERRORS > 0 )); then
-    prompt_label+=" (${PROMPT_PULL_ERRORS} fetch errors)"
-    prompt_tone="yellow"
-  else
-    prompt_tone="green"
-  fi
-elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
-  prompt_label="sync config missing"
-  prompt_tone="red"
-elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
-  prompt_label="sync requires python3"
-  prompt_tone="yellow"
-elif [[ "$PROMPT_SYNC_STATUS" == "offline" ]]; then
-  prompt_label="sync unavailable"
-  if [[ -n "$PROMPT_SYNC_REASON" ]]; then
-    prompt_label+=" (${PROMPT_SYNC_REASON})"
-  fi
-  prompt_tone="yellow"
-elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
-  prompt_label="sync failed"
-  prompt_tone="red"
-fi
-
 skill_label="skills via MCP"
 skill_tone="green"
 if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
@@ -8908,32 +8425,6 @@ elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
   config_tone="red"
 fi
 
-case "$PROMPT_PUSH_STATUS" in
-  ok)
-    if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
-      prompt_label+="; pushed ${PROMPT_PUSHED}"
-    fi
-    if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
-      prompt_label+="; push errors ${PROMPT_PUSH_ERRORS}"
-      prompt_tone="yellow"
-    fi
-    ;;
-  no-baseline)
-    prompt_label+="; push skipped (no baseline)"
-    ;;
-  no-python)
-    prompt_label+="; push skipped (python missing)"
-    ;;
-  missing-config)
-    prompt_label+="; push skipped (config missing)"
-    prompt_tone="red"
-    ;;
-  error)
-    prompt_label+="; push failed"
-    prompt_tone="red"
-    ;;
-esac
-
 command_actions=()
 if (( codex_update_attempted )); then command_actions+=("codex"); fi
 if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
@@ -8995,44 +8486,6 @@ elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
   fi
 elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   result_parts+=("auth unavailable")
-fi
-if [[ "$PROMPT_SYNC_STATUS" == "ok" ]]; then
-  prompt_result="prompts synced"
-  if [[ "$PROMPT_LOCAL_COUNT" =~ ^[0-9]+$ ]]; then
-    prompt_result+=" (local ${PROMPT_LOCAL_COUNT}"
-    if [[ "$PROMPT_REMOTE_COUNT" =~ ^[0-9]+$ ]]; then
-      prompt_result+=", remote ${PROMPT_REMOTE_COUNT}"
-    fi
-    prompt_result+=")"
-  fi
-  if [[ "$PROMPT_PULL_UPDATED" =~ ^[0-9]+$ ]] && (( PROMPT_PULL_UPDATED > 0 )); then
-    prompt_result+=" (${PROMPT_PULL_UPDATED} updated)"
-  fi
-  if [[ "$PROMPT_PUSHED" =~ ^[0-9]+$ ]] && (( PROMPT_PUSHED > 0 )); then
-    prompt_result+="; pushed ${PROMPT_PUSHED}"
-  fi
-  if [[ "$PROMPT_REMOVED" =~ ^[0-9]+$ ]] && (( PROMPT_REMOVED > 0 )); then
-    prompt_result+="; removed ${PROMPT_REMOVED}"
-  fi
-  if [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
-    prompt_result+="; push errors ${PROMPT_PUSH_ERRORS}"
-  fi
-  result_parts+=("$prompt_result")
-elif [[ "$PROMPT_SYNC_STATUS" == "missing-config" ]]; then
-  result_parts+=("prompts config missing")
-elif [[ "$PROMPT_SYNC_STATUS" == "no-python" ]]; then
-  result_parts+=("prompts python missing")
-elif [[ "$PROMPT_SYNC_STATUS" == "offline" ]]; then
-  if [[ -n "$PROMPT_SYNC_REASON" ]]; then
-    result_parts+=("prompts offline (${PROMPT_SYNC_REASON})")
-  else
-    result_parts+=("prompts offline")
-  fi
-elif [[ "$PROMPT_SYNC_STATUS" == "error" ]]; then
-  result_parts+=("prompts sync failed")
-fi
-if [[ "$PROMPT_PUSH_STATUS" == "error" ]]; then
-  result_parts+=("prompts push failed")
 fi
 skill_result="skills via MCP"
 if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
@@ -9151,12 +8604,6 @@ elif [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   result_tone="yellow"
 elif [[ "$(lowercase "$codex_status_label")" == "update available" ]] || [[ "$(lowercase "$wrapper_status_label")" == "update available" ]]; then
   result_tone="yellow"
-elif [[ "$PROMPT_SYNC_STATUS" == "error" || "$PROMPT_PUSH_STATUS" == "error" ]]; then
-  result_tone="red"
-elif [[ "$PROMPT_SYNC_STATUS" != "ok" && "$PROMPT_SYNC_STATUS" != "skip" ]]; then
-  result_tone="yellow"
-elif [[ "$PROMPT_PUSH_ERRORS" =~ ^[0-9]+$ ]] && (( PROMPT_PUSH_ERRORS > 0 )); then
-  result_tone="yellow"
 elif [[ "$AGENTS_SYNC_STATUS" == "error" ]]; then
   result_tone="red"
 elif [[ "$AGENTS_SYNC_STATUS" != "ok" && "$AGENTS_SYNC_STATUS" != "skip" ]]; then
@@ -9177,11 +8624,6 @@ if (( ! HOST_IS_SECURE )); then
     && (( ! wrapper_updated )) && (( ! wrapper_update_failed )) \
     && [[ "$AUTH_PULL_STATUS" == "ok" ]] \
     && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]] \
-    && [[ "$PROMPT_SYNC_STATUS" == "ok" ]] \
-    && [[ "${PROMPT_PULL_UPDATED:-0}" == "0" ]] \
-    && [[ "${PROMPT_PUSHED:-0}" == "0" ]] \
-    && [[ "${PROMPT_REMOVED:-0}" == "0" ]] \
-    && [[ "${PROMPT_PUSH_ERRORS:-0}" == "0" ]] \
     && [[ "$SKILL_SYNC_STATUS" == "mcp" ]] \
     && [[ "$AGENTS_SYNC_STATUS" == "ok" ]] \
     && [[ "$AGENTS_STATE" == "unchanged" ]] \
@@ -9322,17 +8764,6 @@ fi
     auth_state="$(colorize "$auth_state" "$auth_tone")"
   fi
   health_rows+=("${bullet} Auth: ${auth_state}")
-
-  prompt_state="in sync"
-  if [[ "$prompt_tone" == "green" ]]; then
-    if [[ "$prompt_label" =~ local[[:space:]]+([0-9]+).*remote[[:space:]]+([0-9]+) ]]; then
-      prompt_state="in sync (${BASH_REMATCH[1]}/${BASH_REMATCH[2]})"
-    fi
-  else
-    prompt_state="${prompt_label:-needs attention}"
-    prompt_state="$(colorize "$prompt_state" "$prompt_tone")"
-  fi
-  health_rows+=("${bullet} Prompts: ${prompt_state}")
 
   skill_state="in sync"
   if [[ "$skill_tone" == "green" ]]; then
@@ -9722,7 +9153,7 @@ fi
     ROW_LABEL_WIDTH="$(compute_row_label_width "${summary_row_labels[@]}")"
 
     if (( CODEX_MINIMAL_OUTPUT )); then
-      minimal_health_line="api=${api_tone} auth=${auth_tone} prompts=${prompt_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
+      minimal_health_line="api=${api_tone} auth=${auth_tone} skills=${skill_tone} codex=${codex_tone} wrapper=${wrapper_tone}"
       if [[ -n "$agents_label" ]]; then
         minimal_health_line+=" agents=${agents_tone}"
       fi
@@ -9781,9 +9212,9 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS
   fi
   release_run_lock_if_held || true
   if (( CODEX_ORIGINAL_ARGC > 0 )); then
-    CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
+    CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
   fi
-  CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL"
+  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL"
 fi
 
 AUTH_LAUNCH_ALLOWED=0
@@ -9970,9 +9401,6 @@ cleanup() {
   local exit_status=$?
   trap - EXIT
   stop_codex_ipv4_proxy || true
-  if (( ! CDX_ACTIVE_RUN_DETECTED )) || (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
-    push_slash_commands_if_changed || true
-  fi
   if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
     push_auth_if_changed "push" || true
   fi
