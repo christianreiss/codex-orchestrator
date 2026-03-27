@@ -27,11 +27,11 @@
             <span class="rail-chevron" aria-hidden="true"></span>
           </button>
           <div class="rail-panel rail-panel-compact" role="menu">
-            <a class="rail-sub-link host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="" role="menuitem">All Hosts</a>
-            <a class="rail-sub-link host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem">Secure</a>
-            <a class="rail-sub-link host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem">Insecure</a>
+            <a class="rail-sub-link host-tab" href="/admin/hosts" data-nav="hosts" data-host-tab="" role="menuitem"><span>All Hosts</span><span class="rail-shortcut">[h][a]</span></a>
+            <a class="rail-sub-link host-tab" href="/admin/hosts/secure" data-nav="hosts" data-host-tab="secure" role="menuitem"><span>Secure</span><span class="rail-shortcut">[h][s]</span></a>
+            <a class="rail-sub-link host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem"><span>Insecure</span><span class="rail-shortcut">[h][i]</span></a>
             <a class="rail-sub-link host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
-            <button class="rail-menu-button" id="newHostBtn" type="button" role="menuitem">New Host</button>
+            <button class="rail-menu-button" id="newHostBtn" type="button" role="menuitem"><span>New Host</span><span class="rail-shortcut">[h][n]</span></button>
           </div>
         </div>
         <div class="rail-group" data-nav="logs">
@@ -40,9 +40,9 @@
             <span class="rail-chevron" aria-hidden="true"></span>
           </button>
           <div class="rail-panel rail-panel-compact" role="menu">
-            <a class="rail-sub-link log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client" role="menuitem">API Logs</a>
-            <a class="rail-sub-link log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp" role="menuitem">MCP Logs</a>
-            <a class="rail-sub-link log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events" role="menuitem">Events</a>
+            <a class="rail-sub-link log-tab" href="/admin/logs" data-nav="logs" data-log-tab="client" role="menuitem"><span>API Logs</span><span class="rail-shortcut">[l][c]</span></a>
+            <a class="rail-sub-link log-tab" href="/admin/logs/mcp" data-nav="logs" data-log-tab="mcp" role="menuitem"><span>MCP Logs</span><span class="rail-shortcut">[l][m]</span></a>
+            <a class="rail-sub-link log-tab" href="/admin/logs/events" data-nav="logs" data-log-tab="events" role="menuitem"><span>Events</span><span class="rail-shortcut">[l][e]</span></a>
           </div>
         </div>
         <div class="rail-group rail-group-settings" data-nav="settings">
@@ -53,20 +53,20 @@
           <div class="rail-panel rail-panel-settings" role="menu">
             <section class="rail-section" aria-label="Admin settings">
               <div class="rail-section-label">Admin</div>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem">General</a>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem">Agents</a>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem">config.toml</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem"><span>General</span><span class="rail-shortcut">[s][g]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem"><span>Agents</span><span class="rail-shortcut">[s][a]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem"><span>config.toml</span><span class="rail-shortcut">[s][c]</span></a>
             </section>
             <section class="rail-section" aria-label="Authoring settings">
               <div class="rail-section-label">Authoring</div>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem">Slash Commands</a>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem">Skills</a>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem">Memories</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/prompts" data-nav="settings" data-settings-tab="prompts" role="menuitem"><span>Slash Commands</span><span class="rail-shortcut">[s][x]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/skills" data-nav="settings" data-settings-tab="skills" role="menuitem"><span>Skills</span><span class="rail-shortcut">[s][k]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/memories" data-nav="settings" data-settings-tab="memories" role="menuitem"><span>Memories</span><span class="rail-shortcut">[s][m]</span></a>
             </section>
             <section class="rail-section" aria-label="Workspace settings">
               <div class="rail-section-label">Workspace</div>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem">Projects</a>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem">Profiles</a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem"><span>Projects</span><span class="rail-shortcut">[s][p]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem"><span>Profiles</span><span class="rail-shortcut">[s][r]</span></a>
             </section>
           </div>
         </div>
@@ -100,7 +100,7 @@
               </div>
               <button class="rail-menu-button" id="navHelpTrigger" type="button" role="menuitem" aria-label="Open keyboard shortcuts help" title="Keyboard shortcuts">
                 <span>Keyboard shortcuts</span>
-                <span class="rail-help-glyph" aria-hidden="true">?</span>
+                <span class="rail-shortcut">[?]</span>
               </button>
               <a class="rail-sub-link" id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;">Password change</a>
               <a class="rail-sub-link" id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;">Passkeys</a>
@@ -123,18 +123,30 @@
             <p class="muted">Fast paths for the admin shell. Shortcuts pause while you are typing in an input, textarea, select box, or editor.</p>
             <div class="kbd-shortcuts-grid">
               <div class="kbd-shortcuts-section">
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>d</kbd><span>Go to Overview</span></div>
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>h</kbd><span>Go to Hosts</span></div>
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>l</kbd><span>Go to Logs</span></div>
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>s</kbd><span>Go to Settings</span></div>
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>p</kbd><span>Go to Projects settings</span></div>
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>u</kbd><span>Go to Users</span></div>
-                <div class="kbd-shortcut-row"><kbd>g</kbd> <kbd>a</kbd><span>Go to Account</span></div>
+                <div class="kbd-shortcut-row"><kbd>d</kbd><span>Go to Dashboard</span></div>
+                <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>a</kbd><span>Hosts: all</span></div>
+                <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>s</kbd><span>Hosts: secure</span></div>
+                <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>i</kbd><span>Hosts: insecure</span></div>
+                <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>n</kbd><span>Hosts: new</span></div>
+                <div class="kbd-shortcut-row"><kbd>l</kbd> <kbd>c</kbd><span>Logs: API</span></div>
+                <div class="kbd-shortcut-row"><kbd>l</kbd> <kbd>m</kbd><span>Logs: MCP</span></div>
+                <div class="kbd-shortcut-row"><kbd>l</kbd> <kbd>e</kbd><span>Logs: events</span></div>
+              </div>
+              <div class="kbd-shortcuts-section">
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>g</kbd><span>Settings: general</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>a</kbd><span>Settings: agents</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>c</kbd><span>Settings: config</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>x</kbd><span>Settings: slash commands</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>k</kbd><span>Settings: skills</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>m</kbd><span>Settings: memories</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>p</kbd><span>Settings: projects</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>r</kbd><span>Settings: profiles</span></div>
               </div>
               <div class="kbd-shortcuts-section">
                 <div class="kbd-shortcut-row"><kbd>/</kbd><span>Focus the active search / filter</span></div>
                 <div class="kbd-shortcut-row"><kbd>r</kbd><span>Refresh the current view</span></div>
                 <div class="kbd-shortcut-row"><kbd>n</kbd><span>New item (host / user / command / skill)</span></div>
+                <div class="kbd-shortcut-row"><kbd>t</kbd><span>Toggle the visible drawer/panel</span></div>
                 <div class="kbd-shortcut-row"><kbd>?</kbd><span>Show this help</span></div>
                 <div class="kbd-shortcut-row"><kbd>Esc</kbd><span>Close modal / dismiss</span></div>
               </div>

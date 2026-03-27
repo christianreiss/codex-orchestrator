@@ -4243,6 +4243,17 @@ body[data-nav-version="2026"] .rail-disclosure {
   transition: color 160ms ease;
 }
 
+body[data-nav-version="2026"] .rail-shortcut {
+  margin-left: auto;
+  color: color-mix(in srgb, var(--muted) 82%, var(--text));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 body[data-nav-version="2026"] .rail-link::after,
 body[data-nav-version="2026"] .rail-group::after {
   content: '';
@@ -4443,7 +4454,10 @@ body[data-nav-version="2026"] .rail-section-label {
 }
 
 body[data-nav-version="2026"] .rail-sub-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 4px 0;
   color: var(--text);
   text-decoration: none;

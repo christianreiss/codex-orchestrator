@@ -1028,6 +1028,25 @@
       window.location.reload();
     }
 
+    function triggerVisibleTogglerShortcut() {
+      const candidates = [
+        document.getElementById('navMenuToggle'),
+        settingsToggle,
+      ].filter(Boolean);
+      const target = candidates.find((element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        if (element.hidden) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        return element.getClientRects().length > 0;
+      });
+      if (!target) {
+        toast('No toggle control is active in this view.', 'info', { timeoutMs: 1800 });
+        return;
+      }
+      target.click();
+    }
+
     function triggerNewShortcut() {
       const activePanel = document.querySelector('.panel-set:not([hidden])');
       if (!activePanel) {
@@ -1072,19 +1091,38 @@
     }
 
     function handleShortcutPrefixKey(key) {
-      if (pendingShortcutPrefix !== 'g') return false;
-      const routes = {
-        d: '/admin/dashboard',
-        h: '/admin/hosts',
-        l: '/admin/logs',
-        s: '/admin/settings/general',
-        p: '/admin/settings/projects',
-        u: '/admin/users',
-        a: '/admin/account',
+      const prefix = pendingShortcutPrefix;
+      if (!prefix) return false;
+      const routesByPrefix = {
+        h: {
+          a: '/admin/hosts',
+          s: '/admin/hosts/secure',
+          i: '/admin/hosts/insecure',
+          n: '__new_host__',
+        },
+        l: {
+          c: '/admin/logs',
+          m: '/admin/logs/mcp',
+          e: '/admin/logs/events',
+        },
+        s: {
+          g: '/admin/settings/general',
+          a: '/admin/settings/agents',
+          c: '/admin/settings/config',
+          x: '/admin/settings/prompts',
+          k: '/admin/settings/skills',
+          m: '/admin/settings/memories',
+          p: '/admin/settings/projects',
+          r: '/admin/settings/profiles',
+        },
       };
-      const route = routes[key];
+      const route = routesByPrefix[prefix]?.[key] || null;
       clearShortcutPrefix();
       if (!route) return false;
+      if (route === '__new_host__') {
+        showNewHostModal(true);
+        return true;
+      }
       navigateAdminShortcut(route);
       return true;
     }
@@ -1120,15 +1158,29 @@
         return;
       }
 
-      if (normalizedKey === 'g') {
+      if (normalizedKey === 'd') {
         event.preventDefault();
-        armShortcutPrefix('g');
+        navigateAdminShortcut('/admin/dashboard');
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (normalizedKey === 'h' || normalizedKey === 'l' || normalizedKey === 's') {
+        event.preventDefault();
+        armShortcutPrefix(normalizedKey);
         return;
       }
 
       if (normalizedKey === 'n') {
         event.preventDefault();
         triggerNewShortcut();
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (normalizedKey === 't') {
+        event.preventDefault();
+        triggerVisibleTogglerShortcut();
         clearShortcutPrefix();
         return;
       }
@@ -4549,7 +4601,7 @@
         const ts = parseTimestamp(p?.fetched_at);
         const val = Number(p?.[key]);
         if (!ts || Number.isNaN(val)) return;
-        const clamped = Math.max(0, Math.min(130, val));
+        const clamped = Math.max(0, Math.min(100, val));
         series.push({ x: ts.getTime(), y: clamped, raw: val, iso: p.fetched_at });
       });
       series.sort((a, b) => a.x - b.x);
@@ -5952,7 +6004,7 @@
             const ts = parseTimestamp(pt?.ts || pt?.fetched_at || null);
             const val = Number(pt?.value ?? pt?.y);
             if (!ts || !Number.isFinite(val)) return null;
-            return { x: ts.getTime(), y: clamp(val, 0, 130) };
+            return { x: ts.getTime(), y: clamp(val, 0, 100) };
           })
           .filter(Boolean)
           .sort((a, b) => a.x - b.x);
@@ -6592,7 +6644,7 @@
               },
               y: {
                 min: 0,
-                max: 130,
+                max: 100,
                 stacked: includeFill,
                 ticks: {
                   callback(value) {

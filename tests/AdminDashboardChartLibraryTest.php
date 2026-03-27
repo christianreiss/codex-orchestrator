@@ -25,4 +25,19 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString('dashboardCostCanvas', $js);
         $this->assertStringContainsString('zoom', $js);
     }
+
+    public function testNavigationShowsShortcutHints(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+        $this->assertStringContainsString('All Hosts</span><span class="rail-shortcut">[h][a]</span>', $html);
+        $this->assertStringContainsString('New Host</span><span class="rail-shortcut">[h][n]</span>', $html);
+        $this->assertStringContainsString('API Logs</span><span class="rail-shortcut">[l][c]</span>', $html);
+        $this->assertStringContainsString('General</span><span class="rail-shortcut">[s][g]</span>', $html);
+        $this->assertStringContainsString('Projects</span><span class="rail-shortcut">[s][p]</span>', $html);
+        $this->assertStringContainsString('Keyboard shortcuts</span>', $html);
+        $this->assertStringContainsString('<span class="rail-shortcut">[?]</span>', $html);
+        $this->assertStringNotContainsString('Overview</span><span class="rail-shortcut">', $html);
+        $this->assertStringNotContainsString('Users</span><span class="rail-shortcut">', $html);
+    }
 }
