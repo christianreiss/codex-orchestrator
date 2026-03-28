@@ -66,6 +66,7 @@ use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
 use App\Services\AgentsService;
 use App\Services\SkillService;
+use App\Services\SkillSummaryService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
 use App\Services\StartupSyncService;
@@ -263,7 +264,8 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         $runnerUrl,
         (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api'),
         (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0),
-        (string) Config::get('AUTH_RUNNER_SHARED_SECRET', '')
+        (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
+        (string) Config::get('AUTH_RUNNER_SKILL_SUMMARY_URL', '')
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
@@ -313,8 +315,10 @@ $adminPasskeyService = new AdminPasskeyService(
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $cliAuthService = new CliAuthService($cliAuthRequestRepository, $service, $logRepository, $rateLimiter);
 $projectModuleService = new ProjectModuleService($versionRepository);
-$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService);
-$agentsService = new AgentsService($agentsRepository, $logRepository);
+$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
+$skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
+$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService);
+$agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
 $projectCoordinationService = new ProjectCoordinationService(
     $projectRepository,
@@ -327,7 +331,6 @@ $projectCoordinationService = new ProjectCoordinationService(
     $logRepository
 );
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
-$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
 $chatGptUsageService = new ChatGptUsageService(
     $service,

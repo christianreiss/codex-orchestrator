@@ -32,6 +32,15 @@ class VerifyRequest(BaseModel):
     )
 
 
+class SkillSummaryRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    slug: str = Field(..., description="Skill slug")
+    manifest: str = Field(..., description="SKILL.md contents to summarize")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the summary call (seconds)"
+    )
+
+
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
     auths = auth_json.get("auths", {})
     if isinstance(auths, dict):
@@ -61,59 +70,68 @@ def _codex_version(env: dict) -> str:
     return parts[-1] if parts else "unknown"
 
 
-def _run_probe(payload: VerifyRequest) -> dict:
+def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
     if DEBUG_DUMP_ENABLED:
         # Debug helper: persist the incoming auth.json so it can be inspected from the container.
         # WARNING: contains secrets; enable only when debugging runner probes.
         try:
             debug_path = "/tmp/last-auth.json"
             with open(debug_path, "w", encoding="utf-8") as fh:
-                json.dump(payload.auth_json, fh, indent=2)
+                json.dump(auth_json, fh, indent=2)
             os.chmod(debug_path, 0o600)
         except Exception:
             pass
 
-    token = _extract_openai_token(payload.auth_json)
+    token = _extract_openai_token(auth_json)
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable token in auth_json")
 
     env = os.environ.copy()
     home_dir = tempfile.mkdtemp(prefix="codex-runner-")
     env["HOME"] = home_dir
+    codex_dir = os.path.join(home_dir, ".codex")
+    os.makedirs(codex_dir, exist_ok=True)
+    auth_path = os.path.join(codex_dir, "auth.json")
     try:
-        codex_dir = os.path.join(home_dir, ".codex")
-        os.makedirs(codex_dir, exist_ok=True)
-        auth_path = os.path.join(codex_dir, "auth.json")
-        try:
-            with open(auth_path, "w", encoding="utf-8") as fh:
-                json.dump(payload.auth_json, fh)
-            os.chmod(auth_path, 0o600)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
+        with open(auth_path, "w", encoding="utf-8") as fh:
+            json.dump(auth_json, fh)
+        os.chmod(auth_path, 0o600)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
 
-        env.setdefault("CODEX_SYNC_BASE_URL", os.environ.get("CODEX_SYNC_BASE_URL", "http://api"))
-        env["CODEX_SYNC_OPTIONAL"] = "1"
-        env["CODEX_SYNC_BAKED"] = "0"
+    env.setdefault("CODEX_SYNC_BASE_URL", os.environ.get("CODEX_SYNC_BASE_URL", "http://api"))
+    env["CODEX_SYNC_OPTIONAL"] = "1"
+    env["CODEX_SYNC_BAKED"] = "0"
 
+    return env, home_dir, auth_path
+
+
+def _run_codex_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
+    cmd = [
+        "/usr/local/bin/codex",
+        "exec",
+        prompt,
+        "-s",
+        "read-only",
+        "--skip-git-repo-check",
+    ]
+    start = time.perf_counter()
+    proc = subprocess.run(
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return proc, latency_ms
+
+
+def _run_probe(payload: VerifyRequest) -> dict:
+    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
+    try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        probe_cmd = [
-            "/usr/local/bin/codex",
-            "exec",
-            "Reply Banana if this works.",
-            "-s",
-            "read-only",
-            "--skip-git-repo-check",
-        ]
-
-        start = time.perf_counter()
-        proc = subprocess.run(
-            probe_cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        latency_ms = int((time.perf_counter() - start) * 1000)
+        proc, latency_ms = _run_codex_exec("Reply Banana if this works.", env, timeout)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
@@ -137,7 +155,64 @@ def _run_probe(payload: VerifyRequest) -> dict:
             result["reason"] = message[:400] if message else "probe failed"
         return result
     finally:
-        # The probe writes secrets to ~/.codex/auth.json; always clean up the temp HOME.
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
+def _sanitize_skill_summary(text: str) -> str:
+    summary = " ".join(text.replace("\r", "\n").split())
+    summary = summary.strip(" \t\n\r`\"'-")
+    if summary.startswith("* "):
+        summary = summary[2:].strip()
+    if summary.startswith("- "):
+        summary = summary[2:].strip()
+    if len(summary) > 180:
+        summary = summary[:177].rstrip(" ,;:.") + "..."
+    return summary
+
+
+def _skill_summary_prompt(slug: str, manifest: str) -> str:
+    return (
+        "Summarize this Codex skill for an AGENTS.md skills inventory. "
+        "Return exactly one plain sentence, no markdown, no quotes, max 18 words. "
+        "Describe what the skill is used for, not implementation details.\n\n"
+        f"Skill slug: {slug}\n\n"
+        "SKILL.md:\n"
+        f"{manifest}"
+    )
+
+
+def _summarize_skill(payload: SkillSummaryRequest) -> dict:
+    slug = payload.slug.strip()
+    manifest = payload.manifest.strip()
+    if slug == "":
+        raise HTTPException(status_code=400, detail="slug is required")
+    if manifest == "":
+        raise HTTPException(status_code=400, detail="manifest is required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(_skill_summary_prompt(slug, manifest), env, timeout)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        summary = _sanitize_skill_summary(stdout)
+        ok = proc.returncode == 0 and summary != ""
+
+        result = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok:
+            result["summary"] = summary
+            return result
+
+        parts = [p for p in [stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:400] if message else "summary failed"
+        return result
+    finally:
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
@@ -152,6 +227,28 @@ def verify(payload: VerifyRequest, request: Request):
         return _run_probe(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="probe timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/skills/summarize")
+def summarize_skill_health():
+    return {"status": "ok"}
+
+
+@app.post("/skills/summarize")
+def summarize_skill(payload: SkillSummaryRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _summarize_skill(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="summary timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

@@ -6,6 +6,7 @@ use App\Repositories\SkillRepository;
 use App\Repositories\LogRepository;
 use App\Services\ProjectModuleService;
 use App\Services\SkillService;
+use App\Services\SkillSummaryService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -191,6 +192,94 @@ final class SkillServiceTest extends TestCase
         $metadataChange['description'] = 'Backups nightly';
         $third = $this->service->store($metadataChange, null);
         $this->assertSame('updated', $third['status']);
+    }
+
+    public function testStoreGeneratesDescriptionForNewSkillWhenMissing(): void
+    {
+        $summary = new class extends SkillSummaryService {
+            public array $calls = [];
+
+            public function __construct()
+            {
+            }
+
+            public function summarize(string $slug, string $manifest, ?array $host = null): ?string
+            {
+                $this->calls[] = compact('slug', 'manifest', 'host');
+
+                return 'Deploys services safely.';
+            }
+        };
+        $service = new SkillService($this->repository, $this->logs, null, $summary);
+
+        $result = $service->store([
+            'slug' => 'deploy',
+            'manifest' => '# Deploy',
+        ], ['id' => 4]);
+
+        $saved = $this->repository->findBySlug('deploy');
+        $this->assertSame('created', $result['status']);
+        $this->assertSame('Deploys services safely.', $saved['description'] ?? null);
+        $this->assertCount(1, $summary->calls);
+    }
+
+    public function testStoreRegeneratesDescriptionWhenManifestChangesAndDescriptionMissing(): void
+    {
+        $summary = new class extends SkillSummaryService {
+            public array $responses = ['Initial summary.', 'Updated summary.'];
+
+            public function __construct()
+            {
+            }
+
+            public function summarize(string $slug, string $manifest, ?array $host = null): ?string
+            {
+                return array_shift($this->responses);
+            }
+        };
+        $service = new SkillService($this->repository, $this->logs, null, $summary);
+
+        $service->store([
+            'slug' => 'deploy',
+            'manifest' => '# Deploy v1',
+        ], null);
+
+        $service->store([
+            'slug' => 'deploy',
+            'manifest' => '# Deploy v2',
+        ], null);
+
+        $saved = $this->repository->findBySlug('deploy');
+        $this->assertSame('Updated summary.', $saved['description'] ?? null);
+    }
+
+    public function testStoreDoesNotOverwriteExplicitDescription(): void
+    {
+        $summary = new class extends SkillSummaryService {
+            public int $calls = 0;
+
+            public function __construct()
+            {
+            }
+
+            public function summarize(string $slug, string $manifest, ?array $host = null): ?string
+            {
+                $this->calls++;
+
+                return 'Generated summary.';
+            }
+        };
+        $service = new SkillService($this->repository, $this->logs, null, $summary);
+
+        $service->store([
+            'slug' => 'deploy',
+            'manifest' => '# Deploy',
+            'description' => 'Manual summary.',
+        ], null);
+
+        $saved = $this->repository->findBySlug('deploy');
+        $this->assertSame('Manual summary.', $saved['description'] ?? null);
+        $this->assertSame(0, $summary->calls);
     }
 
     public function testRetrieveRespectsSha(): void

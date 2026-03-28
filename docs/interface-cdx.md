@@ -108,7 +108,7 @@ Profile shorthand:
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
 | Skills | MCP `resource_read` / `resources/read` | None | No synced local skill file; hosts read canonical manifests from `skill://{slug}` |
-| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot) |
+| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot; served content may append a managed Skills block when MCP is enabled and skills exist) |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
 Sync details:

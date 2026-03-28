@@ -19,7 +19,9 @@ class AgentsService
     use HostServiceTrait;
     public function __construct(
         private readonly AgentsRepository $agents,
-        private readonly LogRepository $logs
+        private readonly LogRepository $logs,
+        private readonly ?SkillService $skills = null,
+        private readonly ?ClientConfigService $clientConfigService = null
     ) {
     }
 
@@ -37,19 +39,20 @@ class AgentsService
             ];
         }
 
-        $canonicalSha = $row['sha256'] ?? hash('sha256', (string) ($row['body'] ?? ''));
+        $served = $this->buildServedDocument($row);
+        $canonicalSha = $served['sha256'] ?? hash('sha256', (string) ($served['body'] ?? ''));
         $status = ($sha256 !== null && hash_equals($canonicalSha, $sha256)) ? 'unchanged' : 'updated';
 
         $result = [
             'status' => $status,
             'version_id' => isset($row['id']) ? (int) $row['id'] : null,
             'sha256' => $canonicalSha,
-            'updated_at' => $row['updated_at'] ?? null,
-            'size_bytes' => strlen((string) ($row['body'] ?? '')),
+            'updated_at' => $served['updated_at'] ?? null,
+            'size_bytes' => strlen((string) ($served['body'] ?? '')),
         ];
 
         if ($status !== 'unchanged') {
-            $result['content'] = (string) ($row['body'] ?? '');
+            $result['content'] = (string) ($served['body'] ?? '');
         }
 
         $this->logs->log($hostId, 'agents.retrieve', ['status' => $status]);
@@ -331,5 +334,88 @@ class AgentsService
         }
 
         return $this->agents->latest();
+    }
+
+    private function buildServedDocument(array $row): array
+    {
+        $body = (string) ($row['body'] ?? '');
+        $skillsBlock = $this->skillsBlock();
+        if ($skillsBlock === null) {
+            return [
+                'body' => $body,
+                'sha256' => $row['sha256'] ?? hash('sha256', $body),
+                'updated_at' => $row['updated_at'] ?? null,
+            ];
+        }
+
+        $rendered = rtrim($body);
+        if ($rendered !== '') {
+            $rendered .= "\n\n";
+        }
+        $rendered .= $skillsBlock . "\n";
+
+        return [
+            'body' => $rendered,
+            'sha256' => hash('sha256', $rendered),
+            'updated_at' => $row['updated_at'] ?? null,
+        ];
+    }
+
+    private function skillsBlock(): ?string
+    {
+        if ($this->skills === null || $this->clientConfigService === null) {
+            return null;
+        }
+
+        $config = $this->clientConfigService->adminFetch();
+        if (($config['status'] ?? 'missing') !== 'ok') {
+            return null;
+        }
+
+        $settings = is_array($config['settings'] ?? null) ? $config['settings'] : [];
+        if (($settings['orchestrator_mcp_enabled'] ?? true) === false) {
+            return null;
+        }
+
+        $skills = array_values(array_filter(
+            $this->skills->listForAgents(),
+            static fn (array $skill): bool => trim((string) ($skill['slug'] ?? '')) !== ''
+        ));
+        if ($skills === []) {
+            return null;
+        }
+
+        $lines = [
+            '<!-- cdx:skills:start -->',
+            '## Skills',
+            'The following skills are available through the managed `cdx` MCP server. Read details with `skill://{slug}` resources.',
+            '',
+        ];
+
+        foreach ($skills as $skill) {
+            $slug = trim((string) ($skill['slug'] ?? ''));
+            if ($slug === '') {
+                continue;
+            }
+
+            $description = $this->normalizeSkillDescription($skill['description'] ?? null, $slug);
+            $lines[] = sprintf('- `%s` - %s', $slug, $description);
+        }
+
+        $lines[] = '<!-- cdx:skills:end -->';
+
+        return implode("\n", $lines);
+    }
+
+    private function normalizeSkillDescription(mixed $description, string $slug): string
+    {
+        if (is_string($description)) {
+            $normalized = trim(preg_replace('/\s+/', ' ', $description) ?? '');
+            if ($normalized !== '') {
+                return $normalized;
+            }
+        }
+
+        return sprintf('Skill available via MCP; open `skill://%s` for details.', $slug);
     }
 }

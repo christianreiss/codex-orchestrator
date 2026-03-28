@@ -22,26 +22,32 @@ class SkillService
     public function __construct(
         private readonly SkillRepository $skills,
         private readonly LogRepository $logs,
-        private readonly ?ProjectModuleService $projectModule = null
+        private readonly ?ProjectModuleService $projectModule = null,
+        private readonly ?SkillSummaryService $summaryService = null
     ) {
     }
 
     public function listSkills(?array $host = null, bool $includeDeleted = false): array
     {
-        $rows = $this->skills->all($includeDeleted);
-        $managed = $this->managedSkill();
-        if ($managed !== null) {
-            $rows = array_values(array_filter(
-                $rows,
-                static fn (array $row): bool => (string) ($row['slug'] ?? '') !== ProjectModuleService::MANAGED_SKILL_SLUG
-            ));
-            $rows[] = $managed;
-            usort($rows, static fn (array $a, array $b): int => strcmp((string) ($a['slug'] ?? ''), (string) ($b['slug'] ?? '')));
-        }
-        $rows = array_map(fn (array $row): array => $this->addCanonicalUri($row), $rows);
+        $rows = $this->publishedSkills($includeDeleted);
         $this->logs->log($this->hostId($host), 'skill.list', ['count' => count($rows)]);
 
-        return array_map(fn (array $row): array => $this->decorateSkillRow($row), $rows);
+        return $rows;
+    }
+
+    public function listForAgents(): array
+    {
+        return array_map(
+            static function (array $row): array {
+                return [
+                    'slug' => $row['slug'] ?? null,
+                    'description' => $row['description'] ?? null,
+                    'display_name' => $row['display_name'] ?? null,
+                    'canonical_uri' => $row['canonical_uri'] ?? null,
+                ];
+            },
+            $this->publishedSkills(false)
+        );
     }
 
     public function retrieve(string $slug, ?string $sha256, ?array $host = null): array
@@ -163,9 +169,11 @@ class SkillService
 
         $existing = $this->skills->findBySlug($slug);
         $existingSha = $existing['sha256'] ?? null;
+        $manifestChanged = !$existing || !is_string($existingSha) || !hash_equals($existingSha, $sha);
+        $descriptionToPersist = $descriptionRaw === null ? ($existing['description'] ?? null) : $description;
         $metadataChanged = $existing !== null && (
             ($existing['display_name'] ?? null) !== $displayName ||
-            ($existing['description'] ?? null) !== $description
+            ($existing['description'] ?? null) !== $descriptionToPersist
         );
 
         $status = 'created';
@@ -175,7 +183,21 @@ class SkillService
 
         $saved = $status === 'unchanged'
             ? $existing
-            : $this->skills->upsert($slug, $sha, $displayName, $description, $manifest, $this->hostId($host));
+            : $this->skills->upsert($slug, $sha, $displayName, $descriptionToPersist, $manifest, $this->hostId($host));
+
+        if ($descriptionRaw === null && $manifestChanged) {
+            $generatedDescription = $this->summaryService?->summarize($slug, $manifest, $host);
+            if ($generatedDescription !== null && $generatedDescription !== ($saved['description'] ?? null)) {
+                $saved = $this->skills->upsert(
+                    $slug,
+                    $sha,
+                    $displayName,
+                    $generatedDescription,
+                    $manifest,
+                    $this->hostId($host)
+                );
+            }
+        }
 
         $this->logs->log($this->hostId($host), 'skill.store', [
             'slug' => $slug,
@@ -238,6 +260,25 @@ class SkillService
     private function managedSkill(): ?array
     {
         return $this->projectModule?->managedSkill();
+    }
+
+    private function publishedSkills(bool $includeDeleted): array
+    {
+        $rows = $this->skills->all($includeDeleted);
+        $managed = $this->managedSkill();
+        if ($managed !== null) {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => (string) ($row['slug'] ?? '') !== ProjectModuleService::MANAGED_SKILL_SLUG
+            ));
+            $rows[] = $managed;
+            usort($rows, static fn (array $a, array $b): int => strcmp((string) ($a['slug'] ?? ''), (string) ($b['slug'] ?? '')));
+        }
+
+        return array_map(
+            fn (array $row): array => $this->decorateSkillRow($this->addCanonicalUri($row)),
+            $rows
+        );
     }
 
     private function decorateSkillRow(array $row): array

@@ -6,6 +6,8 @@ use App\Exceptions\ValidationException;
 use App\Repositories\AgentsRepository;
 use App\Repositories\LogRepository;
 use App\Services\AgentsService;
+use App\Services\ClientConfigService;
+use App\Services\SkillService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -125,17 +127,49 @@ final class NullLogRepositoryAgents extends LogRepository
     }
 }
 
+final class FakeSkillServiceForAgents extends SkillService
+{
+    public array $skills = [];
+
+    public function __construct()
+    {
+    }
+
+    public function listForAgents(): array
+    {
+        return $this->skills;
+    }
+}
+
+final class FakeClientConfigServiceForAgents extends ClientConfigService
+{
+    public array $state = ['status' => 'missing'];
+
+    public function __construct()
+    {
+    }
+
+    public function adminFetch(): array
+    {
+        return $this->state;
+    }
+}
+
 final class AgentsServiceTest extends TestCase
 {
     private InMemoryAgentsRepository $repository;
     private NullLogRepositoryAgents $logs;
+    private FakeSkillServiceForAgents $skills;
+    private FakeClientConfigServiceForAgents $configs;
     private AgentsService $service;
 
     protected function setUp(): void
     {
         $this->repository = new InMemoryAgentsRepository();
         $this->logs = new NullLogRepositoryAgents();
-        $this->service = new AgentsService($this->repository, $this->logs);
+        $this->skills = new FakeSkillServiceForAgents();
+        $this->configs = new FakeClientConfigServiceForAgents();
+        $this->service = new AgentsService($this->repository, $this->logs, $this->skills, $this->configs);
     }
 
     public function testRetrieveMissingReturnsStatus(): void
@@ -219,6 +253,72 @@ final class AgentsServiceTest extends TestCase
         $result = $this->service->retrieve(null);
         $this->assertSame('updated', $result['status']);
         $this->assertSame('# AGENTS content', $result['content']);
+    }
+
+    public function testRetrieveAppendsSkillsBlockWhenMcpEnabledAndSkillsExist(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => true],
+        ];
+        $this->skills->skills = [
+            ['slug' => 'deploy', 'description' => 'Deploys services safely.'],
+            ['slug' => 'triage', 'description' => null],
+        ];
+
+        $result = $this->service->retrieve(null);
+
+        $this->assertStringContainsString('## Skills', $result['content']);
+        $this->assertStringContainsString('`deploy` - Deploys services safely.', $result['content']);
+        $this->assertStringContainsString('`triage` - Skill available via MCP; open `skill://triage` for details.', $result['content']);
+        $this->assertStringContainsString('<!-- cdx:skills:start -->', $result['content']);
+    }
+
+    public function testRetrieveSkipsSkillsBlockWhenConfigMissing(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->skills->skills = [
+            ['slug' => 'deploy', 'description' => 'Deploys services safely.'],
+        ];
+
+        $result = $this->service->retrieve(null);
+
+        $this->assertStringNotContainsString('## Skills', $result['content']);
+    }
+
+    public function testRetrieveSkipsSkillsBlockWhenMcpDisabled(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => false],
+        ];
+        $this->skills->skills = [
+            ['slug' => 'deploy', 'description' => 'Deploys services safely.'],
+        ];
+
+        $result = $this->service->retrieve(null);
+
+        $this->assertStringNotContainsString('## Skills', $result['content']);
+    }
+
+    public function testRetrieveHashChangesWhenSkillsBlockChanges(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => true],
+        ];
+        $this->skills->skills = [
+            ['slug' => 'deploy', 'description' => 'Deploys services safely.'],
+        ];
+
+        $first = $this->service->retrieve(null);
+        $this->skills->skills[0]['description'] = 'Deploys services with safety checks.';
+        $second = $this->service->retrieve(null);
+
+        $this->assertNotSame($first['sha256'], $second['sha256']);
     }
 
     public function testAdminFetchWhenMissing(): void

@@ -1,6 +1,6 @@
 # Codex Auth Runner
 
-Lightweight HTTP microservice that validates an `auth.json` by running the Codex CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
+Lightweight HTTP microservice that validates an `auth.json` and generates short skill summaries by running the Codex CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
 ## Build
 
@@ -22,6 +22,7 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` requires header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` and `/skills/summarize` require header `X-Runner-Auth` with an exact secret match.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`.
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for writing `/tmp/last-auth.json`.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -104,3 +105,39 @@ Behavior details:
 - `status` is `ok` only when the command exits 0 and stdout contains `banana` (case-insensitive); otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
 - `codex_version` is taken from `/usr/local/bin/codex --version` (last whitespace-separated token), or `"unknown"` when the version call fails.
 - The temp `$HOME` directory is always removed after the probe.
+
+### `POST /skills/summarize`
+
+Request body:
+
+```json
+{
+  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "slug": "deploy",
+  "manifest": "# Deploy\nUse this skill to roll out safely.\n",
+  "timeout_seconds": 8.0
+}
+```
+
+Fields:
+- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
+- `slug` (required string) — skill slug for prompt context.
+- `manifest` (required string) — `SKILL.md` contents to summarize.
+- `timeout_seconds` (optional float) — summary timeout in seconds; defaults to 8.0 when omitted.
+
+Response (success):
+
+```json
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "0.101.0",
+  "summary": "Deploys services safely with guided rollout steps."
+}
+```
+
+Behavior details:
+- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
+- Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
+- Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
