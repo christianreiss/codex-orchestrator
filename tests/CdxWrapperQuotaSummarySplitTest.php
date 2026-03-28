@@ -45,6 +45,8 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
         self::assertStringContainsString('other_projection_note="(hits 100 in ~${other_projection_eta}, before reset)"', $wrapperSource);
         self::assertStringContainsString('projection_note="proj ~${projection_pct}% at reset"', $wrapperSource);
         self::assertStringContainsString('other_projection_note="proj ~${other_projection_pct}% at reset"', $wrapperSource);
+        self::assertStringContainsString('q_eta+=("${projection_eta:-}")', $wrapperSource);
+        self::assertStringContainsString('~100% in ~${q_eta[qi]}', $wrapperSource);
     }
 
     public function testWrapperAddsSparkFastnessMarkerInActiveLaneDisplay(): void

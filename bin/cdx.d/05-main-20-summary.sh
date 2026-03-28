@@ -754,6 +754,29 @@ format_duration_short() {
   printf "%s" "${parts[*]}"
 }
 
+format_duration_long() {
+  local seconds="$1"
+  [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
+  local s=$seconds
+  local days=$(( s / 86400 ))
+  s=$(( s % 86400 ))
+  local hours=$(( s / 3600 ))
+  s=$(( s % 3600 ))
+  local mins=$(( s / 60 ))
+  local parts=()
+  if (( days == 1 )); then parts+=("1 day")
+  elif (( days > 1 )); then parts+=("${days} days"); fi
+  if (( hours == 1 )); then parts+=("1 hour")
+  elif (( hours > 1 )); then parts+=("${hours} hours"); fi
+  if (( ${#parts[@]} == 0 )); then
+    if (( mins == 1 )); then parts+=("1 minute")
+    elif (( mins > 1 )); then parts+=("${mins} minutes")
+    else parts+=("<1 minute"); fi
+  fi
+  local IFS=", "
+  printf "%s" "${parts[*]}"
+}
+
 format_relative_iso() {
   local iso="$1"
   local seconds=""
@@ -926,7 +949,7 @@ project_quota_hit_eta() {
   (( eta < 0 )) && eta=0
   (( eta < remaining )) || return
 
-  format_duration_short "$eta"
+  format_duration_long "$eta"
 }
 
 format_auth_label() {
@@ -1191,27 +1214,27 @@ print_boot_screen() {
   if (( has_quota )); then
     printf "\n"
 
-    local -a q_labels=() q_used=() q_reset=() q_proj=() q_spark=()
+    local -a q_labels=() q_used=() q_reset=() q_proj=() q_eta=() q_spark=()
     local active_spark=0
     [[ "${CODEX_EFFECTIVE_LANE:-}" == "spark" ]] && active_spark=1
 
     if [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]]; then
       q_labels+=("5h");       q_used+=("$CHATGPT_PRIMARY_USED")
-      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}"); q_proj+=(""); q_spark+=("$active_spark")
+      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}"); q_proj+=(""); q_eta+=(""); q_spark+=("$active_spark")
     fi
     if [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]]; then
       q_labels+=("weekly");   q_used+=("$CHATGPT_SECONDARY_USED")
-      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}"); q_proj+=("${projection_pct:-}"); q_spark+=("$active_spark")
+      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}"); q_proj+=("${projection_pct:-}"); q_eta+=("${projection_eta:-}"); q_spark+=("$active_spark")
     fi
     if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then
       local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
       q_labels+=("5h");       q_used+=("$other_lane_primary_used")
-      q_reset+=("${other_lane_primary_reset_after:-}"); q_proj+=(""); q_spark+=("$ol_s")
+      q_reset+=("${other_lane_primary_reset_after:-}"); q_proj+=(""); q_eta+=(""); q_spark+=("$ol_s")
     fi
     if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then
       local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
       q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")
-      q_reset+=("${other_lane_secondary_reset_after:-}"); q_proj+=("${other_projection_pct:-}"); q_spark+=("$ol_s")
+      q_reset+=("${other_lane_secondary_reset_after:-}"); q_proj+=("${other_projection_pct:-}"); q_eta+=("${other_projection_eta:-}"); q_spark+=("$ol_s")
     fi
 
     # Compute label width for alignment
@@ -1252,7 +1275,9 @@ print_boot_screen() {
 
       local proj=""
       if [[ "${q_proj[qi]}" =~ ^[0-9]+$ ]] && (( ${q_proj[qi]} > 0 )); then
-        if (( ${q_proj[qi]} >= 100 )); then
+        if (( ${q_proj[qi]} >= 100 )) && [[ -n "${q_eta[qi]}" ]]; then
+          proj="$(colorize "~100% in ~${q_eta[qi]}" "red")"
+        elif (( ${q_proj[qi]} >= 100 )); then
           proj="$(colorize "~100%" "red")"
         else
           printf -v proj "%b~%d%%%b" "${DIM}" "${q_proj[qi]}" "${RESET}"
