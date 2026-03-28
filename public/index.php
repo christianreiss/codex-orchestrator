@@ -66,6 +66,8 @@ use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
 use App\Services\AgentsService;
 use App\Services\SkillService;
+use App\Services\SkillDraftService;
+use App\Services\SkillManifestService;
 use App\Services\SkillSummaryService;
 use App\Services\MemoryService;
 use App\Services\ClientConfigService;
@@ -265,7 +267,8 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         (string) Config::get('AUTH_RUNNER_CODEX_BASE_URL', 'http://api'),
         (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0),
         (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
-        (string) Config::get('AUTH_RUNNER_SKILL_SUMMARY_URL', '')
+        (string) Config::get('AUTH_RUNNER_SKILL_SUMMARY_URL', ''),
+        (string) Config::get('AUTH_RUNNER_SKILL_GENERATE_URL', '')
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
@@ -316,8 +319,10 @@ $GLOBALS['adminAuthService'] = $adminAuthService;
 $cliAuthService = new CliAuthService($cliAuthRequestRepository, $service, $logRepository, $rateLimiter);
 $projectModuleService = new ProjectModuleService($versionRepository);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
+$skillManifestService = new SkillManifestService();
 $skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
-$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService);
+$skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier);
+$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService);
 $agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService);
 $memoryService = new MemoryService($memoryRepository, $logRepository);
 $projectCoordinationService = new ProjectCoordinationService(
@@ -431,7 +436,7 @@ $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository
 $adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository);
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository);
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $pricingModel);
-$adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $mcpAccessLogRepository);
+$adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
@@ -608,6 +613,7 @@ $router->add('DELETE', '#^/admin/mcp/memories/(\d+)$#', fn($id) => $adminConfigC
 // Admin skills
 $router->add('GET', '#^/admin/skills$#', fn() => $adminConfigCtrl->skills());
 $router->add('GET', '#^/admin/skills/([^/]+)$#', fn($slug) => $adminConfigCtrl->skillShow($slug));
+$router->add('POST', '#^/admin/skills/generate$#', fn() => $adminConfigCtrl->skillGenerate($payload));
 $router->add('POST', '#^/admin/skills/store$#', fn() => $adminConfigCtrl->skillStore($payload));
 $router->add('DELETE', '#^/admin/skills/([^/]+)$#', fn($slug) => $adminConfigCtrl->skillDelete($slug));
 

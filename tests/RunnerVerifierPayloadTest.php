@@ -160,6 +160,88 @@ PHP);
         }
     }
 
+    public function testSkillGeneratorPostsAuthPromptSlugHintAndTimeoutSeconds(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/runner-skill-generate-' . uniqid('', true);
+        self::assertTrue(mkdir($tmpDir, 0777, true) || is_dir($tmpDir));
+
+        $routerPath = $tmpDir . '/router.php';
+        $requestPath = $tmpDir . '/request.json';
+        $stdoutPath = $tmpDir . '/server.out';
+        $stderrPath = $tmpDir . '/server.err';
+
+        file_put_contents($routerPath, <<<'PHP'
+<?php
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'ok']);
+    return;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    file_put_contents(__DIR__ . '/request.json', file_get_contents('php://input'));
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status' => 'ok',
+        'latency_ms' => 3,
+        'reachable' => true,
+        'codex_version' => 'test',
+        'slug' => 'incident-handoff',
+        'display_name' => 'Incident handoff',
+        'description' => 'Guides a clean operator handoff.',
+        'tags' => ['incident', 'handoff'],
+        'what' => 'Summarize the issue and handoff state.',
+        'when' => 'Use when ownership changes.',
+        'steps' => '1. Gather context.',
+    ]);
+    return;
+}
+
+http_response_code(404);
+echo 'not found';
+PHP);
+
+        $server = $this->startPhpServer($tmpDir, $routerPath, $stdoutPath, $stderrPath);
+
+        try {
+            $verifier = new RunnerVerifier(
+                'http://127.0.0.1:' . $server['port'] . '/verify',
+                'https://unused.example',
+                8.0
+            );
+
+            $result = $verifier->generateSkillDraft(
+                'Create a handoff skill for incidents.',
+                ['tokens' => ['access_token' => 'sk-test-1234567890abcdefghijklmnop']],
+                'incident-handoff',
+                5.5
+            );
+
+            self::assertSame('ok', $result['status'] ?? null);
+            self::assertSame('incident-handoff', $result['slug'] ?? null);
+            self::assertFileExists($requestPath);
+
+            $payload = json_decode((string) file_get_contents($requestPath), true, flags: JSON_THROW_ON_ERROR);
+
+            self::assertSame(['auth_json', 'prompt', 'timeout_seconds', 'slug_hint'], array_keys($payload));
+            self::assertSame('Create a handoff skill for incidents.', $payload['prompt']);
+            self::assertSame('incident-handoff', $payload['slug_hint']);
+            self::assertSame(5.5, $payload['timeout_seconds']);
+            self::assertSame(
+                'sk-test-1234567890abcdefghijklmnop',
+                $payload['auth_json']['tokens']['access_token'] ?? null
+            );
+        } finally {
+            proc_terminate($server['process']);
+            proc_close($server['process']);
+            @unlink($routerPath);
+            @unlink($requestPath);
+            @unlink($stdoutPath);
+            @unlink($stderrPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     /**
      * @return array{process:resource,port:int}
      */

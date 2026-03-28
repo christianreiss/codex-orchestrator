@@ -23,7 +23,8 @@ class SkillService
         private readonly SkillRepository $skills,
         private readonly LogRepository $logs,
         private readonly ?ProjectModuleService $projectModule = null,
-        private readonly ?SkillSummaryService $summaryService = null
+        private readonly ?SkillSummaryService $summaryService = null,
+        private readonly ?SkillManifestService $manifestService = null
     ) {
     }
 
@@ -230,6 +231,10 @@ class SkillService
 
     private function normalizeSlug(string $slug): string
     {
+        if ($this->manifestService !== null) {
+            return $this->manifestService->normalizeSlug($slug);
+        }
+
         $normalized = trim($slug);
 
         if ($normalized === '') {

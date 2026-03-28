@@ -175,7 +175,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/chatgpt/usage[?force=1]`
   - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
   - `POST /admin/chatgpt/usage/refresh`
-- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. When the Projects module is enabled, the list includes the managed `coco` skill and direct store/delete attempts against that slug are rejected.
+- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/generate` is an admin-only runner-backed draft helper that fills the skill editor but does not persist anything until `store` is called. When the Projects module is enabled, the list includes the managed `coco` skill and direct store/delete attempts against that slug are rejected.
 - Projects module: `GET /admin/projects/state`, `POST /admin/projects/state`, `GET /admin/projects/feedback`, `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes mirroring the host `/projects` surface.
 - Agents: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
 - MCP memories: `GET /admin/mcp/memories`, `DELETE /admin/mcp/memories/{id}` (numeric record id).

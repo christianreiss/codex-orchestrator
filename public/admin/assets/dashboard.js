@@ -98,6 +98,9 @@
     const skillsTbody = document.querySelector('#skills tbody');
     const newSkillBtn = document.getElementById('newSkillBtn');
     const skillModal = document.getElementById('skillModal');
+    const skillPromptField = document.getElementById('skillPromptField');
+    const skillPromptInput = document.getElementById('skillPrompt');
+    const skillGenerate = document.getElementById('skillGenerate');
     const skillSlug = document.getElementById('skillSlug');
     const skillNameInput = document.getElementById('skillName');
     const skillDescriptionInput = document.getElementById('skillDescription');
@@ -3682,6 +3685,9 @@
       if (skillSave) {
         skillSave.textContent = isEdit ? 'Save changes' : 'Save';
       }
+      if (skillPromptField) {
+        skillPromptField.hidden = isEdit;
+      }
       if (skillSlug) {
         skillSlug.readOnly = isEdit;
         skillSlug.setAttribute('aria-readonly', isEdit ? 'true' : 'false');
@@ -3697,6 +3703,12 @@
           ? 'Slug is locked during edit. Use <strong>New</strong> to create a separate skill.'
           : 'cdx serves this skill canonically through <code>skill://&lt;slug&gt;</code> MCP resources.';
       }
+    }
+
+    function setSkillDraftGenerationBusy(isBusy) {
+      if (skillGenerate) skillGenerate.disabled = isBusy;
+      if (skillSave) skillSave.disabled = isBusy;
+      if (skillDelete) skillDelete.disabled = isBusy || skillModalMode !== 'edit';
     }
 
     function setSkillBadges(meta) {
@@ -3799,6 +3811,23 @@
       const sections = parseSkillSections(body);
       result.sections = sections;
       return result;
+    }
+
+    function applyGeneratedSkillDraft(draft) {
+      if (!draft || typeof draft !== 'object') return;
+      if (skillSlug && typeof draft.slug === 'string') skillSlug.value = draft.slug.trim();
+      if (skillNameInput && typeof draft.display_name === 'string') {
+        skillNameInput.value = draft.display_name.trim();
+      }
+      if (skillDescriptionInput && typeof draft.description === 'string') {
+        skillDescriptionInput.value = draft.description.trim();
+      }
+      if (skillWhatInput && typeof draft.what === 'string') skillWhatInput.value = draft.what.trim();
+      if (skillWhenInput && typeof draft.when === 'string') skillWhenInput.value = draft.when.trim();
+      if (skillStepsInput && typeof draft.steps === 'string') skillStepsInput.value = draft.steps.trim();
+      setSkillTags(Array.isArray(draft.tags) ? draft.tags : []);
+      skillSlugAutofill = false;
+      setSkillBadges(null);
     }
 
     function parseSkillFrontMatter(text) {
@@ -7527,6 +7556,7 @@
       skillEditingSlug = target;
       setSkillModalMode(target ? 'edit' : 'new', target);
       setSkillBadges(null);
+      if (skillPromptInput) skillPromptInput.value = '';
       if (skillSlug) skillSlug.value = target;
       if (skillNameInput) skillNameInput.value = '';
       if (skillDescriptionInput) skillDescriptionInput.value = '';
@@ -7536,11 +7566,11 @@
       setSkillTags([]);
       skillSlugAutofill = !target;
       if (skillStatus) {
-        skillStatus.textContent = target ? 'Loading…' : 'Slug, name, and sections are required.';
+        skillStatus.textContent = target ? 'Loading…' : 'Describe the skill and generate a draft, or fill the fields manually.';
       }
       showSkillModal(true);
       if (!target) {
-        skillNameInput?.focus();
+        skillPromptInput?.focus();
         return;
       }
       try {
@@ -7565,6 +7595,39 @@
         if (skillStatus) skillStatus.textContent = '';
       } catch (err) {
         if (skillStatus) skillStatus.textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    async function generateSkillDraft() {
+      if (skillModalMode === 'edit') {
+        if (skillStatus) skillStatus.textContent = 'AI draft generation is only available for new skills.';
+        return;
+      }
+      const prompt = skillPromptInput?.value?.trim() || '';
+      if (!prompt) {
+        if (skillStatus) skillStatus.textContent = 'Describe the skill before generating a draft.';
+        skillPromptInput?.focus();
+        return;
+      }
+
+      const payload = { prompt };
+      const slugHint = skillSlug?.value?.trim() || '';
+      if (slugHint) payload.slug_hint = slugHint;
+
+      if (skillStatus) skillStatus.textContent = 'Generating draft…';
+      setSkillDraftGenerationBusy(true);
+
+      try {
+        const resp = await api('/admin/skills/generate', {
+          method: 'POST',
+          json: payload,
+        });
+        applyGeneratedSkillDraft(resp?.data || {});
+        if (skillStatus) skillStatus.textContent = 'Draft ready. Review and save when it looks right.';
+      } catch (err) {
+        if (skillStatus) skillStatus.textContent = `Generate failed: ${err.message}`;
+      } finally {
+        setSkillDraftGenerationBusy(false);
       }
     }
 
@@ -7606,8 +7669,7 @@
         manifest,
       };
       if (skillStatus) skillStatus.textContent = 'Saving…';
-      if (skillDelete) skillDelete.disabled = true;
-      if (skillSave) skillSave.disabled = true;
+      setSkillDraftGenerationBusy(true);
       try {
         const resp = await api('/admin/skills/store', {
           method: 'POST',
@@ -7622,8 +7684,7 @@
       } catch (err) {
         if (skillStatus) skillStatus.textContent = `Save failed: ${err.message}`;
       } finally {
-        if (skillDelete) skillDelete.disabled = false;
-        if (skillSave) skillSave.disabled = false;
+        setSkillDraftGenerationBusy(false);
       }
     }
 
@@ -8131,6 +8192,9 @@
     }
     if (skillCancel) {
       skillCancel.addEventListener('click', () => showSkillModal(false));
+    }
+    if (skillGenerate) {
+      skillGenerate.addEventListener('click', () => generateSkillDraft());
     }
     if (skillSave) {
       skillSave.addEventListener('click', () => saveSkill());

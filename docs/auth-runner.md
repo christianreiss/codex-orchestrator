@@ -1,17 +1,21 @@
 # Auth Runner (Sidecar) Behavior
 
-The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads and generates short skill summaries by running `/usr/local/bin/codex` in an isolated temp `$HOME`.
+The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill summaries, and drafts new skill manifests by running `/usr/local/bin/codex` in an isolated temp `$HOME`.
 
 ## HTTP surface (runner container)
 
 - `POST /verify` is the probe entrypoint. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
 - `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), and optional `timeout_seconds`.
+- `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, and optional `timeout_seconds`.
 - When `RUNNER_SHARED_SECRET` is set, `/verify` requires header `X-Runner-Auth` with an exact secret match (otherwise HTTP 401).
 - When `RUNNER_SHARED_SECRET` is set, `/skills/summarize` also requires header `X-Runner-Auth` with an exact secret match.
+- When `RUNNER_SHARED_SECRET` is set, `/skills/generate` also requires header `X-Runner-Auth` with an exact secret match.
 - `GET /health` returns `{"status": "ok"}` and is used by Docker health checks.
 - `POST /verify` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `updated_auth`, and optional `reason`.
 - `GET /skills/summarize` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST summaries.
 - `POST /skills/summarize` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `summary`, and optional `reason`.
+- `GET /skills/generate` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST generation.
+- `POST /skills/generate` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
 - `status` is `ok` only when the probe command exits `0` and stdout contains `banana` (case-insensitive); otherwise `status` is `fail`.
 - Error responses: HTTP `400` when no usable token exists, HTTP `504` on probe timeout, HTTP `500` for other exceptions.
 
@@ -33,12 +37,21 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 4. Sanitize the result into a single trimmed line (collapse whitespace, strip common bullet/quote wrappers, cap length) before returning it as `summary`.
 5. `status` is `ok` only when the command exits `0` and a non-empty sanitized summary is produced; otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
 
+## Skill draft lifecycle (runner/app.py)
+
+1. Require a non-empty `prompt`; reject blank values with HTTP 400.
+2. Reuse the same auth bootstrap path as `/verify` and `/skills/summarize`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
+3. Run `/usr/local/bin/codex exec` with a strict prompt that requests exactly one JSON object containing `slug`, `display_name`, `description`, `tags`, `what`, `when`, and `steps`.
+4. Parse the returned JSON strictly, sanitize the individual fields, and fail the request when Codex returns malformed or incomplete output.
+5. `status` is `ok` only when the command exits `0` and the structured draft parses cleanly; otherwise `status` is `fail` and `reason` includes parse error details plus trimmed stderr/stdout (up to 600 chars).
+
 ## How the API uses it (AuthService + RunnerVerifier)
 
 - Runner is enabled only when `AUTH_RUNNER_URL` is a non-empty string; otherwise `RunnerVerifier` is not created.
 - `RunnerVerifier` readiness probe uses `GET AUTH_RUNNER_URL` (same URL as POST target), retries once after 500ms, and treats transport failure as `reachable=false`. It then `POST`s to the same URL and retries once after 300ms when the first POST attempt is unreachable.
 - Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, `RunnerVerifier` also sends `X-Runner-Auth`.
 - Skill summary request payload includes `auth_json`, `slug`, `manifest`, and `timeout_seconds`. The API only asks for summaries when a skill is created or its manifest changes and no explicit description was supplied.
+- Skill draft request payload includes `auth_json`, `prompt`, optional `slug_hint`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/generate` draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - `/auth` `store` with `skipRunner=false`:
   - If the candidate payload would update canonical auth, runner verification is mandatory.
   - If runner is not configured, request fails with HTTP `503` (`Auth runner required`).
@@ -63,11 +76,12 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 - `AUTH_RUNNER_URL` (API): runner endpoint URL used for readiness GET + verification POST. Code default: empty (disabled). Compose default: `http://auth-runner:8080/verify`.
 - `AUTH_RUNNER_SKILL_SUMMARY_URL` (API): optional explicit runner skill-summary endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/summarize`.
+- `AUTH_RUNNER_SKILL_GENERATE_URL` (API): optional explicit runner skill-generation endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/generate`.
 - `AUTH_RUNNER_TIMEOUT` (API): default runner timeout passed to verifier payload and HTTP client timeout. Default: `8` seconds.
 - `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
 - `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): preflight interval. Default: `28800` (8h). Non-positive values fall back to `28800`.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
-- `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for `/verify` and `/skills/summarize`.
+- `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for `/verify`, `/skills/summarize`, and `/skills/generate`.
 - `RUNNER_DEBUG_DUMP_AUTH` + `RUNNER_ALLOW_SECRET_DUMP` (runner container): both must be `1` to allow `/tmp/last-auth.json` writes; still disabled when `APP_ENV=production`.

@@ -41,6 +41,15 @@ class SkillSummaryRequest(BaseModel):
     )
 
 
+class SkillGenerateRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    prompt: str = Field(..., description="Free-text operator request for the skill")
+    slug_hint: Optional[str] = Field(None, description="Optional slug hint from the UI")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the generation call (seconds)"
+    )
+
+
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
     auths = auth_json.get("auths", {})
     if isinstance(auths, dict):
@@ -170,6 +179,65 @@ def _sanitize_skill_summary(text: str) -> str:
     return summary
 
 
+def _sanitize_skill_line(value: str, *, max_len: int = 200) -> str:
+    sanitized = " ".join(value.replace("\r", "\n").split()).strip(" \t\n\r`\"'-")
+    if len(sanitized) > max_len:
+        sanitized = sanitized[:max_len].rstrip(" ,;:.") + "..."
+    return sanitized
+
+
+def _sanitize_skill_section(value: str) -> str:
+    lines = [line.rstrip() for line in value.replace("\r\n", "\n").split("\n")]
+    while lines and lines[0] == "":
+        lines.pop(0)
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def _sanitize_skill_tags(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    tags: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        tag = _sanitize_skill_line(item, max_len=60)
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _extract_json_payload(text: str) -> dict:
+    candidate = text.strip()
+    if candidate.startswith("```") and candidate.endswith("```"):
+        lines = candidate.splitlines()
+        if len(lines) >= 3:
+            candidate = "\n".join(lines[1:-1]).strip()
+    parsed = json.loads(candidate)
+    if not isinstance(parsed, dict):
+        raise ValueError("runner response was not a JSON object")
+    return parsed
+
+
+def _normalize_generated_skill(data: dict) -> dict:
+    required_keys = ["slug", "display_name", "description", "what", "when", "steps"]
+    for key in required_keys:
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise ValueError(f"missing required field: {key}")
+
+    return {
+        "slug": _sanitize_skill_line(data["slug"], max_len=255),
+        "display_name": _sanitize_skill_line(data["display_name"], max_len=120),
+        "description": _sanitize_skill_line(data["description"], max_len=180),
+        "tags": _sanitize_skill_tags(data.get("tags", [])),
+        "what": _sanitize_skill_section(data["what"]),
+        "when": _sanitize_skill_section(data["when"]),
+        "steps": _sanitize_skill_section(data["steps"]),
+    }
+
+
 def _skill_summary_prompt(slug: str, manifest: str) -> str:
     return (
         "Summarize this Codex skill for an AGENTS.md skills inventory. "
@@ -178,6 +246,25 @@ def _skill_summary_prompt(slug: str, manifest: str) -> str:
         f"Skill slug: {slug}\n\n"
         "SKILL.md:\n"
         f"{manifest}"
+    )
+
+
+def _skill_generation_prompt(prompt: str, slug_hint: str) -> str:
+    slug_hint_block = f"Existing slug hint: {slug_hint}\n\n" if slug_hint else ""
+    return (
+        "You are generating a Codex SKILL.md draft for an admin dashboard.\n"
+        "Return exactly one JSON object and nothing else.\n"
+        "Required keys: slug, display_name, description, tags, what, when, steps.\n"
+        "Rules:\n"
+        "- slug: lowercase letters/numbers/dot/underscore/dash only\n"
+        "- display_name: short human label\n"
+        "- description: one sentence for search/results\n"
+        "- tags: short string array\n"
+        "- what/when/steps: plain text sections, no markdown headings\n"
+        "- steps should be concise operator instructions with guardrails and success signals\n\n"
+        f"{slug_hint_block}"
+        "Operator request:\n"
+        f"{prompt}"
     )
 
 
@@ -216,6 +303,46 @@ def _summarize_skill(payload: SkillSummaryRequest) -> dict:
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
+def _generate_skill(payload: SkillGenerateRequest) -> dict:
+    prompt = payload.prompt.strip()
+    slug_hint = (payload.slug_hint or "").strip()
+    if prompt == "":
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(_skill_generation_prompt(prompt, slug_hint), env, timeout)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+
+        try:
+            generated = _normalize_generated_skill(_extract_json_payload(stdout))
+        except Exception as exc:
+            generated = None
+            parse_error = str(exc)
+        else:
+            parse_error = ""
+
+        ok = proc.returncode == 0 and generated is not None
+        result = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok and generated is not None:
+            result.update(generated)
+            return result
+
+        parts = [p for p in [parse_error, stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:600] if message else "skill generation failed"
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
 @app.post("/verify")
 def verify(payload: VerifyRequest, request: Request):
     if RUNNER_SHARED_SECRET:
@@ -238,6 +365,11 @@ def summarize_skill_health():
     return {"status": "ok"}
 
 
+@app.get("/skills/generate")
+def generate_skill_health():
+    return {"status": "ok"}
+
+
 @app.post("/skills/summarize")
 def summarize_skill(payload: SkillSummaryRequest, request: Request):
     if RUNNER_SHARED_SECRET:
@@ -249,6 +381,23 @@ def summarize_skill(payload: SkillSummaryRequest, request: Request):
         return _summarize_skill(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="summary timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/skills/generate")
+def generate_skill(payload: SkillGenerateRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _generate_skill(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="skill generation timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

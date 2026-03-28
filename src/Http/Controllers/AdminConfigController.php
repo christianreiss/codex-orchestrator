@@ -12,6 +12,7 @@ use App\Services\AdminAuthService;
 use App\Services\AgentsService;
 use App\Services\ClientConfigService;
 use App\Services\MemoryService;
+use App\Services\SkillDraftService;
 use App\Services\SkillService;
 
 class AdminConfigController
@@ -21,6 +22,7 @@ class AdminConfigController
         private AgentsService $agentsService,
         private MemoryService $memoryService,
         private SkillService $skillService,
+        private SkillDraftService $skillDraftService,
         private McpAccessLogRepository $mcpAccessLogRepository,
     ) {}
 
@@ -361,6 +363,35 @@ class AdminConfigController
                 'message' => 'Validation failed',
                 'errors' => $exception->getErrors(),
             ], 422);
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    /**
+     * POST /admin/skills/generate
+     */
+    public function skillGenerate(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        try {
+            $result = $this->skillDraftService->generate(is_array($payload) ? $payload : [], null);
+        } catch (ValidationException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $exception->getErrors(),
+            ], 422);
+        } catch (HttpException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], $exception->getStatusCode());
         }
 
         Response::json([

@@ -14,16 +14,20 @@ use Throwable;
 class RunnerVerifier
 {
     private readonly string $skillSummaryUrl;
+    private readonly string $skillGenerateUrl;
 
     public function __construct(
         private readonly string $runnerUrl,
         string $defaultBaseUrl = '',
         private readonly float $timeoutSeconds = 8.0,
         private readonly string $sharedSecret = '',
-        ?string $skillSummaryUrl = null
+        ?string $skillSummaryUrl = null,
+        ?string $skillGenerateUrl = null
     ) {
         $normalizedSummaryUrl = is_string($skillSummaryUrl) ? trim($skillSummaryUrl) : '';
         $this->skillSummaryUrl = $normalizedSummaryUrl !== '' ? $normalizedSummaryUrl : $this->deriveSkillSummaryUrl($runnerUrl);
+        $normalizedGenerateUrl = is_string($skillGenerateUrl) ? trim($skillGenerateUrl) : '';
+        $this->skillGenerateUrl = $normalizedGenerateUrl !== '' ? $normalizedGenerateUrl : $this->deriveSkillGenerateUrl($runnerUrl);
     }
 
     public function verify(array $authPayload, ?string $baseUrl = null, ?float $timeoutSeconds = null, ?array $host = null): array
@@ -55,6 +59,31 @@ class RunnerVerifier
             'manifest' => $manifest,
             'timeout_seconds' => $timeout,
         ], $timeout);
+    }
+
+    public function generateSkillDraft(string $prompt, array $authPayload, ?string $slugHint = null, ?float $timeoutSeconds = null): array
+    {
+        if ($this->skillGenerateUrl === '') {
+            return [
+                'status' => 'fail',
+                'reason' => 'skill generation endpoint is not configured',
+                'reachable' => false,
+            ];
+        }
+
+        $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
+        $payload = [
+            'auth_json' => $authPayload,
+            'prompt' => $prompt,
+            'timeout_seconds' => $timeout,
+        ];
+
+        $normalizedSlugHint = $slugHint !== null ? trim($slugHint) : '';
+        if ($normalizedSlugHint !== '') {
+            $payload['slug_hint'] = $normalizedSlugHint;
+        }
+
+        return $this->sendRequest($this->skillGenerateUrl, $payload, $timeout);
     }
 
     private function extractStatus(array $httpResponseHeader): ?int
@@ -214,6 +243,16 @@ class RunnerVerifier
 
     private function deriveSkillSummaryUrl(string $runnerUrl): string
     {
+        return $this->deriveRunnerFeatureUrl($runnerUrl, '/skills/summarize');
+    }
+
+    private function deriveSkillGenerateUrl(string $runnerUrl): string
+    {
+        return $this->deriveRunnerFeatureUrl($runnerUrl, '/skills/generate');
+    }
+
+    private function deriveRunnerFeatureUrl(string $runnerUrl, string $featurePath): string
+    {
         $normalized = trim($runnerUrl);
         if ($normalized === '') {
             return '';
@@ -226,11 +265,11 @@ class RunnerVerifier
 
         $path = isset($parts['path']) ? (string) $parts['path'] : '';
         if ($path === '' || $path === '/') {
-            $parts['path'] = '/skills/summarize';
+            $parts['path'] = $featurePath;
         } elseif (preg_match('#/verify/?$#', $path) === 1) {
-            $parts['path'] = preg_replace('#/verify/?$#', '/skills/summarize', $path) ?? '/skills/summarize';
+            $parts['path'] = preg_replace('#/verify/?$#', $featurePath, $path) ?? $featurePath;
         } else {
-            $parts['path'] = rtrim($path, '/') . '/skills/summarize';
+            $parts['path'] = rtrim($path, '/') . $featurePath;
         }
 
         return $this->buildUrl($parts);

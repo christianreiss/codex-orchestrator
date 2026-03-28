@@ -371,6 +371,14 @@
               <span class="pill-quiet" id="skillUpdatedBadge" hidden>Updated —</span>
             </div>
             <div class="skill-modal-body">
+              <div class="field" id="skillPromptField">
+                <div class="field-label-row">
+                  <label for="skillPrompt" class="modal-label">Generate from prompt</label>
+                  <button type="button" class="ghost tiny-btn" id="skillGenerate">Generate draft</button>
+                </div>
+                <textarea id="skillPrompt" rows="4" spellcheck="false" placeholder="Describe what the skill should help with, the guardrails it should follow, and the kind of steps it should produce."></textarea>
+                <div class="muted-note">Runner-backed draft only. Nothing is saved until you click <strong>Save</strong>.</div>
+              </div>
               <div class="field">
                 <label for="skillName" class="modal-label">Skill name</label>
                 <input type="text" id="skillName" placeholder="Incident warm handoff, Deploy db, …">
@@ -1972,7 +1980,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-27-05"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-28-01"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

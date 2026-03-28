@@ -119,7 +119,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Audit logs: `GET /admin/logs` (`limit`, repository clamps to `1..500`).
   - MCP logs: `GET /admin/mcp/logs` (`limit`, repository clamps to `1..500`).
 - **Content Sync Surfaces**:
-  - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. When Projects is enabled, the managed `coco` skill appears here as read-only and cannot be overwritten/deleted directly.
+  - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/generate` uses the runner plus canonical auth to draft a skill into the admin modal, but it never persists anything until `store` runs. When Projects is enabled, the managed `coco` skill appears here as read-only and cannot be overwritten/deleted directly.
   - Projects: `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/feedback`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes, and `GET/POST /admin/projects/state`.
   - AGENTS docs: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
   - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.

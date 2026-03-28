@@ -98,7 +98,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
     - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
     - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
     - Password-reset endpoints are intentionally disabled (`410 Gone`).
-   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, optional `AUTH_RUNNER_SHARED_SECRET`, `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, optional `AUTH_RUNNER_SHARED_SECRET`, optional `AUTH_RUNNER_SKILL_SUMMARY_URL`, optional `AUTH_RUNNER_SKILL_GENERATE_URL`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
    - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
    - Startup behavior: `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` (default off in production; use `scripts/migrate.php` for explicit schema/backfill runs).
