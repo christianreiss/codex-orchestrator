@@ -34,6 +34,19 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
         self::assertStringContainsString('[[ -n "$note" ]] && printf "  %s" "$note"', $wrapperSource);
     }
 
+    public function testWrapperUsesHumanWeeklyHitEstimateWhenProjectionReachesReset(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('project_quota_hit_eta() {', $wrapperSource);
+        self::assertStringContainsString('projection_note="(hits 100 in ~${projection_eta}, before reset)"', $wrapperSource);
+        self::assertStringContainsString('other_projection_note="(hits 100 in ~${other_projection_eta}, before reset)"', $wrapperSource);
+        self::assertStringContainsString('projection_note="proj ~${projection_pct}% at reset"', $wrapperSource);
+        self::assertStringContainsString('other_projection_note="proj ~${other_projection_pct}% at reset"', $wrapperSource);
+    }
+
     public function testWrapperAddsSparkFastnessMarkerInActiveLaneDisplay(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';

@@ -168,6 +168,7 @@ Wrapper quota behavior:
 - `QUOTA_WEEK_PARTITION` is normalized to `0|5|7`.
 - Hard fail mode blocks launch at/above threshold.
 - Warn mode logs warning but continues.
+- Weekly quota rows keep the existing linear projection and, when that projection reaches `100%` before the weekly reset, append a parenthetical hit estimate in the note text: `(hits 100 in ~<duration>, before reset)`.
 
 Summary layout:
 - Sections: `Health`, `Versions`, `Usage`, `Quota`, `Result`.

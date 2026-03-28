@@ -899,6 +899,36 @@ project_quota_usage() {
   printf "%d" "$projected"
 }
 
+project_quota_hit_eta() {
+  local used_pct="$1" limit_seconds="$2" reset_after="$3"
+  [[ "$used_pct" =~ ^[0-9]+$ ]] || return
+  [[ "$limit_seconds" =~ ^[0-9]+$ ]] || return
+  [[ "$reset_after" =~ ^[0-9]+$ ]] || return
+  (( used_pct > 0 )) || return
+  (( limit_seconds > 0 )) || return
+
+  local remaining="$reset_after"
+  (( remaining < 0 )) && remaining=0
+
+  local elapsed=$(( limit_seconds - remaining ))
+  (( elapsed < 1 )) && return
+  (( elapsed > limit_seconds )) && elapsed=limit_seconds
+
+  local projected
+  projected="$(project_quota_usage "$used_pct" "$limit_seconds" "$remaining" || true)"
+  [[ "$projected" =~ ^[0-9]+$ ]] || return
+  (( projected >= 100 )) || return
+
+  local target_elapsed=$(( (100 * elapsed + used_pct - 1) / used_pct ))
+  (( target_elapsed <= elapsed )) && target_elapsed=$elapsed
+
+  local eta=$(( target_elapsed - elapsed ))
+  (( eta < 0 )) && eta=0
+  (( eta < remaining )) || return
+
+  format_duration_short "$eta"
+}
+
 format_auth_label() {
   local status="$1" action="$2" msg="$3"
   if (( ! HOST_IS_SECURE )) && [[ "$status" =~ ^(outdated|missing|upload_required)$ ]]; then

@@ -302,7 +302,12 @@
       other_projection_pct="$(project_quota_usage "$other_lane_secondary_used" "$other_lane_secondary_limit" "$other_lane_secondary_reset_after" || true)"
       if [[ -n "$other_projection_pct" ]]; then
         if (( other_projection_pct >= 100 )); then
-          other_projection_note="proj 100% at reset"
+          other_projection_eta="$(project_quota_hit_eta "$other_lane_secondary_used" "$other_lane_secondary_limit" "$other_lane_secondary_reset_after" || true)"
+          if [[ -n "$other_projection_eta" ]]; then
+            other_projection_note="(hits 100 in ~${other_projection_eta}, before reset)"
+          else
+            other_projection_note="proj 100% at reset"
+          fi
           other_projection_alert=1
         else
           other_projection_note="proj ~${other_projection_pct}% at reset"
@@ -356,7 +361,12 @@
     projection_pct="$(project_quota_usage "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER" || true)"
     if [[ -n "$projection_pct" ]]; then
       if (( projection_pct >= 100 )); then
-        projection_note="proj 100% at reset"
+        projection_eta="$(project_quota_hit_eta "$CHATGPT_SECONDARY_USED" "$CHATGPT_SECONDARY_LIMIT" "$CHATGPT_SECONDARY_RESET_AFTER" || true)"
+        if [[ -n "$projection_eta" ]]; then
+          projection_note="(hits 100 in ~${projection_eta}, before reset)"
+        else
+          projection_note="proj 100% at reset"
+        fi
         projection_alert=1
       else
         projection_note="proj ~${projection_pct}% at reset"
