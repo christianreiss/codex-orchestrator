@@ -1,3 +1,6 @@
+# 2026-03-29
+- Admin UI/API: fixed `Settings -> API Keys` failing with HTTP 500 on older instances whose existing `openai_api_keys` table predated the `use_count` column. `OpenaiApiMigration` now backfills the current OpenAI API-key schema in place on `scripts/migrate.php` / container restart, so upgrades heal production tables instead of only defining the right shape for fresh installs.
+
 # 2026-03-28
 - Admin UI/runner: Skills now support runner-backed draft generation from a free-text prompt inside the existing New Skill modal. The new admin-only `POST /admin/skills/generate` flow uses canonical auth plus the runner’s new `/skills/generate` endpoint to draft `slug`, metadata, and the three SKILL.md sections into the editor, but nothing is persisted until the operator clicks Save. Runner failures now surface back into the modal without auto-saving or dropping in a generic template. Cache-bumped `dashboard.js` to `v=2026-03-28-01`.
 - cdx wrapper: weekly quota rows now replace the old `proj 100% at reset` wording with a clearer parenthetical estimate like `(hits 100 in ~2d 4h, before reset)` when the existing projection model expects the weekly quota to reach 100% before reset. Wrapper bumped to `2026.03.28-01`.
