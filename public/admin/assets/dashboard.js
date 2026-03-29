@@ -1125,7 +1125,7 @@
         return;
       }
 
-      if (normalizedKey === 't') {
+      if (normalizedKey === 't' && !modal && !isEditableShortcutTarget(event.target)) {
         event.preventDefault();
         triggerVisibleTogglerShortcut();
         clearShortcutPrefix();
@@ -2090,12 +2090,17 @@
       const apiKeyModalCreate = document.getElementById('apiKeyModalCreate');
       const apiKeyName = document.getElementById('apiKeyName');
       const apiKeyRpm = document.getElementById('apiKeyRpm');
+      const apiKeyExpiresToggle = document.getElementById('apiKeyExpiresToggle');
       const apiKeyExpires = document.getElementById('apiKeyExpires');
       const apiKeyStatus = document.getElementById('apiKeyStatus');
       const apiKeyCreatedBox = document.getElementById('apiKeyCreatedBox');
       const apiKeyCreatedValue = document.getElementById('apiKeyCreatedValue');
       const apiKeyCopyBtn = document.getElementById('apiKeyCopyBtn');
       const apiKeyFormFields = document.getElementById('apiKeyFormFields');
+
+      if (apiKeyExpiresToggle) apiKeyExpiresToggle.addEventListener('change', () => {
+        if (apiKeyExpires) apiKeyExpires.hidden = !apiKeyExpiresToggle.checked;
+      });
 
       function formatApiKeyDate(dateStr) {
         if (!dateStr) return '\u2014';
@@ -2208,7 +2213,8 @@
           if (apiKeyModalCreate) { apiKeyModalCreate.hidden = false; apiKeyModalCreate.disabled = false; apiKeyModalCreate.textContent = 'Create'; }
           if (apiKeyName) apiKeyName.value = '';
           if (apiKeyRpm) apiKeyRpm.value = '60';
-          if (apiKeyExpires) apiKeyExpires.value = '';
+          if (apiKeyExpiresToggle) { apiKeyExpiresToggle.checked = false; }
+          if (apiKeyExpires) { apiKeyExpires.value = ''; apiKeyExpires.hidden = true; }
           if (apiKeyStatus) apiKeyStatus.textContent = '';
           setTimeout(() => apiKeyName?.focus(), 50);
         } else {
@@ -2254,8 +2260,9 @@
         if (apiKeyStatus) apiKeyStatus.textContent = '';
         try {
           const body = { name, rate_limit_rpm: parseInt(apiKeyRpm?.value || '60', 10) || 60 };
-          const expiresVal = apiKeyExpires?.value;
-          if (expiresVal) body.expires_at = new Date(expiresVal).toISOString();
+          if (apiKeyExpiresToggle?.checked && apiKeyExpires?.value) {
+            body.expires_at = new Date(apiKeyExpires.value).toISOString();
+          }
           const resp = await api('/admin/openai/keys', { method: 'POST', json: body });
           const key = resp?.data?.key;
           if (key) {

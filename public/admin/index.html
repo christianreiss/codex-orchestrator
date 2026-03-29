@@ -192,8 +192,12 @@
                   <input id="apiKeyRpm" type="number" min="1" max="10000" value="60">
                 </div>
                 <div class="field">
-                  <label class="modal-label" for="apiKeyExpires">Expires (optional)</label>
-                  <input id="apiKeyExpires" type="datetime-local">
+                  <label class="toggle" for="apiKeyExpiresToggle">
+                    <input type="checkbox" id="apiKeyExpiresToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="toggle-text">Expires</span>
+                  </label>
+                  <input id="apiKeyExpires" type="datetime-local" style="margin-top:8px" hidden>
                 </div>
               </div>
               <p id="apiKeyStatus" class="muted" style="margin-top:8px"></p>
