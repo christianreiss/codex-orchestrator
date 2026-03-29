@@ -69,11 +69,11 @@ class OpenaiApiKeyService
         return $this->repository->listAll();
     }
 
-    public function revoke(int $id): void
+    public function toggleActive(int $id, bool $active): void
     {
-        $this->repository->revoke($id);
+        $this->repository->setActive($id, $active);
 
-        $this->logs->log(null, 'openai.key.revoke', [
+        $this->logs->log(null, $active ? 'openai.key.enable' : 'openai.key.disable', [
             'key_id' => $id,
         ]);
     }

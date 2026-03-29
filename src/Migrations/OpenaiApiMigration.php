@@ -19,6 +19,7 @@ class OpenaiApiMigration implements MigrationInterface
                 admin_user_id BIGINT UNSIGNED NULL,
                 rate_limit_rpm INT UNSIGNED NOT NULL DEFAULT 60,
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
+                use_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
                 last_used_at VARCHAR(100) NULL,
                 expires_at VARCHAR(100) NULL,
                 created_at VARCHAR(100) NOT NULL,

@@ -737,7 +737,7 @@ $router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());
 // Admin: OpenAI API key management
 $router->add('GET', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->index());
 $router->add('POST', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->store($payload));
-$router->add('POST', '#^/admin/openai/keys/(\d+)/revoke$#', fn($id) => $adminOpenAiKeyCtrl->revoke($id));
+$router->add('POST', '#^/admin/openai/keys/(\d+)/toggle$#', fn($id) => $adminOpenAiKeyCtrl->toggle($id, $payload));
 $router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKeyCtrl->delete($id));
 
 // --- Dispatch + error handling ---

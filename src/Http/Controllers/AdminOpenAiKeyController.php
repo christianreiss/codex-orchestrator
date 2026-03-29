@@ -65,17 +65,18 @@ class AdminOpenAiKeyController
     }
 
     /**
-     * POST /admin/openai/keys/{id}/revoke
+     * POST /admin/openai/keys/{id}/toggle
      */
-    public function revoke(string $id): void
+    public function toggle(string $id, array $payload): void
     {
         requireAdminAccess();
 
-        $this->keyService->revoke((int) $id);
+        $active = !empty($payload['active']);
+        $this->keyService->toggleActive((int) $id, $active);
 
         Response::json([
             'status' => 'ok',
-            'message' => 'Key revoked',
+            'message' => $active ? 'Key enabled' : 'Key disabled',
         ]);
     }
 

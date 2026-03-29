@@ -24,8 +24,8 @@ class OpenaiApiKeyRepository
         $prefix = substr($key, 0, 16) . '...';
 
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO openai_api_keys (name, key_prefix, key_hash, key_enc, admin_user_id, rate_limit_rpm, is_active, expires_at, created_at, updated_at)
-             VALUES (:name, :key_prefix, :key_hash, :key_enc, :admin_user_id, :rate_limit_rpm, 1, :expires_at, :created_at, :updated_at)'
+            'INSERT INTO openai_api_keys (name, key_prefix, key_hash, key_enc, admin_user_id, rate_limit_rpm, is_active, use_count, expires_at, created_at, updated_at)
+             VALUES (:name, :key_prefix, :key_hash, :key_enc, :admin_user_id, :rate_limit_rpm, 1, 0, :expires_at, :created_at, :updated_at)'
         );
 
         $statement->execute([
@@ -81,7 +81,7 @@ class OpenaiApiKeyRepository
     public function listAll(): array
     {
         $statement = $this->database->connection()->query(
-            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, is_active, last_used_at, expires_at, created_at, updated_at FROM openai_api_keys ORDER BY created_at DESC'
+            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, created_at, updated_at FROM openai_api_keys ORDER BY created_at DESC'
         );
 
         return $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -91,7 +91,7 @@ class OpenaiApiKeyRepository
     {
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
-            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, last_used_at, expires_at, created_at, updated_at
+            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, use_count, last_used_at, expires_at, created_at, updated_at
              FROM openai_api_keys
              WHERE is_active = 1 AND (expires_at IS NULL OR expires_at > :now)
              ORDER BY created_at DESC'
@@ -104,7 +104,7 @@ class OpenaiApiKeyRepository
     public function touch(int $id): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE openai_api_keys SET last_used_at = :last_used_at, updated_at = :updated_at WHERE id = :id'
+            'UPDATE openai_api_keys SET use_count = use_count + 1, last_used_at = :last_used_at, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
             'last_used_at' => gmdate(DATE_ATOM),
@@ -113,12 +113,13 @@ class OpenaiApiKeyRepository
         ]);
     }
 
-    public function revoke(int $id): void
+    public function setActive(int $id, bool $active): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE openai_api_keys SET is_active = 0, updated_at = :updated_at WHERE id = :id'
+            'UPDATE openai_api_keys SET is_active = :is_active, updated_at = :updated_at WHERE id = :id'
         );
         $statement->execute([
+            'is_active' => $active ? 1 : 0,
             'updated_at' => gmdate(DATE_ATOM),
             'id' => $id,
         ]);

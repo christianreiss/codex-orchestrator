@@ -2127,50 +2127,45 @@
         currentApiKeys = Array.isArray(keys) ? keys : [];
         if (!apiKeysTbody) return;
         if (currentApiKeys.length === 0) {
-          apiKeysTbody.innerHTML = '<tr><td colspan="6" class="muted">No API keys yet. Click "New key" to create one.</td></tr>';
+          apiKeysTbody.innerHTML = '<tr><td colspan="7" class="muted">No API keys yet. Click "New key" to create one.</td></tr>';
           return;
         }
         apiKeysTbody.innerHTML = currentApiKeys.map((k) => {
           const active = Number(k.is_active) === 1;
-          const expired = k.expires_at && new Date(k.expires_at) < new Date();
-          let statusHtml;
-          if (!active) {
-            statusHtml = '<span style="color:var(--danger)">Revoked</span>';
-          } else if (expired) {
-            statusHtml = '<span style="color:var(--warning)">Expired</span>';
-          } else {
-            statusHtml = '<span style="color:var(--success)">Active</span>';
-          }
-          const expiresLabel = k.expires_at ? formatApiKeyDate(k.expires_at) : 'Never';
+          const useCount = Number(k.use_count) || 0;
           return `<tr>
             <td data-label="Name">${escapeHtml(k.name)}</td>
             <td data-label="Key"><code>${escapeHtml(k.key_prefix)}</code></td>
-            <td data-label="Rate limit">${k.rate_limit_rpm}/min</td>
+            <td data-label="Used">${useCount.toLocaleString()}</td>
             <td data-label="Last used">${formatTimeAgo(k.last_used_at)}</td>
-            <td data-label="Status">${statusHtml}</td>
+            <td data-label="Created">${formatApiKeyDate(k.created_at)}</td>
+            <td data-label="Enabled">
+              <label class="toggle">
+                <input type="checkbox" class="apikey-toggle" data-id="${k.id}" ${active ? 'checked' : ''}>
+                <span class="track"><span class="thumb"></span></span>
+              </label>
+            </td>
             <td data-label="Actions">
               <div class="table-actions">
-                ${active ? `<button class="ghost tiny-btn apikey-revoke" data-id="${k.id}">Revoke</button>` : ''}
                 <button class="ghost tiny-btn danger apikey-delete" data-id="${k.id}">Delete</button>
               </div>
             </td>
           </tr>`;
         }).join('');
 
-        apiKeysTbody.querySelectorAll('.apikey-revoke').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            const id = btn.getAttribute('data-id');
-            const key = currentApiKeys.find((k) => String(k.id) === id);
-            if (!await showConfirmModal('Revoke API key', `Revoke key "${key?.name || id}"? It will immediately stop working.`, { action: 'Revoke', warn: true })) return;
-            btn.disabled = true;
+        apiKeysTbody.querySelectorAll('.apikey-toggle').forEach((toggle) => {
+          toggle.addEventListener('change', async () => {
+            const id = toggle.getAttribute('data-id');
+            const active = toggle.checked;
+            toggle.disabled = true;
             try {
-              await api(`/admin/openai/keys/${id}/revoke`, { method: 'POST' });
-              toast('API key revoked', 'success');
-              await loadApiKeys();
+              await api(`/admin/openai/keys/${id}/toggle`, { method: 'POST', json: { active } });
+              toast(active ? 'Key enabled' : 'Key disabled', 'success');
             } catch (err) {
-              toast(`Revoke failed: ${err.message}`, 'error');
+              toggle.checked = !active;
+              toast(`Toggle failed: ${err.message}`, 'error');
             } finally {
-              btn.disabled = false;
+              toggle.disabled = false;
             }
           });
         });
