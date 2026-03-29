@@ -2199,8 +2199,9 @@
       }
 
       function showApiKeyModal(show) {
-        if (apiKeyModalBackdrop) apiKeyModalBackdrop.hidden = !show;
+        if (!apiKeyModalBackdrop) return;
         if (show) {
+          apiKeyModalBackdrop.classList.add('show');
           // Reset to creation mode
           if (apiKeyFormFields) apiKeyFormFields.hidden = false;
           if (apiKeyCreatedBox) apiKeyCreatedBox.hidden = true;
@@ -2210,6 +2211,8 @@
           if (apiKeyExpires) apiKeyExpires.value = '';
           if (apiKeyStatus) apiKeyStatus.textContent = '';
           setTimeout(() => apiKeyName?.focus(), 50);
+        } else {
+          apiKeyModalBackdrop.classList.remove('show');
         }
       }
 

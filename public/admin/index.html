@@ -167,6 +167,43 @@
             </div>
           </div>
         </div>
+        <!-- API Key creation modal -->
+        <div class="modal-backdrop" id="apiKeyModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="apiKeyModalTitle">
+          <div class="modal">
+            <div class="modal-head">
+              <h3 id="apiKeyModalTitle">Create API Key</h3>
+              <button class="modal-close" id="apiKeyModalClose" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div id="apiKeyCreatedBox" hidden>
+                <p class="muted" style="margin-bottom:8px">Copy this key now &mdash; it will not be shown again.</p>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <code id="apiKeyCreatedValue" style="flex:1;word-break:break-all;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:13px"></code>
+                  <button class="ghost tiny-btn" id="apiKeyCopyBtn">Copy</button>
+                </div>
+              </div>
+              <div id="apiKeyFormFields">
+                <div class="field">
+                  <label class="modal-label" for="apiKeyName">Name</label>
+                  <input id="apiKeyName" type="text" placeholder="e.g. CI pipeline, dev laptop" autocomplete="off">
+                </div>
+                <div class="field">
+                  <label class="modal-label" for="apiKeyRpm">Rate limit (req/min)</label>
+                  <input id="apiKeyRpm" type="number" min="1" max="10000" value="60">
+                </div>
+                <div class="field">
+                  <label class="modal-label" for="apiKeyExpires">Expires (optional)</label>
+                  <input id="apiKeyExpires" type="datetime-local">
+                </div>
+              </div>
+              <p id="apiKeyStatus" class="muted" style="margin-top:8px"></p>
+            </div>
+            <div class="modal-foot">
+              <button class="ghost" id="apiKeyModalCancel">Cancel</button>
+              <button id="apiKeyModalCreate">Create</button>
+            </div>
+          </div>
+        </div>
         <!-- Modals (from legacy hosts/settings) -->
         <div class="modal-backdrop" id="seedModal" role="dialog" aria-modal="true">
           <div class="modal seed-modal">
@@ -1471,44 +1508,6 @@
               </div>
             </div>
           </section>
-
-          <!-- API Key creation modal -->
-          <div class="modal-backdrop" id="apiKeyModalBackdrop" hidden>
-            <div class="modal" role="dialog" aria-labelledby="apiKeyModalTitle">
-              <div class="modal-head">
-                <h3 id="apiKeyModalTitle">Create API Key</h3>
-                <button class="modal-close" id="apiKeyModalClose" aria-label="Close">&times;</button>
-              </div>
-              <div class="modal-body">
-                <div id="apiKeyCreatedBox" hidden>
-                  <p class="muted" style="margin-bottom:8px">Copy this key now &mdash; it will not be shown again.</p>
-                  <div style="display:flex;gap:8px;align-items:center">
-                    <code id="apiKeyCreatedValue" style="flex:1;word-break:break-all;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:13px"></code>
-                    <button class="ghost tiny-btn" id="apiKeyCopyBtn">Copy</button>
-                  </div>
-                </div>
-                <div id="apiKeyFormFields">
-                  <div class="field">
-                    <label class="modal-label" for="apiKeyName">Name</label>
-                    <input id="apiKeyName" type="text" placeholder="e.g. CI pipeline, dev laptop" autocomplete="off">
-                  </div>
-                  <div class="field">
-                    <label class="modal-label" for="apiKeyRpm">Rate limit (req/min)</label>
-                    <input id="apiKeyRpm" type="number" min="1" max="10000" value="60">
-                  </div>
-                  <div class="field">
-                    <label class="modal-label" for="apiKeyExpires">Expires (optional)</label>
-                    <input id="apiKeyExpires" type="datetime-local">
-                  </div>
-                </div>
-                <p id="apiKeyStatus" class="muted" style="margin-top:8px"></p>
-              </div>
-              <div class="modal-foot">
-                <button class="ghost" id="apiKeyModalCancel">Cancel</button>
-                <button id="apiKeyModalCreate">Create</button>
-              </div>
-            </div>
-          </div>
 
           <section class="card panel" data-settings-panel="config" hidden>
             <div class="panel-head">
