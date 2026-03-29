@@ -96,12 +96,11 @@ class AdminOpenAiKeyController
 
     private function currentAdminUserId(): ?int
     {
-        $adminAuthService = $GLOBALS['adminAuthService'] ?? null;
-        if ($adminAuthService === null) {
+        $user = $GLOBALS['adminAuthUser'] ?? null;
+        if (!is_array($user)) {
             return null;
         }
 
-        $user = $adminAuthService->currentUser();
-        return $user['id'] ?? null;
+        return isset($user['id']) ? (int) $user['id'] : null;
     }
 }
