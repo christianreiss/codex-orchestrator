@@ -28,6 +28,11 @@ Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex ru
 - The `cdx` wrapper self-updates from your server — no manual upgrades.
 - An admin dashboard covers host management, content editing, usage monitoring, and more.
 
+**Expose an OpenAI-compatible API**
+- The built-in `/v1/` endpoints speak the OpenAI protocol — point any OpenAI SDK client at your orchestrator.
+- Manage API keys (`sk-coco-` prefix) from the admin dashboard with per-key rate limits and expiration.
+- Prompt execution is delegated to the runner container, so no extra infrastructure is needed.
+
 **Collaborate across agents**
 - The optional Projects module gives your agents shared notes, todos, files, and feedback with append-only change history.
 - A native MCP server provides host-scoped memory tools plus shared project resources.
@@ -41,6 +46,7 @@ You'll get the most out of this if:
 - You need **visibility** into who's using what, how much it costs, and a way to set limits.
 - You'd like to manage **skills and AGENTS.md** from one place instead of scattering files across machines.
 - You want a **kill switch** and quota controls you can pull from a dashboard.
+- You want an **OpenAI-compatible API** you can point third-party tools at without exposing your real API keys.
 
 If you only use Codex on one laptop, this is probably overkill — but we won't judge if you set it up anyway.
 
@@ -93,6 +99,26 @@ cdx --update        # force-update the wrapper and Codex
 cdx --uninstall     # remove everything and decommission
 ```
 
+## OpenAI-compatible API
+
+The orchestrator exposes an OpenAI-compatible REST API at `/v1/`. Any tool that speaks the OpenAI protocol (SDKs, CLI clients, IDE plugins) can use it.
+
+1. **Create a key** in Admin > Settings > API Keys.
+2. **Point your client** at the orchestrator:
+   ```python
+   import openai
+   client = openai.OpenAI(
+       base_url="https://your-server/v1",
+       api_key="sk-coco-...",
+   )
+   response = client.chat.completions.create(
+       model="cdx-lm-1",
+       messages=[{"role": "user", "content": "Hello!"}],
+   )
+   ```
+
+Supported endpoints: `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Embeddings returns a `not_implemented` error. Streaming (`stream: true`) sends a single SSE frame with the full response.
+
 ## Under the hood
 
 Codex Orchestrator takes security seriously so you can focus on building things:
@@ -116,6 +142,7 @@ For the full API surface, MCP details, and architecture deep-dive, check the doc
 | [`MCP.md`](docs/MCP.md) | MCP server tools and resources |
 | [`CONFIG_BUILDER.md`](docs/CONFIG_BUILDER.md) | Fleet config.toml builder |
 | [`ADMIN.md`](docs/ADMIN.md) | Admin dashboard guide |
+| [`DESIGN.md`](DESIGN.md) | OpenAI-compatible API design |
 | [`interface-api.md`](docs/interface-api.md) | API interface contracts |
 | [`interface-db.md`](docs/interface-db.md) | Database schema reference |
 | [`interface-cdx.md`](docs/interface-cdx.md) | Wrapper interface contracts |

@@ -16,6 +16,7 @@ use App\Migrations\HostMigration;
 use App\Migrations\InfrastructureMigration;
 use App\Migrations\InsecureMigration;
 use App\Migrations\MigrationInterface;
+use App\Migrations\OpenaiApiMigration;
 use App\Migrations\ProjectMigration;
 use App\Migrations\UsageMigration;
 use PDO;
@@ -73,6 +74,7 @@ class DatabaseMigrator
             new InsecureMigration(),
             new UsageMigration(),
             new InfrastructureMigration(),
+            new OpenaiApiMigration(),
         ];
 
         foreach ($migrations as $migration) {

@@ -56,6 +56,7 @@
               <a class="rail-sub-link settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem"><span>General</span><span class="rail-shortcut">[s][g]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem"><span>Agents</span><span class="rail-shortcut">[s][a]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem"><span>config.toml</span><span class="rail-shortcut">[s][c]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/apikeys" data-nav="settings" data-settings-tab="apikeys" role="menuitem"><span>API Keys</span><span class="rail-shortcut">[s][i]</span></a>
             </section>
             <section class="rail-section" aria-label="Authoring settings">
               <div class="rail-section-label">Authoring</div>
@@ -135,6 +136,7 @@
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>g</kbd><span>Settings: general</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>a</kbd><span>Settings: agents</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>c</kbd><span>Settings: config</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>i</kbd><span>Settings: API keys</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>k</kbd><span>Settings: skills</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>m</kbd><span>Settings: memories</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>p</kbd><span>Settings: projects</span></div>
@@ -1034,6 +1036,7 @@
             <a class="settings-tab settings-mobile-tab" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
           </nav>
           <div class="settings-layout">
             <aside class="settings-sidebar" aria-label="Settings sections">
@@ -1045,6 +1048,7 @@
                 <a class="settings-tab settings-nav-link" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
               </div>
             </aside>
             <div class="settings-content">
@@ -1431,6 +1435,81 @@
               </div>
             </div>
           </section>
+          <section class="card panel" data-settings-panel="apikeys" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">OpenAI-compatible API</p>
+                <h2>API Keys</h2>
+                <p class="muted">Manage API keys for the OpenAI-compatible <code>/v1/</code> endpoints. Keys use the <code>sk-coco-</code> prefix.</p>
+                <div class="setting-block" style="margin-top:12px">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <span class="muted" style="font-size:13px">Endpoint:</span>
+                    <code id="apiEndpointUrl" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer" title="Click to copy"></code>
+                    <span id="apiEndpointCopied" class="muted" style="font-size:12px" hidden>Copied!</span>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost tiny-btn" id="newApiKeyBtn">New key</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table id="apiKeysTable">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Key</th>
+                      <th>Rate limit</th>
+                      <th>Last used</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- API Key creation modal -->
+          <div class="modal-backdrop" id="apiKeyModalBackdrop" hidden>
+            <div class="modal" role="dialog" aria-labelledby="apiKeyModalTitle">
+              <div class="modal-head">
+                <h3 id="apiKeyModalTitle">Create API Key</h3>
+                <button class="modal-close" id="apiKeyModalClose" aria-label="Close">&times;</button>
+              </div>
+              <div class="modal-body">
+                <div id="apiKeyCreatedBox" hidden>
+                  <p class="muted" style="margin-bottom:8px">Copy this key now &mdash; it will not be shown again.</p>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <code id="apiKeyCreatedValue" style="flex:1;word-break:break-all;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:13px"></code>
+                    <button class="ghost tiny-btn" id="apiKeyCopyBtn">Copy</button>
+                  </div>
+                </div>
+                <div id="apiKeyFormFields">
+                  <div class="field">
+                    <label class="modal-label" for="apiKeyName">Name</label>
+                    <input id="apiKeyName" type="text" placeholder="e.g. CI pipeline, dev laptop" autocomplete="off">
+                  </div>
+                  <div class="field">
+                    <label class="modal-label" for="apiKeyRpm">Rate limit (req/min)</label>
+                    <input id="apiKeyRpm" type="number" min="1" max="10000" value="60">
+                  </div>
+                  <div class="field">
+                    <label class="modal-label" for="apiKeyExpires">Expires (optional)</label>
+                    <input id="apiKeyExpires" type="datetime-local">
+                  </div>
+                </div>
+                <p id="apiKeyStatus" class="muted" style="margin-top:8px"></p>
+              </div>
+              <div class="modal-foot">
+                <button class="ghost" id="apiKeyModalCancel">Cancel</button>
+                <button id="apiKeyModalCreate">Create</button>
+              </div>
+            </div>
+          </div>
+
           <section class="card panel" data-settings-panel="config" hidden>
             <div class="panel-head">
               <div>

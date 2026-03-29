@@ -1091,6 +1091,7 @@
           g: '/admin/settings/general',
           a: '/admin/settings/agents',
           c: '/admin/settings/config',
+          i: '/admin/settings/apikeys',
           k: '/admin/settings/skills',
           m: '/admin/settings/memories',
           p: '/admin/settings/projects',
@@ -2076,6 +2077,215 @@
       memoriesInited = true;
       loadMemories();
     };
+
+    // --- OpenAI API Keys management ---
+    {
+      let apiKeysInited = false;
+      let currentApiKeys = [];
+      const apiKeysTbody = document.querySelector('#apiKeysTable tbody');
+      const newApiKeyBtn = document.getElementById('newApiKeyBtn');
+      const apiKeyModalBackdrop = document.getElementById('apiKeyModalBackdrop');
+      const apiKeyModalClose = document.getElementById('apiKeyModalClose');
+      const apiKeyModalCancel = document.getElementById('apiKeyModalCancel');
+      const apiKeyModalCreate = document.getElementById('apiKeyModalCreate');
+      const apiKeyName = document.getElementById('apiKeyName');
+      const apiKeyRpm = document.getElementById('apiKeyRpm');
+      const apiKeyExpires = document.getElementById('apiKeyExpires');
+      const apiKeyStatus = document.getElementById('apiKeyStatus');
+      const apiKeyCreatedBox = document.getElementById('apiKeyCreatedBox');
+      const apiKeyCreatedValue = document.getElementById('apiKeyCreatedValue');
+      const apiKeyCopyBtn = document.getElementById('apiKeyCopyBtn');
+      const apiKeyFormFields = document.getElementById('apiKeyFormFields');
+
+      function formatApiKeyDate(dateStr) {
+        if (!dateStr) return '\u2014';
+        try {
+          const d = new Date(dateStr);
+          return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch { return dateStr; }
+      }
+
+      function formatTimeAgo(dateStr) {
+        if (!dateStr) return 'Never';
+        try {
+          const d = new Date(dateStr);
+          const now = Date.now();
+          const diffMs = now - d.getTime();
+          if (diffMs < 60000) return 'Just now';
+          if (diffMs < 3600000) return Math.floor(diffMs / 60000) + 'm ago';
+          if (diffMs < 86400000) return Math.floor(diffMs / 3600000) + 'h ago';
+          return Math.floor(diffMs / 86400000) + 'd ago';
+        } catch { return dateStr; }
+      }
+
+      function renderApiKeys(keys) {
+        currentApiKeys = Array.isArray(keys) ? keys : [];
+        if (!apiKeysTbody) return;
+        if (currentApiKeys.length === 0) {
+          apiKeysTbody.innerHTML = '<tr><td colspan="6" class="muted">No API keys yet. Click "New key" to create one.</td></tr>';
+          return;
+        }
+        apiKeysTbody.innerHTML = currentApiKeys.map((k) => {
+          const active = Number(k.is_active) === 1;
+          const expired = k.expires_at && new Date(k.expires_at) < new Date();
+          let statusHtml;
+          if (!active) {
+            statusHtml = '<span style="color:var(--danger)">Revoked</span>';
+          } else if (expired) {
+            statusHtml = '<span style="color:var(--warning)">Expired</span>';
+          } else {
+            statusHtml = '<span style="color:var(--success)">Active</span>';
+          }
+          const expiresLabel = k.expires_at ? formatApiKeyDate(k.expires_at) : 'Never';
+          return `<tr>
+            <td data-label="Name">${escapeHtml(k.name)}</td>
+            <td data-label="Key"><code>${escapeHtml(k.key_prefix)}</code></td>
+            <td data-label="Rate limit">${k.rate_limit_rpm}/min</td>
+            <td data-label="Last used">${formatTimeAgo(k.last_used_at)}</td>
+            <td data-label="Status">${statusHtml}</td>
+            <td data-label="Actions">
+              <div class="table-actions">
+                ${active ? `<button class="ghost tiny-btn apikey-revoke" data-id="${k.id}">Revoke</button>` : ''}
+                <button class="ghost tiny-btn danger apikey-delete" data-id="${k.id}">Delete</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+
+        apiKeysTbody.querySelectorAll('.apikey-revoke').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const key = currentApiKeys.find((k) => String(k.id) === id);
+            if (!await showConfirmModal('Revoke API key', `Revoke key "${key?.name || id}"? It will immediately stop working.`, { action: 'Revoke', warn: true })) return;
+            btn.disabled = true;
+            try {
+              await api(`/admin/openai/keys/${id}/revoke`, { method: 'POST' });
+              toast('API key revoked', 'success');
+              await loadApiKeys();
+            } catch (err) {
+              toast(`Revoke failed: ${err.message}`, 'error');
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+
+        apiKeysTbody.querySelectorAll('.apikey-delete').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            const key = currentApiKeys.find((k) => String(k.id) === id);
+            if (!await showConfirmModal('Delete API key', `Permanently delete key "${key?.name || id}"? This cannot be undone.`, { action: 'Delete', warn: true })) return;
+            btn.disabled = true;
+            try {
+              await api(`/admin/openai/keys/${id}`, { method: 'DELETE' });
+              toast('API key deleted', 'success');
+              await loadApiKeys();
+            } catch (err) {
+              toast(`Delete failed: ${err.message}`, 'error');
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+      }
+
+      async function loadApiKeys() {
+        try {
+          const resp = await api('/admin/openai/keys');
+          renderApiKeys(resp?.data || []);
+        } catch (err) {
+          if (apiKeysTbody) apiKeysTbody.innerHTML = `<tr><td colspan="6" class="muted">Failed to load keys: ${escapeHtml(err.message)}</td></tr>`;
+        }
+      }
+
+      function showApiKeyModal(show) {
+        if (apiKeyModalBackdrop) apiKeyModalBackdrop.hidden = !show;
+        if (show) {
+          // Reset to creation mode
+          if (apiKeyFormFields) apiKeyFormFields.hidden = false;
+          if (apiKeyCreatedBox) apiKeyCreatedBox.hidden = true;
+          if (apiKeyModalCreate) { apiKeyModalCreate.hidden = false; apiKeyModalCreate.disabled = false; apiKeyModalCreate.textContent = 'Create'; }
+          if (apiKeyName) apiKeyName.value = '';
+          if (apiKeyRpm) apiKeyRpm.value = '60';
+          if (apiKeyExpires) apiKeyExpires.value = '';
+          if (apiKeyStatus) apiKeyStatus.textContent = '';
+          setTimeout(() => apiKeyName?.focus(), 50);
+        }
+      }
+
+      function showCreatedKey(key) {
+        if (apiKeyFormFields) apiKeyFormFields.hidden = true;
+        if (apiKeyCreatedBox) apiKeyCreatedBox.hidden = false;
+        if (apiKeyCreatedValue) apiKeyCreatedValue.textContent = key;
+        if (apiKeyModalCreate) apiKeyModalCreate.hidden = true;
+      }
+
+      if (newApiKeyBtn) newApiKeyBtn.addEventListener('click', () => showApiKeyModal(true));
+      if (apiKeyModalClose) apiKeyModalClose.addEventListener('click', () => { showApiKeyModal(false); loadApiKeys(); });
+      if (apiKeyModalCancel) apiKeyModalCancel.addEventListener('click', () => { showApiKeyModal(false); loadApiKeys(); });
+      if (apiKeyModalBackdrop) apiKeyModalBackdrop.addEventListener('click', (e) => {
+        if (e.target === apiKeyModalBackdrop) { showApiKeyModal(false); loadApiKeys(); }
+      });
+
+      if (apiKeyCopyBtn) apiKeyCopyBtn.addEventListener('click', () => {
+        const val = apiKeyCreatedValue?.textContent || '';
+        if (val) {
+          navigator.clipboard.writeText(val).then(() => {
+            apiKeyCopyBtn.textContent = 'Copied!';
+            setTimeout(() => { apiKeyCopyBtn.textContent = 'Copy'; }, 2000);
+          }).catch(() => {
+            toast('Copy failed — select and copy manually', 'warn');
+          });
+        }
+      });
+
+      if (apiKeyModalCreate) apiKeyModalCreate.addEventListener('click', async () => {
+        const name = (apiKeyName?.value || '').trim();
+        if (!name) {
+          if (apiKeyStatus) apiKeyStatus.textContent = 'Name is required.';
+          apiKeyName?.focus();
+          return;
+        }
+        apiKeyModalCreate.disabled = true;
+        apiKeyModalCreate.textContent = 'Creating\u2026';
+        if (apiKeyStatus) apiKeyStatus.textContent = '';
+        try {
+          const body = { name, rate_limit_rpm: parseInt(apiKeyRpm?.value || '60', 10) || 60 };
+          const expiresVal = apiKeyExpires?.value;
+          if (expiresVal) body.expires_at = new Date(expiresVal).toISOString();
+          const resp = await api('/admin/openai/keys', { method: 'POST', json: body });
+          const key = resp?.data?.key;
+          if (key) {
+            showCreatedKey(key);
+            toast('API key created', 'success');
+          } else {
+            if (apiKeyStatus) apiKeyStatus.textContent = 'Key created but could not retrieve value.';
+          }
+        } catch (err) {
+          if (apiKeyStatus) apiKeyStatus.textContent = `Failed: ${err.message}`;
+          apiKeyModalCreate.disabled = false;
+          apiKeyModalCreate.textContent = 'Create';
+        }
+      });
+
+      // Endpoint URL display
+      const apiEndpointUrl = document.getElementById('apiEndpointUrl');
+      const apiEndpointCopied = document.getElementById('apiEndpointCopied');
+      if (apiEndpointUrl) {
+        apiEndpointUrl.textContent = window.location.origin + '/v1/chat/completions';
+        apiEndpointUrl.addEventListener('click', () => {
+          navigator.clipboard.writeText(apiEndpointUrl.textContent).then(() => {
+            if (apiEndpointCopied) { apiEndpointCopied.hidden = false; setTimeout(() => { apiEndpointCopied.hidden = true; }, 2000); }
+          }).catch(() => toast('Copy failed', 'warn'));
+        });
+      }
+
+      window.__initApiKeysOnce = () => {
+        if (apiKeysInited) return;
+        apiKeysInited = true;
+        loadApiKeys();
+      };
+    }
 
     function setAgentsStatusMessage(text, tone) {
       if (!agentsStatus) return;
@@ -7972,6 +8182,10 @@
         if (settingsTab === 'memories' && window.__initMemoriesOnce) {
           window.__initMemoriesOnce();
           window.__initMemoriesOnce = null;
+        }
+        if (settingsTab === 'apikeys' && window.__initApiKeysOnce) {
+          window.__initApiKeysOnce();
+          window.__initApiKeysOnce = null;
         }
       }
 

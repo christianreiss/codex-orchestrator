@@ -102,6 +102,14 @@ use App\Http\Controllers\HostApiController;
 use App\Http\Controllers\McpRouteController;
 use App\Http\Controllers\SkillApiController;
 use App\Http\Controllers\CliAuthController;
+use App\Http\Controllers\OpenAiApiController;
+use App\Http\Controllers\AdminOpenAiKeyController;
+use App\Http\OpenAiResponse;
+use App\Contracts\BackendAdapter;
+use App\Adapters\RunnerBackendAdapter;
+use App\Adapters\NullBackendAdapter;
+use App\Repositories\OpenaiApiKeyRepository;
+use App\Services\OpenaiApiKeyService;
 use App\Repositories\CliAuthRequestRepository;
 use App\Services\CliAuthService;
 use Dotenv\Dotenv;
@@ -363,7 +371,7 @@ enforcePublicBaseUrlPolicy($normalizedPath);
 
 // First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
 // Avoid doing preflight work on ultra-hot, unauthenticated endpoints (health checks) or latency-sensitive MCP init.
-if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp') && !str_starts_with($normalizedPath, '/cron')) {
+if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp') && !str_starts_with($normalizedPath, '/cron') && !str_starts_with($normalizedPath, '/v1/')) {
     try {
         $service->runDailyPreflight();
     } catch (\Throwable $exception) {
@@ -448,6 +456,22 @@ $skillApiCtrl = new SkillApiController($service, $skillService);
 $hostApiCtrl = new HostApiController($service, $hostRepository, $logRepository, $versionRepository);
 $mcpRouteCtrl = new McpRouteController($service, $mcpServer, $mcpAccessLogRepository);
 
+// OpenAI-compatible API
+$openaiKeyRepository = new OpenaiApiKeyRepository($database, $secretBox);
+$openaiKeyService = new OpenaiApiKeyService($openaiKeyRepository, $logRepository);
+$openaiBackend = null;
+if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
+    $runnerExecUrl = preg_replace('#/verify$#', '/exec', $runnerUrl);
+    $openaiBackend = new RunnerBackendAdapter(
+        $runnerExecUrl,
+        (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
+        $service,
+        (float) Config::get('OPENAI_API_TIMEOUT', 30.0)
+    );
+}
+$openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter);
+$adminOpenAiKeyCtrl = new AdminOpenAiKeyController($openaiKeyService);
+
 // --- Route wiring ---
 
 // Cron endpoints
@@ -464,7 +488,7 @@ $router->add('GET', '#^/admin/hosts/(\d+)$#', fn() => $adminPageCtrl->host());
 $router->add('GET', '#^/admin/dashboard$#', fn() => $adminPageCtrl->dashboard());
 $router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', fn() => $adminPageCtrl->account());
 $router->add('GET', '#^/admin/settings$#', fn() => $adminPageCtrl->settings());
-$router->add('GET', '#^/admin/settings/(general|agents|memories|projects|profiles|skills|config)$#', fn() => $adminPageCtrl->settingsSection());
+$router->add('GET', '#^/admin/settings/(general|agents|memories|projects|profiles|skills|config|apikeys)$#', fn() => $adminPageCtrl->settingsSection());
 $router->add('GET', '#^/admin/hosts/secure$#', fn() => $adminPageCtrl->hostsSecure());
 $router->add('GET', '#^/admin/hosts/unprovisioned$#', fn() => $adminPageCtrl->hostsUnprovisioned());
 $router->add('GET', '#^/admin/logs/(mcp|events)$#', fn() => $adminPageCtrl->logs());
@@ -703,32 +727,61 @@ $router->add('POST', '#^/usage$#', fn() => $hostApiCtrl->recordUsage($payload));
 $router->add('GET', '#^/mcp$#', fn() => $mcpRouteCtrl->probe());
 $router->add('POST', '#^/mcp$#', fn() => $mcpRouteCtrl->handle($rawBody));
 
+// OpenAI-compatible API
+$router->add('OPTIONS', '#^/v1/#', fn() => $openaiApiCtrl->options());
+$router->add('POST', '#^/v1/chat/completions$#', fn() => $openaiApiCtrl->chatCompletions($payload));
+$router->add('POST', '#^/v1/completions$#', fn() => $openaiApiCtrl->completions($payload));
+$router->add('POST', '#^/v1/embeddings$#', fn() => $openaiApiCtrl->embeddings($payload));
+$router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());
+
+// Admin: OpenAI API key management
+$router->add('GET', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->index());
+$router->add('POST', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->store($payload));
+$router->add('POST', '#^/admin/openai/keys/(\d+)/revoke$#', fn($id) => $adminOpenAiKeyCtrl->revoke($id));
+$router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKeyCtrl->delete($id));
+
 // --- Dispatch + error handling ---
 
-try {
-    $handled = $router->dispatch($method, $normalizedPath);
-    if (!$handled) {
+if (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {
+    // OpenAI-compatible error envelopes for /v1/ routes
+    try {
+        $handled = $router->dispatch($method, $normalizedPath);
+        if (!$handled) {
+            OpenAiResponse::error('Unknown endpoint', 'invalid_request_error', 404);
+        }
+    } catch (HttpException $exception) {
+        OpenAiResponse::error($exception->getMessage(), 'api_error', $exception->getStatusCode());
+    } catch (Throwable $exception) {
+        error_log('OpenAI API error: ' . $exception->getMessage());
+        error_log($exception->getTraceAsString());
+        OpenAiResponse::error('An internal server error occurred.', 'internal_server_error', 500);
+    }
+} else {
+    try {
+        $handled = $router->dispatch($method, $normalizedPath);
+        if (!$handled) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Route not found',
+            ], 404);
+        }
+    } catch (ValidationException $exception) {
         Response::json([
             'status' => 'error',
-            'message' => 'Route not found',
-        ], 404);
+            'message' => 'Validation failed',
+            'errors' => $exception->getErrors(),
+        ], 422);
+    } catch (HttpException $exception) {
+        Response::json([
+            'status' => 'error',
+            'message' => $exception->getMessage(),
+        ], $exception->getStatusCode());
+    } catch (Throwable $exception) {
+        error_log('Unhandled exception: ' . $exception->getMessage());
+        error_log($exception->getTraceAsString());
+        Response::json([
+            'status' => 'error',
+            'message' => 'Unexpected error',
+        ], 500);
     }
-} catch (ValidationException $exception) {
-    Response::json([
-        'status' => 'error',
-        'message' => 'Validation failed',
-        'errors' => $exception->getErrors(),
-    ], 422);
-} catch (HttpException $exception) {
-    Response::json([
-        'status' => 'error',
-        'message' => $exception->getMessage(),
-    ], $exception->getStatusCode());
-} catch (Throwable $exception) {
-    error_log('Unhandled exception: ' . $exception->getMessage());
-    error_log($exception->getTraceAsString());
-    Response::json([
-        'status' => 'error',
-        'message' => 'Unexpected error',
-    ], 500);
 }

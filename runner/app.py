@@ -402,3 +402,76 @@ def generate_skill(payload: SkillGenerateRequest, request: Request):
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --- OpenAI-compatible prompt execution ---
+
+
+class ExecRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    prompt: str = Field(..., description="Prompt to execute")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the exec call (seconds)"
+    )
+
+
+def _exec_prompt(payload: ExecRequest) -> dict:
+    prompt = payload.prompt.strip()
+    if prompt == "":
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or 30.0
+        proc, latency_ms = _run_codex_exec(prompt, env, timeout)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+
+        result: dict = {
+            "latency_ms": latency_ms,
+            "reachable": True,
+        }
+
+        try:
+            with open(auth_path, "r", encoding="utf-8") as fh:
+                updated_auth = json.load(fh)
+        except Exception:
+            updated_auth = None
+        if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
+            result["updated_auth"] = updated_auth
+
+        if proc.returncode != 0:
+            result["status"] = "fail"
+            parts = [p for p in [stderr, stdout] if p]
+            message = "\n".join(parts).strip()
+            result["output"] = ""
+            result["error"] = message[:500] if message else "codex exec failed"
+            return result
+
+        result["status"] = "ok"
+        result["output"] = stdout
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
+@app.get("/exec")
+def exec_health():
+    return {"status": "ok"}
+
+
+@app.post("/exec")
+def exec_prompt(payload: ExecRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _exec_prompt(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="exec timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
