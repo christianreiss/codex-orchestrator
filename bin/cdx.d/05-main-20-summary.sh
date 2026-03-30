@@ -1092,10 +1092,15 @@ format_compact_number() {
 }
 
 build_health_dot() {
-  local name="$1" tone="$2"
-  local dot="●"
-  output_supports_unicode || dot="*"
-  printf "%s %s" "$(colorize "$dot" "$tone")" "$name"
+  local name="$1" tone="$2" updated="${3:-0}"
+  local marker="●"
+  if [[ "$updated" == "1" ]]; then
+    marker="⬆️"
+    output_supports_unicode || marker="^"
+  else
+    output_supports_unicode || marker="*"
+  fi
+  printf "%s %s" "$(colorize "$marker" "$tone")" "$name"
 }
 
 print_boot_screen() {
@@ -1187,16 +1192,31 @@ print_boot_screen() {
   # ── Health dots ──
   if (( ! concurrent_compact_summary )); then
     local dots="" dot_gap="  "
+    local api_updated_marker=0
+    local auth_updated_marker=0
+    local skills_updated_marker=0
+    local mcp_updated_marker=0
+    local runner_updated_marker=0
 
-    dots+="$(build_health_dot "api" "${api_tone:-yellow}")"
-    dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}")"
-    dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}")"
+    if [[ "${AUTH_ACTION:-}" == "store" ]]; then
+      auth_updated_marker=1
+    fi
+    if [[ "${SKILL_REMOVED:-0}" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+      skills_updated_marker=1
+    fi
+    if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && "${CONFIG_STATE:-}" == "updated" ]]; then
+      mcp_updated_marker=1
+    fi
+
+    dots+="$(build_health_dot "api" "${api_tone:-yellow}" "${api_updated_marker}")"
+    dots+="${dot_gap}$(build_health_dot "auth" "${auth_tone:-yellow}" "${auth_updated_marker}")"
+    dots+="${dot_gap}$(build_health_dot "skills" "${skill_tone:-green}" "${skills_updated_marker}")"
 
     if [[ -n "${mcp_tone:-}" ]]; then
-      dots+="${dot_gap}$(build_health_dot "mcp" "$mcp_tone")"
+      dots+="${dot_gap}$(build_health_dot "mcp" "$mcp_tone" "${mcp_updated_marker}")"
     fi
     if [[ -n "${runner_label:-}" ]]; then
-      dots+="${dot_gap}$(build_health_dot "runner" "${runner_tone:-yellow}")"
+      dots+="${dot_gap}$(build_health_dot "runner" "${runner_tone:-yellow}" "${runner_updated_marker}")"
     fi
 
     printf "\n  %s\n" "$dots"
