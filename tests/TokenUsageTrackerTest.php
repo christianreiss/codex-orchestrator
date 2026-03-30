@@ -6,6 +6,7 @@ use App\Exceptions\ValidationException;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
+use App\Services\DashboardGraphStatsService;
 use App\Services\PricingService;
 use App\Services\TokenUsageTracker;
 use PHPUnit\Framework\TestCase;
@@ -447,5 +448,73 @@ final class TokenUsageTrackerTest extends TestCase
         $usage = ['input' => 0, 'output' => 0, 'cached' => 0];
         $result = $this->tracker->normalizeUsageCost($usage, []);
         $this->assertSame(0.0, $result);
+    }
+
+    public function testRecordTokenUsageCopiesAggregatesIntoSetAsideGraphStats(): void
+    {
+        $tokenUsages = $this->getMockBuilder(TokenUsageRepository::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['record'])
+            ->getMock();
+        $tokenUsages->expects($this->once())->method('record');
+
+        $tokenUsageIngests = $this->getMockBuilder(TokenUsageIngestRepository::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['record'])
+            ->getMock();
+        $tokenUsageIngests->method('record')->willReturn(['id' => 77]);
+
+        $pricingService = $this->getMockBuilder(PricingService::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['defaultModel', 'latestPricing', 'calculateCost'])
+            ->getMock();
+        $pricingService->method('defaultModel')->willReturn('gpt-5.4');
+        $pricingService->method('latestPricing')->willReturn(['currency' => 'USD']);
+        $pricingService->method('calculateCost')->willReturn(0.0125);
+
+        $versions = $this->getMockBuilder(VersionRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+
+        $graphStats = $this->getMockBuilder(DashboardGraphStatsService::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['recordTokenUsage'])
+            ->getMock();
+        $graphStats->expects($this->once())
+            ->method('recordTokenUsage')
+            ->with(
+                $this->callback(static function (array $aggregates): bool {
+                    return $aggregates['total'] === 1500
+                        && $aggregates['input'] === 1000
+                        && $aggregates['output'] === 500
+                        && $aggregates['cached'] === 200
+                        && $aggregates['reasoning'] === 50
+                        && abs(((float) $aggregates['cost']) - 0.0125) < 0.000001;
+                }),
+                $this->callback(static fn (?string $recordedAt): bool => is_string($recordedAt) && $recordedAt !== '')
+            );
+
+        $tracker = new TokenUsageTracker(
+            $tokenUsages,
+            $tokenUsageIngests,
+            $pricingService,
+            $versions,
+            $graphStats
+        );
+
+        $response = $tracker->recordTokenUsage(
+            ['id' => 123],
+            [
+                'total' => 1500,
+                'input' => 1000,
+                'output' => 500,
+                'cached' => 200,
+                'reasoning' => 50,
+            ],
+            '127.0.0.1'
+        );
+
+        $this->assertSame(123, $response['host_id']);
+        $this->assertSame(1, $response['recorded']);
     }
 }

@@ -30,8 +30,14 @@ final class AdminDashboardGraphControlsTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
         $this->assertStringContainsString('DASHBOARD_CHART_AUTO_REFRESH_MS', $js);
+        $this->assertStringContainsString('DASHBOARD_CHART_LIVE_DEBOUNCE_MS', $js);
         $this->assertStringContainsString('Live history refresh paused', $js);
         $this->assertStringContainsString('hasChartShell', $js);
+        $this->assertStringContainsString('updateDashboardQuotaChart', $js);
+        $this->assertStringContainsString('updateDashboardCostChart', $js);
+        $this->assertStringContainsString("dashboardQuotaChart.update('none')", $js);
+        $this->assertStringContainsString("dashboardCostChart.update('none')", $js);
+        $this->assertStringContainsString('renderDashboardGrid(currentOverview, runnerInfo, currentHosts, { refreshCharts: false });', $js);
     }
 
     public function testDashboardJsClampsQuotaChartsToZeroThroughHundredPercent(): void

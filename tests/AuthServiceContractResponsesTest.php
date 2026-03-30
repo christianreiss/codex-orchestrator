@@ -543,6 +543,7 @@ final class AuthServiceContractResponsesTest extends TestCase
             'quota_limit_percent' => '90',
             'quota_week_partition' => '7',
             'cdx_silent' => '0',
+            'admin_theme' => 'bright-pink',
             'runner_state' => 'ok',
             'runner_last_ok' => '2026-02-22T09:59:00Z',
             'runner_last_fail' => '',

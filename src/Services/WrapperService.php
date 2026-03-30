@@ -10,6 +10,7 @@
 namespace App\Services;
 
 use App\Repositories\VersionRepository;
+use App\Support\AdminTheme;
 use App\Security\SecretBox;
 
 class WrapperService
@@ -104,6 +105,7 @@ class WrapperService
         $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $curlInsecure = isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false;
         $cdxSilent = $this->versions->getFlag('cdx_silent', false);
+        $adminTheme = AdminTheme::normalize($this->versions->get('admin_theme'));
         $escapeBashDefault = static function (string $value): string {
             $value = str_replace(["\r", "\n"], '', $value);
             return str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $value);
@@ -121,6 +123,7 @@ class WrapperService
             '__CODEX_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
             '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
             '__CODEX_SILENT__' => $cdxSilent ? '1' : '0',
+            '__CODEX_ADMIN_THEME__' => $adminTheme,
             '__CODEX_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
         ];
         if ($modelOverride !== '') {

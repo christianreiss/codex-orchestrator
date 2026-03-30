@@ -33,6 +33,7 @@ colorize() {
     green) printf "%b%s%b" "${GREEN}${BOLD}" "$text" "${RESET}" ;;
     yellow) printf "%b%s%b" "${YELLOW}${BOLD}" "$text" "${RESET}" ;;
     orange) printf "%b%s%b" "${ORANGE}${BOLD}" "$text" "${RESET}" ;;
+    pink) printf "%b%s%b" "${PINK}${BOLD}" "$text" "${RESET}" ;;
     red) printf "%b%s%b" "${RED}${BOLD}" "$text" "${RESET}" ;;
     *) printf "%s" "$text" ;;
   esac
@@ -94,7 +95,7 @@ summary_header() {
     ts="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
   fi
   local left
-  printf -v left "%b%bcdx%b" "${ORANGE}" "${BOLD}" "${RESET}"
+  printf -v left "%bcdx%b" "$(banner_color_sequence)" "${RESET}"
   [[ -n "$ts" ]] && left+=" $(printf '%b%s%b' "${DIM}" "$ts" "${RESET}")"
   local right=""
   if [[ -n "$title" ]]; then
@@ -1131,6 +1132,7 @@ build_health_dot() {
 
 print_boot_screen() {
   ((CODEX_SILENT)) && return 0
+  [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]] && return 0
 
   local show_banner=1
   ((CODEX_SKIP_MOTD)) && show_banner=0
@@ -1148,17 +1150,22 @@ print_boot_screen() {
 
     # L1: title
     local title
-    printf -v title "%b%bcodex orchestrator%b" "${ORANGE}" "${BOLD}" "${RESET}"
+    title="$(colorize "codex orchestrator" "$(banner_color_tone)")"
     info+=("$title")
 
-    # L2: separator
+    # L2: tagline
+    local tagline
+    printf -v tagline "%bCodex to Brrr!%b" "${DIM}" "${RESET}"
+    info+=("$tagline")
+
+    # L3: separator
     local sep_line=""
     local si
     for ((si = 0; si < 25; si++)); do sep_line+="$sep_char"; done
     printf -v sep_line "%b%s%b" "${DIM}" "$sep_line" "${RESET}"
     info+=("$sep_line")
 
-    # L3: codex version
+    # L4: codex version
     local cdx_ver="${codex_ver_inst:-${LOCAL_VERSION:-unknown}}"
     local cdx_ver_colored
     cdx_ver_colored="$(colorize "$cdx_ver" "${codex_tone:-green}")"
@@ -1171,7 +1178,7 @@ print_boot_screen() {
     fi
     info+=("$cdx_line")
 
-    # L4: wrapper version
+    # L5: wrapper version
     local wrap_ver="${wrapper_ver_inst:-${WRAPPER_VERSION:-unknown}}"
     local wrap_ver_colored
     wrap_ver_colored="$(colorize "$wrap_ver" "${wrapper_tone:-green}")"
@@ -1181,7 +1188,7 @@ print_boot_screen() {
     fi
     info+=("$wrap_line")
 
-    # L5: context line
+    # L6: context line
     local ctx_parts=()
     if ((!HOST_IS_SECURE)); then
       local lock_icon="🔓"

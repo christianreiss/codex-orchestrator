@@ -1,7 +1,7 @@
 (() => {
   try {
     const stored = localStorage.getItem('adminTheme');
-    if (stored && ['auto', 'light', 'dark'].includes(stored)) {
+    if (stored && ['auto', 'light', 'dark', 'bright-pink', 'dark-pink'].includes(stored)) {
       document.body.dataset.theme = stored;
     }
   } catch (_) {}

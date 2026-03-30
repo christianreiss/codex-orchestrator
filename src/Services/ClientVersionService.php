@@ -11,6 +11,7 @@ namespace App\Services;
 
 use App\Repositories\HostRepository;
 use App\Repositories\VersionRepository;
+use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
 
 class ClientVersionService
@@ -65,6 +66,7 @@ class ClientVersionService
             'quota_limit_percent' => $this->quotaLimitPercent(),
             'quota_week_partition' => $this->quotaWeekPartition(),
             'cdx_silent' => $this->versions->getFlag('cdx_silent', false),
+            'admin_theme' => AdminTheme::normalize($this->versions->get('admin_theme')),
             'runner_enabled' => $this->runnerVerifier !== null,
             'runner_state' => $this->versions->get('runner_state'),
             'runner_last_ok' => $this->versions->get('runner_last_ok'),

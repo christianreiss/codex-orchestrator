@@ -47,12 +47,14 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Poll interval: `ADMIN_WS_POLL_INTERVAL` (min `0.2`).
   - Enforces mTLS unless `ADMIN_ACCESS_MODE=none`.
   - Tracks admin client presence in `versions.admin_ws_connections` for insecure-approval gating.
+- Besides push events, the socket now supports targeted request/response hydration for slow host-detail metadata. Current request: `host-detail-support`, returning compact `runner` plus full AGENTS admin metadata for the active host page.
 - Dashboard consumes `log.created` events for targeted data refresh and `toast` events for notifications.
 - Config and profiles tabs do not auto-overwrite dirty local edits; they show `Remote update available (unsaved edits)`.
 
 ## Page-by-Page (Code-Backed)
-- **Theme**: Auto/Light/Dark cycle stored in `localStorage.adminTheme`.
+- **Theme**: Auto/Light/Dark/Bright Pink/Dark Pink cycle stored in `localStorage.adminTheme` and mirrored to the server-side `versions.admin_theme` setting so `cdx` can match pink wrapper branding on the next auth pull.
 - **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, pricing snapshot/costs, ChatGPT usage snapshot/summary, mTLS metadata, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
+- **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota/cost history store rather than raw verbose logs.
 - **Hosts**:
   - List: `GET /admin/hosts`.
   - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body).

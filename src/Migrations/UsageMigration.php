@@ -121,6 +121,46 @@ class UsageMigration implements MigrationInterface
             SQL
         );
 
+        $pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS dashboard_graph_usage_daily_stats (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                stat_date VARCHAR(10) NOT NULL,
+                total_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                input_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                output_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                cached_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                reasoning_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                cost DECIMAL(18,6) NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                UNIQUE KEY uniq_dashboard_graph_usage_day (stat_date),
+                INDEX idx_dashboard_graph_usage_updated (updated_at)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $pdo->exec(
+            <<<SQL
+            CREATE TABLE IF NOT EXISTS dashboard_graph_quota_snapshots (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                fetched_at VARCHAR(100) NOT NULL,
+                primary_used_percent INT UNSIGNED NULL,
+                primary_limit_seconds BIGINT UNSIGNED NULL,
+                secondary_used_percent INT UNSIGNED NULL,
+                secondary_limit_seconds BIGINT UNSIGNED NULL,
+                spark_primary_used_percent INT UNSIGNED NULL,
+                spark_primary_limit_seconds BIGINT UNSIGNED NULL,
+                spark_secondary_used_percent INT UNSIGNED NULL,
+                spark_secondary_limit_seconds BIGINT UNSIGNED NULL,
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL,
+                UNIQUE KEY uniq_dashboard_graph_quota_fetched (fetched_at),
+                INDEX idx_dashboard_graph_quota_updated (updated_at)
+            ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
         // Backfill columns.
         $this->ensureColumnExists($pdo, $databaseName, 'token_usages', 'ingest_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'token_usages', 'reasoning_tokens', 'BIGINT UNSIGNED NULL');
@@ -138,7 +178,13 @@ class UsageMigration implements MigrationInterface
         $this->ensureColumnExists($pdo, $databaseName, 'chatgpt_usage_snapshots', 'spark_secondary_limit_seconds', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'chatgpt_usage_snapshots', 'spark_secondary_reset_after_seconds', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'chatgpt_usage_snapshots', 'spark_secondary_reset_at', 'VARCHAR(100) NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'dashboard_graph_usage_daily_stats', 'reasoning_tokens', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
+        $this->ensureColumnExists($pdo, $databaseName, 'dashboard_graph_usage_daily_stats', 'total_tokens', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
+        $this->ensureColumnExists($pdo, $databaseName, 'dashboard_graph_usage_daily_stats', 'updated_at', 'VARCHAR(100) NOT NULL DEFAULT \'1970-01-01T00:00:00Z\'');
+        $this->ensureColumnExists($pdo, $databaseName, 'dashboard_graph_quota_snapshots', 'updated_at', 'VARCHAR(100) NOT NULL DEFAULT \'1970-01-01T00:00:00Z\'');
         $this->ensureIndexExists($pdo, $databaseName, 'token_usages', 'idx_token_usage_ingest', 'INDEX idx_token_usage_ingest (ingest_id)');
         $this->ensureForeignKeyExists($pdo, $databaseName, 'token_usages', 'fk_token_usage_ingest', 'FOREIGN KEY (ingest_id) REFERENCES token_usage_ingests(id) ON DELETE SET NULL');
+        $this->ensureIndexExists($pdo, $databaseName, 'dashboard_graph_usage_daily_stats', 'uniq_dashboard_graph_usage_day', 'UNIQUE INDEX uniq_dashboard_graph_usage_day (stat_date)');
+        $this->ensureIndexExists($pdo, $databaseName, 'dashboard_graph_quota_snapshots', 'uniq_dashboard_graph_quota_fetched', 'UNIQUE INDEX uniq_dashboard_graph_quota_fetched (fetched_at)');
     }
 }

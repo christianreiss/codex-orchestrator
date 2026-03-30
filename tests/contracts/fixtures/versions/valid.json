@@ -14,6 +14,7 @@
     "quota_limit_percent": 90,
     "quota_week_partition": 7,
     "cdx_silent": false,
+    "admin_theme": "bright-pink",
     "auto_update_enabled": false,
     "runner_enabled": true,
     "runner_state": "ok",

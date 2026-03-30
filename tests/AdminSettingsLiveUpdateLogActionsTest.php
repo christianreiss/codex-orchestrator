@@ -15,11 +15,13 @@ final class AdminSettingsLiveUpdateLogActionsTest extends TestCase
         $this->assertStringContainsString("'admin.api.state'", $php);
         $this->assertStringContainsString("'admin.openai_api.state'", $php);
         $this->assertStringContainsString("'admin.cdx_silent'", $php);
+        $this->assertStringContainsString("'admin.theme'", $php);
         $this->assertStringContainsString("'admin.reverse_dns'", $php);
         $this->assertStringContainsString("'admin.insecure_approval'", $php);
         $this->assertStringContainsString("'admin.codex_version'", $php);
         $this->assertStringContainsString("'admin.quota_mode'", $php);
         $this->assertStringContainsString("'admin.prune_policy'", $php);
         $this->assertStringContainsString("'admin.log_retention'", $php);
+        $this->assertStringContainsString("#^/admin/theme$#", $php);
     }
 }

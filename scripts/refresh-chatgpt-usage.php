@@ -8,6 +8,7 @@ use App\Repositories\AdminEventRepository;
 use App\Repositories\AuthEntryRepository;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\ChatGptUsageRepository;
+use App\Repositories\DashboardGraphStatsRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
@@ -21,6 +22,7 @@ use App\Security\EncryptionKeyManager;
 use App\Security\SecretBox;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
+use App\Services\DashboardGraphStatsService;
 use App\Services\PricingService;
 use App\Services\WrapperService;
 use App\Support\WorkerHeartbeat;
@@ -73,8 +75,10 @@ try {
     $logRepository = new LogRepository($database, $adminEventRepository);
     $tokenUsageRepository = new TokenUsageRepository($database);
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
+    $dashboardGraphStatsRepository = new DashboardGraphStatsRepository($database);
     $versionRepository = new VersionRepository($database);
     $pricingSnapshotRepository = new PricingSnapshotRepository($database);
+    $chatGptUsageRepository = new ChatGptUsageRepository($database);
 
     $pricingModel = 'gpt-5.4';
     $pricingService = new PricingService(
@@ -88,6 +92,12 @@ try {
     $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
     $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
     $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, null, $secretBox);
+    $dashboardGraphStatsService = new DashboardGraphStatsService(
+        $dashboardGraphStatsRepository,
+        $tokenUsageRepository,
+        $chatGptUsageRepository,
+        $versionRepository
+    );
 
     $authService = new AuthService(
         $hostRepository,
@@ -100,16 +110,26 @@ try {
         $tokenUsageIngestRepository,
         $pricingService,
         $versionRepository,
-        $wrapperService
+        $wrapperService,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        $dashboardGraphStatsService
     );
 
-    $chatGptUsageRepository = new ChatGptUsageRepository($database);
     $chatGptUsageService = new ChatGptUsageService(
         $authService,
         $chatGptUsageRepository,
         $logRepository,
         (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
-        (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0)
+        (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0),
+        null,
+        $dashboardGraphStatsService
     );
 
     $result = $chatGptUsageService->fetchLatest(false);

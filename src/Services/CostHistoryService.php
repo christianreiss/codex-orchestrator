@@ -22,7 +22,8 @@ class CostHistoryService
     public function __construct(
         private readonly TokenUsageRepository $tokenUsageRepository,
         private readonly PricingService $pricingService,
-        private readonly string $model = 'gpt-5.4'
+        private readonly string $model = 'gpt-5.4',
+        private readonly ?DashboardGraphStatsService $dashboardGraphStats = null
     ) {
     }
 
@@ -46,7 +47,8 @@ class CostHistoryService
 
         $pricing = $this->pricingService->latestPricing($this->model, false);
         $hasPricing = $this->hasPricing($pricing);
-        $firstRecorded = $this->tokenUsageRepository->firstRecordedAt();
+        $firstRecorded = $this->dashboardGraphStats?->firstUsageRecordedAt()
+            ?? $this->tokenUsageRepository->firstRecordedAt();
         $untilDate = $this->normalizeDate($until) ?? new DateTimeImmutable('today', new DateTimeZone('UTC'));
         $startDate = $this->normalizeDate($from);
 
@@ -82,13 +84,15 @@ class CostHistoryService
             $endDate = $startDate;
         }
 
-        $rawPoints = $this->tokenUsageRepository->dailyTotalsSince($startDate->format(DATE_ATOM));
+        $rawPoints = $this->dashboardGraphStats?->usageDailySince($startDate->format(DATE_ATOM))
+            ?? $this->tokenUsageRepository->dailyTotalsSince($startDate->format(DATE_ATOM));
         $pointMap = [];
         foreach ($rawPoints as $row) {
             if (!isset($row['date'])) {
                 continue;
             }
             $pointMap[$row['date']] = [
+                'total' => isset($row['total']) ? (int) $row['total'] : 0,
                 'input' => (int) ($row['input'] ?? 0),
                 'output' => (int) ($row['output'] ?? 0),
                 'cached' => (int) ($row['cached'] ?? 0),
@@ -99,12 +103,16 @@ class CostHistoryService
         $dailyPoints = [];
         for ($cursor = $startDate; $cursor <= $endDate; $cursor = $cursor->add(new DateInterval('P1D'))) {
             $dayKey = $cursor->format('Y-m-d');
-            $tokens = $pointMap[$dayKey] ?? ['input' => 0, 'output' => 0, 'cached' => 0, 'cost' => null];
+            $tokens = $pointMap[$dayKey] ?? ['total' => 0, 'input' => 0, 'output' => 0, 'cached' => 0, 'cost' => null];
             $storedCost = $tokens['cost'] ?? null;
             if ($storedCost !== null && $storedCost > 0) {
                 $costs = $this->splitStoredCost($storedCost, $tokens, $pricing, $hasPricing);
             } else {
                 $costs = $this->calculateCosts($tokens, $pricing, $hasPricing);
+            }
+            $totalTokens = isset($tokens['total']) ? (int) $tokens['total'] : 0;
+            if ($totalTokens <= 0) {
+                $totalTokens = (int) $tokens['input'] + (int) $tokens['output'] + (int) $tokens['cached'];
             }
             $dailyPoints[] = [
                 'date' => $dayKey,
@@ -112,7 +120,7 @@ class CostHistoryService
                     'input' => (int) $tokens['input'],
                     'output' => (int) $tokens['output'],
                     'cached' => (int) $tokens['cached'],
-                    'total' => (int) $tokens['input'] + (int) $tokens['output'] + (int) $tokens['cached'],
+                    'total' => $totalTokens,
                 ],
                 'costs' => $costs,
             ];

@@ -188,6 +188,9 @@ final class AdminAgentsUiWiringTest extends TestCase
 
         $this->assertStringContainsString('id="pruneWindowLabel"', $html);
         $this->assertStringContainsString('id="pruneWindowSlider"', $html);
+        $this->assertStringContainsString('id="logRetentionDaysGraphStatsLabel"', $html);
+        $this->assertStringContainsString('id="logRetentionDaysGraphStatsSlider"', $html);
+        $this->assertStringContainsString('Set-aside Graph Stats', $html);
     }
 
     public function testQuickInsecureHostsToggleUsesServerActiveFlag(): void
@@ -197,6 +200,34 @@ final class AdminAgentsUiWiringTest extends TestCase
 
         $this->assertStringContainsString('target?.active === true', $js);
         $this->assertStringContainsString('typeof host?.active ===', $js);
+    }
+
+    public function testLogRetentionUiWiresGraphStatsSlider(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString("const logRetentionDaysGraphStatsSlider = document.getElementById('logRetentionDaysGraphStatsSlider');", $js);
+        $this->assertStringContainsString("const logRetentionDaysGraphStatsLabel = document.getElementById('logRetentionDaysGraphStatsLabel');", $js);
+        $this->assertStringContainsString("days_graph_stats: logRetentionDaysGraphStats", $js);
+        $this->assertStringContainsString("'logRetentionDaysGraphStats'", $js);
+        $this->assertStringContainsString("logRetentionDaysGraphStats = clampRetentionDays(currentOverview.log_retention_days_graph_stats);", $js);
+    }
+
+    public function testDashboardFooterUsesSingleTextSummaryBar(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+        $this->assertStringContainsString('id="dashboardFooterText"', $html);
+        $this->assertStringNotContainsString('id="dashboardFooterFleet"', $html);
+        $this->assertStringNotContainsString('id="dashboardFooterSpend"', $html);
+
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+        $this->assertStringContainsString("const dashboardFooterText = document.getElementById('dashboardFooterText');", $js);
+        $this->assertStringContainsString('function countHostsCreatedToday(hostsList = []) {', $js);
+        $this->assertStringContainsString('Codex version <strong>', $js);
+        $this->assertStringContainsString('Spend <strong>${formatCurrency(dayCost, planCurrency)}</strong> today', $js);
     }
 
     public function testAdminCostOverpayMessageRemoved(): void

@@ -90,13 +90,15 @@ class AuthService
         private readonly ?InsecureDomainAllowRepository $insecureDomainAllows = null,
         private readonly ?McpSessionTokenRepository $mcpSessionTokens = null,
         private readonly ?McpAccessLogRepository $mcpAccessLogs = null,
-        private readonly ?AdminEventRepository $adminEvents = null
+        private readonly ?AdminEventRepository $adminEvents = null,
+        private readonly ?DashboardGraphStatsService $dashboardGraphStats = null
     ) {
         $this->tokenUsageTracker = new TokenUsageTracker(
             $tokenUsages,
             $tokenUsageIngests,
             $pricingService,
-            $versions
+            $versions,
+            $dashboardGraphStats
         );
 
         $this->reverseDnsValidator = $this->createReverseDnsValidator($versions);
@@ -1569,6 +1571,7 @@ class AuthService
         $daysLogs = $this->logRetentionDays('log_retention_days_logs', 90);
         $daysMcp = $this->logRetentionDays('log_retention_days_mcp', 90);
         $daysEvents = $this->logRetentionDays('log_retention_days_events', 30);
+        $daysGraphStats = $this->logRetentionDays('log_retention_days_graph_stats', 180);
 
         $this->logs->deleteOlderThan($daysLogs);
 
@@ -1578,6 +1581,10 @@ class AuthService
 
         if ($this->adminEvents !== null) {
             $this->adminEvents->deleteOlderThan($daysEvents);
+        }
+
+        if ($this->dashboardGraphStats !== null) {
+            $this->dashboardGraphStats->deleteOlderThan($daysGraphStats);
         }
     }
 

@@ -21,7 +21,8 @@ class TokenUsageTracker
         private readonly TokenUsageRepository $tokenUsages,
         private readonly TokenUsageIngestRepository $tokenUsageIngests,
         private readonly PricingService $pricingService,
-        private readonly VersionRepository $versions
+        private readonly VersionRepository $versions,
+        private readonly ?DashboardGraphStatsService $dashboardGraphStats = null
     ) {
     }
 
@@ -50,6 +51,8 @@ class TokenUsageTracker
             }
             return $pricingCache[$resolvedModel];
         };
+
+        $recordedAt = gmdate(DATE_ATOM);
 
         foreach ($usageRows as $idx => $usage) {
             foreach (['total', 'input', 'output', 'cached', 'reasoning'] as $field) {
@@ -110,7 +113,7 @@ class TokenUsageTracker
             );
 
             $records[] = [
-                'recorded_at' => gmdate(DATE_ATOM),
+                'recorded_at' => $recordedAt,
                 'line' => $usage['line'],
                 'total' => $usage['total'],
                 'input' => $usage['input'],
@@ -121,6 +124,8 @@ class TokenUsageTracker
                 'model' => $usage['model'],
             ];
         }
+
+        $this->dashboardGraphStats?->recordTokenUsage($aggregates, $recordedAt);
 
         $response = [
             'host_id' => $hostId,

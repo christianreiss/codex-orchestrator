@@ -257,6 +257,7 @@
             "quota_limit_percent",
             "quota_week_partition",
             "cdx_silent",
+            "admin_theme",
             "auto_update_enabled",
             "runner_enabled",
             "runner_state",
@@ -328,6 +329,16 @@
             },
             "cdx_silent": {
               "type": "boolean"
+            },
+            "admin_theme": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "light",
+                "dark",
+                "bright-pink",
+                "dark-pink"
+              ]
             },
             "auto_update_enabled": {
               "type": "boolean"

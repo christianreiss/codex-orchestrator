@@ -24,6 +24,7 @@ use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\CostHistoryService;
 use App\Services\PricingService;
+use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
 use DateTimeImmutable;
 
@@ -405,6 +406,7 @@ class AdminOverviewController
         $quotaLimitPercent = quotaLimitPercent($this->versionRepository);
         $quotaWeekPartition = quotaWeekPartition($this->versionRepository);
         $cdxSilent = $this->versionRepository->getFlag('cdx_silent', false);
+        $adminTheme = AdminTheme::normalize($this->versionRepository->get('admin_theme'));
         $reverseDnsEnabled = $this->versionRepository->getFlag('reverse_dns_enabled', false);
         $insecureApprovalEnabled = $this->versionRepository->getFlag('insecure_approval_enabled', false);
         $autoUpdateEnabled = $this->versionRepository->getFlag('auto_update_enabled', false);
@@ -413,6 +415,7 @@ class AdminOverviewController
         $logRetentionDaysLogs = $this->logRetentionDays('log_retention_days_logs', 90);
         $logRetentionDaysMcp = $this->logRetentionDays('log_retention_days_mcp', 90);
         $logRetentionDaysEvents = $this->logRetentionDays('log_retention_days_events', 30);
+        $logRetentionDaysGraphStats = $this->logRetentionDays('log_retention_days_graph_stats', 180);
         $clientVersionLock = $this->versionRepository->getWithMetadata('client_version_lock');
         $chatgptSummary = $this->chatGptUsageService->latestWindowSummary();
         if (is_array($chatgptSummary)) {
@@ -453,6 +456,7 @@ class AdminOverviewController
                 'quota_limit_percent' => $quotaLimitPercent,
                 'quota_week_partition' => $quotaWeekPartition,
                 'cdx_silent' => $cdxSilent,
+                'admin_theme' => $adminTheme,
                 'reverse_dns_enabled' => $reverseDnsEnabled,
                 'insecure_approval_enabled' => $insecureApprovalEnabled,
                 'auto_update_enabled' => $autoUpdateEnabled,
@@ -461,6 +465,7 @@ class AdminOverviewController
                 'log_retention_days_logs' => $logRetentionDaysLogs,
                 'log_retention_days_mcp' => $logRetentionDaysMcp,
                 'log_retention_days_events' => $logRetentionDaysEvents,
+                'log_retention_days_graph_stats' => $logRetentionDaysGraphStats,
                 'client_version_lock' => $clientVersionLock['version'] ?? null,
                 'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,
             ],
@@ -716,6 +721,116 @@ class AdminOverviewController
             'status' => 'ok',
             'data' => [
                 'hosts' => $items,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /admin/hosts/{id}/detail
+     */
+    public function hostDetail(int $hostId): void
+    {
+        requireAdminAccess();
+
+        $host = $this->hostRepository->findById($hostId);
+        if ($host === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $canonicalDigest = null;
+        $canonicalSourceHostId = null;
+        $canonicalPayloadId = $this->versionRepository->get('canonical_payload_id');
+        if ($canonicalPayloadId !== null && ctype_digit((string) $canonicalPayloadId)) {
+            $canonicalPayload = $this->authPayloadRepository->findByIdWithEntries((int) $canonicalPayloadId);
+            if ($canonicalPayload !== null && isset($canonicalPayload['sha256'])) {
+                $canonicalDigest = $canonicalPayload['sha256'];
+                $rawSourceHostId = $canonicalPayload['source_host_id'] ?? null;
+                if ($rawSourceHostId !== null && is_numeric($rawSourceHostId)) {
+                    $canonicalSourceHostId = (int) $rawSourceHostId;
+                    if ($canonicalSourceHostId <= 0) {
+                        $canonicalSourceHostId = null;
+                    }
+                }
+            }
+        }
+
+        $versionSummary = $this->service->versionSummary();
+        $hostVersions = $this->service->applyClientVersionOverrideForHost($versionSummary, $host);
+        $globalAutoUpdateEnabled = (bool) ($versionSummary['auto_update_enabled'] ?? false);
+        $cronEvents = $this->logRepository->latestByHostAndActions([$hostId], [
+            'cron.update_available',
+            'cron.update_reported',
+        ]);
+        $hostCronEvents = $cronEvents[$hostId] ?? [];
+        $autoUpdateState = $this->deriveAutoUpdateState($host, $hostVersions, $globalAutoUpdateEnabled, $hostCronEvents);
+        $tokenUsage = $this->tokenUsageRepository->latestForHost($hostId);
+        $users = $this->hostUserRepository->listByHost($hostId);
+        $hostDigests = $this->digestRepository->recentDigests($hostId);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => [
+                    'id' => (int) $host['id'],
+                    'fqdn' => $host['fqdn'],
+                    'status' => $host['status'],
+                    'last_refresh' => $this->normalizeIsoTimestamp($host['last_refresh'] ?? null),
+                    'updated_at' => $this->normalizeIsoTimestamp($host['updated_at'] ?? null),
+                    'created_at' => $this->normalizeIsoTimestamp($host['created_at'] ?? null),
+                    'client_version' => $host['client_version'] ?? null,
+                    'client_version_override' => $host['client_version_override'] ?? null,
+                    'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
+                        ? (int) $host['agents_document_id_override']
+                        : null,
+                    'wrapper_version' => $host['wrapper_version'] ?? null,
+                    'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
+                    'ip4' => $host['ip4'] ?? null,
+                    'ip6' => $host['ip6'] ?? null,
+                    'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
+                    'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
+                    'vip' => isset($host['vip']) ? (bool) (int) $host['vip'] : false,
+                    'insecure_enabled_until' => $this->normalizeIsoTimestamp($host['insecure_enabled_until'] ?? null),
+                    'insecure_grace_until' => $this->normalizeIsoTimestamp($host['insecure_grace_until'] ?? null),
+                    'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
+                        ? (int) $host['insecure_window_minutes']
+                        : null,
+                    'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
+                    'last_cron_check' => $this->normalizeIsoTimestamp($host['last_cron_check'] ?? null),
+                    'reverse_dns_mode' => formatReverseDnsModeOutput($host['reverse_dns_mode'] ?? null),
+                    'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),
+                    'model_override' => $host['model_override'] ?? null,
+                    'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
+                    'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
+                    'effective_auto_update_enabled' => $autoUpdateState['effective_enabled'],
+                    'auto_update_state' => $autoUpdateState['state'],
+                    'auto_update_label' => $autoUpdateState['label'],
+                    'auto_update_emoji' => $autoUpdateState['emoji'],
+                    'auto_update_rank' => $autoUpdateState['rank'],
+                    'auto_update_last_event_at' => $autoUpdateState['last_event_at'],
+                    'auto_update_target_version' => $autoUpdateState['target_version'],
+                    'canonical_digest' => $host['auth_digest'] ?? null,
+                    'recent_digests' => array_values(array_unique($hostDigests)),
+                    'authed' => ($host['auth_digest'] ?? '') !== '',
+                    'auth_outdated' => $canonicalDigest !== null
+                        && isset($host['auth_digest'])
+                        && (string) $host['auth_digest'] !== (string) $canonicalDigest,
+                    'auth_source' => $canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId,
+                    'token_usage' => $tokenUsage,
+                    'users' => $users,
+                ],
+                'overview' => [
+                    'versions' => [
+                        'client_version' => $versionSummary['client_version'] ?? null,
+                        'wrapper_version' => $versionSummary['wrapper_version'] ?? null,
+                        'client_version_checked_at' => $versionSummary['client_version_checked_at'] ?? null,
+                    ],
+                    'reverse_dns_enabled' => $this->versionRepository->getFlag('reverse_dns_enabled', false),
+                    'auto_update_enabled' => $globalAutoUpdateEnabled,
+                    'inactivity_window_days' => $this->service->inactivityWindowDays(),
+                ],
             ],
         ]);
     }

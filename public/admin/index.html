@@ -4,15 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-30-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-30-10">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
-  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-27-02">
+  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="editorial-rail">
     <a class="rail-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
       <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
-      <div class="rail-brand-title">Codex Orchestrator</div>
+      <div class="rail-brand-copy">
+        <div class="rail-brand-title">Codex Orchestrator</div>
+        <div class="rail-brand-tagline">Codex to Brrr!</div>
+      </div>
     </a>
     <button class="rail-toggle" id="navMenuToggle" type="button" aria-expanded="false" aria-controls="navDrawer" aria-label="Open navigation menu">
       <span class="rail-toggle-label">Menu</span>
@@ -96,6 +99,8 @@
                   <button class="rail-subpanel-item" id="navThemeOptionAuto" type="button" data-theme-option="auto" role="menuitemradio" aria-checked="true">Auto</button>
                   <button class="rail-subpanel-item" id="navThemeOptionLight" type="button" data-theme-option="light" role="menuitemradio" aria-checked="false">Light</button>
                   <button class="rail-subpanel-item" id="navThemeOptionDark" type="button" data-theme-option="dark" role="menuitemradio" aria-checked="false">Dark</button>
+                  <button class="rail-subpanel-item" id="navThemeOptionBrightPink" type="button" data-theme-option="bright-pink" role="menuitemradio" aria-checked="false">Bright Pink</button>
+                  <button class="rail-subpanel-item" id="navThemeOptionDarkPink" type="button" data-theme-option="dark-pink" role="menuitemradio" aria-checked="false">Dark Pink</button>
                 </div>
               </div>
               <button class="rail-menu-button" id="navHelpTrigger" type="button" role="menuitem" aria-label="Open keyboard shortcuts help" title="Keyboard shortcuts">
@@ -410,56 +415,74 @@
           </div>
         </div>
         <div class="modal-backdrop" id="newHostModal" role="dialog" aria-modal="true">
-          <div class="modal">
-            <h3>New Host</h3>
-            <p>Issue a one-time installer link for this FQDN. The API key is baked in and bound to this host on first contact.</p>
+          <div class="modal new-host-modal">
+            <p class="new-host-kicker">Fresh machine, one command.</p>
+            <h3>Spin Up a Host</h3>
+            <p class="new-host-copy">Pick a hostname, choose the guardrails, and we will mint a one-time installer that binds itself on first contact.</p>
             <div class="field">
-              <label for="new-host-name" class="modal-label">Host FQDN</label>
-              <input id="new-host-name" type="text" placeholder="e.g. node-01.example.com">
+              <label for="new-host-name" class="modal-label">Hostname</label>
+              <input id="new-host-name" type="text" placeholder="node-01.example.com">
+              <p class="panel-subtitle-sm">Use the name this box should answer to.</p>
               <div class="auth-error" id="newHostError" role="alert"></div>
             </div>
             <div class="field">
-              <label class="toggle state-toggle" for="secureHostToggle">
-                <input type="checkbox" id="secureHostToggle" checked>
-                <span class="track"><span class="thumb"></span></span>
-                <span class="toggle-text">Secure host (keep auth.json after runs)</span>
-              </label>
-              <p class="muted panel-subtitle">Off = treat as insecure; cdx removes auth.json after each run.</p>
-            </div>
-            <div class="field">
-              <label class="toggle state-toggle" for="temporaryHostToggle">
-                <input type="checkbox" id="temporaryHostToggle">
-                <span class="track"><span class="thumb"></span></span>
-                <span class="toggle-text">Temporary host (auto-remove after 2h idle)</span>
-              </label>
-              <p class="muted panel-subtitle">Useful for rescue/live systems; the host entry + API key are pruned two hours after the last successful contact.</p>
-            </div>
-            <div class="field">
-              <label class="toggle state-toggle" for="insecureToggle">
-                <input type="checkbox" id="insecureToggle">
-                <span class="track"><span class="thumb"></span></span>
-                <span class="toggle-text">Allow insecure curl (-k)</span>
-              </label>
-            </div>
-            <div class="field">
-              <label class="toggle state-toggle" for="vipToggle">
-                <input type="checkbox" id="vipToggle">
-                <span class="track"><span class="thumb"></span></span>
-                <span class="toggle-text">VIP host (ignore quota kill switch)</span>
-              </label>
+              <div class="modal-label">Pick the host vibe</div>
+              <p class="panel-subtitle-sm">Short names up top, the fine print right below.</p>
+              <div class="new-host-toggle-grid">
+                <label class="toggle state-toggle new-host-option" for="secureHostToggle">
+                  <span class="new-host-option-head">
+                    <input type="checkbox" id="secureHostToggle" checked>
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="new-host-option-copy">
+                      <span class="new-host-option-title">Secure</span>
+                      <span class="new-host-option-desc">Keep <code>auth.json</code> after runs for a normal managed host.</span>
+                    </span>
+                  </span>
+                </label>
+                <label class="toggle state-toggle new-host-option" for="temporaryHostToggle">
+                  <span class="new-host-option-head">
+                    <input type="checkbox" id="temporaryHostToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="new-host-option-copy">
+                      <span class="new-host-option-title">Temporary</span>
+                      <span class="new-host-option-desc">Auto-prune the host entry and key after about two idle hours.</span>
+                    </span>
+                  </span>
+                </label>
+                <label class="toggle state-toggle new-host-option" for="insecureToggle">
+                  <span class="new-host-option-head">
+                    <input type="checkbox" id="insecureToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="new-host-option-copy">
+                      <span class="new-host-option-title">Insecure Curl</span>
+                      <span class="new-host-option-desc">Append <code>curl -k</code> for rough TLS environments that still need a fast install.</span>
+                    </span>
+                  </span>
+                </label>
+                <label class="toggle state-toggle new-host-option" for="vipToggle">
+                  <span class="new-host-option-head">
+                    <input type="checkbox" id="vipToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="new-host-option-copy">
+                      <span class="new-host-option-title">VIP</span>
+                      <span class="new-host-option-desc">Ignore quota hard-stop guardrails for boxes that must keep moving.</span>
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
             <div class="field" id="commandField" style="display:none;">
-              <label class="modal-label">Run on the target host</label>
+              <label class="modal-label">Run this on the host</label>
               <div class="command-box">
                 <span class="cmd-text" id="bootstrapCmd"></span>
                 <button class="copy-btn" id="copyCmd">Copy</button>
               </div>
               <p class="muted" id="installerMeta" style="margin-top:8px; display:none;"></p>
-              <p class="muted panel-meta">Single command downloads the baked installer and configures the host.</p>
+              <p class="muted panel-meta">One command pulls the baked installer and wires the box in.</p>
             </div>
             <div class="actions">
               <button class="ghost" id="cancelNewHost">Cancel</button>
-              <button id="createHost">Generate</button>
+              <button id="createHost">Mint Installer</button>
             </div>
           </div>
         </div>
@@ -722,12 +745,6 @@
           <section class="dashboard-primary-grid" id="stats">
             <section class="dashboard-primary-card" id="chatgpt-usage-card">
               <div class="muted">Loading usage…</div>
-            </section>
-            <section class="dashboard-primary-card" id="dashboardFleetCard">
-              <div class="muted">Loading fleet…</div>
-            </section>
-            <section class="dashboard-primary-card" id="dashboardSpendCard">
-              <div class="muted">Loading spend…</div>
             </section>
           </section>
           <div class="dashboard-ops-strip" id="dashboardOpsStrip" hidden></div>
@@ -1503,6 +1520,14 @@
                         </div>
                         <input type="range" min="1" max="365" step="1" value="30" id="logRetentionDaysEventsSlider" class="prune-window-slider">
                       </div>
+                      <div class="prune-window-control">
+                        <div class="prune-window-head">
+                          <div><p class="muted prune-window-copy">Set-aside Graph Stats</p></div>
+                          <div class="prune-window-value" id="logRetentionDaysGraphStatsLabel">180 days</div>
+                        </div>
+                        <input type="range" min="1" max="365" step="1" value="180" id="logRetentionDaysGraphStatsSlider" class="prune-window-slider">
+                        <p class="muted prune-window-foot">Dashboard quota and cost chart history survives verbose log cleanup here.</p>
+                      </div>
                       <p class="muted prune-window-foot">Cleanup runs automatically during auth/register cycles. Disabled = keep forever.</p>
                     </div>
                   </div>
@@ -2181,6 +2206,12 @@
     </main>
   </div>
 
+  <footer class="editorial-footer" id="dashboardFooter" style="display:none">
+    <div class="footer-frame">
+      <div class="dashboard-footer-text" id="dashboardFooterText">Loading fleet summary…</div>
+    </div>
+  </footer>
+
   <div class="modal-backdrop" id="usersModal" role="dialog" aria-modal="true" aria-labelledby="usersModalTitle">
     <div class="modal users-modal">
       <div class="modal-head">
@@ -2345,9 +2376,9 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-30-03"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-30-14"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
-  <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
+  <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/config.js?v=2026-03-24-04"></script>
   <script src="/admin/assets/profiles.js?v=2026-03-24-02"></script>

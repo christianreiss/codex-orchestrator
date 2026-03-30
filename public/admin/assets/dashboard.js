@@ -1,5 +1,6 @@
     const statsEl = document.getElementById('stats');
     const hostsTbody = document.querySelector('#hosts-table tbody');
+    const hostsInsecureHeader = document.querySelector('#hosts-table .insecure-col');
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
@@ -129,8 +130,8 @@
     const dashboardMissionYear = document.getElementById('dashboardMissionYear');
     const dashboardStatusBar = document.getElementById('dashboardStatusBar');
     const dashboardOpsStrip = document.getElementById('dashboardOpsStrip');
-    const dashboardFleetCard = document.getElementById('dashboardFleetCard');
-    const dashboardSpendCard = document.getElementById('dashboardSpendCard');
+    const dashboardFooter = document.getElementById('dashboardFooter');
+    const dashboardFooterText = document.getElementById('dashboardFooterText');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
@@ -202,6 +203,8 @@
     const logRetentionDaysMcpLabel = document.getElementById('logRetentionDaysMcpLabel');
     const logRetentionDaysEventsSlider = document.getElementById('logRetentionDaysEventsSlider');
     const logRetentionDaysEventsLabel = document.getElementById('logRetentionDaysEventsLabel');
+    const logRetentionDaysGraphStatsSlider = document.getElementById('logRetentionDaysGraphStatsSlider');
+    const logRetentionDaysGraphStatsLabel = document.getElementById('logRetentionDaysGraphStatsLabel');
     const insecureHostsModal = document.getElementById('insecureHostsModal');
     const insecureHostsList = document.getElementById('insecureHostsList');
     const insecureDomainsList = document.getElementById('insecureDomainsList');
@@ -252,6 +255,7 @@
 
     const upgradeNotesCache = {};
     let currentHosts = [];
+    let currentHostDetail = null;
     let currentSkills = [];
     let currentMemories = [];
     let currentAgents = null;
@@ -271,8 +275,15 @@
     let skillEditingSlug = '';
     let skillTags = [];
 
-    const THEME_OPTIONS = ['auto', 'light', 'dark'];
-    const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+    const THEME_OPTIONS = ['auto', 'light', 'dark', 'bright-pink', 'dark-pink'];
+    const THEME_SYNC_STORAGE_KEY = 'adminThemeSynced';
+    const THEME_LABELS = {
+      auto: 'Auto',
+      light: 'Light',
+      dark: 'Dark',
+      'bright-pink': 'Bright Pink',
+      'dark-pink': 'Dark Pink',
+    };
     const SHORTCUT_SEQUENCE_TIMEOUT_MS = 1200;
     let pendingShortcutPrefix = '';
     let pendingShortcutTimer = null;
@@ -333,6 +344,22 @@
       }
     }
 
+    function readSyncedTheme() {
+      try {
+        return localStorage.getItem(THEME_SYNC_STORAGE_KEY);
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function writeSyncedTheme(value) {
+      try {
+        localStorage.setItem(THEME_SYNC_STORAGE_KEY, value);
+      } catch (err) {
+        // ignore storage failures (private mode, blocked storage)
+      }
+    }
+
     function applyTheme(theme) {
       const normalized = normalizeTheme(theme);
       if (document.body) {
@@ -351,6 +378,21 @@
       }
     }
 
+    async function persistThemePreference(theme, { silent = false } = {}) {
+      const normalized = normalizeTheme(theme);
+      try {
+        await api('/admin/theme', {
+          method: 'POST',
+          json: { theme: normalized },
+        });
+        writeSyncedTheme(normalized);
+      } catch (err) {
+        if (!silent) {
+          toast(`Theme sync failed: ${err.message || err}`, 'error');
+        }
+      }
+    }
+
     function setThemeMenuOpen(open) {
       if (!navThemeMenu || !navThemeMenuTrigger) return;
       const expanded = Boolean(open);
@@ -361,6 +403,9 @@
     function initThemeToggle() {
       const initial = normalizeTheme(readStoredTheme());
       applyTheme(initial);
+      if (readSyncedTheme() !== initial) {
+        void persistThemePreference(initial, { silent: true });
+      }
       if (!navThemeMenu || !navThemeMenuTrigger) return;
       navThemeMenuTrigger.addEventListener('click', (event) => {
         event.preventDefault();
@@ -371,6 +416,7 @@
           const nextTheme = normalizeTheme(option.dataset.themeOption);
           writeStoredTheme(nextTheme);
           applyTheme(nextTheme);
+          void persistThemePreference(nextTheme, { silent: true });
           setThemeMenuOpen(false);
           window.__railNav?.closeMenus?.();
         });
@@ -521,6 +567,7 @@
     let lastInsecureApprovalBellAt = 0;
     const INSECURE_APPROVAL_BELL_COOLDOWN_MS = 5000;
     const DASHBOARD_CHART_AUTO_REFRESH_MS = 60 * 1000;
+    const DASHBOARD_CHART_LIVE_DEBOUNCE_MS = 1200;
     const INSECURE_WINDOW_MIN = 0;
     const INSECURE_WINDOW_MAX = 480;
     const INSECURE_WINDOW_DEFAULT = 10;
@@ -540,6 +587,7 @@
     let logRetentionDaysLogs = 90;
     let logRetentionDaysMcp = 90;
     let logRetentionDaysEvents = 30;
+    let logRetentionDaysGraphStats = 180;
     let memoriesLoading = false;
     let memoriesOpen = false;
     let dashboardChartPrefs = readDashboardChartPrefs();
@@ -554,7 +602,7 @@
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
         copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
-        show: ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardGrid'],
+        show: ['stats', 'chatgpt-usage-card', 'dashboardFooter', 'dashboardGrid'],
       },
       hosts: {
         eyebrow: 'Hosts',
@@ -634,7 +682,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFleetCard', 'dashboardSpendCard', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -712,6 +760,28 @@
       } catch {
         return `${currency} ${num.toFixed(2)}`;
       }
+    }
+
+    function formatFooterVersion(value) {
+      if (typeof value !== 'string') return 'n/a';
+      const normalized = value.trim().replace(/^v/i, '');
+      return normalized !== '' ? normalized : 'n/a';
+    }
+
+    function countHostsCreatedToday(hostsList = []) {
+      if (!Array.isArray(hostsList)) return 0;
+      const now = new Date();
+      return hostsList.reduce((count, host) => {
+        const createdAt = host?.created_at;
+        if (typeof createdAt !== 'string' || createdAt.trim() === '') return count;
+        const created = new Date(createdAt);
+        if (Number.isNaN(created.getTime())) return count;
+        return created.getFullYear() === now.getFullYear()
+          && created.getMonth() === now.getMonth()
+          && created.getDate() === now.getDate()
+          ? count + 1
+          : count;
+      }, 0);
     }
 
     function formatPercent(value, digits = 0) {
@@ -1052,16 +1122,26 @@
       target.click();
     }
 
+    function openNewHostModal({ closeMenus = false } = {}) {
+      if (closeMenus) {
+        window.__railNav?.closeMenus?.();
+      }
+      showNewHostModal(true, { reset: true, focusInput: true });
+      window.setTimeout(() => {
+        newHostName?.focus();
+      }, 30);
+    }
+
     function triggerNewShortcut() {
       const activePanel = document.querySelector('.panel-set:not([hidden])');
       if (!activePanel) {
-        showNewHostModal(true);
+        openNewHostModal({ closeMenus: true });
         return;
       }
       const panelKey = activePanel.dataset?.panel || '';
 
       if (panelKey === 'hosts' || panelKey === 'host-detail') {
-        showNewHostModal(true);
+        openNewHostModal({ closeMenus: true });
         return;
       }
 
@@ -1085,7 +1165,7 @@
         }
       }
 
-      showNewHostModal(true);
+      openNewHostModal({ closeMenus: true });
     }
 
     function handleShortcutPrefixKey(key) {
@@ -1119,7 +1199,7 @@
       clearShortcutPrefix();
       if (!route) return false;
       if (route === '__new_host__') {
-        showNewHostModal(true);
+        openNewHostModal({ closeMenus: true });
         return true;
       }
       navigateAdminShortcut(route);
@@ -2103,6 +2183,11 @@
     let hostsInited = false;
     let dataLoaded = false;
     let loadAllPromise = null;
+    let hostDetailLoaded = false;
+    let hostDetailSupportLoaded = false;
+    let hostDetailLoadPromise = null;
+    let hostDetailSupportPromise = null;
+    let hostDetailLoadError = null;
     let currentOverview = null;
 
     window.__initClientLogs = () => {
@@ -2484,6 +2569,9 @@
 
     function renderAgents(doc) {
       currentAgents = doc || null;
+      if (currentAgents && runnerSummary) {
+        hostDetailSupportLoaded = true;
+      }
 
       const status = doc?.status || 'missing';
       const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
@@ -3029,6 +3117,248 @@
       return `${relative} (${absolute})`;
     }
 
+    function setActiveHostDetailId(value) {
+      const parsed = Number(value);
+      const nextId = Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null;
+      const changed = nextId !== activeHostId;
+      activeHostId = nextId;
+      if (!changed) return;
+      hostDetailLoadPromise = null;
+      hostDetailSupportPromise = null;
+      hostDetailLoadError = null;
+      currentHostDetail = nextId
+        ? (Array.isArray(currentHosts) ? currentHosts.find((entry) => entry.id === nextId) || null : null)
+        : null;
+      hostDetailLoaded = !!currentHostDetail;
+      hostDetailSupportLoaded = !!(currentAgents && runnerSummary);
+    }
+
+    function getHostById(id) {
+      const numericId = Number(id);
+      if (!Number.isFinite(numericId) || numericId <= 0) return null;
+      const targetId = Math.trunc(numericId);
+      if (currentHostDetail && currentHostDetail.id === targetId) {
+        return currentHostDetail;
+      }
+      return Array.isArray(currentHosts)
+        ? currentHosts.find((entry) => entry.id === targetId) || null
+        : null;
+    }
+
+    function upsertHostSnapshot(host) {
+      const numericId = Number(host?.id || 0);
+      if (!Number.isFinite(numericId) || numericId <= 0 || !host) return null;
+      const normalized = { ...host, id: Math.trunc(numericId) };
+      currentHostDetail = normalized;
+      const nextHosts = Array.isArray(currentHosts) ? [...currentHosts] : [];
+      const index = nextHosts.findIndex((entry) => entry.id === normalized.id);
+      if (index === -1) {
+        nextHosts.push(normalized);
+      } else {
+        nextHosts[index] = { ...nextHosts[index], ...normalized };
+      }
+      currentHosts = nextHosts;
+      return normalized;
+    }
+
+    function applyHostDetailPayload(payload) {
+      const detailHost = payload?.host && typeof payload.host === 'object' ? payload.host : null;
+      if (detailHost) {
+        upsertHostSnapshot(detailHost);
+      }
+      const overview = payload?.overview && typeof payload.overview === 'object' ? payload.overview : null;
+      if (!overview) return;
+      const previousOverview = currentOverview && typeof currentOverview === 'object' ? currentOverview : {};
+      const previousVersions = previousOverview.versions && typeof previousOverview.versions === 'object'
+        ? previousOverview.versions
+        : {};
+      const nextVersions = overview.versions && typeof overview.versions === 'object'
+        ? { ...previousVersions, ...overview.versions }
+        : previousVersions;
+      currentOverview = {
+        ...previousOverview,
+        ...overview,
+        versions: nextVersions,
+      };
+      latestVersions = {
+        client: typeof nextVersions.client_version === 'string'
+          ? nextVersions.client_version.trim().replace(/^v/i, '')
+          : latestVersions.client,
+        wrapper: typeof nextVersions.wrapper_version === 'string'
+          ? nextVersions.wrapper_version.trim().replace(/^v/i, '')
+          : latestVersions.wrapper,
+      };
+      if (typeof overview.reverse_dns_enabled !== 'undefined') {
+        reverseDnsEnabled = !!overview.reverse_dns_enabled;
+      }
+      if (typeof overview.auto_update_enabled !== 'undefined') {
+        autoUpdateEnabled = !!overview.auto_update_enabled;
+      }
+      if (typeof overview.inactivity_window_days !== 'undefined') {
+        inactivityWindowDays = clampInactivityWindowDays(overview.inactivity_window_days);
+      }
+    }
+
+    function applyHostDetailSupportPayload(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      if (payload.agents && typeof payload.agents === 'object') {
+        renderAgents(payload.agents);
+      }
+      if (payload.runner && typeof payload.runner === 'object') {
+        runnerSummary = payload.runner;
+      }
+      hostDetailSupportLoaded = !!(currentAgents && runnerSummary);
+    }
+
+    async function waitForAdminWsReady(timeoutMs = 1200) {
+      if (typeof window.__adminWsCanRequest === 'function' && window.__adminWsCanRequest()) {
+        return true;
+      }
+
+      const timeoutValue = Number(timeoutMs);
+      const waitMs = Number.isFinite(timeoutValue) && timeoutValue > 0 ? Math.round(timeoutValue) : 1200;
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          window.removeEventListener('admin-ws-status', onStatus);
+          resolve(!!value);
+        };
+        const onStatus = (event) => {
+          const status = String(event?.detail?.status || '');
+          if (status === 'open') {
+            finish(true);
+          }
+        };
+        const timer = window.setTimeout(() => {
+          finish(typeof window.__adminWsCanRequest === 'function' && window.__adminWsCanRequest());
+        }, waitMs);
+        window.addEventListener('admin-ws-status', onStatus);
+      });
+    }
+
+    async function requestHostDetailSupportViaWebsocket(hostId) {
+      const targetHostId = Number(hostId);
+      if (!Number.isFinite(targetHostId) || targetHostId <= 0) {
+        return null;
+      }
+      if (typeof window.__adminWsRequest !== 'function') {
+        return null;
+      }
+      const ready = await waitForAdminWsReady();
+      if (!ready) {
+        return null;
+      }
+      const response = await window.__adminWsRequest('host-detail-support', {
+        host_id: Math.trunc(targetHostId),
+      }, { timeoutMs: 3000 });
+      return response?.data && typeof response.data === 'object' ? response.data : null;
+    }
+
+    async function ensureHostDetailLoaded(force = false) {
+      if (!isHostDetailView() || !activeHostId) return null;
+      if (!force && hostDetailLoaded && currentHostDetail && currentHostDetail.id === activeHostId) {
+        return currentHostDetail;
+      }
+      if (!force && hostDetailLoadPromise) return hostDetailLoadPromise;
+      const requestHostId = activeHostId;
+      hostDetailLoadError = null;
+      hostDetailLoadPromise = api(`/admin/hosts/${requestHostId}/detail`)
+        .then((response) => {
+          if (requestHostId !== activeHostId) return null;
+          applyHostDetailPayload(response?.data || {});
+          hostDetailLoaded = true;
+          hostDetailLoadError = null;
+          return currentHostDetail;
+        })
+        .catch((err) => {
+          if (requestHostId === activeHostId) {
+            hostDetailLoadError = err;
+          }
+          throw err;
+        })
+        .finally(() => {
+          if (requestHostId === activeHostId) {
+            hostDetailLoadPromise = null;
+          }
+        });
+      return hostDetailLoadPromise;
+    }
+
+    async function ensureHostDetailSupportLoaded(force = false) {
+      if (!isHostDetailView() || !activeHostId) return;
+      if (!force && hostDetailSupportPromise) return hostDetailSupportPromise;
+      if (!force && (hostDetailSupportLoaded || (currentAgents && runnerSummary))) {
+        hostDetailSupportLoaded = true;
+        return;
+      }
+      const requestHostId = activeHostId;
+      hostDetailSupportPromise = (async () => {
+        let wsHydrated = false;
+        try {
+          const livePayload = await requestHostDetailSupportViaWebsocket(requestHostId);
+          if (requestHostId === activeHostId && livePayload) {
+            applyHostDetailSupportPayload(livePayload);
+            wsHydrated = hostDetailSupportLoaded;
+          }
+        } catch (err) {
+          console.warn('Host detail websocket support hydration unavailable', err);
+        }
+
+        if (!wsHydrated) {
+          const [agentsResponse, runnerResponse] = await Promise.all([
+            force || !currentAgents
+              ? api('/admin/agents').catch((err) => {
+                console.warn('Host detail agents metadata unavailable', err);
+                return null;
+              })
+              : Promise.resolve(null),
+            force || !runnerSummary
+              ? api('/admin/runner').catch((err) => {
+                console.warn('Host detail runner metadata unavailable', err);
+                return null;
+              })
+              : Promise.resolve(null),
+          ]);
+          if (requestHostId === activeHostId) {
+            applyHostDetailSupportPayload({
+              agents: agentsResponse?.data || null,
+              runner: runnerResponse?.data || null,
+            });
+          }
+        }
+
+        if (requestHostId === activeHostId) {
+          renderActiveHostDetail();
+        }
+      })().finally(() => {
+        if (requestHostId === activeHostId) {
+          hostDetailSupportPromise = null;
+        }
+      });
+      return hostDetailSupportPromise;
+    }
+
+    async function reloadHostContextAfterMutation(options = {}) {
+      const allowMissing = !!options.allowMissing;
+      if (isHostDetailView() && activeHostId) {
+        try {
+          await ensureHostDetailLoaded(true);
+          renderActiveHostDetail();
+          return;
+        } catch (err) {
+          if (allowMissing) {
+            window.location.assign('/admin/hosts');
+            return;
+          }
+          throw err;
+        }
+      }
+      await loadAll();
+    }
+
     function renderTokenUsageValue(usage) {
       if (!usage || usage.total === null || usage.total === undefined) return 'No usage yet';
       const total = Number(usage.total) || 0;
@@ -3364,7 +3694,7 @@
               json: { mode },
             });
             if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Saved';
-            await loadAll();
+            await reloadHostContextAfterMutation();
           } catch (err) {
             if (reverseDnsSaveState) reverseDnsSaveState.textContent = 'Save failed';
             console.error('save host reverse dns mode failed', err);
@@ -3406,7 +3736,7 @@
               json: { selection },
             });
             if (agentsSaveState) agentsSaveState.textContent = 'Saved';
-            await loadAll();
+            await reloadHostContextAfterMutation();
           } catch (err) {
             if (agentsSaveState) agentsSaveState.textContent = 'Save failed';
             console.error('save host agents version override failed', err);
@@ -3479,7 +3809,7 @@
               json: { selection },
             });
             if (codexSaveState) codexSaveState.textContent = 'Saved';
-            await loadAll();
+            await reloadHostContextAfterMutation();
           } catch (err) {
             if (codexSaveState) codexSaveState.textContent = 'Save failed';
             console.error('save host codex version override failed', err);
@@ -3522,7 +3852,7 @@
             },
           });
           if (saveState) saveState.textContent = 'Saved';
-          await loadAll();
+          await reloadHostContextAfterMutation();
         } catch (err) {
           if (saveState) saveState.textContent = 'Save failed';
           console.error('save host model overrides failed', err);
@@ -3868,7 +4198,20 @@
         showHostDetailEmpty('Host not found', 'This host link is invalid.');
         return;
       }
-      if (!dataLoaded) {
+      const host = getHostById(activeHostId);
+      if (host) {
+        renderHostDetail(host);
+        return;
+      }
+      if (hostDetailLoadError) {
+        if (hostDetailTitle) {
+          hostDetailTitle.textContent = `Host #${activeHostId}`;
+        }
+        clearHostDetailContent();
+        showHostDetailEmpty('Host load failed', hostDetailLoadError?.message || 'Unable to load host details.');
+        return;
+      }
+      if (!hostDetailLoaded) {
         if (hostDetailTitle) {
           hostDetailTitle.textContent = `Host #${activeHostId}`;
         }
@@ -3876,16 +4219,11 @@
         showHostDetailEmpty('Loading host…', 'Fetching host details.');
         return;
       }
-      const host = currentHosts.find((entry) => entry.id === activeHostId);
-      if (!host) {
-        if (hostDetailTitle) {
-          hostDetailTitle.textContent = `Host #${activeHostId}`;
-        }
-        clearHostDetailContent();
-        showHostDetailEmpty('Host not found', 'This host was deleted or is no longer visible.');
-        return;
+      if (hostDetailTitle) {
+        hostDetailTitle.textContent = `Host #${activeHostId}`;
       }
-      renderHostDetail(host);
+      clearHostDetailContent();
+      showHostDetailEmpty('Host not found', 'This host was deleted or is no longer visible.');
     }
 
     function openHostDetail(hostId) {
@@ -3904,9 +4242,19 @@
       return state.enabledActive || state.graceActive;
     }
 
+    function hostTableShowsInsecureColumn() {
+      return hostStatusFilter !== 'secure';
+    }
+
+    function syncHostsTableColumns() {
+      if (!hostsInsecureHeader) return;
+      hostsInsecureHeader.hidden = !hostTableShowsInsecureColumn();
+    }
+
     function createHostRow(host) {
       const tr = document.createElement('tr');
       const isSecure = isHostSecure(host);
+      const showInsecureColumn = hostTableShowsInsecureColumn();
       const authSourceMarker = host.auth_source
         ? '<span class="host-auth-source" title="Current canonical auth.json source host" aria-label="Current canonical auth.json source host">🍪</span>'
         : '';
@@ -3943,7 +4291,7 @@
         <td data-label="Last Seen"><span class="host-secondary">${escapeHtml(lastSeenText)}</span></td>
         <td data-label="Codex">${renderVersionTag(host.client_version, latestVersions.client)}</td>
         <td data-label="Auto-updates" class="host-auto-updates-cell"><span class="host-auto-updates-indicator" title="${escapeHtml(autoUpdate.label)}" aria-label="${escapeHtml(autoUpdate.label)}">${autoUpdate.icon}</span></td>
-        <td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>
+        ${showInsecureColumn ? `<td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>` : ''}
       `;
       tr.addEventListener('click', (ev) => {
         if (shouldIgnoreHostRowNavigation(ev.target)) return;
@@ -3973,10 +4321,11 @@
 
     function paintHosts() {
       if (!Array.isArray(currentHosts)) return;
+      syncHostsTableColumns();
       const filtered = applyHostFilters(currentHosts);
 
       hostsTbody.innerHTML = '';
-      const cols = 6;
+      const cols = hostTableShowsInsecureColumn() ? 6 : 5;
       if (!filtered.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
         updateSortIndicators();
@@ -3990,6 +4339,10 @@
 
     function renderHosts(hosts) {
       currentHosts = Array.isArray(hosts) ? hosts : [];
+      if (activeHostId) {
+        currentHostDetail = currentHosts.find((entry) => entry.id === activeHostId) || currentHostDetail;
+        hostDetailLoaded = !!currentHostDetail || hostDetailLoaded;
+      }
       updateHostTabVisibility(currentHosts);
       // Populate upload host select
       if (uploadHostSelect) {
@@ -4523,19 +4876,36 @@
       `;
     }
 
-    function renderUsageWindowCard(label, rows = []) {
+    function renderUsageCompareChip(label, data, active = false) {
+      if (!hasWindowData(data)) return '';
+      const used = Number(data?.used_percent);
+      const usedLabel = Number.isFinite(used) ? `${Math.max(0, Math.round(used))}%` : 'n/a';
+      return `
+        <span class="usage-stage-chip${active ? ' is-active' : ''}">
+          ${escapeHtml(label)}
+          <strong>${usedLabel}</strong>
+        </span>
+      `;
+    }
+
+    function renderUsageWindowCard(eyebrow, title, copy, rows = [], compare = '') {
       const lanes = Array.isArray(rows)
         ? rows.map((row) => renderUsageLane(row.label, row.data, row.windowKey)).join('')
         : '';
       return `
-        <div class="usage-bar">
-          <div class="label usage-window-label">
-            <span>${label}</span>
+        <section class="usage-stage">
+          <div class="usage-stage-head">
+            <div class="usage-stage-copy">
+              <span class="usage-stage-kicker">${escapeHtml(eyebrow)}</span>
+              <h3>${escapeHtml(title)}</h3>
+              <p>${escapeHtml(copy)}</p>
+            </div>
+            ${compare ? `<div class="usage-stage-compare">${compare}</div>` : ''}
           </div>
           <div class="usage-lanes">
             ${lanes}
           </div>
-        </div>
+        </section>
       `;
     }
 
@@ -4589,7 +4959,6 @@
         || snapshot.active_quota_lane
         || 'normal';
       const activeLane = typeof laneRaw === 'string' && laneRaw.toLowerCase() === 'spark' ? 'spark' : 'normal';
-      const isPro = typeof plan === 'string' && plan.toLowerCase().includes('pro');
       const planLabel = plan;
       const sparkMeta = [snapshot.spark_limit_name, snapshot.spark_metered_feature].filter((part) => typeof part === 'string' && part.trim() !== '').join(' · ');
       const laneChip = `<span class="chip ${activeLane === 'spark' ? 'warn' : ''}">Active lane: ${activeLane}</span>`;
@@ -4604,12 +4973,26 @@
         secondaryRows.push({ label: 'Spark', data: sparkSecondary, windowKey: 'spark:secondary' });
       }
 
-      const activePrimaryRows = activeLane === 'spark' && hasSpark
-        ? [primaryRows.find((r) => r.label === 'Spark') || primaryRows[0]]
-        : [primaryRows[0]];
-      const activeSecondaryRows = activeLane === 'spark' && hasSpark
-        ? [secondaryRows.find((r) => r.label === 'Spark') || secondaryRows[0]]
-        : [secondaryRows[0]];
+      const prioritizeRows = (rows) => {
+        if (!hasSpark) return rows.slice(0, 1);
+        const preferred = activeLane === 'spark' ? 'Spark' : 'Normal';
+        return rows.slice().sort((left, right) => {
+          if (left.label === preferred && right.label !== preferred) return -1;
+          if (right.label === preferred && left.label !== preferred) return 1;
+          return 0;
+        });
+      };
+      const sprintRows = prioritizeRows(primaryRows);
+      const weeklyRows = prioritizeRows(secondaryRows);
+      const cockpitCopy = activeLane === 'spark'
+        ? 'Spark is on point right now. Keep the sprint clean, then leave enough juice for the week.'
+        : 'Normal lane is pacing the run. Burst hard in the short window, but keep the weekly runway healthy.';
+      const freshnessChips = [
+        laneChip,
+        usage.cached ? '<span class="chip neutral">Snapshot cached</span>' : '',
+        next ? `<span class="chip neutral">Next pull ${escapeHtml(next)}</span>` : '',
+        sparkMeta ? `<span class="chip neutral">${escapeHtml(sparkMeta)}</span>` : '',
+      ].filter(Boolean).join('');
 
       chatgptUsageCard.innerHTML = `
         <div class="primary-card-head">
@@ -4617,9 +5000,21 @@
           <span class="primary-card-badge">${escapeHtml(planLabel)}${snapshot.rate_limit_reached ? ' · limit reached' : ''}</span>
         </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
-        <div class="usage-bars">
-          ${renderUsageWindowCard('5-hour limit', activePrimaryRows)}
-          ${renderUsageWindowCard('Weekly limit', activeSecondaryRows)}
+        <div class="usage-cockpit">
+          <div class="usage-cockpit-head">
+            <div class="usage-cockpit-copy">
+              <span class="usage-cockpit-kicker">Quota cockpit</span>
+              <h3 class="usage-cockpit-title">Sprint now. Protect the marathon.</h3>
+              <p class="usage-cockpit-note">${escapeHtml(cockpitCopy)}</p>
+            </div>
+            <div class="usage-cockpit-meta">
+              ${freshnessChips}
+            </div>
+          </div>
+          <div class="usage-cockpit-grid">
+            ${renderUsageWindowCard('Sprint', '5-hour runway', 'Short-burst budget for focused pushes and quick recoveries.', sprintRows)}
+            ${renderUsageWindowCard('Marathon', 'Weekly runway', 'Long-haul budget so the team still has headroom later in the week.', weeklyRows)}
+          </div>
         </div>
         <div class="primary-card-footer">Updated ${fetched}</div>
       `;
@@ -4636,6 +5031,7 @@
     const DASHBOARD_LIVE_DOMAINS = new Set([
       'overview',
       'hosts',
+      'dashboard-charts',
       'settings-general',
       'skills',
       'projects',
@@ -4655,6 +5051,13 @@
       'admin.host.',
       'pricing.',
       'admin.insecure.',
+    ];
+    const DASHBOARD_CHART_LIVE_ACTIONS = new Set([
+      'token.usage',
+      'chatgpt.usage',
+    ]);
+    const DASHBOARD_CHART_LIVE_PREFIXES = [
+      'pricing.',
     ];
     const SETTINGS_GENERAL_LIVE_ACTIONS = new Set([
       'admin.api.state',
@@ -4718,6 +5121,11 @@
         domains.add('users');
       }
 
+      if (DASHBOARD_CHART_LIVE_ACTIONS.has(normalized)
+        || DASHBOARD_CHART_LIVE_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+        domains.add('dashboard-charts');
+      }
+
       return domains;
     }
 
@@ -4761,6 +5169,7 @@
       const needOverview = requested.has('overview');
       const needHosts = requested.has('hosts');
       const needRunner = needOverview;
+      const needDashboardCharts = requested.has('dashboard-charts');
       const needSkills = requested.has('skills');
       const needAgents = requested.has('agents');
       const needMemories = requested.has('memories');
@@ -4768,17 +5177,27 @@
 
       let overviewResponse = null;
       let hostsResponse = null;
+      let hostDetailResponse = null;
       let runnerResponse = null;
       let skillsResponse = null;
       let agentsResponse = null;
       const requests = [];
+      const useHostDetailRefresh = isHostDetailView() && Number.isFinite(activeHostId) && activeHostId > 0 && (needHosts || needOverview);
+
+      if (useHostDetailRefresh) {
+        requests.push(api(`/admin/hosts/${activeHostId}/detail`)
+          .then((res) => { hostDetailResponse = res; })
+          .catch((err) => console.warn('Live host detail refresh failed', err)));
+      }
 
       if (needOverview) {
-        requests.push(api('/admin/overview')
-          .then((res) => { overviewResponse = res; })
-          .catch((err) => console.warn('Live overview update failed', err)));
+        if (!useHostDetailRefresh) {
+          requests.push(api('/admin/overview')
+            .then((res) => { overviewResponse = res; })
+            .catch((err) => console.warn('Live overview update failed', err)));
+        }
       }
-      if (needHosts) {
+      if (needHosts && !useHostDetailRefresh) {
         requests.push(api('/admin/hosts')
           .then((res) => { hostsResponse = res; })
           .catch((err) => console.warn('Live host refresh failed', err)));
@@ -4809,6 +5228,11 @@
         renderInsecureHostsQuickButton(hostsList);
       }
 
+      if (hostDetailResponse) {
+        applyHostDetailPayload(hostDetailResponse?.data || {});
+        renderActiveHostDetail();
+      }
+
       if (overviewResponse) {
         currentOverview = overviewResponse?.data || {};
         setMtls(currentOverview.mtls);
@@ -4827,6 +5251,9 @@
         }
         if (typeof currentOverview.log_retention_days_events !== 'undefined') {
           logRetentionDaysEvents = clampRetentionDays(currentOverview.log_retention_days_events);
+        }
+        if (typeof currentOverview.log_retention_days_graph_stats !== 'undefined') {
+          logRetentionDaysGraphStats = clampRetentionDays(currentOverview.log_retention_days_graph_stats);
         }
         renderLogRetention();
         if (typeof currentOverview.quota_limit_percent !== 'undefined') {
@@ -4859,6 +5286,12 @@
       const runnerInfo = runnerResponse?.data || runnerSummary || null;
       if (runnerResponse?.data) {
         runnerSummary = runnerResponse.data;
+        if (currentAgents) {
+          hostDetailSupportLoaded = true;
+        }
+        if (isHostDetailView()) {
+          renderActiveHostDetail();
+        }
       }
 
       if (needSettingsGeneral) {
@@ -4869,8 +5302,16 @@
       if (needOverview && currentOverview) {
         renderQuotaMode();
         renderStats(currentOverview, runnerInfo, currentHosts);
-        renderDashboardGrid(currentOverview, runnerInfo, currentHosts);
+        renderDashboardGrid(currentOverview, runnerInfo, currentHosts, { refreshCharts: false });
         evaluateSeedRequirement(currentOverview, currentHosts);
+      }
+
+      if (needDashboardCharts && isDashboardView()) {
+        await refreshDashboardCharts({
+          force: true,
+          live: true,
+          debounceMs: DASHBOARD_CHART_LIVE_DEBOUNCE_MS,
+        });
       }
 
       if (needSettingsGeneral && currentOverview) {
@@ -4882,6 +5323,9 @@
       }
       if (needAgents && agentsResponse) {
         renderAgents(agentsResponse?.data || { status: 'missing' });
+        if (isHostDetailView()) {
+          renderActiveHostDetail();
+        }
       }
       if (needMemories) {
         await loadMemories();
@@ -5959,6 +6403,12 @@
       if (logRetentionDaysEventsLabel) {
         logRetentionDaysEventsLabel.textContent = `${logRetentionDaysEvents} days`;
       }
+      if (logRetentionDaysGraphStatsSlider && logRetentionDaysGraphStatsSlider.value !== String(logRetentionDaysGraphStats)) {
+        logRetentionDaysGraphStatsSlider.value = String(logRetentionDaysGraphStats);
+      }
+      if (logRetentionDaysGraphStatsLabel) {
+        logRetentionDaysGraphStatsLabel.textContent = `${logRetentionDaysGraphStats} days`;
+      }
     }
 
     function clampRetentionDays(value) {
@@ -5975,12 +6425,14 @@
         days_logs: logRetentionDaysLogs,
         days_mcp: logRetentionDaysMcp,
         days_events: logRetentionDaysEvents,
+        days_graph_stats: logRetentionDaysGraphStats,
       };
       const setDisabled = (v) => {
         if (logRetentionToggle) logRetentionToggle.disabled = v;
         if (logRetentionDaysLogsSlider) logRetentionDaysLogsSlider.disabled = v;
         if (logRetentionDaysMcpSlider) logRetentionDaysMcpSlider.disabled = v;
         if (logRetentionDaysEventsSlider) logRetentionDaysEventsSlider.disabled = v;
+        if (logRetentionDaysGraphStatsSlider) logRetentionDaysGraphStatsSlider.disabled = v;
       };
       setDisabled(true);
       try {
@@ -6229,12 +6681,13 @@
         ? versions.client_version.trim()
         : null;
       const codexVersionDisplay = codexVersion && codexVersion !== '' ? codexVersion.replace(/^v/i, '') : 'n/a';
-      const checkedAt = formatRelative(versions.client_version_checked_at);
+      const wrapperVersionDisplay = formatFooterVersion(versions.wrapper_version);
 
       const fleetSummary = summarizeDashboardHosts(Array.isArray(hostsList) ? hostsList : []);
       const hostTotal = Number.isFinite(hostTotalFromOverview) ? hostTotalFromOverview : fleetSummary.total;
       const hostDenominator = hostTotal > 0 ? hostTotal : 1;
       const secureRatio = hostTotal > 0 ? (fleetSummary.secure / hostDenominator) * 100 : 0;
+      const hostsCreatedToday = countHostsCreatedToday(hostsList);
 
       const tokensMonth = safeData.tokens_month || {};
       const tokensWeek = safeData.tokens_week || {};
@@ -6340,49 +6793,24 @@
         dashboardOpsStrip.innerHTML = '';
       }
 
-      /* === Fleet card === */
-      const issueCount = fleetSummary.locked + fleetSummary.staleAuth + fleetSummary.insecure;
-      if (dashboardFleetCard) {
-        dashboardFleetCard.innerHTML = `
-          <div class="primary-card-head">
-            <span class="primary-card-label">Fleet</span>
-            <span class="primary-card-badge ${secureRatio >= 80 ? 'tone-ok' : (secureRatio >= 50 ? 'tone-warn' : 'tone-danger')}">${formatPercent(secureRatio, 0)} secure</span>
-          </div>
-          <div class="primary-card-value">${formatNumber(hostTotal)}</div>
-          <div class="primary-card-sub">Registered hosts</div>
-          <div class="primary-card-meta">
-            <span class="primary-card-chip">Secure <strong>${formatNumber(fleetSummary.secure)}</strong></span>
-            <span class="primary-card-chip">Issues <strong>${formatNumber(issueCount)}</strong></span>
-          </div>
-        `;
-      }
-
-      /* === Spend card === */
       const costValueClass = (() => {
         if (planCost <= 0) return '';
         if (monthPercentOfPlan !== null && monthPercentOfPlan >= 100) return 'cost-red';
         if (monthPercentOfPlan !== null && monthPercentOfPlan >= 85) return 'cost-yellow';
         return isOverpaying ? '' : 'cost-green';
       })();
-      if (dashboardSpendCard) {
-        dashboardSpendCard.innerHTML = `
-          <div class="primary-card-head">
-            <span class="primary-card-label">Spend</span>
-            <span class="primary-card-actions">
-              <button class="ghost tiny-btn cost-history-btn" type="button" aria-label="Open cost trend">Trend</button>
-            </span>
-          </div>
-          <div class="primary-card-value ${costValueClass}">${formatCurrency(monthCost, planCurrency)}</div>
-          <div class="primary-card-sub">Estimated month total</div>
-          <div class="primary-card-meta">
-            ${selectedPlan && monthPercentOfPlan !== null ? `
-              <span class="primary-card-chip">${escapeHtml(selectedPlan.label)} <strong>${formatCurrency(planCost, planCurrency)}</strong></span>
-              <span class="primary-card-chip">${formatPercent(monthPercentOfPlan, 0)} of plan</span>
-            ` : `
-              <span class="primary-card-chip">Today <strong>${formatCurrency(dayCost, planCurrency)}</strong></span>
-              <span class="primary-card-chip">Week <strong>${formatCurrency(weekCost, planCurrency)}</strong></span>
-            `}
-          </div>
+      if (dashboardFooterText) {
+        const secureToneClass = secureRatio >= 80 ? 'cost-green' : (secureRatio >= 50 ? 'cost-yellow' : 'cost-red');
+        dashboardFooterText.innerHTML = `
+          <strong>${formatNumber(hostTotal)}</strong> total hosts,
+          <strong class="${secureToneClass}">${formatNumber(fleetSummary.secure)}</strong> secure,
+          <strong>${formatNumber(hostsCreatedToday)}</strong> today.
+          <span class="dashboard-footer-divider">/</span>
+          Codex version <strong>${escapeHtml(codexVersionDisplay)}</strong>
+          and wrapper <strong>${escapeHtml(wrapperVersionDisplay)}</strong>.
+          <span class="dashboard-footer-divider">/</span>
+          Spend <strong>${formatCurrency(dayCost, planCurrency)}</strong> today
+          and <strong class="${costValueClass}">${formatCurrency(monthCost, planCurrency)}</strong> this month.
         `;
       }
 
@@ -6615,6 +7043,53 @@
         dashboardChartPrefs.cost_visible = visible;
       }
       writeDashboardChartPrefs();
+    }
+
+    function clampDashboardPinnedIndex(index, points) {
+      if (!Number.isFinite(index)) return null;
+      if (!Array.isArray(points) || points.length === 0) return null;
+      return clamp(Math.round(index), 0, points.length - 1);
+    }
+
+    function syncDashboardPinnedState(kind) {
+      if (kind === 'quota') {
+        dashboardQuotaPinnedIndex = clampDashboardPinnedIndex(dashboardQuotaPinnedIndex, dashboardQuotaPoints);
+        if (dashboardQuotaChart) {
+          dashboardQuotaChart.$pinnedIndex = dashboardQuotaPinnedIndex;
+        }
+        renderDashboardQuotaMeta(dashboardQuotaPinnedIndex);
+        return;
+      }
+      dashboardCostPinnedIndex = clampDashboardPinnedIndex(dashboardCostPinnedIndex, dashboardCostPoints);
+      if (dashboardCostChart) {
+        dashboardCostChart.$pinnedIndex = dashboardCostPinnedIndex;
+      }
+      renderDashboardCostMeta(dashboardCostPinnedIndex);
+    }
+
+    function updateDashboardQuotaChart(quotaDatasets, includeFill) {
+      if (!dashboardQuotaChart) return false;
+      dashboardQuotaChart.data.datasets = quotaDatasets;
+      if (dashboardQuotaChart.options?.scales?.y) {
+        dashboardQuotaChart.options.scales.y.min = 0;
+        dashboardQuotaChart.options.scales.y.max = 100;
+        dashboardQuotaChart.options.scales.y.stacked = includeFill;
+      }
+      syncDashboardPinnedState('quota');
+      dashboardQuotaChart.update('none');
+      return true;
+    }
+
+    function updateDashboardCostChart(costDatasets, includeFill) {
+      if (!dashboardCostChart) return false;
+      dashboardCostChart.data.datasets = costDatasets;
+      if (dashboardCostChart.options?.scales?.y) {
+        dashboardCostChart.options.scales.y.min = 0;
+        dashboardCostChart.options.scales.y.stacked = includeFill;
+      }
+      syncDashboardPinnedState('cost');
+      dashboardCostChart.update('none');
+      return true;
     }
 
     function wireDashboardChartCanvas(chart, kind) {
@@ -6865,7 +7340,10 @@
       return true;
     }
 
-    async function refreshDashboardCharts(force = false) {
+    async function refreshDashboardCharts(options = {}) {
+      const opts = typeof options === 'boolean' ? { force: options } : (options && typeof options === 'object' ? options : {});
+      const force = opts.force === true;
+      const live = opts.live === true;
       if (!dashboardGrid || !isDashboardView()) return;
       if (!ensureChartJsReady()) {
         dashboardGrid.querySelectorAll('.dashboard-chart-status').forEach((el) => {
@@ -6893,8 +7371,8 @@
         if (costStatus) costStatus.textContent = `Live history refresh paused for ${secondsRemaining}s to keep the dashboard stable`;
         return;
       }
-      if (quotaStatus) quotaStatus.textContent = 'Loading quota history…';
-      if (costStatus) costStatus.textContent = 'Loading cost history…';
+      if (quotaStatus) quotaStatus.textContent = live ? 'Applying websocket quota update…' : 'Loading quota history…';
+      if (costStatus) costStatus.textContent = live ? 'Applying websocket cost update…' : 'Loading cost history…';
 
       const currentQuotaOpts = {
         days: rangeDays,
@@ -7038,165 +7516,170 @@
         const costCanvas = document.getElementById('dashboardCostCanvas');
         if (!quotaCanvas || !costCanvas) return;
 
-        if (dashboardQuotaChart) dashboardQuotaChart.destroy();
-        if (dashboardCostChart) dashboardCostChart.destroy();
-
         const defaultLegendClick = window.Chart.defaults.plugins.legend.onClick;
-        dashboardQuotaChart = new window.Chart(quotaCanvas.getContext('2d'), {
-          type: 'line',
-          data: { datasets: quotaDatasets },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            normalized: true,
-            interaction: { mode: 'nearest', intersect: false },
-            plugins: {
-              legend: {
-                labels: {
-                  filter(item, chartData) {
-                    return chartData.datasets[item.datasetIndex]?.compare !== true;
-                  },
-                },
-                onClick: (event, legendItem, legend) => {
-                  defaultLegendClick(event, legendItem, legend);
-                  syncVisibleSeriesPreference(legend.chart, 'quota');
-                },
-              },
-              tooltip: {
-                callbacks: {
-                  label(context) {
-                    const value = Number(context.parsed?.y);
-                    return `${context.dataset.label}: ${Math.round(value)}%`;
-                  },
-                },
-              },
-              decimation: {
-                enabled: true,
-                algorithm: 'lttb',
-                samples: 900,
-              },
-              zoom: {
-                pan: { enabled: true, mode: 'x' },
-                zoom: {
-                  wheel: { enabled: true },
-                  pinch: { enabled: true },
-                  mode: 'x',
-                },
-              },
-            },
-            scales: {
-              x: {
-                type: 'linear',
-                ticks: {
-                  maxTicksLimit: 8,
-                  callback(value) {
-                    return formatShortDate(new Date(Number(value)));
-                  },
-                },
-              },
-              y: {
-                min: 0,
-                max: 100,
-                stacked: includeFill,
-                ticks: {
-                  callback(value) {
-                    return `${Math.round(Number(value))}%`;
-                  },
-                },
-              },
-            },
-            onHover(event, elements, chart) {
-              if (dashboardQuotaPinnedIndex !== null) return;
-              if (!elements || !elements.length) return;
-              renderDashboardQuotaMeta(elements[0].index);
-            },
-          },
-        });
+        const quotaUpdatedInPlace = updateDashboardQuotaChart(quotaDatasets, includeFill);
+        const costUpdatedInPlace = updateDashboardCostChart(costDatasets, includeFill);
 
-        dashboardCostChart = new window.Chart(costCanvas.getContext('2d'), {
-          type: 'line',
-          data: { datasets: costDatasets },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            normalized: true,
-            interaction: { mode: 'nearest', intersect: false },
-            plugins: {
-              legend: {
-                labels: {
-                  filter(item, chartData) {
-                    return chartData.datasets[item.datasetIndex]?.compare !== true;
+        if (!quotaUpdatedInPlace) {
+          dashboardQuotaChart = new window.Chart(quotaCanvas.getContext('2d'), {
+            type: 'line',
+            data: { datasets: quotaDatasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              normalized: true,
+              interaction: { mode: 'nearest', intersect: false },
+              plugins: {
+                legend: {
+                  labels: {
+                    filter(item, chartData) {
+                      return chartData.datasets[item.datasetIndex]?.compare !== true;
+                    },
+                  },
+                  onClick: (event, legendItem, legend) => {
+                    defaultLegendClick(event, legendItem, legend);
+                    syncVisibleSeriesPreference(legend.chart, 'quota');
                   },
                 },
-                onClick: (event, legendItem, legend) => {
-                  defaultLegendClick(event, legendItem, legend);
-                  syncVisibleSeriesPreference(legend.chart, 'cost');
-                },
-              },
-              tooltip: {
-                callbacks: {
-                  label(context) {
-                    return `${context.dataset.label}: ${formatMoney(context.parsed?.y ?? 0, dashboardCostCurrency)}`;
+                tooltip: {
+                  callbacks: {
+                    label(context) {
+                      const value = Number(context.parsed?.y);
+                      return `${context.dataset.label}: ${Math.round(value)}%`;
+                    },
                   },
                 },
-              },
-              decimation: {
-                enabled: true,
-                algorithm: 'lttb',
-                samples: 900,
-              },
-              zoom: {
-                pan: { enabled: true, mode: 'x' },
+                decimation: {
+                  enabled: true,
+                  algorithm: 'lttb',
+                  samples: 900,
+                },
                 zoom: {
-                  wheel: { enabled: true },
-                  pinch: { enabled: true },
-                  mode: 'x',
-                },
-              },
-            },
-            scales: {
-              x: {
-                type: 'linear',
-                ticks: {
-                  maxTicksLimit: 8,
-                  callback(value) {
-                    return formatShortDate(new Date(Number(value)));
+                  pan: { enabled: true, mode: 'x' },
+                  zoom: {
+                    wheel: { enabled: true },
+                    pinch: { enabled: true },
+                    mode: 'x',
                   },
                 },
               },
-              y: {
-                min: 0,
-                stacked: includeFill,
-                ticks: {
-                  callback(value) {
-                    return formatMoney(value, dashboardCostCurrency);
+              scales: {
+                x: {
+                  type: 'linear',
+                  ticks: {
+                    maxTicksLimit: 8,
+                    callback(value) {
+                      return formatShortDate(new Date(Number(value)));
+                    },
+                  },
+                },
+                y: {
+                  min: 0,
+                  max: 100,
+                  stacked: includeFill,
+                  ticks: {
+                    callback(value) {
+                      return `${Math.round(Number(value))}%`;
+                    },
                   },
                 },
               },
+              onHover(event, elements, chart) {
+                if (dashboardQuotaPinnedIndex !== null) return;
+                if (!elements || !elements.length) return;
+                renderDashboardQuotaMeta(elements[0].index);
+              },
             },
-            onHover(event, elements, chart) {
-              if (dashboardCostPinnedIndex !== null) return;
-              if (!elements || !elements.length) return;
-              renderDashboardCostMeta(elements[0].index);
+          });
+        }
+
+        if (!costUpdatedInPlace) {
+          dashboardCostChart = new window.Chart(costCanvas.getContext('2d'), {
+            type: 'line',
+            data: { datasets: costDatasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              normalized: true,
+              interaction: { mode: 'nearest', intersect: false },
+              plugins: {
+                legend: {
+                  labels: {
+                    filter(item, chartData) {
+                      return chartData.datasets[item.datasetIndex]?.compare !== true;
+                    },
+                  },
+                  onClick: (event, legendItem, legend) => {
+                    defaultLegendClick(event, legendItem, legend);
+                    syncVisibleSeriesPreference(legend.chart, 'cost');
+                  },
+                },
+                tooltip: {
+                  callbacks: {
+                    label(context) {
+                      return `${context.dataset.label}: ${formatMoney(context.parsed?.y ?? 0, dashboardCostCurrency)}`;
+                    },
+                  },
+                },
+                decimation: {
+                  enabled: true,
+                  algorithm: 'lttb',
+                  samples: 900,
+                },
+                zoom: {
+                  pan: { enabled: true, mode: 'x' },
+                  zoom: {
+                    wheel: { enabled: true },
+                    pinch: { enabled: true },
+                    mode: 'x',
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  type: 'linear',
+                  ticks: {
+                    maxTicksLimit: 8,
+                    callback(value) {
+                      return formatShortDate(new Date(Number(value)));
+                    },
+                  },
+                },
+                y: {
+                  min: 0,
+                  stacked: includeFill,
+                  ticks: {
+                    callback(value) {
+                      return formatMoney(value, dashboardCostCurrency);
+                    },
+                  },
+                },
+              },
+              onHover(event, elements, chart) {
+                if (dashboardCostPinnedIndex !== null) return;
+                if (!elements || !elements.length) return;
+                renderDashboardCostMeta(elements[0].index);
+              },
             },
-          },
-        });
+          });
+        }
 
         wireDashboardChartCanvas(dashboardQuotaChart, 'quota');
         wireDashboardChartCanvas(dashboardCostChart, 'cost');
-        renderDashboardQuotaMeta();
-        renderDashboardCostMeta();
+        syncDashboardPinnedState('quota');
+        syncDashboardPinnedState('cost');
         dashboardChartsLastLoadedAt = Date.now();
-        if (quotaStatus) quotaStatus.textContent = `Range ${rangeDays} days · interval ${quotaInterval}`;
-        if (costStatus) costStatus.textContent = `Range ${rangeDays} days · interval ${costInterval}`;
+        if (quotaStatus) quotaStatus.textContent = `${live ? 'Live websocket update' : 'Range'} ${live ? `· ${rangeDays} days · interval ${quotaInterval}` : `${rangeDays} days · interval ${quotaInterval}`}`;
+        if (costStatus) costStatus.textContent = `${live ? 'Live websocket update' : 'Range'} ${live ? `· ${rangeDays} days · interval ${costInterval}` : `${rangeDays} days · interval ${costInterval}`}`;
       } catch (err) {
         if (quotaStatus) quotaStatus.textContent = `Failed loading quota history: ${err.message}`;
         if (costStatus) costStatus.textContent = `Failed loading cost history: ${err.message}`;
       }
     }
 
-    function renderDashboardGrid(data, runnerInfo = null, hostsList = []) {
+    function renderDashboardGrid(data, runnerInfo = null, hostsList = [], options = {}) {
       if (!dashboardGrid) return;
+      const refreshCharts = options?.refreshCharts !== false;
       const hasChartShell = !!(document.getElementById('dashboardQuotaCanvas') && document.getElementById('dashboardCostCanvas'));
       if (!hasChartShell) {
         destroyDashboardCharts();
@@ -7256,7 +7739,9 @@
       } else {
         updateDashboardChartControls();
       }
-      refreshDashboardCharts();
+      if (refreshCharts) {
+        refreshDashboardCharts();
+      }
     }
 
     function wireRunnerCardControls() {
@@ -7381,6 +7866,9 @@
         }
         if (typeof currentOverview.log_retention_days_events !== 'undefined') {
           logRetentionDaysEvents = clampRetentionDays(currentOverview.log_retention_days_events);
+        }
+        if (typeof currentOverview.log_retention_days_graph_stats !== 'undefined') {
+          logRetentionDaysGraphStats = clampRetentionDays(currentOverview.log_retention_days_graph_stats);
         }
         renderLogRetention();
 
@@ -8285,6 +8773,9 @@
         appendRunnerLog('Fetching latest runner status…');
         const latestRunner = await api('/admin/runner');
         runnerSummary = latestRunner?.data || runnerSummary;
+        if (currentAgents) {
+          hostDetailSupportLoaded = true;
+        }
         setRunnerMeta(runnerSummary, runResult);
         appendRunnerLog('Runner finished', runResult?.applied ? 'ok' : null);
       } catch (err) {
@@ -8396,10 +8887,13 @@
 
       if (panel === 'host-detail') {
         const parsedHostId = Number(sub || pathHostId || 0);
-        activeHostId = Number.isFinite(parsedHostId) && parsedHostId > 0 ? Math.trunc(parsedHostId) : null;
+        setActiveHostDetailId(parsedHostId);
         renderActiveHostDetail();
-        ensureHostsLoaded()
-          .then(() => renderActiveHostDetail())
+        ensureHostDetailLoaded()
+          .then(() => {
+            renderActiveHostDetail();
+            return ensureHostDetailSupportLoaded();
+          })
           .catch((err) => {
             console.error('host detail load failed', err);
             clearHostDetailContent();
@@ -8592,6 +9086,7 @@
       [logRetentionDaysLogsSlider, logRetentionDaysLogsLabel, 'logRetentionDaysLogs'],
       [logRetentionDaysMcpSlider, logRetentionDaysMcpLabel, 'logRetentionDaysMcp'],
       [logRetentionDaysEventsSlider, logRetentionDaysEventsLabel, 'logRetentionDaysEvents'],
+      [logRetentionDaysGraphStatsSlider, logRetentionDaysGraphStatsLabel, 'logRetentionDaysGraphStats'],
     ].forEach(([slider, label, stateKey]) => {
       if (!slider) return;
       slider.addEventListener('input', (event) => {
@@ -8603,6 +9098,7 @@
         if (stateKey === 'logRetentionDaysLogs') logRetentionDaysLogs = clamped;
         else if (stateKey === 'logRetentionDaysMcp') logRetentionDaysMcp = clamped;
         else if (stateKey === 'logRetentionDaysEvents') logRetentionDaysEvents = clamped;
+        else if (stateKey === 'logRetentionDaysGraphStats') logRetentionDaysGraphStats = clamped;
         updateLogRetention();
       });
     });
@@ -8625,7 +9121,7 @@
       });
     });
     if (newHostBtn) {
-      newHostBtn.addEventListener('click', () => showNewHostModal(true));
+      newHostBtn.addEventListener('click', () => openNewHostModal({ closeMenus: true }));
     }
     // Memories view is live-updating via filters; no explicit refresh button.
     if (memoriesHostFilter) {
@@ -8977,6 +9473,11 @@
       const status = String(event?.detail?.status || '');
       if (status === 'open') {
         loadPendingInsecureApprovals();
+        if (isHostDetailView() && activeHostId && !hostDetailSupportLoaded && !hostDetailSupportPromise) {
+          ensureHostDetailSupportLoaded().catch((err) => {
+            console.warn('Host detail live support refresh failed', err);
+          });
+        }
       }
     });
     loadApiState();
@@ -9128,10 +9629,10 @@
       if (!secure) {
         registerPayload.duration_minutes = insecureWindowMinutes;
       }
-      if (createHostBtn) {
-        createHostBtn.disabled = true;
-        createHostBtn.textContent = 'Generating…';
-      }
+    if (createHostBtn) {
+      createHostBtn.disabled = true;
+      createHostBtn.textContent = 'Minting…';
+    }
       try {
         const res = await api('/admin/hosts/register', {
           method: 'POST',
@@ -9182,7 +9683,7 @@
       } finally {
         if (createHostBtn) {
           createHostBtn.disabled = false;
-          createHostBtn.textContent = 'Generate';
+          createHostBtn.textContent = 'Mint Installer';
         }
       }
     }
@@ -9297,7 +9798,7 @@
       }
       try {
         await api(`/admin/hosts/${pendingDeleteId}`, { method: 'DELETE' });
-        await loadAll();
+        await reloadHostContextAfterMutation({ allowMissing: true });
         closeDeleteModal();
       } catch (err) {
         toast(`Remove failed: ${err.message}`, 'error');
@@ -9314,7 +9815,7 @@
       const name = host ? host.fqdn : `id ${id}`;
       try {
         await api(`/admin/hosts/${id}/clear`, { method: 'POST' });
-        await loadAll();
+        await reloadHostContextAfterMutation();
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -9332,7 +9833,7 @@
           method: 'POST',
           json: { allow: targetState },
         });
-        await loadAll();
+        await reloadHostContextAfterMutation();
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -9350,7 +9851,7 @@
           method: 'POST',
           json: { secure: targetSecure },
         });
-        await loadAll();
+        await reloadHostContextAfterMutation();
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -9372,7 +9873,7 @@
           method: 'POST',
           json: { vip: target },
         });
-        await loadAll();
+        await reloadHostContextAfterMutation();
       } catch (err) {
         toast(err.message, 'error');
       } finally {
@@ -9399,7 +9900,7 @@
           method: 'POST',
           json: { override: override },
         });
-        await loadAll();
+        await reloadHostContextAfterMutation();
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -9428,7 +9929,7 @@
       }
       try {
         await api(path, request);
-        await loadAll();
+        await reloadHostContextAfterMutation();
       } catch (err) {
         console.error('toggleInsecureApi failed', err);
         if (isToggleInput && button) {

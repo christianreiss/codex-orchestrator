@@ -50,6 +50,7 @@ use App\Repositories\AgentsRepository;
 use App\Repositories\SkillRepository;
 use App\Repositories\MemoryRepository;
 use App\Repositories\ClientConfigRepository;
+use App\Repositories\DashboardGraphStatsRepository;
 use App\Repositories\McpAccessLogRepository;
 use App\Repositories\McpSessionTokenRepository;
 use App\Services\AuthService;
@@ -61,6 +62,7 @@ use App\Services\RunnerVerifier;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
 use App\Services\CostHistoryService;
+use App\Services\DashboardGraphStatsService;
 use App\Services\ProjectCoordinationService;
 use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
@@ -257,6 +259,7 @@ $mcpSessionTokenRepository = new McpSessionTokenRepository($database, $secretBox
 $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
+$dashboardGraphStatsRepository = new DashboardGraphStatsRepository($database);
 $pricingSnapshotRepository = new PricingSnapshotRepository($database);
 $pricingModel = 'gpt-5.4';
 $pricingService = new PricingService(
@@ -269,6 +272,12 @@ $pricingService = new PricingService(
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox);
+$dashboardGraphStatsService = new DashboardGraphStatsService(
+    $dashboardGraphStatsRepository,
+    $tokenUsageRepository,
+    $chatGptUsageRepository,
+    $versionRepository
+);
 $runnerVerifier = null;
 $runnerUrl = Config::get('AUTH_RUNNER_URL', '');
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
@@ -303,7 +312,8 @@ $service = new AuthService(
     $insecureDomainAllowRepository,
     $mcpSessionTokenRepository,
     $mcpAccessLogRepository,
-    $adminEventRepository
+    $adminEventRepository,
+    $dashboardGraphStatsService
 );
 $adminPasskeyRepository = new AdminPasskeyRepository($database);
 $adminAuthService = new AdminAuthService(
@@ -356,14 +366,17 @@ $chatGptUsageService = new ChatGptUsageService(
     $chatGptUsageRepository,
     $logRepository,
     (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
-    (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0)
+    (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0),
+    null,
+    $dashboardGraphStatsService
 );
-$costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel);
+$costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
 $agentsService->ensureSeededFromFile($root . '/AGENTS.md');
 $wrapperService->ensureSeeded();
 if ($runBackfillsOnBoot) {
     $usageCostService->backfillMissingCosts();
+    $dashboardGraphStatsService->backfillMissingHistory();
 }
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -561,6 +574,8 @@ $router->add('GET', '#^/admin/api/state$#', fn() => $adminSettingsCtrl->getApiSt
 $router->add('POST', '#^/admin/api/state$#', fn() => $adminSettingsCtrl->postApiState($payload));
 $router->add('GET', '#^/admin/cdx-silent$#', fn() => $adminSettingsCtrl->getCdxSilent());
 $router->add('POST', '#^/admin/cdx-silent$#', fn() => $adminSettingsCtrl->postCdxSilent($payload));
+$router->add('GET', '#^/admin/theme$#', fn() => $adminSettingsCtrl->getTheme());
+$router->add('POST', '#^/admin/theme$#', fn() => $adminSettingsCtrl->postTheme($payload));
 $router->add('GET', '#^/admin/reverse-dns$#', fn() => $adminSettingsCtrl->getReverseDns());
 $router->add('POST', '#^/admin/reverse-dns$#', fn() => $adminSettingsCtrl->postReverseDns($payload));
 $router->add('GET', '#^/admin/auto-update$#', fn() => $adminSettingsCtrl->getAutoUpdate());
@@ -575,6 +590,7 @@ $router->add('GET', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->getL
 $router->add('POST', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->postLogRetention($payload));
 
 // Admin host detail endpoints
+$router->add('GET', '#^/admin/hosts/(\d+)/detail$#', fn($id) => $adminOverviewCtrl->hostDetail((int) $id));
 $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', fn($id) => $adminHostCtrl->auth($id));
 $router->add('DELETE', '#^/admin/hosts/(\d+)$#', fn($id) => $adminHostCtrl->delete($id));
 $router->add('POST', '#^/admin/hosts/(\d+)/clear$#', fn($id) => $adminHostCtrl->clear($id));

@@ -19,6 +19,7 @@ if ((CODEX_COLOR_ENABLED)); then
   GREEN="\033[32m"
   YELLOW="\033[33m"
   ORANGE="\033[38;5;208m"
+  PINK="\033[38;5;205m"
   CYAN="\033[96m"
   BLUE="\033[36m"
   MAGENTA="\033[35m"
@@ -30,6 +31,7 @@ else
   GREEN=""
   YELLOW=""
   ORANGE=""
+  PINK=""
   CYAN=""
   BLUE=""
   MAGENTA=""
@@ -103,6 +105,42 @@ CDX_BOOT_START_NS="$(cdx_time_ms)"
 lowercase() {
   local input="${1-}"
   printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
+}
+
+normalize_admin_theme() {
+  local normalized
+  normalized="$(lowercase "${1-}")"
+  case "$normalized" in
+    auto | light | dark | bright-pink | dark-pink)
+      printf '%s' "$normalized"
+      ;;
+    *)
+      printf 'auto'
+      ;;
+  esac
+}
+
+theme_is_pink() {
+  case "$(normalize_admin_theme "${1-}")" in
+    bright-pink | dark-pink) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+banner_color_tone() {
+  if theme_is_pink "${CODEX_UI_THEME:-auto}"; then
+    printf 'pink'
+    return 0
+  fi
+  printf 'orange'
+}
+
+banner_color_sequence() {
+  if theme_is_pink "${CODEX_UI_THEME:-auto}"; then
+    printf '%b' "${PINK}${BOLD}"
+    return 0
+  fi
+  printf '%b' "${ORANGE}${BOLD}"
 }
 
 SED_ERE_FLAG=""
@@ -202,6 +240,8 @@ EOF
 
 # Backward-compat shim: renders banner with "codex orchestrator" text (old style).
 print_motd() {
+  local banner_color=""
+  banner_color="$(banner_color_sequence)"
   local i=0
   while IFS= read -r line; do
     local suffix=""
@@ -209,7 +249,7 @@ print_motd() {
       1) suffix="    codex" ;;
       2) suffix="    orchestrator" ;;
     esac
-    printf "%b %s%s%b\n" "${ORANGE}${BOLD}" "$line" "$suffix" "${RESET}"
+    printf "%b %s%s%b\n" "${banner_color}" "$line" "$suffix" "${RESET}"
     i=$((i + 1))
   done <<<"$BANNER_ART"
 }
@@ -220,6 +260,8 @@ print_boot_banner() {
   local -a info_lines=("$@")
   local art_pad=36
   local gap="   "
+  local banner_color=""
+  banner_color="$(banner_color_sequence)"
   local cols="${COLUMNS:-}"
   if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
     cols="$(tput cols 2>/dev/null || true)"
@@ -231,7 +273,7 @@ print_boot_banner() {
 
   local i=0
   while IFS= read -r art_line; do
-    printf "%b %s" "${ORANGE}${BOLD}" "$art_line"
+    printf "%b %s" "${banner_color}" "$art_line"
     if ((!stacked)); then
       local art_len=${#art_line}
       local pad_n=$((art_pad - art_len))
@@ -458,6 +500,7 @@ build_insecure_approval_pending_box() {
   else
     title=">_ OpenAI Codex (v${title_suffix})"
   fi
+  local tagline="   Codex to Brrr!"
   model_line="$(format_approval_box_field "model:" "$(detect_insecure_approval_model)")"
   directory_line="$(format_approval_box_field "directory:" "$(compact_display_path "${PWD:-}")")"
   status_line="$(format_approval_box_field "approval:" "$approval_status")"
@@ -465,6 +508,7 @@ build_insecure_approval_pending_box() {
   checks_line="$(format_approval_box_field "checks:" "$checks")"
   lines=(
     "$title"
+    "$tagline"
     ""
     "$model_line"
     "$directory_line"
@@ -643,6 +687,11 @@ CODEX_SYNC_ALLOW_INSECURE_DEFAULT="__CODEX_SYNC_ALLOW_INSECURE__"
 if [[ "$CODEX_SYNC_ALLOW_INSECURE_DEFAULT" == __CODEX_*__ ]]; then
   CODEX_SYNC_ALLOW_INSECURE_DEFAULT="0"
 fi
+CODEX_ADMIN_THEME_DEFAULT="__CODEX_ADMIN_THEME__"
+if [[ "$CODEX_ADMIN_THEME_DEFAULT" == __CODEX_*__ ]]; then
+  CODEX_ADMIN_THEME_DEFAULT="auto"
+fi
+CODEX_UI_THEME="${CODEX_UI_THEME:-$CODEX_ADMIN_THEME_DEFAULT}"
 CODEX_SYNC_ALLOW_INSECURE="${CODEX_SYNC_ALLOW_INSECURE:-$CODEX_SYNC_ALLOW_INSECURE_DEFAULT}"
 export CODEX_SYNC_ALLOW_INSECURE
 SYNC_CONFIG_LOADED=0
@@ -667,6 +716,7 @@ SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT=""
 SYNC_REMOTE_WRAPPER_VERSION=""
 SYNC_REMOTE_WRAPPER_SHA256=""
 SYNC_REMOTE_WRAPPER_URL=""
+SYNC_REMOTE_ADMIN_THEME=""
 SYNC_REMOTE_AUTO_UPDATE_CRON=""
 RUNNER_STATE=""
 RUNNER_LAST_OK=""
@@ -773,7 +823,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.03.30-01"
+WRAPPER_VERSION="2026.03.30-04"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

@@ -15,6 +15,7 @@ final class AdminHostDetailPageRoutingTest extends TestCase
         $this->assertIsString($source);
 
         $this->assertStringContainsString("#^/admin/hosts/(\\d+)\$#", $source);
+        $this->assertStringContainsString("#^/admin/hosts/(\\d+)/detail\$#", $source);
         $this->assertStringContainsString("/admin/index.php", $source);
     }
 
@@ -42,6 +43,12 @@ final class AdminHostDetailPageRoutingTest extends TestCase
         $this->assertStringContainsString('window.location.assign(`/admin/hosts/${Math.trunc(numericId)}`);', $js);
         $this->assertStringContainsString("return { panel: 'host-detail', sub: seg2 };", $js);
         $this->assertStringContainsString('renderActiveHostDetail()', $js);
+        $this->assertStringContainsString('ensureHostDetailLoaded()', $js);
+        $this->assertStringContainsString('ensureHostDetailSupportLoaded()', $js);
+        $this->assertStringContainsString('api(`/admin/hosts/${requestHostId}/detail`)', $js);
+        $this->assertStringContainsString('api(`/admin/hosts/${activeHostId}/detail`)', $js);
+        $this->assertStringContainsString("window.__adminWsRequest('host-detail-support'", $js);
+        $this->assertStringContainsString('waitForAdminWsReady()', $js);
         $this->assertStringContainsString('btn.onclick = async (ev) => {', $js);
         $this->assertStringContainsString("await showConfirmModal('Clear auth'", $js);
     }

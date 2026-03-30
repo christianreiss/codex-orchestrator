@@ -35,7 +35,7 @@ Guardrails:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
 8. Check/update Codex + wrapper.
-9. Render boot summary and enforce launch gates. No-op helper paths must not abort launch here: empty OTel exports and unchanged logical/physical cwd trust writes both return success under `set -e`.
+9. Render boot summary and enforce launch gates. Human-facing wrapper headers keep the `codex orchestrator` branding and currently include the tagline `Codex to Brrr!`. When the mirrored admin theme preference is `bright-pink` or `dark-pink`, the ASCII banner switches from orange to pink. No-op helper paths must not abort launch here: empty OTel exports and unchanged logical/physical cwd trust writes both return success under `set -e`.
 10. Launch Codex (unless status/doctor/lane-only path exits first).
 11. Cleanup trap: auth push, usage push, insecure-host auth purge (when applicable), lock release.
 
@@ -157,7 +157,7 @@ Sync details:
 
 ## Quota, Lane, and Summary Rendering
 Inputs consumed from auth/sync responses:
-- `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`
+- `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`, `admin_theme`
 - `auto_update_enabled`
 - `chatgpt_usage` windows and `active_quota_lane`
 - Runner telemetry (`runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check`)

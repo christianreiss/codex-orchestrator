@@ -23,11 +23,17 @@ final class AdminWsClientContractTest extends TestCase
         $this->assertIsString($js);
 
         $this->assertStringContainsString('isEventEnvelope', $js);
+        $this->assertStringContainsString('isResponseEnvelope', $js);
+        $this->assertStringContainsString('isErrorEnvelope', $js);
+        $this->assertStringContainsString('pendingRequests: new Map()', $js);
         $this->assertStringContainsString("emit('admin-ws-status', { status: 'connecting' })", $js);
         $this->assertStringContainsString("emit('admin-ws-status', { status: 'open' })", $js);
         $this->assertStringContainsString("emit('admin-ws-status', { status: 'closed' })", $js);
         $this->assertStringContainsString("emit('admin-ws-event', message.event)", $js);
         $this->assertStringContainsString("emit('admin-ws-message', message)", $js);
+        $this->assertStringContainsString("window.__adminWsRequest = request", $js);
+        $this->assertStringContainsString("window.__adminWsCanRequest = canRequest", $js);
+        $this->assertStringContainsString("window.__adminWsIsEnabled = () => state.enabled", $js);
         $this->assertStringContainsString('scheduleReconnect()', $js);
     }
 }

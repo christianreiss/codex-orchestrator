@@ -22,7 +22,8 @@ class ChatGptUsageService
         private readonly LogRepository $logs,
         private readonly string $baseUrl = 'https://chatgpt.com/backend-api',
         private readonly float $timeoutSeconds = 10.0,
-        private readonly mixed $httpClient = null
+        private readonly mixed $httpClient = null,
+        private readonly ?DashboardGraphStatsService $dashboardGraphStats = null
     ) {
     }
 
@@ -105,7 +106,7 @@ class ChatGptUsageService
         $days = min(180, $days);
         $since = gmdate(DATE_ATOM, strtotime('-' . $days . ' days'));
 
-        $points = $this->repository->history($since);
+        $points = $this->dashboardGraphStats?->quotaHistory($since) ?? $this->repository->history($since);
 
         return [
             'days' => $days,
@@ -149,7 +150,7 @@ class ChatGptUsageService
 
         $fromIso = $fromDate->format(DATE_ATOM);
         $untilIso = $untilDate->format(DATE_ATOM);
-        $rawPoints = $this->repository->history($fromIso);
+        $rawPoints = $this->dashboardGraphStats?->quotaHistory($fromIso) ?? $this->repository->history($fromIso);
         $points = array_values(array_filter($rawPoints, static function (array $point) use ($fromDate, $untilDate): bool {
             $ts = isset($point['fetched_at']) ? strtotime((string) $point['fetched_at']) : false;
             if ($ts === false) {
@@ -342,6 +343,7 @@ class ChatGptUsageService
                 'fetched_at' => gmdate(DATE_ATOM, $now),
                 'next_eligible_at' => $nextEligible,
             ]);
+            $this->dashboardGraphStats?->recordQuotaSnapshot($snapshot);
             $this->logs->log(null, 'chatgpt.usage', [
                 'status' => 'error',
                 'reason' => $response['error'],
@@ -358,6 +360,7 @@ class ChatGptUsageService
             'fetched_at' => gmdate(DATE_ATOM, $now),
             'next_eligible_at' => $nextEligible,
         ]));
+        $this->dashboardGraphStats?->recordQuotaSnapshot($snapshot);
 
         $this->logs->log(null, 'chatgpt.usage', [
             'status' => 'ok',
@@ -581,6 +584,7 @@ class ChatGptUsageService
             'fetched_at' => gmdate(DATE_ATOM, $now),
             'next_eligible_at' => $nextEligible,
         ]);
+        $this->dashboardGraphStats?->recordQuotaSnapshot($snapshot);
 
         $this->logs->log(null, 'chatgpt.usage', [
             'status' => 'error',

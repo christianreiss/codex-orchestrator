@@ -27,13 +27,13 @@ final class CdxWrapperRestartArgsTest extends TestCase
             $wrapperSource,
             'Wrapper self-update restart should re-exec using the original argv so `cdx resume` survives.'
         );
-        self::assertMatchesRegularExpression(
-            '/if \\(\\( CODEX_ORIGINAL_ARGC > 0 \\)\\); then\\s+CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "\\$SCRIPT_REAL" "\\$\\{CODEX_ORIGINAL_ARGS\\[@\\]\\}"\\s+fi\\s+CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "\\$SCRIPT_REAL"/',
+        self::assertStringContainsString(
+            "if ((CODEX_ORIGINAL_ARGC > 0)); then\n    CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec \"\$SCRIPT_REAL\" \"\${CODEX_ORIGINAL_ARGS[@]}\"\n  fi\n  CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec \"\$SCRIPT_REAL\"",
             $wrapperSource,
             'Wrapper self-update restart should fall back to a no-arg re-exec when original argv is empty (Bash 4.2/CentOS 7 nounset safety).'
         );
-        self::assertMatchesRegularExpression(
-            '/if \\(\\( CODEX_ORIGINAL_ARGC > 0 \\)\\) && declare -p CODEX_ORIGINAL_ARGS >\\/dev\\/null 2>&1; then\\s+argv_text="\\$\\(printf \\\'%q \\\' "\\$\\{CODEX_ORIGINAL_ARGS\\[@\\]\\}"\\)"/',
+        self::assertStringContainsString(
+            "if ((CODEX_ORIGINAL_ARGC > 0)) && declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then\n    argv_text=\"\$(printf '%q ' \"\${CODEX_ORIGINAL_ARGS[@]}\")\"",
             $wrapperSource,
             'Run-lock metadata formatting should only expand original argv when the snapshotted argc says args were present.'
         );

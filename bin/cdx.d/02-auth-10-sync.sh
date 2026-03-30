@@ -286,6 +286,11 @@ def record_versions(vblock):
         silent = vblock.get("cdx_silent")
         if isinstance(silent, bool):
             out["cdx_silent"] = silent
+        admin_theme = vblock.get("admin_theme")
+        if isinstance(admin_theme, str):
+            admin_theme = admin_theme.strip().lower()
+            if admin_theme in ("auto", "light", "dark", "bright-pink", "dark-pink"):
+                out["admin_theme"] = admin_theme
         inst = vblock.get("installation_id")
         if isinstance(inst, str) and inst.strip():
             out["installation_id"] = inst.strip()
@@ -546,6 +551,9 @@ _emit_int(qwp, "qwp")
 csil = parsed.get("cdx_silent")
 if isinstance(csil, bool):
     print("cs=1" if csil else "cs=0")
+admin_theme = parsed.get("admin_theme")
+if isinstance(admin_theme, str) and admin_theme.strip():
+    print(f"ath={admin_theme.strip().lower()}")
 hs = parsed.get("host_secure")
 if isinstance(hs, bool):
     print("hs=1" if hs else "hs=0")
@@ -706,6 +714,10 @@ PY
                 ;;
               cs=*)
                 CODEX_SILENT="${line#cs=}"
+                ;;
+              ath=*)
+                SYNC_REMOTE_ADMIN_THEME="${line#ath=}"
+                CODEX_UI_THEME="${line#ath=}"
                 ;;
               hs=*)
                 HOST_SECURE="${line#hs=}"

@@ -33,7 +33,12 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("if (key === '/') {", $js);
         self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
+        self::assertStringContainsString('function openNewHostModal({ closeMenus = false } = {})', $js);
+        self::assertStringContainsString('window.__railNav?.closeMenus?.();', $js);
+        self::assertStringContainsString("showNewHostModal(true, { reset: true, focusInput: true });", $js);
+        self::assertStringContainsString("newHostName?.focus();", $js);
         self::assertStringContainsString('function triggerNewShortcut()', $js);
+        self::assertStringContainsString("openNewHostModal({ closeMenus: true });", $js);
         self::assertStringContainsString("if (pendingShortcutPrefix === normalizedKey) {", $js);
         self::assertStringContainsString("window.__railNav?.toggleGroup?.(prefix === 'h' ? 'hosts' : prefix === 'l' ? 'logs' : prefix === 's' ? 'settings' : '');", $js);
         self::assertStringContainsString("window.__railNav?.toggleGroup?.(normalizedKey === 'h' ? 'hosts' : normalizedKey === 'l' ? 'logs' : 'settings');", $js);
@@ -59,5 +64,17 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("case 'auto_updates':", $js);
         self::assertStringContainsString('host-auto-updates-indicator', $js);
         self::assertStringContainsString("label: 'Auto-updates'", $js);
+    }
+
+    public function testSecureHostsTabHidesInsecureWindowColumn(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        self::assertIsString($js);
+
+        self::assertStringContainsString('const hostsInsecureHeader = document.querySelector(\'#hosts-table .insecure-col\');', $js);
+        self::assertStringContainsString("return hostStatusFilter !== 'secure';", $js);
+        self::assertStringContainsString('hostsInsecureHeader.hidden = !hostTableShowsInsecureColumn();', $js);
+        self::assertStringContainsString('${showInsecureColumn ? `<td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>` : \'\'}', $js);
+        self::assertStringContainsString('const cols = hostTableShowsInsecureColumn() ? 6 : 5;', $js);
     }
 }

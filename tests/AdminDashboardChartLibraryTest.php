@@ -40,4 +40,31 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringNotContainsString('Overview</span><span class="rail-shortcut">', $html);
         $this->assertStringContainsString('Users</span><span class="rail-shortcut">[s][u]</span>', $html);
     }
+
+    public function testNewHostModalUsesHostnameCopyAndOptionGrid(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+        $this->assertStringContainsString('<div class="modal new-host-modal">', $html);
+        $this->assertStringContainsString('Fresh machine, one command.', $html);
+        $this->assertStringContainsString('Spin Up a Host', $html);
+        $this->assertStringContainsString('Pick a hostname, choose the guardrails, and we will mint a one-time installer', $html);
+        $this->assertStringContainsString('>Hostname</label>', $html);
+        $this->assertStringContainsString('class="new-host-toggle-grid"', $html);
+        $this->assertStringContainsString('new-host-option-title">Secure</span>', $html);
+        $this->assertStringContainsString('new-host-option-title">Temporary</span>', $html);
+        $this->assertStringContainsString('new-host-option-title">Insecure Curl</span>', $html);
+        $this->assertStringContainsString('new-host-option-title">VIP</span>', $html);
+        $this->assertStringContainsString('Mint Installer</button>', $html);
+        $this->assertStringNotContainsString('Issue a one-time installer link for this FQDN.', $html);
+        $this->assertStringNotContainsString('Host FQDN', $html);
+
+        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
+        $this->assertIsString($css);
+        $this->assertStringContainsString('.new-host-modal {', $css);
+        $this->assertStringContainsString('.new-host-toggle-grid {', $css);
+        $this->assertStringContainsString('grid-template-columns: repeat(2, minmax(0, 1fr));', $css);
+        $this->assertStringContainsString('.new-host-option-title {', $css);
+        $this->assertStringContainsString('.new-host-option-desc {', $css);
+    }
 }

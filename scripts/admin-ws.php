@@ -6,7 +6,10 @@ declare(strict_types=1);
 use App\Config;
 use App\Database;
 use App\Repositories\AdminEventRepository;
+use App\Repositories\AgentsRepository;
+use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
+use App\Services\AgentsService;
 use Dotenv\Dotenv;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -219,6 +222,55 @@ function decodeFrames(string $buffer): array
     return [$frames, substr($buffer, $offset)];
 }
 
+function decodeJsonObject(string $payload): ?array
+{
+    if ($payload === '') {
+        return null;
+    }
+
+    $decoded = json_decode($payload, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+function buildRunnerSupportPayload(LogRepository $logs): array
+{
+    $runnerUrl = (string) Config::get('AUTH_RUNNER_URL', '');
+    $enabled = trim($runnerUrl) !== '';
+    $rows = $logs->recentByActions(['auth.validate'], 1);
+    $row = isset($rows[0]) && is_array($rows[0]) ? $rows[0] : null;
+
+    $details = null;
+    if (is_array($row)) {
+        $detailsRaw = $row['details'] ?? null;
+        if (is_string($detailsRaw)) {
+            $details = decodeJsonObject($detailsRaw);
+        } elseif (is_array($detailsRaw)) {
+            $details = $detailsRaw;
+        }
+    }
+
+    return [
+        'enabled' => $enabled,
+        'latest_validation' => $row === null ? null : [
+            'id' => isset($row['id']) ? (int) $row['id'] : null,
+            'created_at' => $row['created_at'] ?? null,
+            'status' => $details['status'] ?? null,
+            'reason' => $details['reason'] ?? null,
+            'digest' => $details['digest'] ?? null,
+            'last_refresh' => $details['last_refresh'] ?? null,
+        ],
+    ];
+}
+
+function buildHostDetailSupportPayload(AgentsService $agents, LogRepository $logs, ?int $hostId = null): array
+{
+    return [
+        'host_id' => $hostId,
+        'runner' => buildRunnerSupportPayload($logs),
+        'agents' => $agents->adminFetch(),
+    ];
+}
+
 try {
     $dbConfig = [
         'driver' => Config::get('DB_DRIVER', 'mysql'),
@@ -235,6 +287,9 @@ try {
 
     $events = new AdminEventRepository($database);
     $versions = new VersionRepository($database);
+    $logRepository = new LogRepository($database);
+    $agentsRepository = new AgentsRepository($database);
+    $agentsService = new AgentsService($agentsRepository, $logRepository);
 
     $bind = Config::get('ADMIN_WS_BIND', '0.0.0.0:8091');
     if (!is_string($bind) || trim($bind) === '') {
@@ -459,6 +514,56 @@ try {
                 }
                 if ($opcode === 0xA) {
                     $clients[$clientId]['last_pong'] = time();
+                    continue;
+                }
+                if ($opcode === 0x1) {
+                    $message = decodeJsonObject((string) $payload);
+                    if (!is_array($message) || ($message['kind'] ?? '') !== 'request') {
+                        continue;
+                    }
+
+                    $requestId = trim((string) ($message['request_id'] ?? ''));
+                    if ($requestId === '') {
+                        continue;
+                    }
+
+                    $type = trim((string) ($message['type'] ?? ''));
+                    $messagePayload = is_array($message['payload'] ?? null) ? $message['payload'] : [];
+                    $rawHostId = $messagePayload['host_id'] ?? null;
+                    $hostId = null;
+                    if (is_scalar($rawHostId) && preg_match('/^[0-9]+$/', (string) $rawHostId) === 1) {
+                        $normalizedHostId = (int) $rawHostId;
+                        $hostId = $normalizedHostId > 0 ? $normalizedHostId : null;
+                    }
+
+                    try {
+                        $response = match ($type) {
+                            'host-detail-support' => [
+                                'kind' => 'response',
+                                'request_id' => $requestId,
+                                'type' => $type,
+                                'data' => buildHostDetailSupportPayload($agentsService, $logRepository, $hostId),
+                                'server_time' => gmdate(DATE_ATOM),
+                            ],
+                            default => [
+                                'kind' => 'error',
+                                'request_id' => $requestId,
+                                'type' => $type,
+                                'message' => 'unsupported request type',
+                                'server_time' => gmdate(DATE_ATOM),
+                            ],
+                        };
+                    } catch (Throwable $exception) {
+                        $response = [
+                            'kind' => 'error',
+                            'request_id' => $requestId,
+                            'type' => $type,
+                            'message' => $exception->getMessage(),
+                            'server_time' => gmdate(DATE_ATOM),
+                        ];
+                    }
+
+                    @fwrite($socket, encodeFrame(json_encode($response, JSON_UNESCAPED_SLASHES)));
                     continue;
                 }
             }

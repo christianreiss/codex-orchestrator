@@ -9,6 +9,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\AdminAuthService;
+use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
 
 class AdminSettingsController
@@ -145,6 +146,62 @@ class AdminSettingsController
         Response::json([
             'status' => 'ok',
             'data' => ['silent' => $silent],
+        ]);
+    }
+
+    /**
+     * GET /admin/theme
+     */
+    public function getTheme(): void
+    {
+        requireAdminAccess();
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'theme' => AdminTheme::normalize($this->versionRepository->get('admin_theme')),
+            ],
+        ]);
+    }
+
+    /**
+     * POST /admin/theme
+     */
+    public function postTheme(array $payload): void
+    {
+        requireAdminAccess();
+
+        if (!array_key_exists('theme', $payload)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'theme is required',
+            ], 422);
+        }
+
+        $rawTheme = $payload['theme'] ?? null;
+        if (!is_string($rawTheme)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'theme must be one of: auto, light, dark, bright-pink, dark-pink',
+            ], 422);
+        }
+
+        $theme = AdminTheme::normalize($rawTheme);
+        if ($theme !== trim(strtolower($rawTheme))) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'theme must be one of: auto, light, dark, bright-pink, dark-pink',
+            ], 422);
+        }
+
+        $this->versionRepository->set('admin_theme', $theme);
+        $this->logRepository->log(null, 'admin.theme', [
+            'theme' => $theme,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['theme' => $theme],
         ]);
     }
 
@@ -454,6 +511,7 @@ class AdminSettingsController
         $daysLogs = $this->logRetentionDays('log_retention_days_logs', 90);
         $daysMcp = $this->logRetentionDays('log_retention_days_mcp', 90);
         $daysEvents = $this->logRetentionDays('log_retention_days_events', 30);
+        $daysGraphStats = $this->logRetentionDays('log_retention_days_graph_stats', 180);
 
         Response::json([
             'status' => 'ok',
@@ -462,6 +520,7 @@ class AdminSettingsController
                 'days_logs' => $daysLogs,
                 'days_mcp' => $daysMcp,
                 'days_events' => $daysEvents,
+                'days_graph_stats' => $daysGraphStats,
             ],
         ]);
     }
@@ -486,17 +545,20 @@ class AdminSettingsController
         $daysLogs = $this->clampRetentionDays($payload['days_logs'] ?? null, 90);
         $daysMcp = $this->clampRetentionDays($payload['days_mcp'] ?? null, 90);
         $daysEvents = $this->clampRetentionDays($payload['days_events'] ?? null, 30);
+        $daysGraphStats = $this->clampRetentionDays($payload['days_graph_stats'] ?? null, 180);
 
         $this->versionRepository->set('log_retention_enabled', $enabled ? '1' : '0');
         $this->versionRepository->set('log_retention_days_logs', (string) $daysLogs);
         $this->versionRepository->set('log_retention_days_mcp', (string) $daysMcp);
         $this->versionRepository->set('log_retention_days_events', (string) $daysEvents);
+        $this->versionRepository->set('log_retention_days_graph_stats', (string) $daysGraphStats);
 
         $this->logRepository->log(null, 'admin.log_retention', [
             'enabled' => $enabled,
             'days_logs' => $daysLogs,
             'days_mcp' => $daysMcp,
             'days_events' => $daysEvents,
+            'days_graph_stats' => $daysGraphStats,
         ]);
 
         Response::json([
@@ -506,6 +568,7 @@ class AdminSettingsController
                 'days_logs' => $daysLogs,
                 'days_mcp' => $daysMcp,
                 'days_events' => $daysEvents,
+                'days_graph_stats' => $daysGraphStats,
             ],
         ]);
     }

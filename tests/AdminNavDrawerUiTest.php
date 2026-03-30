@@ -21,6 +21,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('class="rail-frame"', $html);
         $this->assertStringContainsString('id="navAccountTrigger"', $html);
         $this->assertStringContainsString('id="navThemeMenuTrigger"', $html);
+        $this->assertStringContainsString('data-theme-option="bright-pink"', $html);
+        $this->assertStringContainsString('data-theme-option="dark-pink"', $html);
         $this->assertStringContainsString('href="/admin/account/password"', $html);
         $this->assertStringContainsString('href="/admin/account/passkeys"', $html);
         $this->assertStringNotContainsString('id="themeToggle"', $html);
@@ -57,6 +59,13 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringNotContainsString('Live: connected', $js);
         $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);
         $this->assertStringContainsString("attributeFilter: ['data-view-mode']", $js);
+
+        $dashboardJs = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($dashboardJs);
+        $this->assertStringContainsString("'bright-pink'", $dashboardJs);
+        $this->assertStringContainsString("'dark-pink'", $dashboardJs);
+        $this->assertStringContainsString("'Bright Pink'", $dashboardJs);
+        $this->assertStringContainsString("'Dark Pink'", $dashboardJs);
     }
 
     public function test2026NavStylesAreScopedAndResponsive(): void
@@ -69,6 +78,8 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('body[data-nav-version="2026"] .rail-panel', $css);
         $this->assertStringNotContainsString('body[data-nav-version="2026"] .rail-status-cluster', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .rail-tools', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-brand-copy', $css);
+        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-brand-tagline', $css);
         $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail-backdrop', $css);
         $this->assertStringContainsString('@media (max-width: 940px)', $css);
     }

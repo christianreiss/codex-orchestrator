@@ -6,6 +6,7 @@ use App\Repositories\ChatGptUsageStore;
 use App\Repositories\LogRepository;
 use App\Services\ChatGptUsageService;
 use App\Services\AuthService;
+use App\Services\DashboardGraphStatsService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -273,6 +274,45 @@ final class ChatGptUsageServiceTest extends TestCase
         $this->assertSame(30, $history['points'][1]['primary_used_percent']);
         $this->assertSame(5, $history['points'][0]['spark_primary_used_percent']);
         $this->assertSame(8, $history['points'][1]['spark_primary_used_percent']);
+    }
+
+    public function testHistoryPrefersSetAsideGraphStatsWhenAvailable(): void
+    {
+        $repo = new InMemoryChatGptUsageRepository();
+        $auth = $this->getMockBuilder(AuthService::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+        $graphStats = $this->getMockBuilder(DashboardGraphStatsService::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['quotaHistory'])
+            ->getMock();
+
+        $graphStats->method('quotaHistory')->willReturn([
+            [
+                'fetched_at' => '2026-02-01T10:00:00Z',
+                'primary_used_percent' => 22,
+                'secondary_used_percent' => 44,
+                'spark_primary_used_percent' => 7,
+                'spark_secondary_used_percent' => 15,
+            ],
+        ]);
+
+        $service = new ChatGptUsageService($auth, $repo, $logs, 'https://chatgpt.com/backend-api', 10.0, null, $graphStats);
+
+        $history = $service->historyAdvanced(
+            30,
+            '2026-02-01T00:00:00Z',
+            '2026-02-01T23:59:59Z',
+            'raw',
+            'both',
+            'both'
+        );
+
+        $this->assertCount(1, $history['points']);
+        $this->assertSame(22, $history['points'][0]['primary_used_percent']);
+        $this->assertSame(
+            strtotime('2026-02-01T10:00:00Z'),
+            strtotime((string) $history['series'][0]['points'][0]['ts'])
+        );
     }
 
     public function testHistoryAdvancedBuildsSeriesAndFiltersByLaneAndWindow(): void
