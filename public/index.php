@@ -70,6 +70,7 @@ use App\Services\SkillDraftService;
 use App\Services\SkillManifestService;
 use App\Services\SkillSummaryService;
 use App\Services\MemoryService;
+use App\Services\MemorySummaryService;
 use App\Services\ClientConfigService;
 use App\Services\StartupSyncService;
 use App\Mcp\McpServer;
@@ -276,7 +277,8 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         (float) Config::get('AUTH_RUNNER_TIMEOUT', 8.0),
         (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
         (string) Config::get('AUTH_RUNNER_SKILL_SUMMARY_URL', ''),
-        (string) Config::get('AUTH_RUNNER_SKILL_GENERATE_URL', '')
+        (string) Config::get('AUTH_RUNNER_SKILL_GENERATE_URL', ''),
+        (string) Config::get('AUTH_RUNNER_MEMORY_SUMMARY_URL', '')
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
@@ -333,8 +335,9 @@ $skillManifestService = new SkillManifestService();
 $skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
 $skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier);
 $skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService);
-$agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService);
-$memoryService = new MemoryService($memoryRepository, $logRepository);
+$memorySummaryService = new MemorySummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
+$memoryService = new MemoryService($memoryRepository, $logRepository, $memorySummaryService);
+$agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService, $memoryService);
 $projectCoordinationService = new ProjectCoordinationService(
     $projectRepository,
     $projectNoteRepository,

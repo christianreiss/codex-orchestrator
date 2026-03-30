@@ -108,7 +108,7 @@ Profile shorthand:
 | Resource | Pull | Push | Local path |
 | --- | --- | --- | --- |
 | Skills | MCP `resource_read` / `resources/read` | None | No synced local skill file; hosts read canonical manifests from `skill://{slug}` |
-| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot; served content may append a managed Skills block when MCP is enabled and skills exist) |
+| AGENTS | `POST /agents/retrieve` | None | `~/.codex/AGENTS.md` (server auto-seeds canonical storage from the checked-in repo `AGENTS.md` on boot; served content may append managed Skills and Memories inventory blocks when MCP is enabled and host/runtime data exists) |
 | Config | `POST /config/retrieve` | None | `~/.codex/config.toml` |
 
 Sync details:
@@ -307,7 +307,7 @@ Wrapper updates:
 - When the Projects module is enabled, `McpServer` also exposes `project_*` tools plus the `project://{slug}` resource template/resource family used by the managed `coco` skill.
 - Host-authenticated `/mcp` does not expose coordinator filesystem `fs_*` tools; those helpers remain internal/operator-only.
 - Tool-name dot aliases are accepted (`name.with.dots` normalized to underscores).
-- Host-authenticated REST memory endpoints also exist under `/mcp/memories/*`, but those memories remain host-scoped and reserved `coco*` ids are rejected so cross-server CoCo handoffs stay project-only.
+- Host-authenticated REST memory endpoints also exist under `/mcp/memories/*`; stored memory payloads now carry an optional runner-generated `summary` used for the served AGENTS memory inventory. These memories remain host-scoped and reserved `coco*` ids are rejected so cross-server CoCo handoffs stay project-only.
 - The wrapper does not have a separate project-state startup sync path; shared project context is fetched live through `/mcp` or `/projects*` when agents actually need it.
 
 ## Unknown / Not Found In Code

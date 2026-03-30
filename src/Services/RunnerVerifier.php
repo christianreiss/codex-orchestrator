@@ -15,6 +15,7 @@ class RunnerVerifier
 {
     private readonly string $skillSummaryUrl;
     private readonly string $skillGenerateUrl;
+    private readonly string $memorySummaryUrl;
 
     public function __construct(
         private readonly string $runnerUrl,
@@ -22,12 +23,15 @@ class RunnerVerifier
         private readonly float $timeoutSeconds = 8.0,
         private readonly string $sharedSecret = '',
         ?string $skillSummaryUrl = null,
-        ?string $skillGenerateUrl = null
+        ?string $skillGenerateUrl = null,
+        ?string $memorySummaryUrl = null
     ) {
         $normalizedSummaryUrl = is_string($skillSummaryUrl) ? trim($skillSummaryUrl) : '';
         $this->skillSummaryUrl = $normalizedSummaryUrl !== '' ? $normalizedSummaryUrl : $this->deriveSkillSummaryUrl($runnerUrl);
         $normalizedGenerateUrl = is_string($skillGenerateUrl) ? trim($skillGenerateUrl) : '';
         $this->skillGenerateUrl = $normalizedGenerateUrl !== '' ? $normalizedGenerateUrl : $this->deriveSkillGenerateUrl($runnerUrl);
+        $normalizedMemorySummaryUrl = is_string($memorySummaryUrl) ? trim($memorySummaryUrl) : '';
+        $this->memorySummaryUrl = $normalizedMemorySummaryUrl !== '' ? $normalizedMemorySummaryUrl : $this->deriveMemorySummaryUrl($runnerUrl);
     }
 
     public function verify(array $authPayload, ?string $baseUrl = null, ?float $timeoutSeconds = null, ?array $host = null): array
@@ -84,6 +88,26 @@ class RunnerVerifier
         }
 
         return $this->sendRequest($this->skillGenerateUrl, $payload, $timeout);
+    }
+
+    public function summarizeMemory(string $memoryKey, string $content, array $authPayload, ?float $timeoutSeconds = null): array
+    {
+        if ($this->memorySummaryUrl === '') {
+            return [
+                'status' => 'fail',
+                'reason' => 'memory summary endpoint is not configured',
+                'reachable' => false,
+            ];
+        }
+
+        $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
+
+        return $this->sendRequest($this->memorySummaryUrl, [
+            'auth_json' => $authPayload,
+            'memory_key' => $memoryKey,
+            'content' => $content,
+            'timeout_seconds' => $timeout,
+        ], $timeout);
     }
 
     private function extractStatus(array $httpResponseHeader): ?int
@@ -249,6 +273,11 @@ class RunnerVerifier
     private function deriveSkillGenerateUrl(string $runnerUrl): string
     {
         return $this->deriveRunnerFeatureUrl($runnerUrl, '/skills/generate');
+    }
+
+    private function deriveMemorySummaryUrl(string $runnerUrl): string
+    {
+        return $this->deriveRunnerFeatureUrl($runnerUrl, '/memories/summarize');
     }
 
     private function deriveRunnerFeatureUrl(string $runnerUrl, string $featurePath): string

@@ -23,7 +23,8 @@ class MemoryRepository
         string $memoryKey,
         string $content,
         ?array $metadata,
-        array $tags
+        array $tags,
+        ?string $summary = null
     ): array {
         $now = gmdate(DATE_ATOM);
         $tagsArray = array_values($tags);
@@ -36,13 +37,14 @@ class MemoryRepository
 
         if ($driver === 'mysql') {
             $statement = $pdo->prepare(
-                'INSERT INTO mcp_memories (host_id, memory_key, content, metadata, tags, tags_text, created_at, updated_at, deleted_at)
-                 VALUES (:host_id, :memory_key, :content, :metadata, :tags, :tags_text, :created_at, :updated_at, NULL)
+                'INSERT INTO mcp_memories (host_id, memory_key, content, metadata, tags, tags_text, summary, created_at, updated_at, deleted_at)
+                 VALUES (:host_id, :memory_key, :content, :metadata, :tags, :tags_text, :summary, :created_at, :updated_at, NULL)
                  ON DUPLICATE KEY UPDATE
                     content = VALUES(content),
                     metadata = VALUES(metadata),
                     tags = VALUES(tags),
                     tags_text = VALUES(tags_text),
+                    summary = VALUES(summary),
                     updated_at = VALUES(updated_at),
                     deleted_at = NULL'
             );
@@ -54,6 +56,7 @@ class MemoryRepository
                 'metadata' => $metadataJson,
                 'tags' => $tagsJson,
                 'tags_text' => $tagsText,
+                'summary' => $summary,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
@@ -61,8 +64,8 @@ class MemoryRepository
             $existing = $this->findByKey($hostId, $memoryKey);
             if ($existing === null) {
                 $statement = $pdo->prepare(
-                    'INSERT INTO mcp_memories (host_id, memory_key, content, metadata, tags, tags_text, created_at, updated_at, deleted_at)
-                     VALUES (:host_id, :memory_key, :content, :metadata, :tags, :tags_text, :created_at, :updated_at, NULL)'
+                    'INSERT INTO mcp_memories (host_id, memory_key, content, metadata, tags, tags_text, summary, created_at, updated_at, deleted_at)
+                     VALUES (:host_id, :memory_key, :content, :metadata, :tags, :tags_text, :summary, :created_at, :updated_at, NULL)'
                 );
                 $statement->execute([
                     'host_id' => $hostId,
@@ -71,6 +74,7 @@ class MemoryRepository
                     'metadata' => $metadataJson,
                     'tags' => $tagsJson,
                     'tags_text' => $tagsText,
+                    'summary' => $summary,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
@@ -81,6 +85,7 @@ class MemoryRepository
                          metadata = :metadata,
                          tags = :tags,
                          tags_text = :tags_text,
+                         summary = :summary,
                          updated_at = :updated_at,
                          deleted_at = NULL
                      WHERE host_id = :host_id AND memory_key = :memory_key'
@@ -92,6 +97,7 @@ class MemoryRepository
                     'metadata' => $metadataJson,
                     'tags' => $tagsJson,
                     'tags_text' => $tagsText,
+                    'summary' => $summary,
                     'updated_at' => $now,
                 ]);
             }
@@ -103,7 +109,7 @@ class MemoryRepository
     public function findByKey(int $hostId, string $memoryKey): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at
+            'SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at
              FROM mcp_memories
              WHERE host_id = :host_id
                AND memory_key = :memory_key
@@ -125,7 +131,7 @@ class MemoryRepository
     {
         $limit = max(1, min($limit, 500));
         $statement = $this->database->connection()->prepare(
-            'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at
+            'SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at
              FROM mcp_memories
              WHERE host_id = :host_id
                AND (deleted_at IS NULL)
@@ -150,7 +156,7 @@ class MemoryRepository
 
         if ($query !== '' && $driver === 'mysql') {
             $statement = $pdo->prepare(
-                'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at,
+                'SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at,
                         MATCH(content, tags_text) AGAINST (:query IN NATURAL LANGUAGE MODE) AS score
                  FROM mcp_memories
                  WHERE host_id = :host_id
@@ -164,7 +170,7 @@ class MemoryRepository
             $statement->bindValue('limit', $limit, PDO::PARAM_INT);
             $statement->execute();
         } else {
-            $sql = 'SELECT id, host_id, memory_key, content, metadata, tags, created_at, updated_at
+            $sql = 'SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at
                     FROM mcp_memories
                     WHERE host_id = :host_id
                       AND (deleted_at IS NULL)';
@@ -217,7 +223,7 @@ class MemoryRepository
 
         if ($query !== '' && $driver === 'mysql') {
             $sql = <<<SQL
-                SELECT m.id, m.host_id, h.fqdn AS host_fqdn, m.memory_key, m.content, m.metadata, m.tags, m.created_at, m.updated_at,
+                SELECT m.id, m.host_id, h.fqdn AS host_fqdn, m.memory_key, m.content, m.metadata, m.tags, m.summary, m.created_at, m.updated_at,
                        MATCH(m.content, m.tags_text) AGAINST (:query IN NATURAL LANGUAGE MODE) AS score
                 FROM mcp_memories m
                 JOIN hosts h ON h.id = m.host_id
@@ -230,7 +236,7 @@ class MemoryRepository
             $statement->bindValue('query', $query);
         } else {
             $sql = <<<SQL
-                SELECT m.id, m.host_id, h.fqdn AS host_fqdn, m.memory_key, m.content, m.metadata, m.tags, m.created_at, m.updated_at
+                SELECT m.id, m.host_id, h.fqdn AS host_fqdn, m.memory_key, m.content, m.metadata, m.tags, m.summary, m.created_at, m.updated_at
                 FROM mcp_memories m
                 JOIN hosts h ON h.id = m.host_id
                 {$where}
@@ -296,8 +302,36 @@ class MemoryRepository
             'metadata' => $metadata,
             'tags' => $tags,
             'created_at' => $row['created_at'] ?? null,
+            'summary' => $row['summary'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
             'score' => $score,
         ];
+    }
+
+    public function updateSummary(int $id, string $summary): void
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE mcp_memories SET summary = :summary WHERE id = :id'
+        );
+        $statement->execute(['id' => $id, 'summary' => $summary]);
+    }
+
+    public function listForAgents(int $hostId, int $limit = 50): array
+    {
+        $limit = max(1, min($limit, 200));
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, host_id, memory_key, summary, updated_at
+             FROM mcp_memories
+             WHERE host_id = :host_id
+               AND deleted_at IS NULL
+               AND summary IS NOT NULL
+             ORDER BY updated_at DESC, id DESC
+             LIMIT :limit'
+        );
+        $statement->bindValue('host_id', $hostId, PDO::PARAM_INT);
+        $statement->bindValue('limit', $limit, PDO::PARAM_INT);
+        $statement->execute();
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 }

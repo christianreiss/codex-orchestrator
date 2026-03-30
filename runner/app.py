@@ -50,6 +50,15 @@ class SkillGenerateRequest(BaseModel):
     )
 
 
+class MemorySummaryRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    memory_key: str = Field(..., description="Memory key identifier")
+    content: str = Field(..., description="Memory content to summarize")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the summary call (seconds)"
+    )
+
+
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
     auths = auth_json.get("auths", {})
     if isinstance(auths, dict):
@@ -249,6 +258,20 @@ def _skill_summary_prompt(slug: str, manifest: str) -> str:
     )
 
 
+def _memory_summary_prompt(memory_key: str, content: str) -> str:
+    truncated = content[:4000]
+    if len(content) > 4000:
+        truncated += "\n... (truncated)"
+    return (
+        "Summarize this memory entry for an AGENTS.md memory inventory. "
+        "Return exactly one plain sentence, no markdown, no quotes, max 18 words. "
+        "Describe what information this memory contains.\n\n"
+        f"Memory key: {memory_key}\n\n"
+        "Content:\n"
+        f"{truncated}"
+    )
+
+
 def _skill_generation_prompt(prompt: str, slug_hint: str) -> str:
     slug_hint_block = f"Existing slug hint: {slug_hint}\n\n" if slug_hint else ""
     return (
@@ -280,6 +303,41 @@ def _summarize_skill(payload: SkillSummaryRequest) -> dict:
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
         proc, latency_ms = _run_codex_exec(_skill_summary_prompt(slug, manifest), env, timeout)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        summary = _sanitize_skill_summary(stdout)
+        ok = proc.returncode == 0 and summary != ""
+
+        result = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok:
+            result["summary"] = summary
+            return result
+
+        parts = [p for p in [stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:400] if message else "summary failed"
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
+def _summarize_memory(payload: MemorySummaryRequest) -> dict:
+    memory_key = payload.memory_key.strip()
+    content = payload.content.strip()
+    if memory_key == "":
+        raise HTTPException(status_code=400, detail="memory_key is required")
+    if content == "":
+        raise HTTPException(status_code=400, detail="content is required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(_memory_summary_prompt(memory_key, content), env, timeout)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
         summary = _sanitize_skill_summary(stdout)
@@ -398,6 +456,28 @@ def generate_skill(payload: SkillGenerateRequest, request: Request):
         return _generate_skill(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="skill generation timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/memories/summarize")
+def summarize_memory_health():
+    return {"status": "ok"}
+
+
+@app.post("/memories/summarize")
+def summarize_memory(payload: MemorySummaryRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _summarize_memory(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="summary timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

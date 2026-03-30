@@ -242,6 +242,82 @@ PHP);
         }
     }
 
+    public function testMemorySummarizerPostsAuthKeyContentAndTimeoutSeconds(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/runner-memory-summary-' . uniqid('', true);
+        self::assertTrue(mkdir($tmpDir, 0777, true) || is_dir($tmpDir));
+
+        $routerPath = $tmpDir . '/router.php';
+        $requestPath = $tmpDir . '/request.json';
+        $stdoutPath = $tmpDir . '/server.out';
+        $stderrPath = $tmpDir . '/server.err';
+
+        file_put_contents($routerPath, <<<'PHP'
+<?php
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'ok']);
+    return;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    file_put_contents(__DIR__ . '/request.json', file_get_contents('php://input'));
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status' => 'ok',
+        'latency_ms' => 4,
+        'reachable' => true,
+        'codex_version' => 'test',
+        'summary' => 'Captures host-specific deployment notes.',
+    ]);
+    return;
+}
+
+http_response_code(404);
+echo 'not found';
+PHP);
+
+        $server = $this->startPhpServer($tmpDir, $routerPath, $stdoutPath, $stderrPath);
+
+        try {
+            $verifier = new RunnerVerifier(
+                'http://127.0.0.1:' . $server['port'] . '/verify',
+                'https://unused.example',
+                8.0
+            );
+
+            $result = $verifier->summarizeMemory(
+                'deploy.notes',
+                "Remember to drain the queue before rollout.\n",
+                ['tokens' => ['access_token' => 'sk-test-1234567890abcdefghijklmnop']],
+                6.5
+            );
+
+            self::assertSame('ok', $result['status'] ?? null);
+            self::assertSame('Captures host-specific deployment notes.', $result['summary'] ?? null);
+            self::assertFileExists($requestPath);
+
+            $payload = json_decode((string) file_get_contents($requestPath), true, flags: JSON_THROW_ON_ERROR);
+
+            self::assertSame(['auth_json', 'memory_key', 'content', 'timeout_seconds'], array_keys($payload));
+            self::assertSame('deploy.notes', $payload['memory_key']);
+            self::assertStringContainsString('drain the queue', $payload['content']);
+            self::assertSame(6.5, $payload['timeout_seconds']);
+            self::assertSame(
+                'sk-test-1234567890abcdefghijklmnop',
+                $payload['auth_json']['tokens']['access_token'] ?? null
+            );
+        } finally {
+            proc_terminate($server['process']);
+            proc_close($server['process']);
+            @unlink($routerPath);
+            @unlink($requestPath);
+            @unlink($stdoutPath);
+            @unlink($stderrPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     /**
      * @return array{process:resource,port:int}
      */

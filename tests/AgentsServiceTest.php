@@ -7,6 +7,7 @@ use App\Repositories\AgentsRepository;
 use App\Repositories\LogRepository;
 use App\Services\AgentsService;
 use App\Services\ClientConfigService;
+use App\Services\MemoryService;
 use App\Services\SkillService;
 use PHPUnit\Framework\TestCase;
 
@@ -155,12 +156,27 @@ final class FakeClientConfigServiceForAgents extends ClientConfigService
     }
 }
 
+final class FakeMemoryServiceForAgents extends MemoryService
+{
+    public array $memories = [];
+
+    public function __construct()
+    {
+    }
+
+    public function listForAgents(int $hostId): array
+    {
+        return $this->memories;
+    }
+}
+
 final class AgentsServiceTest extends TestCase
 {
     private InMemoryAgentsRepository $repository;
     private NullLogRepositoryAgents $logs;
     private FakeSkillServiceForAgents $skills;
     private FakeClientConfigServiceForAgents $configs;
+    private FakeMemoryServiceForAgents $memories;
     private AgentsService $service;
 
     protected function setUp(): void
@@ -169,7 +185,8 @@ final class AgentsServiceTest extends TestCase
         $this->logs = new NullLogRepositoryAgents();
         $this->skills = new FakeSkillServiceForAgents();
         $this->configs = new FakeClientConfigServiceForAgents();
-        $this->service = new AgentsService($this->repository, $this->logs, $this->skills, $this->configs);
+        $this->memories = new FakeMemoryServiceForAgents();
+        $this->service = new AgentsService($this->repository, $this->logs, $this->skills, $this->configs, $this->memories);
     }
 
     public function testRetrieveMissingReturnsStatus(): void
@@ -319,6 +336,42 @@ final class AgentsServiceTest extends TestCase
         $second = $this->service->retrieve(null);
 
         $this->assertNotSame($first['sha256'], $second['sha256']);
+    }
+
+    public function testRetrieveAppendsMemoriesBlockWhenMcpEnabledAndMemoriesExist(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => true],
+        ];
+        $this->memories->memories = [
+            ['memory_key' => 'deploy.notes', 'summary' => 'Records rollout gotchas and manual checks.'],
+            ['memory_key' => 'handoff', 'summary' => null],
+        ];
+
+        $result = $this->service->retrieve(null, ['id' => 11]);
+
+        $this->assertStringContainsString('## Memories', $result['content']);
+        $this->assertStringContainsString('`deploy.notes` - Records rollout gotchas and manual checks.', $result['content']);
+        $this->assertStringContainsString('`handoff` - Memory stored under key `handoff`.', $result['content']);
+        $this->assertStringContainsString('<!-- cdx:memories:start -->', $result['content']);
+    }
+
+    public function testRetrieveSkipsMemoriesBlockWhenHostMissing(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => true],
+        ];
+        $this->memories->memories = [
+            ['memory_key' => 'deploy.notes', 'summary' => 'Records rollout gotchas and manual checks.'],
+        ];
+
+        $result = $this->service->retrieve(null);
+
+        $this->assertStringNotContainsString('## Memories', $result['content']);
     }
 
     public function testAdminFetchWhenMissing(): void

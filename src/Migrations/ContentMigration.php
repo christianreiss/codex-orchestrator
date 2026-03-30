@@ -106,5 +106,6 @@ class ContentMigration implements MigrationInterface
         $this->ensureColumnExists($pdo, $databaseName, 'agents_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'client_config_documents', 'settings', 'JSON NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'client_config_documents', 'source_host_id', 'BIGINT UNSIGNED NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'mcp_memories', 'summary', 'TEXT NULL');
     }
 }

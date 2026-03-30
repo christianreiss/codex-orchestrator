@@ -1,3 +1,6 @@
+# 2026-03-30
+- MCP/AGENTS: host-scoped MCP memories can now store a short runner-generated `summary`, and served `POST /agents/retrieve` output may append a managed `## Memories` inventory block alongside the existing Skills block when MCP is enabled for that host. Memory summaries are derived from canonical auth through the runner’s new `/memories/summarize` endpoint, are stored in `mcp_memories.summary`, and now survive unchanged memory rewrites instead of being cleared on no-op updates.
+
 # 2026-03-29
 - Admin UI/API: fixed `Settings -> API Keys` failing with HTTP 500 on older instances whose existing `openai_api_keys` table predated the `use_count` column. `OpenaiApiMigration` now backfills the current OpenAI API-key schema in place on `scripts/migrate.php` / container restart, so upgrades heal production tables instead of only defining the right shape for fresh installs.
 

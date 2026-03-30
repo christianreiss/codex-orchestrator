@@ -21,7 +21,8 @@ class AgentsService
         private readonly AgentsRepository $agents,
         private readonly LogRepository $logs,
         private readonly ?SkillService $skills = null,
-        private readonly ?ClientConfigService $clientConfigService = null
+        private readonly ?ClientConfigService $clientConfigService = null,
+        private readonly ?MemoryService $memoryService = null
     ) {
     }
 
@@ -39,7 +40,7 @@ class AgentsService
             ];
         }
 
-        $served = $this->buildServedDocument($row);
+        $served = $this->buildServedDocument($row, $host);
         $canonicalSha = $served['sha256'] ?? hash('sha256', (string) ($served['body'] ?? ''));
         $status = ($sha256 !== null && hash_equals($canonicalSha, $sha256)) ? 'unchanged' : 'updated';
 
@@ -336,11 +337,13 @@ class AgentsService
         return $this->agents->latest();
     }
 
-    private function buildServedDocument(array $row): array
+    private function buildServedDocument(array $row, ?array $host = null): array
     {
         $body = (string) ($row['body'] ?? '');
         $skillsBlock = $this->skillsBlock();
-        if ($skillsBlock === null) {
+        $memoriesBlock = $this->memoriesBlock($host);
+
+        if ($skillsBlock === null && $memoriesBlock === null) {
             return [
                 'body' => $body,
                 'sha256' => $row['sha256'] ?? hash('sha256', $body),
@@ -352,7 +355,15 @@ class AgentsService
         if ($rendered !== '') {
             $rendered .= "\n\n";
         }
-        $rendered .= $skillsBlock . "\n";
+        if ($skillsBlock !== null) {
+            $rendered .= $skillsBlock . "\n";
+        }
+        if ($memoriesBlock !== null) {
+            if ($skillsBlock !== null) {
+                $rendered .= "\n";
+            }
+            $rendered .= $memoriesBlock . "\n";
+        }
 
         return [
             'body' => $rendered,
@@ -417,5 +428,64 @@ class AgentsService
         }
 
         return sprintf('Skill available via MCP; open `skill://%s` for details.', $slug);
+    }
+
+    private function memoriesBlock(?array $host): ?string
+    {
+        if ($this->memoryService === null || $this->clientConfigService === null) {
+            return null;
+        }
+
+        $config = $this->clientConfigService->adminFetch();
+        if (($config['status'] ?? 'missing') !== 'ok') {
+            return null;
+        }
+
+        $settings = is_array($config['settings'] ?? null) ? $config['settings'] : [];
+        if (($settings['orchestrator_mcp_enabled'] ?? true) === false) {
+            return null;
+        }
+
+        $hostId = $this->hostId($host);
+        if ($hostId === null) {
+            return null;
+        }
+
+        $memories = $this->memoryService->listForAgents($hostId);
+        if ($memories === []) {
+            return null;
+        }
+
+        $lines = [
+            '<!-- cdx:memories:start -->',
+            '## Memories',
+            'The following memories are stored for this host. Use `memory_retrieve` to read full content.',
+            '',
+        ];
+
+        foreach ($memories as $memory) {
+            $key = trim((string) ($memory['memory_key'] ?? ''));
+            if ($key === '') {
+                continue;
+            }
+            $summary = $this->normalizeMemoryDescription($memory['summary'] ?? null, $key);
+            $lines[] = sprintf('- `%s` - %s', $key, $summary);
+        }
+
+        $lines[] = '<!-- cdx:memories:end -->';
+
+        return implode("\n", $lines);
+    }
+
+    private function normalizeMemoryDescription(mixed $description, string $key): string
+    {
+        if (is_string($description)) {
+            $normalized = trim(preg_replace('/\s+/', ' ', $description) ?? '');
+            if ($normalized !== '') {
+                return $normalized;
+            }
+        }
+
+        return sprintf('Memory stored under key `%s`.', $key);
     }
 }

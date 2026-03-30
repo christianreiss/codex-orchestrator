@@ -18,7 +18,14 @@ final class InMemoryMemoryRepository extends MemoryRepository
     {
     }
 
-    public function upsert(int $hostId, string $memoryKey, string $content, ?array $metadata, array $tags): array
+    public function upsert(
+        int $hostId,
+        string $memoryKey,
+        string $content,
+        ?array $metadata,
+        array $tags,
+        ?string $summary = null
+    ): array
     {
         $now = gmdate(DATE_ATOM);
         $existing = $this->findByKey($hostId, $memoryKey);
@@ -31,6 +38,7 @@ final class InMemoryMemoryRepository extends MemoryRepository
             'content' => $content,
             'metadata' => $metadata,
             'tags' => $tags,
+            'summary' => $summary,
             'created_at' => $createdAt,
             'updated_at' => $now,
             'deleted_at' => null,

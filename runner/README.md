@@ -22,7 +22,7 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` requires header `X-Runner-Auth` with an exact secret match.
-- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` and `/skills/summarize` require header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/skills/summarize`, and `/memories/summarize` require header `X-Runner-Auth` with an exact secret match.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`.
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for writing `/tmp/last-auth.json`.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -134,6 +134,51 @@ Response (success):
   "reachable": true,
   "codex_version": "0.101.0",
   "summary": "Deploys services safely with guided rollout steps."
+}
+```
+
+Behavior details:
+- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
+- Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
+- Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
+
+### `POST /memories/summarize`
+
+Generate a short summary for one stored MCP memory so the API can render a per-host memory inventory inside served `AGENTS.md`.
+
+Request body:
+
+```json
+{
+  "auth_json": {
+    "last_refresh": "2026-03-28T10:00:00Z",
+    "auths": {
+      "api.openai.com": {
+        "token": "sk-..."
+      }
+    }
+  },
+  "memory_key": "deploy.notes",
+  "content": "Drain the queue before rollout and verify the worker backlog is zero.",
+  "timeout_seconds": 8
+}
+```
+
+Fields:
+- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
+- `memory_key` (required string) — memory identifier for prompt context.
+- `content` (required string) — stored memory content to summarize.
+- `timeout_seconds` (optional float) — summary timeout in seconds; defaults to 8.0 when omitted.
+
+Response (success):
+
+```json
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "0.101.0",
+  "summary": "Captures deployment notes and host-specific caveats."
 }
 ```
 

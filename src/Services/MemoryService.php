@@ -25,7 +25,8 @@ class MemoryService
 
     public function __construct(
         private readonly MemoryRepository $memories,
-        private readonly LogRepository $logs
+        private readonly LogRepository $logs,
+        private readonly ?MemorySummaryService $summaryService = null
     ) {
     }
 
@@ -53,14 +54,27 @@ class MemoryService
         $memoryKey = $memoryKey ?? $this->generateKey();
         $hostId = $this->hostId($host);
         $existing = $this->memories->findByKey($hostId ?? 0, $memoryKey);
-        $saved = $this->memories->upsert($hostId ?? 0, $memoryKey, $content, $metadata, $tags);
 
         $status = 'created';
+        $storedSummary = null;
         if ($existing !== null) {
             $unchanged = $existing['content'] === $content
                 && $this->normalizedArray($existing['tags'] ?? []) === $this->normalizedArray($tags)
                 && $this->normalizedAssoc($existing['metadata'] ?? null) === $this->normalizedAssoc($metadata);
             $status = $unchanged ? 'unchanged' : 'updated';
+            if ($unchanged && is_string($existing['summary'] ?? null)) {
+                $storedSummary = trim((string) $existing['summary']);
+            }
+        }
+        $saved = $this->memories->upsert($hostId ?? 0, $memoryKey, $content, $metadata, $tags, $storedSummary);
+
+        $needsSummary = !is_string($saved['summary'] ?? null) || trim((string) $saved['summary']) === '';
+        if ($this->summaryService !== null && ($status !== 'unchanged' || $needsSummary)) {
+            $generatedSummary = $this->summaryService->summarize($memoryKey, $content, $host);
+            if ($generatedSummary !== null && isset($saved['id'])) {
+                $this->memories->updateSummary((int) $saved['id'], $generatedSummary);
+                $saved['summary'] = $generatedSummary;
+            }
         }
 
         $this->logs->log($hostId, 'memory.store', [
@@ -397,10 +411,16 @@ class MemoryService
             'content' => $row['content'] ?? '',
             'metadata' => $row['metadata'] ?? null,
             'tags' => $row['tags'] ?? [],
+            'summary' => $row['summary'] ?? null,
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
             'score' => $score ?? ($row['score'] ?? null),
         ];
+    }
+
+    public function listForAgents(int $hostId): array
+    {
+        return $this->memories->listForAgents($hostId);
     }
 
     private function generateKey(): string
