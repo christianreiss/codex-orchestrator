@@ -5,6 +5,7 @@
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
     const newHostModal = document.getElementById('newHostModal');
+    const newHostDialog = newHostModal?.querySelector('.new-host-modal') || null;
     const navInsecureHosts = document.getElementById('navInsecureHosts');
     const navHelpTrigger = document.getElementById('navHelpTrigger');
     const insecureHostsDisableAllBtn = document.getElementById('insecureHostsDisableAll');
@@ -18,6 +19,16 @@
     const themeOptions = Array.from(document.querySelectorAll('[data-theme-option]'));
     const newHostName = document.getElementById('new-host-name');
     const newHostError = document.getElementById('newHostError');
+    const newHostForm = document.getElementById('newHostForm');
+    const newHostFormStage = document.getElementById('newHostFormStage');
+    const newHostSuccessStage = document.getElementById('newHostSuccessStage');
+    const newHostSuccessKicker = document.getElementById('newHostSuccessKicker');
+    const newHostSuccessTitle = document.getElementById('newHostSuccessTitle');
+    const newHostSuccessCopy = document.getElementById('newHostSuccessCopy');
+    const newHostSuccessChips = document.getElementById('newHostSuccessChips');
+    const deleteAccidentalHostBtn = document.getElementById('deleteAccidentalHost');
+    const closeNewHostSuccessBtn = document.getElementById('closeNewHostSuccess');
+    const createAnotherHostBtn = document.getElementById('createAnotherHost');
     const secureHostToggle = document.getElementById('secureHostToggle');
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
@@ -28,6 +39,7 @@
     const bootstrapCmdEl = document.getElementById('bootstrapCmd');
     const copyCmdBtn = document.getElementById('copyCmd');
     const installerMeta = document.getElementById('installerMeta');
+    const newHostClipboardStatus = document.getElementById('newHostClipboardStatus');
     const uploadAuthBtn = document.getElementById('uploadAuthBtn');
     const uploadModal = document.getElementById('uploadModal');
     const uploadAuthText = document.getElementById('uploadAuthText');
@@ -243,6 +255,8 @@
     const CODEX_RELEASES_CACHE_MS = 10 * 60 * 1000;
     let cachedCodexReleases = { fetchedAt: 0, versions: null, error: null };
     let pendingDeleteId = null;
+    let newHostSuccessHostId = null;
+    let newHostSuccessCanDelete = false;
     let pendingAgentsDeleteId = null;
     let pendingAgentsDeleteHosts = [];
     let pendingAgentsViewId = null;
@@ -282,10 +296,11 @@
     let skillEditingSlug = '';
     let skillTags = [];
 
-    const THEME_OPTIONS = ['auto', 'light', 'dark', 'bright-pink', 'dark-pink'];
+    const THEME_OPTIONS = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'];
     const THEME_SYNC_STORAGE_KEY = 'adminThemeSynced';
     const THEME_LABELS = {
       auto: 'Auto',
+      'auto-pink': 'Auto Pink',
       light: 'Light',
       dark: 'Dark',
       'bright-pink': 'Bright Pink',
@@ -335,6 +350,20 @@
       return THEME_OPTIONS.includes(value) ? value : 'auto';
     }
 
+    function resolveAppliedTheme(theme) {
+      const normalized = normalizeTheme(theme);
+      if (normalized !== 'auto-pink') {
+        return normalized;
+      }
+      try {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark-pink'
+          : 'bright-pink';
+      } catch (_) {
+        return 'bright-pink';
+      }
+    }
+
     function readStoredTheme() {
       try {
         return localStorage.getItem('adminTheme');
@@ -369,8 +398,10 @@
 
     function applyTheme(theme) {
       const normalized = normalizeTheme(theme);
+      const applied = resolveAppliedTheme(normalized);
       if (document.body) {
-        document.body.dataset.theme = normalized;
+        document.body.dataset.theme = applied;
+        document.body.dataset.themePreference = normalized;
       }
       themeOptions.forEach((option) => {
         const active = normalizeTheme(option.dataset.themeOption) === normalized;
@@ -428,6 +459,17 @@
           window.__railNav?.closeMenus?.();
         });
       });
+      try {
+        const darkMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+        darkMedia?.addEventListener?.('change', () => {
+          const stored = normalizeTheme(readStoredTheme());
+          if (stored === 'auto-pink') {
+            applyTheme(stored);
+          }
+        });
+      } catch (_) {
+        // ignore matchMedia availability issues
+      }
       document.addEventListener('click', (event) => {
         if (navThemeMenu.contains(event.target)) return;
         setThemeMenuOpen(false);
@@ -775,17 +817,17 @@
       return normalized !== '' ? normalized : 'n/a';
     }
 
-    function countHostsCreatedToday(hostsList = []) {
+    function countHostsActiveToday(hostsList = []) {
       if (!Array.isArray(hostsList)) return 0;
       const now = new Date();
       return hostsList.reduce((count, host) => {
-        const createdAt = host?.created_at;
-        if (typeof createdAt !== 'string' || createdAt.trim() === '') return count;
-        const created = new Date(createdAt);
-        if (Number.isNaN(created.getTime())) return count;
-        return created.getFullYear() === now.getFullYear()
-          && created.getMonth() === now.getMonth()
-          && created.getDate() === now.getDate()
+        const activeAt = host?.last_seen || host?.last_refresh || host?.updated_at || null;
+        if (typeof activeAt !== 'string' || activeAt.trim() === '') return count;
+        const active = new Date(activeAt);
+        if (Number.isNaN(active.getTime())) return count;
+        return active.getFullYear() === now.getFullYear()
+          && active.getMonth() === now.getMonth()
+          && active.getDate() === now.getDate()
           ? count + 1
           : count;
       }, 0);
@@ -5016,7 +5058,7 @@
     }
 
     function renderUsageCompareChip(label, data, active = false) {
-      if (!hasWindowData(data)) return '';
+      if (!hasWindowData(data) && !active) return '';
       const used = Number(data?.used_percent);
       const usedLabel = Number.isFinite(used) ? `${Math.max(0, Math.round(used))}%` : 'n/a';
       return `
@@ -5027,12 +5069,12 @@
       `;
     }
 
-    function renderUsageWindowCard(eyebrow, title, copy, rows = [], compare = '') {
+    function renderUsageLaneCard(eyebrow, title, copy, rows = [], compare = '', active = false) {
       const lanes = Array.isArray(rows)
         ? rows.map((row) => renderUsageLane(row.label, row.data, row.windowKey)).join('')
         : '';
       return `
-        <section class="usage-stage">
+        <section class="usage-stage${active ? ' is-active-lane' : ''}">
           <div class="usage-stage-head">
             <div class="usage-stage-copy">
               <span class="usage-stage-kicker">${escapeHtml(eyebrow)}</span>
@@ -5067,7 +5109,6 @@
       const status = snapshot.status || 'unknown';
       const plan = snapshot.plan_type || 'Unknown plan';
       const fetched = snapshot.fetched_at ? formatRelative(snapshot.fetched_at) : 'never';
-      const next = usage.next_eligible_at ? formatRelative(usage.next_eligible_at) : null;
       const normalPrimary = {
         used_percent: snapshot.primary_used_percent ?? null,
         limit_seconds: snapshot.primary_limit_seconds ?? null,
@@ -5099,63 +5140,45 @@
         || 'normal';
       const activeLane = typeof laneRaw === 'string' && laneRaw.toLowerCase() === 'spark' ? 'spark' : 'normal';
       const planLabel = plan;
-      const sparkMeta = [snapshot.spark_limit_name, snapshot.spark_metered_feature].filter((part) => typeof part === 'string' && part.trim() !== '').join(' · ');
-      const laneChip = `<span class="chip ${activeLane === 'spark' ? 'warn' : ''}">Active lane: ${activeLane}</span>`;
-      const primaryRows = [
-        { label: 'Normal', data: normalPrimary, windowKey: 'normal:primary' },
-      ];
-      const secondaryRows = [
-        { label: 'Normal', data: normalSecondary, windowKey: 'normal:secondary' },
+      const laneCards = [
+        {
+          key: 'normal',
+          eyebrow: 'Default lane',
+          title: 'Normal',
+          copy: activeLane === 'normal'
+            ? 'This is the live shared lane right now, with the 5-hour burst bar sitting directly above the weekly runway.'
+            : 'Steady shared lane for day-to-day work, with short and weekly runway stacked together.',
+          compare: renderUsageCompareChip('Lane', normalPrimary, activeLane === 'normal'),
+          active: activeLane === 'normal',
+          rows: [
+            { label: '5-hour runway', data: normalPrimary, windowKey: 'normal:primary' },
+            { label: 'Weekly runway', data: normalSecondary, windowKey: 'normal:secondary' },
+          ],
+        },
       ];
       if (hasSpark) {
-        primaryRows.push({ label: 'Spark', data: sparkPrimary, windowKey: 'spark:primary' });
-        secondaryRows.push({ label: 'Spark', data: sparkSecondary, windowKey: 'spark:secondary' });
-      }
-
-      const prioritizeRows = (rows) => {
-        if (!hasSpark) return rows.slice(0, 1);
-        const preferred = activeLane === 'spark' ? 'Spark' : 'Normal';
-        return rows.slice().sort((left, right) => {
-          if (left.label === preferred && right.label !== preferred) return -1;
-          if (right.label === preferred && left.label !== preferred) return 1;
-          return 0;
+        laneCards.push({
+          key: 'spark',
+          eyebrow: 'Burst lane',
+          title: 'Spark',
+          copy: activeLane === 'spark'
+            ? 'Spark is the live lane, so both the 5-hour and weekly bars here tell the real story right now.'
+            : 'Extra punch when you need it, with the short window and weekly runway stacked in one read.',
+          compare: renderUsageCompareChip('Lane', sparkPrimary, activeLane === 'spark'),
+          active: activeLane === 'spark',
+          rows: [
+            { label: '5-hour runway', data: sparkPrimary, windowKey: 'spark:primary' },
+            { label: 'Weekly runway', data: sparkSecondary, windowKey: 'spark:secondary' },
+          ],
         });
-      };
-      const sprintRows = prioritizeRows(primaryRows);
-      const weeklyRows = prioritizeRows(secondaryRows);
-      const cockpitCopy = activeLane === 'spark'
-        ? 'Spark is on point right now. Keep the sprint clean, then leave enough juice for the week.'
-        : 'Normal lane is pacing the run. Burst hard in the short window, but keep the weekly runway healthy.';
-      const freshnessChips = [
-        laneChip,
-        usage.cached ? '<span class="chip neutral">Snapshot cached</span>' : '',
-        next ? `<span class="chip neutral">Next pull ${escapeHtml(next)}</span>` : '',
-        sparkMeta ? `<span class="chip neutral">${escapeHtml(sparkMeta)}</span>` : '',
-      ].filter(Boolean).join('');
-
+      }
       chatgptUsageCard.innerHTML = `
-        <div class="primary-card-head">
-          <span class="primary-card-label">Usage</span>
-          <span class="primary-card-badge">${escapeHtml(planLabel)}${snapshot.rate_limit_reached ? ' · limit reached' : ''}</span>
-        </div>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
         <div class="usage-cockpit">
-          <div class="usage-cockpit-head">
-            <div class="usage-cockpit-copy">
-              <span class="usage-cockpit-kicker">Quota cockpit</span>
-              <h3 class="usage-cockpit-title">Sprint now. Protect the marathon.</h3>
-              <p class="usage-cockpit-note">${escapeHtml(cockpitCopy)}</p>
-            </div>
-            <div class="usage-cockpit-meta">
-              ${freshnessChips}
-            </div>
-          </div>
-          <div class="usage-cockpit-grid">
-            ${renderUsageWindowCard('Sprint', '5-hour runway', 'Short-burst budget for focused pushes and quick recoveries.', sprintRows)}
-            ${renderUsageWindowCard('Marathon', 'Weekly runway', 'Long-haul budget so the team still has headroom later in the week.', weeklyRows)}
+          <div class="usage-cockpit-grid${hasSpark ? '' : ' is-single'}">
+            ${laneCards.map((lane) => renderUsageLaneCard(lane.eyebrow, lane.title, lane.copy, lane.rows, lane.compare, lane.active)).join('')}
           </div>
         </div>
-        <div class="primary-card-footer">Updated ${fetched}</div>
       `;
 
       wireChatGptControls();
@@ -6826,7 +6849,7 @@
       const hostTotal = Number.isFinite(hostTotalFromOverview) ? hostTotalFromOverview : fleetSummary.total;
       const hostDenominator = hostTotal > 0 ? hostTotal : 1;
       const secureRatio = hostTotal > 0 ? (fleetSummary.secure / hostDenominator) * 100 : 0;
-      const hostsCreatedToday = countHostsCreatedToday(hostsList);
+      const hostsActiveToday = countHostsActiveToday(hostsList);
 
       const tokensMonth = safeData.tokens_month || {};
       const tokensWeek = safeData.tokens_week || {};
@@ -6943,7 +6966,7 @@
         dashboardFooterText.innerHTML = `
           <strong>${formatNumber(hostTotal)}</strong> total hosts,
           <strong class="${secureToneClass}">${formatNumber(fleetSummary.secure)}</strong> secure,
-          <strong>${formatNumber(hostsCreatedToday)}</strong> today.
+          <strong>${formatNumber(hostsActiveToday)}</strong> active today.
           <span class="dashboard-footer-divider">/</span>
           Codex version <strong>${escapeHtml(codexVersionDisplay)}</strong>
           and wrapper <strong>${escapeHtml(wrapperVersionDisplay)}</strong>.
@@ -9341,8 +9364,25 @@
     if (cancelNewHostBtn) {
       cancelNewHostBtn.addEventListener('click', () => showNewHostModal(false));
     }
-    if (createHostBtn) {
+    if (newHostForm) {
+      newHostForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        createHost();
+      });
+    } else if (createHostBtn) {
       createHostBtn.addEventListener('click', createHost);
+    }
+    if (closeNewHostSuccessBtn) {
+      closeNewHostSuccessBtn.addEventListener('click', () => showNewHostModal(false));
+    }
+    if (createAnotherHostBtn) {
+      createAnotherHostBtn.addEventListener('click', () => showNewHostModal(true, { reset: true, focusInput: true }));
+    }
+    if (deleteAccidentalHostBtn) {
+      deleteAccidentalHostBtn.addEventListener('click', () => {
+        if (!newHostSuccessCanDelete || !newHostSuccessHostId) return;
+        openDeleteModal(newHostSuccessHostId);
+      });
     }
     if (uploadAuthCancel) {
       uploadAuthCancel.addEventListener('click', () => showUploadModal(false));
@@ -9712,6 +9752,7 @@
 
     function resetNewHostForm({ focusInput = false } = {}) {
       if (newHostError) { newHostError.textContent = ''; newHostError.classList.remove('show'); }
+      setNewHostModalStage('form');
       if (commandField) {
         commandField.style.display = 'none';
       }
@@ -9719,8 +9760,33 @@
         installerMeta.style.display = 'none';
         installerMeta.textContent = '';
       }
+      if (newHostClipboardStatus) {
+        newHostClipboardStatus.textContent = 'Copied to clipboard. Paste it into the new box and let it rip.';
+      }
+      newHostSuccessHostId = null;
+      newHostSuccessCanDelete = false;
+      if (deleteAccidentalHostBtn) {
+        deleteAccidentalHostBtn.hidden = true;
+      }
       if (bootstrapCmdEl) {
         bootstrapCmdEl.textContent = '';
+      }
+      if (copyCmdBtn) {
+        copyCmdBtn.textContent = 'Copy Again';
+        copyCmdBtn.disabled = false;
+        copyCmdBtn.onclick = null;
+      }
+      if (newHostSuccessKicker) {
+        newHostSuccessKicker.textContent = 'Host created. Clipboard warm.';
+      }
+      if (newHostSuccessTitle) {
+        newHostSuccessTitle.textContent = 'Installer Ready';
+      }
+      if (newHostSuccessCopy) {
+        newHostSuccessCopy.textContent = 'The installer command is ready and already copied to your clipboard.';
+      }
+      if (newHostSuccessChips) {
+        newHostSuccessChips.replaceChildren();
       }
       if (newHostName) {
         newHostName.value = '';
@@ -9740,6 +9806,19 @@
       }
     }
 
+    function setNewHostModalStage(stage) {
+      const showSuccess = stage === 'success';
+      if (newHostFormStage) {
+        newHostFormStage.hidden = showSuccess;
+      }
+      if (newHostSuccessStage) {
+        newHostSuccessStage.hidden = !showSuccess;
+      }
+      if (newHostDialog) {
+        newHostDialog.classList.toggle('is-success', showSuccess);
+      }
+    }
+
     function showNewHostModal(show, { reset = show, focusInput = reset } = {}) {
       if (!newHostModal) return;
       if (show) {
@@ -9750,6 +9829,66 @@
         newHostModal.classList.remove('show');
         setInertBehindModal(newHostModal, false);
         if (reset) resetNewHostForm();
+      }
+    }
+
+    function renderNewHostSuccessChips({ fqdn, secure, temporary, insecureCurl, vip }) {
+      if (!newHostSuccessChips) return;
+      const chips = [
+        { label: fqdn, tone: 'pro' },
+        { label: secure ? 'Secure' : 'Insecure', tone: secure ? 'ok' : 'warn' },
+        { label: temporary ? 'Temporary' : 'Persistent', tone: temporary ? 'warn' : 'neutral' },
+      ];
+      if (insecureCurl) {
+        chips.push({ label: 'curl -k', tone: 'warn' });
+      }
+      if (vip) {
+        chips.push({ label: 'VIP', tone: 'pro' });
+      }
+      newHostSuccessChips.replaceChildren();
+      chips.forEach(({ label, tone }) => {
+        const chip = document.createElement('span');
+        chip.className = `chip ${tone}`;
+        chip.textContent = label;
+        newHostSuccessChips.appendChild(chip);
+      });
+    }
+
+    async function copyInstallerCommand(cmd, { auto = false } = {}) {
+      if (!cmd) return false;
+      const previous = copyCmdBtn?.textContent || 'Copy Again';
+      if (copyCmdBtn) {
+        copyCmdBtn.disabled = true;
+        copyCmdBtn.textContent = auto ? 'Copying…' : 'Copying…';
+      }
+      try {
+        await copyToClipboard(cmd);
+        if (newHostClipboardStatus) {
+          newHostClipboardStatus.textContent = auto
+            ? 'Copied to clipboard. Paste it into the new box and let it rip.'
+            : 'Copied again. Paste it where the fresh box can hear you.';
+        }
+        if (copyCmdBtn) {
+          copyCmdBtn.textContent = 'Copied';
+        }
+        return true;
+      } catch (error) {
+        if (newHostClipboardStatus) {
+          newHostClipboardStatus.textContent = auto
+            ? 'Clipboard access was blocked. The installer curl is ready below, and Copy Again will retry.'
+            : 'Clipboard access was blocked. Copy it manually from the field below.';
+        }
+        if (copyCmdBtn) {
+          copyCmdBtn.textContent = 'Copy Failed';
+        }
+        return false;
+      } finally {
+        window.setTimeout(() => {
+          if (copyCmdBtn) {
+            copyCmdBtn.textContent = previous;
+            copyCmdBtn.disabled = false;
+          }
+        }, 900);
       }
     }
 
@@ -9778,9 +9917,10 @@
     }
 
     async function createHost() {
-      const fqdn = newHostName.value.trim();
+      const fqdn = newHostName?.value.trim() || '';
       if (!fqdn) {
         if (newHostError) { newHostError.textContent = 'Please enter a host name'; newHostError.classList.add('show'); }
+        newHostName?.focus();
         return;
       }
       await regenerateInstaller(fqdn);
@@ -9790,6 +9930,7 @@
       const targetFqdn = fqdn || newHostName.value.trim();
       if (!targetFqdn) {
         if (newHostError) { newHostError.textContent = 'Please enter a host name'; newHostError.classList.add('show'); }
+        newHostName?.focus();
         return;
       }
       const existingHost = hostId ? currentHosts.find(h => h.id === hostId) : null;
@@ -9819,7 +9960,7 @@
       if (!secure) {
         registerPayload.duration_minutes = insecureWindowMinutes;
       }
-    if (createHostBtn) {
+      if (createHostBtn) {
       createHostBtn.disabled = true;
       createHostBtn.textContent = 'Minting…';
     }
@@ -9838,22 +9979,8 @@
         bootstrapCmdEl.textContent = cmd;
         commandField.style.display = 'block';
         if (copyCmdBtn) {
-          copyCmdBtn.onclick = async () => {
-            const previous = copyCmdBtn.textContent || 'Copy';
-            copyCmdBtn.disabled = true;
-            copyCmdBtn.textContent = 'Copying…';
-            try {
-              await copyToClipboard(cmd);
-              copyCmdBtn.textContent = 'Copied';
-            } catch (error) {
-              copyCmdBtn.textContent = 'Copy failed';
-            } finally {
-              window.setTimeout(() => {
-                copyCmdBtn.textContent = previous;
-                copyCmdBtn.disabled = false;
-              }, 900);
-            }
-          };
+          copyCmdBtn.textContent = 'Copy Again';
+          copyCmdBtn.onclick = () => copyInstallerCommand(cmd);
         }
         if (installerMeta) {
           const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
@@ -9862,11 +9989,43 @@
             : `One-time installer ready.`;
           installerMeta.style.display = 'block';
         }
+        const hostResponse = res.data?.host || null;
+        const responseHostId = Number(hostResponse?.id || hostId || 0);
+        const created = !existingHost;
+        newHostSuccessHostId = Number.isFinite(responseHostId) && responseHostId > 0 ? responseHostId : null;
+        newHostSuccessCanDelete = created && newHostSuccessHostId !== null;
+        if (deleteAccidentalHostBtn) {
+          deleteAccidentalHostBtn.hidden = !newHostSuccessCanDelete;
+        }
+        if (newHostSuccessKicker) {
+          newHostSuccessKicker.textContent = created
+            ? 'Host created. Clipboard warm.'
+            : 'Installer refreshed. Clipboard warm.';
+        }
+        if (newHostSuccessTitle) {
+          newHostSuccessTitle.textContent = created ? 'Host Ready to Join' : 'Fresh Installer Ready';
+        }
+        if (newHostSuccessCopy) {
+          newHostSuccessCopy.textContent = created
+            ? `${targetFqdn} is registered. The installer curl is already copied, so you can paste it straight onto the new host.`
+            : `${targetFqdn} already exists. A fresh installer curl is copied and ready for the next run.`;
+        }
+        renderNewHostSuccessChips({
+          fqdn: targetFqdn,
+          secure,
+          temporary: !!temporary,
+          insecureCurl: insecureToggle ? !!insecureToggle.checked : false,
+          vip,
+        });
+        setNewHostModalStage('success');
         if (newHostName) {
           newHostName.value = targetFqdn;
         }
         showNewHostModal(true, { reset: false });
-        await loadAll();
+        await copyInstallerCommand(cmd, { auto: true });
+        loadAll().catch((error) => {
+          console.warn('Dashboard refresh after installer mint failed', error);
+        });
       } catch (err) {
         const msg = err?.message || String(err);
         toast(`Installer generation failed: ${msg}`, 'error');
@@ -9981,6 +10140,7 @@
 
     async function confirmRemove() {
       if (pendingDeleteId === null) return;
+      const deletedFromNewHostSuccess = newHostSuccessCanDelete && newHostSuccessHostId === pendingDeleteId;
       const btn = confirmDeleteHostBtn;
       if (btn) {
         btn.disabled = true;
@@ -9990,6 +10150,9 @@
         await api(`/admin/hosts/${pendingDeleteId}`, { method: 'DELETE' });
         await reloadHostContextAfterMutation({ allowMissing: true });
         closeDeleteModal();
+        if (deletedFromNewHostSuccess) {
+          showNewHostModal(false);
+        }
       } catch (err) {
         toast(`Remove failed: ${err.message}`, 'error');
       } finally {

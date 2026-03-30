@@ -225,7 +225,9 @@ final class AdminAgentsUiWiringTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
         $this->assertStringContainsString("const dashboardFooterText = document.getElementById('dashboardFooterText');", $js);
-        $this->assertStringContainsString('function countHostsCreatedToday(hostsList = []) {', $js);
+        $this->assertStringContainsString('function countHostsActiveToday(hostsList = []) {', $js);
+        $this->assertStringContainsString('const activeAt = host?.last_seen || host?.last_refresh || host?.updated_at || null;', $js);
+        $this->assertStringContainsString('active today.', $js);
         $this->assertStringContainsString('Codex version <strong>', $js);
         $this->assertStringContainsString('Spend <strong>${formatCurrency(dayCost, planCurrency)}</strong> today', $js);
     }

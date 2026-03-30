@@ -289,7 +289,7 @@ def record_versions(vblock):
         admin_theme = vblock.get("admin_theme")
         if isinstance(admin_theme, str):
             admin_theme = admin_theme.strip().lower()
-            if admin_theme in ("auto", "light", "dark", "bright-pink", "dark-pink"):
+            if admin_theme in ("auto", "auto-pink", "light", "dark", "bright-pink", "dark-pink"):
                 out["admin_theme"] = admin_theme
         inst = vblock.get("installation_id")
         if isinstance(inst, str) and inst.strip():

@@ -1,9 +1,22 @@
 (() => {
+  function resolveTheme(theme) {
+    if (theme !== 'auto-pink') {
+      return theme;
+    }
+    try {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark-pink'
+        : 'bright-pink';
+    } catch (_) {
+      return 'bright-pink';
+    }
+  }
+
   // Respect dashboard theme preference
   try {
     const stored = localStorage.getItem('adminTheme');
-    if (stored && ['auto', 'light', 'dark', 'bright-pink', 'dark-pink'].includes(stored)) {
-      document.body.dataset.theme = stored;
+    if (stored && ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'].includes(stored)) {
+      document.body.dataset.theme = resolveTheme(stored);
     }
   } catch (_) {}
 

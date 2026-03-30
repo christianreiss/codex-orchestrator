@@ -334,6 +334,7 @@
               "type": "string",
               "enum": [
                 "auto",
+                "auto-pink",
                 "light",
                 "dark",
                 "bright-pink",

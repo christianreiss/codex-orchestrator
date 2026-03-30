@@ -76,7 +76,7 @@ if ((AUTH_LAUNCH_ALLOWED == 1)) && ((CODEX_LANE_WANTS_RUN)) && ((QUOTA_BLOCKED))
     AUTH_LAUNCH_ALLOWED=0
     AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
   else
-    log_warn "ChatGPT quota reached: ${QUOTA_BLOCK_REASON:-see details above}. Continuing (warn mode)."
+    log_warn "Quota warn mode; continuing."
   fi
 fi
 

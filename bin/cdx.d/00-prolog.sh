@@ -111,7 +111,7 @@ normalize_admin_theme() {
   local normalized
   normalized="$(lowercase "${1-}")"
   case "$normalized" in
-    auto | light | dark | bright-pink | dark-pink)
+    auto | auto-pink | light | dark | bright-pink | dark-pink)
       printf '%s' "$normalized"
       ;;
     *)
@@ -122,7 +122,7 @@ normalize_admin_theme() {
 
 theme_is_pink() {
   case "$(normalize_admin_theme "${1-}")" in
-    bright-pink | dark-pink) return 0 ;;
+    auto-pink | bright-pink | dark-pink) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -258,8 +258,8 @@ print_motd() {
 # Usage: print_boot_banner "info0" "info1" "info2" "info3" "info4" "info5"
 print_boot_banner() {
   local -a info_lines=("$@")
-  local art_pad=36
-  local gap="   "
+  local art_pad=0
+  local gap="  "
   local banner_color=""
   banner_color="$(banner_color_sequence)"
   local cols="${COLUMNS:-}"
@@ -271,11 +271,23 @@ print_boot_banner() {
   local stacked=0
   ((cols < 60)) && stacked=1
 
+  if ((!stacked)); then
+    local art_line=""
+    while IFS= read -r art_line; do
+      local art_width=0
+      art_width="$(visible_text_width "$art_line")"
+      if ((art_width > art_pad)); then
+        art_pad=$art_width
+      fi
+    done <<<"$BANNER_ART"
+  fi
+
   local i=0
   while IFS= read -r art_line; do
     printf "%b %s" "${banner_color}" "$art_line"
     if ((!stacked)); then
-      local art_len=${#art_line}
+      local art_len=0
+      art_len="$(visible_text_width "$art_line")"
       local pad_n=$((art_pad - art_len))
       ((pad_n < 0)) && pad_n=0
       ((pad_n > 0)) && printf '%*s' "$pad_n" ""
@@ -823,7 +835,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.03.30-04"
+WRAPPER_VERSION="2026.03.30-07"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

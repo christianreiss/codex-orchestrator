@@ -21,6 +21,7 @@ final class AdminNavDrawerUiTest extends TestCase
         $this->assertStringContainsString('class="rail-frame"', $html);
         $this->assertStringContainsString('id="navAccountTrigger"', $html);
         $this->assertStringContainsString('id="navThemeMenuTrigger"', $html);
+        $this->assertStringContainsString('data-theme-option="auto-pink"', $html);
         $this->assertStringContainsString('data-theme-option="bright-pink"', $html);
         $this->assertStringContainsString('data-theme-option="dark-pink"', $html);
         $this->assertStringContainsString('href="/admin/account/password"', $html);
@@ -62,8 +63,10 @@ final class AdminNavDrawerUiTest extends TestCase
 
         $dashboardJs = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($dashboardJs);
+        $this->assertStringContainsString("'auto-pink'", $dashboardJs);
         $this->assertStringContainsString("'bright-pink'", $dashboardJs);
         $this->assertStringContainsString("'dark-pink'", $dashboardJs);
+        $this->assertStringContainsString("'Auto Pink'", $dashboardJs);
         $this->assertStringContainsString("'Bright Pink'", $dashboardJs);
         $this->assertStringContainsString("'Dark Pink'", $dashboardJs);
     }

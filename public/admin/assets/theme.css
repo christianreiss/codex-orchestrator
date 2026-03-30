@@ -200,7 +200,8 @@ body[data-theme="light"] {
   --meter-marker-glow: rgba(13, 18, 28, 0.18);
 }
 
-body[data-theme="bright-pink"] {
+body[data-theme="bright-pink"],
+body[data-theme="auto-pink"] {
   color-scheme: light;
   --bg: #fff1f8;
   --bg-2: #ffdceb;

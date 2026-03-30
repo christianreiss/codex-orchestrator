@@ -101,7 +101,8 @@ body[data-theme="dark"] {
   --accent-gradient: linear-gradient(135deg, #2fe6da, #1fb7ae);
 }
 
-body[data-theme="bright-pink"] {
+body[data-theme="bright-pink"],
+body[data-theme="auto-pink"] {
   --bg: #fff1f8;
   --bg-2: #ffdceb;
   --panel: rgba(255, 255, 255, 0.90);
@@ -237,6 +238,10 @@ body {
 }
 #chatgpt-usage-card {
   grid-column: 1 / -1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .primary-card-head {
   display: flex;
@@ -1985,6 +1990,20 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
     .new-host-modal {
       max-width: 640px;
     }
+    .new-host-modal.is-success {
+      max-width: 680px;
+    }
+    .new-host-stage {
+      display: grid;
+      gap: 0;
+    }
+    .new-host-stage[hidden] {
+      display: none;
+    }
+    #newHostForm {
+      display: grid;
+      gap: 0;
+    }
     .host-search-modal {
       max-width: 760px;
     }
@@ -2081,6 +2100,16 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
     .new-host-copy {
       max-width: 54ch;
     }
+    .new-host-success-stage .new-host-copy {
+      margin-bottom: 12px;
+    }
+    .new-host-success-chips {
+      margin: -4px 0 16px;
+      min-height: 30px;
+    }
+    .new-host-success-stage .command-box {
+      margin-top: 2px;
+    }
     .new-host-toggle-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2139,6 +2168,9 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
     }
     .new-host-option input:focus-visible + .track {
       box-shadow: var(--ring);
+    }
+    .new-host-modal .actions {
+      margin-top: 12px;
     }
     @media (max-width: 640px) {
       .new-host-toggle-grid {
@@ -4456,74 +4488,42 @@ body[data-view-mode="dashboard"] .content {
 
 /* Usage card within primary grid */
 .panel-set[data-panel="dashboard"] .usage-cockpit {
-  margin-top: 10px;
-  padding: 14px;
-  border-radius: var(--dash-card-radius);
-  border: 1px solid color-mix(in srgb, var(--dash-card-border) 88%, transparent);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 74%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--card) 98%, transparent), color-mix(in srgb, var(--usage-section) 88%, var(--card) 12%));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   display: grid;
-  gap: 12px;
-}
-
-.panel-set[data-panel="dashboard"] .usage-cockpit-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.panel-set[data-panel="dashboard"] .usage-cockpit-copy {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.panel-set[data-panel="dashboard"] .usage-cockpit-kicker {
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--muted);
-}
-
-.panel-set[data-panel="dashboard"] .usage-cockpit-title {
-  margin: 0;
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-}
-
-.panel-set[data-panel="dashboard"] .usage-cockpit-note {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.panel-set[data-panel="dashboard"] .usage-cockpit-meta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 0;
 }
 
 .panel-set[data-panel="dashboard"] .usage-cockpit-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
+}
+
+.panel-set[data-panel="dashboard"] .usage-cockpit-grid.is-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .panel-set[data-panel="dashboard"] .usage-stage {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 16px;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--dash-subtle-border) 92%, transparent);
   background: color-mix(in srgb, var(--dash-subtle-surface) 84%, var(--card) 16%);
+  min-height: 100%;
+}
+
+.panel-set[data-panel="dashboard"] .usage-stage.is-active-lane {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--dash-card-border));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 20%, transparent), transparent 38%),
+    color-mix(in srgb, var(--dash-subtle-surface) 88%, var(--card) 12%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
 .panel-set[data-panel="dashboard"] .usage-stage-head {
@@ -4595,12 +4595,17 @@ body[data-view-mode="dashboard"] .content {
 
 .panel-set[data-panel="dashboard"] .usage-lanes {
   display: grid;
-  gap: 6px;
+  gap: 10px;
 }
 
 .panel-set[data-panel="dashboard"] .usage-lane {
   display: grid;
   gap: 6px;
+}
+
+.panel-set[data-panel="dashboard"] .usage-lane + .usage-lane {
+  border-top: 1px solid color-mix(in srgb, var(--dash-subtle-border) 84%, transparent);
+  padding-top: 10px;
 }
 
 .panel-set[data-panel="dashboard"] .usage-stage .label {

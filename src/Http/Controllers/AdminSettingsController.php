@@ -184,7 +184,7 @@ class AdminSettingsController
         if (!is_string($rawTheme)) {
             Response::json([
                 'status' => 'error',
-                'message' => 'theme must be one of: auto, light, dark, bright-pink, dark-pink',
+                'message' => 'theme must be one of: auto, auto-pink, light, dark, bright-pink, dark-pink',
             ], 422);
         }
 
@@ -192,7 +192,7 @@ class AdminSettingsController
         if ($theme !== trim(strtolower($rawTheme))) {
             Response::json([
                 'status' => 'error',
-                'message' => 'theme must be one of: auto, light, dark, bright-pink, dark-pink',
+                'message' => 'theme must be one of: auto, auto-pink, light, dark, bright-pink, dark-pink',
             ], 422);
         }
 

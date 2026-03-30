@@ -48,13 +48,20 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString('<div class="modal new-host-modal">', $html);
         $this->assertStringContainsString('Fresh machine, one command.', $html);
         $this->assertStringContainsString('Spin Up a Host', $html);
-        $this->assertStringContainsString('Pick a hostname, choose the guardrails, and we will mint a one-time installer', $html);
+        $this->assertStringContainsString('Pick a hostname, choose the guardrails, and hit Enter.', $html);
+        $this->assertStringContainsString('<form id="newHostForm">', $html);
         $this->assertStringContainsString('>Hostname</label>', $html);
         $this->assertStringContainsString('class="new-host-toggle-grid"', $html);
         $this->assertStringContainsString('new-host-option-title">Secure</span>', $html);
         $this->assertStringContainsString('new-host-option-title">Temporary</span>', $html);
         $this->assertStringContainsString('new-host-option-title">Insecure Curl</span>', $html);
         $this->assertStringContainsString('new-host-option-title">VIP</span>', $html);
+        $this->assertStringContainsString('id="newHostSuccessStage" hidden', $html);
+        $this->assertStringContainsString('Host created. Clipboard warm.', $html);
+        $this->assertStringContainsString('Installer curl</label>', $html);
+        $this->assertStringContainsString('Delete Accident</button>', $html);
+        $this->assertStringContainsString('Copy Again</button>', $html);
+        $this->assertStringContainsString('Mint Another</button>', $html);
         $this->assertStringContainsString('Mint Installer</button>', $html);
         $this->assertStringNotContainsString('Issue a one-time installer link for this FQDN.', $html);
         $this->assertStringNotContainsString('Host FQDN', $html);
@@ -62,9 +69,22 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
         $this->assertIsString($css);
         $this->assertStringContainsString('.new-host-modal {', $css);
+        $this->assertStringContainsString('.new-host-modal.is-success {', $css);
+        $this->assertStringContainsString('.new-host-stage {', $css);
         $this->assertStringContainsString('.new-host-toggle-grid {', $css);
         $this->assertStringContainsString('grid-template-columns: repeat(2, minmax(0, 1fr));', $css);
         $this->assertStringContainsString('.new-host-option-title {', $css);
         $this->assertStringContainsString('.new-host-option-desc {', $css);
+
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+        $this->assertStringContainsString("newHostForm.addEventListener('submit'", $js);
+        $this->assertStringContainsString("const deleteAccidentalHostBtn = document.getElementById('deleteAccidentalHost');", $js);
+        $this->assertStringContainsString("deleteAccidentalHostBtn.addEventListener('click', () => {", $js);
+        $this->assertStringContainsString("deleteAccidentalHostBtn.hidden = !newHostSuccessCanDelete;", $js);
+        $this->assertStringContainsString("showNewHostModal(false);", $js);
+        $this->assertStringContainsString("setNewHostModalStage('success');", $js);
+        $this->assertStringContainsString("await copyInstallerCommand(cmd, { auto: true });", $js);
+        $this->assertStringContainsString("copyCmdBtn.textContent = 'Copy Again';", $js);
     }
 }

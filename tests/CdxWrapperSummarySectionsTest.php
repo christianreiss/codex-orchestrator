@@ -18,6 +18,7 @@ final class CdxWrapperSummarySectionsTest extends TestCase
         self::assertStringContainsString('CODEX_ADMIN_THEME_DEFAULT="__CODEX_ADMIN_THEME__"', $wrapperSource);
         self::assertStringContainsString('banner_color_sequence()', $wrapperSource);
         self::assertStringContainsString('theme_is_pink()', $wrapperSource);
+        self::assertStringContainsString('auto-pink', $wrapperSource);
         self::assertStringContainsString('build_health_dot "api"', $wrapperSource);
         self::assertStringContainsString('build_health_dot "auth"', $wrapperSource);
         self::assertStringContainsString('build_health_dot "skills"', $wrapperSource);
@@ -62,5 +63,33 @@ final class CdxWrapperSummarySectionsTest extends TestCase
         self::assertStringContainsString('Tokens this month', $wrapperSource);
         self::assertStringContainsString('q_labels+=("5h")', $wrapperSource);
         self::assertStringContainsString('q_labels+=("weekly")', $wrapperSource);
+    }
+
+    public function testWrapperKeepsQuotaWarnCopyCompact(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('reason="daily budget hit (${daily_allowance_used_pct}%"', $wrapperSource);
+        self::assertStringContainsString('note_parts+=("${daily_used}% of week today")', $wrapperSource);
+        self::assertStringContainsString('note_parts+=("${allowance_per_day}%/day budget")', $wrapperSource);
+        self::assertStringContainsString('log_warn "Quota warn mode; continuing."', $wrapperSource);
+        self::assertStringNotContainsString('reason="daily allowance reached (${daily_allowance_used_pct}% of allowance"', $wrapperSource);
+        self::assertStringNotContainsString('log_warn "ChatGPT quota reached: ${QUOTA_BLOCK_REASON:-see details above}. Continuing (warn mode)."', $wrapperSource);
+    }
+
+    public function testWrapperMeasuresBannerWidthInsteadOfUsingFixedFloatingOffset(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('local art_pad=0', $wrapperSource);
+        self::assertStringContainsString('local gap="  "', $wrapperSource);
+        self::assertStringContainsString('art_width="$(visible_text_width "$art_line")"', $wrapperSource);
+        self::assertStringContainsString('art_len="$(visible_text_width "$art_line")"', $wrapperSource);
+        self::assertStringNotContainsString('local art_pad=36', $wrapperSource);
+        self::assertStringNotContainsString('local gap="   "', $wrapperSource);
     }
 }

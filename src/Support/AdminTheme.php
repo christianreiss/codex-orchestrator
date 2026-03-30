@@ -7,7 +7,7 @@ namespace App\Support;
 final class AdminTheme
 {
     /** @var list<string> */
-    public const OPTIONS = ['auto', 'light', 'dark', 'bright-pink', 'dark-pink'];
+    public const OPTIONS = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'];
 
     public static function normalize(mixed $value): string
     {
@@ -24,6 +24,6 @@ final class AdminTheme
     {
         $normalized = self::normalize($value);
 
-        return $normalized === 'bright-pink' || $normalized === 'dark-pink';
+        return $normalized === 'auto-pink' || $normalized === 'bright-pink' || $normalized === 'dark-pink';
     }
 }

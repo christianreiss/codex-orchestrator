@@ -16,8 +16,10 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
         self::assertStringContainsString('other_lane_label="Normal"', $wrapperSource);
         self::assertStringContainsString('if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then', $wrapperSource);
         self::assertStringContainsString('if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then', $wrapperSource);
-        self::assertStringContainsString('q_labels+=("5h");       q_used+=("$other_lane_primary_used")', $wrapperSource);
-        self::assertStringContainsString('q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")', $wrapperSource);
+        self::assertStringContainsString('q_labels+=("5h")', $wrapperSource);
+        self::assertStringContainsString('q_used+=("$other_lane_primary_used")', $wrapperSource);
+        self::assertStringContainsString('q_labels+=("weekly")', $wrapperSource);
+        self::assertStringContainsString('q_used+=("$other_lane_secondary_used")', $wrapperSource);
         self::assertStringNotContainsString('other_lane_usage_value="Spark: 5h ${spark_5h}, week ${spark_wk}"', $wrapperSource);
     }
 

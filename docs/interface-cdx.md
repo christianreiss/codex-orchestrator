@@ -35,7 +35,7 @@ Guardrails:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
 8. Check/update Codex + wrapper.
-9. Render boot summary and enforce launch gates. Human-facing wrapper headers keep the `codex orchestrator` branding and currently include the tagline `Codex to Brrr!`. When the mirrored admin theme preference is `bright-pink` or `dark-pink`, the ASCII banner switches from orange to pink. No-op helper paths must not abort launch here: empty OTel exports and unchanged logical/physical cwd trust writes both return success under `set -e`.
+9. Render boot summary and enforce launch gates. Human-facing wrapper headers keep the `codex orchestrator` branding and currently include the tagline `Codex to Brrr!`. When the mirrored admin theme preference is `auto-pink`, `bright-pink`, or `dark-pink`, the ASCII banner switches from orange to pink. No-op helper paths must not abort launch here: empty OTel exports and unchanged logical/physical cwd trust writes both return success under `set -e`.
 10. Launch Codex (unless status/doctor/lane-only path exits first).
 11. Cleanup trap: auth push, usage push, insecure-host auth purge (when applicable), lock release.
 
