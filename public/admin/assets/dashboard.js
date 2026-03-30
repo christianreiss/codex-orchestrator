@@ -175,6 +175,16 @@
     const insecureApprovalLabel = document.getElementById('insecureApprovalLabel');
     const autoUpdateToggle = document.getElementById('autoUpdateToggle');
     const autoUpdateLabel = document.getElementById('autoUpdateLabel');
+    const scalingToggle = document.getElementById('scalingToggle');
+    const scalingLabel = document.getElementById('scalingLabel');
+    const scalingBadge = document.getElementById('scalingBadge');
+    const scalingBody = document.getElementById('scalingBody');
+    const scalingStatus = document.getElementById('scalingStatus');
+    const scalingTierList = document.getElementById('scalingTierList');
+    const scalingAddTier = document.getElementById('scalingAddTier');
+    const scalingVipExempt = document.getElementById('scalingVipExempt');
+    const scalingHostOverrideWins = document.getElementById('scalingHostOverrideWins');
+    const scalingSave = document.getElementById('scalingSave');
     const codexVersionSelect = document.getElementById('codexVersionSelect');
     const codexVersionMeta = document.getElementById('codexVersionMeta');
     const accessBlockModal = document.getElementById('accessBlockModal');
@@ -590,6 +600,7 @@
     let reverseDnsEnabled = false;
     let insecureApprovalEnabled = false;
     let autoUpdateEnabled = false;
+    let scalingData = null;
     let chatgptUsageHistory = null;
     let chatgptUsageHistoryPromise = null;
     const chatgptUsageHistoryCache = new Map();
@@ -5443,6 +5454,10 @@
           autoUpdateEnabled = !!currentOverview.auto_update_enabled;
           renderAutoUpdate();
         }
+        if (currentOverview.scaling != null) {
+          scalingData = currentOverview.scaling;
+          renderScaling();
+        }
       }
 
       const runnerInfo = runnerResponse?.data || runnerSummary || null;
@@ -6420,6 +6435,124 @@
       });
       renderQuotaLimit();
       renderQuotaPartition();
+    }
+
+    // ── Usage Scaling ──
+
+    const SCALING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+    const SCALING_MODELS = [
+      { value: '', label: '(no change)' },
+      { value: 'gpt-5.4', label: 'gpt-5.4' },
+      { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
+      { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
+      { value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' },
+      { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
+      { value: 'gpt-5.2', label: 'gpt-5.2' },
+      { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
+      { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
+    ];
+
+    function renderScaling() {
+      if (!scalingToggle) return;
+      const enabled = scalingData?.enabled ?? false;
+      scalingToggle.checked = enabled;
+      scalingLabel.textContent = enabled ? 'Enabled' : 'Disabled';
+      if (scalingBadge) {
+        scalingBadge.textContent = enabled ? 'Active' : 'Disabled';
+        scalingBadge.style.color = enabled ? 'var(--success)' : 'var(--muted)';
+      }
+      if (scalingBody) scalingBody.style.display = enabled ? '' : 'none';
+      renderScalingStatus();
+      renderScalingTiers();
+      if (scalingVipExempt) scalingVipExempt.checked = scalingData?.rules?.vip_exempt ?? true;
+      if (scalingHostOverrideWins) scalingHostOverrideWins.checked = scalingData?.rules?.host_override_wins ?? true;
+    }
+
+    function renderScalingStatus() {
+      if (!scalingStatus) return;
+      const active = scalingData?.active_state;
+      const normal = scalingData?.normal;
+      if (!active && !normal) {
+        scalingStatus.innerHTML = '<p class="muted">No scaling data available yet.</p>';
+        return;
+      }
+      let html = '';
+      for (const lane of ['normal', 'spark']) {
+        const s = scalingData?.[lane];
+        if (!s) continue;
+        const proj = s.projected_percent != null ? `${s.projected_percent}%` : '—';
+        const used = s.current_used_percent != null ? `${s.current_used_percent}%` : '—';
+        const burn = s.burn_rate_percent_per_hour != null ? `${s.burn_rate_percent_per_hour}%/h` : '—';
+        const effort = s.active_reasoning_effort || '—';
+        html += `<div class="scaling-lane"><strong>${lane}</strong>: used ${used}, projected ${proj}, burn ${burn}`;
+        if (s.active_tier_index != null) html += ` → <em>${effort}</em>`;
+        html += `</div>`;
+      }
+      scalingStatus.innerHTML = html || '<p class="muted">No usage windows available.</p>';
+    }
+
+    function renderScalingTiers() {
+      if (!scalingTierList) return;
+      const tiers = scalingData?.rules?.tiers || [];
+      scalingTierList.innerHTML = '';
+      tiers.forEach((tier, i) => {
+        const row = document.createElement('div');
+        row.className = 'scaling-tier-row';
+        row.innerHTML = `
+          <label class="muted">At</label>
+          <input type="number" class="scaling-pct" value="${tier.projected_percent ?? 80}" min="0" max="200" step="1" style="width:60px;">
+          <label class="muted">%</label>
+          <select class="scaling-effort">${SCALING_EFFORTS.map(e => `<option value="${e}"${e === tier.reasoning_effort ? ' selected' : ''}>${e}</option>`).join('')}</select>
+          <select class="scaling-model">${SCALING_MODELS.map(m => `<option value="${m.value}"${(m.value === (tier.model || '')) ? ' selected' : ''}>${m.label}</option>`).join('')}</select>
+          <button type="button" class="ghost tiny-btn scaling-remove-tier" title="Remove">×</button>
+        `;
+        row.querySelector('.scaling-remove-tier').addEventListener('click', () => { row.remove(); });
+        scalingTierList.appendChild(row);
+      });
+    }
+
+    function collectScalingRules() {
+      const tiers = [];
+      if (scalingTierList) {
+        scalingTierList.querySelectorAll('.scaling-tier-row').forEach(row => {
+          const pct = Number(row.querySelector('.scaling-pct')?.value ?? 80);
+          const effort = row.querySelector('.scaling-effort')?.value || 'medium';
+          const model = row.querySelector('.scaling-model')?.value || null;
+          tiers.push({ projected_percent: pct, reasoning_effort: effort, model: model || null });
+        });
+      }
+      return {
+        enabled: scalingToggle?.checked ?? false,
+        tiers,
+        vip_exempt: scalingVipExempt?.checked ?? true,
+        host_override_wins: scalingHostOverrideWins?.checked ?? true,
+      };
+    }
+
+    async function saveScalingRules() {
+      const rules = collectScalingRules();
+      try {
+        const res = await api('/admin/scaling', { method: 'POST', json: rules });
+        if (res.status === 'ok' && res.data) {
+          scalingData = res.data;
+          renderScaling();
+          toast('Scaling rules saved');
+        } else {
+          toast((res.errors || [res.message]).join(', ') || 'Failed to save', 'error');
+        }
+      } catch (e) {
+        toast('Failed to save scaling rules', 'error');
+      }
+    }
+
+    async function fetchScalingStatus() {
+      try {
+        const res = await api('/admin/scaling');
+        if (res.status === 'ok' && res.data) {
+          scalingData = res.data;
+          renderScaling();
+        }
+      } catch (_) { /* silent */ }
     }
 
     function clampInsecureWindowMinutes(value) {
@@ -8069,6 +8202,10 @@
           autoUpdateEnabled = !!currentOverview.auto_update_enabled;
           renderAutoUpdate();
         }
+        if (currentOverview.scaling != null) {
+          scalingData = currentOverview.scaling;
+          renderScaling();
+        }
         await loadCodexVersionControl();
         evaluateSeedRequirement(currentOverview, hostsList);
       } catch (err) {
@@ -9652,6 +9789,26 @@
       codexVersionSelect.addEventListener('change', () => {
         setCodexVersionSelection(codexVersionSelect.value);
       });
+    }
+    if (scalingToggle) {
+      scalingToggle.addEventListener('change', () => {
+        if (!scalingData) scalingData = { enabled: false, rules: null };
+        scalingData.enabled = scalingToggle.checked;
+        if (!scalingData.rules) scalingData.rules = { enabled: scalingToggle.checked, tiers: [], vip_exempt: true, host_override_wins: true };
+        renderScaling();
+      });
+    }
+    if (scalingAddTier) {
+      scalingAddTier.addEventListener('click', () => {
+        if (!scalingData) scalingData = { enabled: false, rules: { tiers: [] } };
+        if (!scalingData.rules) scalingData.rules = { enabled: false, tiers: [] };
+        if (!scalingData.rules.tiers) scalingData.rules.tiers = [];
+        scalingData.rules.tiers.push({ projected_percent: 80, reasoning_effort: 'medium', model: null });
+        renderScalingTiers();
+      });
+    }
+    if (scalingSave) {
+      scalingSave.addEventListener('click', () => saveScalingRules());
     }
     window.addEventListener('admin-ws-event', (event) => {
       const detail = event?.detail || {};

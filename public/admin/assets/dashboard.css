@@ -1579,6 +1579,43 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
       border-color: rgba(var(--accent-rgb), 0.60);
       color: var(--accent-2);
     }
+    .scaling-tier-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .scaling-tier-row input[type="number"] {
+      padding: 4px 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 0.85rem;
+    }
+    .scaling-tier-row select {
+      padding: 4px 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 0.85rem;
+    }
+    .scaling-lane {
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+    .scaling-lane em {
+      color: var(--accent-2);
+    }
+    .toggle-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
     .memory-controls {
       display: flex;
       flex-wrap: wrap;

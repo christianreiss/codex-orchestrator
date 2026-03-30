@@ -1375,6 +1375,40 @@
                       </div>
                     </div>
                   </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Usage Scaling <span class="pill-quiet" id="scalingBadge">Disabled</span></h3>
+                        <p class="muted panel-subtitle-sm">Automatically reduce reasoning effort when projected weekly usage exceeds thresholds.</p>
+                      </div>
+                      <label class="toggle" for="scalingToggle">
+                        <input type="checkbox" id="scalingToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="scalingLabel">Disabled</span>
+                      </label>
+                    </div>
+                    <div class="setting-body" id="scalingBody" style="display:none;">
+                      <div class="scaling-status" id="scalingStatus"></div>
+                      <div class="scaling-tiers" id="scalingTiers">
+                        <p class="muted" style="margin:0 0 6px;">Tier thresholds (projected end-of-week usage %)</p>
+                        <div id="scalingTierList" class="scaling-tier-list"></div>
+                        <button type="button" class="ghost tiny-btn" id="scalingAddTier">+ Add tier</button>
+                      </div>
+                      <div class="inline-group" style="margin-top:8px;">
+                        <label class="toggle-inline">
+                          <input type="checkbox" id="scalingVipExempt" checked>
+                          <span class="muted">VIP hosts exempt</span>
+                        </label>
+                        <label class="toggle-inline">
+                          <input type="checkbox" id="scalingHostOverrideWins" checked>
+                          <span class="muted">Host overrides win</span>
+                        </label>
+                      </div>
+                      <div style="margin-top:8px;text-align:right;">
+                        <button type="button" class="ghost tiny-btn" id="scalingSave">Save scaling rules</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </section>
 
