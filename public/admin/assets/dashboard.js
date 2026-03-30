@@ -176,6 +176,11 @@
     const confirmModalConfirm = document.getElementById('confirmModalConfirm');
     const helpModal = document.getElementById('helpModal');
     const helpModalClose = document.getElementById('helpModalClose');
+    const hostSearchModal = document.getElementById('hostSearchModal');
+    const hostSearchInput = document.getElementById('hostSearchInput');
+    const hostSearchResults = document.getElementById('hostSearchResults');
+    const hostSearchMeta = document.getElementById('hostSearchMeta');
+    const hostSearchClose = document.getElementById('hostSearchClose');
     const insecureApprovalModal = document.getElementById('insecureApprovalModal');
     const insecureApprovalSubtitle = document.getElementById('insecureApprovalSubtitle');
     const insecureApprovalHost = document.getElementById('insecureApprovalHost');
@@ -241,6 +246,8 @@
     let pendingAgentsDeleteId = null;
     let pendingAgentsDeleteHosts = [];
     let pendingAgentsViewId = null;
+    let hostSearchMatches = [];
+    let hostSearchSelectedIndex = 0;
     const HOST_MODEL_REASONING = {
       'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
@@ -1013,6 +1020,131 @@
       showHelpModal(false);
     }
 
+    function rankHostSearchMatch(host, normalizedQuery) {
+      const fqdn = String(host?.fqdn || '').trim().toLowerCase();
+      const version = String(host?.client_version || '').trim().toLowerCase();
+      const status = String(hostListStatus(host)?.label || '').trim().toLowerCase();
+      const hostId = String(host?.id || '').trim().toLowerCase();
+      if (!normalizedQuery) return 0;
+      if (fqdn === normalizedQuery) return 0;
+      if (fqdn.startsWith(normalizedQuery)) return 1;
+      if (fqdn.includes(normalizedQuery)) return 2;
+      if (hostId === normalizedQuery) return 3;
+      if (hostId.includes(normalizedQuery)) return 4;
+      if (version.includes(normalizedQuery)) return 5;
+      if (status.includes(normalizedQuery)) return 6;
+      return 99;
+    }
+
+    function hostSearchCandidates(query) {
+      const normalized = String(query || '').trim().toLowerCase();
+      const hosts = Array.isArray(currentHosts) ? [...currentHosts] : [];
+      return hosts
+        .filter((host) => {
+          if (!normalized) return true;
+          const haystack = [
+            host?.fqdn,
+            host?.client_version,
+            host?.installation_version,
+            host?.runner_version,
+            host?.id,
+            hostListStatus(host)?.label,
+          ]
+            .map((value) => String(value || '').toLowerCase())
+            .join(' ');
+          return haystack.includes(normalized);
+        })
+        .sort((left, right) => {
+          const leftRank = rankHostSearchMatch(left, normalized);
+          const rightRank = rankHostSearchMatch(right, normalized);
+          if (leftRank !== rightRank) return leftRank - rightRank;
+          return String(left?.fqdn || '').localeCompare(String(right?.fqdn || ''), undefined, { sensitivity: 'base', numeric: true });
+        });
+    }
+
+    function syncHostSearchSelection(nextIndex) {
+      if (!Array.isArray(hostSearchMatches) || hostSearchMatches.length === 0) {
+        hostSearchSelectedIndex = 0;
+        return;
+      }
+      const maxIndex = hostSearchMatches.length - 1;
+      hostSearchSelectedIndex = Math.max(0, Math.min(maxIndex, Number(nextIndex) || 0));
+      if (!hostSearchResults) return;
+      const active = hostSearchResults.querySelector(`[data-host-search-index="${hostSearchSelectedIndex}"]`);
+      active?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function openSelectedHostSearchResult() {
+      const selected = hostSearchMatches[hostSearchSelectedIndex] || hostSearchMatches[0];
+      if (!selected) return;
+      showHostSearchModal(false);
+      openHostDetail(selected.id);
+    }
+
+    function renderHostSearchResults(query = hostSearchInput?.value || '') {
+      if (!hostSearchResults) return;
+      const matches = hostSearchCandidates(query).slice(0, 12);
+      hostSearchMatches = matches;
+      if (!matches.length) {
+        const hasHosts = Array.isArray(currentHosts) && currentHosts.length > 0;
+        hostSearchSelectedIndex = 0;
+        hostSearchResults.innerHTML = `
+          <div class="host-search-empty">
+            <strong>${hasHosts ? 'No hosts matched.' : 'No hosts loaded yet.'}</strong>
+            <div class="muted">${hasHosts ? 'Try a shorter hostname, version, or status.' : 'The dashboard will fill this list after the fleet overview loads.'}</div>
+          </div>
+        `;
+        if (hostSearchMeta) {
+          hostSearchMeta.textContent = hasHosts ? 'No results for this search.' : 'Waiting for host data from the dashboard overview.';
+        }
+        return;
+      }
+      hostSearchSelectedIndex = Math.max(0, Math.min(hostSearchSelectedIndex, matches.length - 1));
+      hostSearchResults.innerHTML = matches.map((host, index) => {
+        const status = hostListStatus(host);
+        const lastSeenText = host.updated_at ? formatRelative(host.updated_at) : 'Never';
+        const version = host.client_version ? `Codex ${host.client_version}` : 'Codex unknown';
+        const activeClass = index === hostSearchSelectedIndex ? ' is-active' : '';
+        return `
+          <button type="button" class="host-search-result${activeClass}" data-host-id="${host.id}" data-host-search-index="${index}">
+            <span class="host-search-result-main">
+              <span class="host-search-result-topline">
+                <span class="host-search-result-name">${escapeHtml(host.fqdn || `Host #${host.id}`)}</span>
+                <span class="chip ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>
+              </span>
+              <span class="host-search-result-meta">#${host.id} · ${escapeHtml(lastSeenText)} · ${escapeHtml(version)}</span>
+            </span>
+          </button>
+        `;
+      }).join('');
+      if (hostSearchMeta) {
+        hostSearchMeta.textContent = matches.length === 1
+          ? '1 host ready. Press Enter to jump.'
+          : `${matches.length} hosts ready. Use Enter to open the highlighted result.`;
+      }
+    }
+
+    function showHostSearchModal(show, { reset = show } = {}) {
+      if (!hostSearchModal) return;
+      const shouldShow = !!show;
+      hostSearchModal.classList.toggle('show', shouldShow);
+      setInertBehindModal(hostSearchModal, shouldShow);
+      if (shouldShow) {
+        if (reset && hostSearchInput) hostSearchInput.value = '';
+        hostSearchSelectedIndex = 0;
+        renderHostSearchResults(hostSearchInput?.value || '');
+        window.__railNav?.closeMenus?.();
+        window.setTimeout(() => {
+          hostSearchInput?.focus();
+          hostSearchInput?.select?.();
+        }, 30);
+      } else {
+        hostSearchMatches = [];
+        hostSearchSelectedIndex = 0;
+        if (hostSearchInput && reset) hostSearchInput.value = '';
+      }
+    }
+
     function clearShortcutPrefix() {
       pendingShortcutPrefix = '';
       if (pendingShortcutTimer) {
@@ -1054,6 +1186,10 @@
     }
 
     function focusHostsFilterShortcut() {
+      if (isDashboardView()) {
+        showHostSearchModal(true);
+        return;
+      }
       const hostFilter = document.getElementById('host-filter');
       const logSearch = document.getElementById('log-search');
       const activePanel = document.querySelector('.panel-set:not([hidden])');
@@ -4354,6 +4490,9 @@
         renderActiveHostDetail();
       }
       paintHosts();
+      if (hostSearchModal?.classList.contains('show')) {
+        renderHostSearchResults(hostSearchInput?.value || '');
+      }
     }
 
     function renderSkills(skills) {
@@ -9227,6 +9366,56 @@
         if (e.target === seedModal) showSeedModal(false);
       });
     }
+    if (hostSearchModal) {
+      hostSearchModal.addEventListener('click', (event) => {
+        if (event.target === hostSearchModal) showHostSearchModal(false);
+      });
+    }
+    if (hostSearchClose) {
+      hostSearchClose.addEventListener('click', () => showHostSearchModal(false));
+    }
+    if (hostSearchInput) {
+      hostSearchInput.addEventListener('input', () => {
+        hostSearchSelectedIndex = 0;
+        renderHostSearchResults(hostSearchInput.value);
+      });
+      hostSearchInput.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          syncHostSearchSelection(hostSearchSelectedIndex + 1);
+          renderHostSearchResults(hostSearchInput.value);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          syncHostSearchSelection(hostSearchSelectedIndex - 1);
+          renderHostSearchResults(hostSearchInput.value);
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          openSelectedHostSearchResult();
+        }
+      });
+    }
+    if (hostSearchResults) {
+      hostSearchResults.addEventListener('click', (event) => {
+        const button = event.target instanceof Element ? event.target.closest('[data-host-id]') : null;
+        if (!(button instanceof HTMLElement)) return;
+        const hostId = Number(button.dataset.hostId || 0);
+        if (!Number.isFinite(hostId) || hostId <= 0) return;
+        showHostSearchModal(false);
+        openHostDetail(hostId);
+      });
+      hostSearchResults.addEventListener('mousemove', (event) => {
+        const button = event.target instanceof Element ? event.target.closest('[data-host-search-index]') : null;
+        if (!(button instanceof HTMLElement)) return;
+        const nextIndex = Number(button.dataset.hostSearchIndex || 0);
+        if (!Number.isFinite(nextIndex) || nextIndex === hostSearchSelectedIndex) return;
+        syncHostSearchSelection(nextIndex);
+        renderHostSearchResults(hostSearchInput?.value || '');
+      });
+    }
     if (skillModal) {
       skillModal.addEventListener('click', (e) => {
         if (e.target === skillModal) showSkillModal(false);
@@ -9298,6 +9487,7 @@
     }
     const modalCloseMap = new Map([
       [helpModal,             () => closeHelpModal()],
+      [hostSearchModal,       () => showHostSearchModal(false)],
       [newHostModal,          () => showNewHostModal(false)],
       [uploadModal,           () => showUploadModal(false)],
       [insecureHostsModal,    () => closeInsecureHostsModal()],

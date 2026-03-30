@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-30-10">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-30-12">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-01">
 </head>
@@ -149,7 +149,7 @@
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>r</kbd><span>Settings: profiles</span></div>
               </div>
               <div class="kbd-shortcuts-section">
-                <div class="kbd-shortcut-row"><kbd>/</kbd><span>Focus the active search / filter</span></div>
+                <div class="kbd-shortcut-row"><kbd>/</kbd><span>Focus the active search, or jump to a host from the dashboard</span></div>
                 <div class="kbd-shortcut-row"><kbd>r</kbd><span>Refresh the current view</span></div>
                 <div class="kbd-shortcut-row"><kbd>n</kbd><span>New item (host / user / command / skill)</span></div>
                 <div class="kbd-shortcut-row"><kbd>t</kbd><span>Toggle the visible drawer/panel</span></div>
@@ -160,6 +160,24 @@
             <div class="actions">
               <button class="ghost" id="helpModalClose">Close</button>
             </div>
+          </div>
+        </div>
+        <div class="modal-backdrop" id="hostSearchModal" role="dialog" aria-modal="true" aria-labelledby="hostSearchTitle">
+          <div class="modal host-search-modal">
+            <div class="modal-head">
+              <div>
+                <div class="new-host-kicker">Jump to Host</div>
+                <h3 id="hostSearchTitle">Find a host fast</h3>
+                <p class="muted">Type a hostname, press Enter, and land right on the host detail page.</p>
+              </div>
+              <button class="ghost tiny-btn" id="hostSearchClose" type="button">Close</button>
+            </div>
+            <div class="field">
+              <label for="hostSearchInput" class="modal-label">Hostname</label>
+              <input id="hostSearchInput" type="search" placeholder="Search hostname, id, version, or status" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="quick-hosts-list host-search-results" id="hostSearchResults" aria-live="polite"></div>
+            <div class="muted panel-meta" id="hostSearchMeta">Type to filter the current fleet.</div>
           </div>
         </div>
         <!-- Generic confirm modal -->
@@ -2376,7 +2394,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-30-14"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-30-15"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

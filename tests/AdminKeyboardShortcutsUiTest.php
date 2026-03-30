@@ -13,9 +13,11 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
 
         self::assertStringContainsString('id="navHelpTrigger"', $html);
         self::assertStringContainsString('id="helpModal"', $html);
+        self::assertStringContainsString('id="hostSearchModal"', $html);
+        self::assertStringContainsString('id="hostSearchInput"', $html);
         self::assertStringContainsString('Keyboard shortcuts', $html);
         self::assertStringContainsString('Settings: projects', $html);
-        self::assertStringContainsString('Focus the active search / filter', $html);
+        self::assertStringContainsString('Focus the active search, or jump to a host from the dashboard', $html);
         self::assertStringContainsString('Toggle the visible drawer/panel', $html);
         self::assertStringNotContainsString('id="kbdShortcutsModal"', $html);
     }
@@ -27,10 +29,16 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
 
         self::assertStringContainsString("const navHelpTrigger = document.getElementById('navHelpTrigger');", $js);
         self::assertStringContainsString("const helpModal = document.getElementById('helpModal');", $js);
+        self::assertStringContainsString("const hostSearchModal = document.getElementById('hostSearchModal');", $js);
+        self::assertStringContainsString("const hostSearchInput = document.getElementById('hostSearchInput');", $js);
         self::assertStringContainsString('function handleGlobalShortcut(event)', $js);
         self::assertStringContainsString("if (key === '?') {", $js);
         self::assertStringContainsString("if (normalizedKey === 'n') {", $js);
         self::assertStringContainsString("if (key === '/') {", $js);
+        self::assertStringContainsString('if (isDashboardView()) {', $js);
+        self::assertStringContainsString('showHostSearchModal(true);', $js);
+        self::assertStringContainsString('function renderHostSearchResults(query = hostSearchInput?.value || \'\') {', $js);
+        self::assertStringContainsString('function openSelectedHostSearchResult() {', $js);
         self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
         self::assertStringContainsString('function openNewHostModal({ closeMenus = false } = {})', $js);
@@ -42,6 +50,7 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("if (pendingShortcutPrefix === normalizedKey) {", $js);
         self::assertStringContainsString("window.__railNav?.toggleGroup?.(prefix === 'h' ? 'hosts' : prefix === 'l' ? 'logs' : prefix === 's' ? 'settings' : '');", $js);
         self::assertStringContainsString("window.__railNav?.toggleGroup?.(normalizedKey === 'h' ? 'hosts' : normalizedKey === 'l' ? 'logs' : 'settings');", $js);
+        self::assertStringContainsString('[hostSearchModal,       () => showHostSearchModal(false)]', $js);
         self::assertStringContainsString("document.addEventListener('keydown', handleGlobalShortcut);", $js);
         self::assertStringNotContainsString("const kbdModal = document.getElementById('kbdShortcutsModal');", $js);
     }
