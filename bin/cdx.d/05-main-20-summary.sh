@@ -1224,14 +1224,23 @@ print_boot_screen() {
     local mcp_updated_marker=0
     local runner_updated_marker=0
 
+    if [[ "${AUTH_PULL_STATUS:-}" == "ok" ]]; then
+      api_updated_marker=1
+    fi
     if [[ "${AUTH_ACTION:-}" == "store" ]]; then
       auth_updated_marker=1
+    fi
+    if [[ "${SKILL_SYNC_STATUS:-}" == "mcp" ]]; then
+      skills_updated_marker=1
     fi
     if [[ "${SKILL_REMOVED:-0}" =~ ^[0-9]+$ ]] && ((SKILL_REMOVED > 0)); then
       skills_updated_marker=1
     fi
-    if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && "${CONFIG_STATE:-}" == "updated" ]]; then
+    if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" ]]; then
       mcp_updated_marker=1
+    fi
+    if [[ "${AUTH_PULL_STATUS:-}" == "ok" && "${RUNNER_ENABLED:-0}" == "1" ]]; then
+      runner_updated_marker=1
     fi
 
     dots+="$(build_health_dot "api" "${api_tone:-yellow}" "${api_updated_marker}")"
