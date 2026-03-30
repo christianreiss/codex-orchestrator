@@ -85,18 +85,16 @@ class RunnerValidationService
         if ($shouldRunRunner && $this->runnerVerifier !== null) {
             $canonicalPayload = $this->resolveCanonicalPayload();
             if ($canonicalPayload !== null) {
-                $runnerHost = $this->resolveRunnerHost($hostContext, $canonicalPayload);
-                if ($runnerHost !== null) {
-                    $versions = $versionSnapshotFn();
-                    [$canonicalPayload] = $this->runnerDailyCheck(
-                        $canonicalPayload,
-                        $runnerHost,
-                        $versions,
-                        true,
-                        $runnerReason
-                    );
-                    $didWork = true;
-                }
+                $runnerHost = $this->resolveRunnerHost($hostContext, $canonicalPayload) ?? [];
+                $versions = $versionSnapshotFn();
+                [$canonicalPayload] = $this->runnerDailyCheck(
+                    $canonicalPayload,
+                    $runnerHost,
+                    $versions,
+                    true,
+                    $runnerReason
+                );
+                $didWork = true;
             }
         }
 
@@ -255,10 +253,7 @@ class RunnerValidationService
             return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
         }
 
-        $runnerHost = $this->resolveRunnerHost($host, $canonicalPayload);
-        if ($runnerHost === null) {
-            throw new HttpException('No host available for runner validation', 503);
-        }
+        $runnerHost = $this->resolveRunnerHost($host, $canonicalPayload) ?? [];
 
         [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh, $validation] = $this->runRunnerValidationAttempt(
             $canonicalPayload,
@@ -333,17 +328,7 @@ class RunnerValidationService
             throw new HttpException('No canonical auth payload available', 404);
         }
 
-        $host = null;
-        if (isset($canonicalPayload['source_host_id'])) {
-            $host = $this->hosts->findById((int) $canonicalPayload['source_host_id']);
-        }
-        if ($host === null) {
-            $hosts = $this->hosts->all();
-            $host = $hosts[0] ?? null;
-        }
-        if ($host === null) {
-            throw new HttpException('No host available to tag runner logs', 404);
-        }
+        $host = $this->resolveRunnerHost(null, $canonicalPayload) ?? [];
 
         $versions = $versionSnapshotFn();
         $originalDigest = $canonicalPayload['sha256'] ?? null;
@@ -513,7 +498,9 @@ class RunnerValidationService
             return null;
         }
 
-        return $this->canonicalAuthFromPayload($payload);
+        $validated = $this->validateCanonicalPayload($payload);
+
+        return $validated['auth'] ?? null;
     }
 
     public function hasCanonicalAuth(): bool

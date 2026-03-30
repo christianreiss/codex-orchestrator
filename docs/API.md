@@ -32,7 +32,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 - `client_version` / `wrapper_version`: optional strings (also accepted from query params `client_version`/`cdx_version`/`wrapper_version`).
 - `retrieve` requires `digest` (64-hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, `>=2000-01-01`, `<=now+300s`).
 - `store` requires `auth` (or top-level auth object) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`.
-- Store update candidates are runner-validated before persistence; non-OK/unreachable runner rejects the update. Admin `/admin/auth/upload` and `/seed/auth/{uuid}` skip runner.
+- Store update candidates are runner-validated before persistence; non-OK/unreachable runner rejects the update. Admin `/admin/auth/upload` and `/seed/auth/{uuid}` use the same runner-validation/update path, so runner `updated_auth` can become canonical there too.
 - If runner is not configured, update-candidate `store` requests fail (`503 Auth runner required`).
 - `installation_id` is optional; when present it must match server `INSTALLATION_ID` or request is rejected with HTTP 403 (`Installation ID mismatch`).
 - Tokens are rejected when too short (`TOKEN_MIN_LENGTH`, default 24 with minimum floor 8), containing whitespace, placeholder values, or low entropy.
@@ -161,7 +161,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/insecure-domain-allows/{id}/revoke` — revoke domain auto-allow.
 - `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
-- `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; runner skipped.
+- `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; runner-validated when the runner is enabled.
 - `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for local `~/.codex/auth.json`; TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
 - `GET /seed/auth/{uuid}` — serve seed shell script.
 - `POST /seed/auth/{uuid}` — accept raw auth payload (or `{ "auth": ... }`), validate/store canonical auth, consume token, runner skipped.

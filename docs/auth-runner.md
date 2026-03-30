@@ -72,7 +72,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - If runner is unreachable, request fails with HTTP `503` (`Auth runner unavailable`).
   - If runner returns non-`ok`, request fails with validation error.
   - If runner returns `updated_auth`, it is applied only when `updated_auth.last_refresh >= upload.last_refresh`.
-- `POST /seed/auth/{token}` and `POST /admin/auth/upload` call `handleAuth(..., skipRunner=true)` and bypass runner verification.
+- `POST /seed/auth/{token}` and `POST /admin/auth/upload` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
 - Scheduled preflight is triggered by `runDailyPreflight()` on each non-admin request except `/versions` and routes starting with `/mcp`.
 - Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are caught in `public/index.php` and do not block the request.
@@ -84,7 +84,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 - Runner-originated requests can bypass host-IP rebinding when `AUTH_RUNNER_IP_BYPASS` is truthy (`1`, `true`, `yes`, `on`) and caller IP matches a CIDR in `AUTH_RUNNER_BYPASS_SUBNETS`; those requests are logged as `auth.runner_ip_bypass`.
 - Code defaults: `AUTH_RUNNER_IP_BYPASS=0` and `AUTH_RUNNER_BYPASS_SUBNETS=''`. Compose/.env defaults keep bypass disabled unless explicitly enabled.
-- Disabling runner (`AUTH_RUNNER_URL` empty/unset) reports `runner_enabled=false` in version snapshots. Host `/auth` store requests that need canonical updates then fail with `503 Auth runner required` (admin/seed upload paths still bypass runner via `skipRunner=true`).
+- Disabling runner (`AUTH_RUNNER_URL` empty/unset) reports `runner_enabled=false` in version snapshots. Host `/auth` store requests that need canonical updates then fail with `503 Auth runner required`, and the same applies to admin/seed uploads because they now use the same canonical runner-validation path.
 
 ## Configuration quick reference
 

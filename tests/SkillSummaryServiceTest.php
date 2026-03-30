@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\LogRepository;
+use App\Services\RunnerValidationService;
 use App\Services\RunnerVerifier;
 use App\Services\SkillSummaryService;
 use PHPUnit\Framework\TestCase;
@@ -150,5 +151,35 @@ final class SkillSummaryServiceTest extends TestCase
 
         self::assertNull($summary);
         self::assertSame('failed', $this->logs->records[0]['details']['status'] ?? null);
+    }
+
+    public function testSummarizePrefersSharedCanonicalRunnerValidationSnapshot(): void
+    {
+        $this->payloads->latestPayload = [
+            'body' => json_encode([
+                'last_refresh' => '2026-03-28T10:00:00Z',
+                'auths' => [
+                    'api.openai.com' => ['token' => 'sk-stale-abcdefghijklmnopqrstuvwxyz123456'],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ];
+        $runnerValidation = $this->createMock(RunnerValidationService::class);
+        $runnerValidation->expects(self::once())
+            ->method('canonicalAuthSnapshot')
+            ->willReturn([
+                'last_refresh' => '2026-03-29T10:00:00Z',
+                'auths' => [
+                    'api.openai.com' => ['token' => 'sk-canonical-abcdefghijklmnopqrstuvwxyz1234'],
+                ],
+            ]);
+
+        $service = new SkillSummaryService($this->payloads, $this->logs, $this->runner, $runnerValidation);
+        $summary = $service->summarize('deploy', "# Deploy\n");
+
+        self::assertSame('Generates deployment plans.', $summary);
+        self::assertSame(
+            'sk-canonical-abcdefghijklmnopqrstuvwxyz1234',
+            $this->runner->calls[0]['authPayload']['auths']['api.openai.com']['token'] ?? null
+        );
     }
 }

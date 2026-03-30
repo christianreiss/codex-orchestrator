@@ -294,7 +294,7 @@ class AdminOverviewController
                 'admin-upload',
                 null,
                 $systemUpload ? null : resolveBaseUrl(),
-                true
+                false
             );
         } catch (ValidationException $exception) {
             Response::json([

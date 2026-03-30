@@ -6,6 +6,7 @@ use App\Exceptions\HttpException;
 use App\Exceptions\ValidationException;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\LogRepository;
+use App\Services\RunnerValidationService;
 use App\Services\RunnerVerifier;
 use App\Services\SkillDraftService;
 use App\Services\SkillManifestService;
@@ -190,5 +191,40 @@ final class SkillDraftServiceTest extends TestCase
         $this->expectExceptionMessage('Skill generation failed: invalid runner draft payload');
 
         $this->service->generate(['prompt' => 'Draft a skill.']);
+    }
+
+    public function testGeneratePrefersSharedCanonicalRunnerValidationSnapshot(): void
+    {
+        $this->payloads->latestPayload = [
+            'body' => json_encode([
+                'last_refresh' => '2026-03-28T10:00:00Z',
+                'auths' => [
+                    'api.openai.com' => ['token' => 'sk-stale-abcdefghijklmnopqrstuvwxyz123456'],
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ];
+        $runnerValidation = $this->createMock(RunnerValidationService::class);
+        $runnerValidation->expects(self::once())
+            ->method('canonicalAuthSnapshot')
+            ->willReturn([
+                'last_refresh' => '2026-03-29T10:00:00Z',
+                'auths' => [
+                    'api.openai.com' => ['token' => 'sk-canonical-abcdefghijklmnopqrstuvwxyz1234'],
+                ],
+            ]);
+
+        $service = new SkillDraftService(
+            $this->payloads,
+            $this->logs,
+            new SkillManifestService(),
+            $this->runner,
+            $runnerValidation
+        );
+        $service->generate(['prompt' => 'Draft a deployment skill.']);
+
+        self::assertSame(
+            'sk-canonical-abcdefghijklmnopqrstuvwxyz1234',
+            $this->runner->calls[0]['authPayload']['auths']['api.openai.com']['token'] ?? null
+        );
     }
 }

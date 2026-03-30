@@ -189,7 +189,7 @@ class InstallController
                 'seed-upload',
                 null,
                 null,
-                true
+                false
             );
         } catch (ValidationException $exception) {
             Response::json([

@@ -17,7 +17,8 @@ class MemorySummaryService
     public function __construct(
         private readonly AuthPayloadRepository $payloads,
         private readonly LogRepository $logs,
-        private readonly ?RunnerVerifier $runner = null
+        private readonly ?RunnerVerifier $runner = null,
+        private readonly ?RunnerValidationService $runnerValidationService = null
     ) {
     }
 
@@ -71,6 +72,10 @@ class MemorySummaryService
 
     private function canonicalAuthPayload(): ?array
     {
+        if ($this->runnerValidationService !== null) {
+            return $this->runnerValidationService->canonicalAuthSnapshot();
+        }
+
         $payload = $this->payloads->latest();
         if (!is_array($payload)) {
             return null;

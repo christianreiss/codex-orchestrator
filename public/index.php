@@ -59,6 +59,7 @@ use App\Services\AdminPasskeyService;
 use App\Services\AdminUserService;
 use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
+use App\Services\RunnerValidationService;
 use App\Services\ChatGptUsageService;
 use App\Services\PricingService;
 use App\Services\CostHistoryService;
@@ -293,6 +294,14 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $rateLimiter = new RateLimiter($ipRateLimitRepository);
+$runnerValidationService = new RunnerValidationService(
+    $hostRepository,
+    $authPayloadRepository,
+    $hostStateRepository,
+    $logRepository,
+    $versionRepository,
+    $runnerVerifier
+);
 $service = new AuthService(
     $hostRepository,
     $authPayloadRepository,
@@ -314,7 +323,8 @@ $service = new AuthService(
     $mcpSessionTokenRepository,
     $mcpAccessLogRepository,
     $adminEventRepository,
-    $dashboardGraphStatsService
+    $dashboardGraphStatsService,
+    $runnerValidationService
 );
 $adminPasskeyRepository = new AdminPasskeyRepository($database);
 $adminAuthService = new AdminAuthService(
@@ -354,10 +364,10 @@ $chatGptUsageService = new ChatGptUsageService(
 $usageScalingService = new UsageScalingService($chatGptUsageService, $versionRepository);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository, usageScalingService: $usageScalingService);
 $skillManifestService = new SkillManifestService();
-$skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
-$skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier);
+$skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
+$skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier, $runnerValidationService);
 $skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService);
-$memorySummaryService = new MemorySummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
+$memorySummaryService = new MemorySummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
 $memoryService = new MemoryService($memoryRepository, $logRepository, $memorySummaryService);
 $agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService, $memoryService);
 $projectCoordinationService = new ProjectCoordinationService(

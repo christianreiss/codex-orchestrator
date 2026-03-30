@@ -30,6 +30,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
  *   - recordRunnerOutcome()    (writes to mocked VersionRepository)
  *   - isRunnerFailing()        (reads from mocked VersionRepository)
  *   - resolveRunnerHost()      (reads from mocked HostRepository)
+ *   - canonicalAuthSnapshot()  (resolves/validates canonical payload)
  *
  * Methods that require full integration (runDailyPreflight, runnerDailyCheck,
  * runRunnerValidationAttempt, enforceRunnerValidationOnFailure, triggerRunnerRefresh)
@@ -742,5 +743,151 @@ final class RunnerValidationServiceTest extends TestCase
         // hostContext exists but has no 'id' key
         $result = $this->svc->resolveRunnerHost(['fqdn' => 'no-id.example.com'], null);
         $this->assertSame($firstHost, $result);
+    }
+
+    public function testCanonicalAuthSnapshotResolvesCanonicalPayloadPointerAndValidatesIt(): void
+    {
+        $canonicalAuth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+
+        $this->versions->method('get')->willReturnCallback(static function (string $name): ?string {
+            return $name === 'canonical_payload_id' ? '42' : null;
+        });
+        $this->payloads->expects(self::once())
+            ->method('findByIdWithEntries')
+            ->with(42)
+            ->willReturn([
+                'id' => 42,
+                'last_refresh' => self::VALID_LAST_REFRESH,
+                'sha256' => hash('sha256', $encoded),
+                'source_host_id' => null,
+                'body' => $encoded,
+                'entries' => [],
+            ]);
+        $this->payloads->expects(self::never())->method('latest');
+
+        $snapshot = $this->svc->canonicalAuthSnapshot();
+
+        $this->assertSame($canonicalAuth, $snapshot);
+    }
+
+    public function testCanonicalAuthSnapshotReturnsNullForInvalidCanonicalPayload(): void
+    {
+        $canonicalAuth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+
+        $this->versions->method('get')->willReturnCallback(static function (string $name): ?string {
+            return $name === 'canonical_payload_id' ? '42' : null;
+        });
+        $this->payloads->method('findByIdWithEntries')->willReturn([
+            'id' => 42,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => str_repeat('0', 64),
+            'source_host_id' => null,
+            'body' => $encoded,
+            'entries' => [],
+        ]);
+        $this->logs->expects(self::once())->method('log');
+
+        $snapshot = $this->svc->canonicalAuthSnapshot();
+
+        $this->assertNull($snapshot);
+    }
+
+    public function testTriggerRunnerRefreshAcceptsSystemOwnedCanonicalWithoutHost(): void
+    {
+        $canonicalAuth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+        $digest = hash('sha256', $encoded);
+
+        $hosts = $this->getMockBuilder(HostRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $hosts->expects(self::never())->method('findById');
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->getMockBuilder(AuthPayloadRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $payloads->method('findByIdWithEntries')->willReturn([
+            'id' => 42,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => $digest,
+            'source_host_id' => null,
+            'body' => $encoded,
+            'entries' => [],
+        ]);
+        $payloads->expects(self::never())->method('create');
+
+        $hostStates = $this->getMockBuilder(HostAuthStateRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $versions = $this->getMockBuilder(VersionRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $versions->method('get')->willReturnCallback(static function (string $name): ?string {
+            return match ($name) {
+                'canonical_payload_id' => '42',
+                'runner_last_check' => null,
+                'runner_last_fail' => null,
+                default => null,
+            };
+        });
+        $versions->expects(self::atLeastOnce())->method('set');
+
+        $runner = $this->createMock(RunnerVerifier::class);
+        $runner->expects(self::once())
+            ->method('verify')
+            ->with($canonicalAuth, null, null, [])
+            ->willReturn([
+                'status' => 'ok',
+                'reachable' => true,
+                'latency_ms' => 5,
+            ]);
+
+        $svc = new RunnerValidationService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $logs,
+            $versions,
+            $runner
+        );
+
+        $result = $svc->triggerRunnerRefresh(static fn (): array => []);
+
+        $this->assertFalse($result['applied']);
+        $this->assertSame($digest, $result['canonical_digest']);
+        $this->assertSame(self::VALID_LAST_REFRESH, $result['canonical_last_refresh']);
     }
 }

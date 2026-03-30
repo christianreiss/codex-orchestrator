@@ -91,7 +91,8 @@ class AuthService
         private readonly ?McpSessionTokenRepository $mcpSessionTokens = null,
         private readonly ?McpAccessLogRepository $mcpAccessLogs = null,
         private readonly ?AdminEventRepository $adminEvents = null,
-        private readonly ?DashboardGraphStatsService $dashboardGraphStats = null
+        private readonly ?DashboardGraphStatsService $dashboardGraphStats = null,
+        ?RunnerValidationService $runnerValidationService = null
     ) {
         $this->tokenUsageTracker = new TokenUsageTracker(
             $tokenUsages,
@@ -111,7 +112,7 @@ class AuthService
             $versions
         );
 
-        $this->runnerValidationService = new RunnerValidationService(
+        $this->runnerValidationService = $runnerValidationService ?? new RunnerValidationService(
             $hosts,
             $payloads,
             $hostStates,
