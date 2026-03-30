@@ -35,7 +35,7 @@ final class OpenAiApiCompatibilityTest extends TestCase
             'id' => 'chatcmpl-abc123',
             'object' => 'chat.completion',
             'created' => 1710000000,
-            'model' => 'cdx-lm-1',
+            'model' => 'gpt-5.4',
             'choices' => [
                 [
                     'index' => 0,
@@ -67,7 +67,7 @@ final class OpenAiApiCompatibilityTest extends TestCase
         $events = OpenAiCompat::chatCompletionStreamEvents([
             'id' => 'chatcmpl-abc123',
             'created' => 1710000000,
-            'model' => 'cdx-lm-1',
+            'model' => 'gpt-5.4',
             'choices' => [
                 [
                     'message' => [

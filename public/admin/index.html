@@ -249,7 +249,7 @@
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/chat/completions</code></td><td>Chat completion (streaming supported)</td></tr>
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/responses</code></td><td>Responses API (non-streaming)</td></tr>
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/completions</code></td><td>Text completion (streaming supported)</td></tr>
-                      <tr><td><span class="api-ref-method get">GET</span></td><td><code>/v1/models</code></td><td>List available models</td></tr>
+                      <tr><td><span class="api-ref-method get">GET</span></td><td><code>/v1/models</code></td><td>List supported Codex models</td></tr>
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/embeddings</code></td><td>Embeddings (not yet implemented)</td></tr>
                     </tbody>
                   </table>
@@ -267,7 +267,7 @@
                     <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                     <tbody>
                       <tr><td><code>messages</code></td><td>array</td><td>Yes</td><td>Array of message objects with <code>role</code> and <code>content</code></td></tr>
-                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Supported model identifier. When omitted, the API uses the saved main config model and falls back to <code>versions.cdx_model</code>.</td></tr>
                       <tr><td><code>stream</code></td><td>boolean</td><td>No</td><td>Enable server-sent events streaming</td></tr>
                     </tbody>
                   </table>
@@ -291,7 +291,7 @@
                     <tbody>
                       <tr><td><code>input</code></td><td>string | array</td><td>Yes</td><td>User input as a string or message-style array</td></tr>
                       <tr><td><code>instructions</code></td><td>string</td><td>No</td><td>Optional system-style instructions prepended to the request</td></tr>
-                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Supported model identifier. When omitted, the API uses the saved main config model and falls back to <code>versions.cdx_model</code>.</td></tr>
                     </tbody>
                   </table>
                   <h4>Example</h4>
@@ -313,7 +313,7 @@
                     <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                     <tbody>
                       <tr><td><code>prompt</code></td><td>string</td><td>Yes</td><td>The prompt to complete</td></tr>
-                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Supported model identifier. When omitted, the API uses the saved main config model and falls back to <code>versions.cdx_model</code>.</td></tr>
                       <tr><td><code>stream</code></td><td>boolean</td><td>No</td><td>Enable server-sent events streaming</td></tr>
                     </tbody>
                   </table>
@@ -330,7 +330,7 @@
                     <span class="api-ref-method get">GET</span>
                     <code>/v1/models</code>
                   </div>
-                  <p class="muted">Lists the available models.</p>
+                  <p class="muted">Lists the supported Codex models accepted by the OpenAI-compatible API.</p>
                   <h4>Example</h4>
                   <div class="api-ref-code-wrap">
                     <pre class="api-ref-code"><code id="apiRefModelsExample"></code></pre>
@@ -350,7 +350,7 @@
                     <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                     <tbody>
                       <tr><td><code>input</code></td><td>string | array</td><td>Yes</td><td>Text or array of texts to embed</td></tr>
-                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Supported model identifier. When omitted, the API uses the saved main config model and falls back to <code>versions.cdx_model</code>.</td></tr>
                     </tbody>
                   </table>
                   <h4>Example</h4>
@@ -2345,7 +2345,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-28-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-30-03"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-02-22-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

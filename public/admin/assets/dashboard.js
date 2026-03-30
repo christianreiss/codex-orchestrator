@@ -2392,7 +2392,6 @@
   -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-  "model": "cdx-lm-1",
   "messages": [
     {"role": "system", "content": "You are a helpful assistant."},
     {"role": "user", "content": "Hello!"}
@@ -2404,7 +2403,6 @@
   -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-  "model": "cdx-lm-1",
   "input": "Reply with exactly pong"
 }'`;
 
@@ -2413,7 +2411,6 @@
   -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-  "model": "cdx-lm-1",
   "prompt": "Once upon a time"
 }'`;
 
@@ -2426,7 +2423,6 @@
   -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-  "model": "cdx-lm-1",
   "input": "The quick brown fox"
 }'`;
 

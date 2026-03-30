@@ -490,9 +490,24 @@ def summarize_memory(payload: MemorySummaryRequest, request: Request):
 class ExecRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     prompt: str = Field(..., description="Prompt to execute")
+    model: Optional[str] = Field(None, description="Codex model to execute")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the exec call (seconds)"
     )
+
+
+def _build_codex_exec_cmd(prompt: str, model: Optional[str]) -> list[str]:
+    cmd = ["/usr/local/bin/codex"]
+    if isinstance(model, str) and model.strip():
+        cmd.extend(["--model", model.strip()])
+    cmd.extend([
+        "exec",
+        prompt,
+        "-s",
+        "read-only",
+        "--skip-git-repo-check",
+    ])
+    return cmd
 
 
 def _exec_prompt(payload: ExecRequest) -> dict:
@@ -503,7 +518,16 @@ def _exec_prompt(payload: ExecRequest) -> dict:
     env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
     try:
         timeout = payload.timeout_seconds or 30.0
-        proc, latency_ms = _run_codex_exec(prompt, env, timeout)
+        cmd = _build_codex_exec_cmd(prompt, payload.model)
+        start = time.perf_counter()
+        proc = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        latency_ms = int((time.perf_counter() - start) * 1000)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 

@@ -18,10 +18,10 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 ## Host Endpoints
 
 ### OpenAI-compatible API
-- `POST /v1/chat/completions` — OpenAI-compatible chat completion route. Requires `Authorization: Bearer <openai-api-key-record>` and `messages[]`. Non-streaming returns a `chat.completion` object; streaming emits `chat.completion.chunk` SSE frames with `choices[].delta.content` plus a final `[DONE]`, which is what the official OpenAI SDKs expect.
-- `POST /v1/responses` — minimal non-streaming Responses API shim. Accepts `input` as a string or message-style array plus optional `instructions`, reuses the backend chat flow, and returns a `response` object with assistant text under `output[0].content[0].text`. `stream:true` is currently rejected with `400 unsupported_stream`.
-- `POST /v1/completions` — legacy text completion route. Accepts `prompt`, optional `model`, and optional `stream`.
-- `GET /v1/models` — list available model ids for the configured backend.
+- `POST /v1/chat/completions` — OpenAI-compatible chat completion route. Requires `Authorization: Bearer <openai-api-key-record>` and `messages[]`. Non-streaming returns a `chat.completion` object; streaming emits `chat.completion.chunk` SSE frames with `choices[].delta.content` plus a final `[DONE]`, which is what the official OpenAI SDKs expect. `model` must be one of the supported Codex model ids returned by `/v1/models`; when omitted, the API uses the saved main config model and falls back to `versions.cdx_model`.
+- `POST /v1/responses` — minimal non-streaming Responses API shim. Accepts `input` as a string or message-style array plus optional `instructions`, reuses the backend chat flow, and returns a `response` object with assistant text under `output[0].content[0].text`. `stream:true` is currently rejected with `400 unsupported_stream`. `model` follows the same validation and default-resolution rules as chat completions.
+- `POST /v1/completions` — legacy text completion route. Accepts `prompt`, optional `model`, and optional `stream`. `model` follows the same validation and default-resolution rules as chat completions.
+- `GET /v1/models` — list the supported Codex model ids from the shared config/model allowlist.
 - `POST /v1/embeddings` — currently returns `501 not_implemented` for the bundled backend.
 
 ### `POST /auth`

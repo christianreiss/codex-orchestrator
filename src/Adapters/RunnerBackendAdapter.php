@@ -6,6 +6,7 @@ namespace App\Adapters;
 
 use App\Contracts\BackendAdapter;
 use App\Services\AuthService;
+use App\Services\OpenAiModelService;
 use Throwable;
 
 class RunnerBackendAdapter implements BackendAdapter
@@ -14,6 +15,7 @@ class RunnerBackendAdapter implements BackendAdapter
         private readonly string $runnerExecUrl,
         private readonly string $sharedSecret,
         private readonly AuthService $authService,
+        private readonly OpenAiModelService $modelService,
         private readonly float $timeout = 30.0
     ) {
     }
@@ -28,7 +30,7 @@ class RunnerBackendAdapter implements BackendAdapter
         }
         $prompt = implode("\n", $lines);
 
-        $output = $this->runPrompt($prompt);
+        $output = $this->runPrompt($prompt, $model);
 
         return [
             'id' => 'chatcmpl-' . bin2hex(random_bytes(12)),
@@ -55,7 +57,7 @@ class RunnerBackendAdapter implements BackendAdapter
 
     public function completions(string $prompt, string $model): array
     {
-        $output = $this->runPrompt($prompt);
+        $output = $this->runPrompt($prompt, $model);
 
         return [
             'id' => 'cmpl-' . bin2hex(random_bytes(12)),
@@ -91,16 +93,20 @@ class RunnerBackendAdapter implements BackendAdapter
 
     public function models(): array
     {
+        $data = [];
+        $createdAt = time();
+        foreach ($this->modelService->supportedModels() as $model) {
+            $data[] = [
+                'id' => $model,
+                'object' => 'model',
+                'created' => $createdAt,
+                'owned_by' => 'codex-orchestrator',
+            ];
+        }
+
         return [
             'object' => 'list',
-            'data' => [
-                [
-                    'id' => 'cdx-lm-1',
-                    'object' => 'model',
-                    'created' => 1700000000,
-                    'owned_by' => 'codex-orchestrator',
-                ],
-            ],
+            'data' => $data,
         ];
     }
 
@@ -109,7 +115,7 @@ class RunnerBackendAdapter implements BackendAdapter
      *
      * @throws \RuntimeException on runner communication failure
      */
-    private function runPrompt(string $prompt): string
+    private function runPrompt(string $prompt, ?string $model = null): string
     {
         if (trim($prompt) === '') {
             return '';
@@ -123,6 +129,7 @@ class RunnerBackendAdapter implements BackendAdapter
         $body = json_encode([
             'auth_json' => $authPayload,
             'prompt' => $prompt,
+            'model' => $model,
             'timeout_seconds' => $this->timeout,
         ], JSON_UNESCAPED_SLASHES);
 
@@ -136,7 +143,7 @@ class RunnerBackendAdapter implements BackendAdapter
         throw new \RuntimeException((string) $error);
     }
 
-    private function attemptRequest(string $body): array
+    protected function attemptRequest(string $body): array
     {
         try {
             $headers = "Content-Type: application/json\r\n";

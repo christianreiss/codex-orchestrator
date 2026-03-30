@@ -72,6 +72,7 @@ use App\Services\SkillSummaryService;
 use App\Services\MemoryService;
 use App\Services\MemorySummaryService;
 use App\Services\ClientConfigService;
+use App\Services\OpenAiModelService;
 use App\Services\StartupSyncService;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
@@ -464,6 +465,7 @@ $mcpRouteCtrl = new McpRouteController($service, $mcpServer, $mcpAccessLogReposi
 // OpenAI-compatible API
 $openaiKeyRepository = new OpenaiApiKeyRepository($database, $secretBox);
 $openaiKeyService = new OpenaiApiKeyService($openaiKeyRepository, $logRepository);
+$openaiModelService = new OpenAiModelService($clientConfigRepository, $versionRepository);
 $openaiBackend = null;
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     $runnerExecUrl = preg_replace('#/verify$#', '/exec', $runnerUrl);
@@ -471,10 +473,11 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         $runnerExecUrl,
         (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
         $service,
+        $openaiModelService,
         (float) Config::get('OPENAI_API_TIMEOUT', 30.0)
     );
 }
-$openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter);
+$openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService);
 $adminOpenAiKeyCtrl = new AdminOpenAiKeyController($openaiKeyService);
 
 // --- Route wiring ---

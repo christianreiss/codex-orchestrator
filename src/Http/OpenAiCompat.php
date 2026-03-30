@@ -83,7 +83,7 @@ final class OpenAiCompat
         $responseId = self::deriveId((string) ($completion['id'] ?? ''), 'resp_');
         $messageId = self::deriveId((string) ($completion['id'] ?? ''), 'msg_');
         $createdAt = (int) ($completion['created'] ?? time());
-        $model = (string) ($completion['model'] ?? 'cdx-lm-1');
+        $model = (string) ($completion['model'] ?? '');
         $content = self::extractChatCompletionContent($completion);
         $usage = is_array($completion['usage'] ?? null) ? $completion['usage'] : [];
 
@@ -128,7 +128,7 @@ final class OpenAiCompat
     {
         $id = (string) ($completion['id'] ?? ('chatcmpl-' . bin2hex(random_bytes(12))));
         $created = (int) ($completion['created'] ?? time());
-        $model = (string) ($completion['model'] ?? 'cdx-lm-1');
+        $model = (string) ($completion['model'] ?? '');
         $content = self::extractChatCompletionContent($completion);
 
         $base = [

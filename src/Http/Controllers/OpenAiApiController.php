@@ -8,14 +8,18 @@ use App\Contracts\BackendAdapter;
 use App\Http\OpenAiCompat;
 use App\Http\OpenAiResponse;
 use App\Security\RateLimiter;
+use App\Services\OpenAiModelService;
 use App\Services\OpenaiApiKeyService;
+use InvalidArgumentException;
+use RuntimeException;
 
 class OpenAiApiController
 {
     public function __construct(
         private readonly ?BackendAdapter $backend,
         private readonly OpenaiApiKeyService $keyService,
-        private readonly RateLimiter $rateLimiter
+        private readonly RateLimiter $rateLimiter,
+        private readonly OpenAiModelService $modelService
     ) {
     }
 
@@ -30,7 +34,7 @@ class OpenAiApiController
             OpenAiResponse::error('Missing required parameter: messages', 'invalid_request_error', 400, null, 'messages');
         }
 
-        $model = (string) ($payload['model'] ?? 'cdx-lm-1');
+        $model = $this->resolveModel($payload['model'] ?? null);
 
         try {
             $result = $this->backend->chatCompletions($messages, $model);
@@ -60,7 +64,7 @@ class OpenAiApiController
             OpenAiResponse::error('Missing required parameter: input', 'invalid_request_error', 400, null, 'input');
         }
 
-        $model = (string) ($payload['model'] ?? 'cdx-lm-1');
+        $model = $this->resolveModel($payload['model'] ?? null);
 
         try {
             $result = $this->backend->chatCompletions($messages, $model);
@@ -91,7 +95,7 @@ class OpenAiApiController
             OpenAiResponse::error('Missing required parameter: prompt', 'invalid_request_error', 400, null, 'prompt');
         }
 
-        $model = (string) ($payload['model'] ?? 'cdx-lm-1');
+        $model = $this->resolveModel($payload['model'] ?? null);
 
         try {
             $result = $this->backend->completions($prompt, $model);
@@ -116,7 +120,7 @@ class OpenAiApiController
             OpenAiResponse::error('Missing required parameter: input', 'invalid_request_error', 400, null, 'input');
         }
 
-        $model = (string) ($payload['model'] ?? 'cdx-lm-1');
+        $model = $this->resolveModel($payload['model'] ?? null);
         $result = $this->backend->embeddings($input, $model);
 
         if (isset($result['error'])) {
@@ -198,6 +202,15 @@ class OpenAiApiController
                 503,
                 'backend_unavailable'
             );
+        }
+    }
+
+    private function resolveModel(mixed $value): string
+    {
+        try {
+            return $this->modelService->resolveRequestedModel($value);
+        } catch (InvalidArgumentException|RuntimeException $e) {
+            OpenAiResponse::error($e->getMessage(), 'invalid_request_error', 400, null, 'model');
         }
     }
 }
