@@ -63,6 +63,49 @@ class AdminSettingsController
     }
 
     /**
+     * GET /admin/openai/state
+     */
+    public function getOpenaiApiState(): void
+    {
+        requireAdminAccess();
+
+        $disabled = $this->versionRepository->getFlag('openai_api_disabled', false);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['disabled' => $disabled],
+        ]);
+    }
+
+    /**
+     * POST /admin/openai/state
+     */
+    public function postOpenaiApiState(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        $disabledRaw = $payload['disabled'] ?? null;
+        $disabled = normalizeBoolean($disabledRaw);
+        if ($disabled === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'disabled must be boolean',
+            ], 422);
+        }
+
+        $this->versionRepository->set('openai_api_disabled', $disabled ? '1' : '0');
+        $this->logRepository->log(null, 'admin.openai_api.state', [
+            'disabled' => $disabled,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['disabled' => $disabled],
+        ]);
+    }
+
+    /**
      * GET /admin/cdx-silent
      */
     public function getCdxSilent(): void

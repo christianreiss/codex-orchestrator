@@ -1786,6 +1786,103 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
 }
 .confirm-modal { max-width: 420px; }
 .kbd-shortcuts-modal { max-width: 520px; }
+/* API Reference modal */
+.api-ref-modal { max-width: 720px; }
+.api-ref-nav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  overflow-x: auto;
+}
+.api-ref-tab {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.api-ref-tab:hover { color: var(--text); }
+.api-ref-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.api-ref-content { padding: 20px; max-height: 60vh; overflow-y: auto; }
+.api-ref-section h4 { margin: 16px 0 8px; font-size: 14px; font-weight: 600; }
+.api-ref-section h4:first-child { margin-top: 0; }
+.api-ref-endpoint-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 15px;
+}
+.api-ref-endpoint-head code { font-size: 14px; font-weight: 500; }
+.api-ref-method {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  line-height: 1.6;
+}
+.api-ref-method.post { background: rgba(34,197,94,0.14); color: #16a34a; }
+.api-ref-method.get { background: rgba(59,130,246,0.14); color: #2563eb; }
+[data-theme="dark"] .api-ref-method.post { background: rgba(34,197,94,0.18); color: #4ade80; }
+[data-theme="dark"] .api-ref-method.get { background: rgba(59,130,246,0.18); color: #60a5fa; }
+.api-ref-code-wrap {
+  position: relative;
+  margin: 8px 0 16px;
+}
+.api-ref-code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+.api-ref-code code { font-size: inherit; background: none; padding: 0; }
+.api-ref-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.api-ref-copy:hover { color: var(--text); border-color: var(--text); }
+.api-ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 8px 0 16px;
+}
+.api-ref-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.api-ref-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.api-ref-table tr:last-child td { border-bottom: none; }
 .kbd-shortcuts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

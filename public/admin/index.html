@@ -207,6 +207,167 @@
             </div>
           </div>
         </div>
+        <!-- API Reference modal -->
+        <div class="modal-backdrop" id="apiRefModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="apiRefModalTitle">
+          <div class="modal api-ref-modal">
+            <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between">
+              <h3 id="apiRefModalTitle">API Reference</h3>
+              <button class="ghost tiny-btn" id="apiRefModalClose">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:0">
+              <nav class="api-ref-nav" role="tablist">
+                <button class="api-ref-tab is-active" data-api-tab="overview" role="tab">Overview</button>
+                <button class="api-ref-tab" data-api-tab="chat" role="tab">Chat</button>
+                <button class="api-ref-tab" data-api-tab="completions" role="tab">Completions</button>
+                <button class="api-ref-tab" data-api-tab="models" role="tab">Models</button>
+                <button class="api-ref-tab" data-api-tab="embeddings" role="tab">Embeddings</button>
+                <button class="api-ref-tab" data-api-tab="errors" role="tab">Errors</button>
+              </nav>
+              <div class="api-ref-content">
+
+                <!-- Overview -->
+                <div class="api-ref-section" data-api-section="overview">
+                  <h4>Authentication</h4>
+                  <p class="muted">All endpoints require a Bearer token in the <code>Authorization</code> header.</p>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code>Authorization: Bearer sk-coco-&lt;your-key&gt;</code></pre>
+                  </div>
+                  <h4>Base URL</h4>
+                  <p class="muted">Use the base URL shown on the API Keys panel. All paths below are relative to it.</p>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code id="apiRefBaseUrl"></code></pre>
+                    <button class="api-ref-copy" data-copy-target="apiRefBaseUrl" title="Copy">Copy</button>
+                  </div>
+                  <h4>Rate Limiting</h4>
+                  <p class="muted">Each API key has a configurable rate limit (requests per minute). When exceeded, the API returns <code>429</code> with a <code>Retry-After: 60</code> header.</p>
+                  <h4>Endpoints</h4>
+                  <table class="api-ref-table">
+                    <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/chat/completions</code></td><td>Chat completion (streaming supported)</td></tr>
+                      <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/completions</code></td><td>Text completion (streaming supported)</td></tr>
+                      <tr><td><span class="api-ref-method get">GET</span></td><td><code>/v1/models</code></td><td>List available models</td></tr>
+                      <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/embeddings</code></td><td>Embeddings (not yet implemented)</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Chat Completions -->
+                <div class="api-ref-section" data-api-section="chat" hidden>
+                  <div class="api-ref-endpoint-head">
+                    <span class="api-ref-method post">POST</span>
+                    <code>/v1/chat/completions</code>
+                  </div>
+                  <p class="muted">Creates a chat completion. Compatible with the OpenAI chat completions API.</p>
+                  <h4>Request Body</h4>
+                  <table class="api-ref-table">
+                    <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><code>messages</code></td><td>array</td><td>Yes</td><td>Array of message objects with <code>role</code> and <code>content</code></td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                      <tr><td><code>stream</code></td><td>boolean</td><td>No</td><td>Enable server-sent events streaming</td></tr>
+                    </tbody>
+                  </table>
+                  <h4>Example</h4>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code id="apiRefChatExample"></code></pre>
+                    <button class="api-ref-copy" data-copy-target="apiRefChatExample" title="Copy">Copy</button>
+                  </div>
+                </div>
+
+                <!-- Completions -->
+                <div class="api-ref-section" data-api-section="completions" hidden>
+                  <div class="api-ref-endpoint-head">
+                    <span class="api-ref-method post">POST</span>
+                    <code>/v1/completions</code>
+                  </div>
+                  <p class="muted">Creates a text completion.</p>
+                  <h4>Request Body</h4>
+                  <table class="api-ref-table">
+                    <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><code>prompt</code></td><td>string</td><td>Yes</td><td>The prompt to complete</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                      <tr><td><code>stream</code></td><td>boolean</td><td>No</td><td>Enable server-sent events streaming</td></tr>
+                    </tbody>
+                  </table>
+                  <h4>Example</h4>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code id="apiRefCompletionsExample"></code></pre>
+                    <button class="api-ref-copy" data-copy-target="apiRefCompletionsExample" title="Copy">Copy</button>
+                  </div>
+                </div>
+
+                <!-- Models -->
+                <div class="api-ref-section" data-api-section="models" hidden>
+                  <div class="api-ref-endpoint-head">
+                    <span class="api-ref-method get">GET</span>
+                    <code>/v1/models</code>
+                  </div>
+                  <p class="muted">Lists the available models.</p>
+                  <h4>Example</h4>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code id="apiRefModelsExample"></code></pre>
+                    <button class="api-ref-copy" data-copy-target="apiRefModelsExample" title="Copy">Copy</button>
+                  </div>
+                </div>
+
+                <!-- Embeddings -->
+                <div class="api-ref-section" data-api-section="embeddings" hidden>
+                  <div class="api-ref-endpoint-head">
+                    <span class="api-ref-method post">POST</span>
+                    <code>/v1/embeddings</code>
+                  </div>
+                  <p class="muted">Creates embeddings for the given input. <strong>Not yet implemented</strong> &mdash; returns <code>501</code>.</p>
+                  <h4>Request Body</h4>
+                  <table class="api-ref-table">
+                    <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><code>input</code></td><td>string | array</td><td>Yes</td><td>Text or array of texts to embed</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                    </tbody>
+                  </table>
+                  <h4>Example</h4>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code id="apiRefEmbeddingsExample"></code></pre>
+                    <button class="api-ref-copy" data-copy-target="apiRefEmbeddingsExample" title="Copy">Copy</button>
+                  </div>
+                </div>
+
+                <!-- Errors -->
+                <div class="api-ref-section" data-api-section="errors" hidden>
+                  <h4>Error Format</h4>
+                  <p class="muted">All errors follow the OpenAI error envelope format:</p>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code>{
+  "error": {
+    "message": "Human-readable description",
+    "type": "error_type",
+    "code": "error_code",
+    "param": null
+  }
+}</code></pre>
+                  </div>
+                  <h4>Error Types</h4>
+                  <table class="api-ref-table">
+                    <thead><tr><th>HTTP</th><th>Type</th><th>Code</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><code>401</code></td><td><code>authentication_error</code></td><td><code>invalid_api_key</code></td><td>Missing or invalid API key</td></tr>
+                      <tr><td><code>429</code></td><td><code>rate_limit_error</code></td><td><code>rate_limit_exceeded</code></td><td>Per-key rate limit exceeded</td></tr>
+                      <tr><td><code>400</code></td><td><code>invalid_request_error</code></td><td>&mdash;</td><td>Missing required parameters</td></tr>
+                      <tr><td><code>404</code></td><td><code>invalid_request_error</code></td><td>&mdash;</td><td>Unknown endpoint</td></tr>
+                      <tr><td><code>501</code></td><td><code>not_implemented</code></td><td>&mdash;</td><td>Feature not yet available</td></tr>
+                      <tr><td><code>502</code></td><td><code>api_error</code></td><td>&mdash;</td><td>Backend error</td></tr>
+                      <tr><td><code>503</code></td><td><code>api_error</code></td><td><code>api_disabled</code></td><td>OpenAI API disabled by admin</td></tr>
+                      <tr><td><code>503</code></td><td><code>api_error</code></td><td><code>backend_unavailable</code></td><td>Backend not configured</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
         <!-- Modals (from legacy hosts/settings) -->
         <div class="modal-backdrop" id="seedModal" role="dialog" aria-modal="true">
           <div class="modal seed-modal">
@@ -1489,7 +1650,13 @@
                   </div>
                 </div>
               </div>
-              <div class="panel-actions">
+              <div class="panel-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <label class="toggle" for="openaiApiToggle">
+                  <input type="checkbox" id="openaiApiToggle">
+                  <span class="track"><span class="thumb"></span></span>
+                  <span class="toggle-text" id="openaiApiToggleLabel">Enabled</span>
+                </label>
+                <button class="ghost tiny-btn" id="apiRefBtn">API Reference</button>
                 <button class="ghost tiny-btn" id="newApiKeyBtn">New key</button>
               </div>
             </div>

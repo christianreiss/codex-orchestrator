@@ -739,11 +739,17 @@ $router->add('GET', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->index
 $router->add('POST', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->store($payload));
 $router->add('POST', '#^/admin/openai/keys/(\d+)/toggle$#', fn($id) => $adminOpenAiKeyCtrl->toggle($id, $payload));
 $router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKeyCtrl->delete($id));
+$router->add('GET', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->getOpenaiApiState());
+$router->add('POST', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->postOpenaiApiState($payload));
 
 // --- Dispatch + error handling ---
 
 if (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {
     // OpenAI-compatible error envelopes for /v1/ routes
+    $openaiApiDisabled = $versionRepository->getFlag('openai_api_disabled', false);
+    if ($openaiApiDisabled && $method !== 'OPTIONS') {
+        OpenAiResponse::error('OpenAI API disabled by administrator', 'api_error', 503, 'api_disabled');
+    }
     try {
         $handled = $router->dispatch($method, $normalizedPath);
         if (!$handled) {

@@ -2082,8 +2082,11 @@
     {
       let apiKeysInited = false;
       let currentApiKeys = [];
+      let openaiApiDisabled = null;
       const apiKeysTbody = document.querySelector('#apiKeysTable tbody');
       const newApiKeyBtn = document.getElementById('newApiKeyBtn');
+      const openaiApiToggle = document.getElementById('openaiApiToggle');
+      const openaiApiToggleLabel = document.getElementById('openaiApiToggleLabel');
       const apiKeyModalBackdrop = document.getElementById('apiKeyModalBackdrop');
       const apiKeyModalClose = document.getElementById('apiKeyModalClose');
       const apiKeyModalCancel = document.getElementById('apiKeyModalCancel');
@@ -2285,10 +2288,137 @@
         });
       }
 
+      // --- OpenAI API master toggle ---
+      async function loadOpenaiApiState() {
+        try {
+          const res = await api('/admin/openai/state');
+          openaiApiDisabled = !!res.data?.disabled;
+          if (openaiApiToggle) {
+            openaiApiToggle.checked = !openaiApiDisabled;
+            openaiApiToggle.disabled = false;
+            if (openaiApiToggleLabel) {
+              openaiApiToggleLabel.textContent = openaiApiDisabled ? 'Disabled' : 'Enabled';
+            }
+          }
+        } catch (err) {
+          console.error('openai api state', err);
+          if (openaiApiToggle) { openaiApiToggle.checked = false; openaiApiToggle.disabled = true; }
+          if (openaiApiToggleLabel) openaiApiToggleLabel.textContent = 'Unavailable';
+        }
+      }
+
+      async function setOpenaiApiState(enabled) {
+        if (!openaiApiToggle) return;
+        openaiApiToggle.disabled = true;
+        try {
+          await api('/admin/openai/state', { method: 'POST', json: { disabled: !enabled } });
+          openaiApiDisabled = !enabled;
+          if (openaiApiToggleLabel) openaiApiToggleLabel.textContent = openaiApiDisabled ? 'Disabled' : 'Enabled';
+        } catch (err) {
+          toast(`OpenAI API toggle failed: ${err.message}`, 'error');
+          openaiApiToggle.checked = !enabled;
+        } finally {
+          openaiApiToggle.disabled = false;
+        }
+      }
+
+      if (openaiApiToggle) {
+        openaiApiToggle.addEventListener('change', () => setOpenaiApiState(openaiApiToggle.checked));
+      }
+
+      // --- API Reference modal ---
+      const apiRefModalBackdrop = document.getElementById('apiRefModalBackdrop');
+      const apiRefModalClose = document.getElementById('apiRefModalClose');
+      const apiRefBtn = document.getElementById('apiRefBtn');
+
+      function showApiRefModal(show) {
+        if (!apiRefModalBackdrop) return;
+        if (show) {
+          // Populate dynamic base URL and curl examples
+          const base = window.location.origin;
+          const el = document.getElementById('apiRefBaseUrl');
+          if (el) el.textContent = base + '/v1';
+
+          const chatEx = document.getElementById('apiRefChatExample');
+          if (chatEx) chatEx.textContent = `curl ${base}/v1/chat/completions \\
+  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "model": "cdx-lm-1",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Hello!"}
+  ]
+}'`;
+
+          const compEx = document.getElementById('apiRefCompletionsExample');
+          if (compEx) compEx.textContent = `curl ${base}/v1/completions \\
+  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "model": "cdx-lm-1",
+  "prompt": "Once upon a time"
+}'`;
+
+          const modelsEx = document.getElementById('apiRefModelsExample');
+          if (modelsEx) modelsEx.textContent = `curl ${base}/v1/models \\
+  -H "Authorization: Bearer sk-coco-YOUR_KEY"`;
+
+          const embedEx = document.getElementById('apiRefEmbeddingsExample');
+          if (embedEx) embedEx.textContent = `curl ${base}/v1/embeddings \\
+  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "model": "cdx-lm-1",
+  "input": "The quick brown fox"
+}'`;
+
+          apiRefModalBackdrop.classList.add('show');
+        } else {
+          apiRefModalBackdrop.classList.remove('show');
+        }
+      }
+
+      if (apiRefBtn) apiRefBtn.addEventListener('click', () => showApiRefModal(true));
+      if (apiRefModalClose) apiRefModalClose.addEventListener('click', () => showApiRefModal(false));
+      if (apiRefModalBackdrop) apiRefModalBackdrop.addEventListener('click', (e) => {
+        if (e.target === apiRefModalBackdrop) showApiRefModal(false);
+      });
+
+      // Tab switching
+      if (apiRefModalBackdrop) {
+        apiRefModalBackdrop.querySelectorAll('.api-ref-tab').forEach((tab) => {
+          tab.addEventListener('click', () => {
+            const target = tab.getAttribute('data-api-tab');
+            apiRefModalBackdrop.querySelectorAll('.api-ref-tab').forEach((t) => t.classList.remove('is-active'));
+            tab.classList.add('is-active');
+            apiRefModalBackdrop.querySelectorAll('.api-ref-section').forEach((s) => {
+              s.hidden = s.getAttribute('data-api-section') !== target;
+            });
+          });
+        });
+
+        // Copy buttons
+        apiRefModalBackdrop.querySelectorAll('.api-ref-copy').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-copy-target');
+            const el = document.getElementById(targetId);
+            if (!el) return;
+            navigator.clipboard.writeText(el.textContent).then(() => {
+              btn.textContent = 'Copied!';
+              setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+            }).catch(() => toast('Copy failed', 'warn'));
+          });
+        });
+      }
+
+      window.__loadOpenaiApiState = loadOpenaiApiState;
+
       window.__initApiKeysOnce = () => {
         if (apiKeysInited) return;
         apiKeysInited = true;
         loadApiKeys();
+        loadOpenaiApiState();
       };
     }
 
@@ -4475,6 +4605,7 @@
     ];
     const SETTINGS_GENERAL_LIVE_ACTIONS = new Set([
       'admin.api.state',
+      'admin.openai_api.state',
       'admin.cdx_silent',
       'admin.reverse_dns',
       'admin.insecure_approval',
@@ -4666,6 +4797,7 @@
 
       if (needSettingsGeneral) {
         await loadApiState();
+        if (typeof window.__loadOpenaiApiState === 'function') window.__loadOpenaiApiState();
       }
 
       if (needOverview && currentOverview) {
@@ -8489,6 +8621,10 @@
       [seedModal,             () => showSeedModal(false)],
       [insecureApprovalModal, () => denyInsecureApproval()],
       [confirmModal,          () => closeConfirmModal(false)],
+      [document.getElementById('apiRefModalBackdrop'), () => {
+        const bd = document.getElementById('apiRefModalBackdrop');
+        if (bd) bd.classList.remove('show');
+      }],
     ]);
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
