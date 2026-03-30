@@ -526,12 +526,12 @@ post_token_usage_payload() {
         fi
         ;;
     esac
-  done <<< "$output"
+  done <<<"$output"
   if [[ -n "$summary" ]]; then
     USAGE_PUSH_SUMMARY="$summary"
   fi
 
-  if (( status == 0 )); then
+  if ((status == 0)); then
     if [[ "$recorded" == "false" ]]; then
       USAGE_PUSH_RESULT="failed"
       USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
@@ -548,7 +548,7 @@ post_token_usage_payload() {
     return 0
   fi
 
-  if (( status == 40 )); then
+  if ((status == 40)); then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API disabled by administrator"
     USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
@@ -559,7 +559,8 @@ post_token_usage_payload() {
   # Best effort only: retry stripped payloads for quick payload-shape failures, not slow/wedged network paths.
   if [[ "$retryable" == "true" && "$payload_json" == *'"line"'* ]]; then
     local fallback_payload=""
-    fallback_payload="$(python3 - "$payload_json" <<'PY'
+    fallback_payload="$(
+      python3 - "$payload_json" <<'PY'
 import json, sys
 try:
     data = json.loads(sys.argv[1])
@@ -600,12 +601,12 @@ PY
             fi
             ;;
         esac
-      done <<< "$output"
+      done <<<"$output"
       if [[ -n "$summary" ]]; then
         USAGE_PUSH_SUMMARY="$summary"
       fi
 
-      if (( status == 0 )); then
+      if ((status == 0)); then
         if [[ "$recorded" == "false" ]]; then
           USAGE_PUSH_RESULT="failed"
           USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
@@ -620,7 +621,7 @@ PY
           USAGE_PUSH_COST_REASON="server did not return cost"
         fi
         return 0
-      elif (( status == 40 )); then
+      elif ((status == 40)); then
         USAGE_PUSH_RESULT="skipped"
         USAGE_PUSH_REASON="API disabled by administrator"
         USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
@@ -642,7 +643,8 @@ PY
 parse_usage_summary() {
   local payload_json="$1"
   local summary=""
-  summary="$(python3 - "$payload_json" <<'PY'
+  summary="$(
+    python3 - "$payload_json" <<'PY'
 import json, sys
 try:
     data = json.loads(sys.argv[1])
@@ -854,7 +856,7 @@ PY
 send_token_usage_from_session_jsonl() {
   local run_start_epoch=""
   if [[ "${CDX_RUN_START_NS:-}" =~ ^[0-9]+$ ]]; then
-    run_start_epoch=$(( CDX_RUN_START_NS / 1000000000 ))
+    run_start_epoch=$((CDX_RUN_START_NS / 1000000000))
   fi
   local payload
   if ! payload="$(extract_token_usage_from_session_jsonl "$run_start_epoch")"; then

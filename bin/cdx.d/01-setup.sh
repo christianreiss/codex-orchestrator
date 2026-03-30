@@ -1,4 +1,3 @@
-
 install_missing_commands() {
   local missing=("$@")
   local os=""
@@ -27,7 +26,7 @@ install_missing_commands() {
       fi
 
       local use_sudo=()
-      if (( EUID != 0 )); then
+      if ((EUID != 0)); then
         if command -v sudo >/dev/null 2>&1; then
           use_sudo=(sudo)
         else
@@ -40,13 +39,13 @@ install_missing_commands() {
       for dep in "${missing[@]}"; do
         pkg="$dep"
         case "$pm:$dep" in
-          apt-get:bwrap|dnf:bwrap|yum:bwrap)
+          apt-get:bwrap | dnf:bwrap | yum:bwrap)
             pkg="bubblewrap"
             ;;
           pacman:python3)
             pkg="python"
             ;;
-          pacman:script|apk:script|dnf:script|yum:script)
+          pacman:script | apk:script | dnf:script | yum:script)
             pkg="util-linux"
             ;;
         esac
@@ -56,7 +55,7 @@ install_missing_commands() {
       case "$pm" in
         apt-get)
           log_info "Installing prerequisites (${missing[*]}) with apt-get"
-          if (( ${#use_sudo[@]} > 0 )); then
+          if ((${#use_sudo[@]} > 0)); then
             "${use_sudo[@]}" apt-get update -qq
             "${use_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${install_missing[@]}" || return 1
           else
@@ -66,7 +65,7 @@ install_missing_commands() {
           ;;
         dnf)
           log_info "Installing prerequisites (${missing[*]}) with dnf"
-          if (( ${#use_sudo[@]} > 0 )); then
+          if ((${#use_sudo[@]} > 0)); then
             "${use_sudo[@]}" dnf install -y "${install_missing[@]}" || return 1
           else
             dnf install -y "${install_missing[@]}" || return 1
@@ -74,7 +73,7 @@ install_missing_commands() {
           ;;
         yum)
           log_info "Installing prerequisites (${missing[*]}) with yum"
-          if (( ${#use_sudo[@]} > 0 )); then
+          if ((${#use_sudo[@]} > 0)); then
             "${use_sudo[@]}" yum install -y "${install_missing[@]}" || return 1
           else
             yum install -y "${install_missing[@]}" || return 1
@@ -82,7 +81,7 @@ install_missing_commands() {
           ;;
         pacman)
           log_info "Installing prerequisites (${missing[*]}) with pacman"
-          if (( ${#use_sudo[@]} > 0 )); then
+          if ((${#use_sudo[@]} > 0)); then
             "${use_sudo[@]}" pacman -S --noconfirm --needed "${install_missing[@]}" || return 1
           else
             pacman -S --noconfirm --needed "${install_missing[@]}" || return 1
@@ -90,7 +89,7 @@ install_missing_commands() {
           ;;
         zypper)
           log_info "Installing prerequisites (${missing[*]}) with zypper"
-          if (( ${#use_sudo[@]} > 0 )); then
+          if ((${#use_sudo[@]} > 0)); then
             "${use_sudo[@]}" zypper --non-interactive install --no-recommends "${install_missing[@]}" || return 1
           else
             zypper --non-interactive install --no-recommends "${install_missing[@]}" || return 1
@@ -98,7 +97,7 @@ install_missing_commands() {
           ;;
         apk)
           log_info "Installing prerequisites (${missing[*]}) with apk"
-          if (( ${#use_sudo[@]} > 0 )); then
+          if ((${#use_sudo[@]} > 0)); then
             "${use_sudo[@]}" apk add --no-cache "${install_missing[@]}" || return 1
           else
             apk add --no-cache "${install_missing[@]}" || return 1
@@ -124,7 +123,7 @@ ensure_commands() {
     fi
   done
 
-  if (( ${#missing[@]} == 0 )); then
+  if ((${#missing[@]} == 0)); then
     return 0
   fi
 
@@ -140,7 +139,7 @@ ensure_commands() {
     fi
   done
 
-  if (( ${#still_missing[@]} > 0 )); then
+  if ((${#still_missing[@]} > 0)); then
     log_error "Failed to install required commands: ${still_missing[*]}"
     exit 1
   fi
@@ -155,7 +154,7 @@ ensure_optional_commands() {
     fi
   done
 
-  if (( ${#missing[@]} == 0 )); then
+  if ((${#missing[@]} == 0)); then
     return 0
   fi
 
@@ -171,7 +170,7 @@ ensure_optional_commands() {
     fi
   done
 
-  if (( ${#still_missing[@]} > 0 )); then
+  if ((${#still_missing[@]} > 0)); then
     log_warn "Optional prerequisites still missing (${still_missing[*]}). Continuing; Codex may use built-in fallbacks."
   fi
 }
@@ -198,9 +197,9 @@ update_codex_via_npm() {
     cmd+=("codex-cli@$target")
   fi
 
-  if (( EUID == 0 )); then
+  if ((EUID == 0)); then
     "${cmd[@]}" >/dev/null
-  elif (( CAN_SUDO )); then
+  elif ((CAN_SUDO)); then
     "$SUDO_BIN" "${cmd[@]}" >/dev/null
   else
     "${cmd[@]}" >/dev/null
@@ -250,7 +249,7 @@ resolve_real_codex() {
     fi
   done
   local found=""
-  IFS=: read -r -a path_entries <<< "${PATH:-}"
+  IFS=: read -r -a path_entries <<<"${PATH:-}"
   for entry in "${path_entries[@]}"; do
     [[ -z "$entry" ]] && entry="."
     local candidate="$entry/codex"
@@ -305,7 +304,7 @@ version_lt() {
   [[ "$a" == "$b" ]] && return 1
 
   if command -v python3 >/dev/null 2>&1; then
-    if python3 - "$a" "$b" <<'PY'
+    if python3 - "$a" "$b" <<'PY'; then
 import re
 import sys
 
@@ -320,7 +319,6 @@ left += [0] * (width - len(left))
 right += [0] * (width - len(right))
 sys.exit(0 if left < right else 1)
 PY
-    then
       return 0
     fi
     return 1
@@ -334,10 +332,10 @@ PY
 
 ssh_should_force_no_alt_screen() {
   case "$(lowercase "${CODEX_SSH_ALT_SCREEN:-auto}")" in
-    0|false|no|off)
+    0 | false | no | off)
       return 1
       ;;
-    1|true|yes|on|force)
+    1 | true | yes | on | force)
       return 0
       ;;
   esac
@@ -383,7 +381,7 @@ require_python() {
 }
 
 load_sync_config() {
-  if (( SYNC_CONFIG_LOADED )); then
+  if ((SYNC_CONFIG_LOADED)); then
     return 0
   fi
   # Check for CLI-login credentials first, then fall back to baked-in values.
@@ -409,7 +407,7 @@ detect_codex_asset_name() {
   case "$os_name" in
     Linux)
       case "$arch_name" in
-        x86_64|amd64)
+        x86_64 | amd64)
           local glibc_version
           glibc_version="$(detect_glibc_version)"
           if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
@@ -418,7 +416,7 @@ detect_codex_asset_name() {
             printf "codex-x86_64-unknown-linux-gnu.tar.gz"
           fi
           ;;
-        aarch64|arm64)
+        aarch64 | arm64)
           printf "codex-aarch64-unknown-linux-gnu.tar.gz"
           ;;
         *)
@@ -428,8 +426,8 @@ detect_codex_asset_name() {
       ;;
     Darwin)
       case "$arch_name" in
-        x86_64|amd64) printf "codex-x86_64-apple-darwin.tar.gz" ;;
-        aarch64|arm64) printf "codex-aarch64-apple-darwin.tar.gz" ;;
+        x86_64 | amd64) printf "codex-x86_64-apple-darwin.tar.gz" ;;
+        aarch64 | arm64) printf "codex-aarch64-apple-darwin.tar.gz" ;;
         *) return 1 ;;
       esac
       ;;
@@ -446,7 +444,7 @@ save_cli_auth() {
   local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/cdx"
   mkdir -p "$config_dir"
   chmod 700 "$config_dir"
-  cat > "$config_dir/credentials.env" <<CREDEOF
+  cat >"$config_dir/credentials.env" <<CREDEOF
 CODEX_SYNC_API_KEY=$api_key
 CODEX_SYNC_BASE_URL=$base_url
 CODEX_SYNC_FQDN=$fqdn
@@ -534,7 +532,7 @@ print('poll_interval=' + shlex.quote(str(d['poll_interval'])))
   log_info "Waiting for approval..."
 
   local deadline=$((SECONDS + expires_in))
-  while (( SECONDS < deadline )); do
+  while ((SECONDS < deadline)); do
     sleep "$poll_interval"
 
     local poll_response poll_status
@@ -583,8 +581,7 @@ print('CLI_SECURE=' + shlex.quote(secure))
         log_error "Login request expired. Run 'cdx login' to try again."
         exit 1
         ;;
-      pending)
-        ;;
+      pending) ;;
     esac
   done
 
@@ -592,10 +589,10 @@ print('CLI_SECURE=' + shlex.quote(secure))
   exit 1
 }
 
-if (( CODEX_DO_LOGIN )); then
+if ((CODEX_DO_LOGIN)); then
   cmd_login
 fi
 
-if (( CODEX_DO_UNINSTALL )); then
+if ((CODEX_DO_UNINSTALL)); then
   cmd_uninstall
 fi

@@ -38,9 +38,9 @@ PY
   CODEX_IPV4_PROXY_PID="$!"
 
   local _i=0
-  for ((_i=0; _i<50; _i++)); do
+  for ((_i = 0; _i < 50; _i++)); do
     if [[ -f "$port_file" ]]; then
-      port="$(tr -d '[:space:]' < "$port_file")"
+      port="$(tr -d '[:space:]' <"$port_file")"
       break
     fi
     if ! kill -0 "$CODEX_IPV4_PROXY_PID" >/dev/null 2>&1; then

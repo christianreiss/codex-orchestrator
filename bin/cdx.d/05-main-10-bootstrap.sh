@@ -1,13 +1,12 @@
-
 API_RELEASES_URL="https://api.github.com/repos/openai/codex/releases"
 
-if (( CODEX_CRON_MODE )); then
-  if (( CODEX_CRON_INSTALL )); then
+if ((CODEX_CRON_MODE)); then
+  if ((CODEX_CRON_INSTALL)); then
     install_cron_job
     exit $?
   fi
 
-  if (( CODEX_CRON_REMOVE )); then
+  if ((CODEX_CRON_REMOVE)); then
     remove_cron_job
     exit $?
   fi
@@ -24,7 +23,7 @@ if [[ -z "$CODEX_REAL_BIN" ]]; then
 fi
 
 # Help invocations should behave exactly like upstream Codex help output.
-if (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) && (( ! CODEX_DO_UNINSTALL )) && (( ! CODEX_LANE_COMMAND )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && is_codex_help_passthrough_invocation "$@"; then
+if ((!CODEX_STATUS_ONLY)) && ((!CODEX_DOCTOR_ONLY)) && ((!CODEX_DO_UNINSTALL)) && ((!CODEX_LANE_COMMAND)) && ((!CODEX_EXIT_AFTER_UPDATE)) && is_codex_help_passthrough_invocation "$@"; then
   exec "$CODEX_REAL_BIN" "$@"
 fi
 
@@ -32,15 +31,15 @@ platform_os="$(uname -s 2>/dev/null || echo unknown)"
 platform_arch="$(uname -m 2>/dev/null || echo unknown)"
 
 can_manage_codex=0
-if (( IS_ROOT )); then
+if ((IS_ROOT)); then
   can_manage_codex=1
-elif (( CAN_SUDO )); then
+elif ((CAN_SUDO)); then
   can_manage_codex=1
 fi
 
 if [[ "$platform_os" == "Linux" ]]; then
-  if (( can_manage_codex )); then
-    if (( CODEX_EXIT_AFTER_UPDATE )); then
+  if ((can_manage_codex)); then
+    if ((CODEX_EXIT_AFTER_UPDATE)); then
       ensure_commands curl
     else
       ensure_commands curl unzip
@@ -48,7 +47,7 @@ if [[ "$platform_os" == "Linux" ]]; then
     fi
   fi
 elif [[ "$platform_os" == "Darwin" ]]; then
-  if (( CODEX_EXIT_AFTER_UPDATE )); then
+  if ((CODEX_EXIT_AFTER_UPDATE)); then
     ensure_commands curl
   else
     ensure_commands python3 curl unzip
@@ -73,10 +72,10 @@ if is_ssh_session; then
 fi
 
 # Guard mutating sync/update work when another cdx run is already active.
-if (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+if ((!CODEX_CONCURRENT_SYNC_OVERRIDE)); then
   acquire_run_lock_or_mark_concurrent || true
 fi
-if (( CDX_ACTIVE_RUN_DETECTED )); then
+if ((CDX_ACTIVE_RUN_DETECTED)); then
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
@@ -120,7 +119,7 @@ fi
 HAS_LOCAL_AUTH=0
 [[ -f "$HOME/.codex/auth.json" ]] && HAS_LOCAL_AUTH=1
 HAS_VALID_LOCAL_AUTH=0
-if (( HAS_LOCAL_AUTH )) && validate_auth_json_file "$HOME/.codex/auth.json"; then
+if ((HAS_LOCAL_AUTH)) && validate_auth_json_file "$HOME/.codex/auth.json"; then
   HAS_VALID_LOCAL_AUTH=1
 fi
 
@@ -128,7 +127,7 @@ fi
 # so that version/status info can be shown alongside the ASCII art.
 
 AUTO_UPDATE_CRON_READY=0
-if (( ! CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CRON_MODE )) && (( ! CODEX_DO_UNINSTALL )); then
+if ((!CDX_ACTIVE_RUN_DETECTED)) && ((!CODEX_CRON_MODE)) && ((!CODEX_DO_UNINSTALL)); then
   if [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]]; then
     if reconcile_cron_job_state install; then
       AUTO_UPDATE_CRON_READY=1
@@ -143,18 +142,18 @@ fi
 asset_name=""
 skip_update_check=0
 skip_update_reason=""
-if (( CDX_ACTIVE_RUN_DETECTED )); then
+if ((CDX_ACTIVE_RUN_DETECTED)); then
   skip_update_check=1
   skip_update_reason="active_run"
-elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && (( AUTO_UPDATE_CRON_READY )); then
+elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && ((AUTO_UPDATE_CRON_READY)); then
   skip_update_check=1
   skip_update_reason="cron_managed"
-elif (( ! can_manage_codex )); then
+elif ((!can_manage_codex)); then
   skip_update_check=1
   skip_update_reason="privilege"
 fi
 
-if (( ! skip_update_check )); then
+if ((!skip_update_check)); then
   asset_name="$(detect_codex_asset_name 2>/dev/null)" || true
   if [[ -z "$asset_name" ]]; then
     os_name="$(uname -s 2>/dev/null || echo unknown)"
@@ -175,10 +174,10 @@ prefer_npm_update=0
 enforce_exact_codex_version=0
 
 case "$(lowercase "${SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT:-}")" in
-  1|true|yes)
+  1 | true | yes)
     enforce_exact_codex_version=1
     ;;
-  0|false|no)
+  0 | false | no)
     enforce_exact_codex_version=0
     ;;
   *)
@@ -188,7 +187,7 @@ case "$(lowercase "${SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT:-}")" in
     ;;
 esac
 
-if (( ! skip_update_check )); then
+if ((!skip_update_check)); then
   if [[ "$AUTH_PULL_STATUS" == "ok" && -n "$SYNC_REMOTE_CLIENT_VERSION" ]]; then
     remote_version="$(normalize_version "$SYNC_REMOTE_CLIENT_VERSION")"
     remote_tag="$remote_version"
@@ -204,14 +203,14 @@ fi
 
 need_update=0
 norm_remote=""
-if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
+if ((!skip_update_check)) && [[ -n "$remote_version" ]]; then
   norm_remote="$(normalize_version "$remote_version")"
-  if (( LOCAL_VERSION_UNKNOWN )); then
+  if ((LOCAL_VERSION_UNKNOWN)); then
     need_update=1
   else
     norm_local="$(normalize_version "$LOCAL_VERSION")"
     if [[ "$norm_remote" != "$norm_local" ]]; then
-      if (( enforce_exact_codex_version )); then
+      if ((enforce_exact_codex_version)); then
         need_update=1
       elif version_lt "$norm_local" "$norm_remote"; then
         need_update=1
@@ -221,27 +220,32 @@ if (( ! skip_update_check )) && [[ -n "$remote_version" ]]; then
 fi
 
 defer_codex_update_for_wrapper=0
-if (( need_update )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) \
-  && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
+if ((need_update)) && ((!CODEX_EXIT_AFTER_UPDATE)) && ((!CODEX_STATUS_ONLY)) && ((!CODEX_DOCTOR_ONLY)) \
+  && ((!CDX_ACTIVE_RUN_DETECTED)) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
   precheck_target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   precheck_target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
-  if [[ -n "$precheck_target_wrapper" && "$precheck_target_wrapper" != "$WRAPPER_VERSION" \
-    && -n "$precheck_target_wrapper_url" && -n "$CODEX_SYNC_API_KEY" ]]; then
+  if [[ -n "$precheck_target_wrapper" && "$precheck_target_wrapper" != "$WRAPPER_VERSION" &&
+    -n "$precheck_target_wrapper_url" && -n "$CODEX_SYNC_API_KEY" ]]; then
     defer_codex_update_for_wrapper=1
     log_info "Wrapper update to ${precheck_target_wrapper} pending; deferring Codex update until wrapper restart."
   fi
 fi
 
-if (( need_update )) && is_codex_installed_via_npm; then
+if ((need_update)) && is_codex_installed_via_npm; then
   prefer_npm_update=1
 fi
 
 # If an update is needed but we don't yet have a download URL (e.g., version came from the API), fetch release metadata now.
-if (( need_update )) && (( defer_codex_update_for_wrapper == 0 )) && [[ -z "$remote_url" ]] && require_python; then
+if ((need_update)) && ((defer_codex_update_for_wrapper == 0)) && [[ -z "$remote_url" ]] && require_python; then
   tmp_payload="$(mktemp)"
   fetch_success=0
   candidate_tags=()
-  add_tag() { local t="$1"; [[ -z "$t" ]] && return; for existing in "${candidate_tags[@]-}"; do [[ "$existing" == "$t" ]] && return; done; candidate_tags+=("$t"); }
+  add_tag() {
+    local t="$1"
+    [[ -z "$t" ]] && return
+    for existing in "${candidate_tags[@]-}"; do [[ "$existing" == "$t" ]] && return; done
+    candidate_tags+=("$t")
+  }
   add_tag "$remote_tag"
   add_tag "$remote_version"
   add_tag "v${remote_version}"
@@ -250,14 +254,14 @@ if (( need_update )) && (( defer_codex_update_for_wrapper == 0 )) && [[ -z "$rem
 
   for tag_variant in "${candidate_tags[@]}"; do
     if payload_json="$(fetch_release_payload "${API_RELEASES_URL}/tags/${tag_variant}" "$asset_name" 2>/dev/null)"; then
-      printf '%s\n' "$payload_json" > "$tmp_payload"
+      printf '%s\n' "$payload_json" >"$tmp_payload"
       fresh_fields=()
       if payload_raw="$(read_cached_payload "$tmp_payload")"; then
         while IFS= read -r line; do
           fresh_fields+=("$line")
-        done <<< "$payload_raw"
+        done <<<"$payload_raw"
       fi
-      if (( ${#fresh_fields[@]} >= 5 )); then
+      if ((${#fresh_fields[@]} >= 5)); then
         remote_version="${fresh_fields[0]}"
         remote_url="${fresh_fields[1]}"
         remote_asset="${fresh_fields[2]}"
@@ -270,7 +274,7 @@ if (( need_update )) && (( defer_codex_update_for_wrapper == 0 )) && [[ -z "$rem
     fi
   done
   rm -f "$tmp_payload"
-  if (( fetch_success == 0 )); then
+  if ((fetch_success == 0)); then
     log_warn "Could not fetch release metadata for Codex ${remote_tag}"
   fi
 fi
@@ -283,7 +287,7 @@ codex_status_note=""
 codex_target_label=""
 codex_installed_label="${LOCAL_VERSION:-unknown}"
 
-if (( skip_update_check )); then
+if ((skip_update_check)); then
   codex_target_label="${remote_version:-${LOCAL_VERSION:-unknown}}"
   codex_status_label="Check skipped"
   case "$skip_update_reason" in
@@ -300,15 +304,15 @@ if (( skip_update_check )); then
       codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"
       ;;
   esac
-elif (( need_update )) && (( defer_codex_update_for_wrapper )); then
+elif ((need_update)) && ((defer_codex_update_for_wrapper)); then
   codex_target_label="${norm_remote:-${remote_version:-unknown}}"
   codex_status_label="Deferred"
   codex_status_note="waiting for wrapper restart"
-elif (( need_update )) && [[ -n "$remote_url" ]]; then
+elif ((need_update)) && [[ -n "$remote_url" ]]; then
   display_local="${LOCAL_VERSION:-unknown}"
   codex_target_label="$norm_remote"
   codex_update_attempted=1
-  if (( prefer_npm_update )) && update_codex_via_npm "$norm_remote"; then
+  if ((prefer_npm_update)) && update_codex_via_npm "$norm_remote"; then
     hash -r
     CODEX_REAL_BIN="$(resolve_real_codex)"
     LOCAL_VERSION_RAW="$("$CODEX_REAL_BIN" -V 2>/dev/null || true)"
@@ -376,7 +380,7 @@ target_wrapper_sha=""
 target_wrapper_url=""
 wrapper_target_label="$WRAPPER_VERSION"
 
-if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; }; then
+if ((!CDX_ACTIVE_RUN_DETECTED)) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_FORCE_WRAPPER_UPDATE" == "1" ]]; }; then
   target_wrapper="${SYNC_REMOTE_WRAPPER_VERSION:-${WRAPPER_VERSION}}"
   target_wrapper_sha="${SYNC_REMOTE_WRAPPER_SHA256:-}"
   target_wrapper_url="$(resolve_wrapper_target_url "${SYNC_REMOTE_WRAPPER_URL:-}")"
@@ -386,12 +390,12 @@ if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODE
   if wrapper_self_update_needed "$target_wrapper" "$target_wrapper_sha"; then
     need_wrapper_update=1
   fi
-  if (( CODEX_FORCE_WRAPPER_UPDATE )); then
+  if ((CODEX_FORCE_WRAPPER_UPDATE)); then
     need_wrapper_update=1
     wrapper_status_note="forced update requested"
   fi
 
-  if (( need_wrapper_update )) && [[ -n "$target_wrapper_url" ]]; then
+  if ((need_wrapper_update)) && [[ -n "$target_wrapper_url" ]]; then
     wrapper_update_attempted=1
     if [[ -z "$CODEX_SYNC_API_KEY" ]]; then
       log_warn "Wrapper update skipped: API key missing"
@@ -413,24 +417,24 @@ if (( ! CDX_ACTIVE_RUN_DETECTED )) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODE
         wrapper_status_note="${WRAPPER_UPDATE_LAST_ERROR:-unknown}"
       fi
     fi
-  elif (( need_wrapper_update )) && [[ -z "$target_wrapper_url" ]]; then
+  elif ((need_wrapper_update)) && [[ -z "$target_wrapper_url" ]]; then
     log_warn "Wrapper update skipped: API did not provide download URL"
     wrapper_update_failed=1
     wrapper_status_label="Update skipped"
     wrapper_status_note="missing download URL"
   fi
-elif (( CDX_ACTIVE_RUN_DETECTED )); then
+elif ((CDX_ACTIVE_RUN_DETECTED)); then
   wrapper_status_label="Check skipped"
   wrapper_status_note="active cdx run"
 fi
 
-if (( CODEX_EXIT_AFTER_UPDATE )); then
+if ((CODEX_EXIT_AFTER_UPDATE)); then
   release_run_lock_if_held || true
-  if (( wrapper_updated )); then
+  if ((wrapper_updated)); then
     log_info "Wrapper update completed (version ${WRAPPER_VERSION})."
     exit 0
   fi
-  if (( wrapper_update_failed )); then
+  if ((wrapper_update_failed)); then
     log_error "Wrapper update failed (${wrapper_status_note:-unknown})."
     exit 1
   fi

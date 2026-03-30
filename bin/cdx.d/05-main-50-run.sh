@@ -2,10 +2,10 @@ cleanup() {
   local exit_status=$?
   trap - EXIT
   stop_codex_ipv4_proxy || true
-  if (( CODEX_COMMAND_STARTED )) && (( SYNC_PUSH_COMPLETED == 0 )); then
+  if ((CODEX_COMMAND_STARTED)) && ((SYNC_PUSH_COMPLETED == 0)); then
     push_auth_if_changed "push" || true
   fi
-  if (( PURGE_AUTH_AFTER_RUN )) && (( CODEX_COMMAND_STARTED )) && (( ! CDX_ACTIVE_RUN_DETECTED )) && [[ -f "$HOME/.codex/auth.json" ]]; then
+  if ((PURGE_AUTH_AFTER_RUN)) && ((CODEX_COMMAND_STARTED)) && ((!CDX_ACTIVE_RUN_DETECTED)) && [[ -f "$HOME/.codex/auth.json" ]]; then
     remove_path "$HOME/.codex/auth.json" "auth.json (insecure host)"
   fi
   print_run_exit_footer || true
@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if (( AUTH_LAUNCH_ALLOWED == 0 )); then
+if ((AUTH_LAUNCH_ALLOWED == 0)); then
   exit 1
 fi
 
@@ -31,7 +31,7 @@ apply_otel_env_from_config() {
     key="${line%%=*}"
     val="${line#*=}"
     case "$key" in
-      OTEL_*|CODEX_OTEL_LOG_USER_PROMPT)
+      OTEL_* | CODEX_OTEL_LOG_USER_PROMPT)
         export "$key=$val"
         ;;
     esac
@@ -234,7 +234,7 @@ run_codex_command() {
   fi
   cmd_line+=("$@")
   local -a exec_cmd=("${cmd_line[@]}")
-  if (( use_cmd_prefix )); then
+  if ((use_cmd_prefix)); then
     exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
   fi
   set +e
@@ -244,11 +244,11 @@ run_codex_command() {
     prompt_toolkit_no_cpr_added=1
   fi
 
-  if (( CODEX_SSH_INTERACTIVE )); then
+  if ((CODEX_SSH_INTERACTIVE)); then
     if ssh_should_force_no_alt_screen && ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then
       cmd_line+=("--no-alt-screen")
       exec_cmd=("${cmd_line[@]}")
-      if (( use_cmd_prefix )); then
+      if ((use_cmd_prefix)); then
         exec_cmd=("${cmd_prefix[@]}" "${exec_cmd[@]}")
       fi
     fi
@@ -262,7 +262,7 @@ run_codex_command() {
     # TTY: direct exec — codex owns the terminal.
     "${exec_cmd[@]}"
     status=$?
-  elif [[ ! -t 1 ]] && (( $# == 0 )); then
+  elif [[ ! -t 1 ]] && (($# == 0)); then
     log_error "stdout is not a TTY; interactive launch requires a terminal."
     log_error "Use: cdx --execute \"<prompt>\" [codex args...]"
     status=1
@@ -272,7 +272,7 @@ run_codex_command() {
     status=${PIPESTATUS[0]}
   fi
   stop_codex_ipv4_proxy || true
-  if (( prompt_toolkit_no_cpr_added )); then
+  if ((prompt_toolkit_no_cpr_added)); then
     unset PROMPT_TOOLKIT_NO_CPR
   fi
   set -e
@@ -289,7 +289,7 @@ codex_args_include_profile_or_model() {
   local arg=""
   for arg in "$@"; do
     case "$arg" in
-      --model|--profile|--model=*|--profile=*)
+      --model | --profile | --model=* | --profile=*)
         return 0
         ;;
     esac
@@ -302,7 +302,7 @@ codex_args_explicit_model() {
   local expect_model_value=0
   local model_value=""
   for arg in "$@"; do
-    if (( expect_model_value )); then
+    if ((expect_model_value)); then
       model_value="$arg"
       expect_model_value=0
       continue
@@ -331,7 +331,7 @@ codex_args_explicit_profile() {
   local expect_profile_value=0
   local profile_value=""
   for arg in "$@"; do
-    if (( expect_profile_value )); then
+    if ((expect_profile_value)); then
       profile_value="$arg"
       expect_profile_value=0
       continue
@@ -380,7 +380,7 @@ apply_lane_selector=0
 if [[ "$CODEX_EFFECTIVE_LANE_SOURCE" == command* || "$CODEX_EFFECTIVE_LANE_SOURCE" == host* ]]; then
   apply_lane_selector=1
 fi
-if (( apply_lane_selector )) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
+if ((apply_lane_selector)) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
   if config_has_profile "$CODEX_EFFECTIVE_LANE"; then
     lane_selector_profile="$CODEX_EFFECTIVE_LANE"
     CODEX_EFFECTIVE_LANE_SELECTOR="profile:${lane_selector_profile}"
@@ -393,19 +393,19 @@ if (( apply_lane_selector )) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODE
   fi
 fi
 
-if (( user_selected_profile_or_model )) && (( CODEX_LANE_USER_SET )); then
+if ((user_selected_profile_or_model)) && ((CODEX_LANE_USER_SET)); then
   log_warn "Lane override requested, but explicit --model/--profile args were provided; honoring explicit Codex args."
 fi
 
 injected_model=0
 injected_model_name=""
-if (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_profile" ]]; then
+if ((!user_selected_profile_or_model)) && [[ -n "$lane_selector_profile" ]]; then
   set -- --profile "$lane_selector_profile" "$@"
-elif (( ! user_selected_profile_or_model )) && [[ -n "$lane_selector_model" ]]; then
+elif ((!user_selected_profile_or_model)) && [[ -n "$lane_selector_model" ]]; then
   set -- --model "$lane_selector_model" "$@"
   injected_model=1
   injected_model_name="$lane_selector_model"
-elif (( ! user_selected_profile_or_model )) && [[ -n "$CODEX_HOST_MODEL" ]]; then
+elif ((!user_selected_profile_or_model)) && [[ -n "$CODEX_HOST_MODEL" ]]; then
   set -- --model "$CODEX_HOST_MODEL" "$@"
   injected_model=1
   injected_model_name="$CODEX_HOST_MODEL"
@@ -414,7 +414,7 @@ elif (( ! user_selected_profile_or_model )) && [[ -n "$CODEX_HOST_MODEL" ]]; the
   fi
 fi
 
-if (( ! user_selected_profile_or_model )) && (( injected_model )) && [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
+if ((!user_selected_profile_or_model)) && ((injected_model)) && [[ -n "$CODEX_HOST_REASONING_EFFORT" ]]; then
   set -- --config "model_reasoning_effort=${CODEX_HOST_REASONING_EFFORT}" "$@"
 fi
 
@@ -429,7 +429,7 @@ elif explicit_profile_name="$(codex_args_explicit_profile "$@")"; then
   elif default_model_name="$(config_default_model)"; then
     effective_model_name="$default_model_name"
   fi
-elif (( injected_model )) && [[ -n "$injected_model_name" ]]; then
+elif ((injected_model)) && [[ -n "$injected_model_name" ]]; then
   effective_model_name="$injected_model_name"
 elif default_model_name="$(config_default_model)"; then
   effective_model_name="$default_model_name"

@@ -1,11 +1,11 @@
 human_join() {
   local items=("$@")
   local count=${#items[@]}
-  if (( count == 0 )); then
+  if ((count == 0)); then
     printf ''
-  elif (( count == 1 )); then
+  elif ((count == 1)); then
     printf '%s' "${items[0]}"
-  elif (( count == 2 )); then
+  elif ((count == 2)); then
     printf '%s and %s' "${items[0]}" "${items[1]}"
   else
     local last="${items[count-1]}"
@@ -44,7 +44,7 @@ colorize_sync_status() {
   local val="$1"
   case "$val" in
     ok) colorize "$val" "green" ;;
-    offline|concurrent|skip|no-python) colorize "$val" "yellow" ;;
+    offline | concurrent | skip | no-python) colorize "$val" "yellow" ;;
     unknown) printf "%s" "$val" ;;
     *) colorize "$val" "red" ;;
   esac
@@ -72,15 +72,15 @@ summary_divider() {
   if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
     cols="$(tput cols 2>/dev/null || true)"
   fi
-  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 40 )); then
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || ((cols < 40)); then
     cols=80
   fi
-  local w=$(( cols - 2 ))
-  (( w < 20 )) && w=20
+  local w=$((cols - 2))
+  ((w < 20)) && w=20
   if output_supports_unicode; then
     local line=""
     local si
-    for (( si = 0; si < w; si++ )); do line+="─"; done
+    for ((si = 0; si < w; si++)); do line+="─"; done
     printf "%b" "${DIM}${line}${RESET}"
   else
     printf "%b" "${DIM}$(printf '%*s' "$w" '' | tr ' ' '-')${RESET}"
@@ -115,7 +115,8 @@ summary_header() {
 }
 
 summary_row() {
-  local label="$1"; shift
+  local label="$1"
+  shift
   local text="$*"
   # "Label  · value" reads cleaner than the old aligned colon block.
   printf "%b%s%b%s%s%b" "${DIM}" "$label" "${RESET}" "${SUMMARY_GUTTER}·${SUMMARY_GUTTER}" "$text" "${RESET}"
@@ -129,13 +130,16 @@ wrap_ansi_text() {
   if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
     cols="$(tput cols 2>/dev/null || true)"
   fi
-  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 60 )); then
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || ((cols < 60)); then
     printf "%s" "$text"
     return
   fi
   local indent="${2-}"
-  local max=$(( cols - ${#indent} ))
-  (( max < 30 )) && { printf "%s" "$text"; return; }
+  local max=$((cols - ${#indent}))
+  ((max < 30)) && {
+    printf "%s" "$text"
+    return
+  }
 
   # If the line already has a label separator, align wrapped continuation lines
   # under the value column instead of repeating the label gutter.
@@ -162,7 +166,7 @@ wrap_ansi_text() {
     cand+="$token"
     local cand_plain
     cand_plain="$(strip_ansi_sgr "$cand")"
-    if (( ${#cand_plain} > max )) && [[ -n "$line" ]]; then
+    if ((${#cand_plain} > max)) && [[ -n "$line" ]]; then
       if [[ -n "$out" ]]; then out+=$'\n'; fi
       out+="${indent}${line}"
       line="$token"
@@ -178,13 +182,13 @@ wrap_ansi_text() {
   if [[ "$out" == *$'\n'* ]] && [[ -n "$cont_indent" ]]; then
     local first=1 rebuilt="" ln
     while IFS= read -r ln; do
-      if (( first )); then
+      if ((first)); then
         rebuilt+="$ln"
         first=0
       else
         rebuilt+=$'\n'"${cont_indent}${ln#${indent}}"
       fi
-    done <<< "$out"
+    done <<<"$out"
     out="$rebuilt"
   fi
   printf "%s" "$out"
@@ -213,20 +217,20 @@ format_simple_row() {
       cols="$(tput cols 2>/dev/null || true)"
     fi
     if [[ "$cols" =~ ^[0-9]+$ ]]; then
-      local max=$(( cols - ROW_LABEL_WIDTH - 5 ))
-      if (( max >= 20 )); then
+      local max=$((cols - ROW_LABEL_WIDTH - 5))
+      if ((max >= 20)); then
         if [[ "$text" != *$'\033['* ]]; then
           # Plain text: use fold for reliable word-boundary wrapping.
-          if (( ${#text} > max )); then
+          if ((${#text} > max)); then
             local first=1 chunk
             while IFS= read -r chunk; do
-              if (( first )); then
+              if ((first)); then
                 printf "%-${ROW_LABEL_WIDTH}s | %s" "$label" "$chunk"
                 first=0
               else
                 printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$chunk"
               fi
-            done <<< "$(fold -s -w "$max" <<< "$text")"
+            done <<<"$(fold -s -w "$max" <<<"$text")"
             return
           fi
         else
@@ -234,7 +238,7 @@ format_simple_row() {
           # measure via strip_ansi_sgr and break on space boundaries instead.
           local plain
           plain="$(strip_ansi_sgr "$text")"
-          if (( ${#plain} > max )); then
+          if ((${#plain} > max)); then
             local out="" cur_line="" token rest="$text"
             while [[ -n "$rest" ]]; do
               if [[ "$rest" == *" "* ]]; then
@@ -249,7 +253,7 @@ format_simple_row() {
               cand+="$token"
               local cand_plain
               cand_plain="$(strip_ansi_sgr "$cand")"
-              if (( ${#cand_plain} > max )) && [[ -n "$cur_line" ]]; then
+              if ((${#cand_plain} > max)) && [[ -n "$cur_line" ]]; then
                 if [[ -n "$out" ]]; then
                   printf "\n%-${ROW_LABEL_WIDTH}s | %s" "" "$cur_line"
                 else
@@ -285,7 +289,7 @@ format_footer_sync_fragment() {
   local state="${result:-unknown}"
 
   case "$result" in
-    ok|uploaded)
+    ok | uploaded)
       tone="green"
       state="uploaded"
       ;;
@@ -297,7 +301,7 @@ format_footer_sync_fragment() {
       tone="yellow"
       state="skipped"
       ;;
-    failed|error)
+    failed | error)
       tone="red"
       state="failed"
       ;;
@@ -311,7 +315,7 @@ format_footer_sync_fragment() {
   output_supports_unicode || dot="*"
   local text="${name} ${state}"
   case "$result" in
-    skipped|failed|error)
+    skipped | failed | error)
       if [[ -n "$reason" ]]; then
         text+=" (${reason})"
       fi
@@ -349,7 +353,7 @@ should_suppress_empty_run_footer() {
 }
 
 print_run_exit_footer() {
-  (( CODEX_COMMAND_STARTED )) || return 0
+  ((CODEX_COMMAND_STARTED)) || return 0
   if should_suppress_empty_run_footer; then
     return 0
   fi
@@ -412,19 +416,19 @@ print_run_exit_footer() {
     local run_elapsed_ms
     run_elapsed_ms="$(cdx_elapsed_ms "${CDX_RUN_START_NS}")"
     if [[ "$run_elapsed_ms" =~ ^[0-9]+$ ]]; then
-      local run_elapsed_s=$(( run_elapsed_ms / 1000 ))
+      local run_elapsed_s=$((run_elapsed_ms / 1000))
       local run_time_raw=""
-      if (( run_elapsed_s == 0 )); then
+      if ((run_elapsed_s == 0)); then
         run_time_raw="${run_elapsed_ms}ms"
-      elif (( run_elapsed_s < 60 )); then
+      elif ((run_elapsed_s < 60)); then
         run_time_raw="${run_elapsed_s}s"
       else
         run_time_raw="$(format_duration_short "$run_elapsed_s")"
       fi
       # Colorize by duration.
-      if (( run_elapsed_s < 60 )); then
+      if ((run_elapsed_s < 60)); then
         run_time_text="$(colorize "$run_time_raw" "green")"
-      elif (( run_elapsed_s > 300 )); then
+      elif ((run_elapsed_s > 300)); then
         run_time_text="$(colorize "$run_time_raw" "yellow")"
       else
         run_time_text="$run_time_raw"
@@ -458,7 +462,8 @@ section_bullet() {
 }
 
 print_section_rows() {
-  local label="$1"; shift
+  local label="$1"
+  shift
   local first=1
   local items_per_row="$SUMMARY_ITEMS_PER_ROW"
   if [[ "$label" == "Quota" ]]; then
@@ -493,13 +498,13 @@ print_section_rows() {
     [[ -z "$line" ]] && continue
     section_entries+=("$line")
   done
-  if (( ${#section_entries[@]} == 0 )); then
+  if ((${#section_entries[@]} == 0)); then
     return 0
   fi
 
   local column_widths=()
   local col=0
-  for (( col = 0; col < items_per_row; col++ )); do
+  for ((col = 0; col < items_per_row; col++)); do
     column_widths[col]=0
   done
 
@@ -508,34 +513,34 @@ print_section_rows() {
   local plain=""
   local plain_len=0
   for entry in "${section_entries[@]}"; do
-    col=$(( entry_index % items_per_row ))
+    col=$((entry_index % items_per_row))
     plain="$(strip_ansi_sgr "$entry")"
     plain_len=${#plain}
-    if (( plain_len > column_widths[col] )); then
+    if ((plain_len > column_widths[col])); then
       column_widths[col]=$plain_len
     fi
-    entry_index=$(( entry_index + 1 ))
+    entry_index=$((entry_index + 1))
   done
 
   local row_text=""
   local padded_entry=""
   entry_index=0
   for entry in "${section_entries[@]}"; do
-    col=$(( entry_index % items_per_row ))
-    if (( col > 0 )); then
+    col=$((entry_index % items_per_row))
+    if ((col > 0)); then
       row_text+="$gap"
     fi
     padded_entry="$entry"
     plain="$(strip_ansi_sgr "$entry")"
     plain_len=${#plain}
-    if (( plain_len < column_widths[col] )); then
+    if ((plain_len < column_widths[col])); then
       padded_entry+="$(printf '%*s' "$((column_widths[col] - plain_len))" "")"
     fi
     row_text+="$padded_entry"
 
-    entry_index=$(( entry_index + 1 ))
-    if (( entry_index % items_per_row == 0 )); then
-      if (( first )); then
+    entry_index=$((entry_index + 1))
+    if ((entry_index % items_per_row == 0)); then
+      if ((first)); then
         log_info "$(format_simple_row "$label" "$row_text")"
         first=0
       else
@@ -546,7 +551,7 @@ print_section_rows() {
   done
 
   if [[ -n "$row_text" ]]; then
-    if (( first )); then
+    if ((first)); then
       log_info "$(format_simple_row "$label" "$row_text")"
     else
       log_info "$(format_simple_row "" "$row_text")"
@@ -563,7 +568,7 @@ compute_row_label_width() {
     [[ -z "$label" ]] && continue
     plain="$(strip_ansi_sgr "$label")"
     plain_len=${#plain}
-    if (( plain_len > width )); then
+    if ((plain_len > width)); then
       width=$plain_len
     fi
   done
@@ -580,7 +585,8 @@ format_quota_row() {
 }
 
 join_with_sep() {
-  local sep="$1"; shift
+  local sep="$1"
+  shift
   local out="" part
   for part in "$@"; do
     [[ -z "$part" ]] && continue
@@ -593,7 +599,7 @@ join_with_sep() {
 }
 
 output_supports_unicode() {
-  (( CODEX_TERM_IS_DUMB )) && return 1
+  ((CODEX_TERM_IS_DUMB)) && return 1
   [[ -t 1 ]] || return 1
   local locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
   [[ "$locale" =~ [Uu][Tt][Ff]-?8 ]] || return 1
@@ -613,8 +619,8 @@ format_grouped_int() {
   fi
   local out=""
   local len=${#raw}
-  while (( len > 3 )); do
-    local chunk_start=$(( len - 3 ))
+  while ((len > 3)); do
+    local chunk_start=$((len - 3))
     out=",${raw:chunk_start:3}${out}"
     raw="${raw:0:chunk_start}"
     len=${#raw}
@@ -705,7 +711,7 @@ format_version_entry() {
   if [[ -n "$ver_target" && "$ver_target" != "$ver_inst" ]]; then
     text+="→${ver_target}"
   fi
-  if [[ "$tone" == "green" && ( -z "$ver_target" || "$ver_target" == "$ver_inst" ) ]]; then
+  if [[ "$tone" == "green" && (-z "$ver_target" || "$ver_target" == "$ver_inst") ]]; then
     text+=" ✅"
   else
     text+=" ${icon}"
@@ -737,18 +743,21 @@ PY
 
 format_duration_short() {
   local seconds="$1"
-  [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
+  [[ "$seconds" =~ ^[0-9]+$ ]] || {
+    printf ""
+    return
+  }
   local s=$seconds
-  local days=$(( s / 86400 ))
-  s=$(( s % 86400 ))
-  local hours=$(( s / 3600 ))
-  s=$(( s % 3600 ))
-  local mins=$(( s / 60 ))
+  local days=$((s / 86400))
+  s=$((s % 86400))
+  local hours=$((s / 3600))
+  s=$((s % 3600))
+  local mins=$((s / 60))
   local parts=()
-  (( days > 0 )) && parts+=("${days}d")
-  (( hours > 0 )) && parts+=("${hours}h")
-  (( mins > 0 )) && parts+=("${mins}m")
-  if (( ${#parts[@]} == 0 )); then
+  ((days > 0)) && parts+=("${days}d")
+  ((hours > 0)) && parts+=("${hours}h")
+  ((mins > 0)) && parts+=("${mins}m")
+  if ((${#parts[@]} == 0)); then
     parts=("<1m")
   fi
   printf "%s" "${parts[*]}"
@@ -756,21 +765,28 @@ format_duration_short() {
 
 format_duration_long() {
   local seconds="$1"
-  [[ "$seconds" =~ ^[0-9]+$ ]] || { printf ""; return; }
+  [[ "$seconds" =~ ^[0-9]+$ ]] || {
+    printf ""
+    return
+  }
   local s=$seconds
-  local days=$(( s / 86400 ))
-  s=$(( s % 86400 ))
-  local hours=$(( s / 3600 ))
-  s=$(( s % 3600 ))
-  local mins=$(( s / 60 ))
+  local days=$((s / 86400))
+  s=$((s % 86400))
+  local hours=$((s / 3600))
+  s=$((s % 3600))
+  local mins=$((s / 60))
   local parts=()
-  if (( days == 1 )); then parts+=("1 day")
-  elif (( days > 1 )); then parts+=("${days} days"); fi
-  if (( hours == 1 )); then parts+=("1 hour")
-  elif (( hours > 1 )); then parts+=("${hours} hours"); fi
-  if (( ${#parts[@]} == 0 )); then
-    if (( mins == 1 )); then parts+=("1 minute")
-    elif (( mins > 1 )); then parts+=("${mins} minutes")
+  if ((days == 1)); then
+    parts+=("1 day")
+  elif ((days > 1)); then parts+=("${days} days"); fi
+  if ((hours == 1)); then
+    parts+=("1 hour")
+  elif ((hours > 1)); then parts+=("${hours} hours"); fi
+  if ((${#parts[@]} == 0)); then
+    if ((mins == 1)); then
+      parts+=("1 minute")
+    elif ((mins > 1)); then
+      parts+=("${mins} minutes")
     else parts+=("<1 minute"); fi
   fi
   local IFS=", "
@@ -784,8 +800,8 @@ format_relative_iso() {
   if [[ -z "$seconds" ]]; then
     return 1
   fi
-  if (( seconds < 0 )); then
-    seconds=$(( -seconds ))
+  if ((seconds < 0)); then
+    seconds=$((-seconds))
   fi
   local label
   label="$(format_duration_short "$seconds")"
@@ -797,15 +813,15 @@ format_relative_iso() {
 
 build_quota_bar() {
   local pct="$1" width="$2"
-  (( width < 1 )) && width=24
-  (( pct < 0 )) && pct=0
-  (( pct > 100 )) && pct=100
-  local filled=$(( (pct * width + 50) / 100 ))
-  (( filled > width )) && filled=$width
+  ((width < 1)) && width=24
+  ((pct < 0)) && pct=0
+  ((pct > 100)) && pct=100
+  local filled=$(((pct * width + 50) / 100))
+  ((filled > width)) && filled=$width
   local fill_color="${GREEN}${BOLD}"
-  if (( pct >= 95 )); then
+  if ((pct >= 95)); then
     fill_color="${RED}${BOLD}"
-  elif (( pct >= 80 )); then
+  elif ((pct >= 80)); then
     fill_color="${ORANGE}${BOLD}"
   fi
   local fill_char
@@ -818,14 +834,14 @@ build_quota_bar() {
     empty_char="${CDX_QUOTA_EMPTY_CHAR:--}"
   fi
   local bar=""
-  if (( filled > 0 )); then
+  if ((filled > 0)); then
     local filled_part
     filled_part="$(printf '%*s' "$filled" "")"
     filled_part="${filled_part// /$fill_char}"
     bar+="${fill_color}${filled_part}"
   fi
-  local empty_count=$(( width - filled ))
-  if (( empty_count > 0 )); then
+  local empty_count=$((width - filled))
+  if ((empty_count > 0)); then
     local empty_part
     empty_part="$(printf '%*s' "$empty_count" "")"
     empty_part="${empty_part// /$empty_char}"
@@ -845,9 +861,9 @@ render_quota_line() {
 
   if [[ "$used" =~ ^[0-9]+$ ]]; then
     local pct=$used
-    (( pct < 0 )) && pct=0
-    (( pct > 100 )) && pct=100
-    (( width < 1 )) && width=24
+    ((pct < 0)) && pct=0
+    ((pct > 100)) && pct=100
+    ((width < 1)) && width=24
     local bar
     bar="$(build_quota_bar "$pct" "$width")"
     if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
@@ -858,9 +874,9 @@ render_quota_line() {
       note="resets @ ${reset_at}"
     fi
 
-    if (( pct >= 95 )); then
+    if ((pct >= 95)); then
       tone="red"
-    elif (( pct >= 80 )); then
+    elif ((pct >= 80)); then
       tone="orange"
     else
       tone="green"
@@ -888,7 +904,7 @@ format_quota_bar_text() {
 format_quota_metric_row() {
   local label="$1" value="$2"
   local width="${QUOTA_METRIC_LABEL_WIDTH:-20}"
-  if [[ ! "$width" =~ ^[0-9]+$ ]] || (( width < 8 )); then
+  if [[ ! "$width" =~ ^[0-9]+$ ]] || ((width < 8)); then
     width=20
   fi
   printf "%-${width}s: %s" "$label" "$value"
@@ -907,18 +923,18 @@ project_quota_usage() {
   local used_pct="$1" limit_seconds="$2" reset_after="$3"
   [[ "$used_pct" =~ ^[0-9]+$ ]] || return
   [[ "$limit_seconds" =~ ^[0-9]+$ ]] || return
-  (( limit_seconds > 0 )) || return
+  ((limit_seconds > 0)) || return
   local remaining=0
   if [[ "$reset_after" =~ ^[0-9]+$ ]]; then
     remaining="$reset_after"
   fi
-  (( remaining < 0 )) && remaining=0
-  local elapsed=$(( limit_seconds - remaining ))
-  (( elapsed < 1 )) && return
-  (( elapsed > limit_seconds )) && elapsed=limit_seconds
-  local projected=$(( (used_pct * limit_seconds + elapsed / 2) / elapsed ))
-  (( projected > 999 )) && projected=999
-  (( projected > 100 )) && projected=100
+  ((remaining < 0)) && remaining=0
+  local elapsed=$((limit_seconds - remaining))
+  ((elapsed < 1)) && return
+  ((elapsed > limit_seconds)) && elapsed=limit_seconds
+  local projected=$(((used_pct * limit_seconds + elapsed / 2) / elapsed))
+  ((projected > 999)) && projected=999
+  ((projected > 100)) && projected=100
   printf "%d" "$projected"
 }
 
@@ -927,37 +943,37 @@ project_quota_hit_eta() {
   [[ "$used_pct" =~ ^[0-9]+$ ]] || return
   [[ "$limit_seconds" =~ ^[0-9]+$ ]] || return
   [[ "$reset_after" =~ ^[0-9]+$ ]] || return
-  (( used_pct > 0 )) || return
-  (( limit_seconds > 0 )) || return
+  ((used_pct > 0)) || return
+  ((limit_seconds > 0)) || return
 
   local remaining="$reset_after"
-  (( remaining < 0 )) && remaining=0
+  ((remaining < 0)) && remaining=0
 
-  local elapsed=$(( limit_seconds - remaining ))
-  (( elapsed < 1 )) && return
-  (( elapsed > limit_seconds )) && elapsed=limit_seconds
+  local elapsed=$((limit_seconds - remaining))
+  ((elapsed < 1)) && return
+  ((elapsed > limit_seconds)) && elapsed=limit_seconds
 
   local projected
   projected="$(project_quota_usage "$used_pct" "$limit_seconds" "$remaining" || true)"
   [[ "$projected" =~ ^[0-9]+$ ]] || return
-  (( projected >= 100 )) || return
+  ((projected >= 100)) || return
 
-  local target_elapsed=$(( (100 * elapsed + used_pct - 1) / used_pct ))
-  (( target_elapsed <= elapsed )) && target_elapsed=$elapsed
+  local target_elapsed=$(((100 * elapsed + used_pct - 1) / used_pct))
+  ((target_elapsed <= elapsed)) && target_elapsed=$elapsed
 
-  local eta=$(( target_elapsed - elapsed ))
-  (( eta < 0 )) && eta=0
-  (( eta < remaining )) || return
+  local eta=$((target_elapsed - elapsed))
+  ((eta < 0)) && eta=0
+  ((eta < remaining)) || return
 
   format_duration_long "$eta"
 }
 
 format_auth_label() {
   local status="$1" action="$2" msg="$3"
-  if (( ! HOST_IS_SECURE )) && [[ "$status" =~ ^(outdated|missing|upload_required)$ ]]; then
+  if ((!HOST_IS_SECURE)) && [[ "$status" =~ ^(outdated|missing|upload_required)$ ]]; then
     local parts=("status refreshed (insecure host)")
     case "$action" in
-      store|retrieve|outdated) parts+=("fetched latest auth") ;;
+      store | retrieve | outdated) parts+=("fetched latest auth") ;;
     esac
     [[ -n "$msg" ]] && parts+=("$msg")
     printf "%s" "$(join_with_semicolon "${parts[@]}")"
@@ -997,7 +1013,8 @@ doctor_probe_api_versions() {
 
   local probe=""
   local rc=0
-  probe="$(CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
+  probe="$(
+    CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$CODEX_SYNC_BASE_URL" "$CODEX_SYNC_CA_FILE" <<'PY'
 import json
 import os
 import sys
@@ -1045,13 +1062,13 @@ for ctx in contexts:
 print(last_error or "unreachable")
 sys.exit(1)
 PY
-)" || rc=$?
+  )" || rc=$?
 
-  if (( rc == 0 )); then
+  if ((rc == 0)); then
     printf "ok\t%s" "$probe"
     return 0
   fi
-  if (( rc == 2 )); then
+  if ((rc == 2)); then
     printf "skip\t%s" "$probe"
     return 2
   fi
@@ -1063,25 +1080,34 @@ PY
 
 format_compact_number() {
   local n="$1"
-  [[ "$n" =~ ^[0-9]+$ ]] || { printf "%s" "$n"; return; }
-  if (( n >= 10000000 )); then
-    printf "%dM" $(( (n + 500000) / 1000000 ))
-  elif (( n >= 1000000 )); then
-    local m=$(( n / 1000000 ))
-    local frac=$(( (n % 1000000 + 50000) / 100000 ))
-    if (( frac >= 10 )); then m=$((m + 1)); frac=0; fi
-    if (( m >= 10 )); then
+  [[ "$n" =~ ^[0-9]+$ ]] || {
+    printf "%s" "$n"
+    return
+  }
+  if ((n >= 10000000)); then
+    printf "%dM" $(((n + 500000) / 1000000))
+  elif ((n >= 1000000)); then
+    local m=$((n / 1000000))
+    local frac=$(((n % 1000000 + 50000) / 100000))
+    if ((frac >= 10)); then
+      m=$((m + 1))
+      frac=0
+    fi
+    if ((m >= 10)); then
       printf "%dM" "$m"
     else
       printf "%d.%dM" "$m" "$frac"
     fi
-  elif (( n >= 100000 )); then
-    printf "%dK" $(( (n + 500) / 1000 ))
-  elif (( n >= 10000 )); then
-    local k=$(( n / 1000 ))
-    local frac=$(( (n % 1000 + 50) / 100 ))
-    if (( frac >= 10 )); then k=$((k + 1)); frac=0; fi
-    if (( k >= 100 )); then
+  elif ((n >= 100000)); then
+    printf "%dK" $(((n + 500) / 1000))
+  elif ((n >= 10000)); then
+    local k=$((n / 1000))
+    local frac=$(((n % 1000 + 50) / 100))
+    if ((frac >= 10)); then
+      k=$((k + 1))
+      frac=0
+    fi
+    if ((k >= 100)); then
       printf "%dK" "$k"
     else
       printf "%d.%dK" "$k" "$frac"
@@ -1104,13 +1130,13 @@ build_health_dot() {
 }
 
 print_boot_screen() {
-  (( CODEX_SILENT )) && return 0
+  ((CODEX_SILENT)) && return 0
 
   local show_banner=1
-  (( CODEX_SKIP_MOTD )) && show_banner=0
+  ((CODEX_SKIP_MOTD)) && show_banner=0
 
   # ── Info panel (alongside banner) ──
-  if (( show_banner )); then
+  if ((show_banner)); then
     local info=()
     local sep_char="─"
     output_supports_unicode || sep_char="-"
@@ -1128,7 +1154,7 @@ print_boot_screen() {
     # L2: separator
     local sep_line=""
     local si
-    for (( si = 0; si < 25; si++ )); do sep_line+="$sep_char"; done
+    for ((si = 0; si < 25; si++)); do sep_line+="$sep_char"; done
     printf -v sep_line "%b%s%b" "${DIM}" "$sep_line" "${RESET}"
     info+=("$sep_line")
 
@@ -1157,12 +1183,12 @@ print_boot_screen() {
 
     # L5: context line
     local ctx_parts=()
-    if (( ! HOST_IS_SECURE )); then
+    if ((!HOST_IS_SECURE)); then
       local lock_icon="🔓"
       output_supports_unicode || lock_icon="[!]"
       ctx_parts+=("$(colorize "${lock_icon} insecure" "yellow")")
     fi
-    if (( concurrent_compact_summary )); then
+    if ((concurrent_compact_summary)); then
       ctx_parts+=("$(colorize "concurrent run" "yellow")")
     fi
     local lane_name="${CODEX_EFFECTIVE_LANE:-normal}"
@@ -1173,9 +1199,9 @@ print_boot_screen() {
     else
       ctx_parts+=("$lane_name")
     fi
-    if [[ "${HOST_TOKENS_MONTH_TOTAL:-}" =~ ^[0-9]+$ ]] && (( HOST_TOKENS_MONTH_TOTAL > 0 )); then
+    if [[ "${HOST_TOKENS_MONTH_TOTAL:-}" =~ ^[0-9]+$ ]] && ((HOST_TOKENS_MONTH_TOTAL > 0)); then
       ctx_parts+=("$(format_compact_number "$HOST_TOKENS_MONTH_TOTAL") tokens")
-    elif [[ "${HOST_API_CALLS:-}" =~ ^[0-9]+$ ]] && (( HOST_API_CALLS > 0 )); then
+    elif [[ "${HOST_API_CALLS:-}" =~ ^[0-9]+$ ]] && ((HOST_API_CALLS > 0)); then
       ctx_parts+=("$(format_compact_number "$HOST_API_CALLS") calls")
     fi
     local ctx_line="" cp
@@ -1190,7 +1216,7 @@ print_boot_screen() {
   fi
 
   # ── Health dots ──
-  if (( ! concurrent_compact_summary )); then
+  if ((!concurrent_compact_summary)); then
     local dots="" dot_gap="  "
     local api_updated_marker=0
     local auth_updated_marker=0
@@ -1201,7 +1227,7 @@ print_boot_screen() {
     if [[ "${AUTH_ACTION:-}" == "store" ]]; then
       auth_updated_marker=1
     fi
-    if [[ "${SKILL_REMOVED:-0}" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+    if [[ "${SKILL_REMOVED:-0}" =~ ^[0-9]+$ ]] && ((SKILL_REMOVED > 0)); then
       skills_updated_marker=1
     fi
     if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && "${CONFIG_STATE:-}" == "updated" ]]; then
@@ -1231,7 +1257,7 @@ print_boot_screen() {
   [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
   [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]] && has_quota=1
 
-  if (( has_quota )); then
+  if ((has_quota)); then
     printf "\n"
 
     local -a q_labels=() q_used=() q_reset=() q_proj=() q_eta=() q_spark=()
@@ -1239,38 +1265,56 @@ print_boot_screen() {
     [[ "${CODEX_EFFECTIVE_LANE:-}" == "spark" ]] && active_spark=1
 
     if [[ "${CHATGPT_PRIMARY_USED:-}" =~ ^[0-9]+$ ]]; then
-      q_labels+=("5h");       q_used+=("$CHATGPT_PRIMARY_USED")
-      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}"); q_proj+=(""); q_eta+=(""); q_spark+=("$active_spark")
+      q_labels+=("5h")
+      q_used+=("$CHATGPT_PRIMARY_USED")
+      q_reset+=("${CHATGPT_PRIMARY_RESET_AFTER:-}")
+      q_proj+=("")
+      q_eta+=("")
+      q_spark+=("$active_spark")
     fi
     if [[ "${CHATGPT_SECONDARY_USED:-}" =~ ^[0-9]+$ ]]; then
-      q_labels+=("weekly");   q_used+=("$CHATGPT_SECONDARY_USED")
-      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}"); q_proj+=("${projection_pct:-}"); q_eta+=("${projection_eta:-}"); q_spark+=("$active_spark")
+      q_labels+=("weekly")
+      q_used+=("$CHATGPT_SECONDARY_USED")
+      q_reset+=("${CHATGPT_SECONDARY_RESET_AFTER:-}")
+      q_proj+=("${projection_pct:-}")
+      q_eta+=("${projection_eta:-}")
+      q_spark+=("$active_spark")
     fi
     if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then
-      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
-      q_labels+=("5h");       q_used+=("$other_lane_primary_used")
-      q_reset+=("${other_lane_primary_reset_after:-}"); q_proj+=(""); q_eta+=(""); q_spark+=("$ol_s")
+      local ol_s=0
+      [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("5h")
+      q_used+=("$other_lane_primary_used")
+      q_reset+=("${other_lane_primary_reset_after:-}")
+      q_proj+=("")
+      q_eta+=("")
+      q_spark+=("$ol_s")
     fi
     if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then
-      local ol_s=0; [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
-      q_labels+=("weekly");   q_used+=("$other_lane_secondary_used")
-      q_reset+=("${other_lane_secondary_reset_after:-}"); q_proj+=("${other_projection_pct:-}"); q_eta+=("${other_projection_eta:-}"); q_spark+=("$ol_s")
+      local ol_s=0
+      [[ "${other_lane_label:-}" == "Spark" ]] && ol_s=1
+      q_labels+=("weekly")
+      q_used+=("$other_lane_secondary_used")
+      q_reset+=("${other_lane_secondary_reset_after:-}")
+      q_proj+=("${other_projection_pct:-}")
+      q_eta+=("${other_projection_eta:-}")
+      q_spark+=("$ol_s")
     fi
 
     # Compute label width for alignment
     local max_lw=6 qi ql_tmp ql_width
-    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+    for ((qi = 0; qi < ${#q_labels[@]}; qi++)); do
       ql_tmp="${q_labels[qi]}"
-      (( ${q_spark[qi]} )) && ql_tmp="⚡︎ $ql_tmp"
+      ((${q_spark[qi]})) && ql_tmp="⚡︎ $ql_tmp"
       ql_width="$(visible_text_width "$ql_tmp")"
-      (( ql_width > max_lw )) && max_lw=$ql_width
+      ((ql_width > max_lw)) && max_lw=$ql_width
     done
-    (( max_lw > 14 )) && max_lw=14
+    ((max_lw > 14)) && max_lw=14
 
     local bar_w="${QUOTA_BAR_WIDTH:-24}"
-    for (( qi = 0; qi < ${#q_labels[@]}; qi++ )); do
+    for ((qi = 0; qi < ${#q_labels[@]}; qi++)); do
       local prefix=""
-      if (( ${q_spark[qi]} )); then
+      if ((${q_spark[qi]})); then
         local spark_ch="⚡︎"
         output_supports_unicode || spark_ch="S"
         prefix="${spark_ch} "
@@ -1278,14 +1322,15 @@ print_boot_screen() {
       local full_label="${prefix}${q_labels[qi]}"
 
       local pct="${q_used[qi]}"
-      (( pct < 0 )) && pct=0; (( pct > 100 )) && pct=100
+      ((pct < 0)) && pct=0
+      ((pct > 100)) && pct=100
 
       local bar
       bar="$(build_quota_bar "$pct" "$bar_w")"
 
       local pct_tone="green"
-      (( pct >= 95 )) && pct_tone="red"
-      (( pct >= 80 && pct < 95 )) && pct_tone="orange"
+      ((pct >= 95)) && pct_tone="red"
+      ((pct >= 80 && pct < 95)) && pct_tone="orange"
       local pct_display
       printf -v pct_display "%3d%%" "$pct"
       pct_display="$(colorize "$pct_display" "$pct_tone")"
@@ -1294,10 +1339,10 @@ print_boot_screen() {
       [[ "${q_reset[qi]}" =~ ^[0-9]+$ ]] && dur="$(format_duration_short "${q_reset[qi]}")"
 
       local proj=""
-      if [[ "${q_proj[qi]}" =~ ^[0-9]+$ ]] && (( ${q_proj[qi]} > 0 )); then
-        if (( ${q_proj[qi]} >= 100 )) && [[ -n "${q_eta[qi]}" ]]; then
+      if [[ "${q_proj[qi]}" =~ ^[0-9]+$ ]] && ((${q_proj[qi]} > 0)); then
+        if ((${q_proj[qi]} >= 100)) && [[ -n "${q_eta[qi]}" ]]; then
           proj="$(colorize "~100% in ~${q_eta[qi]}" "red")"
-        elif (( ${q_proj[qi]} >= 100 )); then
+        elif ((${q_proj[qi]} >= 100)); then
           proj="$(colorize "~100%" "red")"
         else
           printf -v proj "%b~%d%%%b" "${DIM}" "${q_proj[qi]}" "${RESET}"
@@ -1318,12 +1363,12 @@ print_boot_screen() {
       printf "\n"
     done
 
-    if (( ${QUOTA_WARNING:-0} )) && [[ -n "${QUOTA_WARNING_REASON:-}" ]]; then
+    if ((${QUOTA_WARNING:-0})) && [[ -n "${QUOTA_WARNING_REASON:-}" ]]; then
       local warn_icon="⚠"
       output_supports_unicode || warn_icon="!"
       printf "  %s\n" "$(colorize "${warn_icon} ${QUOTA_WARNING_REASON}" "yellow")"
     fi
-    if (( ${QUOTA_BLOCKED:-0} )) && [[ -n "${QUOTA_BLOCK_REASON:-}" ]]; then
+    if ((${QUOTA_BLOCKED:-0})) && [[ -n "${QUOTA_BLOCK_REASON:-}" ]]; then
       local block_icon="⛔"
       output_supports_unicode || block_icon="X"
       printf "  %s\n" "$(colorize "${block_icon} ${QUOTA_BLOCK_REASON}" "red")"

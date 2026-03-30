@@ -1,4 +1,4 @@
-if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )); then
+if ((wrapper_updated)) && ((!CODEX_EXIT_AFTER_UPDATE)) && ((!CODEX_STATUS_ONLY)) && ((!CODEX_DOCTOR_ONLY)); then
   if [[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]]; then
     release_run_lock_if_held || true
     log_error "Wrapper update loop detected; aborting."
@@ -12,7 +12,7 @@ if (( wrapper_updated )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && (( ! CODEX_STATUS
     CODEX_ORIGINAL_ARGS=()
   fi
   release_run_lock_if_held || true
-  if (( CODEX_ORIGINAL_ARGC > 0 )); then
+  if ((CODEX_ORIGINAL_ARGC > 0)); then
     CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
   fi
   CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 exec "$SCRIPT_REAL"
@@ -27,13 +27,13 @@ case "$AUTH_PULL_STATUS" in
   offline)
     offline_launch_hint=""
     [[ -n "$AUTH_PULL_REASON" ]] && offline_launch_hint=" (${AUTH_PULL_REASON})"
-    if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
+    if ((HAS_LOCAL_AUTH)) && ((LOCAL_AUTH_IS_FRESH)); then
       AUTH_LAUNCH_ALLOWED=1
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; using cached auth.json"
-    elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )); then
+    elif ((HAS_LOCAL_AUTH)) && ((HOST_IS_SECURE)); then
       AUTH_LAUNCH_ALLOWED=1
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; secure host using cached auth.json"
-    elif (( HAS_LOCAL_AUTH )); then
+    elif ((HAS_LOCAL_AUTH)); then
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint}; cached auth.json older than allowed window"
     else
       AUTH_LAUNCH_REASON="API offline${offline_launch_hint} and no cached auth.json"
@@ -55,9 +55,9 @@ case "$AUTH_PULL_STATUS" in
     AUTH_LAUNCH_REASON="Insecure host approval denied; re-run or open the host window."
     ;;
   concurrent)
-    if (( HAS_VALID_LOCAL_AUTH )); then
+    if ((HAS_VALID_LOCAL_AUTH)); then
       AUTH_LAUNCH_ALLOWED=1
-    elif (( HAS_LOCAL_AUTH )); then
+    elif ((HAS_LOCAL_AUTH)); then
       AUTH_LAUNCH_REASON="Active cdx run detected and local auth.json is invalid."
     else
       AUTH_LAUNCH_REASON="Active cdx run detected and no local auth.json is available."
@@ -71,8 +71,8 @@ case "$AUTH_PULL_STATUS" in
     ;;
 esac
 
-if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )) && (( QUOTA_BLOCKED )); then
-  if (( QUOTA_HARD_FAIL )); then
+if ((AUTH_LAUNCH_ALLOWED == 1)) && ((CODEX_LANE_WANTS_RUN)) && ((QUOTA_BLOCKED)); then
+  if ((QUOTA_HARD_FAIL)); then
     AUTH_LAUNCH_ALLOWED=0
     AUTH_LAUNCH_REASON="${QUOTA_BLOCK_REASON:-ChatGPT quota reached}"
   else
@@ -80,11 +80,11 @@ if (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )) && (( QUOTA_BLOC
   fi
 fi
 
-if (( QUOTA_WARNING )) && (( AUTH_LAUNCH_ALLOWED == 1 )) && (( CODEX_LANE_WANTS_RUN )); then
+if ((QUOTA_WARNING)) && ((AUTH_LAUNCH_ALLOWED == 1)) && ((CODEX_LANE_WANTS_RUN)); then
   log_warn "ChatGPT quota near limit: ${QUOTA_WARNING_REASON:-see usage above}."
 fi
 
-if (( AUTH_LAUNCH_ALLOWED == 0 )); then
+if ((AUTH_LAUNCH_ALLOWED == 0)); then
   release_run_lock_if_held || true
   log_error "${AUTH_LAUNCH_REASON:-Auth unavailable; refusing to start Codex. Re-run after fixing API key or provisioning auth.}"
   exit 1
@@ -92,8 +92,8 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   log_warn "${AUTH_LAUNCH_REASON} (last_refresh ${ORIGINAL_LAST_REFRESH:-unknown})."
 fi
 
-if (( CODEX_LANE_PERSIST_REQUEST )); then
-  if (( CDX_ACTIVE_RUN_DETECTED )) && (( ! CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+if ((CODEX_LANE_PERSIST_REQUEST)); then
+  if ((CDX_ACTIVE_RUN_DETECTED)) && ((!CODEX_CONCURRENT_SYNC_OVERRIDE)); then
     release_run_lock_if_held || true
     log_error "Cannot persist lane while another cdx run is active. Re-run with --allow-concurrent-sync if you want to override."
     exit 1
@@ -115,7 +115,7 @@ if (( CODEX_LANE_PERSIST_REQUEST )); then
   fi
 fi
 
-if (( CODEX_LANE_COMMAND )); then
+if ((CODEX_LANE_COMMAND)); then
   lane_effective_display="${CODEX_EFFECTIVE_LANE:-normal}"
   lane_persisted_display="${HOST_LANE_PREFERENCE:-inherit}"
   lane_source_display="${CODEX_EFFECTIVE_LANE_SOURCE:-unknown}"
@@ -123,16 +123,16 @@ if (( CODEX_LANE_COMMAND )); then
     lane_persisted_display="host:${lane_persisted_display}"
   fi
   log_info "Lane state | effective=${lane_effective_display} (${lane_source_display}) | persisted=${lane_persisted_display}"
-  if (( CODEX_LANE_USER_SET )); then
+  if ((CODEX_LANE_USER_SET)); then
     lane_request_line="Lane request | one-shot=${CODEX_LANE_TARGET}"
-    if (( CODEX_LANE_PERSIST_REQUEST )); then
+    if ((CODEX_LANE_PERSIST_REQUEST)); then
       lane_request_line+=", persisted"
     fi
     log_info "$lane_request_line"
   fi
 fi
 
-if (( CODEX_LANE_WANTS_RUN == 0 )); then
+if ((CODEX_LANE_WANTS_RUN == 0)); then
   release_run_lock_if_held || true
   exit 0
 fi

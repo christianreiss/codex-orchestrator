@@ -12,13 +12,13 @@ sync_auth_with_api() {
     log_error "python3 is required for Codex auth sync; install python3 and retry."
     exit 1
   fi
-  if (( read_only == 0 )) && (( HOST_USERS_FETCHED == 0 )); then
+  if ((read_only == 0)) && ((HOST_USERS_FETCHED == 0)); then
     record_host_user_with_api || true
   fi
   local auth_path="$HOME/.codex/auth.json"
   AUTH_PULL_REASON=""
   # Drop a malformed local auth.json so we can hydrate cleanly.
-  if (( read_only == 0 )) && [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
+  if ((read_only == 0)) && [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
     rm -f "$auth_path"
   fi
   local phase_label
@@ -37,7 +37,8 @@ sync_auth_with_api() {
   while true; do
     offline_reason=""
     deny_reason=""
-    if api_output="$(CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+    if api_output="$(
+      CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_INSECURE_SESSION_STARTED_AT="$INSECURE_SESSION_STARTED_AT" CODEX_SYNC_READ_ONLY="$read_only" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
 import hashlib, json, os, pathlib, sys, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -453,13 +454,14 @@ print(
     )
 )
 PY
-  )"; then
+    )"; then
       log_debug "auth api output: ${api_output}"
       local versions_json
       versions_json="$api_output"
       if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
         local parsed
-        parsed="$(VJSON="$versions_json" python3 - <<'PY'
+        parsed="$(
+          VJSON="$versions_json" python3 - <<'PY'
 import json, os, re, sys
 data = os.environ.get("VJSON", "")
 try:
@@ -640,7 +642,7 @@ if isinstance(month_usage, dict):
     _emit_month("reasoning", "hmreason")
     _emit_month("events", "hmevents")
 PY
-)" || true
+        )" || true
         if [[ -n "$parsed" ]]; then
           local line
           while IFS= read -r line; do
@@ -899,7 +901,7 @@ PY
       if [[ "$api_status" == "25" ]]; then
         AUTH_PULL_STATUS="pending"
         AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
-        INSECURE_APPROVAL_CHECK_COUNT=$(( INSECURE_APPROVAL_CHECK_COUNT + 1 ))
+        INSECURE_APPROVAL_CHECK_COUNT=$((INSECURE_APPROVAL_CHECK_COUNT + 1))
         INSECURE_APPROVAL_LAST_CHECK="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
         INSECURE_APPROVAL_LAST_STATUS="$approval_status_text"
         render_insecure_approval_pending_box \
@@ -928,11 +930,11 @@ PY
       log_warn "Auth sync blocked for this IP (key bound elsewhere); re-register to rotate the key. Keeping local auth.json."
       return 1
       ;;
-    21|22)
+    21 | 22)
       log_warn "Auth sync failed: API key missing/invalid"
       return 1
       ;;
-    2|3)
+    2 | 3)
       local reason_suffix=""
       if [[ -n "$offline_reason" ]]; then
         AUTH_PULL_REASON="$offline_reason"

@@ -9,11 +9,11 @@ if [[ "${TERM:-}" == "dumb" ]]; then
 fi
 
 CODEX_COLOR_ENABLED=0
-if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && (( ! CODEX_TERM_IS_DUMB )); then
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && ((!CODEX_TERM_IS_DUMB)); then
   CODEX_COLOR_ENABLED=1
 fi
 
-if (( CODEX_COLOR_ENABLED )); then
+if ((CODEX_COLOR_ENABLED)); then
   BOLD="\033[1m"
   DIM="\033[2m"
   GREEN="\033[32m"
@@ -37,7 +37,7 @@ else
   RESET=""
 fi
 
-if (( CODEX_TERM_IS_DUMB )); then
+if ((CODEX_TERM_IS_DUMB)); then
   LOG_PREFIX_INFO="${LOG_PREFIX_INFO:->}"
 else
   LOG_PREFIX_INFO="${LOG_PREFIX_INFO:-»}"
@@ -46,31 +46,31 @@ LOG_PREFIX_WARN="${LOG_PREFIX_WARN:-!}"
 LOG_PREFIX_ERROR="${LOG_PREFIX_ERROR:-x}"
 
 log_info() {
-  (( CODEX_SILENT )) && return
+  ((CODEX_SILENT)) && return
   local msg="${1-}"
   while IFS= read -r line; do
     printf "%b%s%b %s\n" "${BLUE}${BOLD}" "$LOG_PREFIX_INFO" "${RESET}" "$line"
-  done <<< "$msg"
+  done <<<"$msg"
 }
 
 log_warn() {
-  (( CODEX_SILENT )) && return
+  ((CODEX_SILENT)) && return
   local msg="${1-}"
   while IFS= read -r line; do
     printf "%b%s%b %s\n" "${YELLOW}${BOLD}" "$LOG_PREFIX_WARN" "${RESET}" "$line" >&2
-  done <<< "$msg"
+  done <<<"$msg"
 }
 
 log_error() {
   local msg="${1-}"
   while IFS= read -r line; do
     printf "%b%s%b %s\n" "${RED}${BOLD}" "$LOG_PREFIX_ERROR" "${RESET}" "$line" >&2
-  done <<< "$msg"
+  done <<<"$msg"
 }
 
 log_debug() {
-  (( CODEX_SILENT )) && return 0
-  (( CODEX_DEBUG )) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
+  ((CODEX_SILENT)) && return 0
+  ((CODEX_DEBUG)) && printf "%b[debug]%b %s\n" "${DIM}" "${RESET}" "$1" >&2
   return 0
 }
 
@@ -84,7 +84,7 @@ cdx_elapsed_ms() {
   local end_ns
   end_ns="$(cdx_time_ms)"
   if [[ "$start_ns" =~ ^[0-9]+$ ]] && [[ "$end_ns" =~ ^[0-9]+$ ]]; then
-    printf '%s' $(( (end_ns - start_ns) / 1000000 ))
+    printf '%s' $(((end_ns - start_ns) / 1000000))
   fi
 }
 
@@ -151,11 +151,11 @@ pad_visible_text_right() {
   local plain_width
   plain_width="$(visible_text_width "$text")"
 
-  local padding=$(( target_width - plain_width ))
-  (( padding < 0 )) && padding=0
+  local padding=$((target_width - plain_width))
+  ((padding < 0)) && padding=0
 
   printf '%s' "$text"
-  if (( padding > 0 )); then
+  if ((padding > 0)); then
     printf '%*s' "$padding" ""
   fi
   return 0
@@ -189,7 +189,8 @@ PY
   return 1
 }
 
-BANNER_ART="$(cat <<'EOF'
+BANNER_ART="$(
+  cat <<'EOF'
 ██████╗  ██████╗  ██╗  ██╗
 ██╔════╝ ██╔══██╗ ╚██╗██╔╝
 ██║      ██║  ██║  ╚███╔╝
@@ -226,26 +227,26 @@ print_boot_banner() {
   [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
 
   local stacked=0
-  (( cols < 60 )) && stacked=1
+  ((cols < 60)) && stacked=1
 
   local i=0
   while IFS= read -r art_line; do
     printf "%b %s" "${ORANGE}${BOLD}" "$art_line"
-    if (( ! stacked )); then
+    if ((!stacked)); then
       local art_len=${#art_line}
-      local pad_n=$(( art_pad - art_len ))
-      (( pad_n < 0 )) && pad_n=0
-      (( pad_n > 0 )) && printf '%*s' "$pad_n" ""
+      local pad_n=$((art_pad - art_len))
+      ((pad_n < 0)) && pad_n=0
+      ((pad_n > 0)) && printf '%*s' "$pad_n" ""
     fi
     printf "%b" "${RESET}"
-    if (( ! stacked )) && [[ -n "${info_lines[i]:-}" ]]; then
+    if ((!stacked)) && [[ -n "${info_lines[i]:-}" ]]; then
       printf "%s%s" "$gap" "${info_lines[i]}"
     fi
     printf "\n"
     i=$((i + 1))
   done <<<"$BANNER_ART"
 
-  if (( stacked )); then
+  if ((stacked)); then
     local info
     for info in "${info_lines[@]}"; do
       [[ -z "$info" ]] && continue
@@ -261,7 +262,7 @@ mask_key() {
     return
   fi
   local len=${#key}
-  if (( len <= 8 )); then
+  if ((len <= 8)); then
     printf '%s' "$key"
   else
     printf '%s…%s' "${key:0:4}" "${key: -4}"
@@ -270,7 +271,7 @@ mask_key() {
 
 emit_insecure_notice() {
   # Silenced: insecure status is shown on the boot screen context line.
-  (( HOST_SECURITY_NOTICE_EMITTED )) && return
+  ((HOST_SECURITY_NOTICE_EMITTED)) && return
   HOST_SECURITY_NOTICE_EMITTED=1
 }
 
@@ -278,9 +279,9 @@ repeat_box_char() {
   local char="${1-}"
   local count="${2:-0}"
   local out=""
-  while (( count > 0 )); do
+  while ((count > 0)); do
     out+="$char"
-    count=$(( count - 1 ))
+    count=$((count - 1))
   done
   printf '%s' "$out"
 }
@@ -290,7 +291,7 @@ approval_box_terminal_columns() {
   if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1 && [[ -t 1 || -t 2 ]]; then
     cols="$(tput cols 2>/dev/null || true)"
   fi
-  if [[ ! "$cols" =~ ^[0-9]+$ ]] || (( cols < 40 )); then
+  if [[ ! "$cols" =~ ^[0-9]+$ ]] || ((cols < 40)); then
     cols=80
   fi
   printf '%s' "$cols"
@@ -301,19 +302,19 @@ truncate_box_text() {
   local max_width="${2:-0}"
   local ellipsis="..."
   local keep_len=0
-  if (( max_width <= 0 )); then
+  if ((max_width <= 0)); then
     printf ''
     return 0
   fi
-  if (( ${#text} <= max_width )); then
+  if ((${#text} <= max_width)); then
     printf '%s' "$text"
     return 0
   fi
-  if (( max_width <= ${#ellipsis} )); then
+  if ((max_width <= ${#ellipsis})); then
     printf '%.*s' "$max_width" "$ellipsis"
     return 0
   fi
-  keep_len=$(( max_width - ${#ellipsis} ))
+  keep_len=$((max_width - ${#ellipsis}))
   printf '%s%s' "${text:0:keep_len}" "$ellipsis"
 }
 
@@ -440,7 +441,7 @@ build_insecure_approval_pending_box() {
   local truncated=""
   local -a lines=()
 
-  if (( CODEX_TERM_IS_DUMB )); then
+  if ((CODEX_TERM_IS_DUMB)); then
     top_left="+"
     top_right="+"
     bottom_left="+"
@@ -473,30 +474,30 @@ build_insecure_approval_pending_box() {
   )
 
   cols="$(approval_box_terminal_columns)"
-  max_content_width=$(( cols - 4 ))
-  if (( max_content_width < 32 )); then
+  max_content_width=$((cols - 4))
+  if ((max_content_width < 32)); then
     max_content_width=32
   fi
   content_width=$min_content_width
   for line in "${lines[@]}"; do
-    if (( ${#line} > content_width )); then
+    if ((${#line} > content_width)); then
       content_width=${#line}
     fi
   done
-  if (( content_width > max_content_width )); then
+  if ((content_width > max_content_width)); then
     content_width=$max_content_width
   fi
 
-  printf '%s%s%s\n' "$top_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$top_right"
+  printf '%s%s%s\n' "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right"
   for line in "${lines[@]}"; do
     truncated="$(truncate_box_text "$line" "$content_width")"
     printf '%s %-*s %s\n' "$vertical" "$content_width" "$truncated" "$vertical"
   done
-  printf '%s%s%s' "$bottom_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$bottom_right"
+  printf '%s%s%s' "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right"
 }
 
 render_insecure_approval_pending_box() {
-  (( CODEX_SILENT )) && return 0
+  ((CODEX_SILENT)) && return 0
   local checks="${1:-0}"
   local last_check="${2-}"
   local approval_status="${3:-Pending; open Admin, click Enable window}"
@@ -504,27 +505,27 @@ render_insecure_approval_pending_box() {
   local box_content=""
   local line=""
   local box_line_count=0
-  if [[ -t 2 ]] && (( ! CODEX_TERM_IS_DUMB )); then
+  if [[ -t 2 ]] && ((!CODEX_TERM_IS_DUMB)); then
     can_redraw=1
   fi
-  if (( INSECURE_APPROVAL_BOX_VISIBLE )) && (( ! can_redraw )); then
+  if ((INSECURE_APPROVAL_BOX_VISIBLE)) && ((!can_redraw)); then
     return 0
   fi
 
   box_content="$(build_insecure_approval_pending_box "$checks" "$last_check" "$approval_status")"
   box_line_count="$(printf '%s\n' "$box_content" | awk 'END { print NR }')"
 
-  if (( can_redraw )) && (( INSECURE_APPROVAL_BOX_VISIBLE )) && (( INSECURE_APPROVAL_BOX_LINES > 0 )); then
+  if ((can_redraw)) && ((INSECURE_APPROVAL_BOX_VISIBLE)) && ((INSECURE_APPROVAL_BOX_LINES > 0)); then
     printf '\033[%sA' "$INSECURE_APPROVAL_BOX_LINES" >&2
   fi
 
   while IFS= read -r line; do
-    if (( can_redraw )); then
+    if ((can_redraw)); then
       printf '\033[2K\r%s\n' "$line" >&2
     else
       printf '%s\n' "$line" >&2
     fi
-  done <<< "$box_content"
+  done <<<"$box_content"
 
   INSECURE_APPROVAL_BOX_VISIBLE=1
   INSECURE_APPROVAL_BOX_LINES="$box_line_count"
@@ -558,7 +559,7 @@ enforce_baked_fqdn_guard() {
   fi
 
   if [[ -z "$current" || "$current" == "unknown" ]]; then
-    if (( CODEX_ALLOW_FQDN_MISMATCH )); then
+    if ((CODEX_ALLOW_FQDN_MISMATCH)); then
       log_warn "Host FQDN unknown; baked for ${baked}. Proceeding because CODEX_ALLOW_FQDN_MISMATCH=1."
       return 0
     fi
@@ -567,7 +568,7 @@ enforce_baked_fqdn_guard() {
   fi
 
   if [[ "$current" != "$baked" ]]; then
-    if (( CODEX_ALLOW_FQDN_MISMATCH )); then
+    if ((CODEX_ALLOW_FQDN_MISMATCH)); then
       log_warn "Host mismatch: baked for ${baked}, running on ${current}; proceeding because CODEX_ALLOW_FQDN_MISMATCH=1."
       return 0
     fi
@@ -599,14 +600,14 @@ CODEX_SKIP_MOTD=${CODEX_SKIP_MOTD:-0}
 CODEX_MINIMAL_OUTPUT=${CODEX_MINIMAL_OUTPUT:-$CODEX_TERM_IS_DUMB}
 CODEX_SILENT="${CODEX_SILENT:-__CODEX_SILENT__}"
 case "$(lowercase "$CODEX_MINIMAL_OUTPUT")" in
-  1|true|yes|on)
+  1 | true | yes | on)
     CODEX_MINIMAL_OUTPUT=1
     ;;
   *)
     CODEX_MINIMAL_OUTPUT=0
     ;;
 esac
-if (( CODEX_MINIMAL_OUTPUT )); then
+if ((CODEX_MINIMAL_OUTPUT)); then
   CODEX_SKIP_MOTD=1
 fi
 CODEX_HOST_MODEL="${CODEX_HOST_MODEL:-__CODEX_HOST_MODEL__}"
@@ -793,7 +794,7 @@ IS_ROOT=0
 CAN_SUDO=0
 SUDO_BIN="sudo -n"
 DETECTED_UID="$(id -u 2>/dev/null || true)"
-if (( EUID == 0 )) || [[ "$DETECTED_UID" == "0" ]]; then
+if ((EUID == 0)) || [[ "$DETECTED_UID" == "0" ]]; then
   IS_ROOT=1
 elif command -v sudo >/dev/null 2>&1; then
   if sudo -n true >/dev/null 2>&1; then
@@ -885,7 +886,7 @@ write_run_lock_metadata() {
   if ! declare -p CODEX_ORIGINAL_ARGC >/dev/null 2>&1 || [[ ! "${CODEX_ORIGINAL_ARGC:-}" =~ ^[0-9]+$ ]]; then
     CODEX_ORIGINAL_ARGC=0
   fi
-  if (( CODEX_ORIGINAL_ARGC > 0 )) && declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
+  if ((CODEX_ORIGINAL_ARGC > 0)) && declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
     argv_text="$(printf '%q ' "${CODEX_ORIGINAL_ARGS[@]}")"
     argv_text="${argv_text% }"
   fi
@@ -928,7 +929,7 @@ read_run_lock_metadata_summary() {
   [[ -n "$user" ]] && details+=("user ${user}")
   [[ -n "$host" ]] && details+=("host ${host}")
   [[ -n "$started_at" ]] && details+=("started ${started_at}")
-  if (( ${#details[@]} > 0 )); then
+  if ((${#details[@]} > 0)); then
     summary+=" (${details[*]})"
   fi
   printf '%s' "$summary"
@@ -941,7 +942,7 @@ acquire_run_lock_or_mark_concurrent() {
   CDX_RUN_LOCK_HELD=0
   CDX_RUN_LOCK_METHOD=""
 
-  if (( CODEX_CONCURRENT_SYNC_OVERRIDE )); then
+  if ((CODEX_CONCURRENT_SYNC_OVERRIDE)); then
     return 0
   fi
 
@@ -986,14 +987,14 @@ acquire_run_lock_or_mark_concurrent() {
 }
 
 release_run_lock_if_held() {
-  if (( CDX_RUN_LOCK_HELD )) && [[ "${CDX_RUN_LOCK_METHOD:-}" == "flock" ]] && [[ -n "${CDX_RUN_LOCK_FD:-}" ]]; then
+  if ((CDX_RUN_LOCK_HELD)) && [[ "${CDX_RUN_LOCK_METHOD:-}" == "flock" ]] && [[ -n "${CDX_RUN_LOCK_FD:-}" ]]; then
     flock -u "$CDX_RUN_LOCK_FD" 2>/dev/null || true
   fi
   close_run_lock_fd
-  if (( CDX_RUN_LOCK_HELD )) && [[ "${CDX_RUN_LOCK_METHOD:-}" == "mkdir" ]] && [[ -n "$CDX_RUN_LOCK_PATH" ]]; then
+  if ((CDX_RUN_LOCK_HELD)) && [[ "${CDX_RUN_LOCK_METHOD:-}" == "mkdir" ]] && [[ -n "$CDX_RUN_LOCK_PATH" ]]; then
     rmdir "$CDX_RUN_LOCK_PATH" 2>/dev/null || true
   fi
-  if (( CDX_RUN_LOCK_HELD )) && [[ -n "$CDX_RUN_LOCK_META_PATH" ]]; then
+  if ((CDX_RUN_LOCK_HELD)) && [[ -n "$CDX_RUN_LOCK_META_PATH" ]]; then
     rm -f "$CDX_RUN_LOCK_META_PATH" 2>/dev/null || true
   fi
   CDX_RUN_LOCK_HELD=0
@@ -1089,11 +1090,11 @@ config_default_model() {
 }
 
 # Wrapper flags (strip before handing args to Codex)
-if (( $# > 0 )); then
+if (($# > 0)); then
   parsed_args=()
   saw_double_dash=0
   for arg in "$@"; do
-    if (( saw_double_dash )); then
+    if ((saw_double_dash)); then
       parsed_args+=("$arg")
       continue
     fi
@@ -1134,7 +1135,7 @@ USAGE
 is_reserved_codex_command() {
   local candidate="${1-}"
   case "$candidate" in
-    exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help)
+    exec | review | login | logout | mcp | mcp-server | app-server | completion | sandbox | debug | apply | resume | fork | cloud | features | help)
       return 0
       ;;
   esac
@@ -1147,11 +1148,11 @@ is_help_flag() {
 }
 
 is_codex_help_passthrough_invocation() {
-  (( $# > 0 )) || return 1
+  (($# > 0)) || return 1
 
   local first="${1-}"
   case "$first" in
-    --help|-h|help)
+    --help | -h | help)
       return 0
       ;;
   esac
@@ -1179,14 +1180,14 @@ if [[ "${1-}" == "lane" ]]; then
 
   lane_passthrough=()
   lane_passthrough_mode=0
-  while (( $# > 0 )); do
-    if (( lane_passthrough_mode )); then
+  while (($# > 0)); do
+    if ((lane_passthrough_mode)); then
       lane_passthrough+=("$1")
       shift
       continue
     fi
     case "$1" in
-      normal|spark)
+      normal | spark)
         if [[ -n "$CODEX_LANE_TARGET" || "$CODEX_LANE_CLEAR_REQUEST" == "1" ]]; then
           print_lane_usage
           exit 1
@@ -1223,7 +1224,7 @@ if [[ "${1-}" == "lane" ]]; then
     esac
   done
 
-  if (( CODEX_LANE_PERSIST_REQUEST )) && [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]]; then
+  if ((CODEX_LANE_PERSIST_REQUEST)) && [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]]; then
     print_lane_usage
     printf 'cdx lane --persist requires a lane target or clear.\n' >&2
     exit 1
@@ -1235,23 +1236,23 @@ if [[ "${1-}" == "lane" ]]; then
     exit 1
   fi
 
-  if [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]] && (( ${#lane_passthrough[@]} > 0 )); then
+  if [[ -z "$CODEX_LANE_TARGET" && "$CODEX_LANE_CLEAR_REQUEST" != "1" ]] && ((${#lane_passthrough[@]} > 0)); then
     print_lane_usage
     printf 'cdx lane passthrough requires selecting normal or spark.\n' >&2
     exit 1
   fi
 
-  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" ]] && (( ${#lane_passthrough[@]} > 0 )); then
+  if [[ "$CODEX_LANE_CLEAR_REQUEST" == "1" ]] && ((${#lane_passthrough[@]} > 0)); then
     print_lane_usage
     printf 'cdx lane clear does not support Codex passthrough arguments.\n' >&2
     exit 1
   fi
 
-  if (( ${#lane_passthrough[@]} > 0 )); then
+  if ((${#lane_passthrough[@]} > 0)); then
     CODEX_LANE_WANTS_RUN=1
   fi
 
-  if (( ${#lane_passthrough[@]} > 0 )); then
+  if ((${#lane_passthrough[@]} > 0)); then
     set -- "${lane_passthrough[@]}"
   else
     set --
@@ -1260,7 +1261,7 @@ fi
 
 if [[ "${1-}" == "--execute" ]]; then
   shift
-  if (( $# == 0 )); then
+  if (($# == 0)); then
     printf 'Usage: cdx --execute "<prompt>" [codex args]\n' >&2
     exit 1
   fi
@@ -1274,19 +1275,19 @@ fi
 
 # Early one-shot commands
 case "${1-}" in
-  --wrapper-version|-W)
+  --wrapper-version | -W)
     printf 'cdx wrapper %s\n' "$WRAPPER_VERSION"
     exit 0
     ;;
-  status|--status)
+  status | --status)
     CODEX_STATUS_ONLY=1
     shift
     ;;
-  doctor|--doctor)
+  doctor | --doctor)
     CODEX_DOCTOR_ONLY=1
     shift
     ;;
-  login|--login)
+  login | --login)
     CODEX_DO_LOGIN=1
     shift
     ;;
@@ -1294,7 +1295,7 @@ case "${1-}" in
     CODEX_DO_UNINSTALL=1
     shift
     ;;
-  --update|-U)
+  --update | -U)
     CODEX_FORCE_WRAPPER_UPDATE=1
     CODEX_EXIT_AFTER_UPDATE=1
     shift
@@ -1304,40 +1305,46 @@ case "${1-}" in
     CODEX_SILENT=1
     shift
     case "${1-}" in
-      install) CODEX_CRON_INSTALL=1; shift ;;
-      remove)  CODEX_CRON_REMOVE=1; shift ;;
+      install)
+        CODEX_CRON_INSTALL=1
+        shift
+        ;;
+      remove)
+        CODEX_CRON_REMOVE=1
+        shift
+        ;;
     esac
     ;;
 esac
 
 case "${1-}" in
-  --debug|--verbose)
+  --debug | --verbose)
     CODEX_DEBUG=1
     shift
     ;;
 esac
 
 case "${1-}" in
-  status|--status)
+  status | --status)
     CODEX_STATUS_ONLY=1
     shift
     ;;
-  doctor|--doctor)
+  doctor | --doctor)
     CODEX_DOCTOR_ONLY=1
     shift
     ;;
 esac
 
-if (( CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY )) && (( $# > 0 )); then
+if ((CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY)) && (($# > 0)); then
   if is_help_flag "${1-}"; then
-    if (( CODEX_STATUS_ONLY )); then
+    if ((CODEX_STATUS_ONLY)); then
       printf 'Usage: cdx [--debug] status\n\nShow sync/update summary without launching Codex. Exit 0 on success, 1 on error.\n'
     else
       printf 'Usage: cdx [--debug] doctor\n\nRun diagnostic checks: deps, auth, sync, API probe, disk, cron, PTY, SSH hints.\n'
     fi
     exit 0
   fi
-  if (( CODEX_STATUS_ONLY )); then
+  if ((CODEX_STATUS_ONLY)); then
     printf 'Usage: cdx [--debug] status\n' >&2
   else
     printf 'Usage: cdx [--debug] doctor\n' >&2
@@ -1352,7 +1359,7 @@ if [[ -n "${1-}" && "${1-}" != -* ]]; then
   fi
 fi
 
-if (( ! IS_ROOT )) && (( CAN_SUDO == 0 )); then
+if ((!IS_ROOT)) && ((CAN_SUDO == 0)); then
   log_info "Non-root execution detected; skipping automatic Codex install/update (passwordless sudo required)."
 fi
 log_debug "starting | user=${CURRENT_USER} | uid=${DETECTED_UID:-unknown} | euid=${EUID:-unknown} | is_root=${IS_ROOT} | can_sudo=${CAN_SUDO} | path=$PATH"
@@ -1375,13 +1382,13 @@ detect_linux_package_manager() {
   local token
   for token in "${tokens[@]}"; do
     case "$token" in
-      debian|ubuntu)
+      debian | ubuntu)
         if command -v apt-get >/dev/null 2>&1; then
           printf '%s' apt-get
           return 0
         fi
         ;;
-      rhel|centos|fedora|almalinux|rocky|ol)
+      rhel | centos | fedora | almalinux | rocky | ol)
         if command -v dnf >/dev/null 2>&1; then
           printf '%s' dnf
           return 0
@@ -1391,13 +1398,13 @@ detect_linux_package_manager() {
           return 0
         fi
         ;;
-      arch|manjaro|endeavouros)
+      arch | manjaro | endeavouros)
         if command -v pacman >/dev/null 2>&1; then
           printf '%s' pacman
           return 0
         fi
         ;;
-      opensuse*|sles|sled|suse)
+      opensuse* | sles | sled | suse)
         if command -v zypper >/dev/null 2>&1; then
           printf '%s' zypper
           return 0
@@ -1439,7 +1446,7 @@ detect_linux_package_manager() {
 }
 
 with_sudo() {
-  if (( EUID == 0 )); then
+  if ((EUID == 0)); then
     "$@"
   elif command -v sudo >/dev/null 2>&1; then
     sudo "$@"
@@ -1507,13 +1514,14 @@ record_host_user_with_api() {
   [[ -z "$hostname" || "$hostname" == "unknown" ]] && hostname="$(hostname 2>/dev/null || echo unknown)"
 
   local payload
-  if ! payload="$(USERNAME="$CURRENT_USER" HOSTNAME="$hostname" python3 - <<'PY' 2>/dev/null
+  if ! payload="$(
+    USERNAME="$CURRENT_USER" HOSTNAME="$hostname" python3 - <<'PY' 2>/dev/null
 import json, os, sys
 user = os.environ.get("USERNAME", "").strip()
 host = os.environ.get("HOSTNAME", "").strip()
 print(json.dumps({"username": user, "hostname": host}, ensure_ascii=False))
 PY
-)"; then
+  )"; then
     return 1
   fi
 
@@ -1530,7 +1538,8 @@ PY
 
   local parsed_users=()
   local parsed_output=""
-  if parsed_output="$(API_RESPONSE="$response" python3 - <<'PY' 2>/dev/null
+  if parsed_output="$(
+    API_RESPONSE="$response" python3 - <<'PY' 2>/dev/null
 import json, os
 data = os.environ.get("API_RESPONSE", "")
 parsed = json.loads(data)
@@ -1556,7 +1565,7 @@ PY
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       parsed_users+=("$line")
-    done <<< "$parsed_output"
+    done <<<"$parsed_output"
   else
     parsed_users=()
   fi
@@ -1579,7 +1588,8 @@ persist_lane_preference_with_api() {
   fi
 
   local parsed_output=""
-  if ! parsed_output="$(CODEX_SYNC_BASE="$base" CODEX_SYNC_API_KEY="$key" CODEX_SYNC_CA_FILE="$cafile" CODEX_SYNC_LANE_REQUEST="$requested_lane" python3 - <<'PY' 2>/dev/null
+  if ! parsed_output="$(
+    CODEX_SYNC_BASE="$base" CODEX_SYNC_API_KEY="$key" CODEX_SYNC_CA_FILE="$cafile" CODEX_SYNC_LANE_REQUEST="$requested_lane" python3 - <<'PY' 2>/dev/null
 import os
 import sys
 
@@ -1646,7 +1656,7 @@ else:
 if effective in ("normal", "spark"):
     print(f"effective={effective}")
 PY
-)"; then
+  )"; then
     return 1
   fi
 
@@ -1662,7 +1672,7 @@ PY
         parsed_effective="${line#effective=}"
         ;;
     esac
-  done <<< "$parsed_output"
+  done <<<"$parsed_output"
 
   HOST_LANE_PREFERENCE="$parsed_pref"
   if [[ "$parsed_effective" == "normal" || "$parsed_effective" == "spark" ]]; then
@@ -1678,7 +1688,7 @@ cmd_uninstall() {
   record_host_user_with_api || true
 
   # Refuse partial multi-user uninstalls when we cannot escalate permissions.
-  if (( EUID != 0 )) && (( CAN_SUDO == 0 )) && (( ${#HOST_USERS_CACHE[@]} > 0 )); then
+  if ((EUID != 0)) && ((CAN_SUDO == 0)) && ((${#HOST_USERS_CACHE[@]} > 0)); then
     local other_users=()
     local seen_other=()
     local other existing skip
@@ -1691,11 +1701,11 @@ cmd_uninstall() {
           break
         fi
       done
-      (( skip )) && continue
+      ((skip)) && continue
       seen_other+=("$other")
       other_users+=("$other")
     done
-    if (( ${#other_users[@]} > 0 )); then
+    if ((${#other_users[@]} > 0)); then
       log_error "Uninstall refused: host has registered users besides ${CURRENT_USER} (${other_users[*]}), but root/sudo is unavailable."
       log_error "Rerun as root or with passwordless sudo so all registered users can be cleaned safely."
       exit 1
@@ -1711,7 +1721,7 @@ cmd_uninstall() {
 
   # Auth + state per user (from API fallback to current user)
   local users=()
-  if (( ${#HOST_USERS_CACHE[@]} == 0 )); then
+  if ((${#HOST_USERS_CACHE[@]} == 0)); then
     users+=("$CURRENT_USER")
   else
     users+=("${HOST_USERS_CACHE[@]}")
@@ -1721,7 +1731,7 @@ cmd_uninstall() {
   for u in "${users[@]}"; do
     [[ "$u" == "$CURRENT_USER" ]] && ensured_current=1 && break
   done
-  (( ensured_current )) || users+=("$CURRENT_USER")
+  ((ensured_current)) || users+=("$CURRENT_USER")
 
   local seen=()
   local home
@@ -1730,7 +1740,7 @@ cmd_uninstall() {
     for existing in "${seen[@]}"; do
       [[ "$existing" == "$u" ]] && skip=1 && break
     done
-    (( skip )) && continue
+    ((skip)) && continue
     seen+=("$u")
     home="$(maybe_home "$u")"
     [[ ! -d "$home" ]] && continue
@@ -1748,7 +1758,7 @@ cmd_uninstall() {
   # NPM global package (best effort)
   if command -v npm >/dev/null 2>&1; then
     if npm list -g codex-cli --depth=0 >/dev/null 2>&1; then
-      if (( EUID == 0 )); then
+      if ((EUID == 0)); then
         npm uninstall -g codex-cli >/dev/null 2>&1 || log_warn "npm uninstall codex-cli failed"
       else
         with_sudo npm uninstall -g codex-cli >/dev/null 2>&1 || npm uninstall -g codex-cli >/dev/null 2>&1 || log_warn "npm uninstall codex-cli failed"

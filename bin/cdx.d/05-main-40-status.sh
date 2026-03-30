@@ -15,7 +15,7 @@ fi
 codex_version_suffix=""
 case "${skip_update_reason:-}" in
   cron_managed) codex_version_suffix="(auto)" ;;
-  privilege)    codex_version_suffix="(manual)" ;;
+  privilege) codex_version_suffix="(manual)" ;;
 esac
 
 codex_installed_display="$codex_installed_label"
@@ -83,11 +83,11 @@ elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   cached_lr="${ORIGINAL_LAST_REFRESH:-unknown}"
   offline_hint=""
   [[ -n "$AUTH_PULL_REASON" ]] && offline_hint="; ${AUTH_PULL_REASON}"
-  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
+  if ((HAS_LOCAL_AUTH)) && ((LOCAL_AUTH_IS_FRESH)); then
     auth_label="using cached auth (api offline${offline_hint}; last_refresh ${cached_lr})"
-  elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+  elif ((HAS_LOCAL_AUTH)) && ((HOST_IS_SECURE)) && ((LOCAL_AUTH_IS_RECENT)); then
     auth_label="using cached auth (secure host; api offline${offline_hint}; last_refresh ${cached_lr})"
-  elif (( HAS_LOCAL_AUTH )); then
+  elif ((HAS_LOCAL_AUTH)); then
     auth_label="cached auth stale (api offline${offline_hint}; last_refresh ${cached_lr})"
   else
     auth_label="auth unavailable (api offline${offline_hint})"
@@ -97,7 +97,7 @@ elif [[ "$AUTH_PULL_STATUS" == "insecure" ]]; then
 elif [[ "$AUTH_PULL_STATUS" == "insecure-denied" ]]; then
   auth_label="insecure host approval denied"
 elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  if (( HAS_VALID_LOCAL_AUTH )); then
+  if ((HAS_VALID_LOCAL_AUTH)); then
     auth_label="concurrent guard active; using local auth.json"
   else
     auth_label="concurrent guard active; local auth.json missing or invalid"
@@ -108,11 +108,11 @@ fi
 
 auth_tone="yellow"
 case "$AUTH_STATUS" in
-  valid|"")
+  valid | "")
     [[ "$AUTH_PULL_STATUS" == "ok" ]] && auth_tone="green"
     ;;
-  outdated|missing|upload_required)
-    if (( HOST_IS_SECURE )); then
+  outdated | missing | upload_required)
+    if ((HOST_IS_SECURE)); then
       auth_tone="yellow"
     else
       auth_tone="green"
@@ -123,13 +123,13 @@ case "$AUTH_STATUS" in
     ;;
 esac
 if [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT) )); then
+  if ((HAS_LOCAL_AUTH)) && ((LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT))); then
     auth_tone="yellow"
   else
     auth_tone="red"
   fi
 elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  if (( HAS_VALID_LOCAL_AUTH )); then
+  if ((HAS_VALID_LOCAL_AUTH)); then
     auth_tone="yellow"
   else
     auth_tone="red"
@@ -142,11 +142,11 @@ runner_label=""
 runner_tone="yellow"
 runner_enabled_flag=0
 [[ "$RUNNER_ENABLED" == "1" ]] && runner_enabled_flag=1
-if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_FAIL" ]]; then
+if ((runner_enabled_flag)) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_FAIL" ]]; then
   state="$(lowercase "$RUNNER_STATE")"
   last_ok_rel="$(format_relative_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
   last_fail_rel="$(format_relative_iso "$RUNNER_LAST_FAIL" 2>/dev/null || true)"
-  if (( runner_enabled_flag )); then
+  if ((runner_enabled_flag)); then
     if [[ "$state" == "fail" ]]; then
       runner_tone="red"
       runner_label="runner failing"
@@ -161,16 +161,16 @@ if (( runner_enabled_flag )) || [[ -n "$RUNNER_STATE$RUNNER_LAST_OK$RUNNER_LAST_
       if [[ -n "$last_ok_rel" ]]; then
         age_seconds="$(seconds_since_iso "$RUNNER_LAST_OK" 2>/dev/null || true)"
         if [[ "$age_seconds" =~ ^-?[0-9]+$ ]]; then
-          (( age_seconds < 0 )) && age_seconds=$(( -age_seconds ))
-          if (( age_seconds <= 90 )); then
+          ((age_seconds < 0)) && age_seconds=$((-age_seconds))
+          if ((age_seconds <= 90)); then
             runner_label="runner verified recently"
           else
             runner_label="runner verified ${last_ok_rel}"
           fi
-          if (( age_seconds >= RUNNER_STALE_CRIT_SECONDS )); then
+          if ((age_seconds >= RUNNER_STALE_CRIT_SECONDS)); then
             runner_tone="red"
             runner_label+=" (stale)"
-          elif (( age_seconds >= RUNNER_STALE_WARN_SECONDS )); then
+          elif ((age_seconds >= RUNNER_STALE_WARN_SECONDS)); then
             runner_tone="yellow"
             runner_label+=" (stale)"
           fi
@@ -192,7 +192,7 @@ fi
 
 skill_label="skills via MCP"
 skill_tone="green"
-if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && ((SKILL_REMOVED > 0)); then
   skill_label+=" (${SKILL_REMOVED} local legacy paths removed)"
 fi
 
@@ -273,35 +273,35 @@ elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
 fi
 
 command_actions=()
-if (( codex_update_attempted )); then command_actions+=("codex"); fi
-if (( wrapper_update_attempted )); then command_actions+=("wrapper"); fi
+if ((codex_update_attempted)); then command_actions+=("codex"); fi
+if ((wrapper_update_attempted)); then command_actions+=("wrapper"); fi
 should_flag_auth=1
-if (( ! HOST_IS_SECURE )) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
+if ((!HOST_IS_SECURE)) && [[ "$AUTH_PULL_STATUS" == "ok" ]] && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
   should_flag_auth=0
 fi
-if (( should_flag_auth )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then command_actions+=("auth"); fi
+if ((should_flag_auth)) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ || "$AUTH_ACTION" == "store" ]]; then command_actions+=("auth"); fi
 command_label="launching codex"
-if (( ${#command_actions[@]} )); then
+if ((${#command_actions[@]})); then
   command_label="updating $(human_join "${command_actions[@]}")"
 fi
 
 result_parts=()
-if (( codex_updated )); then
+if ((codex_updated)); then
   result_parts+=("codex updated")
-elif (( codex_update_failed )); then
+elif ((codex_update_failed)); then
   result_parts+=("codex update failed")
 else
   result_parts+=("codex $(lowercase "$codex_status_label")")
 fi
-if (( wrapper_updated )); then
+if ((wrapper_updated)); then
   result_parts+=("wrapper updated")
-elif (( wrapper_update_failed )); then
+elif ((wrapper_update_failed)); then
   result_parts+=("wrapper update failed")
 else
   result_parts+=("wrapper $(lowercase "$wrapper_status_label")")
 fi
 if [[ -n "$AUTH_STATUS" ]]; then
-  if (( ! HOST_IS_SECURE )) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
+  if ((!HOST_IS_SECURE)) && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]]; then
     auth_result="auth refreshed (insecure host)"
     if [[ -n "$AUTH_MESSAGE" ]]; then
       auth_result+=", ${AUTH_MESSAGE}"
@@ -316,17 +316,17 @@ if [[ -n "$AUTH_STATUS" ]]; then
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
   offline_note="api offline"
   [[ -n "$AUTH_PULL_REASON" ]] && offline_note+="; ${AUTH_PULL_REASON}"
-  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH )); then
+  if ((HAS_LOCAL_AUTH)) && ((LOCAL_AUTH_IS_FRESH)); then
     result_parts+=("auth cached (${offline_note})")
-  elif (( HAS_LOCAL_AUTH )) && (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+  elif ((HAS_LOCAL_AUTH)) && ((HOST_IS_SECURE)) && ((LOCAL_AUTH_IS_RECENT)); then
     result_parts+=("auth cached (secure host; ${offline_note})")
-  elif (( HAS_LOCAL_AUTH )); then
+  elif ((HAS_LOCAL_AUTH)); then
     result_parts+=("auth stale (${offline_note})")
   else
     result_parts+=("auth unavailable (${offline_note})")
   fi
 elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  if (( HAS_VALID_LOCAL_AUTH )); then
+  if ((HAS_VALID_LOCAL_AUTH)); then
     result_parts+=("auth local-only (active cdx run)")
   else
     result_parts+=("auth unavailable (active cdx run; local auth invalid)")
@@ -335,7 +335,7 @@ elif [[ "$AUTH_PULL_STATUS" != "ok" ]]; then
   result_parts+=("auth unavailable")
 fi
 skill_result="skills via MCP"
-if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && (( SKILL_REMOVED > 0 )); then
+if [[ "$SKILL_REMOVED" =~ ^[0-9]+$ ]] && ((SKILL_REMOVED > 0)); then
   skill_result+="; cleanup removed ${SKILL_REMOVED}"
 fi
 result_parts+=("$skill_result")
@@ -395,52 +395,52 @@ elif [[ "$CONFIG_SYNC_STATUS" == "offline" ]]; then
 elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
   result_parts+=("config.toml sync failed")
 fi
-if (( QUOTA_BLOCKED )); then
+if ((QUOTA_BLOCKED)); then
   result_parts+=("${QUOTA_BLOCK_REASON:-quota reached}")
 fi
 result_label="$(human_join "${result_parts[@]}")"
 
-  usage_summary=""
-  if [[ -n "$last_usage_payload" ]]; then
-    usage_summary="$(parse_usage_summary "$last_usage_payload")"
-  fi
+usage_summary=""
+if [[ -n "$last_usage_payload" ]]; then
+  usage_summary="$(parse_usage_summary "$last_usage_payload")"
+fi
 
-  codex_tone="green"
-  case "$(lowercase "$codex_status_label")" in
-    update\ available|check\ skipped|update\ skipped|deferred)
-      codex_tone="yellow"
-      ;;
-    blocked\ on\ ssh)
-      codex_tone="red"
-      ;;
-  update\ failed|api\ unavailable)
+codex_tone="green"
+case "$(lowercase "$codex_status_label")" in
+  update\ available | check\ skipped | update\ skipped | deferred)
+    codex_tone="yellow"
+    ;;
+  blocked\ on\ ssh)
+    codex_tone="red"
+    ;;
+  update\ failed | api\ unavailable)
     codex_tone="red"
     ;;
 esac
-(( codex_update_failed )) && codex_tone="red"
+((codex_update_failed)) && codex_tone="red"
 
 wrapper_tone="green"
 case "$(lowercase "$wrapper_status_label")" in
-  update\ available|update\ skipped|check\ skipped)
+  update\ available | update\ skipped | check\ skipped)
     wrapper_tone="yellow"
     ;;
   update\ failed)
     wrapper_tone="red"
     ;;
 esac
-(( wrapper_update_failed )) && wrapper_tone="red"
+((wrapper_update_failed)) && wrapper_tone="red"
 
 result_tone="green"
-if (( codex_update_failed )) || (( wrapper_update_failed )) || { [[ "$AUTH_PULL_STATUS" != "ok" ]] && [[ "$AUTH_PULL_STATUS" != "offline" ]] && [[ "$AUTH_PULL_STATUS" != "concurrent" ]]; }; then
+if ((codex_update_failed)) || ((wrapper_update_failed)) || { [[ "$AUTH_PULL_STATUS" != "ok" ]] && [[ "$AUTH_PULL_STATUS" != "offline" ]] && [[ "$AUTH_PULL_STATUS" != "concurrent" ]]; }; then
   result_tone="red"
 elif [[ "$AUTH_PULL_STATUS" == "offline" ]]; then
-  if (( HAS_LOCAL_AUTH )) && (( LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT) )); then
+  if ((HAS_LOCAL_AUTH)) && ((LOCAL_AUTH_IS_FRESH || (HOST_IS_SECURE && LOCAL_AUTH_IS_RECENT))); then
     result_tone="yellow"
   else
     result_tone="red"
   fi
 elif [[ "$AUTH_PULL_STATUS" == "concurrent" ]]; then
-  if (( HAS_VALID_LOCAL_AUTH )); then
+  if ((HAS_VALID_LOCAL_AUTH)); then
     result_tone="yellow"
   else
     result_tone="red"
@@ -459,16 +459,16 @@ elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
   result_tone="red"
 elif [[ "$CONFIG_SYNC_STATUS" != "ok" && "$CONFIG_SYNC_STATUS" != "skip" ]]; then
   result_tone="yellow"
-elif (( QUOTA_WARNING )); then
+elif ((QUOTA_WARNING)); then
   result_tone="yellow"
-elif (( QUOTA_BLOCKED )); then
+elif ((QUOTA_BLOCKED)); then
   result_tone="red"
 fi
 
 insecure_compact_ok=0
-if (( ! HOST_IS_SECURE )); then
-  if (( ! codex_updated )) && (( ! codex_update_failed )) \
-    && (( ! wrapper_updated )) && (( ! wrapper_update_failed )) \
+if ((!HOST_IS_SECURE)); then
+  if ((!codex_updated)) && ((!codex_update_failed)) \
+    && ((!wrapper_updated)) && ((!wrapper_update_failed)) \
     && [[ "$AUTH_PULL_STATUS" == "ok" ]] \
     && [[ "$AUTH_STATUS" =~ ^(outdated|missing|upload_required)$ ]] \
     && [[ "$SKILL_SYNC_STATUS" == "mcp" ]] \
@@ -481,12 +481,12 @@ if (( ! HOST_IS_SECURE )); then
 fi
 
 command_tone=""
-if (( ${#command_actions[@]} )); then
+if ((${#command_actions[@]})); then
   command_tone="yellow"
 fi
-if (( QUOTA_WARNING )); then
+if ((QUOTA_WARNING)); then
   command_tone="yellow"
 fi
-if (( QUOTA_BLOCKED )); then
+if ((QUOTA_BLOCKED)); then
   command_tone="red"
 fi

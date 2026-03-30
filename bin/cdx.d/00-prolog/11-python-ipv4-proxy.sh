@@ -1,4 +1,5 @@
-CODEX_PY_IPV4_PROXY_UTIL="$(cat <<'PY'
+CODEX_PY_IPV4_PROXY_UTIL="$(
+  cat <<'PY'
 import os
 import select
 import signal

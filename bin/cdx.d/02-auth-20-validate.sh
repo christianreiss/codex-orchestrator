@@ -6,7 +6,7 @@ get_auth_last_refresh() {
   if ! command -v python3 >/dev/null 2>&1; then
     return 0
   fi
- python3 - "$path" <<'PY'
+  python3 - "$path" <<'PY'
 import json, sys, pathlib
 path = pathlib.Path(sys.argv[1])
 try:
@@ -107,4 +107,3 @@ for target, entry in auths.items():
 sys.exit(0)
 PY
 }
-

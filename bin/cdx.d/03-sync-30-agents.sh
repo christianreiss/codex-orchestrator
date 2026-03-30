@@ -85,8 +85,6 @@ sys.exit(1)
 PY
 }
 
-
-
 sync_agents_pull() {
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
@@ -95,7 +93,7 @@ sync_agents_pull() {
   fi
   if ! command -v python3 >/dev/null 2>&1; then
     AGENTS_SYNC_STATUS="no-python"
-    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+    if ((SYNC_WARNED_NO_PYTHON == 0)); then
       log_warn "python3 is required for AGENTS.md sync; skipping."
       SYNC_WARNED_NO_PYTHON=1
     fi
@@ -103,7 +101,8 @@ sync_agents_pull() {
   fi
   local current_sha=""
   if [[ -f "$AGENTS_PATH" ]]; then
-    current_sha="$(python3 - "$AGENTS_PATH" <<'PY'
+    current_sha="$(
+      python3 - "$AGENTS_PATH" <<'PY'
 import hashlib, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 try:
@@ -111,7 +110,7 @@ try:
 except Exception:
     pass
 PY
-)"
+    )"
   fi
   local summary status_code
   set +e
@@ -124,7 +123,7 @@ PY
   AGENTS_REMOTE_UPDATED_AT=""
   AGENTS_REMOTE_BYTES=""
   AGENTS_REMOVED=0
-  if (( status_code != 0 )); then
+  if ((status_code != 0)); then
     local reason=""
     if [[ "$summary" == error\ reason=* ]]; then
       reason="${summary#error reason=}"

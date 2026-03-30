@@ -48,7 +48,7 @@ if ! git diff --quiet -- bin/cdx; then
   wrapper_changed=1
 fi
 
-if (( wrapper_changed == 0 )); then
+if ((wrapper_changed == 0)); then
   echo "Wrapper unchanged versus ${base_ref}; WRAPPER_VERSION bump not required."
   exit 0
 fi

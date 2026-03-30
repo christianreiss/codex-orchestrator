@@ -47,14 +47,14 @@ die() {
 canonicalize_component() {
   local value="$1"
   case "${value}" in
-    all|app|wrapper|runner) printf '%s' "${value}" ;;
+    all | app | wrapper | runner) printf '%s' "${value}" ;;
     *) die "Invalid --component '${value}'. Use one of: all, app, wrapper, runner." ;;
   esac
 }
 
 while (($# > 0)); do
   case "$1" in
-    -o|--output)
+    -o | --output)
       [[ $# -ge 2 ]] || die "Missing value for $1"
       OUTPUT_PATH="$2"
       shift 2
@@ -73,7 +73,7 @@ while (($# > 0)); do
       INCLUDE_TESTS=0
       shift
       ;;
-    -h|--help)
+    -h | --help)
       usage
       exit 0
       ;;
@@ -151,14 +151,14 @@ collect_repo_files() {
 is_secret_file() {
   local path="$1"
   case "${path}" in
-    .env|*/.env) return 0 ;;
-    .env.*|*/.env.*)
+    .env | */.env) return 0 ;;
+    .env.* | */.env.*)
       case "${path}" in
-        .env.example|*/.env.example|.env.sample|*/.env.sample) return 1 ;;
+        .env.example | */.env.example | .env.sample | */.env.sample) return 1 ;;
       esac
       return 0
       ;;
-    *.pem|*.key|*.p12|*.pfx|*.crt|*.csr|*.sqlite|*.sqlite3) return 0 ;;
+    *.pem | *.key | *.p12 | *.pfx | *.crt | *.csr | *.sqlite | *.sqlite3) return 0 ;;
     storage/*.log) return 0 ;;
   esac
   return 1
@@ -167,10 +167,10 @@ is_secret_file() {
 is_path_excluded() {
   local path="$1"
   case "${path}" in
-    .git/*|*/.git/*) return 0 ;;
-    vendor/*|*/vendor/*) return 0 ;;
-    storage/*|*/storage/*) return 0 ;;
-    docs/img/*|*/docs/img/*) return 0 ;;
+    .git/* | */.git/*) return 0 ;;
+    vendor/* | */vendor/*) return 0 ;;
+    storage/* | */storage/*) return 0 ;;
+    docs/img/* | */docs/img/*) return 0 ;;
     runner/__pycache__/*) return 0 ;;
     public/admin/assets/chart.umd.min.js) return 0 ;;
     public/admin/assets/chartjs-plugin-zoom.min.js) return 0 ;;
@@ -178,7 +178,7 @@ is_path_excluded() {
   esac
 
   case "${path}" in
-    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.ico|*.svg|*.pdf|*.pyc|*.phar|*.zip|*.tar|*.gz)
+    *.png | *.jpg | *.jpeg | *.gif | *.webp | *.ico | *.svg | *.pdf | *.pyc | *.phar | *.zip | *.tar | *.gz)
       return 0
       ;;
   esac
@@ -197,13 +197,13 @@ language_hint() {
   local path="$1"
   case "${path}" in
     *.php) echo "php" ;;
-    composer.lock|*.json) echo "json" ;;
-    *.md|*.MD) echo "markdown" ;;
+    composer.lock | *.json) echo "json" ;;
+    *.md | *.MD) echo "markdown" ;;
     *.sh) echo "bash" ;;
     *.py) echo "python" ;;
     *.js) echo "javascript" ;;
     *.css) echo "css" ;;
-    *.yml|*.yaml) echo "yaml" ;;
+    *.yml | *.yaml) echo "yaml" ;;
     *.html) echo "html" ;;
     *.htaccess) echo "apacheconf" ;;
     *.txt) echo "text" ;;
@@ -228,27 +228,27 @@ should_include_component_file() {
   case "${component}" in
     app)
       case "${path}" in
-        composer.json|composer.lock|Dockerfile|docker-compose.yml) return 0 ;;
-        public/index.php|public/mtls-debug.php) return 0 ;;
-        public/admin/index.php|public/admin/index.html|public/admin/login.html|public/admin/.htaccess) return 0 ;;
-        public/admin/assets/*.js|public/admin/assets/*.css) return 0 ;;
+        composer.json | composer.lock | Dockerfile | docker-compose.yml) return 0 ;;
+        public/index.php | public/mtls-debug.php) return 0 ;;
+        public/admin/index.php | public/admin/index.html | public/admin/login.html | public/admin/.htaccess) return 0 ;;
+        public/admin/assets/*.js | public/admin/assets/*.css) return 0 ;;
         src/*) return 0 ;;
-        scripts/admin-passkeys.php|scripts/admin-ws.php|scripts/migrate.php|scripts/refresh-chatgpt-usage.php|scripts/verify-interface-contracts.php) return 0 ;;
+        scripts/admin-passkeys.php | scripts/admin-ws.php | scripts/migrate.php | scripts/refresh-chatgpt-usage.php | scripts/verify-interface-contracts.php) return 0 ;;
         tests/*) return 0 ;;
       esac
       ;;
     wrapper)
       case "${path}" in
-        bin/cdx|bin/setup.sh|bin/setup-quick.sh) return 0 ;;
+        bin/cdx | bin/setup.sh | bin/setup-quick.sh) return 0 ;;
         bin/cdx.d/*) return 0 ;;
-        scripts/build-cdx.sh|scripts/verify-wrapper-version-bump.sh) return 0 ;;
-        tests/CdxWrapper*|tests/InstallerScriptBuilderTest.php|tests/InstallationTest.php|tests/SeedAuthScriptBuilderTest.php|tests/StartupSync*|tests/WrapperServiceHostOverridesTest.php) return 0 ;;
+        scripts/build-cdx.sh | scripts/verify-wrapper-version-bump.sh) return 0 ;;
+        tests/CdxWrapper* | tests/InstallerScriptBuilderTest.php | tests/InstallationTest.php | tests/SeedAuthScriptBuilderTest.php | tests/StartupSync* | tests/WrapperServiceHostOverridesTest.php) return 0 ;;
       esac
       ;;
     runner)
       case "${path}" in
         runner/*) return 0 ;;
-        tests/AuthRunner*|tests/AuthServiceRunnerStoreGateTest.php|tests/AuthServiceContractResponsesTest.php|tests/AuthServiceMcpCredentialMockTest.php) return 0 ;;
+        tests/AuthRunner* | tests/AuthServiceRunnerStoreGateTest.php | tests/AuthServiceContractResponsesTest.php | tests/AuthServiceMcpCredentialMockTest.php) return 0 ;;
       esac
       ;;
   esac
@@ -306,7 +306,7 @@ export_bundle_for_component() {
       continue
     fi
 
-    if (( INCLUDE_TESTS == 0 )) && is_test_path "${path}"; then
+    if ((INCLUDE_TESTS == 0)) && is_test_path "${path}"; then
       continue
     fi
 
@@ -334,7 +334,7 @@ export_bundle_for_component() {
       warnings+=("Selected file missing at write time: ${path}")
       continue
     fi
-    size="$(wc -c < "${full_path}")"
+    size="$(wc -c <"${full_path}")"
     total_bytes=$((total_bytes + size))
   done
 
@@ -344,7 +344,7 @@ export_bundle_for_component() {
     echo "GENERATED_AT_UTC: ${timestamp}"
     echo "WORKSPACE_ROOT: ${ROOT_DIR}"
     echo "COMPONENT: ${component}"
-    if (( INCLUDE_TESTS )); then
+    if ((INCLUDE_TESTS)); then
       echo "INCLUDE_TESTS: yes"
     else
       echo "INCLUDE_TESTS: no"
@@ -395,7 +395,7 @@ export_bundle_for_component() {
       if [[ ! -f "${full_path}" ]]; then
         continue
       fi
-      size="$(wc -c < "${full_path}")"
+      size="$(wc -c <"${full_path}")"
       lang="$(language_hint "${path}")"
       echo "===== BEGIN FILE: ${path} ====="
       echo "LANG: ${lang}"
@@ -407,7 +407,7 @@ export_bundle_for_component() {
     done
 
     echo "===== END AI BUNDLE ====="
-  } > "${tmp_output}"
+  } >"${tmp_output}"
 
   mv "${tmp_output}" "${output_path}"
   WRITTEN_OUTPUTS+=("${output_path}")
@@ -496,7 +496,7 @@ if ((${#WRITTEN_OUTPUTS[@]} > 0)); then
   for written_path in "${WRITTEN_OUTPUTS[@]}"; do
     echo "  ${written_path}"
   done
-  if (( CLEANUP_TOTAL_REMOVED > 0 )); then
+  if ((CLEANUP_TOTAL_REMOVED > 0)); then
     echo "Cleaned up ${CLEANUP_TOTAL_REMOVED} old export file(s)."
   fi
 fi

@@ -1,4 +1,5 @@
-CODEX_PY_HTTP_UTIL="$(cat <<'PY'
+CODEX_PY_HTTP_UTIL="$(
+  cat <<'PY'
 import json
 import os
 import pathlib

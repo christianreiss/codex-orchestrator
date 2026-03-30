@@ -13,7 +13,7 @@ print_doctor_report() {
     dep_bits+=("python3 ✅")
   else
     dep_bits+=("python3 $(colorize "missing" "red")")
-    failures=$(( failures + 1 ))
+    failures=$((failures + 1))
     hints+=("Install python3; sync and auth checks require it.")
   fi
   if [[ "$dep_curl" == "ok" ]]; then
@@ -24,10 +24,10 @@ print_doctor_report() {
   fi
 
   local auth_freshness=""
-  if (( HAS_LOCAL_AUTH )); then
-    if (( LOCAL_AUTH_IS_FRESH )); then
+  if ((HAS_LOCAL_AUTH)); then
+    if ((LOCAL_AUTH_IS_FRESH)); then
       auth_freshness="fresh (${ORIGINAL_LAST_REFRESH:-unknown})"
-    elif (( HOST_IS_SECURE )) && (( LOCAL_AUTH_IS_RECENT )); then
+    elif ((HOST_IS_SECURE)) && ((LOCAL_AUTH_IS_RECENT)); then
       auth_freshness="recent secure-cache (${ORIGINAL_LAST_REFRESH:-unknown})"
     else
       auth_freshness="$(colorize "stale" "yellow") (${ORIGINAL_LAST_REFRESH:-unknown})"
@@ -35,7 +35,7 @@ print_doctor_report() {
     fi
   else
     auth_freshness="$(colorize "missing" "red")"
-    failures=$(( failures + 1 ))
+    failures=$((failures + 1))
     hints+=("No local auth.json available; check API connectivity and host registration.")
   fi
 
@@ -63,7 +63,7 @@ print_doctor_report() {
   fi
   api_probe_end_ns="$(date +%s%N 2>/dev/null || true)"
   if [[ "$api_probe_start_ns" =~ ^[0-9]+$ ]] && [[ "$api_probe_end_ns" =~ ^[0-9]+$ ]]; then
-    api_probe_elapsed_ms=$(( (api_probe_end_ns - api_probe_start_ns) / 1000000 ))
+    api_probe_elapsed_ms=$(((api_probe_end_ns - api_probe_start_ns) / 1000000))
   fi
   local api_probe_state="${api_probe%%$'\t'*}"
   local api_probe_detail="${api_probe#*$'\t'}"
@@ -78,15 +78,15 @@ print_doctor_report() {
       ;;
     *)
       api_probe_label="$(colorize "unreachable" "red") (${api_probe_detail})"
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("Check ${CODEX_SYNC_BASE_URL%/}/versions reachability, DNS/TLS, firewall, and CA settings.")
       ;;
   esac
 
   local ssh_session_label="local"
-  if (( CODEX_SSH_SESSION_ACTIVE )); then
+  if ((CODEX_SSH_SESSION_ACTIVE)); then
     ssh_session_label="ssh"
-    if (( CODEX_SSH_INTERACTIVE )); then
+    if ((CODEX_SSH_INTERACTIVE)); then
       ssh_session_label+=" interactive"
     else
       ssh_session_label+=" non-interactive"
@@ -117,19 +117,19 @@ print_doctor_report() {
   sync_label="$(join_with_sep ' | ' "${sync_bits[@]}")"
   case "$AUTH_PULL_STATUS" in
     invalid)
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("API key rejected. Download a fresh wrapper or rotate the host key in admin.")
       ;;
     missing-config)
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("Wrapper is missing baked sync config. Reinstall cdx from /install token.")
       ;;
     insecure)
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("Insecure host window is closed. Enable the host window in admin.")
       ;;
     insecure-denied)
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("Host approval was denied. Approve/re-enable the host in admin and retry.")
       ;;
     offline)
@@ -156,11 +156,11 @@ print_doctor_report() {
 
   local runner_row_label=""
   local runner_row_tone="yellow"
-  if (( ${runner_enabled_flag:-0} )) || [[ -n "${runner_label:-}" ]]; then
+  if ((${runner_enabled_flag:-0})) || [[ -n "${runner_label:-}" ]]; then
     runner_row_label="${runner_label:-enabled; no verification data yet}"
     runner_row_tone="${runner_tone:-yellow}"
     if [[ "$runner_row_tone" == "red" ]]; then
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("Runner is failing. Check the runner service and review admin event logs.")
     fi
   fi
@@ -212,7 +212,7 @@ else:
       config_validity_label="valid (${toml_method}) ✅"
     else
       config_validity_label="$(colorize "parse error: ${config_parse_err}" "red")"
-      failures=$(( failures + 1 ))
+      failures=$((failures + 1))
       hints+=("config.toml has parse errors; fix or re-sync the file.")
     fi
   elif [[ -f "$CONFIG_PATH" ]]; then
@@ -225,12 +225,12 @@ else:
     local free_kb=""
     free_kb="$(df -Pk "$codex_parent" 2>/dev/null | awk 'NR==2 {print $4}')" || free_kb=""
     if [[ "$free_kb" =~ ^[0-9]+$ ]]; then
-      local free_mb=$(( free_kb / 1024 ))
-      if (( free_mb < 500 )); then
+      local free_mb=$((free_kb / 1024))
+      if ((free_mb < 500)); then
         disk_label="$(colorize "${free_mb}MB free (< 500MB)" "red")"
-        failures=$(( failures + 1 ))
+        failures=$((failures + 1))
         hints+=("Disk space on ~/.codex partition is critically low (${free_mb}MB free).")
-      elif (( free_mb < 1000 )); then
+      elif ((free_mb < 1000)); then
         disk_label="$(colorize "${free_mb}MB free" "yellow")"
         hints+=("Disk space on ~/.codex partition is low (${free_mb}MB free).")
       else
@@ -263,10 +263,10 @@ else:
 
   local api_latency_label=""
   if [[ "$api_probe_elapsed_ms" =~ ^[0-9]+$ ]]; then
-    if (( api_probe_elapsed_ms > 5000 )); then
+    if ((api_probe_elapsed_ms > 5000)); then
       api_latency_label="$(colorize "${api_probe_elapsed_ms}ms (slow)" "red")"
       hints+=("API probe latency is high (${api_probe_elapsed_ms}ms); check network conditions.")
-    elif (( api_probe_elapsed_ms > 2000 )); then
+    elif ((api_probe_elapsed_ms > 2000)); then
       api_latency_label="$(colorize "${api_probe_elapsed_ms}ms" "yellow")"
     else
       api_latency_label="${api_probe_elapsed_ms}ms ✅"
@@ -282,7 +282,7 @@ else:
   if [[ -n "$boot_elapsed" ]]; then
     cli_bits+=("boot=${boot_elapsed}ms")
   fi
-  if (( CODEX_SSH_INTERACTIVE )); then
+  if ((CODEX_SSH_INTERACTIVE)); then
     if ssh_should_force_no_alt_screen; then
       cli_bits+=("ssh-launch=direct-tty-inline")
       cli_bits+=("alt-screen=disabled")
@@ -324,29 +324,29 @@ else:
 
   local result_summary=""
   local hints_suffix=""
-  if (( ${#hints[@]} > 0 )); then
+  if ((${#hints[@]} > 0)); then
     if output_supports_unicode; then
       hints_suffix=" — see hints ↓"
     else
       hints_suffix=" — see hints below"
     fi
   fi
-  if (( failures == 0 )); then
+  if ((failures == 0)); then
     result_summary="$(colorize "all checks passed" "green") ✅"
-  elif (( failures == 1 )); then
+  elif ((failures == 1)); then
     result_summary="$(colorize "1 failure" "red")${hints_suffix}"
   else
     result_summary="$(colorize "${failures} failures" "red")${hints_suffix}"
   fi
   log_info "$(format_simple_row "Result" "$result_summary")"
 
-  if (( ${#hints[@]} )); then
+  if ((${#hints[@]})); then
     log_info "$(summary_divider)"
     local hint_index=1
     local hint
     for hint in "${hints[@]}"; do
       log_warn "$(format_simple_row "Hint ${hint_index}" "$hint")"
-      hint_index=$(( hint_index + 1 ))
+      hint_index=$((hint_index + 1))
     done
   fi
   log_info "$(summary_divider)"

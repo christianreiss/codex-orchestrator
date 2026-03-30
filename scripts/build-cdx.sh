@@ -10,22 +10,25 @@ if [[ ! -d "$SRC_DIR" ]]; then
   exit 1
 fi
 
-mapfile -t PARTS < <(LC_ALL=C find "$SRC_DIR" -type f -name '*.sh' -print | sort)
-if (( ${#PARTS[@]} == 0 )); then
+mapfile -t PARTS < <(find "$SRC_DIR" -type f -name '*.sh' -print | LC_ALL=C sort)
+if ((${#PARTS[@]} == 0)); then
   echo "No cdx fragments found in $SRC_DIR" >&2
   exit 1
 fi
 
 tmp_file="${OUT_FILE}.tmp"
-: > "$tmp_file"
+: >"$tmp_file"
 for part in "${PARTS[@]}"; do
-  cat "$part" >> "$tmp_file"
+  cat "$part" >>"$tmp_file"
   # Ensure a newline boundary between fragments if the source lacked one.
   if [[ -s "$tmp_file" ]]; then
     last_char="$(tail -c 1 "$tmp_file" 2>/dev/null || true)"
-    [[ "$last_char" != $'\n' ]] && printf '\n' >> "$tmp_file"
+    [[ "$last_char" != $'\n' ]] && printf '\n' >>"$tmp_file"
   fi
 done
+
+# Strip trailing blank lines so the assembled file ends with exactly one newline.
+perl -pi -0777 -e 's/\n+\z/\n/' "$tmp_file"
 
 chmod +x "$tmp_file"
 mv "$tmp_file" "$OUT_FILE"

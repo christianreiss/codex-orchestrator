@@ -1,4 +1,3 @@
-
 # Cron auto-update mode: lightweight path that skips auth sync and interactive launch.
 # Invoked via: cdx --cron [install|remove]
 
@@ -31,7 +30,7 @@ cron_has_wrapper_entry() {
     if cron_entry_matches_wrapper "$line" "$cdx_path" "$quoted_cdx_path" "$marker"; then
       return 0
     fi
-  done <<< "$crontab_text"
+  done <<<"$crontab_text"
 
   return 1
 }
@@ -85,8 +84,8 @@ install_cron_job() {
 
   # Random minute (0-59) and hour (0-3) unique per host, so not all hosts hit the API at once.
   local rand_minute rand_hour
-  rand_minute=$(( $(cksum <<< "$(hostname)-min" | cut -d' ' -f1) % 60 ))
-  rand_hour=$(( $(cksum <<< "$(hostname)-hr" | cut -d' ' -f1) % 4 ))
+  rand_minute=$(($(cksum <<<"$(hostname)-min" | cut -d' ' -f1) % 60))
+  rand_hour=$(($(cksum <<<"$(hostname)-hr" | cut -d' ' -f1) % 4))
 
   local quoted_cdx_path quoted_log_file cron_command cron_line marker current_crontab filtered_crontab
   printf -v quoted_cdx_path '%q' "$cdx_path"
@@ -383,23 +382,26 @@ cron_auto_update() {
     local _dup=0
     local _e
     for _e in "${candidate_tags[@]-}"; do
-      [[ "$_e" == "$_t" ]] && { _dup=1; break; }
+      [[ "$_e" == "$_t" ]] && {
+        _dup=1
+        break
+      }
     done
-    (( _dup )) || candidate_tags+=("$_t")
+    ((_dup)) || candidate_tags+=("$_t")
   done
 
   local payload_json="" payload_raw=""
   local fresh_fields=()
   for tag_variant in "${candidate_tags[@]}"; do
     if payload_json="$(fetch_release_payload "${api_releases_url}/tags/${tag_variant}" "$cron_asset_name" 2>/dev/null)"; then
-      printf '%s\n' "$payload_json" > "$tmp_payload"
+      printf '%s\n' "$payload_json" >"$tmp_payload"
       fresh_fields=()
       if payload_raw="$(read_cached_payload "$tmp_payload")"; then
         while IFS= read -r line; do
           fresh_fields+=("$line")
-        done <<< "$payload_raw"
+        done <<<"$payload_raw"
       fi
-      if (( ${#fresh_fields[@]} >= 5 )); then
+      if ((${#fresh_fields[@]} >= 5)); then
         remote_url="${fresh_fields[1]}"
         remote_asset="${fresh_fields[2]}"
         remote_tag="${fresh_fields[4]}"
@@ -411,7 +413,7 @@ cron_auto_update() {
   done
   rm -f "$tmp_payload"
 
-  if (( fetch_success == 0 )); then
+  if ((fetch_success == 0)); then
     printf '[%s] cron: could not fetch release metadata for %s.\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$target_version"
     return 1
   fi
@@ -451,7 +453,7 @@ cron_auto_update() {
       sleep 2
     done
 
-    if (( report_ok == 0 )); then
+    if ((report_ok == 0)); then
       printf '[%s] cron: update report failed after retries (client: %s, wrapper: %s).\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${new_version:-$target_version}" "${WRAPPER_VERSION:-unknown}"
       return 1
     fi

@@ -1,4 +1,3 @@
-
 fetch_release_payload() {
   local api_url="$1"
   local wanted_asset="$2"
@@ -134,7 +133,7 @@ perform_update() (
     log_info "Installing Codex into $target_path"
     install -m 755 "$extracted" "$target_path"
   else
-    if (( CAN_SUDO )); then
+    if ((CAN_SUDO)); then
       log_info "Installing Codex into $target_path with sudo -n"
       $SUDO_BIN install -m 755 "$extracted" "$target_path"
     else
@@ -205,7 +204,7 @@ perform_wrapper_self_update() {
     curl_args+=("--cacert" "$CODEX_SYNC_CA_FILE")
   fi
   case "$(lowercase "$CODEX_SYNC_ALLOW_INSECURE")" in
-    1|true|yes)
+    1 | true | yes)
       curl_args+=("-k")
       ;;
   esac
@@ -226,7 +225,7 @@ perform_wrapper_self_update() {
   chmod +x "$tmpwrapper"
   if [[ -w "$(dirname "$SCRIPT_REAL")" ]]; then
     install -m 755 "$tmpwrapper" "$SCRIPT_REAL"
-  elif (( CAN_SUDO )); then
+  elif ((CAN_SUDO)); then
     if ! $SUDO_BIN install -m 755 "$tmpwrapper" "$SCRIPT_REAL"; then
       WRAPPER_UPDATE_LAST_ERROR="sudo install denied"
       rm -rf "$tmpdir"

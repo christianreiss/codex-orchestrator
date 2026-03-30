@@ -1,4 +1,3 @@
-
 sync_startup_bundle_pull() {
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
@@ -25,15 +24,16 @@ sync_startup_bundle_pull() {
   status_code=$?
   set -e
 
-  if (( status_code == 42 )); then
+  if ((status_code == 42)); then
     return 1
   fi
-  if (( status_code != 0 )); then
+  if ((status_code != 0)); then
     return 1
   fi
 
   local parsed
-  parsed="$(SYNC_SUMMARY="$summary" python3 - <<'PY'
+  parsed="$(
+    SYNC_SUMMARY="$summary" python3 - <<'PY'
 import json
 import os
 import sys
@@ -116,7 +116,7 @@ sync_config_pull() {
   fi
   if ! command -v python3 >/dev/null 2>&1; then
     CONFIG_SYNC_STATUS="no-python"
-    if (( SYNC_WARNED_NO_PYTHON == 0 )); then
+    if ((SYNC_WARNED_NO_PYTHON == 0)); then
       log_warn "python3 is required for config.toml sync; skipping."
       SYNC_WARNED_NO_PYTHON=1
     fi
@@ -124,7 +124,8 @@ sync_config_pull() {
   fi
   local current_sha=""
   if [[ -f "$CONFIG_PATH" ]]; then
-    current_sha="$(python3 - "$CONFIG_PATH" <<'PY'
+    current_sha="$(
+      python3 - "$CONFIG_PATH" <<'PY'
 import hashlib, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 try:
@@ -132,7 +133,7 @@ try:
 except Exception:
     pass
 PY
-)"
+    )"
   fi
   local summary status_code
   set +e
@@ -145,7 +146,7 @@ PY
   CONFIG_REMOTE_UPDATED_AT=""
   CONFIG_REMOTE_BYTES=""
   CONFIG_REMOVED=0
-  if (( status_code != 0 )); then
+  if ((status_code != 0)); then
     local reason=""
     if [[ "$summary" == error\ reason=* ]]; then
       reason="${summary#error reason=}"
