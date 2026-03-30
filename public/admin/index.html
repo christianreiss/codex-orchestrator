@@ -1228,187 +1228,238 @@
           <section class="card panel settings-panel" data-settings-panel="general">
             <div class="panel-head">
               <div>
-                <h2>Operations & Settings</h2>
-                <p class="muted panel-subtitle">Emergency toggles and runner utilities.</p>
-              </div>
-              <div class="panel-actions">
-                <button class="ghost tiny-btn" id="settingsToggle">Show</button>
+                <h2>System Controls</h2>
+                <p class="muted panel-subtitle">Fleet-wide policies, security enforcement, and operational settings.</p>
               </div>
             </div>
-            <div class="settings-grid">
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Admin mTLS Policy</h3>
-                    <p class="muted panel-subtitle-sm">Certificate enforcement for <code>/admin</code> routes.</p>
-                  </div>
+
+            <nav class="general-section-nav" aria-label="Settings sections">
+              <button type="button" class="general-section-btn is-active" data-section="emergency">Emergency</button>
+              <button type="button" class="general-section-btn" data-section="security">Security &amp; Access</button>
+              <button type="button" class="general-section-btn" data-section="fleet">Fleet Management</button>
+              <button type="button" class="general-section-btn" data-section="devex">Developer Experience</button>
+            </nav>
+
+            <div class="general-sections">
+
+              <!-- ── Emergency Controls ── -->
+              <section class="general-group general-group--danger" data-group="emergency">
+                <div class="general-group-header">
+                  <p class="eyebrow">Emergency Controls</p>
+                  <p class="muted panel-subtitle-sm">Circuit-breakers that immediately affect all running agents.</p>
                 </div>
-                <p class="muted panel-meta" id="mtlsSettingStatus">Loading…</p>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Quota Policy</h3>
-                    <p class="muted quota-desc panel-subtitle-sm">ChatGPT quota hit: deny Codex launch.</p>
-                  </div>
-                  <label class="toggle" for="quotaHardFailToggle">
-                    <input type="checkbox" id="quotaHardFailToggle">
-                    <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="quotaModeLabel">Deny launches</span>
-                  </label>
-                </div>
-                <div class="quota-limit-control">
-                  <div class="quota-limit-head">
-                    <p class="muted" style="margin:0;">Warn/kill at</p>
-                    <div class="quota-limit-value" id="quotaLimitLabel">100%</div>
-                  </div>
-                  <input type="range" min="50" max="100" step="1" value="100" id="quotaLimitSlider" class="quota-limit-slider">
-                  <p class="muted quota-limit-foot">Used percent that triggers warnings (or failures when deny mode is on).</p>
-                </div>
-                <div class="quota-partition-control">
-                  <div class="quota-limit-head">
-                    <p class="muted" style="margin:0;">Week partition</p>
-                    <div class="quota-limit-value" id="quotaPartitionLabel">Off</div>
-                  </div>
-                  <div class="quota-partition-buttons" role="group" aria-label="Week partition">
-                    <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="0" aria-pressed="true">Off</button>
-                    <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="7" aria-pressed="false">7 days</button>
-                    <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="5" aria-pressed="false">Mon-Fri</button>
-                  </div>
-                  <p class="muted quota-limit-foot">Adds a daily allowance bar in cdx; honours deny/warn mode.</p>
-                </div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>API Kill Switch</h3>
-                    <p class="muted panel-subtitle-sm">Emergency stop for Codex agents.</p>
-                  </div>
-                  <label class="toggle" for="apiToggle">
-                    <input type="checkbox" id="apiToggle">
-                    <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="apiToggleLabel">Enabled</span>
-                  </label>
-                </div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>cdx Silent Mode</h3>
-                    <p class="muted panel-subtitle-sm">Hide wrapper boot logs; only errors print.</p>
-                  </div>
-                  <label class="toggle" for="cdxSilentToggle">
-                    <input type="checkbox" id="cdxSilentToggle">
-                    <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="cdxSilentLabel">Verbose</span>
-                  </label>
-                </div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Reverse DNS Enforcement</h3>
-                    <p class="muted panel-subtitle-sm">Require forward + PTR match on <code>/auth</code>.</p>
-                  </div>
-                  <label class="toggle" for="reverseDnsToggle">
-                    <input type="checkbox" id="reverseDnsToggle">
-                    <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="reverseDnsLabel">Disabled</span>
-                  </label>
-                </div>
-                <p class="muted panel-meta">Per-host overrides can disable or force this check.</p>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Codex Version</h3>
-                    <p class="muted panel-subtitle-sm">Latest tracks GitHub; selecting a version pins the fleet.</p>
-                  </div>
-                </div>
-                <div class="panel-actions panel-actions-spaced">
-                  <select id="codexVersionSelect" title="Codex target version">
-                    <option value="latest">Latest</option>
-                  </select>
-                </div>
-                <p class="muted panel-meta" id="codexVersionMeta">Loading…</p>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Insecure Host Window</h3>
-                    <p class="muted panel-subtitle-sm">Duration granted when enabling insecure hosts.</p>
-                  </div>
-                </div>
-                <div class="insecure-window-control">
-                  <div class="insecure-window-head">
-                    <div>
-                      <p class="muted insecure-window-copy">Applies to the next enable and persists locally.</p>
+                <div class="settings-grid">
+                  <div class="setting-block setting-block--danger">
+                    <div class="setting-head">
+                      <div>
+                        <h3>API Kill Switch <span class="pill-quiet" id="apiStatusBadge">Active</span></h3>
+                        <p class="muted panel-subtitle-sm">Emergency stop for all Codex agents fleet-wide.</p>
+                      </div>
+                      <label class="toggle state-toggle" for="apiToggle">
+                        <input type="checkbox" id="apiToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="apiToggleLabel">Enabled</span>
+                      </label>
                     </div>
-                    <div class="insecure-window-value" id="insecureWindowLabel">10 min</div>
                   </div>
-                  <input type="range" min="0" max="100" step="1" value="0" id="insecureWindowSlider" class="insecure-window-slider">
-                  <p class="muted insecure-window-foot">Each `/auth` extends by this duration (0–8 hours, log scale). Trailing grace allows final auth/usage push after expiry.</p>
-                </div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Insecure Host Approval</h3>
-                    <p class="muted panel-subtitle-sm">Require admin confirmation when windows are closed.</p>
-                  </div>
-                  <label class="toggle" for="insecureApprovalToggle">
-                    <input type="checkbox" id="insecureApprovalToggle">
-                    <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="insecureApprovalLabel">Disabled</span>
-                  </label>
-                </div>
-                <p class="muted panel-meta">When enabled, cdx waits for approval if a websocket admin is connected.</p>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Cron Auto-Update</h3>
-                    <p class="muted panel-subtitle-sm">Fleet-wide Codex binary auto-update via cron.</p>
-                  </div>
-                  <label class="toggle" for="autoUpdateToggle">
-                    <input type="checkbox" id="autoUpdateToggle">
-                    <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="autoUpdateLabel">Disabled</span>
-                  </label>
-                </div>
-                <p class="muted panel-meta">When enabled, hosts with <code>cdx --cron</code> installed will automatically update the Codex binary once daily (0–4 AM, randomized per host). Per-host overrides available in host details. Default: off.</p>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Host Pruning</h3>
-                    <p class="muted panel-subtitle-sm">Delete inactive hosts after N days (0 disables pruning).</p>
-                  </div>
-                </div>
-                <div class="prune-window-control">
-                  <div class="prune-window-head">
-                    <div>
-                      <p class="muted prune-window-copy">Applies to inactive hosts only; unprovisioned hosts still prune after 30 minutes.</p>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Quota Policy <span class="pill-quiet" id="quotaStatusBadge">Warn at 100%</span></h3>
+                        <p class="muted quota-desc panel-subtitle-sm">Control behavior when ChatGPT quota is reached.</p>
+                      </div>
+                      <label class="toggle" for="quotaHardFailToggle">
+                        <input type="checkbox" id="quotaHardFailToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="quotaModeLabel">Deny launches</span>
+                      </label>
                     </div>
-                    <div class="prune-window-value" id="pruneWindowLabel">30 days</div>
+                    <div class="setting-body">
+                      <div class="inline-group">
+                        <div class="quota-limit-control">
+                          <div class="quota-limit-head">
+                            <p class="muted" style="margin:0;">Warn/kill at</p>
+                            <div class="quota-limit-value" id="quotaLimitLabel">100%</div>
+                          </div>
+                          <input type="range" min="50" max="100" step="1" value="100" id="quotaLimitSlider" class="quota-limit-slider">
+                          <p class="muted quota-limit-foot">Used percent that triggers warnings (or failures when deny mode is on).</p>
+                        </div>
+                        <div class="quota-partition-control">
+                          <div class="quota-limit-head">
+                            <p class="muted" style="margin:0;">Week partition</p>
+                            <div class="quota-limit-value" id="quotaPartitionLabel">Off</div>
+                          </div>
+                          <div class="quota-partition-buttons" role="group" aria-label="Week partition">
+                            <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="0" aria-pressed="true">Off</button>
+                            <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="7" aria-pressed="false">7 days</button>
+                            <button type="button" class="ghost tiny-btn quota-partition-btn" data-days="5" aria-pressed="false">Mon-Fri</button>
+                          </div>
+                          <p class="muted quota-limit-foot">Adds a daily allowance bar in cdx; honours deny/warn mode.</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <input type="range" min="0" max="60" step="1" value="30" id="pruneWindowSlider" class="prune-window-slider">
-                  <p class="muted prune-window-foot">Honoured during auth/register/admin host listings.</p>
                 </div>
-              </div>
-              <div class="setting-block">
-                <div class="setting-head">
-                  <div>
-                    <h3>Maintenance</h3>
-                    <p class="muted panel-subtitle-sm">Run the runner, seed auth.json, or check versions.</p>
+              </section>
+
+              <!-- ── Security & Access ── -->
+              <section class="general-group" data-group="security">
+                <div class="general-group-header">
+                  <p class="eyebrow">Security &amp; Access</p>
+                  <p class="muted panel-subtitle-sm">Authentication enforcement and insecure host policies.</p>
+                </div>
+                <div class="general-group-status">
+                  <span class="pill-quiet">mTLS&ensp;<strong id="mtlsSettingStatus">Loading…</strong></span>
+                  <span class="muted">Certificate enforcement for <code>/admin</code> routes</span>
+                </div>
+                <div class="settings-grid">
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Reverse DNS Enforcement <span class="pill-quiet" id="reverseDnsBadge">Disabled</span></h3>
+                        <p class="muted panel-subtitle-sm">Require forward + PTR match on <code>/auth</code>.</p>
+                      </div>
+                      <label class="toggle" for="reverseDnsToggle">
+                        <input type="checkbox" id="reverseDnsToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="reverseDnsLabel">Disabled</span>
+                      </label>
+                    </div>
+                    <p class="muted panel-meta">Per-host overrides can disable or force this check.</p>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Insecure Host Window</h3>
+                        <p class="muted panel-subtitle-sm">Duration granted when enabling insecure hosts.</p>
+                      </div>
+                    </div>
+                    <div class="setting-body">
+                      <div class="insecure-window-control">
+                        <div class="insecure-window-head">
+                          <div>
+                            <p class="muted insecure-window-copy">Applies to the next enable and persists locally.</p>
+                          </div>
+                          <div class="insecure-window-value" id="insecureWindowLabel">10 min</div>
+                        </div>
+                        <input type="range" min="0" max="100" step="1" value="0" id="insecureWindowSlider" class="insecure-window-slider">
+                        <p class="muted insecure-window-foot">Each <code>/auth</code> extends by this duration (0–8 hours, log scale). Trailing grace allows final auth/usage push after expiry.</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Insecure Host Approval <span class="pill-quiet" id="insecureApprovalBadge">Disabled</span></h3>
+                        <p class="muted panel-subtitle-sm">Require admin confirmation when windows are closed.</p>
+                      </div>
+                      <label class="toggle" for="insecureApprovalToggle">
+                        <input type="checkbox" id="insecureApprovalToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="insecureApprovalLabel">Disabled</span>
+                      </label>
+                    </div>
+                    <p class="muted panel-meta">When enabled, cdx waits for approval if a websocket admin is connected.</p>
                   </div>
                 </div>
-                <div class="setting-actions">
-                  <button class="ghost" id="uploadAuthBtn">Seed auth.json</button>
-                  <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
-                  <button class="ghost" id="version-check">Check versions</button>
+              </section>
+
+              <!-- ── Fleet Management ── -->
+              <section class="general-group" data-group="fleet">
+                <div class="general-group-header">
+                  <p class="eyebrow">Fleet Management</p>
+                  <p class="muted panel-subtitle-sm">Version control, updates, and host lifecycle.</p>
                 </div>
-              </div>
+                <div class="settings-grid general-group-grid--compact">
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Codex Version</h3>
+                        <p class="muted panel-subtitle-sm">Latest tracks GitHub; selecting a version pins the fleet.</p>
+                      </div>
+                    </div>
+                    <div class="setting-body">
+                      <div class="panel-actions panel-actions-spaced">
+                        <select id="codexVersionSelect" title="Codex target version">
+                          <option value="latest">Latest</option>
+                        </select>
+                      </div>
+                      <p class="muted panel-meta" id="codexVersionMeta">Loading…</p>
+                    </div>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Cron Auto-Update <span class="pill-quiet" id="autoUpdateBadge">Disabled</span></h3>
+                        <p class="muted panel-subtitle-sm">Fleet-wide Codex binary auto-update via cron.</p>
+                      </div>
+                      <label class="toggle" for="autoUpdateToggle">
+                        <input type="checkbox" id="autoUpdateToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="autoUpdateLabel">Disabled</span>
+                      </label>
+                    </div>
+                    <p class="muted panel-meta">Hosts with <code>cdx --cron</code> update daily (0–4 AM, randomized). Per-host overrides in host details.</p>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Host Pruning</h3>
+                        <p class="muted panel-subtitle-sm">Delete inactive hosts after N days (0 disables).</p>
+                      </div>
+                    </div>
+                    <div class="setting-body">
+                      <div class="prune-window-control">
+                        <div class="prune-window-head">
+                          <div>
+                            <p class="muted prune-window-copy">Applies to inactive hosts only; unprovisioned hosts still prune after 30 min.</p>
+                          </div>
+                          <div class="prune-window-value" id="pruneWindowLabel">30 days</div>
+                        </div>
+                        <input type="range" min="0" max="60" step="1" value="30" id="pruneWindowSlider" class="prune-window-slider">
+                        <p class="muted prune-window-foot">Honoured during auth/register/admin host listings.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ── Developer Experience ── -->
+              <section class="general-group" data-group="devex">
+                <div class="general-group-header">
+                  <p class="eyebrow">Developer Experience</p>
+                  <p class="muted panel-subtitle-sm">Logging, diagnostics, and maintenance tasks.</p>
+                </div>
+                <div class="settings-grid">
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>cdx Silent Mode <span class="pill-quiet" id="cdxSilentBadge">Verbose</span></h3>
+                        <p class="muted panel-subtitle-sm">Hide wrapper boot logs; only errors print.</p>
+                      </div>
+                      <label class="toggle" for="cdxSilentToggle">
+                        <input type="checkbox" id="cdxSilentToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="cdxSilentLabel">Verbose</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Maintenance</h3>
+                        <p class="muted panel-subtitle-sm">Run the runner, seed auth.json, or check versions.</p>
+                      </div>
+                    </div>
+                    <div class="setting-actions">
+                      <button class="ghost" id="uploadAuthBtn">Seed auth.json</button>
+                      <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
+                      <button class="ghost" id="version-check">Check versions</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
             </div>
           </section>
           <section class="card panel" data-settings-panel="users" id="users-panel" hidden>

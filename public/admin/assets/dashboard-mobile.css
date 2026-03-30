@@ -260,6 +260,26 @@ body[data-view="mobile"] .settings-mobile-nav .settings-mobile-tab.active {
 body[data-view="mobile"] .settings-content .panel:first-child {
   margin-top: 10px;
 }
+/* General settings: mobile section nav */
+body[data-view="mobile"] .general-section-nav {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 14px;
+  position: static;
+}
+body[data-view="mobile"] .general-section-btn {
+  flex: 0 0 auto;
+}
+body[data-view="mobile"] .general-sections {
+  padding: 14px;
+  gap: 24px;
+}
+body[data-view="mobile"] .general-group--danger {
+  padding: 14px;
+}
+body[data-view="mobile"] .general-group-grid--compact {
+  grid-template-columns: 1fr;
+}
 body[data-view="mobile"] .hosts-layout {
   grid-template-columns: 1fr;
   gap: 0;

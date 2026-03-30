@@ -1199,8 +1199,119 @@ body[data-theme="dark"] .config-search { background: rgba(2,6,23,0.26); }
       flex: 1;
       min-width: 180px;
     }
-    .settings-panel.settings-collapsed .settings-grid {
-      display: none;
+    /* ── General settings: section-jump navigation ── */
+    .general-section-nav {
+      display: flex;
+      gap: 6px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card) 96%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .general-section-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 7px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      font-family: var(--font-sans, 'Inter', sans-serif);
+      transition: background 150ms ease, border-color 150ms ease, color 120ms ease;
+      white-space: nowrap;
+    }
+    .general-section-btn:hover {
+      background: rgba(var(--accent-rgb), 0.10);
+      color: var(--text);
+    }
+    .general-section-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+    .general-section-btn.is-active {
+      background: rgba(var(--accent-rgb), 0.14);
+      border-color: rgba(var(--accent-rgb), 0.22);
+      color: var(--text);
+    }
+
+    /* ── General settings: group containers ── */
+    .general-sections {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .general-group {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .general-group-header {
+      margin-bottom: 2px;
+    }
+    .general-group-header .eyebrow {
+      margin: 0 0 4px;
+    }
+    .general-group-header .panel-subtitle-sm {
+      margin: 0;
+    }
+
+    /* Danger-tinted section for emergency controls */
+    .general-group--danger {
+      border: 1px solid rgba(251, 113, 133, 0.18);
+      border-radius: var(--radius-lg);
+      background: rgba(251, 113, 133, 0.03);
+      padding: 18px;
+    }
+
+    /* Read-only status bar (e.g. mTLS) */
+    .general-group-status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      background: var(--frost);
+      border: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .general-group-status .pill-quiet { margin: 0; }
+
+    /* Responsive 2-col grid for compact settings */
+    .general-group-grid--compact {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    /* Setting body separator for multi-control blocks */
+    .setting-body {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Danger left-border accent on destructive setting blocks */
+    .setting-block--danger {
+      border-left: 3px solid var(--danger);
+    }
+
+    /* Inline status badge in setting titles */
+    .setting-head .pill-quiet {
+      margin-left: 8px;
+      font-size: 12px;
+      vertical-align: middle;
+    }
+
+    /* Save flash animation */
+    @keyframes setting-saved {
+      0%   { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.18); }
+      100% { border-color: var(--border); box-shadow: none; }
+    }
+    .setting-block.just-saved {
+      animation: setting-saved 600ms ease-out forwards;
     }
 
     .mini-table {

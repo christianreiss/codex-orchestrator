@@ -183,7 +183,12 @@
     const insecureApprovalApprove = document.getElementById('insecureApprovalApprove');
     const insecureApprovalDeny = document.getElementById('insecureApprovalDeny');
     const insecureApprovalAllowDomain = document.getElementById('insecureApprovalAllowDomain');
-    const settingsToggle = document.getElementById('settingsToggle');
+    const apiStatusBadge = document.getElementById('apiStatusBadge');
+    const quotaStatusBadge = document.getElementById('quotaStatusBadge');
+    const reverseDnsBadge = document.getElementById('reverseDnsBadge');
+    const insecureApprovalBadge = document.getElementById('insecureApprovalBadge');
+    const autoUpdateBadge = document.getElementById('autoUpdateBadge');
+    const cdxSilentBadge = document.getElementById('cdxSilentBadge');
     const insecureWindowSlider = document.getElementById('insecureWindowSlider');
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
     const pruneWindowSlider = document.getElementById('pruneWindowSlider');
@@ -243,7 +248,6 @@
     let currentAgents = null;
     let agentsSaveInFlight = false;
     let agentsDeleteInFlight = false;
-    let settingsExpanded = true;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -1020,7 +1024,6 @@
         insecureHostsCloseBtn,
         navInsecureHosts,
         document.getElementById('navMenuToggle'),
-        settingsToggle,
       ].filter(Boolean);
       const target = candidates.find((element) => {
         if (!(element instanceof HTMLElement)) return false;
@@ -1291,6 +1294,10 @@
           if (apiToggleLabel) {
             apiToggleLabel.textContent = apiDisabled ? 'Disabled' : 'Enabled';
           }
+          if (apiStatusBadge) {
+            apiStatusBadge.textContent = apiDisabled ? 'Killed' : 'Active';
+            apiStatusBadge.style.color = apiDisabled ? 'var(--danger)' : 'var(--success)';
+          }
         }
       } catch (err) {
         console.error('api state', err);
@@ -1300,6 +1307,10 @@
         }
         if (apiToggleLabel) {
           apiToggleLabel.textContent = 'Unavailable';
+        }
+        if (apiStatusBadge) {
+          apiStatusBadge.textContent = 'Unavailable';
+          apiStatusBadge.style.color = 'var(--muted)';
         }
       }
     }
@@ -1316,6 +1327,11 @@
         if (apiToggleLabel) {
           apiToggleLabel.textContent = apiDisabled ? 'Disabled' : 'Enabled';
         }
+        if (apiStatusBadge) {
+          apiStatusBadge.textContent = apiDisabled ? 'Killed' : 'Active';
+          apiStatusBadge.style.color = apiDisabled ? 'var(--danger)' : 'var(--success)';
+        }
+        flashSaved(apiToggle);
       } catch (err) {
         toast(`API toggle failed: ${err.message}`, 'error');
         apiToggle.checked = !enabled; // revert
@@ -1334,6 +1350,7 @@
         });
         quotaHardFail = !!hardFail;
         renderQuotaMode();
+        flashSaved(quotaToggle);
       } catch (err) {
         toast(`Quota policy update failed: ${err.message}`, 'error');
         quotaToggle.checked = quotaHardFail;
@@ -1359,6 +1376,8 @@
           method: 'POST',
           json: { hard_fail: quotaHardFail, limit_percent: normalized, week_partition: quotaWeekPartition },
         });
+        renderQuotaMode();
+        flashSaved(quotaLimitSlider);
       } catch (err) {
         toast(`Quota limit update failed: ${err.message}`, 'error');
         quotaLimitPercent = previous;
@@ -1393,28 +1412,50 @@
       }
     }
 
+    function flashSaved(el) {
+      const block = el?.closest?.('.setting-block');
+      if (!block) return;
+      block.classList.remove('just-saved');
+      void block.offsetWidth;
+      block.classList.add('just-saved');
+      block.addEventListener('animationend', () => block.classList.remove('just-saved'), { once: true });
+    }
+
     function renderCdxSilent() {
       if (!cdxSilentToggle || !cdxSilentLabel) return;
       cdxSilentToggle.checked = !!cdxSilent;
       cdxSilentLabel.textContent = cdxSilent ? 'Silent' : 'Verbose';
+      if (cdxSilentBadge) cdxSilentBadge.textContent = cdxSilent ? 'Silent' : 'Verbose';
     }
 
     function renderReverseDns() {
       if (!reverseDnsToggle || !reverseDnsLabel) return;
       reverseDnsToggle.checked = !!reverseDnsEnabled;
       reverseDnsLabel.textContent = reverseDnsEnabled ? 'Enabled' : 'Disabled';
+      if (reverseDnsBadge) {
+        reverseDnsBadge.textContent = reverseDnsEnabled ? 'Enforced' : 'Relaxed';
+        reverseDnsBadge.style.color = reverseDnsEnabled ? 'var(--success)' : 'var(--muted)';
+      }
     }
 
     function renderInsecureApproval() {
       if (!insecureApprovalToggle || !insecureApprovalLabel) return;
       insecureApprovalToggle.checked = !!insecureApprovalEnabled;
       insecureApprovalLabel.textContent = insecureApprovalEnabled ? 'Enabled' : 'Disabled';
+      if (insecureApprovalBadge) {
+        insecureApprovalBadge.textContent = insecureApprovalEnabled ? 'Required' : 'Auto';
+        insecureApprovalBadge.style.color = insecureApprovalEnabled ? 'var(--accent)' : 'var(--muted)';
+      }
     }
 
     function renderAutoUpdate() {
       if (!autoUpdateToggle || !autoUpdateLabel) return;
       autoUpdateToggle.checked = !!autoUpdateEnabled;
       autoUpdateLabel.textContent = autoUpdateEnabled ? 'Enabled' : 'Disabled';
+      if (autoUpdateBadge) {
+        autoUpdateBadge.textContent = autoUpdateEnabled ? 'Enabled' : 'Manual';
+        autoUpdateBadge.style.color = autoUpdateEnabled ? 'var(--success)' : 'var(--muted)';
+      }
     }
     function showAccessBlock(title, body) {
       if (!accessBlockModal) return;
@@ -1748,6 +1789,7 @@
           method: 'POST',
           json: { silent: !!nextValue },
         });
+        flashSaved(cdxSilentToggle);
       } catch (err) {
         toast(`cdx silent update failed: ${err.message}`, 'error');
         cdxSilent = previous;
@@ -1768,6 +1810,7 @@
           method: 'POST',
           json: { enabled: !!nextValue },
         });
+        flashSaved(reverseDnsToggle);
       } catch (err) {
         toast(`Reverse DNS update failed: ${err.message}`, 'error');
         reverseDnsEnabled = previous;
@@ -1788,6 +1831,7 @@
           method: 'POST',
           json: { enabled: !!nextValue },
         });
+        flashSaved(insecureApprovalToggle);
       } catch (err) {
         toast(`Insecure approval update failed: ${err.message}`, 'error');
         insecureApprovalEnabled = previous;
@@ -1808,6 +1852,7 @@
           method: 'POST',
           json: { enabled: !!nextValue },
         });
+        flashSaved(autoUpdateToggle);
       } catch (err) {
         toast(`Auto-update setting failed: ${err.message}`, 'error');
         autoUpdateEnabled = previous;
@@ -1823,17 +1868,14 @@
         window.__navStatus.setMtls(meta);
       }
       if (mtlsSettingStatus) {
-        let sentence = 'mTLS status unavailable.';
+        let label = 'Unavailable';
         if (meta) {
-          if (meta.enforced) {
-            sentence = 'mTLS is enforced; client certificates are required for admin access.';
-          } else if (meta.present) {
-            sentence = 'mTLS is optional; a client certificate is present for this session.';
-          } else {
-            sentence = 'mTLS is disabled for admin access.';
-          }
+          if (meta.enforced) label = 'Enforced';
+          else if (meta.present) label = 'Optional (cert present)';
+          else label = 'Disabled';
         }
-        mtlsSettingStatus.textContent = sentence;
+        mtlsSettingStatus.textContent = label;
+        mtlsSettingStatus.style.color = meta?.enforced ? 'var(--success)' : 'var(--muted)';
       }
     }
 
@@ -2038,15 +2080,7 @@
       return '<span class="vip-crown" title="VIP host: quota hard-fail disabled">👑</span>';
     }
 
-    function setSettingsExpanded(expanded) {
-      settingsExpanded = !!expanded;
-      if (settingsToggle) {
-        settingsToggle.textContent = settingsExpanded ? 'Hide' : 'Show';
-      }
-      if (settingsPanel) {
-        settingsPanel.classList.toggle('settings-collapsed', !settingsExpanded);
-      }
-    }
+
 
     // One-time init guards for lazily loaded panels
     let clientLogsInited = false;
@@ -5736,6 +5770,11 @@
         quotaToggle.checked = !!quotaHardFail;
         quotaModeLabel.textContent = quotaHardFail ? 'Deny launches' : 'Warn only';
       }
+      if (quotaStatusBadge) {
+        const pct = quotaLimitPercent != null ? quotaLimitPercent : 100;
+        quotaStatusBadge.textContent = quotaHardFail ? `Deny at ${pct}%` : `Warn at ${pct}%`;
+        quotaStatusBadge.style.color = quotaHardFail ? 'var(--danger)' : 'var(--muted)';
+      }
       const quotaDesc = quotaHardFail
         ? 'ChatGPT quota hit: deny Codex launch.'
         : 'ChatGPT quota hit: warn and continue.';
@@ -8144,8 +8183,6 @@
       }
     }
 
-    setSettingsExpanded(true);
-
     function setActiveLinks(selector, match) {
       document.querySelectorAll(selector).forEach((link) => {
         const key = (link.dataset.hostTab || link.dataset.logTab || link.dataset.settingsTab || '').toLowerCase();
@@ -8368,11 +8405,30 @@
     if (runnerRunnerBtn) {
       runnerRunnerBtn.addEventListener('click', handleRunnerClick);
     }
-    if (settingsToggle) {
-      settingsToggle.addEventListener('click', () => {
-        setSettingsExpanded(!settingsExpanded);
+    /* ── General settings: section-jump navigation ── */
+    (function initGeneralSectionNav() {
+      const navBtns = document.querySelectorAll('.general-section-btn');
+      const groups = document.querySelectorAll('.general-group[data-group]');
+      if (!navBtns.length || !groups.length) return;
+
+      navBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = document.querySelector(`.general-group[data-group="${btn.dataset.section}"]`);
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
       });
-    }
+
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            navBtns.forEach(b => b.classList.remove('is-active'));
+            const match = document.querySelector(`.general-section-btn[data-section="${e.target.dataset.group}"]`);
+            if (match) match.classList.add('is-active');
+          }
+        });
+      }, { rootMargin: '-30% 0px -60% 0px' });
+      groups.forEach(g => observer.observe(g));
+    })();
     if (filterInput) {
       filterInput.addEventListener('input', (event) => {
         hostFilterText = event.target.value.trim().toLowerCase();
@@ -8820,7 +8876,6 @@
         ev.preventDefault();
         const targetId = `${targetKey}-panel`;
         const section = document.getElementById(targetId);
-        if (targetKey === 'settings') setSettingsExpanded(true);
         if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
