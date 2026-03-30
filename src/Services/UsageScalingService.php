@@ -18,6 +18,13 @@ class UsageScalingService
 
     private const DEFAULT_MIN_ELAPSED_FRACTION = 0.05;
     private const DEFAULT_MAX_SNAPSHOT_AGE_SECONDS = 1800;
+    /** @var list<array{projected_percent:int, reasoning_effort:string, model:string}> */
+    private const DEFAULT_TIERS = [
+        ['projected_percent' => 80, 'reasoning_effort' => 'high', 'model' => 'gpt-5.4'],
+        ['projected_percent' => 85, 'reasoning_effort' => 'medium', 'model' => 'gpt-5.4'],
+        ['projected_percent' => 92, 'reasoning_effort' => 'high', 'model' => 'gpt-5.3-codex'],
+        ['projected_percent' => 100, 'reasoning_effort' => 'medium', 'model' => 'gpt-5.3-codex'],
+    ];
 
     public function __construct(
         private readonly ChatGptUsageService $usageService,
@@ -206,6 +213,14 @@ class UsageScalingService
         return is_array($decoded) ? $decoded : null;
     }
 
+    /**
+     * @return list<array{projected_percent:int, reasoning_effort:string, model:string}>
+     */
+    public static function defaultTiers(): array
+    {
+        return self::DEFAULT_TIERS;
+    }
+
     // -- Internal helpers --
 
     private function windowForLane(array $summary, string $lane): ?array
@@ -366,6 +381,9 @@ class UsageScalingService
             $model = $tier['model'] ?? null;
             if ($model !== null && ConfigNormalizer::normalizeSupportedModel($model) === null) {
                 $errors[] = "tiers[{$i}].model must be one of: " . implode(', ', ConfigNormalizer::SUPPORTED_MODELS);
+            }
+            if ($model === 'gpt-5.3-codex-spark') {
+                $errors[] = "tiers[{$i}].model must not be gpt-5.3-codex-spark";
             }
 
             if ($model !== null && $effort !== null) {

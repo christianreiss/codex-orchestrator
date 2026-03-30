@@ -193,6 +193,48 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('Set-aside Graph Stats', $html);
     }
 
+    public function testSettingsTogglesStartNeutralUntilLiveStateLoads(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('id="scalingBadge">Loading…</span>', $html);
+        $this->assertStringContainsString('id="scalingLabel">Loading…</span>', $html);
+        $this->assertStringContainsString('id="reverseDnsBadge">Loading…</span>', $html);
+        $this->assertStringContainsString('id="reverseDnsLabel">Loading…</span>', $html);
+        $this->assertStringContainsString('id="insecureApprovalBadge">Loading…</span>', $html);
+        $this->assertStringContainsString('id="insecureApprovalLabel">Loading…</span>', $html);
+        $this->assertStringContainsString('id="autoUpdateBadge">Loading…</span>', $html);
+        $this->assertStringContainsString('id="autoUpdateLabel">Loading…</span>', $html);
+        $this->assertStringContainsString('id="logRetentionLabel">Loading…</span>', $html);
+        $this->assertStringContainsString('id="projectsEnabledLabel">Loading…</span>', $html);
+    }
+
+    public function testUsageScalingUiUsesConsistentToggleStateAndSeedsDefaultTier(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('function renderBinarySetting({', $js);
+        $this->assertStringContainsString('function defaultScalingTier(index = 0) {', $js);
+        $this->assertStringContainsString('const DEFAULT_SCALING_TIERS = [', $js);
+        $this->assertStringContainsString("{ projected_percent: 80, reasoning_effort: 'high', model: 'gpt-5.4' }", $js);
+        $this->assertStringContainsString("{ projected_percent: 85, reasoning_effort: 'medium', model: 'gpt-5.4' }", $js);
+        $this->assertStringContainsString("{ projected_percent: 92, reasoning_effort: 'high', model: 'gpt-5.3-codex' }", $js);
+        $this->assertStringContainsString("{ projected_percent: 100, reasoning_effort: 'medium', model: 'gpt-5.3-codex' }", $js);
+        $this->assertStringNotContainsString("{ value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' }", $js);
+        $this->assertStringContainsString('function ensureScalingRulesState(seedTier = false) {', $js);
+        $this->assertStringContainsString('function cloneScalingDataState() {', $js);
+        $this->assertStringContainsString('ensureScalingRulesState(scalingToggle.checked);', $js);
+        $this->assertStringContainsString('const rollbackState = cloneScalingDataState();', $js);
+        $this->assertStringContainsString('saveScalingRules({', $js);
+        $this->assertStringContainsString("successMessage: scalingToggle.checked ? 'Usage scaling enabled' : 'Usage scaling disabled'", $js);
+        $this->assertStringContainsString('scalingData.rules.tiers = defaultScalingTiers();', $js);
+        $this->assertStringContainsString('tiers.push(...defaultScalingTiers());', $js);
+        $this->assertStringContainsString('Usage scaling is off.', $js);
+        $this->assertStringNotContainsString("scalingBadge.textContent = enabled ? 'Active' : 'Disabled';", $js);
+    }
+
     public function testQuickInsecureHostsToggleUsesServerActiveFlag(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');

@@ -81,9 +81,16 @@ class InfrastructureMigration implements MigrationInterface
             <<<SQL
             CREATE TABLE IF NOT EXISTS versions (
                 name VARCHAR(191) NOT NULL PRIMARY KEY,
-                version VARCHAR(191) NOT NULL,
+                version LONGTEXT NOT NULL,
                 updated_at VARCHAR(100) NOT NULL
             ) ENGINE=InnoDB {$collation};
+            SQL
+        );
+
+        $pdo->exec(
+            <<<SQL
+            ALTER TABLE versions
+            MODIFY COLUMN version LONGTEXT NOT NULL
             SQL
         );
     }

@@ -1378,13 +1378,13 @@
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
-                        <h3>Usage Scaling <span class="pill-quiet" id="scalingBadge">Disabled</span></h3>
+                        <h3>Usage Scaling <span class="pill-quiet" id="scalingBadge">Loading…</span></h3>
                         <p class="muted panel-subtitle-sm">Automatically reduce reasoning effort when projected weekly usage exceeds thresholds.</p>
                       </div>
                       <label class="toggle" for="scalingToggle">
                         <input type="checkbox" id="scalingToggle">
                         <span class="track"><span class="thumb"></span></span>
-                        <span class="toggle-text" id="scalingLabel">Disabled</span>
+                        <span class="toggle-text" id="scalingLabel">Loading…</span>
                       </label>
                     </div>
                     <div class="setting-body" id="scalingBody" style="display:none;">
@@ -1426,13 +1426,13 @@
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
-                        <h3>Reverse DNS Enforcement <span class="pill-quiet" id="reverseDnsBadge">Disabled</span></h3>
+                        <h3>Reverse DNS Enforcement <span class="pill-quiet" id="reverseDnsBadge">Loading…</span></h3>
                         <p class="muted panel-subtitle-sm">Require forward + PTR match on <code>/auth</code>.</p>
                       </div>
                       <label class="toggle" for="reverseDnsToggle">
                         <input type="checkbox" id="reverseDnsToggle">
                         <span class="track"><span class="thumb"></span></span>
-                        <span class="toggle-text" id="reverseDnsLabel">Disabled</span>
+                        <span class="toggle-text" id="reverseDnsLabel">Loading…</span>
                       </label>
                     </div>
                     <p class="muted panel-meta">Per-host overrides can disable or force this check.</p>
@@ -1460,13 +1460,13 @@
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
-                        <h3>Insecure Host Approval <span class="pill-quiet" id="insecureApprovalBadge">Disabled</span></h3>
+                        <h3>Insecure Host Approval <span class="pill-quiet" id="insecureApprovalBadge">Loading…</span></h3>
                         <p class="muted panel-subtitle-sm">Require admin confirmation when windows are closed.</p>
                       </div>
                       <label class="toggle" for="insecureApprovalToggle">
                         <input type="checkbox" id="insecureApprovalToggle">
                         <span class="track"><span class="thumb"></span></span>
-                        <span class="toggle-text" id="insecureApprovalLabel">Disabled</span>
+                        <span class="toggle-text" id="insecureApprovalLabel">Loading…</span>
                       </label>
                     </div>
                     <p class="muted panel-meta">When enabled, cdx waits for approval if a websocket admin is connected.</p>
@@ -1500,13 +1500,13 @@
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
-                        <h3>Cron Auto-Update <span class="pill-quiet" id="autoUpdateBadge">Disabled</span></h3>
+                        <h3>Cron Auto-Update <span class="pill-quiet" id="autoUpdateBadge">Loading…</span></h3>
                         <p class="muted panel-subtitle-sm">Fleet-wide Codex binary auto-update via cron.</p>
                       </div>
                       <label class="toggle" for="autoUpdateToggle">
                         <input type="checkbox" id="autoUpdateToggle">
                         <span class="track"><span class="thumb"></span></span>
-                        <span class="toggle-text" id="autoUpdateLabel">Disabled</span>
+                        <span class="toggle-text" id="autoUpdateLabel">Loading…</span>
                       </label>
                     </div>
                     <p class="muted panel-meta">Hosts with <code>cdx --cron</code> update daily (0–4 AM, randomized). Per-host overrides in host details.</p>
@@ -1563,7 +1563,7 @@
                       <label class="toggle" for="logRetentionToggle">
                         <input type="checkbox" id="logRetentionToggle">
                         <span class="track"><span class="thumb"></span></span>
-                        <span class="toggle-text" id="logRetentionLabel">Disabled</span>
+                        <span class="toggle-text" id="logRetentionLabel">Loading…</span>
                       </label>
                     </div>
                     <div class="log-retention-sliders" id="logRetentionSliders">
@@ -1756,7 +1756,7 @@
                   <label class="toggle" for="projectsEnabledToggle">
                     <input type="checkbox" id="projectsEnabledToggle">
                     <span class="track"><span class="thumb"></span></span>
-                    <span class="toggle-text" id="projectsEnabledLabel">Disabled</span>
+                    <span class="toggle-text" id="projectsEnabledLabel">Loading…</span>
                   </label>
                 </div>
                 <p class="muted panel-meta" id="projectsModuleStatus">Loading…</p>
@@ -2444,7 +2444,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-30-23"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-30-26"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

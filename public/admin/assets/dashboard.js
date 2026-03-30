@@ -1711,33 +1711,37 @@
     }
 
     function renderReverseDns() {
-      if (!reverseDnsToggle || !reverseDnsLabel) return;
-      reverseDnsToggle.checked = !!reverseDnsEnabled;
-      reverseDnsLabel.textContent = reverseDnsEnabled ? 'Enabled' : 'Disabled';
-      if (reverseDnsBadge) {
-        reverseDnsBadge.textContent = reverseDnsEnabled ? 'Enforced' : 'Relaxed';
-        reverseDnsBadge.style.color = reverseDnsEnabled ? 'var(--success)' : 'var(--muted)';
-      }
+      renderBinarySetting({
+        toggle: reverseDnsToggle,
+        label: reverseDnsLabel,
+        badge: reverseDnsBadge,
+        enabled: !!reverseDnsEnabled,
+        badgeOn: 'Enforced',
+        badgeOff: 'Relaxed',
+      });
     }
 
     function renderInsecureApproval() {
-      if (!insecureApprovalToggle || !insecureApprovalLabel) return;
-      insecureApprovalToggle.checked = !!insecureApprovalEnabled;
-      insecureApprovalLabel.textContent = insecureApprovalEnabled ? 'Enabled' : 'Disabled';
-      if (insecureApprovalBadge) {
-        insecureApprovalBadge.textContent = insecureApprovalEnabled ? 'Required' : 'Auto';
-        insecureApprovalBadge.style.color = insecureApprovalEnabled ? 'var(--accent)' : 'var(--muted)';
-      }
+      renderBinarySetting({
+        toggle: insecureApprovalToggle,
+        label: insecureApprovalLabel,
+        badge: insecureApprovalBadge,
+        enabled: !!insecureApprovalEnabled,
+        badgeOn: 'Required',
+        badgeOff: 'Auto',
+        badgeOnColor: 'var(--accent)',
+      });
     }
 
     function renderAutoUpdate() {
-      if (!autoUpdateToggle || !autoUpdateLabel) return;
-      autoUpdateToggle.checked = !!autoUpdateEnabled;
-      autoUpdateLabel.textContent = autoUpdateEnabled ? 'Enabled' : 'Disabled';
-      if (autoUpdateBadge) {
-        autoUpdateBadge.textContent = autoUpdateEnabled ? 'Enabled' : 'Manual';
-        autoUpdateBadge.style.color = autoUpdateEnabled ? 'var(--success)' : 'var(--muted)';
-      }
+      renderBinarySetting({
+        toggle: autoUpdateToggle,
+        label: autoUpdateLabel,
+        badge: autoUpdateBadge,
+        enabled: !!autoUpdateEnabled,
+        badgeOn: 'Enabled',
+        badgeOff: 'Manual',
+      });
     }
     function showAccessBlock(title, body) {
       if (!accessBlockModal) return;
@@ -6440,12 +6444,81 @@
     // ── Usage Scaling ──
 
     const SCALING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+    function renderBinarySetting({
+      toggle = null,
+      label = null,
+      badge = null,
+      enabled = false,
+      labelOn = 'Enabled',
+      labelOff = 'Disabled',
+      badgeOn = labelOn,
+      badgeOff = labelOff,
+      badgeOnColor = 'var(--success)',
+      badgeOffColor = 'var(--muted)',
+    } = {}) {
+      if (toggle) toggle.checked = !!enabled;
+      if (label) label.textContent = enabled ? labelOn : labelOff;
+      if (badge) {
+        badge.textContent = enabled ? badgeOn : badgeOff;
+        badge.style.color = enabled ? badgeOnColor : badgeOffColor;
+      }
+    }
+
+    const DEFAULT_SCALING_TIERS = [
+      { projected_percent: 80, reasoning_effort: 'high', model: 'gpt-5.4' },
+      { projected_percent: 85, reasoning_effort: 'medium', model: 'gpt-5.4' },
+      { projected_percent: 92, reasoning_effort: 'high', model: 'gpt-5.3-codex' },
+      { projected_percent: 100, reasoning_effort: 'medium', model: 'gpt-5.3-codex' },
+    ];
+
+    function defaultScalingTier(index = 0) {
+      const preset = DEFAULT_SCALING_TIERS[index] || {
+        projected_percent: 120 + (Math.max(0, index - DEFAULT_SCALING_TIERS.length + 1) * 10),
+        reasoning_effort: 'medium',
+        model: 'gpt-5.3-codex',
+      };
+      return { ...preset };
+    }
+
+    function defaultScalingTiers() {
+      return DEFAULT_SCALING_TIERS.map((_, index) => defaultScalingTier(index));
+    }
+
+    function cloneScalingDataState() {
+      return scalingData ? JSON.parse(JSON.stringify(scalingData)) : null;
+    }
+
+    function ensureScalingRulesState(seedTier = false) {
+      if (!scalingData) scalingData = { enabled: false, rules: null };
+      if (!scalingData.rules) {
+        scalingData.rules = {
+          enabled: !!scalingData.enabled,
+          tiers: [],
+          vip_exempt: true,
+          host_override_wins: true,
+        };
+      }
+      if (!Array.isArray(scalingData.rules.tiers)) {
+        scalingData.rules.tiers = [];
+      }
+      if (seedTier && scalingData.rules.tiers.length === 0) {
+        scalingData.rules.tiers = defaultScalingTiers();
+      }
+      if (typeof scalingData.rules.vip_exempt !== 'boolean') {
+        scalingData.rules.vip_exempt = true;
+      }
+      if (typeof scalingData.rules.host_override_wins !== 'boolean') {
+        scalingData.rules.host_override_wins = true;
+      }
+      scalingData.rules.enabled = !!scalingData.enabled;
+      return scalingData.rules;
+    }
+
     const SCALING_MODELS = [
       { value: '', label: '(no change)' },
       { value: 'gpt-5.4', label: 'gpt-5.4' },
       { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
       { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
-      { value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' },
       { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
       { value: 'gpt-5.2', label: 'gpt-5.2' },
       { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
@@ -6454,13 +6527,14 @@
 
     function renderScaling() {
       if (!scalingToggle) return;
-      const enabled = scalingData?.enabled ?? false;
-      scalingToggle.checked = enabled;
-      scalingLabel.textContent = enabled ? 'Enabled' : 'Disabled';
-      if (scalingBadge) {
-        scalingBadge.textContent = enabled ? 'Active' : 'Disabled';
-        scalingBadge.style.color = enabled ? 'var(--success)' : 'var(--muted)';
-      }
+      const enabled = !!(scalingData?.enabled ?? scalingData?.rules?.enabled);
+      if (enabled) ensureScalingRulesState(false);
+      renderBinarySetting({
+        toggle: scalingToggle,
+        label: scalingLabel,
+        badge: scalingBadge,
+        enabled,
+      });
       if (scalingBody) scalingBody.style.display = enabled ? '' : 'none';
       renderScalingStatus();
       renderScalingTiers();
@@ -6470,10 +6544,19 @@
 
     function renderScalingStatus() {
       if (!scalingStatus) return;
+      if (!(scalingData?.enabled ?? false)) {
+        scalingStatus.innerHTML = '<p class="muted">Usage scaling is off.</p>';
+        return;
+      }
+      const tiers = Array.isArray(scalingData?.rules?.tiers) ? scalingData.rules.tiers : [];
+      if (tiers.length === 0) {
+        scalingStatus.innerHTML = '<p class="muted">Add the scaling ladder that should kick in as weekly pressure rises.</p>';
+        return;
+      }
       const active = scalingData?.active_state;
       const normal = scalingData?.normal;
       if (!active && !normal) {
-        scalingStatus.innerHTML = '<p class="muted">No scaling data available yet.</p>';
+        scalingStatus.innerHTML = '<p class="muted">Waiting for quota window data.</p>';
         return;
       }
       let html = '';
@@ -6493,7 +6576,7 @@
 
     function renderScalingTiers() {
       if (!scalingTierList) return;
-      const tiers = scalingData?.rules?.tiers || [];
+      const tiers = Array.isArray(scalingData?.rules?.tiers) ? scalingData.rules.tiers : [];
       scalingTierList.innerHTML = '';
       tiers.forEach((tier, i) => {
         const row = document.createElement('div');
@@ -6512,6 +6595,7 @@
     }
 
     function collectScalingRules() {
+      ensureScalingRulesState(false);
       const tiers = [];
       if (scalingTierList) {
         scalingTierList.querySelectorAll('.scaling-tier-row').forEach(row => {
@@ -6521,27 +6605,47 @@
           tiers.push({ projected_percent: pct, reasoning_effort: effort, model: model || null });
         });
       }
+      const enabled = scalingToggle?.checked ?? false;
+      if (enabled && tiers.length === 0) {
+        tiers.push(...defaultScalingTiers());
+      }
       return {
-        enabled: scalingToggle?.checked ?? false,
+        enabled,
         tiers,
         vip_exempt: scalingVipExempt?.checked ?? true,
         host_override_wins: scalingHostOverrideWins?.checked ?? true,
       };
     }
 
-    async function saveScalingRules() {
+    async function saveScalingRules({
+      sourceEl = scalingSave,
+      successMessage = 'Scaling rules saved',
+      rollbackState = null,
+    } = {}) {
       const rules = collectScalingRules();
+      if (sourceEl) sourceEl.disabled = true;
       try {
         const res = await api('/admin/scaling', { method: 'POST', json: rules });
         if (res.status === 'ok' && res.data) {
           scalingData = res.data;
           renderScaling();
-          toast('Scaling rules saved');
+          if (sourceEl) flashSaved(sourceEl);
+          if (successMessage) toast(successMessage);
         } else {
+          if (rollbackState) {
+            scalingData = rollbackState;
+            renderScaling();
+          }
           toast((res.errors || [res.message]).join(', ') || 'Failed to save', 'error');
         }
       } catch (e) {
+        if (rollbackState) {
+          scalingData = rollbackState;
+          renderScaling();
+        }
         toast('Failed to save scaling rules', 'error');
+      } finally {
+        if (sourceEl) sourceEl.disabled = false;
       }
     }
 
@@ -9792,23 +9896,27 @@
     }
     if (scalingToggle) {
       scalingToggle.addEventListener('change', () => {
+        const rollbackState = cloneScalingDataState();
         if (!scalingData) scalingData = { enabled: false, rules: null };
         scalingData.enabled = scalingToggle.checked;
-        if (!scalingData.rules) scalingData.rules = { enabled: scalingToggle.checked, tiers: [], vip_exempt: true, host_override_wins: true };
+        ensureScalingRulesState(scalingToggle.checked);
         renderScaling();
+        saveScalingRules({
+          sourceEl: scalingToggle,
+          successMessage: scalingToggle.checked ? 'Usage scaling enabled' : 'Usage scaling disabled',
+          rollbackState,
+        });
       });
     }
     if (scalingAddTier) {
       scalingAddTier.addEventListener('click', () => {
-        if (!scalingData) scalingData = { enabled: false, rules: { tiers: [] } };
-        if (!scalingData.rules) scalingData.rules = { enabled: false, tiers: [] };
-        if (!scalingData.rules.tiers) scalingData.rules.tiers = [];
-        scalingData.rules.tiers.push({ projected_percent: 80, reasoning_effort: 'medium', model: null });
+        ensureScalingRulesState(false);
+        scalingData.rules.tiers.push(defaultScalingTier(scalingData.rules.tiers.length));
         renderScalingTiers();
       });
     }
     if (scalingSave) {
-      scalingSave.addEventListener('click', () => saveScalingRules());
+      scalingSave.addEventListener('click', () => saveScalingRules({ sourceEl: scalingSave }));
     }
     window.addEventListener('admin-ws-event', (event) => {
       const detail = event?.detail || {};
