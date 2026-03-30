@@ -48,6 +48,9 @@ class AgentsService
             'status' => $status,
             'version_id' => isset($row['id']) ? (int) $row['id'] : null,
             'sha256' => $canonicalSha,
+            'base_sha256' => $served['base_sha256'] ?? ($row['sha256'] ?? hash('sha256', (string) ($row['body'] ?? ''))),
+            'managed_sha256' => $served['managed_sha256'] ?? null,
+            'sections' => is_array($served['sections'] ?? null) ? $served['sections'] : [],
             'updated_at' => $served['updated_at'] ?? null,
             'size_bytes' => strlen((string) ($served['body'] ?? '')),
         ];
@@ -340,13 +343,23 @@ class AgentsService
     private function buildServedDocument(array $row, ?array $host = null): array
     {
         $body = (string) ($row['body'] ?? '');
-        $skillsBlock = $this->skillsBlock();
-        $memoriesBlock = $this->memoriesBlock($host);
+        $baseSha = $row['sha256'] ?? hash('sha256', $body);
+        $skillsSection = $this->skillsSection();
+        $memoriesSection = $this->memoriesSection($host);
+        $skillsBlock = ($skillsSection['present'] ?? false) ? (string) ($skillsSection['body'] ?? '') : null;
+        $memoriesBlock = ($memoriesSection['present'] ?? false) ? (string) ($memoriesSection['body'] ?? '') : null;
+        $sections = [
+            'skills' => $this->publicSectionMetadata($skillsSection),
+            'memories' => $this->publicSectionMetadata($memoriesSection),
+        ];
 
         if ($skillsBlock === null && $memoriesBlock === null) {
             return [
                 'body' => $body,
-                'sha256' => $row['sha256'] ?? hash('sha256', $body),
+                'sha256' => $baseSha,
+                'base_sha256' => $baseSha,
+                'managed_sha256' => null,
+                'sections' => $sections,
                 'updated_at' => $row['updated_at'] ?? null,
             ];
         }
@@ -368,24 +381,42 @@ class AgentsService
         return [
             'body' => $rendered,
             'sha256' => hash('sha256', $rendered),
+            'base_sha256' => $baseSha,
+            'managed_sha256' => $this->managedSha($skillsBlock, $memoriesBlock),
+            'sections' => $sections,
             'updated_at' => $row['updated_at'] ?? null,
         ];
     }
 
-    private function skillsBlock(): ?string
+    private function skillsSection(): array
     {
         if ($this->skills === null || $this->clientConfigService === null) {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'sha256' => null,
+                'reason' => 'service_unavailable',
+            ];
         }
 
         $config = $this->clientConfigService->adminFetch();
         if (($config['status'] ?? 'missing') !== 'ok') {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'sha256' => null,
+                'reason' => 'config_missing',
+            ];
         }
 
         $settings = is_array($config['settings'] ?? null) ? $config['settings'] : [];
         if (($settings['orchestrator_mcp_enabled'] ?? true) === false) {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'sha256' => null,
+                'reason' => 'mcp_disabled',
+            ];
         }
 
         $skills = array_values(array_filter(
@@ -393,7 +424,12 @@ class AgentsService
             static fn (array $skill): bool => trim((string) ($skill['slug'] ?? '')) !== ''
         ));
         if ($skills === []) {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'sha256' => null,
+                'reason' => 'no_skills',
+            ];
         }
 
         $lines = [
@@ -415,7 +451,15 @@ class AgentsService
 
         $lines[] = '<!-- cdx:skills:end -->';
 
-        return implode("\n", $lines);
+        $body = implode("\n", $lines);
+
+        return [
+            'present' => true,
+            'count' => count($skills),
+            'sha256' => hash('sha256', $body),
+            'reason' => 'ok',
+            'body' => $body,
+        ];
     }
 
     private function normalizeSkillDescription(mixed $description, string $slug): string
@@ -430,31 +474,52 @@ class AgentsService
         return sprintf('Skill available via MCP; open `skill://%s` for details.', $slug);
     }
 
-    private function memoriesBlock(?array $host): ?string
+    private function memoriesSection(?array $host): array
     {
         if ($this->memoryService === null || $this->clientConfigService === null) {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'fallback_count' => 0,
+                'sha256' => null,
+                'reason' => 'service_unavailable',
+            ];
         }
 
         $config = $this->clientConfigService->adminFetch();
         if (($config['status'] ?? 'missing') !== 'ok') {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'fallback_count' => 0,
+                'sha256' => null,
+                'reason' => 'config_missing',
+            ];
         }
 
         $settings = is_array($config['settings'] ?? null) ? $config['settings'] : [];
         if (($settings['orchestrator_mcp_enabled'] ?? true) === false) {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'fallback_count' => 0,
+                'sha256' => null,
+                'reason' => 'mcp_disabled',
+            ];
         }
 
         $hostId = $this->hostId($host);
         if ($hostId === null) {
-            return null;
+            return [
+                'present' => false,
+                'count' => 0,
+                'fallback_count' => 0,
+                'sha256' => null,
+                'reason' => 'host_missing',
+            ];
         }
 
         $memories = $this->memoryService->listForAgentsDocument($host);
-        if ($memories === []) {
-            return null;
-        }
 
         $lines = [
             '<!-- cdx:memories:start -->',
@@ -463,18 +528,44 @@ class AgentsService
             '',
         ];
 
+        $count = 0;
+        $fallbackCount = 0;
         foreach ($memories as $memory) {
             $key = trim((string) ($memory['memory_key'] ?? ''));
             if ($key === '') {
                 continue;
             }
+            $count++;
+            $hasSummary = is_string($memory['summary'] ?? null) && trim((string) $memory['summary']) !== '';
+            if (!$hasSummary) {
+                $fallbackCount++;
+            }
             $summary = $this->normalizeMemoryDescription($memory['summary'] ?? null, $key);
             $lines[] = sprintf('- `%s` - %s', $key, $summary);
         }
 
+        if ($count === 0) {
+            return [
+                'present' => false,
+                'count' => 0,
+                'fallback_count' => 0,
+                'sha256' => null,
+                'reason' => 'no_memories',
+            ];
+        }
+
         $lines[] = '<!-- cdx:memories:end -->';
 
-        return implode("\n", $lines);
+        $body = implode("\n", $lines);
+
+        return [
+            'present' => true,
+            'count' => $count,
+            'fallback_count' => $fallbackCount,
+            'sha256' => hash('sha256', $body),
+            'reason' => 'ok',
+            'body' => $body,
+        ];
     }
 
     private function normalizeMemoryDescription(mixed $description, string $key): string
@@ -487,5 +578,29 @@ class AgentsService
         }
 
         return sprintf('Memory stored under key `%s`.', $key);
+    }
+
+    private function publicSectionMetadata(array $section): array
+    {
+        unset($section['body']);
+
+        return $section;
+    }
+
+    private function managedSha(?string $skillsBlock, ?string $memoriesBlock): ?string
+    {
+        $parts = [];
+        if ($skillsBlock !== null && $skillsBlock !== '') {
+            $parts[] = $skillsBlock;
+        }
+        if ($memoriesBlock !== null && $memoriesBlock !== '') {
+            $parts[] = $memoriesBlock;
+        }
+
+        if ($parts === []) {
+            return null;
+        }
+
+        return hash('sha256', implode("\n\n", $parts));
     }
 }

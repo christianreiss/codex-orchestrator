@@ -48,7 +48,19 @@ final class StartupSyncServiceTest extends TestCase
     public function testAgentsChangedTriggersUpdate(): void
     {
         $service = $this->createService(
-            agentsRetrieve: ['status' => 'updated', 'content' => '# New', 'sha256' => 'abc', 'updated_at' => null, 'size_bytes' => 5],
+            agentsRetrieve: [
+                'status' => 'updated',
+                'content' => '# New',
+                'sha256' => 'abc',
+                'base_sha256' => 'base',
+                'managed_sha256' => 'managed',
+                'sections' => [
+                    'skills' => ['present' => true, 'count' => 3, 'reason' => 'ok'],
+                    'memories' => ['present' => false, 'count' => 0, 'reason' => 'no_memories'],
+                ],
+                'updated_at' => null,
+                'size_bytes' => 5,
+            ],
         );
 
         $result = $service->collect(
@@ -59,6 +71,9 @@ final class StartupSyncServiceTest extends TestCase
         );
 
         $this->assertContains('agents_changed', $result['reasons']);
+        $this->assertSame('base', $result['agents']['base_sha256']);
+        $this->assertSame('managed', $result['agents']['managed_sha256']);
+        $this->assertSame('no_memories', $result['agents']['sections']['memories']['reason']);
     }
 
     public function testConfigChangedTriggersUpdate(): void

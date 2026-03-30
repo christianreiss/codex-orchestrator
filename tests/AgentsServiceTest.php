@@ -290,6 +290,9 @@ final class AgentsServiceTest extends TestCase
         $this->assertStringContainsString('`deploy` - Deploys services safely.', $result['content']);
         $this->assertStringContainsString('`triage` - Skill available via MCP; open `skill://triage` for details.', $result['content']);
         $this->assertStringContainsString('<!-- cdx:skills:start -->', $result['content']);
+        $this->assertSame(true, $result['sections']['skills']['present'] ?? null);
+        $this->assertSame(2, $result['sections']['skills']['count'] ?? null);
+        $this->assertSame('ok', $result['sections']['skills']['reason'] ?? null);
     }
 
     public function testRetrieveSkipsSkillsBlockWhenConfigMissing(): void
@@ -356,6 +359,10 @@ final class AgentsServiceTest extends TestCase
         $this->assertStringContainsString('`deploy.notes` - Records rollout gotchas and manual checks.', $result['content']);
         $this->assertStringContainsString('`handoff` - Memory stored under key `handoff`.', $result['content']);
         $this->assertStringContainsString('<!-- cdx:memories:start -->', $result['content']);
+        $this->assertSame(true, $result['sections']['memories']['present'] ?? null);
+        $this->assertSame(2, $result['sections']['memories']['count'] ?? null);
+        $this->assertSame(1, $result['sections']['memories']['fallback_count'] ?? null);
+        $this->assertSame('ok', $result['sections']['memories']['reason'] ?? null);
     }
 
     public function testRetrieveSkipsMemoriesBlockWhenHostMissing(): void
@@ -372,6 +379,38 @@ final class AgentsServiceTest extends TestCase
         $result = $this->service->retrieve(null);
 
         $this->assertStringNotContainsString('## Memories', $result['content']);
+        $this->assertSame(false, $result['sections']['memories']['present'] ?? null);
+        $this->assertSame('host_missing', $result['sections']['memories']['reason'] ?? null);
+    }
+
+    public function testRetrieveReportsNoMemoriesReasonWhenNoneExist(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => true],
+        ];
+
+        $result = $this->service->retrieve(null, ['id' => 11]);
+
+        $this->assertStringNotContainsString('## Memories', $result['content']);
+        $this->assertSame(false, $result['sections']['memories']['present'] ?? null);
+        $this->assertSame(0, $result['sections']['memories']['count'] ?? null);
+        $this->assertSame('no_memories', $result['sections']['memories']['reason'] ?? null);
+    }
+
+    public function testRetrieveReportsDisabledManagedSectionsWhenMcpDisabled(): void
+    {
+        $this->service->store("# Base AGENTS\n");
+        $this->configs->state = [
+            'status' => 'ok',
+            'settings' => ['orchestrator_mcp_enabled' => false],
+        ];
+
+        $result = $this->service->retrieve(null, ['id' => 11]);
+
+        $this->assertSame('mcp_disabled', $result['sections']['skills']['reason'] ?? null);
+        $this->assertSame('mcp_disabled', $result['sections']['memories']['reason'] ?? null);
     }
 
     public function testAdminFetchWhenMissing(): void
