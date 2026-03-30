@@ -131,6 +131,38 @@ Codex Orchestrator takes security seriously so you can focus on building things:
 
 For the full API surface, MCP details, and architecture deep-dive, check the docs below.
 
+## Memory management
+
+Every host gets its own scoped memory store, exposed through MCP tools so agents can persist and recall knowledge across sessions.
+
+- **Store, search, retrieve** — agents use `memory_store`, `memory_search`, and `memory_retrieve` MCP tools. Content is full-text indexed and taggable.
+- **Scoped by host** — each host's memories are isolated. Admins can search across all hosts from the dashboard.
+- **Auto-summarized** — when a memory changes, the runner generates a one-line summary so agents can scan what's available without reading every entry.
+- **Injected into AGENTS.md** — recent memories (up to 50) are dynamically injected into each host's synced AGENTS.md, giving agents instant context on what they've previously stored.
+- **Admin dashboard** — browse, search, and delete memories at `/admin/mcp/memories`.
+
+## Skill management
+
+Skills are slash-command manifests stored centrally and served canonically through MCP — no more copying files between machines.
+
+- **Canonical via MCP** — agents access skills through `skill://{slug}` resources. The wrapper cleans up legacy per-host skill directories automatically.
+- **Admin authoring** — create, edit, and delete skills from `/admin/skills`. Descriptions and drafts can be AI-generated via the runner.
+- **Integrity tracking** — every skill carries a SHA256 hash so the sync pipeline knows when content has actually changed.
+- **Injected into AGENTS.md** — published skills with their descriptions are listed in a dynamic section inside each host's AGENTS.md, so agents always know what's available.
+
+## Dynamic AGENTS.md
+
+AGENTS.md is version-controlled on the server and dynamically assembled at sync time with injected sections for skills and memories.
+
+- **Versioned** — every save creates a new immutable version. The admin can revert to any previous version or lock serving to a specific one.
+- **Serve modes** — `latest` always serves the newest version; `locked` pins to a chosen version. Per-host overrides are supported.
+- **Dynamic injection** — when a host pulls AGENTS.md, the server splices in two managed sections (wrapped in `<!-- cdx:skills:start/end -->` and `<!-- cdx:memories:start/end -->` markers):
+  - A **Skills** listing of all published skill slugs and descriptions.
+  - A **Memories** listing of recent host-scoped memories with summaries.
+- **Change detection** — the wrapper sends its local SHA256; the server responds with `unchanged` (skip write) or `updated` (atomic file replace). Three hashes are tracked: base document, managed sections, and final combined.
+- **Seeded on boot** — if the database is empty, the server seeds from the repo's `AGENTS.md` file on first start.
+- **Admin dashboard** — edit inline, view version history, control serve mode, and preview the fully rendered document with injections at `/admin/agents`.
+
 ## Documentation
 
 | Doc | What's inside |
