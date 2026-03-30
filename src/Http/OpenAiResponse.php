@@ -13,7 +13,7 @@ class OpenAiResponse
         header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     }
 
-    public static function json(array $payload, int $status = 200): void
+    public static function json(array $payload, int $status = 200): never
     {
         http_response_code($status);
         self::corsHeaders();
@@ -22,7 +22,7 @@ class OpenAiResponse
         exit;
     }
 
-    public static function error(string $message, string $type, int $status, ?string $code = null, ?string $param = null): void
+    public static function error(string $message, string $type, int $status, ?string $code = null, ?string $param = null): never
     {
         $error = [
             'message' => $message,
