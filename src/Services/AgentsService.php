@@ -451,7 +451,7 @@ class AgentsService
             return null;
         }
 
-        $memories = $this->memoryService->listForAgents($hostId);
+        $memories = $this->memoryService->listForAgentsDocument($host);
         if ($memories === []) {
             return null;
         }

@@ -1,4 +1,5 @@
 # 2026-03-30
+- MCP/AGENTS: served host AGENTS now try to backfill missing MCP memory summaries on demand during `/agents/retrieve` instead of silently dropping those memories from the managed `## Memories` block. When the runner still cannot produce a summary, the memory remains visible with generic fallback copy so deployed AGENTS no longer look empty just because `mcp_memories.summary` is null.
 - MCP/AGENTS: host-scoped MCP memories can now store a short runner-generated `summary`, and served `POST /agents/retrieve` output may append a managed `## Memories` inventory block alongside the existing Skills block when MCP is enabled for that host. Memory summaries are derived from canonical auth through the runner’s new `/memories/summarize` endpoint, are stored in `mcp_memories.summary`, and now survive unchanged memory rewrites instead of being cleared on no-op updates.
 
 # 2026-03-29

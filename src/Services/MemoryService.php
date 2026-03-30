@@ -423,6 +423,39 @@ class MemoryService
         return $this->memories->listForAgents($hostId);
     }
 
+    public function listForAgentsDocument(array $host, int $limit = 50): array
+    {
+        $hostId = $this->hostId($host);
+        if ($hostId === null) {
+            return [];
+        }
+
+        $rows = $this->memories->recent($hostId, $limit);
+        $documentRows = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $memoryKey = trim((string) ($row['memory_key'] ?? ''));
+            $content = trim((string) ($row['content'] ?? ''));
+            $summary = is_string($row['summary'] ?? null) ? trim((string) $row['summary']) : '';
+
+            if ($summary === '' && $this->summaryService !== null && $memoryKey !== '' && $content !== '') {
+                $generatedSummary = $this->summaryService->summarize($memoryKey, $content, $host);
+                if ($generatedSummary !== null && isset($row['id']) && is_numeric($row['id'])) {
+                    $this->memories->updateSummary((int) $row['id'], $generatedSummary);
+                    $row['summary'] = $generatedSummary;
+                }
+            }
+
+            $documentRows[] = $row;
+        }
+
+        return $documentRows;
+    }
+
     private function generateKey(): string
     {
         $bytes = random_bytes(16);

@@ -51,6 +51,17 @@ final class InMemoryMemoryRepositoryForSummary extends MemoryRepository
         return $this->rows[$memoryKey] ?? null;
     }
 
+    public function recent(int $hostId, int $limit): array
+    {
+        $rows = array_values(array_filter(
+            $this->rows,
+            static fn (array $row): bool => (int) ($row['host_id'] ?? 0) === $hostId
+        ));
+        usort($rows, static fn (array $a, array $b): int => strcmp((string) $b['updated_at'], (string) $a['updated_at']));
+
+        return array_slice($rows, 0, $limit);
+    }
+
     public function updateSummary(int $id, string $summary): void
     {
         foreach ($this->rows as $key => $row) {
@@ -153,6 +164,45 @@ final class MemoryServiceSummaryTest extends TestCase
 
         self::assertSame('unchanged', $result['status']);
         self::assertSame('Stores deployment notes.', $result['memory']['summary'] ?? null);
+        self::assertCount(1, $this->summary->calls);
+    }
+
+    public function testListForAgentsDocumentBackfillsMissingSummaryOnRead(): void
+    {
+        $host = ['id' => 7];
+        $this->summary->result = null;
+        $this->service->store([
+            'id' => 'deploy.notes',
+            'content' => 'Drain queue before rollout.',
+            'tags' => ['deploy'],
+        ], $host);
+
+        $this->summary->result = 'Stores deployment notes.';
+        $this->summary->calls = [];
+
+        $memories = $this->service->listForAgentsDocument($host);
+
+        self::assertCount(1, $memories);
+        self::assertSame('Stores deployment notes.', $memories[0]['summary'] ?? null);
+        self::assertSame('Stores deployment notes.', $this->repository->rows['deploy.notes']['summary'] ?? null);
+        self::assertCount(1, $this->summary->calls);
+    }
+
+    public function testListForAgentsDocumentKeepsMemoryVisibleWhenSummaryGenerationFails(): void
+    {
+        $host = ['id' => 7];
+        $this->summary->result = null;
+        $this->service->store([
+            'id' => 'deploy.notes',
+            'content' => 'Drain queue before rollout.',
+            'tags' => ['deploy'],
+        ], $host);
+
+        $this->summary->calls = [];
+        $memories = $this->service->listForAgentsDocument($host);
+
+        self::assertCount(1, $memories);
+        self::assertNull($memories[0]['summary'] ?? null);
         self::assertCount(1, $this->summary->calls);
     }
 }

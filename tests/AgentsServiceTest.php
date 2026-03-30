@@ -164,7 +164,7 @@ final class FakeMemoryServiceForAgents extends MemoryService
     {
     }
 
-    public function listForAgents(int $hostId): array
+    public function listForAgentsDocument(array $host, int $limit = 50): array
     {
         return $this->memories;
     }
