@@ -243,6 +243,26 @@ class LogRepository
         return array_values(array_filter($actions, static fn ($a) => is_string($a) && $a !== ''));
     }
 
+    /**
+     * Delete log entries older than the given number of days.
+     *
+     * @return int Number of rows deleted.
+     */
+    public function deleteOlderThan(int $days): int
+    {
+        if ($days < 1) {
+            return 0;
+        }
+
+        $cutoff = gmdate(DATE_ATOM, time() - ($days * 86400));
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM logs WHERE created_at < :cutoff'
+        );
+        $statement->execute(['cutoff' => $cutoff]);
+
+        return $statement->rowCount();
+    }
+
     public function latestByHostAndActions(array $hostIds, array $actions): array
     {
         $hostIds = array_values(array_unique(array_map(

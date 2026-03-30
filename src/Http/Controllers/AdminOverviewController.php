@@ -409,6 +409,10 @@ class AdminOverviewController
         $insecureApprovalEnabled = $this->versionRepository->getFlag('insecure_approval_enabled', false);
         $autoUpdateEnabled = $this->versionRepository->getFlag('auto_update_enabled', false);
         $inactivityWindowDays = inactivityWindowDays($this->versionRepository);
+        $logRetentionEnabled = $this->versionRepository->getFlag('log_retention_enabled', false);
+        $logRetentionDaysLogs = $this->logRetentionDays('log_retention_days_logs', 90);
+        $logRetentionDaysMcp = $this->logRetentionDays('log_retention_days_mcp', 90);
+        $logRetentionDaysEvents = $this->logRetentionDays('log_retention_days_events', 30);
         $clientVersionLock = $this->versionRepository->getWithMetadata('client_version_lock');
         $chatgptSummary = $this->chatGptUsageService->latestWindowSummary();
         if (is_array($chatgptSummary)) {
@@ -453,6 +457,10 @@ class AdminOverviewController
                 'insecure_approval_enabled' => $insecureApprovalEnabled,
                 'auto_update_enabled' => $autoUpdateEnabled,
                 'inactivity_window_days' => $inactivityWindowDays,
+                'log_retention_enabled' => $logRetentionEnabled,
+                'log_retention_days_logs' => $logRetentionDaysLogs,
+                'log_retention_days_mcp' => $logRetentionDaysMcp,
+                'log_retention_days_events' => $logRetentionDaysEvents,
                 'client_version_lock' => $clientVersionLock['version'] ?? null,
                 'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,
             ],
@@ -1346,5 +1354,21 @@ class AdminOverviewController
         }
 
         return version_compare($hostVersion, $targetVersion, '<');
+    }
+
+    private function logRetentionDays(string $key, int $default): int
+    {
+        $raw = $this->versionRepository->get($key);
+        if ($raw === null || !is_numeric($raw)) {
+            return $default;
+        }
+        $days = (int) $raw;
+        if ($days < 1) {
+            return 1;
+        }
+        if ($days > 365) {
+            return 365;
+        }
+        return $days;
     }
 }

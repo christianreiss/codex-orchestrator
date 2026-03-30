@@ -20,7 +20,9 @@ use App\Repositories\HostUserRepository;
 use App\Repositories\InsecureAuthRequestRepository;
 use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\McpAccessLogRepository;
 use App\Repositories\McpSessionTokenRepository;
+use App\Repositories\AdminEventRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
@@ -86,7 +88,9 @@ class AuthService
         private readonly ?string $installationId = null,
         ?int $runnerPreflightIntervalSeconds = null,
         private readonly ?InsecureDomainAllowRepository $insecureDomainAllows = null,
-        private readonly ?McpSessionTokenRepository $mcpSessionTokens = null
+        private readonly ?McpSessionTokenRepository $mcpSessionTokens = null,
+        private readonly ?McpAccessLogRepository $mcpAccessLogs = null,
+        private readonly ?AdminEventRepository $adminEvents = null
     ) {
         $this->tokenUsageTracker = new TokenUsageTracker(
             $tokenUsages,
@@ -1552,5 +1556,44 @@ class AuthService
         if ($deleteIds) {
             $this->hosts->deleteByIds(array_values(array_unique($deleteIds)));
         }
+
+        $this->purgeRetainedLogs();
+    }
+
+    private function purgeRetainedLogs(): void
+    {
+        if (!$this->versions->getFlag('log_retention_enabled', false)) {
+            return;
+        }
+
+        $daysLogs = $this->logRetentionDays('log_retention_days_logs', 90);
+        $daysMcp = $this->logRetentionDays('log_retention_days_mcp', 90);
+        $daysEvents = $this->logRetentionDays('log_retention_days_events', 30);
+
+        $this->logs->deleteOlderThan($daysLogs);
+
+        if ($this->mcpAccessLogs !== null) {
+            $this->mcpAccessLogs->deleteOlderThan($daysMcp);
+        }
+
+        if ($this->adminEvents !== null) {
+            $this->adminEvents->deleteOlderThan($daysEvents);
+        }
+    }
+
+    private function logRetentionDays(string $key, int $default): int
+    {
+        $raw = $this->versions->get($key);
+        if ($raw === null || !is_numeric($raw)) {
+            return $default;
+        }
+        $days = (int) $raw;
+        if ($days < 1) {
+            return 1;
+        }
+        if ($days > 365) {
+            return 365;
+        }
+        return $days;
     }
 }

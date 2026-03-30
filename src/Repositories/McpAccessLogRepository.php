@@ -37,6 +37,26 @@ class McpAccessLogRepository
         ]);
     }
 
+    /**
+     * Delete MCP access log entries older than the given number of days.
+     *
+     * @return int Number of rows deleted.
+     */
+    public function deleteOlderThan(int $days): int
+    {
+        if ($days < 1) {
+            return 0;
+        }
+
+        $cutoff = gmdate(DATE_ATOM, time() - ($days * 86400));
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM mcp_access_logs WHERE created_at < :cutoff'
+        );
+        $statement->execute(['cutoff' => $cutoff]);
+
+        return $statement->rowCount();
+    }
+
     public function recent(int $limit = 200): array
     {
         $limit = max(1, min(500, $limit));

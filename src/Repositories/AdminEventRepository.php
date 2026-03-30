@@ -88,6 +88,26 @@ class AdminEventRepository
         return array_map([$this, 'normalizeRow'], $rows);
     }
 
+    /**
+     * Delete admin event entries older than the given number of days.
+     *
+     * @return int Number of rows deleted.
+     */
+    public function deleteOlderThan(int $days): int
+    {
+        if ($days < 1) {
+            return 0;
+        }
+
+        $cutoff = gmdate(DATE_ATOM, time() - ($days * 86400));
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM admin_events WHERE created_at < :cutoff'
+        );
+        $statement->execute(['cutoff' => $cutoff]);
+
+        return $statement->rowCount();
+    }
+
     public function recent(int $limit = 50): array
     {
         $limit = max(1, min($limit, 500));

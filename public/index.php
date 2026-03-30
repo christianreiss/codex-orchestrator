@@ -298,7 +298,9 @@ $service = new AuthService(
     $installationId,
     null,
     $insecureDomainAllowRepository,
-    $mcpSessionTokenRepository
+    $mcpSessionTokenRepository,
+    $mcpAccessLogRepository,
+    $adminEventRepository
 );
 $adminPasskeyRepository = new AdminPasskeyRepository($database);
 $adminAuthService = new AdminAuthService(
@@ -563,6 +565,8 @@ $router->add('POST', '#^/admin/codex-version$#', fn() => $adminSettingsCtrl->pos
 $router->add('GET', '#^/admin/quota-mode$#', fn() => $adminSettingsCtrl->getQuotaMode());
 $router->add('POST', '#^/admin/quota-mode$#', fn() => $adminSettingsCtrl->postQuotaMode($payload));
 $router->add('POST', '#^/admin/prune-policy$#', fn() => $adminSettingsCtrl->postPrunePolicy($payload));
+$router->add('GET', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->getLogRetention());
+$router->add('POST', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->postLogRetention($payload));
 
 // Admin host detail endpoints
 $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', fn($id) => $adminHostCtrl->auth($id));

@@ -2882,6 +2882,17 @@ body.auth-locked .rail-tools {
       font-size: 12px;
       color: var(--muted);
     }
+    .log-retention-sliders {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+      transition: opacity 0.2s;
+    }
+    .log-retention-sliders.disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
     .host-modal-digests { display: flex; gap: 6px; flex-wrap: wrap; }
 .digest-pill {
   font-family: 'JetBrains Mono', monospace;

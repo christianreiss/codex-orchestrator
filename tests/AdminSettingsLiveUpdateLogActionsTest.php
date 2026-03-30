@@ -20,5 +20,6 @@ final class AdminSettingsLiveUpdateLogActionsTest extends TestCase
         $this->assertStringContainsString("'admin.codex_version'", $php);
         $this->assertStringContainsString("'admin.quota_mode'", $php);
         $this->assertStringContainsString("'admin.prune_policy'", $php);
+        $this->assertStringContainsString("'admin.log_retention'", $php);
     }
 }

@@ -193,6 +193,15 @@
     const insecureWindowLabel = document.getElementById('insecureWindowLabel');
     const pruneWindowSlider = document.getElementById('pruneWindowSlider');
     const pruneWindowLabel = document.getElementById('pruneWindowLabel');
+    const logRetentionToggle = document.getElementById('logRetentionToggle');
+    const logRetentionLabel = document.getElementById('logRetentionLabel');
+    const logRetentionSliders = document.getElementById('logRetentionSliders');
+    const logRetentionDaysLogsSlider = document.getElementById('logRetentionDaysLogsSlider');
+    const logRetentionDaysLogsLabel = document.getElementById('logRetentionDaysLogsLabel');
+    const logRetentionDaysMcpSlider = document.getElementById('logRetentionDaysMcpSlider');
+    const logRetentionDaysMcpLabel = document.getElementById('logRetentionDaysMcpLabel');
+    const logRetentionDaysEventsSlider = document.getElementById('logRetentionDaysEventsSlider');
+    const logRetentionDaysEventsLabel = document.getElementById('logRetentionDaysEventsLabel');
     const insecureHostsModal = document.getElementById('insecureHostsModal');
     const insecureHostsList = document.getElementById('insecureHostsList');
     const insecureDomainsList = document.getElementById('insecureDomainsList');
@@ -527,6 +536,10 @@
     const PRUNE_WINDOW_MAX = 60;
     const PRUNE_WINDOW_DEFAULT = 30;
     let inactivityWindowDays = PRUNE_WINDOW_DEFAULT;
+    let logRetentionEnabled = false;
+    let logRetentionDaysLogs = 90;
+    let logRetentionDaysMcp = 90;
+    let logRetentionDaysEvents = 30;
     let memoriesLoading = false;
     let memoriesOpen = false;
     let dashboardChartPrefs = readDashboardChartPrefs();
@@ -4798,6 +4811,19 @@
           inactivityWindowDays = clampInactivityWindowDays(currentOverview.inactivity_window_days);
           renderInactivityWindowDays();
         }
+        if (typeof currentOverview.log_retention_enabled !== 'undefined') {
+          logRetentionEnabled = !!currentOverview.log_retention_enabled;
+        }
+        if (typeof currentOverview.log_retention_days_logs !== 'undefined') {
+          logRetentionDaysLogs = clampRetentionDays(currentOverview.log_retention_days_logs);
+        }
+        if (typeof currentOverview.log_retention_days_mcp !== 'undefined') {
+          logRetentionDaysMcp = clampRetentionDays(currentOverview.log_retention_days_mcp);
+        }
+        if (typeof currentOverview.log_retention_days_events !== 'undefined') {
+          logRetentionDaysEvents = clampRetentionDays(currentOverview.log_retention_days_events);
+        }
+        renderLogRetention();
         if (typeof currentOverview.quota_limit_percent !== 'undefined') {
           quotaLimitPercent = clampQuotaLimitPercent(currentOverview.quota_limit_percent);
         }
@@ -5897,6 +5923,70 @@
         renderInactivityWindowDays();
       } finally {
         pruneWindowSlider.disabled = false;
+      }
+    }
+
+    function renderLogRetention() {
+      if (logRetentionToggle) {
+        logRetentionToggle.checked = !!logRetentionEnabled;
+      }
+      if (logRetentionLabel) {
+        logRetentionLabel.textContent = logRetentionEnabled ? 'Enabled' : 'Disabled';
+      }
+      if (logRetentionSliders) {
+        logRetentionSliders.classList.toggle('disabled', !logRetentionEnabled);
+      }
+      if (logRetentionDaysLogsSlider && logRetentionDaysLogsSlider.value !== String(logRetentionDaysLogs)) {
+        logRetentionDaysLogsSlider.value = String(logRetentionDaysLogs);
+      }
+      if (logRetentionDaysLogsLabel) {
+        logRetentionDaysLogsLabel.textContent = `${logRetentionDaysLogs} days`;
+      }
+      if (logRetentionDaysMcpSlider && logRetentionDaysMcpSlider.value !== String(logRetentionDaysMcp)) {
+        logRetentionDaysMcpSlider.value = String(logRetentionDaysMcp);
+      }
+      if (logRetentionDaysMcpLabel) {
+        logRetentionDaysMcpLabel.textContent = `${logRetentionDaysMcp} days`;
+      }
+      if (logRetentionDaysEventsSlider && logRetentionDaysEventsSlider.value !== String(logRetentionDaysEvents)) {
+        logRetentionDaysEventsSlider.value = String(logRetentionDaysEvents);
+      }
+      if (logRetentionDaysEventsLabel) {
+        logRetentionDaysEventsLabel.textContent = `${logRetentionDaysEvents} days`;
+      }
+    }
+
+    function clampRetentionDays(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return 90;
+      if (num < 1) return 1;
+      if (num > 365) return 365;
+      return Math.round(num);
+    }
+
+    async function updateLogRetention() {
+      const payload = {
+        enabled: logRetentionEnabled,
+        days_logs: logRetentionDaysLogs,
+        days_mcp: logRetentionDaysMcp,
+        days_events: logRetentionDaysEvents,
+      };
+      const setDisabled = (v) => {
+        if (logRetentionToggle) logRetentionToggle.disabled = v;
+        if (logRetentionDaysLogsSlider) logRetentionDaysLogsSlider.disabled = v;
+        if (logRetentionDaysMcpSlider) logRetentionDaysMcpSlider.disabled = v;
+        if (logRetentionDaysEventsSlider) logRetentionDaysEventsSlider.disabled = v;
+      };
+      setDisabled(true);
+      try {
+        await api('/admin/log-retention', {
+          method: 'POST',
+          json: payload,
+        });
+      } catch (err) {
+        toast(`Log retention update failed: ${err.message}`, 'error');
+      } finally {
+        setDisabled(false);
       }
     }
 
@@ -7275,6 +7365,20 @@
           renderInactivityWindowDays();
         }
 
+        if (typeof currentOverview.log_retention_enabled !== 'undefined') {
+          logRetentionEnabled = !!currentOverview.log_retention_enabled;
+        }
+        if (typeof currentOverview.log_retention_days_logs !== 'undefined') {
+          logRetentionDaysLogs = clampRetentionDays(currentOverview.log_retention_days_logs);
+        }
+        if (typeof currentOverview.log_retention_days_mcp !== 'undefined') {
+          logRetentionDaysMcp = clampRetentionDays(currentOverview.log_retention_days_mcp);
+        }
+        if (typeof currentOverview.log_retention_days_events !== 'undefined') {
+          logRetentionDaysEvents = clampRetentionDays(currentOverview.log_retention_days_events);
+        }
+        renderLogRetention();
+
         renderStats(currentOverview, runner?.data || null, hostsList);
         renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
         renderHosts(hostsList);
@@ -8472,6 +8576,31 @@
         updateInactivityWindowDays(Number(event.target.value));
       });
     }
+    if (logRetentionToggle) {
+      logRetentionToggle.addEventListener('change', () => {
+        logRetentionEnabled = logRetentionToggle.checked;
+        renderLogRetention();
+        updateLogRetention();
+      });
+    }
+    [
+      [logRetentionDaysLogsSlider, logRetentionDaysLogsLabel, 'logRetentionDaysLogs'],
+      [logRetentionDaysMcpSlider, logRetentionDaysMcpLabel, 'logRetentionDaysMcp'],
+      [logRetentionDaysEventsSlider, logRetentionDaysEventsLabel, 'logRetentionDaysEvents'],
+    ].forEach(([slider, label, stateKey]) => {
+      if (!slider) return;
+      slider.addEventListener('input', (event) => {
+        const preview = clampRetentionDays(event.target.value);
+        if (label) label.textContent = `${preview} days`;
+      });
+      slider.addEventListener('change', (event) => {
+        const clamped = clampRetentionDays(event.target.value);
+        if (stateKey === 'logRetentionDaysLogs') logRetentionDaysLogs = clamped;
+        else if (stateKey === 'logRetentionDaysMcp') logRetentionDaysMcp = clamped;
+        else if (stateKey === 'logRetentionDaysEvents') logRetentionDaysEvents = clamped;
+        updateLogRetention();
+      });
+    });
     if (quotaLimitSlider) {
       quotaLimitSlider.addEventListener('input', (event) => {
         if (quotaLimitLabel) {

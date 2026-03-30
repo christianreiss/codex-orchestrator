@@ -1447,6 +1447,43 @@
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
+                        <h3>Log Retention</h3>
+                        <p class="muted panel-subtitle-sm">Automatically delete old log entries after N days.</p>
+                      </div>
+                      <label class="toggle" for="logRetentionToggle">
+                        <input type="checkbox" id="logRetentionToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="logRetentionLabel">Disabled</span>
+                      </label>
+                    </div>
+                    <div class="log-retention-sliders" id="logRetentionSliders">
+                      <div class="prune-window-control">
+                        <div class="prune-window-head">
+                          <div><p class="muted prune-window-copy">API Logs</p></div>
+                          <div class="prune-window-value" id="logRetentionDaysLogsLabel">90 days</div>
+                        </div>
+                        <input type="range" min="1" max="365" step="1" value="90" id="logRetentionDaysLogsSlider" class="prune-window-slider">
+                      </div>
+                      <div class="prune-window-control">
+                        <div class="prune-window-head">
+                          <div><p class="muted prune-window-copy">MCP Logs</p></div>
+                          <div class="prune-window-value" id="logRetentionDaysMcpLabel">90 days</div>
+                        </div>
+                        <input type="range" min="1" max="365" step="1" value="90" id="logRetentionDaysMcpSlider" class="prune-window-slider">
+                      </div>
+                      <div class="prune-window-control">
+                        <div class="prune-window-head">
+                          <div><p class="muted prune-window-copy">Admin Events</p></div>
+                          <div class="prune-window-value" id="logRetentionDaysEventsLabel">30 days</div>
+                        </div>
+                        <input type="range" min="1" max="365" step="1" value="30" id="logRetentionDaysEventsSlider" class="prune-window-slider">
+                      </div>
+                      <p class="muted prune-window-foot">Cleanup runs automatically during auth/register cycles. Disabled = keep forever.</p>
+                    </div>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
                         <h3>Maintenance</h3>
                         <p class="muted panel-subtitle-sm">Run the runner, seed auth.json, or check versions.</p>
                       </div>

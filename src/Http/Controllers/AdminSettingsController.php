@@ -444,6 +444,97 @@ class AdminSettingsController
     }
 
     /**
+     * GET /admin/log-retention
+     */
+    public function getLogRetention(): void
+    {
+        requireAdminAccess();
+
+        $enabled = $this->versionRepository->getFlag('log_retention_enabled', false);
+        $daysLogs = $this->logRetentionDays('log_retention_days_logs', 90);
+        $daysMcp = $this->logRetentionDays('log_retention_days_mcp', 90);
+        $daysEvents = $this->logRetentionDays('log_retention_days_events', 30);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'enabled' => $enabled,
+                'days_logs' => $daysLogs,
+                'days_mcp' => $daysMcp,
+                'days_events' => $daysEvents,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /admin/log-retention
+     */
+    public function postLogRetention(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        $enabledRaw = $payload['enabled'] ?? null;
+        $enabled = normalizeBoolean($enabledRaw);
+        if ($enabled === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'enabled must be boolean',
+            ], 422);
+        }
+
+        $daysLogs = $this->clampRetentionDays($payload['days_logs'] ?? null, 90);
+        $daysMcp = $this->clampRetentionDays($payload['days_mcp'] ?? null, 90);
+        $daysEvents = $this->clampRetentionDays($payload['days_events'] ?? null, 30);
+
+        $this->versionRepository->set('log_retention_enabled', $enabled ? '1' : '0');
+        $this->versionRepository->set('log_retention_days_logs', (string) $daysLogs);
+        $this->versionRepository->set('log_retention_days_mcp', (string) $daysMcp);
+        $this->versionRepository->set('log_retention_days_events', (string) $daysEvents);
+
+        $this->logRepository->log(null, 'admin.log_retention', [
+            'enabled' => $enabled,
+            'days_logs' => $daysLogs,
+            'days_mcp' => $daysMcp,
+            'days_events' => $daysEvents,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'enabled' => $enabled,
+                'days_logs' => $daysLogs,
+                'days_mcp' => $daysMcp,
+                'days_events' => $daysEvents,
+            ],
+        ]);
+    }
+
+    private function logRetentionDays(string $key, int $default): int
+    {
+        $raw = $this->versionRepository->get($key);
+        if ($raw === null || !is_numeric($raw)) {
+            return $default;
+        }
+        return $this->clampRetentionDays((int) $raw, $default);
+    }
+
+    private function clampRetentionDays(mixed $value, int $default): int
+    {
+        if ($value === null || !is_numeric($value)) {
+            return $default;
+        }
+        $days = (int) $value;
+        if ($days < 1) {
+            return 1;
+        }
+        if ($days > 365) {
+            return 365;
+        }
+        return $days;
+    }
+
+    /**
      * POST /admin/versions/check
      */
     public function versionsCheck(): void
