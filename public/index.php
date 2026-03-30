@@ -488,7 +488,7 @@ $router->add('GET', '#^/admin/hosts/(\d+)$#', fn() => $adminPageCtrl->host());
 $router->add('GET', '#^/admin/dashboard$#', fn() => $adminPageCtrl->dashboard());
 $router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', fn() => $adminPageCtrl->account());
 $router->add('GET', '#^/admin/settings$#', fn() => $adminPageCtrl->settings());
-$router->add('GET', '#^/admin/settings/(general|agents|memories|projects|profiles|skills|config|apikeys)$#', fn() => $adminPageCtrl->settingsSection());
+$router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|apikeys)$#', fn() => $adminPageCtrl->settingsSection());
 $router->add('GET', '#^/admin/hosts/secure$#', fn() => $adminPageCtrl->hostsSecure());
 $router->add('GET', '#^/admin/hosts/unprovisioned$#', fn() => $adminPageCtrl->hostsUnprovisioned());
 $router->add('GET', '#^/admin/logs/(mcp|events)$#', fn() => $adminPageCtrl->logs());
@@ -513,7 +513,10 @@ $router->add('POST', '#^/admin/passkeys/(\d+)/name$#', fn($id) => $adminAuthCtrl
 $router->add('DELETE', '#^/admin/passkeys/(\d+)$#', fn($id) => $adminAuthCtrl->passkeyDelete($id));
 
 // Admin users
-$router->add('GET', '#^/admin/users$#', fn() => $adminUserCtrl->index());
+$router->add('GET', '#^/admin/users$#', function () use ($adminUserCtrl, $adminPageCtrl): void {
+    if (isBrowserRequest()) { $adminPageCtrl->settingsSection(); return; }
+    $adminUserCtrl->index();
+});
 $router->add('POST', '#^/admin/users$#', fn() => $adminUserCtrl->store());
 $router->add('POST', '#^/admin/users/(\d+)$#', fn($id) => $adminUserCtrl->update($id));
 $router->add('DELETE', '#^/admin/users/(\d+)$#', fn($id) => $adminUserCtrl->delete($id));

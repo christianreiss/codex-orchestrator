@@ -54,6 +54,7 @@
             <section class="rail-section" aria-label="Admin settings">
               <div class="rail-section-label">Admin</div>
               <a class="rail-sub-link settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem"><span>General</span><span class="rail-shortcut">[s][g]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/users" data-nav="settings" data-settings-tab="users" role="menuitem"><span>Users</span><span class="rail-shortcut">[s][u]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem"><span>Agents</span><span class="rail-shortcut">[s][a]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem"><span>config.toml</span><span class="rail-shortcut">[s][c]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/apikeys" data-nav="settings" data-settings-tab="apikeys" role="menuitem"><span>API Keys</span><span class="rail-shortcut">[s][i]</span></a>
@@ -70,7 +71,6 @@
             </section>
           </div>
         </div>
-        <a class="rail-link" href="/admin/users" data-nav="users">Users</a>
       </nav>
       <div class="rail-tools">
         <div class="rail-toolset">
@@ -134,6 +134,7 @@
               </div>
               <div class="kbd-shortcuts-section">
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>g</kbd><span>Settings: general</span></div>
+                <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>u</kbd><span>Settings: users</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>a</kbd><span>Settings: agents</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>c</kbd><span>Settings: config</span></div>
                 <div class="kbd-shortcut-row"><kbd>s</kbd> <kbd>i</kbd><span>Settings: API keys</span></div>
@@ -1037,38 +1038,7 @@
           </section>
         </section>
 
-        <section class="panel-set" data-panel="users" hidden>
-          <section class="card panel" id="users-panel">
-            <div class="panel-head">
-              <div>
-                <h2>User Management</h2>
-                <p class="muted panel-subtitle">Create users and assign access levels.</p>
-              </div>
-              <div class="panel-actions">
-                <input type="search" id="users-filter" placeholder="Filter by name, username, or email" aria-label="Filter users">
-                <button class="ghost tiny-btn" id="usersAddBtn">+ Add user</button>
-                <button class="ghost tiny-btn warn" id="usersWipeBtn">Wipe users</button>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table id="users-table">
-                <thead>
-                  <tr>
-                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="name" aria-label="Sort by name"><span>Name</span><span class="sort-indicator">↕</span></span></th>
-                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="username" aria-label="Sort by username"><span>Username</span><span class="sort-indicator">↕</span></span></th>
-                    <th>Email</th>
-                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="access" aria-label="Sort by access level"><span>Access</span><span class="sort-indicator">↕</span></span></th>
-                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="status" aria-label="Sort by status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
-                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="last_login" aria-label="Sort by last login"><span>Last login</span><span class="sort-indicator">↕</span></span></th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-            <div class="muted empty-state-inline" id="usersEmptyState" style="display:none;">No users yet. Create the first admin to enable login.</div>
-          </section>
-        </section>
+        <section class="panel-set" data-panel="users" hidden></section>
 
         <!-- Logs -->
         <section class="panel-set" data-panel="logs" hidden>
@@ -1231,6 +1201,7 @@
         <section class="panel-set" data-panel="settings" hidden>
           <nav class="settings-mobile-nav" aria-label="Settings tabs">
             <a class="settings-tab settings-mobile-tab active" data-settings-tab="general" href="/admin/settings/general">General</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="users" href="/admin/settings/users">Users</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="agents" href="/admin/settings/agents">Agents</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="memories" href="/admin/settings/memories">Memories</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
@@ -1243,6 +1214,7 @@
             <aside class="settings-sidebar" aria-label="Settings sections">
               <div class="settings-nav-list">
                 <a class="settings-tab settings-nav-link active" data-settings-tab="general" href="/admin/settings/general">General</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="users" href="/admin/settings/users">Users</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="agents" href="/admin/settings/agents">Agents</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="memories" href="/admin/settings/memories">Memories</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
@@ -1439,6 +1411,37 @@
               </div>
             </div>
           </section>
+          <section class="card panel" data-settings-panel="users" id="users-panel" hidden>
+            <div class="panel-head">
+              <div>
+                <h2>User Management</h2>
+                <p class="muted panel-subtitle">Create users and assign access levels.</p>
+              </div>
+              <div class="panel-actions">
+                <input type="search" id="users-filter" placeholder="Filter by name, username, or email" aria-label="Filter users">
+                <button class="ghost tiny-btn" id="usersAddBtn">+ Add user</button>
+                <button class="ghost tiny-btn warn" id="usersWipeBtn">Wipe users</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table id="users-table">
+                <thead>
+                  <tr>
+                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="name" aria-label="Sort by name"><span>Name</span><span class="sort-indicator">↕</span></span></th>
+                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="username" aria-label="Sort by username"><span>Username</span><span class="sort-indicator">↕</span></span></th>
+                    <th>Email</th>
+                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="access" aria-label="Sort by access level"><span>Access</span><span class="sort-indicator">↕</span></span></th>
+                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="status" aria-label="Sort by status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
+                    <th><span class="sort-link" role="button" tabindex="0" data-users-sort="last_login" aria-label="Sort by last login"><span>Last login</span><span class="sort-indicator">↕</span></span></th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="muted empty-state-inline" id="usersEmptyState" style="display:none;">No users yet. Create the first admin to enable login.</div>
+          </section>
+
           <section class="card panel" data-settings-panel="agents" hidden>
             <div class="panel-head">
               <div>

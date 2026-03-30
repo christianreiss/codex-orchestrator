@@ -13,8 +13,8 @@ final class AdminUsersNavTest extends TestCase
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
 
-        $this->assertStringContainsString('data-nav="users"', $html);
-        $this->assertStringContainsString('href="/admin/users"', $html);
+        $this->assertStringContainsString('data-settings-tab="users"', $html);
+        $this->assertStringContainsString('href="/admin/settings/users"', $html);
         $this->assertStringContainsString('>Users<', $html);
     }
 
@@ -23,7 +23,7 @@ final class AdminUsersNavTest extends TestCase
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
 
-        $this->assertStringContainsString('data-panel="users"', $html);
+        $this->assertStringContainsString('data-settings-panel="users"', $html);
         $this->assertStringContainsString('id="users-panel"', $html);
     }
 }

@@ -1089,6 +1089,7 @@
         },
         s: {
           g: '/admin/settings/general',
+          u: '/admin/settings/users',
           a: '/admin/settings/agents',
           c: '/admin/settings/config',
           i: '/admin/settings/apikeys',
@@ -8179,7 +8180,7 @@
       if (seg1 === 'logs') return { panel: 'logs', sub: seg2 };
       if (seg1 === 'account') return { panel: 'account', sub: seg2 || 'password' };
       if (seg1 === 'settings') return { panel: 'settings', sub: seg2 };
-      if (seg1 === 'users') return { panel: 'users', sub: '' };
+      if (seg1 === 'users') return { panel: 'settings', sub: 'users' };
       if (seg1 === 'projects') return { panel: 'project-detail', sub: seg2 };
       return { panel: seg1, sub: seg2 };
     }
@@ -8323,6 +8324,10 @@
         if (settingsTab === 'apikeys' && window.__initApiKeysOnce) {
           window.__initApiKeysOnce();
           window.__initApiKeysOnce = null;
+        }
+        if (settingsTab === 'users' && window.__initUsersOnce) {
+          window.__initUsersOnce();
+          window.__initUsersOnce = null;
         }
       }
 

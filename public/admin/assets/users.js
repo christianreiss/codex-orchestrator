@@ -2,7 +2,7 @@
   const usersPanel = document.getElementById('users-panel');
   if (!usersPanel) return;
 
-  const navUsers = document.querySelector('[data-nav="users"]');
+  const navUsers = document.querySelector('[data-settings-tab="users"]');
 
   const filterInput = document.getElementById('users-filter');
   const addBtn = document.getElementById('usersAddBtn');
@@ -357,7 +357,7 @@
   }
 
   function hideUsersNav() {
-    navUsers?.remove();
+    document.querySelectorAll('[data-settings-tab="users"]').forEach((el) => el.remove());
   }
 
   async function init() {
@@ -411,7 +411,8 @@
     const domains = event?.detail?.domains;
     if (!Array.isArray(domains) || !domains.includes('users')) return;
     const viewMode = (document.body?.dataset?.viewMode || '').toLowerCase();
-    scheduleLiveUsersRefresh(viewMode === 'users' ? 250 : 700);
+    const settingsTab = (document.body?.dataset?.settingsTab || '').toLowerCase();
+    scheduleLiveUsersRefresh(viewMode === 'settings' && settingsTab === 'users' ? 250 : 700);
   });
 
   addBtn?.addEventListener('click', () => openModal(null));
@@ -575,5 +576,8 @@
     });
   });
 
-  init();
+  window.__initUsersOnce = () => {
+    window.__initUsersOnce = null;
+    init();
+  };
 })();

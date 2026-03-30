@@ -38,6 +38,6 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString('Keyboard shortcuts</span>', $html);
         $this->assertStringContainsString('<span class="rail-shortcut">[?]</span>', $html);
         $this->assertStringNotContainsString('Overview</span><span class="rail-shortcut">', $html);
-        $this->assertStringNotContainsString('Users</span><span class="rail-shortcut">', $html);
+        $this->assertStringContainsString('Users</span><span class="rail-shortcut">[s][u]</span>', $html);
     }
 }
