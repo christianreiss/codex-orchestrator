@@ -70,11 +70,6 @@
       toggleGroup(group);
     });
 
-    trigger.addEventListener('pointerenter', () => {
-      if (isCompactRail() || !hasOpenGroup()) return;
-      openGroup(group);
-    });
-
     group.addEventListener('focusin', (event) => {
       if (!shouldOpenForFocus(group, event.target)) return;
       openGroup(group);

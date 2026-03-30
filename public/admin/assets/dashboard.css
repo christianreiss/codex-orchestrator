@@ -4537,17 +4537,9 @@ body[data-nav-version="2026"] .rail-group::after {
   transition: opacity 140ms ease, background 140ms ease;
 }
 
-body[data-nav-version="2026"] .rail-link:hover,
 body[data-nav-version="2026"] .rail-link:focus-visible,
-body[data-nav-version="2026"] .rail-disclosure:hover,
 body[data-nav-version="2026"] .rail-disclosure:focus-visible {
   color: var(--text);
-}
-
-body[data-nav-version="2026"] .rail-link:not(.is-active):hover::after,
-body[data-nav-version="2026"] .rail-group:not(.is-active):not(.is-open):hover::after {
-  opacity: 0.32;
-  background: var(--accent);
 }
 
 body[data-nav-version="2026"] .rail-link.is-active,
@@ -4675,10 +4667,6 @@ body[data-nav-version="2026"] .rail-subpanel-item {
   text-align: left;
 }
 
-body[data-nav-version="2026"] .rail-menu-button:hover,
-body[data-nav-version="2026"] .rail-subpanel-item:hover {
-  color: var(--accent);
-}
 
 body[data-nav-version="2026"] .rail-menu-group.is-open .rail-menu-button-disclosure {
   color: var(--accent);
@@ -4793,7 +4781,6 @@ body[data-nav-version="2026"] .rail-account-trigger {
   transition: color 160ms ease;
 }
 
-body[data-nav-version="2026"] .rail-account-trigger:hover,
 body[data-nav-version="2026"] .rail-account-trigger:focus-visible,
 body[data-nav-version="2026"] .rail-group-account-menu.is-active .rail-account-trigger,
 body[data-nav-version="2026"] .rail-group-account-menu.is-open .rail-account-trigger {
@@ -4853,7 +4840,6 @@ body[data-nav-version="2026"] .rail-help-glyph {
   line-height: 1;
 }
 
-body[data-nav-version="2026"] .rail-help-trigger:hover .rail-help-glyph,
 body[data-nav-version="2026"] .rail-help-trigger:focus-visible .rail-help-glyph {
   background: color-mix(in srgb, var(--accent) 10%, var(--card));
   color: var(--text);
@@ -4863,10 +4849,6 @@ body[data-nav-version="2026"] .rail-help-label {
   color: inherit;
 }
 
-body[data-nav-version="2026"] .rail-action:hover,
-body[data-nav-version="2026"] .rail-account-exit:hover {
-  color: var(--text);
-}
 
 body[data-nav-version="2026"] .rail-action-accent {
   color: var(--text);
