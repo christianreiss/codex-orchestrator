@@ -42,17 +42,33 @@ class OpenAiResponse
 
     public static function stream(array $payload): void
     {
+        self::streamEvents([
+            ['data' => $payload],
+        ]);
+    }
+
+    /**
+     * @param list<array{data: array, event?: string}> $events
+     */
+    public static function streamEvents(array $events): void
+    {
         http_response_code(200);
         self::corsHeaders();
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
         header('Connection: keep-alive');
 
-        echo 'data: ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n\n";
-        if (ob_get_level() > 0) {
-            ob_flush();
+        foreach ($events as $event) {
+            if (isset($event['event']) && $event['event'] !== '') {
+                echo 'event: ' . $event['event'] . "\n";
+            }
+
+            echo 'data: ' . json_encode($event['data'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n\n";
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
+            flush();
         }
-        flush();
 
         echo "data: [DONE]\n\n";
         if (ob_get_level() > 0) {

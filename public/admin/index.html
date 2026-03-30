@@ -219,6 +219,7 @@
               <nav class="api-ref-nav" role="tablist">
                 <button class="api-ref-tab is-active" data-api-tab="overview" role="tab">Overview</button>
                 <button class="api-ref-tab" data-api-tab="chat" role="tab">Chat</button>
+                <button class="api-ref-tab" data-api-tab="responses" role="tab">Responses</button>
                 <button class="api-ref-tab" data-api-tab="completions" role="tab">Completions</button>
                 <button class="api-ref-tab" data-api-tab="models" role="tab">Models</button>
                 <button class="api-ref-tab" data-api-tab="embeddings" role="tab">Embeddings</button>
@@ -246,6 +247,7 @@
                     <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
                     <tbody>
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/chat/completions</code></td><td>Chat completion (streaming supported)</td></tr>
+                      <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/responses</code></td><td>Responses API (non-streaming)</td></tr>
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/completions</code></td><td>Text completion (streaming supported)</td></tr>
                       <tr><td><span class="api-ref-method get">GET</span></td><td><code>/v1/models</code></td><td>List available models</td></tr>
                       <tr><td><span class="api-ref-method post">POST</span></td><td><code>/v1/embeddings</code></td><td>Embeddings (not yet implemented)</td></tr>
@@ -273,6 +275,29 @@
                   <div class="api-ref-code-wrap">
                     <pre class="api-ref-code"><code id="apiRefChatExample"></code></pre>
                     <button class="api-ref-copy" data-copy-target="apiRefChatExample" title="Copy">Copy</button>
+                  </div>
+                </div>
+
+                <!-- Responses -->
+                <div class="api-ref-section" data-api-section="responses" hidden>
+                  <div class="api-ref-endpoint-head">
+                    <span class="api-ref-method post">POST</span>
+                    <code>/v1/responses</code>
+                  </div>
+                  <p class="muted">Creates a minimal OpenAI-compatible response object by mapping the request onto the existing backend chat flow. Streaming is not implemented on this endpoint yet.</p>
+                  <h4>Request Body</h4>
+                  <table class="api-ref-table">
+                    <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><code>input</code></td><td>string | array</td><td>Yes</td><td>User input as a string or message-style array</td></tr>
+                      <tr><td><code>instructions</code></td><td>string</td><td>No</td><td>Optional system-style instructions prepended to the request</td></tr>
+                      <tr><td><code>model</code></td><td>string</td><td>No</td><td>Model identifier (default: <code>cdx-lm-1</code>)</td></tr>
+                    </tbody>
+                  </table>
+                  <h4>Example</h4>
+                  <div class="api-ref-code-wrap">
+                    <pre class="api-ref-code"><code id="apiRefResponsesExample"></code></pre>
+                    <button class="api-ref-copy" data-copy-target="apiRefResponsesExample" title="Copy">Copy</button>
                   </div>
                 </div>
 

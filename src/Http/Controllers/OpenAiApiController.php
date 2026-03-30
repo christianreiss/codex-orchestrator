@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Contracts\BackendAdapter;
+use App\Http\OpenAiCompat;
 use App\Http\OpenAiResponse;
 use App\Security\RateLimiter;
 use App\Services\OpenaiApiKeyService;
@@ -38,10 +39,45 @@ class OpenAiApiController
         }
 
         if (!empty($payload['stream'])) {
-            OpenAiResponse::stream($result);
+            OpenAiResponse::streamEvents(OpenAiCompat::chatCompletionStreamEvents($result));
         }
 
         OpenAiResponse::json($result);
+    }
+
+    public function responses(array $payload): void
+    {
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
+        $this->ensureBackend();
+
+        $messages = OpenAiCompat::normalizeResponsesInput(
+            $payload['input'] ?? null,
+            $payload['instructions'] ?? null
+        );
+
+        if ($messages === null) {
+            OpenAiResponse::error('Missing required parameter: input', 'invalid_request_error', 400, null, 'input');
+        }
+
+        $model = (string) ($payload['model'] ?? 'cdx-lm-1');
+
+        try {
+            $result = $this->backend->chatCompletions($messages, $model);
+        } catch (\RuntimeException $e) {
+            OpenAiResponse::error($e->getMessage(), 'api_error', 502);
+        }
+
+        if (!empty($payload['stream'])) {
+            OpenAiResponse::error(
+                'Streaming responses are not implemented for this backend yet.',
+                'invalid_request_error',
+                400,
+                'unsupported_stream'
+            );
+        }
+
+        OpenAiResponse::json(OpenAiCompat::responseFromChatCompletion($result));
     }
 
     public function completions(array $payload): void

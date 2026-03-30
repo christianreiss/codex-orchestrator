@@ -740,6 +740,7 @@ $router->add('POST', '#^/mcp$#', fn() => $mcpRouteCtrl->handle($rawBody));
 // OpenAI-compatible API
 $router->add('OPTIONS', '#^/v1/#', fn() => $openaiApiCtrl->options());
 $router->add('POST', '#^/v1/chat/completions$#', fn() => $openaiApiCtrl->chatCompletions($payload));
+$router->add('POST', '#^/v1/responses$#', fn() => $openaiApiCtrl->responses($payload));
 $router->add('POST', '#^/v1/completions$#', fn() => $openaiApiCtrl->completions($payload));
 $router->add('POST', '#^/v1/embeddings$#', fn() => $openaiApiCtrl->embeddings($payload));
 $router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());

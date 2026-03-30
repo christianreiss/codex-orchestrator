@@ -2399,6 +2399,15 @@
   ]
 }'`;
 
+          const responsesEx = document.getElementById('apiRefResponsesExample');
+          if (responsesEx) responsesEx.textContent = `curl ${base}/v1/responses \\
+  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "model": "cdx-lm-1",
+  "input": "Reply with exactly pong"
+}'`;
+
           const compEx = document.getElementById('apiRefCompletionsExample');
           if (compEx) compEx.textContent = `curl ${base}/v1/completions \\
   -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
