@@ -4534,9 +4534,7 @@ body[data-nav-version="2026"] .rail-group::after {
   height: 2px;
   background: transparent;
   opacity: 0;
-  transform: scaleX(0.3);
-  transform-origin: center;
-  transition: opacity 140ms ease, background 140ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity 140ms ease, background 140ms ease;
 }
 
 body[data-nav-version="2026"] .rail-link:hover,
@@ -4550,7 +4548,6 @@ body[data-nav-version="2026"] .rail-link:not(.is-active):hover::after,
 body[data-nav-version="2026"] .rail-group:not(.is-active):not(.is-open):hover::after {
   opacity: 0.32;
   background: var(--accent);
-  transform: scaleX(1);
 }
 
 body[data-nav-version="2026"] .rail-link.is-active,
@@ -4564,7 +4561,6 @@ body[data-nav-version="2026"] .rail-group.is-active::after,
 body[data-nav-version="2026"] .rail-group.is-open::after {
   opacity: 1;
   background: var(--accent);
-  transform: scaleX(1);
 }
 
 body[data-nav-version="2026"] .rail-link:focus-visible,
