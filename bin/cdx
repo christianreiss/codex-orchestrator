@@ -835,7 +835,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.03.30-07"
+WRAPPER_VERSION="2026.03.30-08"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -5082,7 +5082,22 @@ post_token_usage_payload_once() {
   local base_url="$1"
   local payload_json="$2"
   local ca_file="${3-}"
-  CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base_url" "$payload_json" "$ca_file" <<'PY'
+  local payload_file=""
+  local py_output=""
+  local py_status=0
+  payload_file="$(mktemp "${TMPDIR:-/tmp}/cdx-usage-payload.XXXXXX")" || {
+    printf '%s\n' "error=failed to allocate payload temp file"
+    printf '%s\n' "retryable=false"
+    return 1
+  }
+  if ! printf '%s' "$payload_json" >"$payload_file"; then
+    rm -f "$payload_file"
+    printf '%s\n' "error=failed to write payload temp file"
+    printf '%s\n' "retryable=false"
+    return 1
+  fi
+  py_output="$(
+    CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$base_url" "$payload_file" "$ca_file" <<'PY'
 import json, os, socket, sys, time, urllib.error, urllib.request
 
 py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
@@ -5092,11 +5107,13 @@ if "cdx_enable_force_ipv4" in globals():
     cdx_enable_force_ipv4()
 
 base = (sys.argv[1] or "").rstrip("/")
-payload_raw = sys.argv[2]
+payload_path = sys.argv[2]
 cafile = sys.argv[3] if len(sys.argv) > 3 else ""
 api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
 
 try:
+    with open(payload_path, "r", encoding="utf-8", errors="replace") as fh:
+        payload_raw = fh.read()
     payload = json.loads(payload_raw)
 except Exception:  # noqa: BLE001
     print("error=invalid payload")
@@ -5234,6 +5251,10 @@ if last_err:
     print(f"retryable={'true' if last_retryable else 'false'}")
 sys.exit(last_code)
 PY
+  )" || py_status=$?
+  rm -f "$payload_file"
+  printf "%s" "$py_output"
+  return "$py_status"
 }
 
 post_token_usage_payload() {
@@ -5319,11 +5340,21 @@ post_token_usage_payload() {
   # Best effort only: retry stripped payloads for quick payload-shape failures, not slow/wedged network paths.
   if [[ "$retryable" == "true" && "$payload_json" == *'"line"'* ]]; then
     local fallback_payload=""
-    fallback_payload="$(
-      python3 - "$payload_json" <<'PY'
+    local fallback_payload_file=""
+    fallback_payload_file="$(mktemp "${TMPDIR:-/tmp}/cdx-usage-payload.XXXXXX")" || fallback_payload_file=""
+    if [[ -n "$fallback_payload_file" ]]; then
+      if ! printf '%s' "$payload_json" >"$fallback_payload_file"; then
+        rm -f "$fallback_payload_file"
+        fallback_payload_file=""
+      fi
+    fi
+    if [[ -n "$fallback_payload_file" ]]; then
+      fallback_payload="$(
+      python3 - "$fallback_payload_file" <<'PY'
 import json, sys
 try:
-    data = json.loads(sys.argv[1])
+    with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as fh:
+        data = json.load(fh)
 except Exception:  # noqa: BLE001
     sys.exit(1)
 if "line" in data:
@@ -5339,7 +5370,9 @@ if isinstance(usages, list):
     data["usages"] = cleaned
 print(json.dumps(data, separators=(",", ":")))
 PY
-    )" || fallback_payload=""
+      )" || fallback_payload=""
+    fi
+    rm -f "$fallback_payload_file"
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       status=0
       summary=""
@@ -5403,11 +5436,23 @@ PY
 parse_usage_summary() {
   local payload_json="$1"
   local summary=""
+  local payload_file=""
+  payload_file="$(mktemp "${TMPDIR:-/tmp}/cdx-usage-payload.XXXXXX")" || payload_file=""
+  if [[ -z "$payload_file" ]]; then
+    printf "%s" ""
+    return 0
+  fi
+  if ! printf '%s' "$payload_json" >"$payload_file"; then
+    rm -f "$payload_file"
+    printf "%s" ""
+    return 0
+  fi
   summary="$(
-    python3 - "$payload_json" <<'PY'
+    python3 - "$payload_file" <<'PY'
 import json, sys
 try:
-    data = json.loads(sys.argv[1])
+    with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as fh:
+        data = json.load(fh)
 except Exception:  # noqa: BLE001
     sys.exit(0)
 
@@ -5442,6 +5487,7 @@ if parts:
     print(", ".join(parts))
 PY
   )" || summary=""
+  rm -f "$payload_file"
   printf "%s" "$summary"
 }
 
