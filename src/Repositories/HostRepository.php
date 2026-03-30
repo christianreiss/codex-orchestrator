@@ -341,6 +341,11 @@ class HostRepository
         $this->updateHostFields($hostId, 'vip = :vip', ['vip' => $vip ? 1 : 0], false);
     }
 
+    public function updateScalingExempt(int $hostId, bool $exempt): void
+    {
+        $this->updateHostFields($hostId, 'scaling_exempt = :scaling_exempt', ['scaling_exempt' => $exempt ? 1 : 0], false);
+    }
+
     public function updateModelOverrides(int $hostId, ?string $modelOverride, ?string $reasoningEffortOverride): void
     {
         $this->updateHostFields($hostId, 'model_override = :model_override, reasoning_effort_override = :reasoning_effort_override', [

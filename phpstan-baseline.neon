@@ -63,7 +63,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 2
+			count: 3
 			path: public/index.php
 
 		-
@@ -152,6 +152,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#1 \$hostId of method App\\Http\\Controllers\\AdminHostController\:\:roaming\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$hostId of method App\\Http\\Controllers\\AdminHostController\:\:scalingExempt\(\) expects string, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -350,6 +356,18 @@ parameters:
 
 		-
 			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminSettingsController\:\:postReverseDns\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminSettingsController\:\:postScaling\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminSettingsController\:\:postTheme\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -889,6 +907,12 @@ parameters:
 			path: public/index.php
 
 		-
+			message: '#^Parameter \#2 \$payload of method App\\Http\\Controllers\\AdminHostController\:\:scalingExempt\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
 			message: '#^Parameter \#2 \$payload of method App\\Http\\Controllers\\AdminHostController\:\:secure\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -1131,13 +1155,13 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 4
+			count: 5
 			path: scripts/admin-ws.php
 
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 5
+			count: 9
 			path: scripts/admin-ws.php
 
 		-
@@ -1147,7 +1171,25 @@ parameters:
 			path: scripts/admin-ws.php
 
 		-
+			message: '#^Function buildHostDetailSupportPayload\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: scripts/admin-ws.php
+
+		-
+			message: '#^Function buildRunnerSupportPayload\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: scripts/admin-ws.php
+
+		-
 			message: '#^Function decodeFrames\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: scripts/admin-ws.php
+
+		-
+			message: '#^Function decodeJsonObject\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: scripts/admin-ws.php
@@ -1221,7 +1263,7 @@ parameters:
 		-
 			message: '#^Parameter \#1 \$payload of function encodeFrame expects string, string\|false given\.$#'
 			identifier: argument.type
-			count: 4
+			count: 5
 			path: scripts/admin-ws.php
 
 		-
@@ -1364,6 +1406,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#2 \$storagePath of class App\\Services\\WrapperService constructor expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: scripts/refresh-chatgpt-usage.php
+
+		-
+			message: '#^Parameter \#20 \$adminEvents of class App\\Services\\AuthService constructor expects App\\Repositories\\AdminEventRepository\|null, App\\Services\\DashboardGraphStatsService given\.$#'
 			identifier: argument.type
 			count: 1
 			path: scripts/refresh-chatgpt-usage.php
@@ -1875,7 +1923,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 37
+			count: 38
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
@@ -1957,6 +2005,12 @@ parameters:
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
+			message: '#^Method App\\Http\\Controllers\\AdminHostController\:\:scalingExempt\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminHostController.php
+
+		-
 			message: '#^Method App\\Http\\Controllers\\AdminHostController\:\:secure\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -1971,13 +2025,13 @@ parameters:
 		-
 			message: '#^Offset ''fqdn'' might not exist on array\|null\.$#'
 			identifier: offsetAccess.notFound
-			count: 22
+			count: 24
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
 			message: '#^Offset ''id'' might not exist on array\|null\.$#'
 			identifier: offsetAccess.notFound
-			count: 19
+			count: 20
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
@@ -1995,7 +2049,7 @@ parameters:
 		-
 			message: '#^Only booleans are allowed in a negated boolean, array\|null given\.$#'
 			identifier: booleanNot.exprNotBoolean
-			count: 22
+			count: 23
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
@@ -2036,6 +2090,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#2 \$curlInsecure of method App\\Repositories\\HostRepository\:\:updateCurlInsecure\(\) expects bool, bool\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminHostController.php
+
+		-
+			message: '#^Parameter \#2 \$exempt of method App\\Repositories\\HostRepository\:\:updateScalingExempt\(\) expects bool, bool\|null given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/Http/Controllers/AdminHostController.php
@@ -2103,6 +2163,12 @@ parameters:
 		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
+			message: '#^Call to private method inactivityWindowDays\(\) of class App\\Services\\AuthService\.$#'
+			identifier: method.private
 			count: 1
 			path: src/Http/Controllers/AdminOverviewController.php
 
@@ -2301,13 +2367,13 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 34
+			count: 44
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 18
+			count: 20
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
@@ -2319,7 +2385,7 @@ parameters:
 		-
 			message: '#^Casting to string something that''s already string\.$#'
 			identifier: cast.useless
-			count: 2
+			count: 3
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
@@ -2371,6 +2437,24 @@ parameters:
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
+			message: '#^Offset ''fqdn'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
+			message: '#^Offset ''id'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
+			message: '#^Offset ''status'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
 			message: '#^Only booleans are allowed in a negated boolean, array\|null given\.$#'
 			identifier: booleanNot.exprNotBoolean
 			count: 1
@@ -2389,6 +2473,12 @@ parameters:
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
+			message: '#^Parameter \#1 \$array of function array_unique expects an array of values castable to string, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
 			message: '#^Parameter \#1 \$callback of function array_map expects \(callable\(mixed\)\: mixed\)\|null, Closure\(array\)\: int given\.$#'
 			identifier: argument.type
 			count: 2
@@ -2396,6 +2486,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#1 \$datetime of function strtotime expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
+			message: '#^Parameter \#1 \$host of method App\\Http\\Controllers\\AdminOverviewController\:\:deriveAutoUpdateState\(\) expects array, array\|null given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/Http/Controllers/AdminOverviewController.php
@@ -2425,6 +2521,12 @@ parameters:
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
+			message: '#^Parameter \#2 \$host of method App\\Services\\AuthService\:\:applyClientVersionOverrideForHost\(\) expects array, array\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminOverviewController.php
+
+		-
 			message: '#^Parameter \#2 \$host of method App\\Services\\AuthService\:\:applyClientVersionOverrideForHost\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -2439,7 +2541,7 @@ parameters:
 		-
 			message: '#^Parameter \#4 \$cronEvents of method App\\Http\\Controllers\\AdminOverviewController\:\:deriveAutoUpdateState\(\) expects array, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
@@ -2457,7 +2559,7 @@ parameters:
 		-
 			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
-			count: 2
+			count: 4
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
@@ -2469,7 +2571,7 @@ parameters:
 		-
 			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
 			identifier: identical.alwaysFalse
-			count: 1
+			count: 2
 			path: src/Http/Controllers/AdminOverviewController.php
 
 		-
@@ -2629,13 +2731,37 @@ parameters:
 			path: src/Http/Controllers/AdminSettingsController.php
 
 		-
+			message: '#^Method App\\Http\\Controllers\\AdminSettingsController\:\:postScaling\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminSettingsController\:\:postTheme\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
 			message: '#^Only booleans are allowed in a ternary operator condition, bool\|null given\.$#'
 			identifier: ternary.condNotBoolean
 			count: 8
 			path: src/Http/Controllers/AdminSettingsController.php
 
 		-
+			message: '#^Parameter \#1 \$string of function strtolower expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
 			message: '#^Parameter \#1 \$string of function trim expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
+			message: '#^Parameter \#1 \$value of function count expects array\|Countable, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/Http/Controllers/AdminSettingsController.php
@@ -5231,6 +5357,114 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Repositories/ClientConfigRepository.php
+
+		-
+			message: '#^Cannot access offset ''stat_date'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 7
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot call method fetch\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot call method fetchAll\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot call method rowCount\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot cast mixed to float\.$#'
+			identifier: cast.double
+			count: 3
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 16
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 3
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\DashboardGraphStatsRepository\:\:deleteOlderThan\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\DashboardGraphStatsRepository\:\:incrementUsageDaily\(\) has parameter \$usage with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\DashboardGraphStatsRepository\:\:quotaHistory\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\DashboardGraphStatsRepository\:\:recordQuotaSnapshot\(\) has parameter \$snapshot with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\DashboardGraphStatsRepository\:\:upsertUsageDaily\(\) has parameter \$usage with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\DashboardGraphStatsRepository\:\:usageDailySince\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Parameter \#1 \$callback of function array_map expects \(callable\(mixed\)\: mixed\)\|null, Closure\(array\)\: array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Parameter \#1 \$callback of function array_map expects \(callable\(mixed\)\: mixed\)\|null, Closure\(array\)\: array\{date\: string, input\: int, output\: int, cached\: int, reasoning\: int, total\: int, cost\: float\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Parameter \#1 \$value of method App\\Repositories\\DashboardGraphStatsRepository\:\:normalizeTimestamp\(\) expects string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Repositories/DashboardGraphStatsRepository.php
+
+		-
+			message: '#^Short ternary operator is not allowed\. Use null coalesce operator if applicable or consider using long ternary\.$#'
+			identifier: ternary.shortNotAllowed
+			count: 3
+			path: src/Repositories/DashboardGraphStatsRepository.php
 
 		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
@@ -8635,6 +8869,12 @@ parameters:
 			path: src/Services/ChatGptUsageService.php
 
 		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(mixed\)\: bool\)\|null, Closure\(array\)\: bool given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Services/ChatGptUsageService.php
+
+		-
 			message: '#^Parameter \#2 \$options of function curl_setopt_array expects array\{19913\: bool, 10023\: array\<int, string\>, 52\: bool, 181\: int, 182\: int, 13\: int\}, array\{19913\: true, 10023\: array, 52\: true, 181\: 2, 182\: 2, 13\: float\} given\.$#'
 			identifier: argument.type
 			count: 1
@@ -8768,6 +9008,24 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\ClientConfigService\:\:applyHostModelOverrides\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/ClientConfigService.php
+
+		-
+			message: '#^Method App\\Services\\ClientConfigService\:\:applyUsageScaling\(\) has parameter \$host with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/ClientConfigService.php
+
+		-
+			message: '#^Method App\\Services\\ClientConfigService\:\:applyUsageScaling\(\) has parameter \$settings with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/ClientConfigService.php
+
+		-
+			message: '#^Method App\\Services\\ClientConfigService\:\:applyUsageScaling\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Services/ClientConfigService.php
@@ -9195,7 +9453,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''total'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 2
+			count: 3
 			path: src/Services/CostHistoryService.php
 
 		-
@@ -9207,7 +9465,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 11
+			count: 12
 			path: src/Services/CostHistoryService.php
 
 		-
@@ -9219,7 +9477,7 @@ parameters:
 		-
 			message: '#^Casting to int something that''s already int\.$#'
 			identifier: cast.useless
-			count: 6
+			count: 7
 			path: src/Services/CostHistoryService.php
 
 		-
@@ -9283,10 +9541,112 @@ parameters:
 			path: src/Services/CostHistoryService.php
 
 		-
+			message: '#^Offset ''total'' on array\{total\: int, input\: int, output\: int, cached\: int, cost\: float\|null\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Services/CostHistoryService.php
+
+		-
 			message: '#^Possibly invalid array key type mixed\.$#'
 			identifier: offsetAccess.invalidOffset
 			count: 1
 			path: src/Services/CostHistoryService.php
+
+		-
+			message: '#^Cannot access offset ''cached'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot access offset ''cost'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot access offset ''date'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot access offset ''input'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot access offset ''output'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot access offset ''reasoning'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot cast mixed to float\.$#'
+			identifier: cast.double
+			count: 3
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 13
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Method App\\Services\\DashboardGraphStatsService\:\:deleteOlderThan\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Method App\\Services\\DashboardGraphStatsService\:\:hasUsageSignal\(\) has parameter \$usage with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Method App\\Services\\DashboardGraphStatsService\:\:quotaHistory\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Method App\\Services\\DashboardGraphStatsService\:\:recordQuotaSnapshot\(\) has parameter \$snapshot with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Method App\\Services\\DashboardGraphStatsService\:\:recordTokenUsage\(\) has parameter \$usage with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Method App\\Services\\DashboardGraphStatsService\:\:usageDailySince\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Services/DashboardGraphStatsService.php
 
 		-
 			message: '#^Cannot access offset ''domain'' on mixed\.$#'
@@ -11953,6 +12313,144 @@ parameters:
 			path: src/Services/UsageCostService.php
 
 		-
+			message: '#^Cannot cast mixed to float\.$#'
+			identifier: cast.double
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Construct empty\(\) is not allowed\. Use more strict comparison\.$#'
+			identifier: empty.notAllowed
+			count: 2
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:computeScalingAdjustment\(\) should return array\{reasoning_effort\: string\|null, model\: string\|null, projected_percent\: float, tier_index\: int\}\|null but returns array\{reasoning_effort\: mixed, model\: mixed, projected_percent\: float, tier_index\: mixed, lane\: string\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:currentStatus\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 3
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:isHostExempt\(\) has parameter \$host with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:isHostExempt\(\) has parameter \$rules with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:laneStatus\(\) has parameter \$rules with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:laneStatus\(\) has parameter \$summary with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:laneStatus\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:loadActiveState\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:loadRules\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:matchTier\(\) has parameter \$tiers with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:matchTier\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:persistActiveState\(\) has parameter \$state with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:projectFromWindow\(\) has parameter \$rules with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:projectFromWindow\(\) has parameter \$secondary with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:storeRules\(\) has parameter \$rules with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:validateRules\(\) has parameter \$rules with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:windowForLane\(\) has parameter \$summary with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:windowForLane\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Method App\\Services\\UsageScalingService\:\:windowForLane\(\) should return array\|null but returns mixed\.$#'
+			identifier: return.type
+			count: 2
+			path: src/Services/UsageScalingService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: src/Services/UsageScalingService.php
+
+		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
 			count: 2
@@ -12231,7 +12729,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 19
+			count: 22
 			path: tests/AdminAgentsUiWiringTest.php
 
 		-
@@ -12249,13 +12747,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 61
+			count: 74
 			path: tests/AdminAgentsUiWiringTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 6
+			count: 8
 			path: tests/AdminAgentsUiWiringTest.php
 
 		-
@@ -12399,7 +12897,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 7
+			count: 12
 			path: tests/AdminChatGptUsageDualLaneTest.php
 
 		-
@@ -12435,19 +12933,19 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 3
+			count: 5
 			path: tests/AdminDashboardChartLibraryTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 16
+			count: 32
 			path: tests/AdminDashboardChartLibraryTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 1
+			count: 3
 			path: tests/AdminDashboardChartLibraryTest.php
 
 		-
@@ -12459,7 +12957,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 21
+			count: 27
 			path: tests/AdminDashboardGraphControlsTest.php
 
 		-
@@ -12471,7 +12969,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 11
+			count: 14
 			path: tests/AdminDashboardOverviewLiveUpdateTest.php
 
 		-
@@ -12579,7 +13077,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 18
+			count: 25
 			path: tests/AdminHostDetailPageRoutingTest.php
 
 		-
@@ -12675,13 +13173,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 3
+			count: 4
 			path: tests/AdminNavDrawerUiTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 37
+			count: 45
 			path: tests/AdminNavDrawerUiTest.php
 
 		-
@@ -12699,7 +13197,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 16
+			count: 18
 			path: tests/AdminNavUserNameTest.php
 
 		-
@@ -13083,7 +13581,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 9
+			count: 11
 			path: tests/AdminSettingsLiveUpdateLogActionsTest.php
 
 		-
@@ -13097,6 +13595,18 @@ parameters:
 			identifier: staticMethod.dynamicCall
 			count: 29
 			path: tests/AdminSkillRegistryEditUiTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 6
+			path: tests/AdminThemePresetsTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 22
+			path: tests/AdminThemePresetsTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
@@ -13227,8 +13737,20 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 11
+			count: 17
 			path: tests/AdminWsClientContractTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: tests/AdminWsHostDetailSupportContractTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 7
+			path: tests/AdminWsHostDetailSupportContractTest.php
 
 		-
 			message: '#^Cannot access offset ''count'' on mixed\.$#'
@@ -16869,13 +17391,13 @@ parameters:
 		-
 			message: '#^Cannot access offset ''points'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 2
+			count: 3
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''primary_used_percent'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
@@ -16927,6 +17449,12 @@ parameters:
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
+			message: '#^Cannot access offset ''ts'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ChatGptUsageServiceTest.php
+
+		-
 			message: '#^Cannot access offset ''used_percent'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 3
@@ -16941,7 +17469,7 @@ parameters:
 		-
 			message: '#^Cannot access offset 0 on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 5
+			count: 8
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
@@ -16959,13 +17487,13 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 2
+			count: 3
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertCount\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 4
+			count: 5
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
@@ -16983,7 +17511,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 27
+			count: 29
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
@@ -17091,7 +17619,7 @@ parameters:
 		-
 			message: '#^Parameter \#2 \$haystack of method PHPUnit\\Framework\\Assert\:\:assertCount\(\) expects Countable\|iterable, mixed given\.$#'
 			identifier: argument.type
-			count: 3
+			count: 4
 			path: tests/ChatGptUsageServiceTest.php
 
 		-
@@ -17947,6 +18475,12 @@ parameters:
 			path: tests/ContractSchemasTest.php
 
 		-
+			message: '#^Cannot access offset ''costs'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/CostHistoryServiceTest.php
+
+		-
 			message: '#^Cannot access offset ''key'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
@@ -17959,9 +18493,21 @@ parameters:
 			path: tests/CostHistoryServiceTest.php
 
 		-
+			message: '#^Cannot access offset ''tokens'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/CostHistoryServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''total'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/CostHistoryServiceTest.php
+
+		-
 			message: '#^Cannot access offset 0 on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 5
 			path: tests/CostHistoryServiceTest.php
 
 		-
@@ -17973,7 +18519,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertCount\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 1
+			count: 2
 			path: tests/CostHistoryServiceTest.php
 
 		-
@@ -17991,7 +18537,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 3
+			count: 5
+			path: tests/CostHistoryServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\TestCase\:\:never\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
 			path: tests/CostHistoryServiceTest.php
 
 		-
@@ -18003,8 +18555,50 @@ parameters:
 		-
 			message: '#^Parameter \#2 \$haystack of method PHPUnit\\Framework\\Assert\:\:assertCount\(\) expects Countable\|iterable, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: tests/CostHistoryServiceTest.php
+
+		-
+			message: '#^Call to method PHPUnit\\Framework\\Assert\:\:assertIsString\(\) with string will always evaluate to true\.$#'
+			identifier: method.alreadyNarrowedType
+			count: 2
+			path: tests/DashboardGraphStatsRetentionContractTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: tests/DashboardGraphStatsRetentionContractTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 13
+			path: tests/DashboardGraphStatsRetentionContractTest.php
+
+		-
+			message: '#^Cannot cast mixed to float\.$#'
+			identifier: cast.double
+			count: 1
+			path: tests/DashboardGraphStatsServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: tests/DashboardGraphStatsServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:callback\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 3
+			path: tests/DashboardGraphStatsServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\TestCase\:\:once\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 6
+			path: tests/DashboardGraphStatsServiceTest.php
 
 		-
 			message: '#^Binary operation "\." between ''_SERVER_'' and mixed results in an error\.$#'
@@ -22057,6 +22651,12 @@ parameters:
 			path: tests/TokenUsageTrackerTest.php
 
 		-
+			message: '#^Cannot cast mixed to float\.$#'
+			identifier: cast.double
+			count: 1
+			path: tests/TokenUsageTrackerTest.php
+
+		-
 			message: '#^Class TokenUsageTrackerTest has an uninitialized property \$pricingService\. Give it default value or assign it in the constructor\.$#'
 			identifier: property.uninitialized
 			count: 1
@@ -22095,7 +22695,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 36
+			count: 38
 			path: tests/TokenUsageTrackerTest.php
 
 		-
@@ -22123,9 +22723,21 @@ parameters:
 			path: tests/TokenUsageTrackerTest.php
 
 		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:callback\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 2
+			path: tests/TokenUsageTrackerTest.php
+
+		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:fail\(\)\.$#'
 			identifier: staticMethod.dynamicCall
 			count: 1
+			path: tests/TokenUsageTrackerTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\TestCase\:\:once\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 2
 			path: tests/TokenUsageTrackerTest.php
 
 		-

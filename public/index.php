@@ -76,6 +76,7 @@ use App\Services\MemorySummaryService;
 use App\Services\ClientConfigService;
 use App\Services\OpenAiModelService;
 use App\Services\StartupSyncService;
+use App\Services\UsageScalingService;
 use App\Mcp\McpServer;
 use App\Mcp\McpToolNotFoundException;
 use App\Security\EncryptionKeyManager;
@@ -341,7 +342,17 @@ $adminPasskeyService = new AdminPasskeyService(
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $cliAuthService = new CliAuthService($cliAuthRequestRepository, $service, $logRepository, $rateLimiter);
 $projectModuleService = new ProjectModuleService($versionRepository);
-$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository);
+$chatGptUsageService = new ChatGptUsageService(
+    $service,
+    $chatGptUsageRepository,
+    $logRepository,
+    (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
+    (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0),
+    null,
+    $dashboardGraphStatsService
+);
+$usageScalingService = new UsageScalingService($chatGptUsageService, $versionRepository);
+$clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository, usageScalingService: $usageScalingService);
 $skillManifestService = new SkillManifestService();
 $skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier);
 $skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier);
@@ -361,15 +372,6 @@ $projectCoordinationService = new ProjectCoordinationService(
 );
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
-$chatGptUsageService = new ChatGptUsageService(
-    $service,
-    $chatGptUsageRepository,
-    $logRepository,
-    (string) Config::get('CHATGPT_BASE_URL', 'https://chatgpt.com/backend-api'),
-    (float) Config::get('CHATGPT_USAGE_TIMEOUT', 10.0),
-    null,
-    $dashboardGraphStatsService
-);
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
 $agentsService->ensureSeededFromFile($root . '/AGENTS.md');
@@ -460,9 +462,9 @@ $versionCtrl = new VersionController($service);
 $adminPageCtrl = new AdminPageController(__DIR__);
 $adminAuthCtrl = new AdminAuthController($adminAuthService, $adminPasskeyService, $adminUserRepository, $adminPasskeyRepository, $payload);
 $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository, $payload, __DIR__);
-$adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository);
+$adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository, $usageScalingService);
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository);
-$adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $pricingModel);
+$adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $pricingModel);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
@@ -588,6 +590,8 @@ $router->add('POST', '#^/admin/quota-mode$#', fn() => $adminSettingsCtrl->postQu
 $router->add('POST', '#^/admin/prune-policy$#', fn() => $adminSettingsCtrl->postPrunePolicy($payload));
 $router->add('GET', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->getLogRetention());
 $router->add('POST', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->postLogRetention($payload));
+$router->add('GET', '#^/admin/scaling$#', fn() => $adminSettingsCtrl->getScaling());
+$router->add('POST', '#^/admin/scaling$#', fn() => $adminSettingsCtrl->postScaling($payload));
 
 // Admin host detail endpoints
 $router->add('GET', '#^/admin/hosts/(\d+)/detail$#', fn($id) => $adminOverviewCtrl->hostDetail((int) $id));
@@ -597,6 +601,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/clear$#', fn($id) => $adminHostCtrl->
 $router->add('POST', '#^/admin/hosts/(\d+)/roaming$#', fn($id) => $adminHostCtrl->roaming($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/secure$#', fn($id) => $adminHostCtrl->secure($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/vip$#', fn($id) => $adminHostCtrl->vip($id, $payload));
+$router->add('POST', '#^/admin/hosts/(\d+)/scaling-exempt$#', fn($id) => $adminHostCtrl->scalingExempt($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/auto-update$#', fn($id) => $adminHostCtrl->autoUpdate($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/enable$#', fn($id) => $adminHostCtrl->insecureEnable($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/insecure/disable$#', fn($id) => $adminHostCtrl->insecureDisable($id));

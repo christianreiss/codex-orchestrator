@@ -46,7 +46,8 @@ class ClientConfigService
         private readonly ?VersionRepository $versions = null,
         private readonly ?McpSessionTokenRepository $mcpSessionTokens = null,
         private readonly ConfigNormalizer $normalizer = new ConfigNormalizer(),
-        private readonly TomlRenderer $tomlRenderer = new TomlRenderer()
+        private readonly TomlRenderer $tomlRenderer = new TomlRenderer(),
+        private readonly ?UsageScalingService $usageScalingService = null
     ) {
     }
 
@@ -90,6 +91,7 @@ class ClientConfigService
 
     public function renderForHost(array $settings, ?array $host, ?string $baseUrl, ?string $apiKey): array
     {
+        $settings = $this->applyUsageScaling($settings, $host);
         $settings = $this->applyHostModelOverrides($settings, $host);
         $normalized = $this->normalizer->normalizeSettings($settings);
         $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey, $host);
@@ -155,6 +157,65 @@ class ClientConfigService
             $updatedProfiles[] = $entry;
         }
         $settings['profiles'] = $updatedProfiles;
+
+        return $settings;
+    }
+
+    private function applyUsageScaling(array $settings, ?array $host): array
+    {
+        if ($this->usageScalingService === null) {
+            return $settings;
+        }
+
+        if (is_array($host) && $this->usageScalingService->isHostExempt($host)) {
+            return $settings;
+        }
+
+        $adjustment = $this->usageScalingService->computeScalingAdjustment();
+        if ($adjustment === null) {
+            return $settings;
+        }
+
+        $scaledEffort = $adjustment['reasoning_effort'] ?? null;
+        $scaledModel = $adjustment['model'] ?? null;
+
+        if ($scaledModel !== null) {
+            $settings['model'] = $scaledModel;
+        }
+
+        $effectiveModel = self::normalizeSupportedModel($settings['model'] ?? null);
+        if ($scaledEffort !== null && $effectiveModel !== null) {
+            $validated = $this->normalizer->normalizeReasoningEffortForModel($scaledEffort, $effectiveModel);
+            if ($validated !== null) {
+                $settings['model_reasoning_effort'] = $validated;
+            }
+        }
+
+        $activeProfile = $this->normalizer->normalizeString($settings['profile'] ?? null);
+        if ($activeProfile !== null && is_array($settings['profiles'] ?? null)) {
+            $updatedProfiles = [];
+            foreach ($settings['profiles'] as $entry) {
+                if (!is_array($entry)) {
+                    $updatedProfiles[] = $entry;
+                    continue;
+                }
+                $name = $this->normalizer->normalizeString($entry['name'] ?? null);
+                if ($name !== null && hash_equals($activeProfile, $name)) {
+                    if ($scaledModel !== null) {
+                        $entry['model'] = $scaledModel;
+                    }
+                    $profileModel = self::normalizeSupportedModel($entry['model'] ?? null);
+                    if ($scaledEffort !== null && $profileModel !== null) {
+                        $profileEffortValidated = $this->normalizer->normalizeReasoningEffortForModel($scaledEffort, $profileModel);
+                        if ($profileEffortValidated !== null) {
+                            $entry['model_reasoning_effort'] = $profileEffortValidated;
+                        }
+                    }
+                }
+                $updatedProfiles[] = $entry;
+            }
+            $settings['profiles'] = $updatedProfiles;
+        }
 
         return $settings;
     }
@@ -334,6 +395,13 @@ class ClientConfigService
     ): string
     {
         $keyHash = hash('sha256', (string) $apiKey);
+        $scalingTier = '';
+        if ($this->usageScalingService !== null) {
+            $state = $this->usageScalingService->loadRules();
+            if ($state !== null) {
+                $scalingTier = md5(json_encode($state) . '|' . ($this->versions?->get(UsageScalingService::VERSION_KEY_STATE) ?? ''));
+            }
+        }
         return implode('|', [
             $baseSha,
             $updatedAt ?? '',
@@ -341,6 +409,7 @@ class ClientConfigService
             $keyHash,
             $this->normalizer->normalizeString($baseUrl) ?? '',
             $homePath ?? '',
+            $scalingTier,
         ]);
     }
 

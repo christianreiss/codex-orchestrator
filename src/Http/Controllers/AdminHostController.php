@@ -263,6 +263,46 @@ class AdminHostController
         ]);
     }
 
+    public function scalingExempt(string $hostId, array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
+        $hostId = (int) $hostId;
+        $host = $this->hostRepository->findById($hostId);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $exemptRaw = $payload['scaling_exempt'] ?? null;
+        $exempt = normalizeBoolean($exemptRaw);
+        if ($exempt === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'scaling_exempt must be boolean',
+            ], 422);
+        }
+
+        $this->hostRepository->updateScalingExempt($hostId, $exempt);
+        $this->logRepository->log($hostId, 'admin.host.scaling_exempt', [
+            'fqdn' => $host['fqdn'],
+            'scaling_exempt' => $exempt,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => [
+                    'id' => (int) $host['id'],
+                    'fqdn' => $host['fqdn'],
+                    'scaling_exempt' => $exempt,
+                ],
+            ],
+        ]);
+    }
+
     public function autoUpdate(string $hostId, array $payload): void
     {
         requireAdminAccess();

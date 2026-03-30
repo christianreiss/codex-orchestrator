@@ -94,6 +94,7 @@ class HostMigration implements MigrationInterface
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'auto_update_override', 'TINYINT(1) NULL DEFAULT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'last_cron_check', 'VARCHAR(100) NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'scaling_exempt', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->ensureIndexExists($pdo, $databaseName, 'hosts', 'idx_hosts_expires_at', 'INDEX idx_hosts_expires_at (expires_at)');
     }
 

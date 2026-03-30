@@ -9,6 +9,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\AdminAuthService;
+use App\Services\UsageScalingService;
 use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
 
@@ -18,6 +19,7 @@ class AdminSettingsController
         private AuthService $service,
         private VersionRepository $versionRepository,
         private LogRepository $logRepository,
+        private ?UsageScalingService $usageScalingService = null,
     ) {}
 
     /**
@@ -614,6 +616,59 @@ class AdminSettingsController
                 'available_client' => $available,
                 'versions' => $versions,
             ],
+        ]);
+    }
+
+    /**
+     * GET /admin/scaling
+     */
+    public function getScaling(): void
+    {
+        requireAdminAccess();
+
+        if ($this->usageScalingService === null) {
+            Response::json(['status' => 'ok', 'data' => ['enabled' => false, 'rules' => null]]);
+            return;
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $this->usageScalingService->currentStatus(),
+        ]);
+    }
+
+    /**
+     * POST /admin/scaling
+     */
+    public function postScaling(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        if ($this->usageScalingService === null) {
+            Response::json(['status' => 'error', 'message' => 'Scaling service not available'], 503);
+            return;
+        }
+
+        $rules = $payload;
+        $errors = $this->usageScalingService->storeRules($rules);
+        if ($errors !== []) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $errors,
+            ], 422);
+            return;
+        }
+
+        $this->logRepository->log(null, 'admin.scaling', [
+            'enabled' => $rules['enabled'] ?? false,
+            'tiers' => count($rules['tiers'] ?? []),
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $this->usageScalingService->currentStatus(),
         ]);
     }
 }

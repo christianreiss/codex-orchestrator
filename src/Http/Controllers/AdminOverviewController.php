@@ -24,6 +24,7 @@ use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\CostHistoryService;
 use App\Services\PricingService;
+use App\Services\UsageScalingService;
 use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
 use DateTimeImmutable;
@@ -46,6 +47,7 @@ class AdminOverviewController
         private HostAuthDigestRepository $digestRepository,
         private HostUserRepository $hostUserRepository,
         private InsecureDomainAllowRepository $insecureDomainAllowRepository,
+        private ?UsageScalingService $usageScalingService = null,
         private string $pricingModel = 'gpt-5.4',
     ) {}
 
@@ -468,6 +470,7 @@ class AdminOverviewController
                 'log_retention_days_graph_stats' => $logRetentionDaysGraphStats,
                 'client_version_lock' => $clientVersionLock['version'] ?? null,
                 'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,
+                'scaling' => $this->usageScalingService?->currentStatus(),
             ],
         ]);
     }
