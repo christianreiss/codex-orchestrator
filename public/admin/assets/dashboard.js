@@ -83,18 +83,6 @@
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
     const confirmDeleteHostBtn = document.getElementById('confirmDeleteHost');
-    const agentsDeleteModal = document.getElementById('agentsDeleteModal');
-    const agentsDeleteIntro = document.getElementById('agentsDeleteIntro');
-    const agentsDeleteSelect = document.getElementById('agentsDeleteSelect');
-    const agentsDeleteHosts = document.getElementById('agentsDeleteHosts');
-    const agentsDeleteStatus = document.getElementById('agentsDeleteStatus');
-    const agentsDeleteCancel = document.getElementById('agentsDeleteCancel');
-    const agentsDeleteConfirm = document.getElementById('agentsDeleteConfirm');
-    const agentsViewModal = document.getElementById('agentsViewModal');
-    const agentsViewMeta = document.getElementById('agentsViewMeta');
-    const agentsViewContent = document.getElementById('agentsViewContent');
-    const agentsViewStatus = document.getElementById('agentsViewStatus');
-    const agentsViewClose = document.getElementById('agentsViewClose');
     const hostDetailTitle = document.getElementById('hostDetailTitle');
     const hostDetailPills = document.getElementById('hostDetailPills');
     const hostDetailGrid = document.getElementById('hostDetailGrid');
@@ -157,31 +145,15 @@
     const memoriesTagsInput = document.getElementById('memoriesTags');
     const memoriesLimitInput = document.getElementById('memoriesLimit');
     const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
+    const agentsTabButtons = Array.from(document.querySelectorAll('[data-agents-tab]'));
+    const agentsTabPanels = Array.from(document.querySelectorAll('[data-agents-tab-panel]'));
     const agentsMeta = document.getElementById('agentsMeta');
-    const agentsBackupLimitMeta = document.getElementById('agentsBackupLimitMeta');
-    const agentsBackupLimitInput = document.getElementById('agentsBackupLimitInput');
-    const agentsBackupLimitSave = document.getElementById('agentsBackupLimitSave');
-    const agentsServeLabel = document.getElementById('agentsServeLabel');
-    const agentsServeLatest = document.getElementById('agentsServeLatest');
+    const agentsBackupsMeta = document.getElementById('agentsBackupsMeta');
     const agentsPreview = document.getElementById('agentsPreview');
     const agentsEditorInline = document.getElementById('agentsEditorInline');
     const agentsStatus = document.getElementById('agentsStatus');
-    const agentsEditToggle = document.getElementById('agentsEditToggle');
     const agentsSaveInline = document.getElementById('agentsSaveInline');
     const agentsVersionsBody = document.querySelector('#agentsVersions tbody');
-    const agentsEmptyState = document.getElementById('agentsEmptyState');
-    const agentsServeIndicator  = document.getElementById('agentsServeIndicator');
-    const agentsEditorToolbar   = document.getElementById('agentsEditorToolbar');
-    const agentsLineCount       = document.getElementById('agentsLineCount');
-    const agentsDraftBanner     = document.getElementById('agentsDraftBanner');
-    const agentsDraftBannerTitle= document.getElementById('agentsDraftBannerTitle');
-    const agentsDraftBannerBody = document.getElementById('agentsDraftBannerBody');
-    const agentsEmptyEdit       = document.getElementById('agentsEmptyEdit');
-    const agentsRestoreModal    = document.getElementById('agentsRestoreModal');
-    const agentsRestoreBody     = document.getElementById('agentsRestoreBody');
-    const agentsRestoreStatus   = document.getElementById('agentsRestoreStatus');
-    const agentsRestoreCancel   = document.getElementById('agentsRestoreCancel');
-    const agentsRestoreConfirm  = document.getElementById('agentsRestoreConfirm');
     const apiToggle = document.getElementById('apiToggle');
     const apiToggleLabel = document.getElementById('apiToggleLabel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
@@ -290,9 +262,6 @@
     let pendingDeleteId = null;
     let newHostSuccessHostId = null;
     let newHostSuccessCanDelete = false;
-    let pendingAgentsDeleteId = null;
-    let pendingAgentsDeleteHosts = [];
-    let pendingAgentsViewId = null;
     let hostSearchMatches = [];
     let hostSearchSelectedIndex = 0;
     const HOST_MODEL_REASONING = {
@@ -313,10 +282,9 @@
     let currentSkills = [];
     let currentMemories = [];
     let currentAgents = null;
+    let agentsActiveTab = 'content';
     let agentsSaveInFlight = false;
     let agentsDeleteInFlight = false;
-    let agentsRetentionInFlight = false;
-    let agentsPendingRestoreId = null;
     let agentsRestoreInFlight = false;
     let agentsEditing = false;
     let agentsOriginalContent = '';
@@ -2801,46 +2769,109 @@
       return String(value ?? '').replace(/\r\n?/g, '\n');
     }
 
-    function agentsIsDirty() {
+    function agentsCurrentContent(doc = currentAgents) {
+      return normalizeAgentsEditorText(typeof doc?.content === 'string' ? doc.content : '');
+    }
+
+    function agentsHasUnsavedChanges() {
       if (!agentsEditing || !agentsEditorInline) return false;
-      return normalizeAgentsEditorText(agentsEditorInline.value) !== normalizeAgentsEditorText(agentsOriginalContent);
+      return normalizeAgentsEditorText(agentsEditorInline.value) !== agentsOriginalContent;
+    }
+
+    function setAgentsTab(tab) {
+      const nextTab = tab === 'backups' ? 'backups' : 'content';
+      if (nextTab !== agentsActiveTab && agentsHasUnsavedChanges()) {
+        setAgentsStatusMessage('Save AGENTS.md before leaving the editor.', 'warn');
+        return;
+      }
+      agentsActiveTab = nextTab;
+      agentsTabButtons.forEach((button) => {
+        const active = (button.dataset.agentsTab || 'content') === agentsActiveTab;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      agentsTabPanels.forEach((panel) => {
+        panel.hidden = (panel.dataset.agentsTabPanel || 'content') !== agentsActiveTab;
+      });
     }
 
     function syncAgentsEditorUI() {
-      const dirty = agentsIsDirty();
+      const dirty = agentsHasUnsavedChanges();
 
       if (window.__adminDirtyModules) {
-        if (agentsEditing && dirty) window.__adminDirtyModules.add('agents');
+        if (dirty) window.__adminDirtyModules.add('agents');
         else window.__adminDirtyModules.delete('agents');
       }
 
-      if (agentsDraftBanner) agentsDraftBanner.hidden = !(agentsEditing && dirty);
-      if (agentsDraftBannerTitle) agentsDraftBannerTitle.textContent = 'Unsaved changes.';
-      if (agentsDraftBannerBody) agentsDraftBannerBody.textContent = 'Save or cancel before leaving the editor.';
-
-      if (agentsServeLatest) {
-        agentsServeLatest.disabled = agentsEditing && dirty;
-        agentsServeLatest.title = (agentsEditing && dirty)
-          ? 'Save or cancel the current edits before publishing.'
-          : 'Switch fleet to track the latest version';
+      if (agentsPreview) agentsPreview.hidden = agentsEditing;
+      if (agentsEditorInline) agentsEditorInline.hidden = !agentsEditing;
+      if (agentsSaveInline) {
+        agentsSaveInline.hidden = !dirty;
+        agentsSaveInline.disabled = agentsSaveInFlight;
+        agentsSaveInline.textContent = agentsSaveInFlight ? 'Saving…' : 'Save';
       }
-
-      if (agentsEditorInline)  agentsEditorInline.hidden  = !agentsEditing;
-      if (agentsEditorToolbar) agentsEditorToolbar.hidden = !agentsEditing;
-      if (agentsPreview)       agentsPreview.hidden       = agentsEditing || currentAgents?.status === 'missing';
-      if (agentsEmptyState)    agentsEmptyState.hidden    = agentsEditing || currentAgents?.status !== 'missing';
-
-      if (agentsEditing) updateAgentsLineCount();
     }
 
-    function describeAgentsBackupLimit(limit) {
-      const numeric = Number(limit);
-      if (!Number.isFinite(numeric) || numeric <= 0) {
-        return 'Unlimited backups. The latest draft always stays, and served or host-pinned versions are never auto-deleted.';
+    function renderAgentsVersions(doc) {
+      if (!agentsVersionsBody) return;
+
+      const versions = Array.isArray(doc?.versions) ? doc.versions : [];
+      const hostCounts = {};
+      (Array.isArray(currentHosts) ? currentHosts : []).forEach((host) => {
+        const versionId = normalizeAgentsVersionId(host?.agents_document_id_override);
+        if (!versionId) return;
+        hostCounts[versionId] = (hostCounts[versionId] || 0) + 1;
+      });
+
+      if (agentsBackupsMeta) {
+        const backupCount = versions.length;
+        agentsBackupsMeta.textContent = backupCount === 0
+          ? 'No AGENTS backups yet.'
+          : `${formatNumber(backupCount)} backup${backupCount === 1 ? '' : 's'} in history. Restore makes a selected backup current production.`;
       }
 
-      const suffix = numeric === 1 ? 'backup' : 'backups';
-      return `Keep the latest draft plus ${formatNumber(numeric)} older ${suffix}. Served and host-pinned versions stay protected.`;
+      if (!versions.length) {
+        agentsVersionsBody.innerHTML = '<tr><td class="muted" colspan="6">No backups yet.</td></tr>';
+        return;
+      }
+
+      agentsVersionsBody.innerHTML = versions.map((version) => {
+        const id = normalizeAgentsVersionId(version?.id);
+        const sha = typeof version?.sha256 === 'string' ? version.sha256 : '';
+        const updated = version?.updated_at ? formatRelative(version.updated_at) : '—';
+        const bytes = Number(version?.size_bytes);
+        const sizeText = Number.isFinite(bytes) ? `${formatNumber(bytes)} bytes` : '—';
+        const hostCount = id ? (hostCounts[id] || 0) : 0;
+        const isServed = !!version?.is_served;
+        const isLatest = !!version?.is_latest;
+        const isActive = !!version?.is_active;
+        const busy = agentsDeleteInFlight || agentsRestoreInFlight;
+        const statusChips = [];
+        if (isServed) statusChips.push('<span class="pill ok">Current</span>');
+        if (!isServed && isActive) statusChips.push('<span class="pill warn">Pinned</span>');
+        if (isLatest) statusChips.push('<span class="pill accent">Latest</span>');
+        if (hostCount > 0) statusChips.push(`<span class="pill warn">${formatNumber(hostCount)} pinned</span>`);
+        return `
+          <tr data-version-id="${id || ''}"${isServed ? ' class="is-served"' : ''}>
+            <td>#${id || '—'}</td>
+            <td>${escapeHtml(updated)}</td>
+            <td>${escapeHtml(sizeText)}</td>
+            <td>${formatNumber(hostCount)}</td>
+            <td class="agents-sha">${escapeHtml(sha ? sha.slice(0, 12) : '—')}</td>
+            <td class="agents-version-actions">
+              <span class="agents-version-pills">${statusChips.join(' ')}</span>
+              <span class="agents-version-btns">
+                ${isServed
+                  ? '<button class="ghost tiny-btn" disabled>Current</button>'
+                  : `<button class="ghost tiny-btn" data-action="agents-restore" data-version-id="${id}"${busy ? ' disabled' : ''}>Restore</button>`}
+                ${isServed
+                  ? '<button class="ghost tiny-btn" disabled>Delete</button>'
+                  : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}"${busy ? ' disabled' : ''}>Delete</button>`}
+              </span>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
 
     function renderAgents(doc) {
@@ -2850,128 +2881,31 @@
       }
 
       const status = doc?.status || 'missing';
-      const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : 'never';
+      const updatedAt = doc?.updated_at ? formatTimestamp(doc.updated_at) : null;
       const size = Number(doc?.size_bytes);
-      const sizeLabel = Number.isFinite(size) ? `${formatNumber(size)} bytes` : '—';
-      const mode = typeof doc?.mode === 'string' ? doc.mode : 'latest';
-      const servedId = Number.isFinite(Number(doc?.served_id)) ? Number(doc.served_id) : null;
-      const latestId = Number.isFinite(Number(doc?.latest_id)) ? Number(doc.latest_id) : null;
-      const activeId = Number.isFinite(Number(doc?.active_id)) ? Number(doc.active_id) : null;
-      const pinnedDraft = getPinnedAgentsDraft(doc);
-      if (status === 'ok') {
-        setAgentsStatusMessage('', null);
-      } else if (status === 'missing') {
-        setAgentsStatusMessage('', null);
-      } else {
-        setAgentsStatusMessage(`Status: ${status}`, 'warn');
-      }
-      if (agentsEmptyState && !agentsEditing) agentsEmptyState.hidden = status !== 'missing';
-      const backupLimit = Number(doc?.backup_limit);
-      const normalizedBackupLimit = Number.isFinite(backupLimit) && backupLimit > 0 ? backupLimit : 0;
-      if (agentsBackupLimitInput && !agentsRetentionInFlight) {
-        agentsBackupLimitInput.value = String(normalizedBackupLimit);
-      }
-      if (agentsBackupLimitMeta) {
-        agentsBackupLimitMeta.textContent = describeAgentsBackupLimit(normalizedBackupLimit);
-      }
-      if (agentsBackupLimitSave) {
-        agentsBackupLimitSave.disabled = agentsRetentionInFlight;
-      }
-      if (agentsServeIndicator) {
-        agentsServeIndicator.className = 'agents-serve-indicator';
-        if (status === 'missing') agentsServeIndicator.classList.add('missing');
-        else if (mode === 'locked') agentsServeIndicator.classList.add('pinned');
-        else agentsServeIndicator.classList.add('serving');
-      }
-      if (agentsServeLabel) {
-        if (status === 'missing') {
-          agentsServeLabel.textContent = 'No AGENTS.md yet';
-        } else if (mode === 'latest') {
-          agentsServeLabel.textContent = `Serving latest${latestId ? ` · v${latestId}` : ''}`;
-        } else {
-          const suffix = activeId ? `v${activeId}` : 'pinned';
-          agentsServeLabel.textContent = `Serving pinned (${suffix})`;
-        }
-      }
+      const text = agentsCurrentContent(doc);
       if (agentsMeta) {
-        const parts = [];
-        if (sizeLabel !== '—') parts.push(sizeLabel);
-        if (updatedAt !== 'never') parts.push(`updated ${updatedAt}`);
-        if (pinnedDraft) parts.push(`draft v${pinnedDraft.latestId} pending`);
-        agentsMeta.textContent = parts.join(' · ');
-      }
-      if (agentsServeLatest) {
-        agentsServeLatest.hidden = status === 'missing' || mode === 'latest';
-        agentsServeLatest.disabled = false;
-        agentsServeLatest.textContent = pinnedDraft ? 'Publish latest draft' : 'Publish latest';
-      }
-
-      if (agentsPreview) {
-        const text = typeof doc?.content === 'string' ? doc.content : '';
-        agentsPreview.textContent = text;
-        if (!agentsEditing) agentsPreview.hidden = status === 'missing';
-      }
-
-      if (agentsEditorInline && !agentsEditing) {
-        agentsEditorInline.value = normalizeAgentsEditorText(
-          typeof doc?.content === 'string' ? doc.content : ''
-        );
-      }
-
-      if (agentsVersionsBody) {
-        const versions = Array.isArray(doc?.versions) ? doc.versions : [];
-        const hostCounts = {};
-        (Array.isArray(currentHosts) ? currentHosts : []).forEach((host) => {
-          const versionId = normalizeAgentsVersionId(host?.agents_document_id_override);
-          if (!versionId) return;
-          hostCounts[versionId] = (hostCounts[versionId] || 0) + 1;
-        });
-        if (!versions.length) {
-          agentsVersionsBody.innerHTML = '<tr><td class="muted" colspan="6">No versions yet.</td></tr>';
+        if (status === 'missing') {
+          agentsMeta.textContent = 'No canonical AGENTS.md yet. Click the document body to create it.';
         } else {
-          agentsVersionsBody.innerHTML = versions.map((version) => {
-            const id = Number(version?.id);
-            const sha = typeof version?.sha256 === 'string' ? version.sha256 : '';
-            const updated = version?.updated_at ? formatRelative(version.updated_at) : '—';
-            const bytes = Number(version?.size_bytes);
-            const sizeText = Number.isFinite(bytes) ? `${formatNumber(bytes)} bytes` : '—';
-            const hostCount = Number.isFinite(id) ? (hostCounts[id] || 0) : 0;
-            const isServed = !!version?.is_served;
-            const isLatest = !!version?.is_latest;
-            const isActive = !!version?.is_active;
-            const statusChips = [];
-            if (isServed) statusChips.push('<span class="pill ok">Serving</span>');
-            if (!isServed && isActive) statusChips.push('<span class="pill warn">Pinned</span>');
-            if (isLatest) statusChips.push('<span class="pill accent">Latest</span>');
-            return `
-              <tr data-version-id="${Number.isFinite(id) ? id : ''}"${isServed ? ' class="is-served"' : ''}>
-                <td>#${Number.isFinite(id) ? id : '—'}</td>
-                <td>${escapeHtml(updated)}</td>
-                <td>${escapeHtml(sizeText)}</td>
-                <td>${formatNumber(hostCount)}</td>
-                <td class="agents-sha">${escapeHtml(sha ? sha.slice(0, 12) : '—')}</td>
-                <td class="agents-version-actions">
-                  <span class="agents-version-pills">${statusChips.join(' ')}</span>
-                  <span class="agents-version-btns">
-                    <button class="ghost tiny-btn" data-action="agents-view" data-version-id="${id}">View</button>
-                    ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-restore" data-version-id="${id}">Restore</button>`}
-                    ${isServed ? '<button class="ghost tiny-btn" disabled>Delete</button>' : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}">Delete</button>`}
-                  </span>
-                </td>
-              </tr>
-            `;
-          }).join('');
+          const metaParts = [];
+          if (Number.isFinite(size)) metaParts.push(`${formatNumber(size)} bytes`);
+          if (updatedAt) metaParts.push(`updated ${updatedAt}`);
+          agentsMeta.textContent = metaParts.join(' · ');
         }
       }
-    }
-
-    function getPinnedAgentsDraft(doc = currentAgents) {
-      const mode = typeof doc?.mode === 'string' ? doc.mode : 'latest';
-      if (mode !== 'locked') return null;
-      const servedId = normalizeAgentsVersionId(doc?.served_id);
-      const latestId = normalizeAgentsVersionId(doc?.latest_id);
-      if (!servedId || !latestId || servedId === latestId) return null;
-      return { servedId, latestId };
+      if (agentsPreview) {
+        const placeholder = status === 'missing'
+          ? 'No canonical AGENTS.md yet.\n\nClick anywhere in this box to create it.'
+          : (text || ' ');
+        agentsPreview.textContent = placeholder;
+        agentsPreview.classList.toggle('is-empty', status === 'missing');
+      }
+      if (agentsEditorInline && !agentsEditing) {
+        agentsEditorInline.value = text;
+      }
+      renderAgentsVersions(doc);
+      syncAgentsEditorUI();
     }
 
     function formatMinutesAgo(value) {
@@ -8903,223 +8837,61 @@
 
     function openAgentsEditor() {
       if (!agentsEditorInline) return;
-      agentsOriginalContent = normalizeAgentsEditorText(
-        typeof currentAgents?.content === 'string' ? currentAgents.content : ''
-      );
+      agentsOriginalContent = agentsCurrentContent();
       agentsEditorInline.value = agentsOriginalContent;
       agentsEditing = true;
       syncAgentsEditorUI();
       try { agentsEditorInline.focus(); } catch (_) {}
     }
 
-    function closeAgentsEditor(restoreContent = false) {
+    function closeAgentsEditor() {
       agentsEditing = false;
-      if (restoreContent && agentsEditorInline) {
-        agentsEditorInline.value = agentsOriginalContent;
-      }
       agentsOriginalContent = '';
       syncAgentsEditorUI();
-      setAgentsStatusMessage('', null);
     }
 
-    function updateAgentsLineCount() {
-      if (!agentsLineCount || !agentsEditorInline) return;
-      const v = agentsEditorInline.value;
-      const lines = v === '' ? 0 : (v.match(/\n/g) || []).length + 1;
-      agentsLineCount.textContent = `${lines} line${lines === 1 ? '' : 's'}`;
+    function maybeCloseAgentsEditorOnBlur() {
+      if (!agentsEditing || agentsSaveInFlight || agentsHasUnsavedChanges()) return;
+      closeAgentsEditor();
     }
 
     async function saveAgentsInline() {
       if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;
       const content = normalizeAgentsEditorText(agentsEditorInline.value);
-
-      // Close synchronously before the first await — eliminates any race with loadAll/renderAgents
-      closeAgentsEditor(false);
+      if (content === agentsOriginalContent) return;
 
       agentsSaveInFlight = true;
-      if (agentsSaveInline) { agentsSaveInline.disabled = true; agentsSaveInline.textContent = 'Saving…'; }
-      setAgentsStatusMessage('', null);
+      syncAgentsEditorUI();
+      setAgentsStatusMessage('Saving AGENTS.md…', null);
       try {
         const response = await api('/admin/agents/store', {
           method: 'POST',
           json: { content },
         });
-        loadAll(); // background refresh — not awaited; agentsEditing=false so renderAgents is safe
         const result = response?.data || response || {};
-        const prunedCount = Number(result?.pruned_count || 0);
-        let msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
-        const pinnedDraft = getPinnedAgentsDraft(currentAgents);
-        if (pinnedDraft && result?.status !== 'unchanged') {
-          msg += ` as latest draft v${pinnedDraft.latestId}. Use Publish latest to roll it out.`;
-        }
-        if (prunedCount > 0) {
-          msg += ` · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`;
-        }
+        currentAgents = {
+          ...(currentAgents || {}),
+          status: 'ok',
+          content,
+          updated_at: result?.updated_at || new Date().toISOString(),
+          size_bytes: content.length,
+          sha256: result?.sha256 || currentAgents?.sha256 || null,
+        };
+        closeAgentsEditor();
+        renderAgents(currentAgents);
+        const msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved AGENTS.md';
         setAgentsStatusMessage(msg, 'ok');
         setTimeout(() => {
           if ((agentsStatus?.textContent || '') === msg) setAgentsStatusMessage('', null);
         }, 2200);
+        await loadAll();
       } catch (err) {
+        agentsEditing = true;
+        syncAgentsEditorUI();
         setAgentsStatusMessage(`Save failed: ${err.message}`, 'error');
       } finally {
         agentsSaveInFlight = false;
-        if (agentsSaveInline) { agentsSaveInline.disabled = false; agentsSaveInline.textContent = 'Save'; }
-      }
-    }
-
-    async function serveAgentsLatest() {
-      if (agentsServeLatest) agentsServeLatest.disabled = true;
-      setAgentsStatusMessage('', null);
-      try {
-        const response = await api('/admin/agents/serve', {
-          method: 'POST',
-          json: { mode: 'latest' },
-        });
-        await loadAll();
-        if (agentsDraftBanner) agentsDraftBanner.hidden = true;
-        const result = response?.data || response || {};
-        const prunedCount = Number(result?.pruned_count || 0);
-        const toastMsg = prunedCount > 0
-          ? `Now serving latest · pruned ${formatNumber(prunedCount)} backup${prunedCount === 1 ? '' : 's'}`
-          : 'Now serving latest';
-        toast(toastMsg, 'ok');
-      } catch (err) {
-        setAgentsStatusMessage(`Publish failed: ${err.message}`, 'error');
-      } finally {
-        if (agentsServeLatest) agentsServeLatest.disabled = false;
-      }
-    }
-
-    async function saveAgentsBackupRetention() {
-      if (!agentsBackupLimitInput || !agentsBackupLimitSave || agentsRetentionInFlight) return;
-      const rawValue = String(agentsBackupLimitInput.value || '0').trim();
-      const numeric = Number(rawValue);
-      if (!Number.isFinite(numeric) || numeric < 0 || numeric > 200 || !Number.isInteger(numeric)) {
-        setAgentsStatusMessage('Backup retention must be an integer between 0 and 200.', 'error');
-        return;
-      }
-
-      agentsRetentionInFlight = true;
-      agentsBackupLimitSave.disabled = true;
-      agentsBackupLimitInput.disabled = true;
-      const original = agentsBackupLimitSave.textContent;
-      agentsBackupLimitSave.textContent = 'Saving…';
-      setAgentsStatusMessage('Saving backup retention…', null);
-      try {
-        const response = await api('/admin/agents/retention', {
-          method: 'POST',
-          json: { backup_limit: numeric },
-        });
-        await loadAll();
-        const result = response?.data || response || {};
-        const prunedCount = Number(result?.pruned_count || 0);
-        if (prunedCount > 0) {
-          setAgentsStatusMessage(`Saved retention limit and pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}.`, 'ok');
-        } else {
-          setAgentsStatusMessage('Saved backup retention', 'ok');
-        }
-        setTimeout(() => {
-          const text = agentsStatus?.textContent || '';
-          if (text === 'Saved backup retention' || text.startsWith('Saved retention limit and pruned ')) {
-            setAgentsStatusMessage('', null);
-          }
-        }, 1800);
-      } catch (err) {
-        setAgentsStatusMessage(`Backup retention save failed: ${err.message}`, 'error');
-      } finally {
-        agentsRetentionInFlight = false;
-        agentsBackupLimitSave.disabled = false;
-        agentsBackupLimitInput.disabled = false;
-        agentsBackupLimitSave.textContent = original;
-      }
-    }
-
-    function closeAgentsViewModal() {
-      if (!agentsViewModal) return;
-      agentsViewModal.classList.remove('show');
-      setInertBehindModal(agentsViewModal, false);
-      pendingAgentsViewId = null;
-      if (agentsViewMeta) agentsViewMeta.textContent = '';
-      if (agentsViewContent) agentsViewContent.textContent = '';
-      if (agentsViewStatus) agentsViewStatus.textContent = '';
-    }
-
-    async function viewAgentsVersion(versionId) {
-      const id = Number(versionId);
-      if (!Number.isFinite(id)) return;
-      pendingAgentsViewId = id;
-      if (agentsViewMeta) agentsViewMeta.textContent = `Loading v${id}…`;
-      if (agentsViewContent) agentsViewContent.innerHTML = '<span class="skeleton-cell" style="width:80%;display:block;margin-bottom:8px"></span><span class="skeleton-cell" style="width:60%;display:block;margin-bottom:8px"></span><span class="skeleton-cell" style="width:70%;display:block"></span>';
-      if (agentsViewStatus) agentsViewStatus.textContent = '';
-      if (agentsViewModal) {
-        agentsViewModal.classList.add('show');
-        setInertBehindModal(agentsViewModal, true);
-      }
-      try {
-        const response = await api(`/admin/agents/versions/${id}`);
-        const version = response?.data || response || {};
-        if (pendingAgentsViewId !== id) return;
-        const flags = [];
-        if (version?.is_served) flags.push('serving');
-        if (!version?.is_served && version?.is_active) flags.push('pinned');
-        if (version?.is_latest) flags.push('latest');
-        const size = Number(version?.size_bytes);
-        const sizeText = Number.isFinite(size) ? `${formatNumber(size)} bytes` : '—';
-        const updated = version?.updated_at ? formatTimestamp(version.updated_at) : 'unknown time';
-        const tags = flags.length ? ` · ${flags.join(' · ')}` : '';
-        if (agentsViewMeta) agentsViewMeta.textContent = `Version v${id} · updated ${updated} · ${sizeText}${tags}`;
-        if (agentsViewContent) agentsViewContent.textContent = typeof version?.content === 'string' ? version.content : '';
-      } catch (err) {
-        if (agentsViewStatus) agentsViewStatus.textContent = `View failed: ${err.message}`;
-      }
-    }
-
-    function openAgentsRestoreModal(versionId) {
-      const id = Number(versionId);
-      if (!Number.isFinite(id) || !agentsRestoreModal) return;
-      agentsPendingRestoreId = id;
-      if (agentsRestoreBody) {
-        agentsRestoreBody.textContent = `Copy the content of v${id} as a new latest version and serve it fleet-wide? This does not delete v${id}.`;
-      }
-      if (agentsRestoreStatus) agentsRestoreStatus.textContent = '';
-      agentsRestoreModal.classList.add('show');
-      setInertBehindModal(agentsRestoreModal, true);
-    }
-
-    function closeAgentsRestoreModal() {
-      if (!agentsRestoreModal) return;
-      agentsRestoreModal.classList.remove('show');
-      setInertBehindModal(agentsRestoreModal, false);
-      agentsPendingRestoreId = null;
-      if (agentsRestoreStatus) agentsRestoreStatus.textContent = '';
-    }
-
-    async function confirmAgentsRestore() {
-      const id = agentsPendingRestoreId;
-      if (!id || agentsRestoreInFlight) return;
-      agentsRestoreInFlight = true;
-      if (agentsRestoreConfirm) agentsRestoreConfirm.disabled = true;
-      if (agentsRestoreCancel) agentsRestoreCancel.disabled = true;
-      if (agentsRestoreStatus) agentsRestoreStatus.textContent = `Restoring v${id}…`;
-      try {
-        const response = await api('/admin/agents/revert', {
-          method: 'POST',
-          json: { version_id: id },
-        });
-        await loadAll();
-        const result = response?.data || response || {};
-        const prunedCount = Number(result?.pruned_count || 0);
-        closeAgentsRestoreModal();
-        const toastMsg = prunedCount > 0
-          ? `Restored v${id} as latest · pruned ${formatNumber(prunedCount)} backup${prunedCount === 1 ? '' : 's'}`
-          : `Restored: v${id} is now latest and serving`;
-        toast(toastMsg, 'ok');
-      } catch (err) {
-        if (agentsRestoreStatus) agentsRestoreStatus.textContent = `Restore failed: ${err.message}`;
-      } finally {
-        agentsRestoreInFlight = false;
-        if (agentsRestoreConfirm) agentsRestoreConfirm.disabled = false;
-        if (agentsRestoreCancel) agentsRestoreCancel.disabled = false;
+        syncAgentsEditorUI();
       }
     }
 
@@ -9131,112 +8903,73 @@
       ));
     }
 
-    function renderAgentsDeleteHostsList(hosts) {
-      if (!agentsDeleteHosts) return;
-      if (!hosts.length) {
-        agentsDeleteHosts.innerHTML = '<span class="muted">None</span>';
-        return;
-      }
-      agentsDeleteHosts.innerHTML = hosts.map((host) => (
-        `<div class="host-chip"><span class="host-name">${escapeHtml(host.fqdn || `Host #${host.id}`)}</span></div>`
-      )).join('');
-    }
-
-    function openAgentsDeleteModal(versionId, hosts) {
-      if (!agentsDeleteModal) return;
+    async function restoreAgentsVersion(versionId) {
       const id = normalizeAgentsVersionId(versionId);
-      if (!id) return;
-      pendingAgentsDeleteId = id;
-      pendingAgentsDeleteHosts = Array.isArray(hosts) ? hosts.slice() : [];
-      if (agentsDeleteIntro) {
-        const count = pendingAgentsDeleteHosts.length;
-        const hostLabel = count === 1 ? 'host' : 'hosts';
-        agentsDeleteIntro.textContent = `Version v${id} is selected by ${count} ${hostLabel}. Choose where to move them before deleting.`;
-      }
-      if (agentsDeleteSelect) {
-        agentsDeleteSelect.innerHTML = buildAgentsVersionOptions(currentAgents, { excludeId: id });
-        agentsDeleteSelect.value = 'global';
-      }
-      if (agentsDeleteStatus) agentsDeleteStatus.textContent = '';
-      renderAgentsDeleteHostsList(pendingAgentsDeleteHosts);
-      agentsDeleteModal.classList.add('show');
-      setInertBehindModal(agentsDeleteModal, true);
-    }
-
-    function closeAgentsDeleteModal() {
-      if (!agentsDeleteModal) return;
-      agentsDeleteModal.classList.remove('show');
-      setInertBehindModal(agentsDeleteModal, false);
-      pendingAgentsDeleteId = null;
-      pendingAgentsDeleteHosts = [];
-      if (agentsDeleteStatus) agentsDeleteStatus.textContent = '';
-      if (agentsDeleteIntro) agentsDeleteIntro.textContent = '';
-      if (agentsDeleteHosts) agentsDeleteHosts.innerHTML = '';
-    }
-
-    async function confirmAgentsDelete() {
-      if (!pendingAgentsDeleteId || agentsDeleteInFlight) return;
-      const id = pendingAgentsDeleteId;
-      const selection = agentsDeleteSelect ? String(agentsDeleteSelect.value || 'global') : 'global';
-      if (selection === String(id)) {
-        if (agentsDeleteStatus) agentsDeleteStatus.textContent = 'Choose a different version (cannot re-pin to the one being deleted).';
+      if (!id || agentsRestoreInFlight || agentsDeleteInFlight) return;
+      if (!await showConfirmModal('Restore backup', `Restore AGENTS backup v${id} to current production? This creates a new latest version and serves it fleet-wide.`, { action: 'Restore', warn: false })) {
         return;
       }
-      agentsDeleteInFlight = true;
-      if (agentsDeleteConfirm) agentsDeleteConfirm.disabled = true;
-      if (agentsDeleteCancel) agentsDeleteCancel.disabled = true;
+
+      agentsRestoreInFlight = true;
+      renderAgents(currentAgents);
+      setAgentsStatusMessage(`Restoring v${id}…`, null);
       try {
-        const affected = pendingAgentsDeleteHosts.slice();
-        if (affected.length) {
-          if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Reassigning ${affected.length} host${affected.length === 1 ? '' : 's'}…`;
-          for (const host of affected) {
-            await api(`/admin/hosts/${host.id}/agents-version`, {
-              method: 'POST',
-              json: { selection },
-            });
-          }
-        }
-        if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Deleting v${id}…`;
-        await api(`/admin/agents/versions/${id}`, { method: 'DELETE' });
+        await api('/admin/agents/revert', {
+          method: 'POST',
+          json: { version_id: id },
+        });
         await loadAll();
-        setAgentsStatusMessage(`Deleted v${id}`, 'ok');
+        const msg = `Restored v${id} to current production`;
+        setAgentsStatusMessage(msg, 'ok');
         setTimeout(() => {
-          if (agentsStatus?.textContent === `Deleted v${id}`) setAgentsStatusMessage('', null);
-        }, 1500);
-        closeAgentsDeleteModal();
+          if ((agentsStatus?.textContent || '') === msg) setAgentsStatusMessage('', null);
+        }, 2200);
       } catch (err) {
-        if (agentsDeleteStatus) agentsDeleteStatus.textContent = `Delete failed: ${err.message}`;
+        setAgentsStatusMessage(`Restore failed: ${err.message}`, 'error');
       } finally {
-        agentsDeleteInFlight = false;
-        if (agentsDeleteConfirm) agentsDeleteConfirm.disabled = false;
-        if (agentsDeleteCancel) agentsDeleteCancel.disabled = false;
+        agentsRestoreInFlight = false;
+        renderAgents(currentAgents);
       }
     }
 
     async function deleteAgentsVersion(versionId) {
-      const id = Number(versionId);
-      if (!Number.isFinite(id) || agentsDeleteInFlight) return;
+      const id = normalizeAgentsVersionId(versionId);
+      if (!id || agentsDeleteInFlight || agentsRestoreInFlight) return;
       const affectedHosts = agentsHostsUsingVersion(id);
-      if (affectedHosts.length) {
-        openAgentsDeleteModal(id, affectedHosts);
+      const count = affectedHosts.length;
+      const hostNote = count > 0
+        ? ` ${count} pinned host${count === 1 ? '' : 's'} will be moved to Global before deletion.`
+        : '';
+      if (!await showConfirmModal('Delete backup', `Delete AGENTS backup v${id}?${hostNote} This cannot be undone.`, { action: 'Delete' })) {
         return;
       }
-      if (!await showConfirmModal('Delete version', `Delete AGENTS.md version #${id}? This cannot be undone.`, { action: 'Delete' })) {
-        return;
-      }
+
       agentsDeleteInFlight = true;
+      renderAgents(currentAgents);
       setAgentsStatusMessage(`Deleting v${id}…`, null);
       try {
+        if (affectedHosts.length) {
+          await Promise.all(affectedHosts.map((host) => (
+            api(`/admin/hosts/${host.id}/agents-version`, {
+              method: 'POST',
+              json: { selection: 'global' },
+            })
+          )));
+        }
         await api(`/admin/agents/versions/${id}`, { method: 'DELETE' });
         await loadAll();
-        setAgentsStatusMessage(`Deleted v${id}`, 'ok');
+        const msg = affectedHosts.length
+          ? `Deleted v${id} and moved ${affectedHosts.length} host${affectedHosts.length === 1 ? '' : 's'} to Global`
+          : `Deleted v${id}`;
+        setAgentsStatusMessage(msg, 'ok');
         setTimeout(() => {
-          if (agentsStatus?.textContent === `Deleted v${id}`) setAgentsStatusMessage('', null);
-        }, 1500);
+          if ((agentsStatus?.textContent || '') === msg) setAgentsStatusMessage('', null);
+        }, 2200);
       } catch (err) {
         setAgentsStatusMessage(`Delete failed: ${err.message}`, 'error');
       } finally {
         agentsDeleteInFlight = false;
+        renderAgents(currentAgents);
       }
     }
 
@@ -9729,6 +9462,8 @@
       event.returnValue = '';
     });
 
+    setAgentsTab(agentsActiveTab);
+    syncAgentsEditorUI();
     applyRouting();
     if (versionCheckBtn) {
       versionCheckBtn.addEventListener('click', runVersionCheck);
@@ -9883,40 +9618,27 @@
         openSkillDetail('');
       });
     }
+    agentsTabButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        setAgentsTab(button.dataset.agentsTab || 'content');
+      });
+    });
     if (agentsPreview) {
       agentsPreview.addEventListener('click', () => {
-        if (currentAgents?.status !== 'missing') openAgentsEditor();
+        openAgentsEditor();
       });
       agentsPreview.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (currentAgents?.status !== 'missing') openAgentsEditor();
+          openAgentsEditor();
         }
-      });
-    }
-    if (agentsEditToggle) {
-      agentsEditToggle.addEventListener('click', (event) => {
-        event.preventDefault();
-        closeAgentsEditor(true);
       });
     }
     if (agentsEditorInline) {
-      agentsEditorInline.addEventListener('keydown', (e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-          e.preventDefault();
-          saveAgentsInline();
-        }
-      });
       agentsEditorInline.addEventListener('input', syncAgentsEditorUI);
-    }
-    if (agentsServeLatest) {
-      agentsServeLatest.addEventListener('click', (event) => {
-        event.preventDefault();
-        serveAgentsLatest();
+      agentsEditorInline.addEventListener('blur', () => {
+        window.setTimeout(() => maybeCloseAgentsEditorOnBlur(), 0);
       });
-    }
-    if (agentsEmptyEdit) {
-      agentsEmptyEdit.addEventListener('click', () => openAgentsEditor());
     }
     if (agentsVersionsBody) {
       agentsVersionsBody.addEventListener('click', (event) => {
@@ -9925,24 +9647,11 @@
         const action = btn.getAttribute('data-action');
         const versionId = btn.getAttribute('data-version-id');
         if (!versionId) return;
-        if (action === 'agents-view') {
-          viewAgentsVersion(versionId);
-        } else if (action === 'agents-restore') {
-          openAgentsRestoreModal(versionId);
+        if (action === 'agents-restore') {
+          restoreAgentsVersion(versionId);
         } else if (action === 'agents-delete') {
           deleteAgentsVersion(versionId);
         }
-      });
-    }
-    if (agentsRestoreCancel) {
-      agentsRestoreCancel.addEventListener('click', () => closeAgentsRestoreModal());
-    }
-    if (agentsRestoreConfirm) {
-      agentsRestoreConfirm.addEventListener('click', () => confirmAgentsRestore());
-    }
-    if (agentsRestoreModal) {
-      agentsRestoreModal.addEventListener('click', (e) => {
-        if (e.target === agentsRestoreModal) closeAgentsRestoreModal();
       });
     }
     if (uploadAuthBtn) {
@@ -10106,30 +9815,9 @@
     if (agentsSaveInline) {
       agentsSaveInline.addEventListener('click', () => saveAgentsInline());
     }
-    if (agentsBackupLimitSave) {
-      agentsBackupLimitSave.addEventListener('click', () => saveAgentsBackupRetention());
-    }
-    if (agentsBackupLimitInput) {
-      agentsBackupLimitInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          saveAgentsBackupRetention();
-        }
-      });
-    }
     if (deleteHostModal) {
       deleteHostModal.addEventListener('click', (e) => {
         if (e.target === deleteHostModal) closeDeleteModal();
-      });
-    }
-    if (agentsDeleteModal) {
-      agentsDeleteModal.addEventListener('click', (e) => {
-        if (e.target === agentsDeleteModal) closeAgentsDeleteModal();
-      });
-    }
-    if (agentsViewModal) {
-      agentsViewModal.addEventListener('click', (e) => {
-        if (e.target === agentsViewModal) closeAgentsViewModal();
       });
     }
     const modalCloseMap = new Map([
@@ -10139,9 +9827,6 @@
       [uploadModal,           () => showUploadModal(false)],
       [insecureHostsModal,    () => closeInsecureHostsModal()],
       [deleteHostModal,       () => closeDeleteModal()],
-      [agentsDeleteModal,     () => closeAgentsDeleteModal()],
-      [agentsViewModal,       () => closeAgentsViewModal()],
-      [agentsRestoreModal,    () => closeAgentsRestoreModal()],
       [runnerModal,           () => showRunnerModal(false)],
       [upgradeModal,          () => showUpgradeNotesModal(false)],
       [usageHistoryModal,     () => showUsageHistoryModal(false)],
@@ -10215,15 +9900,6 @@
     }
     if (confirmDeleteHostBtn) {
       confirmDeleteHostBtn.addEventListener('click', confirmRemove);
-    }
-    if (agentsDeleteCancel) {
-      agentsDeleteCancel.addEventListener('click', () => closeAgentsDeleteModal());
-    }
-    if (agentsDeleteConfirm) {
-      agentsDeleteConfirm.addEventListener('click', () => confirmAgentsDelete());
-    }
-    if (agentsViewClose) {
-      agentsViewClose.addEventListener('click', () => closeAgentsViewModal());
     }
     if (apiToggle) {
       apiToggle.addEventListener('change', () => {

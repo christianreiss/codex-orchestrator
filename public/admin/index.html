@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-03">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-06">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
 </head>
@@ -587,48 +587,6 @@
             <div class="actions">
               <button class="ghost" id="cancelProjectDelete">Cancel</button>
               <button class="danger" id="confirmProjectDelete">Delete</button>
-            </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="agentsDeleteModal" role="dialog" aria-modal="true">
-          <div class="modal">
-            <h3>Delete AGENTS.md version</h3>
-            <p id="agentsDeleteIntro" class="muted"></p>
-            <div class="field">
-              <label for="agentsDeleteSelect" class="modal-label">Move affected hosts to</label>
-              <select id="agentsDeleteSelect"></select>
-              <div class="muted-note">Global follows the fleet AGENTS.md setting.</div>
-            </div>
-            <div class="field">
-              <label class="modal-label">Affected hosts</label>
-              <div id="agentsDeleteHosts" class="agents-delete-hosts"></div>
-            </div>
-            <div id="agentsDeleteStatus" class="muted status-text"></div>
-            <div class="actions">
-              <button class="ghost" id="agentsDeleteCancel">Cancel</button>
-              <button class="danger" id="agentsDeleteConfirm">Move &amp; Delete</button>
-            </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="agentsViewModal" role="dialog" aria-modal="true">
-          <div class="modal agents-modal">
-            <h3>View AGENTS.md version</h3>
-            <p id="agentsViewMeta" class="muted"></p>
-            <pre id="agentsViewContent" class="agents-preview agents-modal-content"></pre>
-            <div id="agentsViewStatus" class="muted status-text"></div>
-            <div class="actions">
-              <button class="ghost" id="agentsViewClose">Close</button>
-            </div>
-          </div>
-        </div>
-        <div class="modal-backdrop" id="agentsRestoreModal" role="dialog" aria-modal="true">
-          <div class="modal">
-            <h3>Restore version</h3>
-            <p id="agentsRestoreBody" class="muted"></p>
-            <div id="agentsRestoreStatus" class="muted status-text"></div>
-            <div class="actions">
-              <button class="ghost" id="agentsRestoreCancel">Cancel</button>
-              <button class="primary" id="agentsRestoreConfirm">Promote to latest</button>
             </div>
           </div>
         </div>
@@ -1710,74 +1668,54 @@
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Agents</p>
-                <h2>Canonical AGENTS.md</h2>
-                <p class="muted">Synced to every host via cdx.</p>
+                <h2>AGENTS workspace</h2>
+                <p class="muted">Edit the canonical AGENTS.md and manage production backups.</p>
               </div>
             </div>
-            <div class="agents-serve-bar">
-              <div class="agents-serve-bar-left">
-                <span class="agents-serve-indicator" id="agentsServeIndicator"></span>
-                <span class="agents-serve-label" id="agentsServeLabel"></span>
-                <span class="agents-meta-inline" id="agentsMeta"></span>
+            <div class="agents-workspace">
+              <div class="agents-tab-strip" role="tablist" aria-label="AGENTS workspace tabs">
+                <button class="agents-tab-button active" type="button" data-agents-tab="content" role="tab" aria-selected="true">AGENTS.md</button>
+                <button class="agents-tab-button" type="button" data-agents-tab="backups" role="tab" aria-selected="false">Backups</button>
               </div>
-              <div class="agents-serve-bar-right">
-                <button class="ghost tiny-btn" id="agentsServeLatest" title="Switch fleet to track the latest version">Publish latest</button>
-              </div>
-            </div>
-            <div class="agents-backup-row">
-              <div class="agents-backup-copy">
-                <div class="agents-backup-title">Retention</div>
-                <div class="muted" id="agentsBackupLimitMeta">Keep the latest draft plus older backups. Served and host-pinned versions stay protected.</div>
-              </div>
-              <div class="agents-backup-actions">
-                <label class="modal-label" for="agentsBackupLimitInput">Keep versions</label>
-                <input id="agentsBackupLimitInput" type="number" min="0" max="200" step="1" inputmode="numeric" value="0">
-                <button class="ghost tiny-btn" id="agentsBackupLimitSave">Save</button>
-              </div>
-            </div>
-            <div class="agents-draft-banner" id="agentsDraftBanner" hidden>
-              <div class="agents-draft-banner-text">
-                <strong id="agentsDraftBannerTitle">Unsaved changes.</strong>
-                <span id="agentsDraftBannerBody">Save or cancel before leaving the editor.</span>
-              </div>
-            </div>
-            <div class="agents-editor-toolbar" id="agentsEditorToolbar" hidden>
-              <div class="agents-editor-toolbar-left">
-                <button class="ghost tiny-btn" id="agentsEditToggle">Cancel</button>
-                <span class="agents-line-count" id="agentsLineCount">0 lines</span>
-              </div>
-              <div class="agents-editor-toolbar-right">
-                <kbd class="agents-kbd">⌘S</kbd>
-                <button class="primary tiny-btn" id="agentsSaveInline">Save</button>
-              </div>
-            </div>
-            <div id="agentsStatus" class="agents-status" role="status" aria-live="polite"></div>
-            <pre id="agentsPreview" class="agents-preview" tabindex="0" role="button" aria-label="Click or press Enter to edit AGENTS.md"></pre>
-            <textarea id="agentsEditorInline" class="agents-editor" rows="18" spellcheck="false" hidden aria-label="AGENTS.md content editor"></textarea>
-            <div id="agentsEmptyState" class="empty-state-box" hidden>
-              <div class="empty-state-title">No canonical AGENTS.md yet</div>
-              <div class="muted" style="margin-top:6px;">Click <strong>Edit</strong> to create one, or seed via the API.</div>
-              <button class="primary tiny-btn" id="agentsEmptyEdit" style="margin-top:14px;">Create AGENTS.md</button>
-            </div>
-            <div class="agents-versions">
-              <div class="agents-versions-head">
-                <span class="agents-versions-title">Version history</span>
-              </div>
-              <div class="table-wrap">
-                <table id="agentsVersions">
-                  <thead>
-                    <tr>
-                      <th>Version</th>
-                      <th>Updated</th>
-                      <th>Size</th>
-                      <th>Hosts</th>
-                      <th>SHA</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
+              <div id="agentsStatus" class="agents-status" role="status" aria-live="polite"></div>
+
+              <section class="agents-pane" data-agents-tab-panel="content" role="tabpanel">
+                <div class="agents-pane-head">
+                  <div>
+                    <div class="agents-pane-title">Canonical AGENTS.md</div>
+                    <div class="muted agents-pane-meta" id="agentsMeta">Synced to every host via cdx.</div>
+                  </div>
+                  <button class="primary tiny-btn" id="agentsSaveInline" hidden>Save</button>
+                </div>
+                <pre id="agentsPreview" class="agents-preview" tabindex="0" role="button" aria-label="Click or press Enter to edit AGENTS.md"></pre>
+                <textarea id="agentsEditorInline" class="agents-editor" rows="20" spellcheck="false" hidden aria-label="AGENTS.md content editor"></textarea>
+              </section>
+
+              <section class="agents-pane" data-agents-tab-panel="backups" role="tabpanel" hidden>
+                <div class="agents-pane-head">
+                  <div>
+                    <div class="agents-pane-title">Production backups</div>
+                    <div class="muted agents-pane-meta" id="agentsBackupsMeta">Backups are built from the AGENTS version history.</div>
+                  </div>
+                </div>
+                <div class="agents-versions">
+                  <div class="table-wrap">
+                    <table id="agentsVersions">
+                      <thead>
+                        <tr>
+                          <th>Version</th>
+                          <th>Updated</th>
+                          <th>Size</th>
+                          <th>Hosts</th>
+                          <th>SHA</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
             </div>
           </section>
 	          <section class="card panel" data-settings-panel="memories" hidden>
@@ -1785,7 +1723,7 @@
 	              <div>
 	                <h2>Memories</h2>
 	                <p class="muted panel-subtitle">Browse MCP memories stored by hosts.</p>
-	              </div>
+              </div>
 	            </div>
 	            <div class="memory-controls" id="memoriesFilters">
 	              <div class="field">
@@ -2532,7 +2470,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-31-05"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-31-06"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-31-01"></script>
