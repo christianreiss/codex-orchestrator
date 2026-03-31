@@ -176,7 +176,6 @@
     const agentsDraftBanner     = document.getElementById('agentsDraftBanner');
     const agentsDraftBannerTitle= document.getElementById('agentsDraftBannerTitle');
     const agentsDraftBannerBody = document.getElementById('agentsDraftBannerBody');
-    const agentsDraftPublish    = document.getElementById('agentsDraftPublish');
     const agentsEmptyEdit       = document.getElementById('agentsEmptyEdit');
     const agentsRestoreModal    = document.getElementById('agentsRestoreModal');
     const agentsRestoreBody     = document.getElementById('agentsRestoreBody');
@@ -2826,7 +2825,24 @@
       }
       if (agentsDraftBannerTitle) agentsDraftBannerTitle.textContent = 'Unsaved changes.';
       if (agentsDraftBannerBody) agentsDraftBannerBody.textContent = 'Save or cancel before leaving the editor.';
-      if (agentsDraftPublish) agentsDraftPublish.textContent = 'Save now';
+    }
+
+    function normalizeAgentsEditorState(options = {}) {
+      const preserveDirty = options.preserveDirty !== false;
+      if (!agentsEditorInline || agentsEditorInline.hidden) {
+        setAgentsDirty(false);
+        syncAgentsDraftBanner();
+        return;
+      }
+
+      const dirty = agentsHasUnsavedChanges();
+      if (!dirty || !preserveDirty) {
+        _applyAgentsEditingState(false);
+        return;
+      }
+
+      setAgentsDirty(true);
+      syncAgentsDraftBanner();
     }
 
     function describeAgentsBackupLimit(limit) {
@@ -2915,7 +2931,7 @@
         }
       }
 
-      syncAgentsDraftBanner();
+      normalizeAgentsEditorState();
 
       if (agentsVersionsBody) {
         const versions = Array.isArray(doc?.versions) ? doc.versions : [];
@@ -8933,18 +8949,10 @@
 
     function setAgentsInlineEditing(editing) {
       const on = !!editing;
-      if (!on && agentsEditorInline && !agentsEditorInline.hidden) {
-        const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
-        if (agentsEditorInline.value !== original) {
-          showConfirmModal(
-            'Discard changes?',
-            'You have unsaved changes. Do you want to discard them?',
-            { action: 'Discard', warn: true }
-          ).then((confirmed) => {
-            if (confirmed) _applyAgentsEditingState(false);
-          });
-          return;
-        }
+      if (!on) {
+        _applyAgentsEditingState(false);
+        setAgentsStatusMessage('', null);
+        return;
       }
       _applyAgentsEditingState(on);
     }
@@ -8986,7 +8994,6 @@
 
     async function serveAgentsLatest() {
       if (agentsServeLatest) agentsServeLatest.disabled = true;
-      if (agentsDraftPublish) agentsDraftPublish.disabled = true;
       setAgentsStatusMessage('', null);
       try {
         const response = await api('/admin/agents/serve', {
@@ -9005,7 +9012,6 @@
         setAgentsStatusMessage(`Publish failed: ${err.message}`, 'error');
       } finally {
         if (agentsServeLatest) agentsServeLatest.disabled = false;
-        if (agentsDraftPublish) agentsDraftPublish.disabled = false;
       }
     }
 
@@ -9689,12 +9695,15 @@
         });
       }
 
-      if (panel === 'settings') {
+    if (panel === 'settings') {
         setActiveLinks('.settings-tab', settingsTab);
         document.querySelectorAll('[data-settings-panel]').forEach((panelEl) => {
           const tab = (panelEl.dataset.settingsPanel || '').toLowerCase();
           panelEl.hidden = tab !== settingsTab;
         });
+        if (settingsTab === 'agents') {
+          normalizeAgentsEditorState();
+        }
         if (settingsTab === 'profiles' && window.__initProfiles) window.__initProfiles();
         if (settingsTab === 'projects' && window.__initProjects) window.__initProjects();
         if (settingsTab === 'skills') {
@@ -9930,9 +9939,6 @@
         event.preventDefault();
         serveAgentsLatest();
       });
-    }
-    if (agentsDraftPublish) {
-      agentsDraftPublish.addEventListener('click', () => saveAgentsInline());
     }
     if (agentsEmptyEdit) {
       agentsEmptyEdit.addEventListener('click', () => setAgentsInlineEditing(true));

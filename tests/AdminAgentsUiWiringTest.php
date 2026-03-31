@@ -131,8 +131,9 @@ final class AdminAgentsUiWiringTest extends TestCase
 
         $this->assertStringContainsString('Unsaved changes.', $html);
         $this->assertStringContainsString('Save or cancel before leaving the editor.', $html);
-        $this->assertStringContainsString('>Save now<', $html);
+        $this->assertStringNotContainsString('id="agentsDraftPublish"', $html);
         $this->assertStringNotContainsString('Publish now', $html);
+        $this->assertStringNotContainsString('Save now', $html);
 
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
@@ -140,8 +141,20 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('function setAgentsDirty(isDirty)', $js);
         $this->assertStringContainsString('function agentsHasUnsavedChanges()', $js);
         $this->assertStringContainsString('function syncAgentsDraftBanner()', $js);
-        $this->assertStringContainsString("agentsDraftPublish.addEventListener('click', () => saveAgentsInline());", $js);
+        $this->assertStringContainsString('function normalizeAgentsEditorState(options = {})', $js);
+        $this->assertStringNotContainsString("agentsDraftPublish.addEventListener('click', () => saveAgentsInline());", $js);
         $this->assertStringContainsString("agentsServeLatest.textContent = pinnedDraft ? 'Publish latest draft' : 'Publish latest';", $js);
+    }
+
+    public function testAdminAgentsCancelDiscardsInlineEditsImmediately(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('if (!on) {', $js);
+        $this->assertStringContainsString('_applyAgentsEditingState(false);', $js);
+        $this->assertStringContainsString("setAgentsStatusMessage('', null);", $js);
+        $this->assertStringNotContainsString("showConfirmModal(\n            'Discard changes?'", $js);
     }
 
     public function testAdminAgentsDeleteGuardsDuplicateClicks(): void
