@@ -31,11 +31,15 @@
   let projectAboutTitle;
   let projectAboutName;
   let projectAboutDescription;
+  let projectAboutAssist;
   let projectAboutSave;
   let projectAboutStatus;
+  let projectAboutChangedFields;
   let projectRosterMarkdown;
+  let projectRosterAssist;
   let projectRosterSave;
   let projectRosterStatus;
+  let projectRosterChangedFields;
   let projectNoteId;
   let projectNoteHeader;
   let projectNoteBody;
@@ -94,11 +98,15 @@
     projectAboutTitle = document.getElementById('projectAboutTitle');
     projectAboutName = document.getElementById('projectAboutName');
     projectAboutDescription = document.getElementById('projectAboutDescription');
+    projectAboutAssist = document.getElementById('projectAboutAssist');
     projectAboutSave = document.getElementById('projectAboutSave');
     projectAboutStatus = document.getElementById('projectAboutStatus');
+    projectAboutChangedFields = document.getElementById('projectAboutChangedFields');
     projectRosterMarkdown = document.getElementById('projectRosterMarkdown');
+    projectRosterAssist = document.getElementById('projectRosterAssist');
     projectRosterSave = document.getElementById('projectRosterSave');
     projectRosterStatus = document.getElementById('projectRosterStatus');
+    projectRosterChangedFields = document.getElementById('projectRosterChangedFields');
     projectNoteId = document.getElementById('projectNoteId');
     projectNoteHeader = document.getElementById('projectNoteHeader');
     projectNoteBody = document.getElementById('projectNoteBody');
@@ -296,6 +304,8 @@
     if (projectAboutName) projectAboutName.value = '';
     if (projectAboutDescription) projectAboutDescription.value = '';
     if (projectRosterMarkdown) projectRosterMarkdown.value = '';
+    renderProjectChangedFields(projectAboutChangedFields, []);
+    renderProjectChangedFields(projectRosterChangedFields, []);
   }
 
   function disableDetailInputs(disabled) {
@@ -303,8 +313,10 @@
       projectAboutTitle,
       projectAboutName,
       projectAboutDescription,
+      projectAboutAssist,
       projectAboutSave,
       projectRosterMarkdown,
+      projectRosterAssist,
       projectRosterSave,
       projectNoteHeader,
       projectNoteBody,
@@ -607,6 +619,45 @@
     });
   }
 
+  function renderProjectChangedFields(node, fields) {
+    if (!node) return;
+    const labels = {
+      title: 'Updated title',
+      name: 'Updated name',
+      description: 'Updated description',
+      roster_markdown: 'Updated roster draft',
+    };
+    const visible = Array.isArray(fields) ? fields.filter((field) => labels[field]) : [];
+    if (!visible.length) {
+      node.hidden = true;
+      node.innerHTML = '';
+      return;
+    }
+    node.hidden = false;
+    node.innerHTML = visible.map((field) => `<span class="pill-quiet">${escapeHtml(labels[field])}</span>`).join('');
+  }
+
+  function applyProjectAboutDraft(draft) {
+    if (!draft || typeof draft !== 'object') return [];
+    const about = draft.about && typeof draft.about === 'object' ? draft.about : {};
+    const changedFields = Array.isArray(draft.changed_fields) ? draft.changed_fields.filter((field) => ['title', 'name', 'description'].includes(field)) : [];
+    if (projectAboutTitle && typeof about.title === 'string' && about.title.trim()) projectAboutTitle.value = about.title.trim();
+    if (projectAboutName && typeof about.name === 'string' && about.name.trim()) projectAboutName.value = about.name.trim();
+    if (projectAboutDescription && typeof about.description === 'string' && about.description.trim()) projectAboutDescription.value = about.description.trim();
+    renderProjectChangedFields(projectAboutChangedFields, changedFields);
+    return changedFields;
+  }
+
+  function applyProjectRosterDraft(draft) {
+    if (!draft || typeof draft !== 'object') return [];
+    const changedFields = Array.isArray(draft.changed_fields) ? draft.changed_fields.filter((field) => field === 'roster_markdown') : [];
+    if (projectRosterMarkdown && typeof draft.roster_markdown === 'string' && draft.roster_markdown.trim()) {
+      projectRosterMarkdown.value = draft.roster_markdown.trim();
+    }
+    renderProjectChangedFields(projectRosterChangedFields, changedFields);
+    return changedFields;
+  }
+
   function switchProjectTab(tab) {
     projectActiveTab = tab;
     if (projectTabs) {
@@ -693,6 +744,8 @@
     if (projectAboutName) projectAboutName.value = about.name || '';
     if (projectAboutDescription) projectAboutDescription.value = about.description || '';
     if (projectRosterMarkdown) projectRosterMarkdown.value = project.roster_markdown || '';
+    renderProjectChangedFields(projectAboutChangedFields, []);
+    renderProjectChangedFields(projectRosterChangedFields, []);
     if (projectAboutStatus) projectAboutStatus.textContent = `Loaded ${currentSlug}`;
     if (projectRosterStatus) projectRosterStatus.textContent = `Loaded ${currentSlug}`;
 
@@ -832,6 +885,32 @@
       await loadProjectDetailView(currentSlug);
     } catch (err) {
       if (projectAboutStatus) projectAboutStatus.textContent = `Save failed: ${err.message}`;
+    }
+  }
+
+  async function assistProjectDraft(kind) {
+    if (!currentSlug) return;
+    const scope = kind === 'roster' ? 'roster' : 'about';
+    const statusNode = scope === 'roster' ? projectRosterStatus : projectAboutStatus;
+    const triggerBtn = scope === 'roster' ? projectRosterAssist : projectAboutAssist;
+    if (statusNode) statusNode.textContent = scope === 'roster' ? 'Drafting roster…' : 'Drafting…';
+    if (triggerBtn) triggerBtn.disabled = true;
+    try {
+      const resp = await api(`/admin/projects/${encodeURIComponent(currentSlug)}/assist`, {
+        method: 'POST',
+      });
+      const draft = resp?.data || {};
+      const changedFields = scope === 'roster' ? applyProjectRosterDraft(draft) : applyProjectAboutDraft(draft);
+      const message = draft.assistant_message || 'Draft ready.';
+      if (statusNode) {
+        statusNode.textContent = changedFields.length
+          ? `${message} Review the updated fields and save when ready.`
+          : `${message} No ${scope === 'roster' ? 'roster changes' : 'identity changes'} were applied.`;
+      }
+    } catch (err) {
+      if (statusNode) statusNode.textContent = `Draft failed: ${err.message}`;
+    } finally {
+      if (triggerBtn) triggerBtn.disabled = false;
     }
   }
 
@@ -1038,10 +1117,22 @@
         saveAbout();
       });
     }
+    if (projectAboutAssist) {
+      projectAboutAssist.addEventListener('click', (event) => {
+        event.preventDefault();
+        assistProjectDraft('about');
+      });
+    }
     if (projectRosterSave) {
       projectRosterSave.addEventListener('click', (event) => {
         event.preventDefault();
         saveRoster();
+      });
+    }
+    if (projectRosterAssist) {
+      projectRosterAssist.addEventListener('click', (event) => {
+        event.preventDefault();
+        assistProjectDraft('roster');
       });
     }
     if (projectNoteSave) {

@@ -85,6 +85,15 @@ class MemorySummaryRequest(BaseModel):
     )
 
 
+class ProjectAssistRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    slug: str = Field(..., description="Project slug")
+    project: dict = Field(..., description="Current project snapshot for drafting")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the assist call (seconds)"
+    )
+
+
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
     auths = auth_json.get("auths", {})
     if isinstance(auths, dict):
@@ -230,6 +239,13 @@ def _sanitize_skill_section(value: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _sanitize_project_section(value: str, *, max_len: int = 4000) -> str:
+    sanitized = _sanitize_skill_section(value)
+    if len(sanitized) > max_len:
+        sanitized = sanitized[: max_len - 3].rstrip(" \n\r\t") + "..."
+    return sanitized
+
+
 def _sanitize_skill_tags(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -280,6 +296,24 @@ def _normalize_assisted_skill(data: dict) -> dict:
         raise ValueError("missing required field: assistant_message")
     normalized["assistant_message"] = assistant_message
     return normalized
+
+
+def _normalize_assisted_project(data: dict) -> dict:
+    assistant_message = _sanitize_skill_line(data.get("assistant_message", ""), max_len=240)
+    if not assistant_message:
+        raise ValueError("missing required field: assistant_message")
+
+    def _string_value(key: str) -> str:
+        value = data.get(key, "")
+        return value if isinstance(value, str) else ""
+
+    return {
+        "assistant_message": assistant_message,
+        "title": _sanitize_skill_line(_string_value("title"), max_len=120),
+        "name": _sanitize_skill_line(_string_value("name"), max_len=120),
+        "description": _sanitize_skill_line(_string_value("description"), max_len=220),
+        "roster_markdown": _sanitize_project_section(_string_value("roster_markdown"), max_len=4000),
+    }
 
 
 def _skill_summary_prompt(slug: str, manifest: str) -> str:
@@ -364,6 +398,27 @@ def _skill_assist_prompt(payload: SkillAssistRequest) -> str:
         f"{json.dumps(skill, ensure_ascii=False)}\n\n"
         "Conversation history JSON:\n"
         f"{json.dumps(messages, ensure_ascii=False)}"
+    )
+
+
+def _project_assist_prompt(payload: ProjectAssistRequest) -> str:
+    snapshot = json.dumps(payload.project, ensure_ascii=False)
+    return (
+        "You are drafting safe autofill suggestions for an admin project workspace.\n"
+        "Return exactly one JSON object and nothing else.\n"
+        "Required keys: assistant_message, title, name, description, roster_markdown.\n"
+        "Rules:\n"
+        "- assistant_message: short plain-text summary of what you could infer\n"
+        "- title: short human-facing project title; empty string if uncertain\n"
+        "- name: short internal/project label; empty string if uncertain\n"
+        "- description: one sentence describing what the project is doing and why; empty string if uncertain\n"
+        "- roster_markdown: concise markdown bullets or short prose for ownership/handoff context; empty string if current context is too weak\n"
+        "- Prefer conservative inference from the provided project snapshot only\n"
+        "- Do not invent domains, systems, owners, or requirements not supported by the snapshot\n"
+        "- If a current value is already strong and you would not improve it, repeat it or return an empty string\n\n"
+        f"Project slug: {payload.slug}\n\n"
+        "Current project snapshot JSON:\n"
+        f"{snapshot}"
     )
 
 
@@ -515,6 +570,47 @@ def _assist_skill(payload: SkillAssistRequest) -> dict:
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
+def _assist_project(payload: ProjectAssistRequest) -> dict:
+    slug = payload.slug.strip()
+    if slug == "":
+        raise HTTPException(status_code=400, detail="slug is required")
+    if not isinstance(payload.project, dict) or not payload.project:
+        raise HTTPException(status_code=400, detail="project is required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(_project_assist_prompt(payload), env, timeout)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+
+        try:
+            assisted = _normalize_assisted_project(_extract_json_payload(stdout))
+        except Exception as exc:
+            assisted = None
+            parse_error = str(exc)
+        else:
+            parse_error = ""
+
+        ok = proc.returncode == 0 and assisted is not None
+        result = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok and assisted is not None:
+            result.update(assisted)
+            return result
+
+        parts = [p for p in [parse_error, stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:600] if message else "project assist failed"
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
 @app.post("/verify")
 def verify(payload: VerifyRequest, request: Request):
     if RUNNER_SHARED_SECRET:
@@ -544,6 +640,11 @@ def generate_skill_health():
 
 @app.get("/skills/assist")
 def assist_skill_health():
+    return {"status": "ok"}
+
+
+@app.get("/projects/assist")
+def assist_project_health():
     return {"status": "ok"}
 
 
@@ -592,6 +693,23 @@ def assist_skill(payload: SkillAssistRequest, request: Request):
         return _assist_skill(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="skill assist timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/projects/assist")
+def assist_project(payload: ProjectAssistRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _assist_project(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="project assist timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

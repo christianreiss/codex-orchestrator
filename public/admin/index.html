@@ -827,8 +827,10 @@
                   <textarea id="projectAboutDescription" rows="4" placeholder="What this project is doing and why."></textarea>
                 </div>
                 <div class="panel-actions panel-actions-spaced">
+                  <button class="ghost tiny-btn" id="projectAboutAssist" type="button">Autofill</button>
                   <button class="primary" id="projectAboutSave">Save About</button>
                 </div>
+                <div class="row-actions" id="projectAboutChangedFields" hidden></div>
                 <div class="muted panel-meta" id="projectAboutStatus">No project loaded.</div>
               </section>
               <section class="project-detail-section" data-tab="identity">
@@ -841,8 +843,10 @@
                   <textarea id="projectRosterMarkdown" rows="9" spellcheck="false" placeholder="Ownership, handoff notes, and operating rules."></textarea>
                 </div>
                 <div class="panel-actions panel-actions-spaced">
+                  <button class="ghost tiny-btn" id="projectRosterAssist" type="button">Draft Roster</button>
                   <button class="primary" id="projectRosterSave">Save Roster</button>
                 </div>
+                <div class="row-actions" id="projectRosterChangedFields" hidden></div>
                 <div class="muted panel-meta" id="projectRosterStatus">No project loaded.</div>
               </section>
               <section class="project-detail-section project-detail-wide" data-tab="notes">
@@ -2473,7 +2477,7 @@
   <script src="/admin/assets/dashboard.js?v=2026-03-31-06"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
-  <script src="/admin/assets/projects.js?v=2026-03-31-01"></script>
+  <script src="/admin/assets/projects.js?v=2026-03-31-02"></script>
   <script src="/admin/assets/config.js?v=2026-03-24-04"></script>
   <script src="/admin/assets/profiles.js?v=2026-03-24-02"></script>
 </body>

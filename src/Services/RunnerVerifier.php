@@ -17,6 +17,7 @@ class RunnerVerifier
     private readonly string $skillGenerateUrl;
     private readonly string $skillAssistUrl;
     private readonly string $memorySummaryUrl;
+    private readonly string $projectAssistUrl;
 
     public function __construct(
         private readonly string $runnerUrl,
@@ -26,7 +27,8 @@ class RunnerVerifier
         ?string $skillSummaryUrl = null,
         ?string $skillGenerateUrl = null,
         ?string $skillAssistUrl = null,
-        ?string $memorySummaryUrl = null
+        ?string $memorySummaryUrl = null,
+        ?string $projectAssistUrl = null
     ) {
         $normalizedSummaryUrl = is_string($skillSummaryUrl) ? trim($skillSummaryUrl) : '';
         $this->skillSummaryUrl = $normalizedSummaryUrl !== '' ? $normalizedSummaryUrl : $this->deriveSkillSummaryUrl($runnerUrl);
@@ -36,6 +38,8 @@ class RunnerVerifier
         $this->skillAssistUrl = $normalizedAssistUrl !== '' ? $normalizedAssistUrl : $this->deriveSkillAssistUrl($runnerUrl);
         $normalizedMemorySummaryUrl = is_string($memorySummaryUrl) ? trim($memorySummaryUrl) : '';
         $this->memorySummaryUrl = $normalizedMemorySummaryUrl !== '' ? $normalizedMemorySummaryUrl : $this->deriveMemorySummaryUrl($runnerUrl);
+        $normalizedProjectAssistUrl = is_string($projectAssistUrl) ? trim($projectAssistUrl) : '';
+        $this->projectAssistUrl = $normalizedProjectAssistUrl !== '' ? $normalizedProjectAssistUrl : $this->deriveProjectAssistUrl($runnerUrl);
     }
 
     public function verify(array $authPayload, ?string $baseUrl = null, ?float $timeoutSeconds = null, ?array $host = null): array
@@ -118,6 +122,26 @@ class RunnerVerifier
             'skill' => $skill,
             'mode' => trim($mode) !== '' ? trim($mode) : 'new',
             'slug_locked' => $slugLocked,
+            'timeout_seconds' => $timeout,
+        ], $timeout);
+    }
+
+    public function assistProjectDraft(string $slug, array $project, array $authPayload, ?float $timeoutSeconds = null): array
+    {
+        if ($this->projectAssistUrl === '') {
+            return [
+                'status' => 'fail',
+                'reason' => 'project assist endpoint is not configured',
+                'reachable' => false,
+            ];
+        }
+
+        $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
+
+        return $this->sendRequest($this->projectAssistUrl, [
+            'auth_json' => $authPayload,
+            'slug' => $slug,
+            'project' => $project,
             'timeout_seconds' => $timeout,
         ], $timeout);
     }
@@ -315,6 +339,11 @@ class RunnerVerifier
     private function deriveSkillAssistUrl(string $runnerUrl): string
     {
         return $this->deriveRunnerFeatureUrl($runnerUrl, '/skills/assist');
+    }
+
+    private function deriveProjectAssistUrl(string $runnerUrl): string
+    {
+        return $this->deriveRunnerFeatureUrl($runnerUrl, '/projects/assist');
     }
 
     private function deriveRunnerFeatureUrl(string $runnerUrl, string $featurePath): string

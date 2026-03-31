@@ -65,6 +65,7 @@ use App\Services\PricingService;
 use App\Services\CostHistoryService;
 use App\Services\DashboardGraphStatsService;
 use App\Services\ProjectCoordinationService;
+use App\Services\ProjectDraftService;
 use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
 use App\Services\AgentsService;
@@ -380,6 +381,13 @@ $projectCoordinationService = new ProjectCoordinationService(
     $projectModuleService,
     $logRepository
 );
+$projectDraftService = new ProjectDraftService(
+    $authPayloadRepository,
+    $logRepository,
+    $projectCoordinationService,
+    $runnerVerifier,
+    $runnerValidationService
+);
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
@@ -476,7 +484,7 @@ $adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository, $agentsService);
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $pricingModel);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
-$adminProjectCtrl = new AdminProjectController($projectCoordinationService);
+$adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
 $cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);
@@ -702,6 +710,7 @@ $router->add('GET', '#^/admin/projects/([^/]+)$#', function ($slug) use ($adminP
     if (isBrowserRequest()) { require __DIR__ . '/admin/index.php'; return; }
     $adminProjectCtrl->show($slug);
 });
+$router->add('POST', '#^/admin/projects/([^/]+)/assist$#', fn($slug) => $adminProjectCtrl->assist($slug));
 $router->add('POST', '#^/admin/projects/([^/]+)/about$#', fn($slug) => $adminProjectCtrl->updateAbout($slug, $payload));
 $router->add('POST', '#^/admin/projects/([^/]+)/roster$#', fn($slug) => $adminProjectCtrl->updateRoster($slug, $payload));
 $router->add('GET', '#^/admin/projects/([^/]+)/changes$#', fn($slug) => $adminProjectCtrl->changes($slug));

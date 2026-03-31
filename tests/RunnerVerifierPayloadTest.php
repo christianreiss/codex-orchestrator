@@ -335,6 +335,91 @@ PHP);
         }
     }
 
+    public function testProjectAssistPostsSlugProjectContextAndTimeoutSeconds(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/runner-project-assist-' . uniqid('', true);
+        self::assertTrue(mkdir($tmpDir, 0777, true) || is_dir($tmpDir));
+
+        $routerPath = $tmpDir . '/router.php';
+        $requestPath = $tmpDir . '/request.json';
+        $stdoutPath = $tmpDir . '/server.out';
+        $stderrPath = $tmpDir . '/server.err';
+
+        file_put_contents($routerPath, <<<'PHP'
+<?php
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'ok']);
+    return;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    file_put_contents(__DIR__ . '/request.json', file_get_contents('php://input'));
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status' => 'ok',
+        'latency_ms' => 5,
+        'reachable' => true,
+        'codex_version' => 'test',
+        'assistant_message' => 'Filled the missing project identity fields.',
+        'title' => 'SIP Proxy',
+        'name' => 'sipproxy',
+        'description' => 'Tracks the SIP proxy rollout.',
+        'roster_markdown' => "- Service: SIP proxy\n",
+    ]);
+    return;
+}
+
+http_response_code(404);
+echo 'not found';
+PHP);
+
+        $server = $this->startPhpServer($tmpDir, $routerPath, $stdoutPath, $stderrPath);
+
+        try {
+            $verifier = new RunnerVerifier(
+                'http://127.0.0.1:' . $server['port'] . '/verify',
+                'https://unused.example',
+                8.0
+            );
+
+            $result = $verifier->assistProjectDraft(
+                'sipproxy',
+                [
+                    'slug' => 'sipproxy',
+                    'about' => ['description' => 'Existing description'],
+                    'notes' => [['header' => 'Discovery', 'body' => 'Proxy details']],
+                ],
+                ['tokens' => ['access_token' => 'sk-test-1234567890abcdefghijklmnop']],
+                7.5
+            );
+
+            self::assertSame('ok', $result['status'] ?? null);
+            self::assertSame('SIP Proxy', $result['title'] ?? null);
+            self::assertFileExists($requestPath);
+
+            $payload = json_decode((string) file_get_contents($requestPath), true, flags: JSON_THROW_ON_ERROR);
+
+            self::assertSame(['auth_json', 'slug', 'project', 'timeout_seconds'], array_keys($payload));
+            self::assertSame('sipproxy', $payload['slug']);
+            self::assertSame('Existing description', $payload['project']['about']['description'] ?? null);
+            self::assertSame('Discovery', $payload['project']['notes'][0]['header'] ?? null);
+            self::assertSame(7.5, $payload['timeout_seconds']);
+            self::assertSame(
+                'sk-test-1234567890abcdefghijklmnop',
+                $payload['auth_json']['tokens']['access_token'] ?? null
+            );
+        } finally {
+            proc_terminate($server['process']);
+            proc_close($server['process']);
+            @unlink($routerPath);
+            @unlink($requestPath);
+            @unlink($stdoutPath);
+            @unlink($stderrPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMemorySummarizerPostsAuthKeyContentAndTimeoutSeconds(): void
     {
         $tmpDir = sys_get_temp_dir() . '/runner-memory-summary-' . uniqid('', true);

@@ -94,6 +94,7 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString("#^/admin/projects/state$#", $source);
         $this->assertStringContainsString("#^/admin/projects$#", $source);
         $this->assertStringContainsString("#^/admin/projects/([^/]+)$#", $source);
+        $this->assertStringContainsString("#^/admin/projects/([^/]+)/assist$#", $source);
         $this->assertStringContainsString("#^/admin/projects/([^/]+)/changes$#", $source);
         $this->assertStringContainsString("#^/projects$#", $source);
         $this->assertStringContainsString("#^/projects/([^/]+)/bootstrap$#", $source);
@@ -128,6 +129,10 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString('id="projectDetailBack"', $html);
         $this->assertStringContainsString('id="projectDeleteModal"', $html);
         $this->assertStringContainsString('id="projectChangesList"', $html);
+        $this->assertStringContainsString('id="projectAboutAssist"', $html);
+        $this->assertStringContainsString('id="projectRosterAssist"', $html);
+        $this->assertStringContainsString('id="projectAboutChangedFields"', $html);
+        $this->assertStringContainsString('id="projectRosterChangedFields"', $html);
         $this->assertStringNotContainsString('id="projectCreateBtn"', $html);
         $this->assertStringContainsString('/admin/assets/projects.js?v=', $html);
     }
@@ -154,6 +159,9 @@ final class ProjectCoordinationWiringTest extends TestCase
         $this->assertStringContainsString("projectDeleteModal?.classList.add('show');", $js);
         $this->assertStringContainsString("history.pushState({}, '', '/admin/settings/projects');", $js);
         $this->assertStringContainsString('await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: \'DELETE\' });', $js);
+        $this->assertStringContainsString('async function assistProjectDraft(kind)', $js);
+        $this->assertStringContainsString('api(`/admin/projects/${encodeURIComponent(currentSlug)}/assist`, {', $js);
+        $this->assertStringContainsString('renderProjectChangedFields(projectAboutChangedFields, changedFields);', $js);
     }
 
     public function testManagedSkillMetadataIsServedThroughSkillService(): void

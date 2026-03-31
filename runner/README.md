@@ -21,8 +21,7 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 ## Environment variables
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
-- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` requires header `X-Runner-Auth` with an exact secret match.
-- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, and `/skills/assist` require header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, and `/projects/assist` require header `X-Runner-Auth` with an exact secret match.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`.
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for writing `/tmp/last-auth.json`.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -295,3 +294,64 @@ Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with the current draft, full conversation, and slug-lock guidance, and requires strict JSON output.
 - Returns an `assistant_message` plus a complete updated draft; the API/admin app still validates, normalizes, and persists later via `POST /admin/skills/store`.
+
+### `GET /projects/assist`
+
+Readiness probe for the admin project draft endpoint:
+
+```json
+{ "status": "ok" }
+```
+
+### `POST /projects/assist`
+
+Draft project metadata and roster suggestions from an existing project snapshot.
+
+Request body:
+
+```json
+{
+  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "slug": "sipproxy",
+  "project": {
+    "slug": "sipproxy",
+    "about": {
+      "title": "",
+      "name": "",
+      "description": ""
+    },
+    "roster_markdown": "",
+    "notes": [
+      { "header": "Discovery", "body": "Proxying SIP traffic between edges and core." }
+    ]
+  },
+  "timeout_seconds": 12.0
+}
+```
+
+Fields:
+- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
+- `slug` (required string) — target project slug.
+- `project` (required object) — current project snapshot from the admin/API service, including existing metadata and recent project context.
+- `timeout_seconds` (optional float) — assist timeout in seconds; defaults to 8.0 when omitted.
+
+Response (success):
+
+```json
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "0.101.0",
+  "assistant_message": "Filled the weak metadata from the current project context.",
+  "title": "SIP Proxy",
+  "name": "sipproxy",
+  "description": "Tracks the shared rollout and operating context for the SIP proxy stack.",
+  "roster_markdown": "- Service: SIP proxy\n- Keep handoff notes here."
+}
+```
+
+Behavior details:
+- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
+- Runs `/usr/local/bin/codex exec` with a strict JSON prompt that is explicitly limited to the provided project snapshot.
+- Returns draft fields only; the admin API/UI remains responsible for deciding what to persist.

@@ -9,11 +9,13 @@ use App\Exceptions\ValidationException;
 use App\Http\Response;
 use App\Services\AdminAuthService;
 use App\Services\ProjectCoordinationService;
+use App\Services\ProjectDraftService;
 
 class AdminProjectController
 {
     public function __construct(
         private ProjectCoordinationService $projectCoordinationService,
+        private ProjectDraftService $projectDraftService,
     ) {}
 
     /**
@@ -124,6 +126,18 @@ class AdminProjectController
         requireAdminAccess();
         $this->respondProjectAction(function () use ($slug) {
             return $this->projectCoordinationService->projectDetail(urldecode($slug), null);
+        });
+    }
+
+    /**
+     * POST /admin/projects/{slug}/assist
+     */
+    public function assist(string $slug): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+        $this->respondProjectAction(function () use ($slug) {
+            return $this->projectDraftService->assist(urldecode($slug), null);
         });
     }
 
