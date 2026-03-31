@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_OUTPUT_DIR="/home/chris/Downloads"
@@ -20,7 +20,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/export_ai_bundle.sh [options]
 
-Create AI-friendly text bundles for debugging Codex Orchestrator.
+Create AI-friendly text bundles for Codex Orchestrator.
 
 Options:
   -o, --output PATH         Output path. For --component all: directory. For single component: file path.
@@ -47,14 +47,14 @@ die() {
 canonicalize_component() {
   local value="$1"
   case "${value}" in
-    all | app | wrapper | runner) printf '%s' "${value}" ;;
+    all|app|wrapper|runner) printf '%s' "${value}" ;;
     *) die "Invalid --component '${value}'. Use one of: all, app, wrapper, runner." ;;
   esac
 }
 
 while (($# > 0)); do
   case "$1" in
-    -o | --output)
+    -o|--output)
       [[ $# -ge 2 ]] || die "Missing value for $1"
       OUTPUT_PATH="$2"
       shift 2
@@ -73,7 +73,7 @@ while (($# > 0)); do
       INCLUDE_TESTS=0
       shift
       ;;
-    -h | --help)
+    -h|--help)
       usage
       exit 0
       ;;
@@ -95,6 +95,7 @@ declare -a COMMON_DOCS=(
   "AGENTS.md"
   "README.md"
   "CHANGELOG.md"
+  "DESIGN.md"
   "docs/OVERVIEW.md"
   "docs/API.md"
   "docs/MCP.md"
@@ -105,6 +106,8 @@ declare -a COMMON_DOCS=(
 declare -a APP_DOCS=(
   "docs/ADMIN.md"
   "docs/CONFIG_BUILDER.md"
+  "docs/LOGIN.md"
+  "docs/SECURITY.md"
   "docs/contracts/README.md"
   "docs/contracts/auth-retrieve.schema.json"
   "docs/contracts/auth-store.schema.json"
@@ -114,8 +117,8 @@ declare -a APP_DOCS=(
   "docs/contracts/versions.schema.json"
 )
 declare -a WRAPPER_DOCS=(
-  "docs/USAGE.md"
   "docs/INSTALL.md"
+  "docs/USAGE.md"
   "docs/interface-cdx.md"
 )
 declare -a RUNNER_DOCS=(
@@ -151,14 +154,14 @@ collect_repo_files() {
 is_secret_file() {
   local path="$1"
   case "${path}" in
-    .env | */.env) return 0 ;;
-    .env.* | */.env.*)
+    .env|*/.env) return 0 ;;
+    .env.*|*/.env.*)
       case "${path}" in
-        .env.example | */.env.example | .env.sample | */.env.sample) return 1 ;;
+        .env.example|*/.env.example|.env.sample|*/.env.sample) return 1 ;;
       esac
       return 0
       ;;
-    *.pem | *.key | *.p12 | *.pfx | *.crt | *.csr | *.sqlite | *.sqlite3) return 0 ;;
+    *.pem|*.key|*.p12|*.pfx|*.crt|*.csr|*.sqlite|*.sqlite3) return 0 ;;
     storage/*.log) return 0 ;;
   esac
   return 1
@@ -167,10 +170,10 @@ is_secret_file() {
 is_path_excluded() {
   local path="$1"
   case "${path}" in
-    .git/* | */.git/*) return 0 ;;
-    vendor/* | */vendor/*) return 0 ;;
-    storage/* | */storage/*) return 0 ;;
-    docs/img/* | */docs/img/*) return 0 ;;
+    .git/*|*/.git/*) return 0 ;;
+    vendor/*|*/vendor/*) return 0 ;;
+    storage/*|*/storage/*) return 0 ;;
+    docs/img/*|*/docs/img/*) return 0 ;;
     runner/__pycache__/*) return 0 ;;
     public/admin/assets/chart.umd.min.js) return 0 ;;
     public/admin/assets/chartjs-plugin-zoom.min.js) return 0 ;;
@@ -178,7 +181,7 @@ is_path_excluded() {
   esac
 
   case "${path}" in
-    *.png | *.jpg | *.jpeg | *.gif | *.webp | *.ico | *.svg | *.pdf | *.pyc | *.phar | *.zip | *.tar | *.gz)
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.ico|*.svg|*.pdf|*.pyc|*.phar|*.zip|*.tar|*.gz|*.woff2|*.ttf)
       return 0
       ;;
   esac
@@ -193,21 +196,54 @@ is_test_path() {
   esac
 }
 
+should_include_by_extension() {
+  local path="$1"
+  local base="${path##*/}"
+
+  case "${base}" in
+    Dockerfile|docker-compose.yml|composer.json|composer.lock|phpunit.xml.dist|phpstan.neon.dist|phpstan-baseline.neon|Caddyfile)
+      return 0
+      ;;
+  esac
+
+  case "${path}" in
+    *.php|*.sql|*.js|*.css|*.json|*.xml|*.yml|*.yaml|*.sh|*.py|*.html|*.conf|*.caddy|*.neon|*.htaccess)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
 language_hint() {
   local path="$1"
+  local base="${path##*/}"
   case "${path}" in
-    *.php) echo "php" ;;
-    composer.lock | *.json) echo "json" ;;
-    *.md | *.MD) echo "markdown" ;;
-    *.sh) echo "bash" ;;
-    *.py) echo "python" ;;
-    *.js) echo "javascript" ;;
-    *.css) echo "css" ;;
-    *.yml | *.yaml) echo "yaml" ;;
-    *.html) echo "html" ;;
-    *.htaccess) echo "apacheconf" ;;
-    *.txt) echo "text" ;;
+    *.php) echo "php"; return 0 ;;
+    *.sql) echo "sql"; return 0 ;;
+    *.js) echo "javascript"; return 0 ;;
+    *.css) echo "css"; return 0 ;;
+    *.json) echo "json"; return 0 ;;
+    *.xml) echo "xml"; return 0 ;;
+    *.yml|*.yaml) echo "yaml"; return 0 ;;
+    *.sh) echo "bash"; return 0 ;;
+    *.py) echo "python"; return 0 ;;
+    *.html) echo "html"; return 0 ;;
+    *.conf|*.caddy) echo "conf"; return 0 ;;
+    *.neon) echo "yaml"; return 0 ;;
+    *.htaccess) echo "apacheconf"; return 0 ;;
+    *.md|*.MD) echo "markdown"; return 0 ;;
+    *.txt) echo "text"; return 0 ;;
+    *) ;;
+  esac
+
+  case "${base}" in
     Dockerfile) echo "dockerfile" ;;
+    docker-compose.yml) echo "yaml" ;;
+    composer.json|composer.lock) echo "json" ;;
+    phpunit.xml.dist) echo "xml" ;;
+    phpstan.neon.dist|phpstan-baseline.neon) echo "yaml" ;;
+    Caddyfile) echo "caddyfile" ;;
     *) echo "text" ;;
   esac
 }
@@ -228,27 +264,29 @@ should_include_component_file() {
   case "${component}" in
     app)
       case "${path}" in
-        composer.json | composer.lock | Dockerfile | docker-compose.yml) return 0 ;;
-        public/index.php | public/mtls-debug.php) return 0 ;;
-        public/admin/index.php | public/admin/index.html | public/admin/login.html | public/admin/.htaccess) return 0 ;;
-        public/admin/assets/*.js | public/admin/assets/*.css) return 0 ;;
-        src/*) return 0 ;;
-        scripts/admin-passkeys.php | scripts/admin-ws.php | scripts/migrate.php | scripts/refresh-chatgpt-usage.php | scripts/verify-interface-contracts.php) return 0 ;;
-        tests/*) return 0 ;;
+        composer.json|composer.lock|Dockerfile|docker-compose.yml|phpunit.xml.dist|phpstan.neon.dist|phpstan-baseline.neon) return 0 ;;
+        caddy/*|public/*|src/*|scripts/*.php|tests/*) return 0 ;;
       esac
       ;;
     wrapper)
       case "${path}" in
-        bin/cdx | bin/setup.sh | bin/setup-quick.sh) return 0 ;;
-        bin/cdx.d/*) return 0 ;;
-        scripts/build-cdx.sh | scripts/verify-wrapper-version-bump.sh) return 0 ;;
-        tests/CdxWrapper* | tests/InstallerScriptBuilderTest.php | tests/InstallationTest.php | tests/SeedAuthScriptBuilderTest.php | tests/StartupSync* | tests/WrapperServiceHostOverridesTest.php) return 0 ;;
+        composer.json|composer.lock|docker-compose.yml|bin/*|scripts/*.sh) return 0 ;;
+        public/cli-auth-verify.html|public/admin/assets/cli-auth-verify.js) return 0 ;;
+        src/Http/InstallerHelper.php|src/Http/VersionHelper.php) return 0 ;;
+        src/Http/Controllers/CliAuthController.php|src/Http/Controllers/ConfigApiController.php|src/Http/Controllers/HostApiController.php|src/Http/Controllers/InstallController.php|src/Http/Controllers/WrapperController.php) return 0 ;;
+        src/Services/AgentsService.php|src/Services/ClientConfigService.php|src/Services/CliAuthService.php|src/Services/SkillService.php|src/Services/StartupSyncService.php|src/Services/WrapperService.php) return 0 ;;
+        src/Support/CodexVersionPolicy.php|src/Support/Installation.php|src/Support/InstallerScriptBuilder.php|src/Support/SeedAuthScriptBuilder.php) return 0 ;;
+        tests/CdxWrapper*|tests/InstallationTest.php|tests/InstallerScriptBuilderTest.php|tests/SeedAuthScriptBuilderTest.php|tests/StartupSync*|tests/WrapperServiceHostOverridesTest.php) return 0 ;;
       esac
       ;;
     runner)
       case "${path}" in
         runner/*) return 0 ;;
-        tests/AuthRunner* | tests/AuthServiceRunnerStoreGateTest.php | tests/AuthServiceContractResponsesTest.php | tests/AuthServiceMcpCredentialMockTest.php) return 0 ;;
+        src/Adapters/*|src/Contracts/BackendAdapter.php) return 0 ;;
+        src/Http/Controllers/OpenAiApiController.php|src/Http/OpenAiCompat.php|src/Http/OpenAiResponse.php) return 0 ;;
+        src/Repositories/OpenaiApiKeyRepository.php) return 0 ;;
+        src/Services/AuthService.php|src/Services/OpenAiModelService.php|src/Services/OpenaiApiKeyService.php|src/Services/RunnerValidationService.php|src/Services/RunnerVerifier.php) return 0 ;;
+        tests/AdminSkillGenerationUiTest.php|tests/AuthRunner*|tests/AuthServiceContractResponsesTest.php|tests/AuthServiceMcpCredentialMockTest.php|tests/AuthServiceRunnerStoreGateTest.php|tests/OpenAi*|tests/Runner*|tests/SkillDraftServiceTest.php|tests/SkillSummaryServiceTest.php) return 0 ;;
       esac
       ;;
   esac
@@ -302,15 +340,21 @@ export_bundle_for_component() {
       continue
     fi
 
+    case "${path}" in
+      *.md|*.MD|*.txt|*.rst)
+        continue
+        ;;
+    esac
+
     if is_path_excluded "${path}"; then
       continue
     fi
 
-    if ((INCLUDE_TESTS == 0)) && is_test_path "${path}"; then
+    if (( INCLUDE_TESTS == 0 )) && is_test_path "${path}"; then
       continue
     fi
 
-    if should_include_component_file "${component}" "${path}"; then
+    if should_include_component_file "${component}" "${path}" && should_include_by_extension "${path}"; then
       selected_files+=("${path}")
     fi
   done
@@ -334,7 +378,7 @@ export_bundle_for_component() {
       warnings+=("Selected file missing at write time: ${path}")
       continue
     fi
-    size="$(wc -c <"${full_path}")"
+    size="$(wc -c < "${full_path}")"
     total_bytes=$((total_bytes + size))
   done
 
@@ -344,7 +388,7 @@ export_bundle_for_component() {
     echo "GENERATED_AT_UTC: ${timestamp}"
     echo "WORKSPACE_ROOT: ${ROOT_DIR}"
     echo "COMPONENT: ${component}"
-    if ((INCLUDE_TESTS)); then
+    if (( INCLUDE_TESTS )); then
       echo "INCLUDE_TESTS: yes"
     else
       echo "INCLUDE_TESTS: no"
@@ -357,11 +401,12 @@ export_bundle_for_component() {
     echo "===== INCLUDE POLICY ====="
     echo "Tracked files from this git repo only."
     echo "Canonical docs included explicitly."
-    echo "Component-specific code/config/tests selected by path allowlist."
+    echo "Code/config selected by component scope plus extension allowlist."
     echo
     echo "===== EXCLUDE POLICY ====="
-    echo "Secrets: .env, key material, sqlite artifacts."
-    echo "Noise: vendor/, storage/, docs/img/, __pycache__, bundled third-party minified assets, binaries."
+    echo "Secrets: .env, key material, sqlite artifacts, runtime logs."
+    echo "Artifacts/noise: vendor/, storage/, docs/img/, __pycache__, fonts, minified vendor assets, binary/media files."
+    echo "Non-canonical markdown/txt docs excluded."
     echo
     if ((${#warnings[@]} > 0)); then
       echo "===== WARNINGS ====="
@@ -395,7 +440,7 @@ export_bundle_for_component() {
       if [[ ! -f "${full_path}" ]]; then
         continue
       fi
-      size="$(wc -c <"${full_path}")"
+      size="$(wc -c < "${full_path}")"
       lang="$(language_hint "${path}")"
       echo "===== BEGIN FILE: ${path} ====="
       echo "LANG: ${lang}"
@@ -407,7 +452,7 @@ export_bundle_for_component() {
     done
 
     echo "===== END AI BUNDLE ====="
-  } >"${tmp_output}"
+  } > "${tmp_output}"
 
   mv "${tmp_output}" "${output_path}"
   WRITTEN_OUTPUTS+=("${output_path}")
@@ -418,7 +463,7 @@ export_bundle_for_component() {
   echo "Files: ${#selected_files[@]}  Bytes: ${total_bytes}  Excluded secrets: ${#secret_excluded[@]}"
 }
 
-cleanup_legacy_export_files() {
+cleanup_export_files() {
   local directory="$1"
   [[ -d "${directory}" ]] || return 0
 
@@ -486,17 +531,8 @@ fi
 
 cleanup_dir=""
 for cleanup_dir in "${!cleanup_dirs[@]}"; do
-  cleanup_legacy_export_files "${cleanup_dir}"
+  cleanup_export_files "${cleanup_dir}"
 done
 
-if ((${#WRITTEN_OUTPUTS[@]} > 0)); then
-  echo
-  echo "Export complete."
-  written_path=""
-  for written_path in "${WRITTEN_OUTPUTS[@]}"; do
-    echo "  ${written_path}"
-  done
-  if ((CLEANUP_TOTAL_REMOVED > 0)); then
-    echo "Cleaned up ${CLEANUP_TOTAL_REMOVED} old export file(s)."
-  fi
-fi
+echo "Export complete. Bundles written: ${#WRITTEN_OUTPUTS[@]}"
+echo "Old export files removed: ${CLEANUP_TOTAL_REMOVED}"
