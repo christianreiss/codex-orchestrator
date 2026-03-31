@@ -64,6 +64,12 @@
   let projectFeedbackStatus;
   let projectFeedbackList;
   let projectChangesList;
+  let projectTabs;
+  let projectActiveTab = 'identity';
+  let projectTabBadgeNotes;
+  let projectTabBadgeTodos;
+  let projectTabBadgeFiles;
+  let projectTabBadgeFeedback;
 
   function bindDom() {
     projectsEnabledToggle = document.getElementById('projectsEnabledToggle');
@@ -121,6 +127,19 @@
     projectFeedbackStatus = document.getElementById('projectFeedbackStatus');
     projectFeedbackList = document.getElementById('projectFeedbackList');
     projectChangesList = document.getElementById('projectChangesList');
+    projectTabs = document.getElementById('projectTabs');
+    projectTabBadgeNotes = document.getElementById('projectTabBadgeNotes');
+    projectTabBadgeTodos = document.getElementById('projectTabBadgeTodos');
+    projectTabBadgeFiles = document.getElementById('projectTabBadgeFiles');
+    projectTabBadgeFeedback = document.getElementById('projectTabBadgeFeedback');
+    if (projectTabs) {
+      projectTabs.addEventListener('click', (e) => {
+        const btn = e.target.closest('.project-tab-btn');
+        if (!btn) return;
+        const tab = btn.dataset.tab;
+        if (tab) switchProjectTab(tab);
+      });
+    }
   }
 
   async function api(path, options = {}) {
@@ -402,7 +421,7 @@
           <strong>${escapeHtml(note.header || 'Untitled')}</strong>
           <span class="pill-quiet">${escapeHtml(formatTimestamp(note.updated_at))}</span>
         </div>
-        <div class="muted-note" style="margin-top:8px; white-space:pre-wrap;">${escapeHtml(note.body || '')}</div>
+        <div class="note-body">${escapeHtml(note.body || '')}</div>
       `;
       const actions = document.createElement('div');
       actions.className = 'row-actions';
@@ -442,15 +461,15 @@
 
     todos.forEach((todo) => {
       const item = document.createElement('div');
-      item.className = 'row-card';
+      item.className = 'row-card' + (todo.done ? ' is-done' : '');
       const tone = todo.done ? 'Done' : 'Open';
       item.innerHTML = `
         <div class="row-head">
           <strong>${escapeHtml(todo.title || 'Untitled')}</strong>
           <span class="pill-quiet">${escapeHtml(tone)}</span>
         </div>
-        <div class="muted-note" style="margin-top:6px; white-space:pre-wrap;">${escapeHtml(todo.detail || 'No detail.')}</div>
-        <div class="muted-note" style="margin-top:8px;">Updated ${escapeHtml(formatTimestamp(todo.updated_at))}</div>
+        <div class="note-body">${escapeHtml(todo.detail || 'No detail.')}</div>
+        <div class="muted-note" style="margin-top:6px;">Updated ${escapeHtml(formatTimestamp(todo.updated_at))}</div>
       `;
       const actions = document.createElement('div');
       actions.className = 'row-actions';
@@ -543,15 +562,16 @@
     }
 
     items.forEach((entry) => {
+      const feedbackType = entry.type || 'note';
       const item = document.createElement('div');
-      item.className = 'row-card';
+      item.className = `row-card type-${feedbackType}`;
       item.innerHTML = `
         <div class="row-head">
           <strong>${escapeHtml(entry.title || 'Untitled')}</strong>
-          <span class="pill-quiet">${escapeHtml(entry.type || 'note')}</span>
+          <span class="pill-quiet">${escapeHtml(feedbackType)}</span>
         </div>
-        <div class="muted-note" style="margin-top:6px; white-space:pre-wrap;">${escapeHtml(entry.body || '')}</div>
-        <div class="muted-note" style="margin-top:8px;">${escapeHtml(entry.status || 'open')} · ${escapeHtml(formatTimestamp(entry.updated_at))}</div>
+        <div class="note-body">${escapeHtml(entry.body || '')}</div>
+        <div class="muted-note" style="margin-top:6px;">${escapeHtml(entry.status || 'open')} · ${escapeHtml(formatTimestamp(entry.updated_at))}</div>
       `;
       projectFeedbackList.appendChild(item);
     });
@@ -578,10 +598,53 @@
           <span class="pill-quiet">#${escapeHtml(String(change.seq || '0'))}</span>
         </div>
         <div class="muted-note" style="margin-top:6px;">${escapeHtml(formatTimestamp(change.created_at))}</div>
-        <div class="muted-note" style="margin-top:8px; white-space:pre-wrap;">${escapeHtml(JSON.stringify(change.payload || {}, null, 2))}</div>
+        <details class="project-activity-payload">
+          <summary>Payload</summary>
+          <pre>${escapeHtml(JSON.stringify(change.payload || {}, null, 2))}</pre>
+        </details>
       `;
       projectChangesList.appendChild(item);
     });
+  }
+
+  function switchProjectTab(tab) {
+    projectActiveTab = tab;
+    if (projectTabs) {
+      projectTabs.querySelectorAll('.project-tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+      });
+    }
+    if (projectDetailLayout) {
+      projectDetailLayout.querySelectorAll('[data-tab]').forEach((s) => {
+        s.classList.toggle('tab-visible', s.dataset.tab === tab);
+      });
+    }
+  }
+
+  function renderStatStrip(detail) {
+    if (!projectDetailMeta) return;
+    const project = detail.project || {};
+    const counts = project.counts || {};
+    const notes = counts.notes || 0;
+    const openTodos = counts.open_todos || 0;
+    const files = counts.files || 0;
+    const feedback = Array.isArray(detail.feedback) ? detail.feedback : [];
+    const bugs = feedback.filter((f) => f.type === 'bug').length;
+
+    if (projectTabBadgeNotes) projectTabBadgeNotes.textContent = notes || '';
+    if (projectTabBadgeTodos) projectTabBadgeTodos.textContent = openTodos || '';
+    if (projectTabBadgeFiles) projectTabBadgeFiles.textContent = files || '';
+    if (projectTabBadgeFeedback) projectTabBadgeFeedback.textContent = feedback.length || '';
+
+    const parts = [];
+    if (notes) parts.push(`${notes} note${notes !== 1 ? 's' : ''}`);
+    if (openTodos) parts.push(`${openTodos} open todo${openTodos !== 1 ? 's' : ''}`);
+    if (bugs) parts.push(`${bugs} bug${bugs !== 1 ? 's' : ''}`);
+    if (files) parts.push(`${files} file${files !== 1 ? 's' : ''}`);
+
+    projectDetailMeta.innerHTML = parts.length
+      ? parts.map((p) => `<span class="pill-quiet">${escapeHtml(p)}</span>`).join('')
+      : '';
   }
 
   function renderDetail() {
@@ -625,9 +688,6 @@
     showProjectDetailLayout();
 
     if (projectDetailTitle) projectDetailTitle.textContent = title;
-    if (projectDetailMeta) {
-      projectDetailMeta.textContent = `${currentSlug} · ${counts.notes || 0} notes · ${counts.open_todos || 0} open todos · ${counts.files || 0} files · Updated ${formatTimestamp(project.updated_at)}`;
-    }
 
     if (projectAboutTitle) projectAboutTitle.value = about.title || '';
     if (projectAboutName) projectAboutName.value = about.name || '';
@@ -641,6 +701,8 @@
     renderFiles(Array.isArray(currentDetail.files) ? currentDetail.files : []);
     renderFeedback(Array.isArray(currentDetail.feedback) ? currentDetail.feedback : []);
     renderChanges(Array.isArray(currentDetail.recent_changes) ? currentDetail.recent_changes : []);
+    renderStatStrip(currentDetail);
+    switchProjectTab(projectActiveTab);
   }
 
   async function loadState() {

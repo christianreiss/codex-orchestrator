@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-02">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
 </head>
@@ -819,18 +819,26 @@
               <div>
                 <p class="muted overline">Project Workspace</p>
                 <h2 id="projectDetailTitle">Loading…</h2>
-                <p class="muted panel-subtitle" id="projectDetailMeta">Fetching shared project state.</p>
+                <div class="project-stat-strip" id="projectDetailMeta"></div>
               </div>
               <div class="project-detail-head-actions">
                 <a class="ghost tiny-btn" id="projectDetailBack" href="/admin/settings/projects">Back to projects</a>
               </div>
             </div>
+            <nav class="project-tabs" id="projectTabs">
+              <button class="project-tab-btn active" data-tab="identity">Identity</button>
+              <button class="project-tab-btn" data-tab="notes">Notes <span class="project-tab-badge" id="projectTabBadgeNotes"></span></button>
+              <button class="project-tab-btn" data-tab="todos">Todos <span class="project-tab-badge" id="projectTabBadgeTodos"></span></button>
+              <button class="project-tab-btn" data-tab="files">Files <span class="project-tab-badge" id="projectTabBadgeFiles"></span></button>
+              <button class="project-tab-btn" data-tab="feedback">Feedback <span class="project-tab-badge" id="projectTabBadgeFeedback"></span></button>
+              <button class="project-tab-btn" data-tab="activity">Activity</button>
+            </nav>
             <div class="project-detail-empty" id="projectDetailEmptyState" hidden>
               <h3 id="projectDetailEmptyTitle">Loading project…</h3>
               <p class="muted" id="projectDetailEmptyBody">Fetching project details.</p>
             </div>
             <div class="project-detail-layout" id="projectDetailLayout" hidden>
-              <section class="project-detail-section">
+              <section class="project-detail-section" data-tab="identity">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">About</p>
                   <h3>Project identity</h3>
@@ -850,11 +858,11 @@
                   <textarea id="projectAboutDescription" rows="4" placeholder="What this project is doing and why."></textarea>
                 </div>
                 <div class="panel-actions panel-actions-spaced">
-                  <button class="ghost" id="projectAboutSave">Save About</button>
+                  <button class="primary" id="projectAboutSave">Save About</button>
                 </div>
                 <div class="muted panel-meta" id="projectAboutStatus">No project loaded.</div>
               </section>
-              <section class="project-detail-section">
+              <section class="project-detail-section" data-tab="identity">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">Roster</p>
                   <h3>Coordination notes</h3>
@@ -864,11 +872,11 @@
                   <textarea id="projectRosterMarkdown" rows="9" spellcheck="false" placeholder="Ownership, handoff notes, and operating rules."></textarea>
                 </div>
                 <div class="panel-actions panel-actions-spaced">
-                  <button class="ghost" id="projectRosterSave">Save Roster</button>
+                  <button class="primary" id="projectRosterSave">Save Roster</button>
                 </div>
                 <div class="muted panel-meta" id="projectRosterStatus">No project loaded.</div>
               </section>
-              <section class="project-detail-section">
+              <section class="project-detail-section project-detail-wide" data-tab="notes">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">Notes</p>
                   <h3>Durable decisions</h3>
@@ -889,7 +897,7 @@
                 <div class="muted panel-meta" id="projectNoteStatus">No project loaded.</div>
                 <div id="projectNotesList" class="list-rows list-rows-spaced"></div>
               </section>
-              <section class="project-detail-section">
+              <section class="project-detail-section project-detail-wide" data-tab="todos">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">Todos</p>
                   <h3>Execution queue</h3>
@@ -910,7 +918,7 @@
                 <div class="muted panel-meta" id="projectTodoStatus">No project loaded.</div>
                 <div id="projectTodosList" class="list-rows list-rows-spaced"></div>
               </section>
-              <section class="project-detail-section">
+              <section class="project-detail-section project-detail-wide" data-tab="files">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">Files</p>
                   <h3>Artifacts</h3>
@@ -939,7 +947,7 @@
                 <div class="muted panel-meta" id="projectFileStatus">No project loaded.</div>
                 <div id="projectFilesList" class="list-rows list-rows-spaced"></div>
               </section>
-              <section class="project-detail-section">
+              <section class="project-detail-section project-detail-wide" data-tab="feedback">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">Feedback</p>
                   <h3>Triage inbox</h3>
@@ -968,7 +976,7 @@
                 <div class="muted panel-meta" id="projectFeedbackStatus">No project loaded.</div>
                 <div id="projectFeedbackList" class="list-rows list-rows-spaced"></div>
               </section>
-              <section class="project-detail-section project-detail-wide">
+              <section class="project-detail-section project-detail-wide" data-tab="activity">
                 <div class="project-detail-section-head">
                   <p class="eyebrow">Activity</p>
                   <h3>Recent changes</h3>
@@ -2486,7 +2494,7 @@
   <script src="/admin/assets/dashboard.js?v=2026-03-31-01"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
-  <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>
+  <script src="/admin/assets/projects.js?v=2026-03-31-01"></script>
   <script src="/admin/assets/config.js?v=2026-03-24-04"></script>
   <script src="/admin/assets/profiles.js?v=2026-03-24-02"></script>
 </body>
