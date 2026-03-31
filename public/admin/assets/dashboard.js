@@ -170,6 +170,20 @@
     const agentsSaveInline = document.getElementById('agentsSaveInline');
     const agentsVersionsBody = document.querySelector('#agentsVersions tbody');
     const agentsEmptyState = document.getElementById('agentsEmptyState');
+    const agentsServeIndicator  = document.getElementById('agentsServeIndicator');
+    const agentsEditorToolbar   = document.getElementById('agentsEditorToolbar');
+    const agentsLineCount       = document.getElementById('agentsLineCount');
+    const agentsDraftBanner     = document.getElementById('agentsDraftBanner');
+    const agentsDraftBannerTitle= document.getElementById('agentsDraftBannerTitle');
+    const agentsDraftBannerBody = document.getElementById('agentsDraftBannerBody');
+    const agentsDraftPublish    = document.getElementById('agentsDraftPublish');
+    const agentsDraftDismiss    = document.getElementById('agentsDraftDismiss');
+    const agentsEmptyEdit       = document.getElementById('agentsEmptyEdit');
+    const agentsRestoreModal    = document.getElementById('agentsRestoreModal');
+    const agentsRestoreBody     = document.getElementById('agentsRestoreBody');
+    const agentsRestoreStatus   = document.getElementById('agentsRestoreStatus');
+    const agentsRestoreCancel   = document.getElementById('agentsRestoreCancel');
+    const agentsRestoreConfirm  = document.getElementById('agentsRestoreConfirm');
     const apiToggle = document.getElementById('apiToggle');
     const apiToggleLabel = document.getElementById('apiToggleLabel');
     const quotaToggle = document.getElementById('quotaHardFailToggle');
@@ -304,6 +318,8 @@
     let agentsSaveInFlight = false;
     let agentsDeleteInFlight = false;
     let agentsRetentionInFlight = false;
+    let agentsPendingRestoreId = null;
+    let agentsRestoreInFlight = false;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -2814,13 +2830,6 @@
         setAgentsStatusMessage(`Status: ${status}`, 'warn');
       }
       if (agentsEmptyState) agentsEmptyState.hidden = status !== 'missing';
-      if (agentsMeta) {
-        const parts = [];
-        parts.push(`updated ${updatedAt}`);
-        if (sizeLabel !== '—') parts.push(sizeLabel);
-        if (pinnedDraft) parts.push(`latest draft v${pinnedDraft.latestId}`);
-        agentsMeta.textContent = parts.join(' · ');
-      }
       const backupLimit = Number(doc?.backup_limit);
       const normalizedBackupLimit = Number.isFinite(backupLimit) && backupLimit > 0 ? backupLimit : 0;
       if (agentsBackupLimitInput && !agentsRetentionInFlight) {
@@ -2832,21 +2841,32 @@
       if (agentsBackupLimitSave) {
         agentsBackupLimitSave.disabled = agentsRetentionInFlight;
       }
+      if (agentsServeIndicator) {
+        agentsServeIndicator.className = 'agents-serve-indicator';
+        if (status === 'missing') agentsServeIndicator.classList.add('missing');
+        else if (mode === 'locked') agentsServeIndicator.classList.add('pinned');
+        else agentsServeIndicator.classList.add('serving');
+      }
       if (agentsServeLabel) {
         if (status === 'missing') {
-          agentsServeLabel.textContent = 'Serving: none';
+          agentsServeLabel.textContent = 'No AGENTS.md yet';
         } else if (mode === 'latest') {
-          const suffix = latestId ? `v${latestId}` : 'latest';
-          agentsServeLabel.textContent = `Serving: latest (${suffix})`;
+          agentsServeLabel.textContent = `Serving latest${latestId ? ` · v${latestId}` : ''}`;
         } else {
           const suffix = activeId ? `v${activeId}` : 'pinned';
-          agentsServeLabel.textContent = pinnedDraft
-            ? `Serving: pinned (${suffix}) · latest draft: v${pinnedDraft.latestId}`
-            : `Serving: pinned (${suffix})`;
+          agentsServeLabel.textContent = `Serving pinned (${suffix})`;
         }
       }
+      if (agentsMeta) {
+        const parts = [];
+        if (sizeLabel !== '—') parts.push(sizeLabel);
+        if (updatedAt !== 'never') parts.push(`updated ${updatedAt}`);
+        if (pinnedDraft) parts.push(`draft v${pinnedDraft.latestId} pending`);
+        agentsMeta.textContent = parts.join(' · ');
+      }
       if (agentsServeLatest) {
-        agentsServeLatest.disabled = status === 'missing' || mode === 'latest';
+        agentsServeLatest.hidden = status === 'missing' || mode === 'latest';
+        agentsServeLatest.disabled = false;
       }
 
       if (agentsPreview) {
@@ -2886,9 +2906,9 @@
             const statusChips = [];
             if (isServed) statusChips.push('<span class="pill ok">Serving</span>');
             if (!isServed && isActive) statusChips.push('<span class="pill warn">Pinned</span>');
-            if (isLatest) statusChips.push('<span class="pill">Latest</span>');
+            if (isLatest) statusChips.push('<span class="pill accent">Latest</span>');
             return `
-              <tr data-version-id="${Number.isFinite(id) ? id : ''}">
+              <tr data-version-id="${Number.isFinite(id) ? id : ''}"${isServed ? ' class="is-served"' : ''}>
                 <td>#${Number.isFinite(id) ? id : '—'}</td>
                 <td>${escapeHtml(updated)}</td>
                 <td>${escapeHtml(sizeText)}</td>
@@ -2898,7 +2918,7 @@
                   <span class="agents-version-pills">${statusChips.join(' ')}</span>
                   <span class="agents-version-btns">
                     <button class="ghost tiny-btn" data-action="agents-view" data-version-id="${id}">View</button>
-                    ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-revert" data-version-id="${id}">Revert</button>`}
+                    ${isServed ? '' : `<button class="ghost tiny-btn" data-action="agents-restore" data-version-id="${id}">Restore</button>`}
                     ${isServed ? '<button class="ghost tiny-btn" disabled>Delete</button>' : `<button class="danger tiny-btn" data-action="agents-delete" data-version-id="${id}">Delete</button>`}
                   </span>
                 </td>
@@ -8845,22 +8865,16 @@
       }
     }
 
-    function setAgentsInlineEditing(editing) {
-      const on = !!editing;
-      if (!on && agentsEditorInline && !agentsEditorInline.hidden) {
-        const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
-        if (agentsEditorInline.value !== original) {
-          if (!confirm('You have unsaved changes. Discard them?')) return;
-        }
-      }
+    function _applyAgentsEditingState(on) {
       if (agentsPreview) agentsPreview.hidden = on || currentAgents?.status === 'missing';
       if (agentsEmptyState) agentsEmptyState.hidden = on || currentAgents?.status !== 'missing';
       if (agentsEditorInline) agentsEditorInline.hidden = !on;
-      if (agentsSaveInline) agentsSaveInline.hidden = !on;
-      if (agentsEditToggle) agentsEditToggle.textContent = on ? 'Cancel' : 'Edit';
+      if (agentsEditorToolbar) agentsEditorToolbar.hidden = !on;
+      if (on && agentsDraftBanner) agentsDraftBanner.hidden = true;
       if (on && agentsEditorInline) {
         const content = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
         agentsEditorInline.value = content;
+        updateAgentsLineCount();
         try { agentsEditorInline.focus(); } catch (_) {}
       }
       if (!on && agentsEditorInline) {
@@ -8868,14 +8882,36 @@
       }
     }
 
+    function updateAgentsLineCount() {
+      if (!agentsLineCount || !agentsEditorInline) return;
+      const count = (agentsEditorInline.value.match(/\n/g) || []).length + 1;
+      agentsLineCount.textContent = `${count} line${count === 1 ? '' : 's'}`;
+    }
+
+    function setAgentsInlineEditing(editing) {
+      const on = !!editing;
+      if (!on && agentsEditorInline && !agentsEditorInline.hidden) {
+        const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
+        if (agentsEditorInline.value !== original) {
+          showConfirmModal(
+            'Discard changes?',
+            'You have unsaved changes. Do you want to discard them?',
+            { action: 'Discard', warn: true }
+          ).then((confirmed) => {
+            if (confirmed) _applyAgentsEditingState(false);
+          });
+          return;
+        }
+      }
+      _applyAgentsEditingState(on);
+    }
+
     async function saveAgentsInline() {
-      if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;
+      if (!agentsEditorInline || agentsSaveInFlight) return;
       const content = agentsEditorInline.value;
       agentsSaveInFlight = true;
-      agentsSaveInline.disabled = true;
-      const original = agentsSaveInline.textContent;
-      agentsSaveInline.textContent = 'Saving…';
-      setAgentsStatusMessage('Saving…', null);
+      if (agentsSaveInline) { agentsSaveInline.disabled = true; agentsSaveInline.textContent = 'Saving…'; }
+      setAgentsStatusMessage('', null);
       try {
         const response = await api('/admin/agents/store', {
           method: 'POST',
@@ -8885,56 +8921,54 @@
         const result = response?.data || response || {};
         const prunedCount = Number(result?.pruned_count || 0);
         const pinnedDraft = getPinnedAgentsDraft(currentAgents);
+        _applyAgentsEditingState(false);
         if (pinnedDraft) {
-          if (agentsEditorInline) agentsEditorInline.value = content;
-          const savedLabel = result?.status === 'unchanged'
-            ? `Latest draft v${pinnedDraft.latestId} is already saved.`
-            : `Saved as latest draft v${pinnedDraft.latestId}.`;
-          const pruneSuffix = prunedCount > 0 ? ` Pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}.` : '';
-          setAgentsStatusMessage(`${savedLabel} Fleet is still serving pinned v${pinnedDraft.servedId}. Use Serve latest to roll it out.${pruneSuffix}`, 'warn');
+          const wasUnchanged = result?.status === 'unchanged';
+          if (agentsDraftBannerTitle) {
+            agentsDraftBannerTitle.textContent = wasUnchanged
+              ? `Draft v${pinnedDraft.latestId} already up to date.`
+              : `Saved as draft v${pinnedDraft.latestId}.`;
+          }
+          if (agentsDraftBannerBody) {
+            agentsDraftBannerBody.textContent = `Fleet is still serving pinned v${pinnedDraft.servedId}.`;
+          }
+          if (agentsDraftBanner) agentsDraftBanner.hidden = false;
         } else {
-          setAgentsInlineEditing(false);
           let msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
           if (prunedCount > 0) {
             msg += ` · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`;
           }
           setAgentsStatusMessage(msg, 'ok');
+          setTimeout(() => {
+            if ((agentsStatus?.textContent || '') === msg) setAgentsStatusMessage('', null);
+          }, 1800);
         }
-        setTimeout(() => {
-          const text = agentsStatus?.textContent || '';
-          if (text === 'Saved' || text === 'No changes to save') setAgentsStatusMessage('', null);
-        }, 1500);
       } catch (err) {
         setAgentsStatusMessage(`Save failed: ${err.message}`, 'error');
       } finally {
         agentsSaveInFlight = false;
-        agentsSaveInline.disabled = false;
-        agentsSaveInline.textContent = original;
+        if (agentsSaveInline) { agentsSaveInline.disabled = false; agentsSaveInline.textContent = 'Save'; }
       }
     }
 
     async function serveAgentsLatest() {
-      if (agentsServeLatest) {
-        agentsServeLatest.disabled = true;
-      }
-      setAgentsStatusMessage('Switching to latest…', null);
+      if (agentsServeLatest) agentsServeLatest.disabled = true;
+      setAgentsStatusMessage('', null);
       try {
         const response = await api('/admin/agents/serve', {
           method: 'POST',
           json: { mode: 'latest' },
         });
         await loadAll();
+        if (agentsDraftBanner) agentsDraftBanner.hidden = true;
         const result = response?.data || response || {};
         const prunedCount = Number(result?.pruned_count || 0);
-        const message = prunedCount > 0
-          ? `Serving latest · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`
-          : 'Serving latest';
-        setAgentsStatusMessage(message, 'ok');
-        setTimeout(() => {
-          if (agentsStatus?.textContent === message) setAgentsStatusMessage('', null);
-        }, 1500);
+        const toastMsg = prunedCount > 0
+          ? `Now serving latest · pruned ${formatNumber(prunedCount)} backup${prunedCount === 1 ? '' : 's'}`
+          : 'Now serving latest';
+        toast(toastMsg, 'ok');
       } catch (err) {
-        setAgentsStatusMessage(`Serve latest failed: ${err.message}`, 'error');
+        setAgentsStatusMessage(`Publish failed: ${err.message}`, 'error');
       } finally {
         if (agentsServeLatest) agentsServeLatest.disabled = false;
       }
@@ -9024,13 +9058,33 @@
       }
     }
 
-    async function revertAgentsVersion(versionId) {
+    function openAgentsRestoreModal(versionId) {
       const id = Number(versionId);
-      if (!Number.isFinite(id)) return;
-      if (!await showConfirmModal('Revert AGENTS.md version', `Create a new latest AGENTS.md from version #${id} and serve it fleet-wide?`, { action: 'Revert' })) {
-        return;
+      if (!Number.isFinite(id) || !agentsRestoreModal) return;
+      agentsPendingRestoreId = id;
+      if (agentsRestoreBody) {
+        agentsRestoreBody.textContent = `Copy the content of v${id} as a new latest version and serve it fleet-wide? This does not delete v${id}.`;
       }
-      setAgentsStatusMessage(`Reverting to v${id}…`, null);
+      if (agentsRestoreStatus) agentsRestoreStatus.textContent = '';
+      agentsRestoreModal.classList.add('show');
+      setInertBehindModal(agentsRestoreModal, true);
+    }
+
+    function closeAgentsRestoreModal() {
+      if (!agentsRestoreModal) return;
+      agentsRestoreModal.classList.remove('show');
+      setInertBehindModal(agentsRestoreModal, false);
+      agentsPendingRestoreId = null;
+      if (agentsRestoreStatus) agentsRestoreStatus.textContent = '';
+    }
+
+    async function confirmAgentsRestore() {
+      const id = agentsPendingRestoreId;
+      if (!id || agentsRestoreInFlight) return;
+      agentsRestoreInFlight = true;
+      if (agentsRestoreConfirm) agentsRestoreConfirm.disabled = true;
+      if (agentsRestoreCancel) agentsRestoreCancel.disabled = true;
+      if (agentsRestoreStatus) agentsRestoreStatus.textContent = `Restoring v${id}…`;
       try {
         const response = await api('/admin/agents/revert', {
           method: 'POST',
@@ -9039,15 +9093,17 @@
         await loadAll();
         const result = response?.data || response || {};
         const prunedCount = Number(result?.pruned_count || 0);
-        const message = prunedCount > 0
-          ? `Reverted v${id} into the new latest version and pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`
-          : `Reverted v${id} into the new latest version`;
-        setAgentsStatusMessage(message, 'ok');
-        setTimeout(() => {
-          if (agentsStatus?.textContent === message) setAgentsStatusMessage('', null);
-        }, 1800);
+        closeAgentsRestoreModal();
+        const toastMsg = prunedCount > 0
+          ? `Restored v${id} as latest · pruned ${formatNumber(prunedCount)} backup${prunedCount === 1 ? '' : 's'}`
+          : `Restored: v${id} is now latest and serving`;
+        toast(toastMsg, 'ok');
       } catch (err) {
-        setAgentsStatusMessage(`Revert failed: ${err.message}`, 'error');
+        if (agentsRestoreStatus) agentsRestoreStatus.textContent = `Restore failed: ${err.message}`;
+      } finally {
+        agentsRestoreInFlight = false;
+        if (agentsRestoreConfirm) agentsRestoreConfirm.disabled = false;
+        if (agentsRestoreCancel) agentsRestoreCancel.disabled = false;
       }
     }
 
@@ -9809,20 +9865,47 @@
       });
     }
     if (agentsPreview) {
-      agentsPreview.addEventListener('click', () => setAgentsInlineEditing(true));
+      agentsPreview.addEventListener('click', () => {
+        if (currentAgents?.status !== 'missing') setAgentsInlineEditing(true);
+      });
+      agentsPreview.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (currentAgents?.status !== 'missing') setAgentsInlineEditing(true);
+        }
+      });
     }
     if (agentsEditToggle) {
       agentsEditToggle.addEventListener('click', (event) => {
         event.preventDefault();
-        const editing = !!agentsEditorInline && !agentsEditorInline.hidden;
-        setAgentsInlineEditing(!editing);
+        setAgentsInlineEditing(false);
       });
+    }
+    if (agentsEditorInline) {
+      agentsEditorInline.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+          e.preventDefault();
+          saveAgentsInline();
+        }
+      });
+      agentsEditorInline.addEventListener('input', updateAgentsLineCount);
     }
     if (agentsServeLatest) {
       agentsServeLatest.addEventListener('click', (event) => {
         event.preventDefault();
         serveAgentsLatest();
       });
+    }
+    if (agentsDraftPublish) {
+      agentsDraftPublish.addEventListener('click', () => serveAgentsLatest());
+    }
+    if (agentsDraftDismiss) {
+      agentsDraftDismiss.addEventListener('click', () => {
+        if (agentsDraftBanner) agentsDraftBanner.hidden = true;
+      });
+    }
+    if (agentsEmptyEdit) {
+      agentsEmptyEdit.addEventListener('click', () => setAgentsInlineEditing(true));
     }
     if (agentsVersionsBody) {
       agentsVersionsBody.addEventListener('click', (event) => {
@@ -9833,11 +9916,22 @@
         if (!versionId) return;
         if (action === 'agents-view') {
           viewAgentsVersion(versionId);
-        } else if (action === 'agents-revert') {
-          revertAgentsVersion(versionId);
+        } else if (action === 'agents-restore') {
+          openAgentsRestoreModal(versionId);
         } else if (action === 'agents-delete') {
           deleteAgentsVersion(versionId);
         }
+      });
+    }
+    if (agentsRestoreCancel) {
+      agentsRestoreCancel.addEventListener('click', () => closeAgentsRestoreModal());
+    }
+    if (agentsRestoreConfirm) {
+      agentsRestoreConfirm.addEventListener('click', () => confirmAgentsRestore());
+    }
+    if (agentsRestoreModal) {
+      agentsRestoreModal.addEventListener('click', (e) => {
+        if (e.target === agentsRestoreModal) closeAgentsRestoreModal();
       });
     }
     if (uploadAuthBtn) {
@@ -10036,6 +10130,7 @@
       [deleteHostModal,       () => closeDeleteModal()],
       [agentsDeleteModal,     () => closeAgentsDeleteModal()],
       [agentsViewModal,       () => closeAgentsViewModal()],
+      [agentsRestoreModal,    () => closeAgentsRestoreModal()],
       [runnerModal,           () => showRunnerModal(false)],
       [upgradeModal,          () => showUpgradeNotesModal(false)],
       [usageHistoryModal,     () => showUsageHistoryModal(false)],
