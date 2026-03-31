@@ -318,6 +318,8 @@
     let agentsRetentionInFlight = false;
     let agentsPendingRestoreId = null;
     let agentsRestoreInFlight = false;
+    let agentsEditing = false;
+    let agentsOriginalContent = '';
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -2795,58 +2797,40 @@
       if (tone) agentsStatus.classList.add(`status-${tone}`);
     }
 
-    function setAgentsDirty(isDirty) {
-      if (!window.__adminDirtyModules) return;
-      if (isDirty) {
-        window.__adminDirtyModules.add('agents');
-      } else {
-        window.__adminDirtyModules.delete('agents');
-      }
-    }
-
     function normalizeAgentsEditorText(value) {
       return String(value ?? '').replace(/\r\n?/g, '\n');
     }
 
-    function agentsHasUnsavedChanges() {
-      if (!agentsEditorInline || agentsEditorInline.hidden) return false;
-      const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
-      return normalizeAgentsEditorText(agentsEditorInline.value) !== normalizeAgentsEditorText(original);
+    function agentsIsDirty() {
+      if (!agentsEditing || !agentsEditorInline) return false;
+      return normalizeAgentsEditorText(agentsEditorInline.value) !== normalizeAgentsEditorText(agentsOriginalContent);
     }
 
-    function syncAgentsDraftBanner() {
-      if (!agentsDraftBanner) return;
-      const dirty = agentsHasUnsavedChanges();
-      agentsDraftBanner.hidden = !dirty;
+    function syncAgentsEditorUI() {
+      const dirty = agentsIsDirty();
+
+      if (window.__adminDirtyModules) {
+        if (agentsEditing && dirty) window.__adminDirtyModules.add('agents');
+        else window.__adminDirtyModules.delete('agents');
+      }
+
+      if (agentsDraftBanner) agentsDraftBanner.hidden = !(agentsEditing && dirty);
+      if (agentsDraftBannerTitle) agentsDraftBannerTitle.textContent = 'Unsaved changes.';
+      if (agentsDraftBannerBody) agentsDraftBannerBody.textContent = 'Save or cancel before leaving the editor.';
+
       if (agentsServeLatest) {
-        agentsServeLatest.disabled = dirty;
-        agentsServeLatest.title = dirty
+        agentsServeLatest.disabled = agentsEditing && dirty;
+        agentsServeLatest.title = (agentsEditing && dirty)
           ? 'Save or cancel the current edits before publishing.'
           : 'Switch fleet to track the latest version';
       }
-      if (!dirty) {
-        return;
-      }
-      if (agentsDraftBannerTitle) agentsDraftBannerTitle.textContent = 'Unsaved changes.';
-      if (agentsDraftBannerBody) agentsDraftBannerBody.textContent = 'Save or cancel before leaving the editor.';
-    }
 
-    function normalizeAgentsEditorState(options = {}) {
-      const preserveDirty = options.preserveDirty !== false;
-      if (!agentsEditorInline || agentsEditorInline.hidden) {
-        setAgentsDirty(false);
-        syncAgentsDraftBanner();
-        return;
-      }
+      if (agentsEditorInline)  agentsEditorInline.hidden  = !agentsEditing;
+      if (agentsEditorToolbar) agentsEditorToolbar.hidden = !agentsEditing;
+      if (agentsPreview)       agentsPreview.hidden       = agentsEditing || currentAgents?.status === 'missing';
+      if (agentsEmptyState)    agentsEmptyState.hidden    = agentsEditing || currentAgents?.status !== 'missing';
 
-      const dirty = agentsHasUnsavedChanges();
-      if (!dirty || !preserveDirty) {
-        _applyAgentsEditingState(false);
-        return;
-      }
-
-      setAgentsDirty(true);
-      syncAgentsDraftBanner();
+      if (agentsEditing) updateAgentsLineCount();
     }
 
     function describeAgentsBackupLimit(limit) {
@@ -2881,7 +2865,7 @@
       } else {
         setAgentsStatusMessage(`Status: ${status}`, 'warn');
       }
-      if (agentsEmptyState) agentsEmptyState.hidden = status !== 'missing';
+      if (agentsEmptyState && !agentsEditing) agentsEmptyState.hidden = status !== 'missing';
       const backupLimit = Number(doc?.backup_limit);
       const normalizedBackupLimit = Number.isFinite(backupLimit) && backupLimit > 0 ? backupLimit : 0;
       if (agentsBackupLimitInput && !agentsRetentionInFlight) {
@@ -2925,17 +2909,14 @@
       if (agentsPreview) {
         const text = typeof doc?.content === 'string' ? doc.content : '';
         agentsPreview.textContent = text;
-        agentsPreview.hidden = status === 'missing';
+        if (!agentsEditing) agentsPreview.hidden = status === 'missing';
       }
 
-      if (agentsEditorInline) {
-        const editing = !agentsEditorInline.hidden;
-        if (!editing && typeof doc?.content === 'string') {
-          agentsEditorInline.value = normalizeAgentsEditorText(doc.content);
-        }
+      if (agentsEditorInline && !agentsEditing) {
+        agentsEditorInline.value = normalizeAgentsEditorText(
+          typeof doc?.content === 'string' ? doc.content : ''
+        );
       }
-
-      normalizeAgentsEditorState();
 
       if (agentsVersionsBody) {
         const versions = Array.isArray(doc?.versions) ? doc.versions : [];
@@ -8920,51 +8901,41 @@
       }
     }
 
-    function _applyAgentsEditingState(on) {
-      if (agentsPreview) agentsPreview.hidden = on || currentAgents?.status === 'missing';
-      if (agentsEmptyState) agentsEmptyState.hidden = on || currentAgents?.status !== 'missing';
-      if (agentsEditorInline) agentsEditorInline.hidden = !on;
-      if (agentsEditorToolbar) agentsEditorToolbar.hidden = !on;
-      if (on && agentsEditorInline) {
-        const content = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
-        agentsEditorInline.value = normalizeAgentsEditorText(content);
-        setAgentsDirty(false);
-        updateAgentsLineCount();
-        syncAgentsDraftBanner();
-        try { agentsEditorInline.focus(); } catch (_) {}
+    function openAgentsEditor() {
+      if (!agentsEditorInline) return;
+      agentsOriginalContent = normalizeAgentsEditorText(
+        typeof currentAgents?.content === 'string' ? currentAgents.content : ''
+      );
+      agentsEditorInline.value = agentsOriginalContent;
+      agentsEditing = true;
+      syncAgentsEditorUI();
+      try { agentsEditorInline.focus(); } catch (_) {}
+    }
+
+    function closeAgentsEditor(restoreContent = false) {
+      agentsEditing = false;
+      if (restoreContent && agentsEditorInline) {
+        agentsEditorInline.value = agentsOriginalContent;
       }
-      if (!on && agentsEditorInline) {
-        agentsEditorInline.value = normalizeAgentsEditorText(typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? ''));
-      }
-      if (!on) {
-        setAgentsDirty(false);
-      }
-      syncAgentsDraftBanner();
+      agentsOriginalContent = '';
+      syncAgentsEditorUI();
+      setAgentsStatusMessage('', null);
     }
 
     function updateAgentsLineCount() {
       if (!agentsLineCount || !agentsEditorInline) return;
-      const count = (agentsEditorInline.value.match(/\n/g) || []).length + 1;
-      agentsLineCount.textContent = `${count} line${count === 1 ? '' : 's'}`;
-      const dirty = agentsHasUnsavedChanges();
-      setAgentsDirty(dirty);
-      syncAgentsDraftBanner();
-    }
-
-    function setAgentsInlineEditing(editing) {
-      const on = !!editing;
-      if (!on) {
-        _applyAgentsEditingState(false);
-        setAgentsStatusMessage('', null);
-        return;
-      }
-      _applyAgentsEditingState(on);
+      const v = agentsEditorInline.value;
+      const lines = v === '' ? 0 : (v.match(/\n/g) || []).length + 1;
+      agentsLineCount.textContent = `${lines} line${lines === 1 ? '' : 's'}`;
     }
 
     async function saveAgentsInline() {
       if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;
       const content = normalizeAgentsEditorText(agentsEditorInline.value);
-      agentsEditorInline.value = content;
+
+      // Close synchronously before the first await — eliminates any race with loadAll/renderAgents
+      closeAgentsEditor(false);
+
       agentsSaveInFlight = true;
       if (agentsSaveInline) { agentsSaveInline.disabled = true; agentsSaveInline.textContent = 'Saving…'; }
       setAgentsStatusMessage('', null);
@@ -8973,10 +8944,9 @@
           method: 'POST',
           json: { content },
         });
-        await loadAll();
+        loadAll(); // background refresh — not awaited; agentsEditing=false so renderAgents is safe
         const result = response?.data || response || {};
         const prunedCount = Number(result?.pruned_count || 0);
-        _applyAgentsEditingState(false);
         let msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
         const pinnedDraft = getPinnedAgentsDraft(currentAgents);
         if (pinnedDraft && result?.status !== 'unchanged') {
@@ -9707,7 +9677,7 @@
           panelEl.hidden = tab !== settingsTab;
         });
         if (settingsTab === 'agents') {
-          normalizeAgentsEditorState();
+          syncAgentsEditorUI();
         }
         if (settingsTab === 'profiles' && window.__initProfiles) window.__initProfiles();
         if (settingsTab === 'projects' && window.__initProjects) window.__initProjects();
@@ -9915,19 +9885,19 @@
     }
     if (agentsPreview) {
       agentsPreview.addEventListener('click', () => {
-        if (currentAgents?.status !== 'missing') setAgentsInlineEditing(true);
+        if (currentAgents?.status !== 'missing') openAgentsEditor();
       });
       agentsPreview.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (currentAgents?.status !== 'missing') setAgentsInlineEditing(true);
+          if (currentAgents?.status !== 'missing') openAgentsEditor();
         }
       });
     }
     if (agentsEditToggle) {
       agentsEditToggle.addEventListener('click', (event) => {
         event.preventDefault();
-        setAgentsInlineEditing(false);
+        closeAgentsEditor(true);
       });
     }
     if (agentsEditorInline) {
@@ -9937,7 +9907,7 @@
           saveAgentsInline();
         }
       });
-      agentsEditorInline.addEventListener('input', updateAgentsLineCount);
+      agentsEditorInline.addEventListener('input', syncAgentsEditorUI);
     }
     if (agentsServeLatest) {
       agentsServeLatest.addEventListener('click', (event) => {
@@ -9946,7 +9916,7 @@
       });
     }
     if (agentsEmptyEdit) {
-      agentsEmptyEdit.addEventListener('click', () => setAgentsInlineEditing(true));
+      agentsEmptyEdit.addEventListener('click', () => openAgentsEditor());
     }
     if (agentsVersionsBody) {
       agentsVersionsBody.addEventListener('click', (event) => {
