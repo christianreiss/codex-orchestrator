@@ -71,6 +71,17 @@ class AgentsService
 
     public function ensureSeededFromFile(string $path): array
     {
+        $latest = $this->agents->latest();
+        if ($latest !== null) {
+            return [
+                'status' => 'skipped',
+                'reason' => 'canonical_document_exists',
+                'version_id' => isset($latest['id']) ? (int) $latest['id'] : null,
+                'sha256' => $latest['sha256'] ?? hash('sha256', (string) ($latest['body'] ?? '')),
+                'pruned_count' => 0,
+            ];
+        }
+
         $seedPath = trim($path);
         if ($seedPath === '' || !is_file($seedPath) || !is_readable($seedPath)) {
             return [

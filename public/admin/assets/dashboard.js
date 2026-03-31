@@ -177,7 +177,6 @@
     const agentsDraftBannerTitle= document.getElementById('agentsDraftBannerTitle');
     const agentsDraftBannerBody = document.getElementById('agentsDraftBannerBody');
     const agentsDraftPublish    = document.getElementById('agentsDraftPublish');
-    const agentsDraftDismiss    = document.getElementById('agentsDraftDismiss');
     const agentsEmptyEdit       = document.getElementById('agentsEmptyEdit');
     const agentsRestoreModal    = document.getElementById('agentsRestoreModal');
     const agentsRestoreBody     = document.getElementById('agentsRestoreBody');
@@ -2797,6 +2796,39 @@
       if (tone) agentsStatus.classList.add(`status-${tone}`);
     }
 
+    function setAgentsDirty(isDirty) {
+      if (!window.__adminDirtyModules) return;
+      if (isDirty) {
+        window.__adminDirtyModules.add('agents');
+      } else {
+        window.__adminDirtyModules.delete('agents');
+      }
+    }
+
+    function agentsHasUnsavedChanges() {
+      if (!agentsEditorInline || agentsEditorInline.hidden) return false;
+      const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
+      return agentsEditorInline.value !== original;
+    }
+
+    function syncAgentsDraftBanner() {
+      if (!agentsDraftBanner) return;
+      const dirty = agentsHasUnsavedChanges();
+      agentsDraftBanner.hidden = !dirty;
+      if (agentsServeLatest) {
+        agentsServeLatest.disabled = dirty;
+        agentsServeLatest.title = dirty
+          ? 'Save or cancel the current edits before publishing.'
+          : 'Switch fleet to track the latest version';
+      }
+      if (!dirty) {
+        return;
+      }
+      if (agentsDraftBannerTitle) agentsDraftBannerTitle.textContent = 'Unsaved changes.';
+      if (agentsDraftBannerBody) agentsDraftBannerBody.textContent = 'Save or cancel before leaving the editor.';
+      if (agentsDraftPublish) agentsDraftPublish.textContent = 'Save now';
+    }
+
     function describeAgentsBackupLimit(limit) {
       const numeric = Number(limit);
       if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -2867,6 +2899,7 @@
       if (agentsServeLatest) {
         agentsServeLatest.hidden = status === 'missing' || mode === 'latest';
         agentsServeLatest.disabled = false;
+        agentsServeLatest.textContent = pinnedDraft ? 'Publish latest draft' : 'Publish latest';
       }
 
       if (agentsPreview) {
@@ -2881,6 +2914,8 @@
           agentsEditorInline.value = doc.content;
         }
       }
+
+      syncAgentsDraftBanner();
 
       if (agentsVersionsBody) {
         const versions = Array.isArray(doc?.versions) ? doc.versions : [];
@@ -8870,22 +8905,30 @@
       if (agentsEmptyState) agentsEmptyState.hidden = on || currentAgents?.status !== 'missing';
       if (agentsEditorInline) agentsEditorInline.hidden = !on;
       if (agentsEditorToolbar) agentsEditorToolbar.hidden = !on;
-      if (on && agentsDraftBanner) agentsDraftBanner.hidden = true;
       if (on && agentsEditorInline) {
         const content = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
         agentsEditorInline.value = content;
+        setAgentsDirty(false);
         updateAgentsLineCount();
+        syncAgentsDraftBanner();
         try { agentsEditorInline.focus(); } catch (_) {}
       }
       if (!on && agentsEditorInline) {
         agentsEditorInline.value = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
       }
+      if (!on) {
+        setAgentsDirty(false);
+      }
+      syncAgentsDraftBanner();
     }
 
     function updateAgentsLineCount() {
       if (!agentsLineCount || !agentsEditorInline) return;
       const count = (agentsEditorInline.value.match(/\n/g) || []).length + 1;
       agentsLineCount.textContent = `${count} line${count === 1 ? '' : 's'}`;
+      const dirty = agentsHasUnsavedChanges();
+      setAgentsDirty(dirty);
+      syncAgentsDraftBanner();
     }
 
     function setAgentsInlineEditing(editing) {
@@ -8907,7 +8950,7 @@
     }
 
     async function saveAgentsInline() {
-      if (!agentsEditorInline || agentsSaveInFlight) return;
+      if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;
       const content = agentsEditorInline.value;
       agentsSaveInFlight = true;
       if (agentsSaveInline) { agentsSaveInline.disabled = true; agentsSaveInline.textContent = 'Saving…'; }
@@ -8920,29 +8963,19 @@
         await loadAll();
         const result = response?.data || response || {};
         const prunedCount = Number(result?.pruned_count || 0);
-        const pinnedDraft = getPinnedAgentsDraft(currentAgents);
         _applyAgentsEditingState(false);
-        if (pinnedDraft) {
-          const wasUnchanged = result?.status === 'unchanged';
-          if (agentsDraftBannerTitle) {
-            agentsDraftBannerTitle.textContent = wasUnchanged
-              ? `Draft v${pinnedDraft.latestId} already up to date.`
-              : `Saved as draft v${pinnedDraft.latestId}.`;
-          }
-          if (agentsDraftBannerBody) {
-            agentsDraftBannerBody.textContent = `Fleet is still serving pinned v${pinnedDraft.servedId}.`;
-          }
-          if (agentsDraftBanner) agentsDraftBanner.hidden = false;
-        } else {
-          let msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
-          if (prunedCount > 0) {
-            msg += ` · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`;
-          }
-          setAgentsStatusMessage(msg, 'ok');
-          setTimeout(() => {
-            if ((agentsStatus?.textContent || '') === msg) setAgentsStatusMessage('', null);
-          }, 1800);
+        let msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
+        const pinnedDraft = getPinnedAgentsDraft(currentAgents);
+        if (pinnedDraft && result?.status !== 'unchanged') {
+          msg += ` as latest draft v${pinnedDraft.latestId}. Use Publish latest to roll it out.`;
         }
+        if (prunedCount > 0) {
+          msg += ` · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`;
+        }
+        setAgentsStatusMessage(msg, 'ok');
+        setTimeout(() => {
+          if ((agentsStatus?.textContent || '') === msg) setAgentsStatusMessage('', null);
+        }, 2200);
       } catch (err) {
         setAgentsStatusMessage(`Save failed: ${err.message}`, 'error');
       } finally {
@@ -8953,6 +8986,7 @@
 
     async function serveAgentsLatest() {
       if (agentsServeLatest) agentsServeLatest.disabled = true;
+      if (agentsDraftPublish) agentsDraftPublish.disabled = true;
       setAgentsStatusMessage('', null);
       try {
         const response = await api('/admin/agents/serve', {
@@ -8971,6 +9005,7 @@
         setAgentsStatusMessage(`Publish failed: ${err.message}`, 'error');
       } finally {
         if (agentsServeLatest) agentsServeLatest.disabled = false;
+        if (agentsDraftPublish) agentsDraftPublish.disabled = false;
       }
     }
 
@@ -9897,12 +9932,7 @@
       });
     }
     if (agentsDraftPublish) {
-      agentsDraftPublish.addEventListener('click', () => serveAgentsLatest());
-    }
-    if (agentsDraftDismiss) {
-      agentsDraftDismiss.addEventListener('click', () => {
-        if (agentsDraftBanner) agentsDraftBanner.hidden = true;
-      });
+      agentsDraftPublish.addEventListener('click', () => saveAgentsInline());
     }
     if (agentsEmptyEdit) {
       agentsEmptyEdit.addEventListener('click', () => setAgentsInlineEditing(true));

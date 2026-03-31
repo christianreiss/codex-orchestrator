@@ -100,13 +100,13 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="agentsDeleteConfirm"', $html);
     }
 
-    public function testAdminAgentsHistoryActionsAreWiredForViewAndRevert(): void
+    public function testAdminAgentsHistoryActionsAreWiredForViewAndRestore(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
 
         $this->assertStringContainsString("data-action=\"agents-view\"", $js);
-        $this->assertStringContainsString("data-action=\"agents-revert\"", $js);
+        $this->assertStringContainsString("data-action=\"agents-restore\"", $js);
         $this->assertStringContainsString('api(`/admin/agents/versions/', $js);
         $this->assertStringContainsString("api('/admin/agents/revert'", $js);
         $this->assertStringNotContainsString("data-action=\"agents-serve\"", $js);
@@ -119,9 +119,29 @@ final class AdminAgentsUiWiringTest extends TestCase
 
         $this->assertStringContainsString('let agentsSaveInFlight = false;', $js);
         $this->assertStringContainsString('if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;', $js);
-        $this->assertStringContainsString('Saved as latest draft v', $js);
-        $this->assertStringContainsString('Use Serve latest to roll it out.', $js);
+        $this->assertStringContainsString('as latest draft v', $js);
+        $this->assertStringContainsString('Use Publish latest to roll it out.', $js);
         $this->assertStringContainsString('pruned', $js);
+    }
+
+    public function testAdminAgentsDraftBannerTracksUnsavedChangesOnly(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('Unsaved changes.', $html);
+        $this->assertStringContainsString('Save or cancel before leaving the editor.', $html);
+        $this->assertStringContainsString('>Save now<', $html);
+        $this->assertStringNotContainsString('Publish now', $html);
+
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('function setAgentsDirty(isDirty)', $js);
+        $this->assertStringContainsString('function agentsHasUnsavedChanges()', $js);
+        $this->assertStringContainsString('function syncAgentsDraftBanner()', $js);
+        $this->assertStringContainsString("agentsDraftPublish.addEventListener('click', () => saveAgentsInline());", $js);
+        $this->assertStringContainsString("agentsServeLatest.textContent = pinnedDraft ? 'Publish latest draft' : 'Publish latest';", $js);
     }
 
     public function testAdminAgentsDeleteGuardsDuplicateClicks(): void
