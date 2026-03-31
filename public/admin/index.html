@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-30-16">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
 </head>
@@ -643,75 +643,6 @@
             </div>
           </div>
         </div>
-        <div class="modal-backdrop" id="skillModal" role="dialog" aria-modal="true">
-          <div class="modal skill-modal">
-            <div class="modal-head">
-              <div>
-                <p class="eyebrow">Fleet Skill</p>
-                <h3 id="skillModalTitle">New skill</h3>
-                <p class="muted" id="skillModalSubtitle">cdx serves the canonical skill; hosts read it through MCP <code>skill://&lt;slug&gt;</code> resources.</p>
-              </div>
-            </div>
-            <div class="skill-meta-row">
-              <span class="pill-quiet" id="skillDigestBadge" hidden>SHA —</span>
-              <span class="pill-quiet" id="skillUpdatedBadge" hidden>Updated —</span>
-            </div>
-            <div class="skill-modal-body">
-              <div class="field" id="skillPromptField">
-                <div class="field-label-row">
-                  <label for="skillPrompt" class="modal-label">Generate from prompt</label>
-                  <button type="button" class="ghost tiny-btn" id="skillGenerate">Generate draft</button>
-                </div>
-                <textarea id="skillPrompt" rows="4" spellcheck="false" placeholder="Describe what the skill should help with, the guardrails it should follow, and the kind of steps it should produce."></textarea>
-                <div class="muted-note">Runner-backed draft only. Nothing is saved until you click <strong>Save</strong>.</div>
-              </div>
-              <div class="field">
-                <label for="skillName" class="modal-label">Skill name</label>
-                <input type="text" id="skillName" placeholder="Incident warm handoff, Deploy db, …">
-                <div class="muted-note">Maps to the SKILL.md <code>name</code> and dashboard label.</div>
-              </div>
-              <div class="field">
-                <div class="field-label-row">
-                  <label for="skillSlug" class="modal-label">Slug</label>
-                  <button type="button" class="ghost tiny-btn" id="skillSlugSuggest">Auto-fill</button>
-                </div>
-                <input type="text" id="skillSlug" placeholder="e.g. backup-db">
-                <div class="muted-note" id="skillSlugNote">cdx serves this skill canonically through <code>skill://&lt;slug&gt;</code> MCP resources.</div>
-              </div>
-              <div class="field">
-                <label for="skillDescription" class="modal-label">Short description</label>
-                <input type="text" id="skillDescription" placeholder="One-liner surfaced in search/results">
-                <div class="muted-note">Populates the SKILL.md <code>description</code>.</div>
-              </div>
-              <div class="field">
-                <label for="skillTagsInput" class="modal-label">Tags</label>
-                <div class="skill-tags-input">
-                  <div class="skill-tags-list" id="skillTagsList"></div>
-                  <input type="text" id="skillTagsInput" placeholder="Type a tag and press Enter">
-                </div>
-                <div class="muted-note">Optional, but great for routing and search (<code>tags</code> array).</div>
-              </div>
-              <div class="field">
-                <label for="skillWhat" class="modal-label">What this skill does</label>
-                <textarea id="skillWhat" rows="5" spellcheck="false" placeholder="Explain the intent, guardrails, expected outputs."></textarea>
-              </div>
-              <div class="field">
-                <label for="skillWhen" class="modal-label">When to use this skill</label>
-                <textarea id="skillWhen" rows="4" spellcheck="false" placeholder="List triggers, heuristics, or context clues."></textarea>
-              </div>
-              <div class="field">
-                <label for="skillSteps" class="modal-label">Step-by-step instructions</label>
-                <textarea id="skillSteps" rows="6" spellcheck="false" placeholder="Provide numbered instructions, failure modes, and success signals."></textarea>
-              </div>
-            </div>
-            <div class="muted status-text" id="skillStatus" role="status" aria-live="polite" aria-atomic="true"></div>
-            <div class="actions">
-              <button class="ghost danger" id="skillDelete" type="button" hidden>Delete</button>
-              <button class="ghost" id="skillCancel">Cancel</button>
-              <button id="skillSave">Save</button>
-            </div>
-          </div>
-        </div>
         <div class="modal-backdrop" id="accessBlockModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3 id="accessBlockTitle">Admin access blocked</h3>
@@ -1043,6 +974,114 @@
                   <h3>Recent changes</h3>
                 </div>
                 <div id="projectChangesList" class="list-rows"></div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel-set" data-panel="skill-detail" hidden>
+          <section class="card panel skill-detail-page" id="skillDetailPanel">
+            <div class="project-detail-head skill-detail-head">
+              <div>
+                <p class="muted overline">Fleet Skill Workspace</p>
+                <h2 id="skillWorkspaceTitle">New skill</h2>
+                <p class="muted panel-subtitle" id="skillWorkspaceSubtitle">Talk with AI about this skill, then review the structured draft before saving it into <code>skill://&lt;slug&gt;</code>.</p>
+              </div>
+              <div class="project-detail-head-actions">
+                <a class="ghost tiny-btn" id="skillDetailBack" href="/admin/settings/skills">Back to skills</a>
+              </div>
+            </div>
+            <div class="project-detail-empty" id="skillDetailEmptyState" hidden>
+              <h3 id="skillDetailEmptyTitle">Loading skill…</h3>
+              <p class="muted" id="skillDetailEmptyBody">Fetching skill details.</p>
+            </div>
+            <div class="skill-detail-layout" id="skillDetailLayout" hidden>
+              <section class="skill-detail-section skill-chat-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Talk With AI</p>
+                  <h3>Talk with your skill</h3>
+                </div>
+                <div class="muted panel-meta">Session only. The conversation is not stored; only saved skill fields persist.</div>
+                <div class="skill-conversation" id="skillConversation" aria-live="polite"></div>
+                <div class="skill-conversation-empty muted" id="skillConversationEmpty">Start with what the skill should do, what changed, or how it should improve. AI replies and fills the updated values.</div>
+                <div class="field">
+                  <label for="skillAssistInput" class="modal-label">Prompt</label>
+                  <textarea id="skillAssistInput" rows="5" spellcheck="false" placeholder="Example: make this skill more incident-focused, add stronger guardrails, and tighten the step-by-step instructions."></textarea>
+                  <div class="panel-actions panel-actions-spaced">
+                    <button id="skillAssistSend" type="button">Apply AI changes</button>
+                  </div>
+                </div>
+                <div class="muted status-text" id="skillAssistStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+              </section>
+              <section class="skill-detail-section skill-editor-section">
+                <div class="project-detail-section-head">
+                  <p class="eyebrow">Structured Draft</p>
+                  <h3>AI-managed fields</h3>
+                </div>
+                <div class="skill-meta-row">
+                  <span class="pill-quiet" id="skillDigestBadge" hidden>SHA —</span>
+                  <span class="pill-quiet" id="skillUpdatedBadge" hidden>Updated —</span>
+                </div>
+                <div class="skill-changed-fields" id="skillChangedFields" hidden></div>
+                <div class="field">
+                  <label for="skillSlug" class="modal-label">Slug</label>
+                  <input type="text" id="skillSlug" placeholder="e.g. incident-handoff">
+                  <div class="muted-note" id="skillSlugNote">New skills can set the slug here. Existing skills keep their slug locked.</div>
+                </div>
+                <div class="field skill-managed-field" data-skill-field="display_name">
+                  <div class="field-label-row">
+                    <label for="skillName" class="modal-label">Skill name</label>
+                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="display_name">Edit</button>
+                  </div>
+                  <input type="text" id="skillName" placeholder="Incident warm handoff, Deploy db, …" readonly>
+                  <div class="muted-note">Maps to the SKILL.md <code>name</code> and dashboard label.</div>
+                </div>
+                <div class="field skill-managed-field" data-skill-field="description">
+                  <div class="field-label-row">
+                    <label for="skillDescription" class="modal-label">Short description</label>
+                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="description">Edit</button>
+                  </div>
+                  <input type="text" id="skillDescription" placeholder="One-liner surfaced in search/results" readonly>
+                  <div class="muted-note">Populates the SKILL.md <code>description</code>.</div>
+                </div>
+                <div class="field skill-managed-field" data-skill-field="tags">
+                  <div class="field-label-row">
+                    <label for="skillTagsInput" class="modal-label">Tags</label>
+                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="tags">Edit</button>
+                  </div>
+                  <div class="skill-tags-input">
+                    <div class="skill-tags-list" id="skillTagsList"></div>
+                    <input type="text" id="skillTagsInput" placeholder="Type a tag and press Enter" disabled>
+                  </div>
+                  <div class="muted-note">Optional, but useful for search and routing.</div>
+                </div>
+                <div class="field skill-managed-field" data-skill-field="what">
+                  <div class="field-label-row">
+                    <label for="skillWhat" class="modal-label">What this skill does</label>
+                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="what">Edit</button>
+                  </div>
+                  <textarea id="skillWhat" rows="6" spellcheck="false" placeholder="Explain the intent, guardrails, expected outputs." readonly></textarea>
+                </div>
+                <div class="field skill-managed-field" data-skill-field="when">
+                  <div class="field-label-row">
+                    <label for="skillWhen" class="modal-label">When to use this skill</label>
+                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="when">Edit</button>
+                  </div>
+                  <textarea id="skillWhen" rows="5" spellcheck="false" placeholder="List triggers, heuristics, or context clues." readonly></textarea>
+                </div>
+                <div class="field skill-managed-field" data-skill-field="steps">
+                  <div class="field-label-row">
+                    <label for="skillSteps" class="modal-label">Step-by-step instructions</label>
+                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="steps">Edit</button>
+                  </div>
+                  <textarea id="skillSteps" rows="8" spellcheck="false" placeholder="Provide numbered instructions, failure modes, and success signals." readonly></textarea>
+                </div>
+                <div class="muted status-text" id="skillStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+                <div class="actions">
+                  <button class="ghost danger" id="skillDelete" type="button" hidden>Delete</button>
+                  <a class="ghost" id="skillCancel" href="/admin/settings/skills">Back to skills</a>
+                  <button id="skillSave">Save</button>
+                </div>
               </section>
             </div>
           </section>
@@ -2444,7 +2483,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-30-26"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-31-01"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-18-01"></script>

@@ -401,6 +401,35 @@ class AdminConfigController
     }
 
     /**
+     * POST /admin/skills/assist
+     */
+    public function skillAssist(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        try {
+            $result = $this->skillDraftService->assist(is_array($payload) ? $payload : [], null);
+        } catch (ValidationException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $exception->getErrors(),
+            ], 422);
+        } catch (HttpException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], $exception->getStatusCode());
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    /**
      * DELETE /admin/skills/{slug}
      */
     public function skillDelete(string $slug): void

@@ -43,6 +43,12 @@ class AdminPageController
         require $this->publicDir . '/admin/index.php';
     }
 
+    /** GET /admin/skills/new, /admin/skills/{slug} */
+    public function skill(): void
+    {
+        require $this->publicDir . '/admin/index.php';
+    }
+
     /** GET /admin/account, /admin/account/password, /admin/account/passkeys */
     public function account(): void
     {

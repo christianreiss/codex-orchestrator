@@ -6,55 +6,61 @@ use PHPUnit\Framework\TestCase;
 
 final class AdminSkillRegistryEditUiTest extends TestCase
 {
-    public function testSkillModalProvidesDedicatedSlugHintContainer(): void
-    {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
-
-        $this->assertStringContainsString('id="skillSlug"', $html);
-        $this->assertStringContainsString('id="skillSlugSuggest"', $html);
-        $this->assertStringContainsString('id="skillSlugNote"', $html);
-        $this->assertStringContainsString('id="skillDelete"', $html);
-    }
-
-    public function testSkillRegistryTableKeepsActionsVisibleAndLabeled(): void
+    public function testSkillRegistryKeepsActionsVisibleAndNavigatesToDedicatedWorkspace(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
         $this->assertStringContainsString('<th>Actions</th>', $html);
+        $this->assertStringContainsString('id="newSkillBtn"', $html);
 
         $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
         $this->assertIsString($css);
-        $this->assertStringContainsString('.table-wrap,', $css);
-        $this->assertStringContainsString('.table-wrapper {', $css);
         $this->assertStringContainsString('#skills {', $css);
-        $this->assertStringContainsString('table-layout: fixed;', $css);
         $this->assertStringContainsString('#skills td[data-label="Description"] {', $css);
-        $this->assertStringContainsString('max-width: 36ch;', $css);
         $this->assertStringContainsString('#skills td[data-label="Actions"] {', $css);
-        $this->assertStringContainsString('width: 180px;', $css);
+
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+        $this->assertStringContainsString('class="ghost tiny-btn skill-open"', $js);
+        $this->assertStringContainsString('openSkillDetail(slug);', $js);
+        $this->assertStringContainsString("navigateAdminShortcut(target);", $js);
+        $this->assertStringContainsString('Delete skill "${slug}"? Hosts remove it on next sync.', $js);
     }
 
-    public function testSkillEditModeLocksSlugAndKeepsUpdateActionExplicit(): void
+    public function testDedicatedSkillWorkspaceMarkupExists(): void
+    {
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('data-panel="skill-detail"', $html);
+        $this->assertStringContainsString('id="skillDetailPanel"', $html);
+        $this->assertStringContainsString('id="skillConversation"', $html);
+        $this->assertStringContainsString('id="skillAssistInput"', $html);
+        $this->assertStringContainsString('id="skillAssistSend"', $html);
+        $this->assertStringContainsString('id="skillChangedFields"', $html);
+        $this->assertStringContainsString('data-skill-unlock="display_name"', $html);
+        $this->assertStringContainsString('data-skill-unlock="steps"', $html);
+        $this->assertStringNotContainsString('id="skillModal"', $html);
+
+        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
+        $this->assertIsString($css);
+        $this->assertStringContainsString('.skill-detail-layout {', $css);
+        $this->assertStringContainsString('.skill-conversation {', $css);
+        $this->assertStringContainsString('.skill-managed-field.is-locked textarea,', $css);
+        $this->assertStringContainsString('.skill-field-edit[aria-pressed="true"] {', $css);
+    }
+
+    public function testDashboardJsRoutesSkillPagesAndLocksAiManagedFields(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
 
-        $this->assertStringContainsString("let skillModalMode = 'new';", $js);
-        $this->assertStringContainsString("let skillEditingSlug = '';", $js);
-        $this->assertStringContainsString("skillSave.textContent = isEdit ? 'Save changes' : 'Save';", $js);
-        $this->assertStringContainsString('skillSlug.readOnly = isEdit;', $js);
-        $this->assertStringContainsString('skillDelete.hidden = !isEdit;', $js);
-        $this->assertStringContainsString('<div class="table-actions">', $js);
-        $this->assertStringContainsString('class="ghost tiny-btn skill-edit"', $js);
-        $this->assertStringContainsString('class="ghost tiny-btn danger skill-delete"', $js);
-        $this->assertStringContainsString('if (isEdit && slug !== skillEditingSlug)', $js);
-        $this->assertStringContainsString('skillDelete.addEventListener(\'click\'', $js);
-        $this->assertStringContainsString('deleteSkill(slug, { fromModal: true });', $js);
-        $this->assertStringContainsString('Delete skill "${slug}"? Hosts remove it on next sync.', $js);
-        $this->assertStringContainsString('Managed by the Projects module', $js);
-        $this->assertStringContainsString('cdx is the canonical skill source; hosts read skills through MCP resource URIs.', $js);
-        $this->assertStringContainsString('cdx serves this skill canonically through <code>skill://&lt;slug&gt;</code> MCP resources.', $js);
-        $this->assertStringContainsString("const managed = skill.managed ? '<span class=\"muted\">(managed)</span>' : '';", $js);
+        $this->assertStringContainsString("return { panel: 'skill-detail', sub: seg2 };", $js);
+        $this->assertStringContainsString("window.__loadSkillDetailByRoute = loadSkillDetailByRoute;", $js);
+        $this->assertStringContainsString("setActiveLinks('.settings-tab', 'skills');", $js);
+        $this->assertStringContainsString('input.readOnly = !unlocked;', $js);
+        $this->assertStringContainsString("skillTagsInput.disabled = !tagsUnlocked;", $js);
+        $this->assertStringContainsString("btn.textContent = unlocked ? 'Editing' : 'Edit';", $js);
+        $this->assertStringContainsString('history.replaceState({}, \'\', skillDetailPath(slug));', $js);
     }
 }

@@ -61,6 +61,15 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="memoriesEmptyState"', $html);
     }
 
+    public function testAdminMemoriesDeleteUsesDeleteVerb(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString('api(`/admin/mcp/memories/${encodeURIComponent(recordId)}`, { method: \'DELETE\' })', $js);
+        $this->assertStringNotContainsString('api(`/admin/mcp/memories/${encodeURIComponent(recordId)}`, \'DELETE\')', $js);
+    }
+
     public function testAdminAgentsSettingsPanelContainsInlineEditorIds(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');

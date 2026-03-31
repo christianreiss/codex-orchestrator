@@ -110,10 +110,20 @@
     const chatgptUsageCard = document.getElementById('chatgpt-usage-card');
     const skillsTbody = document.querySelector('#skills tbody');
     const newSkillBtn = document.getElementById('newSkillBtn');
-    const skillModal = document.getElementById('skillModal');
-    const skillPromptField = document.getElementById('skillPromptField');
-    const skillPromptInput = document.getElementById('skillPrompt');
-    const skillGenerate = document.getElementById('skillGenerate');
+    const skillDetailPanel = document.getElementById('skillDetailPanel');
+    const skillDetailLayout = document.getElementById('skillDetailLayout');
+    const skillDetailBack = document.getElementById('skillDetailBack');
+    const skillDetailEmptyState = document.getElementById('skillDetailEmptyState');
+    const skillDetailEmptyTitle = document.getElementById('skillDetailEmptyTitle');
+    const skillDetailEmptyBody = document.getElementById('skillDetailEmptyBody');
+    const skillWorkspaceTitle = document.getElementById('skillWorkspaceTitle');
+    const skillWorkspaceSubtitle = document.getElementById('skillWorkspaceSubtitle');
+    const skillConversation = document.getElementById('skillConversation');
+    const skillConversationEmpty = document.getElementById('skillConversationEmpty');
+    const skillAssistInput = document.getElementById('skillAssistInput');
+    const skillAssistSend = document.getElementById('skillAssistSend');
+    const skillAssistStatus = document.getElementById('skillAssistStatus');
+    const skillChangedFields = document.getElementById('skillChangedFields');
     const skillSlug = document.getElementById('skillSlug');
     const skillNameInput = document.getElementById('skillName');
     const skillDescriptionInput = document.getElementById('skillDescription');
@@ -126,12 +136,10 @@
     const skillSave = document.getElementById('skillSave');
     const skillCancel = document.getElementById('skillCancel');
     const skillStatus = document.getElementById('skillStatus');
-    const skillSlugSuggest = document.getElementById('skillSlugSuggest');
     const skillSlugNote = document.getElementById('skillSlugNote');
     const skillDigestBadge = document.getElementById('skillDigestBadge');
     const skillUpdatedBadge = document.getElementById('skillUpdatedBadge');
-    const skillModalTitle = document.getElementById('skillModalTitle');
-    const skillModalSubtitle = document.getElementById('skillModalSubtitle');
+    const skillFieldEditButtons = Array.from(document.querySelectorAll('[data-skill-unlock]'));
     const skillsPanel = document.querySelector('[data-settings-panel="skills"]');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
@@ -301,10 +309,13 @@
     let secureExpanded = false;
     let hostStatusFilter = ''; // maintained for clarity
     const hostTabLinks = Array.from(document.querySelectorAll('.host-tab'));
-    let skillSlugAutofill = true;
-    let skillModalMode = 'new';
+    let skillDetailMode = 'new';
     let skillEditingSlug = '';
     let skillTags = [];
+    let skillConversationMessages = [];
+    let skillUnlockedFields = new Set();
+    let skillAssistBusy = false;
+    let skillChangedFieldNames = [];
 
     const THEME_OPTIONS = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'];
     const THEME_SYNC_STORAGE_KEY = 'adminThemeSynced';
@@ -682,6 +693,12 @@
         copy: 'Shared context, artifacts, and triage for one coordination space.',
         show: ['projectDetailPanel'],
       },
+      'skill-detail': {
+        eyebrow: 'Skill Details',
+        title: 'Skill workspace',
+        copy: 'Talk with AI, review field-level changes, and save the canonical fleet skill.',
+        show: ['skillDetailPanel'],
+      },
       users: {
         eyebrow: 'Users',
         title: 'User management',
@@ -742,7 +759,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -4570,17 +4587,17 @@
           <td data-label="Description">${(skill.description || '—').replace(/</g, '&lt;')}</td>
           <td data-label="Actions">
             <div class="table-actions">
-              <button class="ghost tiny-btn skill-edit" data-slug="${skill.slug}" ${managedDisabled}>Edit</button>
+              <button class="ghost tiny-btn skill-open" data-slug="${skill.slug}" ${managedDisabled}>Open</button>
               <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : managedDisabled}>Delete</button>
             </div>
           </td>
         </tr>`;
       }).join('');
 
-      skillsTbody.querySelectorAll('.skill-edit').forEach((btn) => {
+      skillsTbody.querySelectorAll('.skill-open').forEach((btn) => {
         btn.addEventListener('click', () => {
           const slug = btn.getAttribute('data-slug');
-          openSkillModal(slug);
+          openSkillDetail(slug);
         });
       });
       skillsTbody.querySelectorAll('.skill-delete').forEach((btn) => {
@@ -4591,71 +4608,80 @@
       });
     }
 
-    function slugifySkillSource(value) {
-      return (value || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9._-]+/g, '-')
-        .replace(/-{2,}/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 63);
+    function isSkillDetailView() {
+      return (document.body?.dataset?.viewMode || '').toLowerCase() === 'skill-detail';
     }
 
-    function maybeAutofillSkillSlug({ force = false } = {}) {
-      if (!skillNameInput || !skillSlug) return;
-      const suggestion = slugifySkillSource(skillNameInput.value);
-      if (!suggestion) {
-        if (force && !skillSlug.value.trim()) {
-          skillSlug.value = 'skill';
-        }
-        return;
-      }
-      if (!force && !skillSlugAutofill && skillSlug.value.trim()) {
-        return;
-      }
-      skillSlug.value = suggestion;
+    function skillDetailPath(slug) {
+      const normalized = String(slug || '').trim();
+      return normalized ? `/admin/skills/${encodeURIComponent(normalized)}` : '/admin/skills/new';
     }
 
-    function setSkillModalMode(mode, slugLabel = '') {
+    function openSkillDetail(slug) {
+      const target = skillDetailPath(slug);
+      if (window.__adminDirtyModules?.size > 0) {
+        const names = Array.from(window.__adminDirtyModules).join(', ');
+        if (!window.confirm(`You have unsaved changes in ${names}. Leave without saving?`)) return;
+        window.__adminDirtyModules.clear();
+      }
+      navigateAdminShortcut(target);
+    }
+
+    function setSkillDirty(isDirty) {
+      if (!window.__adminDirtyModules) return;
+      if (isDirty) {
+        window.__adminDirtyModules.add('skill');
+      } else {
+        window.__adminDirtyModules.delete('skill');
+      }
+    }
+
+    function resetSkillConversation() {
+      skillConversationMessages = [];
+      renderSkillConversation();
+    }
+
+    function setSkillDetailMode(mode, slugLabel = '') {
       const isEdit = mode === 'edit';
-      skillModalMode = isEdit ? 'edit' : 'new';
+      skillDetailMode = isEdit ? 'edit' : 'new';
       if (!isEdit) {
         skillEditingSlug = '';
       }
-      if (skillModalTitle) {
-        skillModalTitle.textContent = isEdit ? 'Edit skill' : 'New skill';
+      if (skillWorkspaceTitle) {
+        skillWorkspaceTitle.textContent = isEdit ? `Edit ${slugLabel || 'skill'}` : 'New skill';
       }
-      if (skillModalSubtitle) {
-        skillModalSubtitle.textContent = isEdit
-          ? `Updating ${slugLabel || 'this skill'} in cdx so hosts read it through MCP resource URIs.`
-          : 'cdx is the canonical skill source; hosts read skills through MCP resource URIs.';
+      if (skillWorkspaceSubtitle) {
+        skillWorkspaceSubtitle.innerHTML = isEdit
+          ? `Talk with AI about <code>${escapeHtml(slugLabel || 'this skill')}</code>, then save the updated canonical draft.`
+          : 'Describe the skill, then let AI fill the draft before saving it into <code>skill://&lt;slug&gt;</code>.';
       }
       if (skillSave) {
         skillSave.textContent = isEdit ? 'Save changes' : 'Save';
       }
-      if (skillPromptField) {
-        skillPromptField.hidden = isEdit;
+      if (skillDelete) {
+        skillDelete.hidden = !isEdit;
       }
       if (skillSlug) {
         skillSlug.readOnly = isEdit;
         skillSlug.setAttribute('aria-readonly', isEdit ? 'true' : 'false');
       }
-      if (skillSlugSuggest) {
-        skillSlugSuggest.hidden = isEdit;
-      }
-      if (skillDelete) {
-        skillDelete.hidden = !isEdit;
-      }
       if (skillSlugNote) {
         skillSlugNote.innerHTML = isEdit
-          ? 'Slug is locked during edit. Use <strong>New</strong> to create a separate skill.'
-          : 'cdx serves this skill canonically through <code>skill://&lt;slug&gt;</code> MCP resources.';
+          ? 'Slug is locked for existing skills so hosts keep the same <code>skill://&lt;slug&gt;</code> address.'
+          : 'Set the canonical slug here. AI will fill the rest unless you explicitly unlock a field.';
       }
+      applySkillFieldLocks();
     }
 
-    function setSkillDraftGenerationBusy(isBusy) {
-      if (skillGenerate) skillGenerate.disabled = isBusy;
-      if (skillSave) skillSave.disabled = isBusy;
-      if (skillDelete) skillDelete.disabled = isBusy || skillModalMode !== 'edit';
+    function setSkillBusy(isBusy) {
+      skillAssistBusy = !!isBusy;
+      if (skillAssistSend) skillAssistSend.disabled = skillAssistBusy;
+      if (skillSave) skillSave.disabled = skillAssistBusy;
+      if (skillDelete) skillDelete.disabled = skillAssistBusy || skillDetailMode !== 'edit';
+      if (skillAssistInput) skillAssistInput.disabled = skillAssistBusy;
+      skillFieldEditButtons.forEach((btn) => {
+        btn.disabled = skillAssistBusy;
+      });
     }
 
     function setSkillBadges(meta) {
@@ -4707,16 +4733,19 @@
         skillTagsList.innerHTML = '<span class="muted">No tags yet</span>';
         return;
       }
+      const editable = skillUnlockedFields.has('tags');
       skillTagsList.innerHTML = skillTags.map((tag, idx) => `
         <span class="skill-tag">
           ${escapeHtml(tag)}
-          <button type="button" data-tag-index="${idx}" aria-label="Remove tag ${escapeHtml(tag)}">×</button>
+          ${editable ? `<button type="button" data-tag-index="${idx}" aria-label="Remove tag ${escapeHtml(tag)}">×</button>` : ''}
         </span>
       `).join('');
+      if (!editable) return;
       skillTagsList.querySelectorAll('button[data-tag-index]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const index = Number(btn.getAttribute('data-tag-index'));
           removeSkillTag(Number.isFinite(index) ? index : -1);
+          setSkillDirty(true);
         });
       });
     }
@@ -4727,6 +4756,128 @@
       if (!value) return;
       addSkillTag(value);
       skillTagsInput.value = '';
+      setSkillDirty(true);
+    }
+
+    function applySkillFieldLocks() {
+      const readonlyFields = {
+        display_name: skillNameInput,
+        description: skillDescriptionInput,
+        what: skillWhatInput,
+        when: skillWhenInput,
+        steps: skillStepsInput,
+      };
+      Object.entries(readonlyFields).forEach(([field, input]) => {
+        if (!input) return;
+        const unlocked = skillUnlockedFields.has(field);
+        input.readOnly = !unlocked;
+        input.setAttribute('aria-readonly', unlocked ? 'false' : 'true');
+        input.closest('.skill-managed-field')?.classList.toggle('is-locked', !unlocked);
+      });
+      if (skillTagsInput) {
+        const tagsUnlocked = skillUnlockedFields.has('tags');
+        skillTagsInput.disabled = !tagsUnlocked;
+        skillTagsInput.closest('.skill-managed-field')?.classList.toggle('is-locked', !tagsUnlocked);
+      }
+      skillFieldEditButtons.forEach((btn) => {
+        const field = btn.getAttribute('data-skill-unlock') || '';
+        const unlocked = skillUnlockedFields.has(field);
+        btn.textContent = unlocked ? 'Editing' : 'Edit';
+        btn.setAttribute('aria-pressed', unlocked ? 'true' : 'false');
+      });
+      renderSkillTags();
+    }
+
+    function unlockSkillField(field) {
+      if (!field) return;
+      skillUnlockedFields.add(field);
+      applySkillFieldLocks();
+      const focusMap = {
+        display_name: skillNameInput,
+        description: skillDescriptionInput,
+        tags: skillTagsInput,
+        what: skillWhatInput,
+        when: skillWhenInput,
+        steps: skillStepsInput,
+      };
+      focusMap[field]?.focus();
+    }
+
+    function renderSkillChangedFields() {
+      if (!skillChangedFields) return;
+      if (!Array.isArray(skillChangedFieldNames) || skillChangedFieldNames.length === 0) {
+        skillChangedFields.hidden = true;
+        skillChangedFields.innerHTML = '';
+        return;
+      }
+      skillChangedFields.hidden = false;
+      skillChangedFields.innerHTML = skillChangedFieldNames.map((field) => `<span class="pill-quiet">Updated ${escapeHtml(field.replace(/_/g, ' '))}</span>`).join('');
+    }
+
+    function renderSkillConversation() {
+      if (!skillConversation || !skillConversationEmpty) return;
+      if (!Array.isArray(skillConversationMessages) || skillConversationMessages.length === 0) {
+        skillConversation.innerHTML = '';
+        skillConversationEmpty.hidden = false;
+        return;
+      }
+      skillConversationEmpty.hidden = true;
+      skillConversation.innerHTML = skillConversationMessages.map((message) => {
+        const role = String(message.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
+        const label = role === 'assistant' ? 'AI' : 'You';
+        return `
+          <article class="skill-message skill-message-${role}">
+            <div class="skill-message-label">${label}</div>
+            <div class="skill-message-body">${escapeHtml(String(message.content || '')).replace(/\n/g, '<br>')}</div>
+          </article>
+        `;
+      }).join('');
+      skillConversation.scrollTop = skillConversation.scrollHeight;
+    }
+
+    function resetSkillWorkspaceEmptyState() {
+      if (skillDetailEmptyState) skillDetailEmptyState.hidden = true;
+      if (skillDetailLayout) skillDetailLayout.hidden = false;
+    }
+
+    function showSkillWorkspaceEmpty(title, body) {
+      if (skillDetailEmptyState) skillDetailEmptyState.hidden = false;
+      if (skillDetailLayout) skillDetailLayout.hidden = true;
+      if (skillDetailEmptyTitle) skillDetailEmptyTitle.textContent = title || 'Skill unavailable';
+      if (skillDetailEmptyBody) skillDetailEmptyBody.textContent = body || 'Unable to load this skill.';
+    }
+
+    function resetSkillWorkspaceForm() {
+      if (skillSlug) skillSlug.value = '';
+      if (skillNameInput) skillNameInput.value = '';
+      if (skillDescriptionInput) skillDescriptionInput.value = '';
+      if (skillWhatInput) skillWhatInput.value = '';
+      if (skillWhenInput) skillWhenInput.value = '';
+      if (skillStepsInput) skillStepsInput.value = '';
+      if (skillTagsInput) skillTagsInput.value = '';
+      if (skillAssistInput) skillAssistInput.value = '';
+      if (skillStatus) skillStatus.textContent = '';
+      if (skillAssistStatus) skillAssistStatus.textContent = '';
+      skillUnlockedFields = new Set();
+      skillChangedFieldNames = [];
+      setSkillTags([]);
+      setSkillBadges(null);
+      renderSkillChangedFields();
+      resetSkillConversation();
+      applySkillFieldLocks();
+      setSkillDirty(false);
+    }
+
+    function currentSkillDraftFromFields() {
+      return {
+        slug: (skillSlug?.value || '').trim(),
+        display_name: (skillNameInput?.value || '').trim(),
+        description: (skillDescriptionInput?.value || '').trim(),
+        tags: Array.isArray(skillTags) ? [...skillTags] : [],
+        what: normalizeSkillSection(skillWhatInput?.value),
+        when: normalizeSkillSection(skillWhenInput?.value),
+        steps: normalizeSkillSection(skillStepsInput?.value),
+      };
     }
 
     function parseSkillManifest(manifest) {
@@ -4760,9 +4911,12 @@
       return result;
     }
 
-    function applyGeneratedSkillDraft(draft) {
+    function applySkillDraft(draft, options = {}) {
       if (!draft || typeof draft !== 'object') return;
-      if (skillSlug && typeof draft.slug === 'string') skillSlug.value = draft.slug.trim();
+      const changedFields = Array.isArray(options.changedFields) ? options.changedFields : [];
+      if (skillSlug && typeof draft.slug === 'string' && (skillDetailMode !== 'edit' || !skillEditingSlug)) {
+        skillSlug.value = draft.slug.trim();
+      }
       if (skillNameInput && typeof draft.display_name === 'string') {
         skillNameInput.value = draft.display_name.trim();
       }
@@ -4773,8 +4927,12 @@
       if (skillWhenInput && typeof draft.when === 'string') skillWhenInput.value = draft.when.trim();
       if (skillStepsInput && typeof draft.steps === 'string') skillStepsInput.value = draft.steps.trim();
       setSkillTags(Array.isArray(draft.tags) ? draft.tags : []);
-      skillSlugAutofill = false;
-      setSkillBadges(null);
+      skillChangedFieldNames = changedFields.filter((field) => field !== 'slug');
+      renderSkillChangedFields();
+      setSkillBadges(options.meta || null);
+      if (options.markDirty !== false) {
+        setSkillDirty(true);
+      }
     }
 
     function parseSkillFrontMatter(text) {
@@ -4938,7 +5096,7 @@
           if (!recordId || !await showConfirmModal('Delete memory', `Delete ${label}? This cannot be undone.`, { action: 'Delete' })) return;
           try {
             btn.disabled = true;
-            await api(`/admin/mcp/memories/${encodeURIComponent(recordId)}`, 'DELETE');
+            await api(`/admin/mcp/memories/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
             await loadMemories();
           } catch (err) {
             toast(err.message || 'Delete failed', 'error');
@@ -8926,95 +9084,80 @@
       }
     }
 
-    function showSkillModal(show) {
-      if (!skillModal) return;
-      if (show) {
-        skillModal.classList.add('show');
-        setInertBehindModal(skillModal, true);
-      } else {
-        skillModal.classList.remove('show');
-        setInertBehindModal(skillModal, false);
-      }
-    }
-
-    async function openSkillModal(slug) {
-      if (!skillModal) return;
-      const target = typeof slug === 'string' ? slug.trim() : '';
-      skillEditingSlug = target;
-      setSkillModalMode(target ? 'edit' : 'new', target);
-      setSkillBadges(null);
-      if (skillPromptInput) skillPromptInput.value = '';
-      if (skillSlug) skillSlug.value = target;
-      if (skillNameInput) skillNameInput.value = '';
-      if (skillDescriptionInput) skillDescriptionInput.value = '';
-      if (skillWhatInput) skillWhatInput.value = '';
-      if (skillWhenInput) skillWhenInput.value = '';
-      if (skillStepsInput) skillStepsInput.value = '';
-      setSkillTags([]);
-      skillSlugAutofill = !target;
-      if (skillStatus) {
-        skillStatus.textContent = target ? 'Loading…' : 'Describe the skill and generate a draft, or fill the fields manually.';
-      }
-      showSkillModal(true);
-      if (!target) {
-        skillPromptInput?.focus();
+    async function loadSkillDetailByRoute(routeSlug) {
+      if (!skillDetailPanel) return;
+      const target = decodeURIComponent(String(routeSlug || '').trim());
+      const isNew = target === '' || target === 'new';
+      resetSkillWorkspaceForm();
+      resetSkillWorkspaceEmptyState();
+      setSkillDetailMode(isNew ? 'new' : 'edit', target);
+      if (isNew) {
+        if (skillStatus) skillStatus.textContent = 'Talk with AI to generate the first draft, then save when it looks right.';
+        skillAssistInput?.focus();
         return;
       }
+
+      showSkillWorkspaceEmpty('Loading skill…', 'Fetching skill details.');
       try {
         const resp = await api(`/admin/skills/${encodeURIComponent(target)}`);
         const data = resp?.data || {};
         const parsed = parseSkillManifest(data.manifest || '');
         const loadedSlug = (data.slug || target || '').trim();
+        resetSkillWorkspaceEmptyState();
         skillEditingSlug = loadedSlug;
+        setSkillDetailMode('edit', loadedSlug);
         if (skillSlug) skillSlug.value = loadedSlug;
-        if (skillNameInput) {
-          skillNameInput.value = parsed.name || data.display_name || data.slug || '';
-        }
-        if (skillDescriptionInput) {
-          skillDescriptionInput.value = parsed.description || data.description || '';
-        }
+        if (skillNameInput) skillNameInput.value = parsed.name || data.display_name || data.slug || '';
+        if (skillDescriptionInput) skillDescriptionInput.value = parsed.description || data.description || '';
         if (skillWhatInput) skillWhatInput.value = parsed.sections.what || '';
         if (skillWhenInput) skillWhenInput.value = parsed.sections.when || '';
         if (skillStepsInput) skillStepsInput.value = parsed.sections.steps || '';
         setSkillTags(parsed.tags || []);
         setSkillBadges({ sha256: data.sha256, updated_at: data.updated_at });
-        skillSlugAutofill = false;
         if (skillStatus) skillStatus.textContent = '';
+        if (skillAssistStatus) skillAssistStatus.textContent = '';
+        setSkillDirty(false);
       } catch (err) {
-        if (skillStatus) skillStatus.textContent = `Load failed: ${err.message}`;
+        showSkillWorkspaceEmpty('Skill load failed', err?.message || 'Unable to load the requested skill.');
       }
     }
 
-    async function generateSkillDraft() {
-      if (skillModalMode === 'edit') {
-        if (skillStatus) skillStatus.textContent = 'AI draft generation is only available for new skills.';
-        return;
-      }
-      const prompt = skillPromptInput?.value?.trim() || '';
+    async function assistSkillDraft() {
+      const prompt = skillAssistInput?.value?.trim() || '';
       if (!prompt) {
-        if (skillStatus) skillStatus.textContent = 'Describe the skill before generating a draft.';
-        skillPromptInput?.focus();
+        if (skillAssistStatus) skillAssistStatus.textContent = 'Describe the change you want before asking AI to update the skill.';
+        skillAssistInput?.focus();
         return;
       }
 
-      const payload = { prompt };
-      const slugHint = skillSlug?.value?.trim() || '';
-      if (slugHint) payload.slug_hint = slugHint;
-
-      if (skillStatus) skillStatus.textContent = 'Generating draft…';
-      setSkillDraftGenerationBusy(true);
+      const userMessage = { role: 'user', content: prompt };
+      const messages = [...skillConversationMessages, userMessage];
+      if (skillAssistStatus) skillAssistStatus.textContent = 'Applying AI changes…';
+      setSkillBusy(true);
 
       try {
-        const resp = await api('/admin/skills/generate', {
+        const resp = await api('/admin/skills/assist', {
           method: 'POST',
-          json: payload,
+          json: {
+            mode: skillDetailMode,
+            messages,
+            skill: currentSkillDraftFromFields(),
+          },
         });
-        applyGeneratedSkillDraft(resp?.data || {});
-        if (skillStatus) skillStatus.textContent = 'Draft ready. Review and save when it looks right.';
+        const data = resp?.data || {};
+        skillConversationMessages = [...messages, {
+          role: 'assistant',
+          content: data.assistant_message || 'Updated the skill draft.',
+        }];
+        renderSkillConversation();
+        applySkillDraft(data, { changedFields: data.changed_fields || [] });
+        if (skillAssistInput) skillAssistInput.value = '';
+        if (skillAssistStatus) skillAssistStatus.textContent = data.assistant_message || 'Draft updated.';
+        if (skillStatus) skillStatus.textContent = 'AI updated the draft. Review the highlighted fields and save when ready.';
       } catch (err) {
-        if (skillStatus) skillStatus.textContent = `Generate failed: ${err.message}`;
+        if (skillAssistStatus) skillAssistStatus.textContent = `AI update failed: ${err.message}`;
       } finally {
-        setSkillDraftGenerationBusy(false);
+        setSkillBusy(false);
       }
     }
 
@@ -9024,7 +9167,7 @@
         return;
       }
       const slug = skillSlug.value.trim();
-      const isEdit = skillModalMode === 'edit' && !!skillEditingSlug;
+      const isEdit = skillDetailMode === 'edit' && !!skillEditingSlug;
       const name = skillNameInput.value.trim();
       const description = skillDescriptionInput?.value?.trim() || '';
       const what = skillWhatInput.value.trim();
@@ -9056,7 +9199,7 @@
         manifest,
       };
       if (skillStatus) skillStatus.textContent = 'Saving…';
-      setSkillDraftGenerationBusy(true);
+      setSkillBusy(true);
       try {
         const resp = await api('/admin/skills/store', {
           method: 'POST',
@@ -9066,35 +9209,43 @@
         if (skillStatus) {
           skillStatus.textContent = saveState === 'unchanged' ? 'No changes' : 'Saved';
         }
+        if (skillDetailMode !== 'edit') {
+          skillEditingSlug = slug;
+          skillDetailMode = 'edit';
+          setSkillDetailMode('edit', slug);
+          history.replaceState({}, '', skillDetailPath(slug));
+        }
+        setSkillBadges({ sha256: resp?.data?.sha256, updated_at: resp?.data?.updated_at });
+        setSkillDirty(false);
         await loadAll();
-        showSkillModal(false);
       } catch (err) {
         if (skillStatus) skillStatus.textContent = `Save failed: ${err.message}`;
       } finally {
-        setSkillDraftGenerationBusy(false);
+        setSkillBusy(false);
       }
     }
 
     async function deleteSkill(slug, options = {}) {
       if (!slug) return;
-      const fromModal = options?.fromModal === true;
+      const fromDetail = options?.fromDetail === true;
       if (!await showConfirmModal('Delete skill', `Delete skill "${slug}"? Hosts remove it on next sync.`, { action: 'Delete' })) {
         return;
       }
-      if (fromModal && skillStatus) {
+      if (fromDetail && skillStatus) {
         skillStatus.textContent = 'Deleting…';
       }
       if (skillDelete) skillDelete.disabled = true;
       if (skillSave) skillSave.disabled = true;
       try {
         await api(`/admin/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' });
-        if (fromModal && skillStatus) {
+        if (fromDetail && skillStatus) {
           skillStatus.textContent = 'Deleted';
-          showSkillModal(false);
+          setSkillDirty(false);
+          navigateAdminShortcut('/admin/settings/skills');
         }
         await loadAll();
       } catch (err) {
-        if (fromModal && skillStatus) {
+        if (fromDetail && skillStatus) {
           skillStatus.textContent = `Delete failed: ${err.message}`;
         } else {
           toast(`Delete failed: ${err.message}`, 'error');
@@ -9104,6 +9255,8 @@
         if (skillSave) skillSave.disabled = false;
       }
     }
+
+    window.__loadSkillDetailByRoute = loadSkillDetailByRoute;
 
     function resetRunnerLog() {
       if (runnerLogEl) runnerLogEl.innerHTML = '';
@@ -9217,6 +9370,7 @@
         if (Number.isFinite(numId) && numId > 0) return { panel: 'host-detail', sub: seg2 };
         return { panel: 'hosts', sub: seg2 };
       }
+      if (seg1 === 'skills') return { panel: 'skill-detail', sub: seg2 };
       if (seg1 === 'logs') return { panel: 'logs', sub: seg2 };
       if (seg1 === 'account') return { panel: 'account', sub: seg2 || 'password' };
       if (seg1 === 'settings') return { panel: 'settings', sub: seg2 };
@@ -9270,6 +9424,11 @@
         document.body.dataset.projectSlug = decodeURIComponent(sub);
       } else if (document.body?.dataset?.projectSlug) {
         delete document.body.dataset.projectSlug;
+      }
+      if (panel === 'skill-detail' && sub) {
+        document.body.dataset.skillSlug = decodeURIComponent(sub);
+      } else if (document.body?.dataset?.skillSlug) {
+        delete document.body.dataset.skillSlug;
       }
 
       // Clean up host/status query params when leaving hosts, so dashboard links
@@ -9339,6 +9498,13 @@
 
       if (panel === 'project-detail' && window.__loadProjectDetailByRoute) {
         window.__loadProjectDetailByRoute(sub);
+      }
+
+      if (panel === 'skill-detail') {
+        setActiveLinks('.settings-tab', 'skills');
+        if (window.__loadSkillDetailByRoute) {
+          window.__loadSkillDetailByRoute(sub);
+        }
       }
 
       if (panel === 'account') {
@@ -9555,7 +9721,7 @@
     if (newSkillBtn) {
       newSkillBtn.addEventListener('click', (event) => {
         event.preventDefault();
-        openSkillModal('');
+        openSkillDetail('');
       });
     }
     if (agentsPreview) {
@@ -9697,16 +9863,8 @@
         renderHostSearchResults(hostSearchInput?.value || '');
       });
     }
-    if (skillModal) {
-      skillModal.addEventListener('click', (e) => {
-        if (e.target === skillModal) showSkillModal(false);
-      });
-    }
-    if (skillCancel) {
-      skillCancel.addEventListener('click', () => showSkillModal(false));
-    }
-    if (skillGenerate) {
-      skillGenerate.addEventListener('click', () => generateSkillDraft());
+    if (skillAssistSend) {
+      skillAssistSend.addEventListener('click', () => assistSkillDraft());
     }
     if (skillSave) {
       skillSave.addEventListener('click', () => saveSkill());
@@ -9714,25 +9872,32 @@
     if (skillDelete) {
       skillDelete.addEventListener('click', () => {
         const slug = (skillEditingSlug || skillSlug?.value || '').trim();
-        deleteSkill(slug, { fromModal: true });
+        deleteSkill(slug, { fromDetail: true });
       });
     }
-    if (skillSlugSuggest) {
-      skillSlugSuggest.addEventListener('click', (event) => {
+    skillFieldEditButtons.forEach((btn) => {
+      btn.addEventListener('click', (event) => {
         event.preventDefault();
-        skillSlugAutofill = true;
-        maybeAutofillSkillSlug({ force: true });
-        skillSlug?.focus();
+        unlockSkillField(btn.getAttribute('data-skill-unlock') || '');
       });
-    }
-    if (skillNameInput) {
-      skillNameInput.addEventListener('input', () => {
-        maybeAutofillSkillSlug({ force: false });
-      });
-    }
+    });
     if (skillSlug) {
       skillSlug.addEventListener('input', () => {
-        skillSlugAutofill = skillSlug.value.trim().length === 0;
+        setSkillDirty(true);
+      });
+    }
+    [skillNameInput, skillDescriptionInput, skillWhatInput, skillWhenInput, skillStepsInput].forEach((input) => {
+      if (!input) return;
+      input.addEventListener('input', () => {
+        setSkillDirty(true);
+      });
+    });
+    if (skillAssistInput) {
+      skillAssistInput.addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          event.preventDefault();
+          assistSkillDraft();
+        }
       });
     }
     if (skillTagsInput) {
@@ -9742,6 +9907,7 @@
           commitSkillTagInput();
         } else if (event.key === 'Backspace' && !skillTagsInput.value) {
           removeSkillTag(skillTags.length - 1);
+          setSkillDirty(true);
         }
       });
       skillTagsInput.addEventListener('blur', () => {
@@ -9776,7 +9942,6 @@
       [agentsDeleteModal,     () => closeAgentsDeleteModal()],
       [agentsViewModal,       () => closeAgentsViewModal()],
       [runnerModal,           () => showRunnerModal(false)],
-      [skillModal,            () => showSkillModal(false)],
       [upgradeModal,          () => showUpgradeNotesModal(false)],
       [usageHistoryModal,     () => showUsageHistoryModal(false)],
       [costHistoryModal,      () => showCostHistoryModal(false)],

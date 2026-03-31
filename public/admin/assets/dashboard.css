@@ -741,7 +741,8 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
 
 /* Host + project detail pages */
 .host-detail-page,
-.project-detail-page {
+.project-detail-page,
+.skill-detail-page {
   width: min(1180px, 100%);
   margin-inline: auto;
   padding: 18px;
@@ -751,7 +752,8 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   gap: 14px;
 }
 .host-detail-head,
-.project-detail-head {
+.project-detail-head,
+.skill-detail-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -760,20 +762,23 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   border-bottom: 1px solid var(--border);
 }
 .host-detail-head h2,
-.project-detail-head h2 {
+.project-detail-head h2,
+.skill-detail-head h2 {
   margin: 2px 0 6px;
   letter-spacing: -0.02em;
 }
 .host-detail-head-actions,
 .project-detail-head-actions { display: flex; align-items: center; gap: 8px; }
 .host-detail-layout,
-.project-detail-layout {
+.project-detail-layout,
+.skill-detail-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .host-detail-section,
-.project-detail-section {
+.project-detail-section,
+.skill-detail-section {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--card);
@@ -789,6 +794,73 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   border-radius: 14px;
   border: 1px dashed var(--border);
   background: var(--card);
+}
+.skill-detail-layout {
+  align-items: start;
+}
+.skill-chat-section,
+.skill-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.skill-conversation {
+  min-height: 220px;
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px;
+}
+.skill-conversation-empty {
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+}
+.skill-message {
+  border-radius: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+.skill-message-user {
+  align-self: flex-end;
+  max-width: min(88%, 40rem);
+  background: color-mix(in srgb, rgba(var(--accent-rgb), 0.12) 75%, var(--card));
+  border-color: rgba(var(--accent-rgb), 0.22);
+}
+.skill-message-assistant {
+  align-self: flex-start;
+  max-width: min(92%, 44rem);
+}
+.skill-message-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.skill-message-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.skill-changed-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.skill-managed-field.is-locked textarea,
+.skill-managed-field.is-locked input {
+  background: color-mix(in srgb, var(--card) 65%, var(--panel));
+  color: var(--muted);
+}
+.skill-field-edit[aria-pressed="true"] {
+  border-color: rgba(var(--accent-rgb), 0.32);
+  color: var(--accent-2);
 }
 .host-detail-problems {
   margin: 0;
@@ -2540,20 +2612,6 @@ body.auth-locked .rail-tools {
       align-self: start;
     }
     .toast-close:hover { color: var(--text); }
-    .skill-modal {
-      max-width: 960px;
-      width: min(960px, 96vw);
-      max-height: min(92vh, 900px);
-      overflow-y: auto;
-    }
-    .skill-modal .modal-head {
-      margin-bottom: 10px;
-    }
-    .skill-modal-body {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
     .field-label-row {
       display: flex;
       align-items: center;
@@ -2569,7 +2627,7 @@ body.auth-locked .rail-tools {
       gap: 8px;
       margin: 4px 0 12px;
     }
-    .skill-modal .pill-quiet {
+    .skill-detail-page .pill-quiet {
       background: rgba(var(--accent-rgb), 0.1);
       border: 1px solid rgba(var(--accent-rgb), 0.2);
     }
@@ -4188,11 +4246,16 @@ body.embed .hero-actions { display: none !important; }
 @media (max-width: 720px) {
   .profile-body .feature-list { grid-template-columns: 1fr; }
   .host-detail-layout,
-  .project-detail-layout {
+  .project-detail-layout,
+  .skill-detail-layout {
     grid-template-columns: 1fr;
   }
   .project-table-actions {
     justify-content: flex-start;
+  }
+  .skill-message-user,
+  .skill-message-assistant {
+    max-width: 100%;
   }
 }
 .mono-block { background: #0f172a; color: #e5e7eb; border-radius: 12px; padding: 12px; font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 13px; white-space: pre; overflow-x: auto; }

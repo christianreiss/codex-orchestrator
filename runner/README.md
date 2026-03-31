@@ -1,6 +1,6 @@
 # Codex Auth Runner
 
-Lightweight HTTP microservice that validates an `auth.json` and generates short skill summaries by running the Codex CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
+Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
 ## Build
 
@@ -22,7 +22,7 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify` requires header `X-Runner-Auth` with an exact secret match.
-- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/skills/summarize`, and `/memories/summarize` require header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, and `/skills/assist` require header `X-Runner-Auth` with an exact secret match.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`.
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for writing `/tmp/last-auth.json`.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -186,3 +186,112 @@ Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
 - Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
+
+### `POST /skills/generate`
+
+Draft a structured skill from a short prompt.
+
+Request body:
+
+```json
+{
+  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "prompt": "Create a deploy skill focused on safe rollouts and rollback checks.",
+  "timeout_seconds": 12.0
+}
+```
+
+Fields:
+- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
+- `prompt` (required string) — natural-language request for the initial skill draft.
+- `timeout_seconds` (optional float) — generation timeout in seconds; defaults to 12.0 when omitted.
+
+Response (success):
+
+```json
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "0.101.0",
+  "slug": "deploy",
+  "display_name": "Deploy",
+  "description": "Helps operators roll out changes safely.",
+  "tags": ["deploy", "rollout"],
+  "what": "Use this skill to prepare, execute, and verify a rollout.",
+  "when": "Use when shipping changes with user impact.",
+  "steps": ["Check health", "Deploy", "Verify", "Roll back if needed"]
+}
+```
+
+Behavior details:
+- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
+- Runs `/usr/local/bin/codex exec` with a prompt that requires strict JSON output for the structured draft fields.
+- Returns normalized draft fields only; persistence remains the API/admin app's job.
+
+### `GET /skills/assist`
+
+Readiness probe for the conversational skill refinement path:
+
+```json
+{ "status": "ok" }
+```
+
+### `POST /skills/assist`
+
+Revise a structured skill draft from a conversation.
+
+Request body:
+
+```json
+{
+  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "messages": [
+    { "role": "user", "content": "Make this skill more incident-focused." }
+  ],
+  "skill": {
+    "slug": "incident-response",
+    "display_name": "Incident response",
+    "description": "Guides responders through the first pass.",
+    "tags": ["incident"],
+    "what": "Use when production is degraded.",
+    "when": "Use during active incidents.",
+    "steps": ["Triage", "Contain", "Communicate"]
+  },
+  "mode": "edit",
+  "slug_locked": true,
+  "timeout_seconds": 12.0
+}
+```
+
+Fields:
+- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
+- `messages` (required array) — ordered chat messages with `role` (`user` or `assistant`) and `content`.
+- `skill` (required object) — current structured draft fields.
+- `mode` (optional string) — `new` or `edit`; used for prompt guidance.
+- `slug_locked` (optional boolean) — when true, the runner is told not to rename the slug.
+- `timeout_seconds` (optional float) — assist timeout in seconds; defaults to 12.0 when omitted.
+
+Response (success):
+
+```json
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "reachable": true,
+  "codex_version": "0.101.0",
+  "assistant_message": "Tightened the incident framing and made the steps more explicit.",
+  "slug": "incident-response",
+  "display_name": "Incident response",
+  "description": "Guides responders through fast, structured incident handling.",
+  "tags": ["incident", "ops"],
+  "what": "Use this skill to coordinate the first response to an active incident.",
+  "when": "Use when a service is degraded, down, or behaving dangerously.",
+  "steps": ["Assess impact", "Stabilize", "Communicate", "Verify recovery"]
+}
+```
+
+Behavior details:
+- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
+- Runs `/usr/local/bin/codex exec` with the current draft, full conversation, and slug-lock guidance, and requires strict JSON output.
+- Returns an `assistant_message` plus a complete updated draft; the API/admin app still validates, normalizes, and persists later via `POST /admin/skills/store`.

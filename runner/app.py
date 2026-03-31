@@ -50,6 +50,32 @@ class SkillGenerateRequest(BaseModel):
     )
 
 
+class SkillAssistMessage(BaseModel):
+    role: str = Field(..., description="Conversation role (user or assistant)")
+    content: str = Field(..., description="Conversation message content")
+
+
+class SkillAssistDraft(BaseModel):
+    slug: Optional[str] = Field(None, description="Current skill slug")
+    display_name: Optional[str] = Field(None, description="Current skill name")
+    description: Optional[str] = Field(None, description="Current skill description")
+    tags: list[str] = Field(default_factory=list, description="Current skill tags")
+    what: Optional[str] = Field(None, description="Current What-this-skill-does section")
+    when: Optional[str] = Field(None, description="Current When-to-use section")
+    steps: Optional[str] = Field(None, description="Current Step-by-step section")
+
+
+class SkillAssistRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    messages: list[SkillAssistMessage] = Field(..., description="Conversation history")
+    skill: SkillAssistDraft = Field(..., description="Current skill draft")
+    mode: str = Field("new", description="Whether the skill is new or existing")
+    slug_locked: bool = Field(False, description="Whether the slug must stay unchanged")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the assist call (seconds)"
+    )
+
+
 class MemorySummaryRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     memory_key: str = Field(..., description="Memory key identifier")
@@ -247,6 +273,15 @@ def _normalize_generated_skill(data: dict) -> dict:
     }
 
 
+def _normalize_assisted_skill(data: dict) -> dict:
+    normalized = _normalize_generated_skill(data)
+    assistant_message = _sanitize_skill_line(data.get("assistant_message", ""), max_len=240)
+    if not assistant_message:
+        raise ValueError("missing required field: assistant_message")
+    normalized["assistant_message"] = assistant_message
+    return normalized
+
+
 def _skill_summary_prompt(slug: str, manifest: str) -> str:
     return (
         "Summarize this Codex skill for an AGENTS.md skills inventory. "
@@ -288,6 +323,47 @@ def _skill_generation_prompt(prompt: str, slug_hint: str) -> str:
         f"{slug_hint_block}"
         "Operator request:\n"
         f"{prompt}"
+    )
+
+
+def _skill_assist_prompt(payload: SkillAssistRequest) -> str:
+    skill = {
+        "slug": payload.skill.slug or "",
+        "display_name": payload.skill.display_name or "",
+        "description": payload.skill.description or "",
+        "tags": payload.skill.tags or [],
+        "what": payload.skill.what or "",
+        "when": payload.skill.when or "",
+        "steps": payload.skill.steps or "",
+    }
+    messages = [
+        {"role": message.role, "content": message.content}
+        for message in payload.messages
+    ]
+    slug_rule = (
+        f'- Keep slug exactly "{skill["slug"]}" because it is locked.\n'
+        if payload.slug_locked and skill["slug"]
+        else "- Slug may change if the conversation requires it.\n"
+    )
+    return (
+        "You are revising a Codex SKILL.md draft inside an admin dashboard.\n"
+        "Return exactly one JSON object and nothing else.\n"
+        "Required keys: assistant_message, slug, display_name, description, tags, what, when, steps.\n"
+        "Rules:\n"
+        "- assistant_message: short plain-text explanation of what changed\n"
+        "- slug: lowercase letters/numbers/dot/underscore/dash only\n"
+        "- display_name: short human label\n"
+        "- description: one sentence for search/results\n"
+        "- tags: short string array\n"
+        "- what/when/steps: plain text sections, no markdown headings\n"
+        "- steps should be concise operator instructions with guardrails and success signals\n"
+        f'- Mode: {payload.mode}\n'
+        f"- Slug locked: {'yes' if payload.slug_locked else 'no'}\n"
+        f"{slug_rule}\n"
+        "Current skill draft JSON:\n"
+        f"{json.dumps(skill, ensure_ascii=False)}\n\n"
+        "Conversation history JSON:\n"
+        f"{json.dumps(messages, ensure_ascii=False)}"
     )
 
 
@@ -401,6 +477,44 @@ def _generate_skill(payload: SkillGenerateRequest) -> dict:
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
+def _assist_skill(payload: SkillAssistRequest) -> dict:
+    if not payload.messages:
+        raise HTTPException(status_code=400, detail="messages are required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(_skill_assist_prompt(payload), env, timeout)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+
+        try:
+            assisted = _normalize_assisted_skill(_extract_json_payload(stdout))
+        except Exception as exc:
+            assisted = None
+            parse_error = str(exc)
+        else:
+            parse_error = ""
+
+        ok = proc.returncode == 0 and assisted is not None
+        result = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok and assisted is not None:
+            result.update(assisted)
+            return result
+
+        parts = [p for p in [parse_error, stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:600] if message else "skill assist failed"
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
 @app.post("/verify")
 def verify(payload: VerifyRequest, request: Request):
     if RUNNER_SHARED_SECRET:
@@ -425,6 +539,11 @@ def summarize_skill_health():
 
 @app.get("/skills/generate")
 def generate_skill_health():
+    return {"status": "ok"}
+
+
+@app.get("/skills/assist")
+def assist_skill_health():
     return {"status": "ok"}
 
 
@@ -456,6 +575,23 @@ def generate_skill(payload: SkillGenerateRequest, request: Request):
         return _generate_skill(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="skill generation timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/skills/assist")
+def assist_skill(payload: SkillAssistRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _assist_skill(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="skill assist timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

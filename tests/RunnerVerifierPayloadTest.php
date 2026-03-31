@@ -242,6 +242,99 @@ PHP);
         }
     }
 
+    public function testSkillAssistPostsConversationSkillContextAndTimeoutSeconds(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/runner-skill-assist-' . uniqid('', true);
+        self::assertTrue(mkdir($tmpDir, 0777, true) || is_dir($tmpDir));
+
+        $routerPath = $tmpDir . '/router.php';
+        $requestPath = $tmpDir . '/request.json';
+        $stdoutPath = $tmpDir . '/server.out';
+        $stderrPath = $tmpDir . '/server.err';
+
+        file_put_contents($routerPath, <<<'PHP'
+<?php
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'ok']);
+    return;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    file_put_contents(__DIR__ . '/request.json', file_get_contents('php://input'));
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status' => 'ok',
+        'latency_ms' => 4,
+        'reachable' => true,
+        'codex_version' => 'test',
+        'assistant_message' => 'Refined the draft.',
+        'slug' => 'incident-handoff',
+        'display_name' => 'Incident handoff',
+        'description' => 'Guides a safe operator handoff.',
+        'tags' => ['incident', 'handoff'],
+        'what' => 'Summarize the issue.',
+        'when' => 'Use during handoffs.',
+        'steps' => '1. Gather context.',
+    ]);
+    return;
+}
+
+http_response_code(404);
+echo 'not found';
+PHP);
+
+        $server = $this->startPhpServer($tmpDir, $routerPath, $stdoutPath, $stderrPath);
+
+        try {
+            $verifier = new RunnerVerifier(
+                'http://127.0.0.1:' . $server['port'] . '/verify',
+                'https://unused.example',
+                8.0
+            );
+
+            $result = $verifier->assistSkillDraft(
+                [
+                    ['role' => 'user', 'content' => 'Tighten the handoff guidance.'],
+                ],
+                [
+                    'slug' => 'incident-handoff',
+                    'display_name' => 'Incident handoff',
+                    'description' => 'Old description',
+                    'tags' => ['incident'],
+                    'what' => 'Old what',
+                    'when' => 'Old when',
+                    'steps' => 'Old steps',
+                ],
+                ['tokens' => ['access_token' => 'sk-test-1234567890abcdefghijklmnop']],
+                'edit',
+                true,
+                6.5
+            );
+
+            self::assertSame('ok', $result['status'] ?? null);
+            self::assertSame('Refined the draft.', $result['assistant_message'] ?? null);
+            self::assertFileExists($requestPath);
+
+            $payload = json_decode((string) file_get_contents($requestPath), true, flags: JSON_THROW_ON_ERROR);
+
+            self::assertSame(['auth_json', 'messages', 'skill', 'mode', 'slug_locked', 'timeout_seconds'], array_keys($payload));
+            self::assertSame('edit', $payload['mode']);
+            self::assertTrue($payload['slug_locked']);
+            self::assertSame('Tighten the handoff guidance.', $payload['messages'][0]['content'] ?? null);
+            self::assertSame('incident-handoff', $payload['skill']['slug'] ?? null);
+            self::assertSame(6.5, $payload['timeout_seconds']);
+        } finally {
+            proc_terminate($server['process']);
+            proc_close($server['process']);
+            @unlink($routerPath);
+            @unlink($requestPath);
+            @unlink($stdoutPath);
+            @unlink($stderrPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMemorySummarizerPostsAuthKeyContentAndTimeoutSeconds(): void
     {
         $tmpDir = sys_get_temp_dir() . '/runner-memory-summary-' . uniqid('', true);

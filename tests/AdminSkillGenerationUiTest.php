@@ -6,36 +6,41 @@ use PHPUnit\Framework\TestCase;
 
 final class AdminSkillGenerationUiTest extends TestCase
 {
-    public function testAdminSkillGenerateRouteAndControllerMethodExist(): void
+    public function testAdminSkillWorkspaceRoutesAndAssistEndpointExist(): void
     {
         $routerSource = @file_get_contents(__DIR__ . '/../public/index.php');
         self::assertIsString($routerSource);
-        self::assertStringContainsString("#^/admin/skills/generate$#", $routerSource);
+        self::assertStringContainsString("#^/admin/skills/new$#", $routerSource);
+        self::assertStringContainsString("#^/admin/skills/([^/]+)$#", $routerSource);
+        self::assertStringContainsString("#^/admin/skills/assist$#", $routerSource);
+        self::assertStringContainsString("if (isBrowserRequest()) { \$adminPageCtrl->skill(); return; }", $routerSource);
 
         $controllerSource = @file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminConfigController.php');
         self::assertIsString($controllerSource);
-        self::assertStringContainsString('public function skillGenerate(array $payload): void', $controllerSource);
-        self::assertStringContainsString('$this->skillDraftService->generate', $controllerSource);
+        self::assertStringContainsString('public function skillAssist(array $payload): void', $controllerSource);
+        self::assertStringContainsString('$this->skillDraftService->assist', $controllerSource);
+
+        $pageControllerSource = @file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminPageController.php');
+        self::assertIsString($pageControllerSource);
+        self::assertStringContainsString('public function skill(): void', $pageControllerSource);
     }
 
-    public function testSkillModalExposesPromptDrivenDraftControls(): void
+    public function testSkillWorkspaceUsesConversationalAssistFlow(): void
     {
         $html = @file_get_contents(__DIR__ . '/../public/admin/index.html');
         self::assertIsString($html);
-        self::assertStringContainsString('id="skillPromptField"', $html);
-        self::assertStringContainsString('id="skillPrompt"', $html);
-        self::assertStringContainsString('id="skillGenerate"', $html);
-        self::assertStringContainsString('Runner-backed draft only. Nothing is saved until you click <strong>Save</strong>.', $html);
+        self::assertStringContainsString('Talk with your skill', $html);
+        self::assertStringContainsString('id="skillAssistInput"', $html);
+        self::assertStringContainsString('id="skillAssistSend"', $html);
+        self::assertStringContainsString('Session only. The conversation is not stored;', $html);
 
         $js = @file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         self::assertIsString($js);
-        self::assertStringContainsString("const skillPromptField = document.getElementById('skillPromptField');", $js);
-        self::assertStringContainsString("const skillGenerate = document.getElementById('skillGenerate');", $js);
-        self::assertStringContainsString("skillPromptField.hidden = isEdit;", $js);
-        self::assertStringContainsString("async function generateSkillDraft()", $js);
-        self::assertStringContainsString("api('/admin/skills/generate'", $js);
-        self::assertStringContainsString("applyGeneratedSkillDraft(resp?.data || {});", $js);
-        self::assertStringContainsString("AI draft generation is only available for new skills.", $js);
-        self::assertStringContainsString("Draft ready. Review and save when it looks right.", $js);
+        self::assertStringContainsString('async function assistSkillDraft()', $js);
+        self::assertStringContainsString("api('/admin/skills/assist'", $js);
+        self::assertStringContainsString("skillConversationMessages = [...messages, {", $js);
+        self::assertStringContainsString("role: 'assistant',", $js);
+        self::assertStringContainsString("if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {", $js);
+        self::assertStringContainsString('renderSkillChangedFields();', $js);
     }
 }

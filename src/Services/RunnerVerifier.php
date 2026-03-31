@@ -15,6 +15,7 @@ class RunnerVerifier
 {
     private readonly string $skillSummaryUrl;
     private readonly string $skillGenerateUrl;
+    private readonly string $skillAssistUrl;
     private readonly string $memorySummaryUrl;
 
     public function __construct(
@@ -24,12 +25,15 @@ class RunnerVerifier
         private readonly string $sharedSecret = '',
         ?string $skillSummaryUrl = null,
         ?string $skillGenerateUrl = null,
+        ?string $skillAssistUrl = null,
         ?string $memorySummaryUrl = null
     ) {
         $normalizedSummaryUrl = is_string($skillSummaryUrl) ? trim($skillSummaryUrl) : '';
         $this->skillSummaryUrl = $normalizedSummaryUrl !== '' ? $normalizedSummaryUrl : $this->deriveSkillSummaryUrl($runnerUrl);
         $normalizedGenerateUrl = is_string($skillGenerateUrl) ? trim($skillGenerateUrl) : '';
         $this->skillGenerateUrl = $normalizedGenerateUrl !== '' ? $normalizedGenerateUrl : $this->deriveSkillGenerateUrl($runnerUrl);
+        $normalizedAssistUrl = is_string($skillAssistUrl) ? trim($skillAssistUrl) : '';
+        $this->skillAssistUrl = $normalizedAssistUrl !== '' ? $normalizedAssistUrl : $this->deriveSkillAssistUrl($runnerUrl);
         $normalizedMemorySummaryUrl = is_string($memorySummaryUrl) ? trim($memorySummaryUrl) : '';
         $this->memorySummaryUrl = $normalizedMemorySummaryUrl !== '' ? $normalizedMemorySummaryUrl : $this->deriveMemorySummaryUrl($runnerUrl);
     }
@@ -88,6 +92,34 @@ class RunnerVerifier
         }
 
         return $this->sendRequest($this->skillGenerateUrl, $payload, $timeout);
+    }
+
+    public function assistSkillDraft(
+        array $messages,
+        array $skill,
+        array $authPayload,
+        string $mode = 'new',
+        bool $slugLocked = false,
+        ?float $timeoutSeconds = null
+    ): array {
+        if ($this->skillAssistUrl === '') {
+            return [
+                'status' => 'fail',
+                'reason' => 'skill assist endpoint is not configured',
+                'reachable' => false,
+            ];
+        }
+
+        $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
+
+        return $this->sendRequest($this->skillAssistUrl, [
+            'auth_json' => $authPayload,
+            'messages' => $messages,
+            'skill' => $skill,
+            'mode' => trim($mode) !== '' ? trim($mode) : 'new',
+            'slug_locked' => $slugLocked,
+            'timeout_seconds' => $timeout,
+        ], $timeout);
     }
 
     public function summarizeMemory(string $memoryKey, string $content, array $authPayload, ?float $timeoutSeconds = null): array
@@ -278,6 +310,11 @@ class RunnerVerifier
     private function deriveMemorySummaryUrl(string $runnerUrl): string
     {
         return $this->deriveRunnerFeatureUrl($runnerUrl, '/memories/summarize');
+    }
+
+    private function deriveSkillAssistUrl(string $runnerUrl): string
+    {
+        return $this->deriveRunnerFeatureUrl($runnerUrl, '/skills/assist');
     }
 
     private function deriveRunnerFeatureUrl(string $runnerUrl, string $featurePath): string

@@ -519,6 +519,7 @@ $router->add('GET', '#^/admin/?$#', fn() => $adminPageCtrl->index());
 $router->add('GET', '#^/admin/login$#', fn() => $adminPageCtrl->login());
 $router->add('GET', '#^/admin/hosts/(\d+)$#', fn() => $adminPageCtrl->host());
 $router->add('GET', '#^/admin/dashboard$#', fn() => $adminPageCtrl->dashboard());
+$router->add('GET', '#^/admin/skills/new$#', fn() => $adminPageCtrl->skill());
 $router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', fn() => $adminPageCtrl->account());
 $router->add('GET', '#^/admin/settings$#', fn() => $adminPageCtrl->settings());
 $router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|apikeys)$#', fn() => $adminPageCtrl->settingsSection());
@@ -680,8 +681,12 @@ $router->add('DELETE', '#^/admin/mcp/memories/(\d+)$#', fn($id) => $adminConfigC
 
 // Admin skills
 $router->add('GET', '#^/admin/skills$#', fn() => $adminConfigCtrl->skills());
-$router->add('GET', '#^/admin/skills/([^/]+)$#', fn($slug) => $adminConfigCtrl->skillShow($slug));
+$router->add('GET', '#^/admin/skills/([^/]+)$#', function ($slug) use ($adminConfigCtrl, $adminPageCtrl): void {
+    if (isBrowserRequest()) { $adminPageCtrl->skill(); return; }
+    $adminConfigCtrl->skillShow($slug);
+});
 $router->add('POST', '#^/admin/skills/generate$#', fn() => $adminConfigCtrl->skillGenerate($payload));
+$router->add('POST', '#^/admin/skills/assist$#', fn() => $adminConfigCtrl->skillAssist($payload));
 $router->add('POST', '#^/admin/skills/store$#', fn() => $adminConfigCtrl->skillStore($payload));
 $router->add('DELETE', '#^/admin/skills/([^/]+)$#', fn($slug) => $adminConfigCtrl->skillDelete($slug));
 
