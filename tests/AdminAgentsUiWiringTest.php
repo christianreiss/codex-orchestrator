@@ -139,6 +139,7 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertIsString($js);
 
         $this->assertStringContainsString('function setAgentsDirty(isDirty)', $js);
+        $this->assertStringContainsString('function normalizeAgentsEditorText(value)', $js);
         $this->assertStringContainsString('function agentsHasUnsavedChanges()', $js);
         $this->assertStringContainsString('function syncAgentsDraftBanner()', $js);
         $this->assertStringContainsString('function normalizeAgentsEditorState(options = {})', $js);

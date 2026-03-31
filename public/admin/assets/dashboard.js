@@ -2804,10 +2804,14 @@
       }
     }
 
+    function normalizeAgentsEditorText(value) {
+      return String(value ?? '').replace(/\r\n?/g, '\n');
+    }
+
     function agentsHasUnsavedChanges() {
       if (!agentsEditorInline || agentsEditorInline.hidden) return false;
       const original = typeof currentAgents?.content === 'string' ? currentAgents.content : '';
-      return agentsEditorInline.value !== original;
+      return normalizeAgentsEditorText(agentsEditorInline.value) !== normalizeAgentsEditorText(original);
     }
 
     function syncAgentsDraftBanner() {
@@ -2927,7 +2931,7 @@
       if (agentsEditorInline) {
         const editing = !agentsEditorInline.hidden;
         if (!editing && typeof doc?.content === 'string') {
-          agentsEditorInline.value = doc.content;
+          agentsEditorInline.value = normalizeAgentsEditorText(doc.content);
         }
       }
 
@@ -8923,14 +8927,14 @@
       if (agentsEditorToolbar) agentsEditorToolbar.hidden = !on;
       if (on && agentsEditorInline) {
         const content = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
-        agentsEditorInline.value = content;
+        agentsEditorInline.value = normalizeAgentsEditorText(content);
         setAgentsDirty(false);
         updateAgentsLineCount();
         syncAgentsDraftBanner();
         try { agentsEditorInline.focus(); } catch (_) {}
       }
       if (!on && agentsEditorInline) {
-        agentsEditorInline.value = typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? '');
+        agentsEditorInline.value = normalizeAgentsEditorText(typeof currentAgents?.content === 'string' ? currentAgents.content : (agentsPreview?.textContent ?? ''));
       }
       if (!on) {
         setAgentsDirty(false);
@@ -8959,7 +8963,8 @@
 
     async function saveAgentsInline() {
       if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;
-      const content = agentsEditorInline.value;
+      const content = normalizeAgentsEditorText(agentsEditorInline.value);
+      agentsEditorInline.value = content;
       agentsSaveInFlight = true;
       if (agentsSaveInline) { agentsSaveInline.disabled = true; agentsSaveInline.textContent = 'Saving…'; }
       setAgentsStatusMessage('', null);
