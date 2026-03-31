@@ -227,6 +227,30 @@ class AdminConfigController
     }
 
     /**
+     * POST /admin/agents/retention
+     */
+    public function agentsRetention(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        try {
+            $result = $this->agentsService->updateBackupRetention(is_array($payload) ? ($payload['backup_limit'] ?? null) : null);
+        } catch (ValidationException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $exception->getErrors(),
+            ], 422);
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    /**
      * DELETE /admin/agents/versions/{id}
      */
     public function agentsDeleteVersion(int $versionId): void

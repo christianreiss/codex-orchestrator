@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Exceptions\ValidationException;
 use App\Repositories\AgentsRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\VersionRepository;
 use App\Services\AgentsService;
 use App\Services\ClientConfigService;
 use App\Services\MemoryService;
@@ -18,6 +19,8 @@ final class InMemoryAgentsRepository extends AgentsRepository
     /** @var array<int, array> */
     public array $versions = [];
     public array $stateRow = [];
+    /** @var int[] */
+    public array $protectedHostOverrideIds = [];
     private int $nextId = 1;
 
     public function __construct()
@@ -64,6 +67,11 @@ final class InMemoryAgentsRepository extends AgentsRepository
 
     public function storeVersionIfChanged(string $body, ?int $sourceHostId = null, ?string $sha256 = null): array
     {
+        return $this->storeVersionIfChangedWithRetention($body, $sourceHostId, $sha256, null);
+    }
+
+    public function storeVersionIfChangedWithRetention(string $body, ?int $sourceHostId = null, ?string $sha256 = null, ?int $backupLimit = null): array
+    {
         $latest = $this->latest();
         $sha = $sha256 ?? hash('sha256', $body);
 
@@ -71,12 +79,32 @@ final class InMemoryAgentsRepository extends AgentsRepository
             return [
                 'status' => 'unchanged',
                 'row' => $latest,
+                'pruned_ids' => [],
             ];
         }
 
+        $row = $this->createVersion($body, $sourceHostId, $sha);
+        $prunedIds = $backupLimit !== null && $backupLimit > 0
+            ? $this->pruneHistoricalVersions($backupLimit)
+            : [];
+
         return [
             'status' => is_array($latest) ? 'updated' : 'created',
-            'row' => $this->createVersion($body, $sourceHostId, $sha),
+            'row' => $row,
+            'pruned_ids' => $prunedIds,
+        ];
+    }
+
+    public function createVersionWithRetention(string $body, ?int $sourceHostId = null, ?string $sha256 = null, ?int $backupLimit = null): array
+    {
+        $row = $this->createVersion($body, $sourceHostId, $sha256);
+        $prunedIds = $backupLimit !== null && $backupLimit > 0
+            ? $this->pruneHistoricalVersions($backupLimit)
+            : [];
+
+        return [
+            'row' => $row,
+            'pruned_ids' => $prunedIds,
         ];
     }
 
@@ -111,6 +139,50 @@ final class InMemoryAgentsRepository extends AgentsRepository
         $this->stateRow['active_document_id'] = $activeId;
         $this->stateRow['updated_at'] = gmdate(DATE_ATOM);
         return $this->stateRow;
+    }
+
+    public function pruneHistoricalVersions(int $backupLimit): array
+    {
+        if ($backupLimit <= 0) {
+            return [];
+        }
+
+        $latest = $this->latest();
+        if ($latest === null) {
+            return [];
+        }
+
+        $protected = [(int) $latest['id'] => true];
+        $state = $this->state();
+        $activeId = isset($state['active_document_id']) ? (int) $state['active_document_id'] : 0;
+        if ($activeId > 0) {
+            $protected[$activeId] = true;
+        }
+        foreach ($this->protectedHostOverrideIds as $overrideId) {
+            if ($overrideId > 0) {
+                $protected[$overrideId] = true;
+            }
+        }
+
+        $sorted = $this->versions;
+        usort($sorted, static fn($a, $b) => $b['id'] <=> $a['id']);
+
+        $prunedIds = [];
+        $keptBackups = 0;
+        foreach ($sorted as $row) {
+            $id = (int) $row['id'];
+            if (isset($protected[$id])) {
+                continue;
+            }
+            if ($keptBackups < $backupLimit) {
+                $keptBackups++;
+                continue;
+            }
+            $prunedIds[] = $id;
+            unset($this->versions[$id]);
+        }
+
+        return $prunedIds;
     }
 }
 
@@ -170,6 +242,32 @@ final class FakeMemoryServiceForAgents extends MemoryService
     }
 }
 
+final class InMemoryVersionRepositoryForAgents extends VersionRepository
+{
+    /** @var array<string, string> */
+    private array $values = [];
+
+    public function __construct(array $seed = [])
+    {
+        $this->values = $seed;
+    }
+
+    public function get(string $name): ?string
+    {
+        return $this->values[$name] ?? null;
+    }
+
+    public function set(string $name, string $version): void
+    {
+        $this->values[$name] = $version;
+    }
+
+    public function delete(string $name): void
+    {
+        unset($this->values[$name]);
+    }
+}
+
 final class AgentsServiceTest extends TestCase
 {
     private InMemoryAgentsRepository $repository;
@@ -177,6 +275,7 @@ final class AgentsServiceTest extends TestCase
     private FakeSkillServiceForAgents $skills;
     private FakeClientConfigServiceForAgents $configs;
     private FakeMemoryServiceForAgents $memories;
+    private InMemoryVersionRepositoryForAgents $versionRepository;
     private AgentsService $service;
 
     protected function setUp(): void
@@ -186,7 +285,8 @@ final class AgentsServiceTest extends TestCase
         $this->skills = new FakeSkillServiceForAgents();
         $this->configs = new FakeClientConfigServiceForAgents();
         $this->memories = new FakeMemoryServiceForAgents();
-        $this->service = new AgentsService($this->repository, $this->logs, $this->skills, $this->configs, $this->memories);
+        $this->versionRepository = new InMemoryVersionRepositoryForAgents();
+        $this->service = new AgentsService($this->repository, $this->logs, $this->skills, $this->configs, $this->memories, $this->versionRepository);
     }
 
     public function testRetrieveMissingReturnsStatus(): void
@@ -429,6 +529,17 @@ final class AgentsServiceTest extends TestCase
         $this->assertSame('# Admin content', $result['content']);
         $this->assertCount(1, $result['versions']);
         $this->assertTrue($result['versions'][0]['is_latest']);
+        $this->assertNull($result['backup_limit']);
+    }
+
+    public function testAdminFetchIncludesConfiguredBackupLimit(): void
+    {
+        $this->versionRepository->set(AgentsService::BACKUP_LIMIT_VERSION_KEY, '3');
+        $this->service->store('# Admin content');
+
+        $result = $this->service->adminFetch();
+
+        $this->assertSame(3, $result['backup_limit']);
     }
 
     public function testSetServeModeLatest(): void
@@ -509,6 +620,95 @@ final class AgentsServiceTest extends TestCase
     {
         $this->expectException(ValidationException::class);
         $this->service->revertVersion(9999);
+    }
+
+    public function testStorePrunesOldUnprotectedBackupsWhenLimitIsSet(): void
+    {
+        $this->service->updateBackupRetention(2);
+
+        $this->service->store('# V1');
+        $this->service->store('# V2');
+        $this->service->store('# V3');
+        $result = $this->service->store('# V4');
+
+        $this->assertSame(1, $result['pruned_count']);
+        $this->assertCount(3, $this->repository->versions);
+        $this->assertNull($this->repository->findById(1));
+    }
+
+    public function testPruneProtectsLockedServedVersion(): void
+    {
+        $this->service->updateBackupRetention(1);
+        $v1 = $this->service->store('# V1');
+        $this->service->setServeMode('locked', $v1['version_id']);
+        $this->service->store('# V2');
+        $this->service->store('# V3');
+
+        $result = $this->service->store('# V4');
+
+        $this->assertSame(1, $result['pruned_count']);
+        $this->assertNotNull($this->repository->findById($v1['version_id']));
+        $this->assertNull($this->repository->findById(2));
+    }
+
+    public function testPruneProtectsHostPinnedVersions(): void
+    {
+        $this->service->updateBackupRetention(1);
+        $v1 = $this->service->store('# V1');
+        $this->repository->protectedHostOverrideIds = [$v1['version_id']];
+        $this->service->store('# V2');
+        $this->service->store('# V3');
+
+        $result = $this->service->store('# V4');
+
+        $this->assertSame(1, $result['pruned_count']);
+        $this->assertNotNull($this->repository->findById($v1['version_id']));
+        $this->assertNull($this->repository->findById(2));
+    }
+
+    public function testServeModePruneRunsWhenPinnedDraftsBecomeUnprotected(): void
+    {
+        $this->service->updateBackupRetention(1);
+        $v1 = $this->service->store('# V1');
+        $this->service->setServeMode('locked', $v1['version_id']);
+        $this->service->store('# V2');
+        $this->service->store('# V3');
+        $this->service->store('# V4');
+
+        $result = $this->service->setServeMode('latest');
+
+        $this->assertSame(1, $result['pruned_count']);
+        $this->assertNull($this->repository->findById($v1['version_id']));
+    }
+
+    public function testUpdateBackupRetentionPrunesImmediately(): void
+    {
+        $this->service->store('# V1');
+        $this->service->store('# V2');
+        $this->service->store('# V3');
+        $this->service->store('# V4');
+
+        $result = $this->service->updateBackupRetention(2);
+
+        $this->assertSame(2, $result['backup_limit']);
+        $this->assertSame(1, $result['pruned_count']);
+        $this->assertCount(3, $this->repository->versions);
+        $this->assertNull($this->repository->findById(1));
+    }
+
+    public function testUpdateBackupRetentionZeroRestoresUnlimited(): void
+    {
+        $this->service->updateBackupRetention(2);
+
+        $result = $this->service->updateBackupRetention(0);
+
+        $this->assertNull($result['backup_limit']);
+    }
+
+    public function testUpdateBackupRetentionRejectsOutOfRangeValues(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->service->updateBackupRetention(201);
     }
 
     public function testDeleteVersion(): void

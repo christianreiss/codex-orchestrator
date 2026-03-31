@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-03-31-03">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
 </head>
@@ -1709,6 +1709,17 @@
             </div>
             <div id="agentsStatus" class="agents-status"></div>
             <div id="agentsMeta" class="muted" style="margin-bottom:8px;"></div>
+            <div class="agents-backup-row">
+              <div class="agents-backup-copy">
+                <div class="agents-backup-title">Backups</div>
+                <div class="muted" id="agentsBackupLimitMeta">Keep the latest draft plus older backups. Served and host-pinned versions stay protected.</div>
+              </div>
+              <div class="agents-backup-actions">
+                <label class="modal-label" for="agentsBackupLimitInput">Keep backups</label>
+                <input id="agentsBackupLimitInput" type="number" min="0" max="200" step="1" inputmode="numeric" value="0">
+                <button class="ghost tiny-btn" id="agentsBackupLimitSave">Save retention</button>
+              </div>
+            </div>
             <div class="agents-serve-row">
               <div class="agents-serve-meta muted" id="agentsServeLabel"></div>
               <div class="agents-serve-actions">
@@ -2491,7 +2502,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-03-31-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-03-31-02"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-31-01"></script>

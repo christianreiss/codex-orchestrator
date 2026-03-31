@@ -80,6 +80,9 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('id="agentsEditorInline"', $html);
         $this->assertStringContainsString('id="agentsEditToggle"', $html);
         $this->assertStringContainsString('id="agentsSaveInline"', $html);
+        $this->assertStringContainsString('id="agentsBackupLimitInput"', $html);
+        $this->assertStringContainsString('id="agentsBackupLimitSave"', $html);
+        $this->assertStringContainsString('id="agentsBackupLimitMeta"', $html);
         $this->assertStringContainsString('id="agentsServeLatest"', $html);
         $this->assertStringContainsString('id="agentsVersions"', $html);
         $this->assertStringContainsString('id="agentsViewModal"', $html);
@@ -118,6 +121,7 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertStringContainsString('if (!agentsEditorInline || !agentsSaveInline || agentsSaveInFlight) return;', $js);
         $this->assertStringContainsString('Saved as latest draft v', $js);
         $this->assertStringContainsString('Use Serve latest to roll it out.', $js);
+        $this->assertStringContainsString('pruned', $js);
     }
 
     public function testAdminAgentsDeleteGuardsDuplicateClicks(): void
@@ -126,6 +130,20 @@ final class AdminAgentsUiWiringTest extends TestCase
         $this->assertIsString($js);
 
         $this->assertStringContainsString('let agentsDeleteInFlight = false;', $js);
+    }
+
+    public function testAdminAgentsBackupRetentionControlIsWired(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $this->assertStringContainsString("const agentsBackupLimitInput = document.getElementById('agentsBackupLimitInput');", $js);
+        $this->assertStringContainsString("const agentsBackupLimitSave = document.getElementById('agentsBackupLimitSave');", $js);
+        $this->assertStringContainsString("const agentsBackupLimitMeta = document.getElementById('agentsBackupLimitMeta');", $js);
+        $this->assertStringContainsString("api('/admin/agents/retention'", $js);
+        $this->assertStringContainsString('function describeAgentsBackupLimit(limit)', $js);
+        $this->assertStringContainsString('Saved backup retention', $js);
+        $this->assertStringContainsString('Saved retention limit and pruned', $js);
     }
 
     public function testAdminAgentsPreviewUsesCorrectCssClass(): void

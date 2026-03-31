@@ -158,6 +158,9 @@
     const memoriesLimitInput = document.getElementById('memoriesLimit');
     const memoriesRefreshBtn = document.getElementById('memoriesRefreshBtn');
     const agentsMeta = document.getElementById('agentsMeta');
+    const agentsBackupLimitMeta = document.getElementById('agentsBackupLimitMeta');
+    const agentsBackupLimitInput = document.getElementById('agentsBackupLimitInput');
+    const agentsBackupLimitSave = document.getElementById('agentsBackupLimitSave');
     const agentsServeLabel = document.getElementById('agentsServeLabel');
     const agentsServeLatest = document.getElementById('agentsServeLatest');
     const agentsPreview = document.getElementById('agentsPreview');
@@ -300,6 +303,7 @@
     let currentAgents = null;
     let agentsSaveInFlight = false;
     let agentsDeleteInFlight = false;
+    let agentsRetentionInFlight = false;
     let latestVersions = { client: null, wrapper: null };
     let tokensSummary = null;
     let runnerSummary = null;
@@ -2777,6 +2781,16 @@
       if (tone) agentsStatus.classList.add(`status-${tone}`);
     }
 
+    function describeAgentsBackupLimit(limit) {
+      const numeric = Number(limit);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return 'Unlimited backups. The latest draft always stays, and served or host-pinned versions are never auto-deleted.';
+      }
+
+      const suffix = numeric === 1 ? 'backup' : 'backups';
+      return `Keep the latest draft plus ${formatNumber(numeric)} older ${suffix}. Served and host-pinned versions stay protected.`;
+    }
+
     function renderAgents(doc) {
       currentAgents = doc || null;
       if (currentAgents && runnerSummary) {
@@ -2806,6 +2820,17 @@
         if (sizeLabel !== '—') parts.push(sizeLabel);
         if (pinnedDraft) parts.push(`latest draft v${pinnedDraft.latestId}`);
         agentsMeta.textContent = parts.join(' · ');
+      }
+      const backupLimit = Number(doc?.backup_limit);
+      const normalizedBackupLimit = Number.isFinite(backupLimit) && backupLimit > 0 ? backupLimit : 0;
+      if (agentsBackupLimitInput && !agentsRetentionInFlight) {
+        agentsBackupLimitInput.value = String(normalizedBackupLimit);
+      }
+      if (agentsBackupLimitMeta) {
+        agentsBackupLimitMeta.textContent = describeAgentsBackupLimit(normalizedBackupLimit);
+      }
+      if (agentsBackupLimitSave) {
+        agentsBackupLimitSave.disabled = agentsRetentionInFlight;
       }
       if (agentsServeLabel) {
         if (status === 'missing') {
@@ -8858,16 +8883,21 @@
         });
         await loadAll();
         const result = response?.data || response || {};
+        const prunedCount = Number(result?.pruned_count || 0);
         const pinnedDraft = getPinnedAgentsDraft(currentAgents);
         if (pinnedDraft) {
           if (agentsEditorInline) agentsEditorInline.value = content;
           const savedLabel = result?.status === 'unchanged'
             ? `Latest draft v${pinnedDraft.latestId} is already saved.`
             : `Saved as latest draft v${pinnedDraft.latestId}.`;
-          setAgentsStatusMessage(`${savedLabel} Fleet is still serving pinned v${pinnedDraft.servedId}. Use Serve latest to roll it out.`, 'warn');
+          const pruneSuffix = prunedCount > 0 ? ` Pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}.` : '';
+          setAgentsStatusMessage(`${savedLabel} Fleet is still serving pinned v${pinnedDraft.servedId}. Use Serve latest to roll it out.${pruneSuffix}`, 'warn');
         } else {
           setAgentsInlineEditing(false);
-          const msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
+          let msg = result?.status === 'unchanged' ? 'No changes to save' : 'Saved';
+          if (prunedCount > 0) {
+            msg += ` · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`;
+          }
           setAgentsStatusMessage(msg, 'ok');
         }
         setTimeout(() => {
@@ -8889,19 +8919,68 @@
       }
       setAgentsStatusMessage('Switching to latest…', null);
       try {
-        await api('/admin/agents/serve', {
+        const response = await api('/admin/agents/serve', {
           method: 'POST',
           json: { mode: 'latest' },
         });
         await loadAll();
-        setAgentsStatusMessage('Serving latest', 'ok');
+        const result = response?.data || response || {};
+        const prunedCount = Number(result?.pruned_count || 0);
+        const message = prunedCount > 0
+          ? `Serving latest · pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`
+          : 'Serving latest';
+        setAgentsStatusMessage(message, 'ok');
         setTimeout(() => {
-          if (agentsStatus?.textContent === 'Serving latest') setAgentsStatusMessage('', null);
+          if (agentsStatus?.textContent === message) setAgentsStatusMessage('', null);
         }, 1500);
       } catch (err) {
         setAgentsStatusMessage(`Serve latest failed: ${err.message}`, 'error');
       } finally {
         if (agentsServeLatest) agentsServeLatest.disabled = false;
+      }
+    }
+
+    async function saveAgentsBackupRetention() {
+      if (!agentsBackupLimitInput || !agentsBackupLimitSave || agentsRetentionInFlight) return;
+      const rawValue = String(agentsBackupLimitInput.value || '0').trim();
+      const numeric = Number(rawValue);
+      if (!Number.isFinite(numeric) || numeric < 0 || numeric > 200 || !Number.isInteger(numeric)) {
+        setAgentsStatusMessage('Backup retention must be an integer between 0 and 200.', 'error');
+        return;
+      }
+
+      agentsRetentionInFlight = true;
+      agentsBackupLimitSave.disabled = true;
+      agentsBackupLimitInput.disabled = true;
+      const original = agentsBackupLimitSave.textContent;
+      agentsBackupLimitSave.textContent = 'Saving…';
+      setAgentsStatusMessage('Saving backup retention…', null);
+      try {
+        const response = await api('/admin/agents/retention', {
+          method: 'POST',
+          json: { backup_limit: numeric },
+        });
+        await loadAll();
+        const result = response?.data || response || {};
+        const prunedCount = Number(result?.pruned_count || 0);
+        if (prunedCount > 0) {
+          setAgentsStatusMessage(`Saved retention limit and pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}.`, 'ok');
+        } else {
+          setAgentsStatusMessage('Saved backup retention', 'ok');
+        }
+        setTimeout(() => {
+          const text = agentsStatus?.textContent || '';
+          if (text === 'Saved backup retention' || text.startsWith('Saved retention limit and pruned ')) {
+            setAgentsStatusMessage('', null);
+          }
+        }, 1800);
+      } catch (err) {
+        setAgentsStatusMessage(`Backup retention save failed: ${err.message}`, 'error');
+      } finally {
+        agentsRetentionInFlight = false;
+        agentsBackupLimitSave.disabled = false;
+        agentsBackupLimitInput.disabled = false;
+        agentsBackupLimitSave.textContent = original;
       }
     }
 
@@ -8953,14 +9032,19 @@
       }
       setAgentsStatusMessage(`Reverting to v${id}…`, null);
       try {
-        await api('/admin/agents/revert', {
+        const response = await api('/admin/agents/revert', {
           method: 'POST',
           json: { version_id: id },
         });
         await loadAll();
-        setAgentsStatusMessage(`Reverted v${id} into the new latest version`, 'ok');
+        const result = response?.data || response || {};
+        const prunedCount = Number(result?.pruned_count || 0);
+        const message = prunedCount > 0
+          ? `Reverted v${id} into the new latest version and pruned ${formatNumber(prunedCount)} old backup${prunedCount === 1 ? '' : 's'}`
+          : `Reverted v${id} into the new latest version`;
+        setAgentsStatusMessage(message, 'ok');
         setTimeout(() => {
-          if (agentsStatus?.textContent === `Reverted v${id} into the new latest version`) setAgentsStatusMessage('', null);
+          if (agentsStatus?.textContent === message) setAgentsStatusMessage('', null);
         }, 1800);
       } catch (err) {
         setAgentsStatusMessage(`Revert failed: ${err.message}`, 'error');
@@ -9916,6 +10000,17 @@
     }
     if (agentsSaveInline) {
       agentsSaveInline.addEventListener('click', () => saveAgentsInline());
+    }
+    if (agentsBackupLimitSave) {
+      agentsBackupLimitSave.addEventListener('click', () => saveAgentsBackupRetention());
+    }
+    if (agentsBackupLimitInput) {
+      agentsBackupLimitInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          saveAgentsBackupRetention();
+        }
+      });
     }
     if (deleteHostModal) {
       deleteHostModal.addEventListener('click', (e) => {

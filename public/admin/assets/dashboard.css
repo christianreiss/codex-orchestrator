@@ -3666,6 +3666,37 @@ body.auth-locked .rail-tools {
   color: var(--accent);
 }
 .agents-preview .muted { color: rgba(229,231,235,0.7); }
+.agents-backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  background: rgba(15,23,42,0.03);
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15,23,42,0.12);
+}
+.agents-backup-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agents-backup-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.agents-backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.agents-backup-actions input {
+  width: 88px;
+}
 .agents-serve-row {
   display: flex;
   align-items: center;
@@ -3702,6 +3733,17 @@ body.auth-locked .rail-tools {
 .agents-version-pills .pill {
   font-size: 11px;
   padding: 2px 8px;
+}
+@media (max-width: 720px) {
+  .agents-backup-row,
+  .agents-serve-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .agents-backup-actions,
+  .agents-serve-actions {
+    justify-content: flex-start;
+  }
 }
 .agents-version-btns {
   display: flex;

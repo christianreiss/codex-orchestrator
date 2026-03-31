@@ -19,6 +19,11 @@ final class AdminAgentsEndpointsTest extends TestCase
             $routerSource,
             'Expected /admin/agents/revert route to exist in public/index.php'
         );
+        self::assertStringContainsString(
+            "#^/admin/agents/retention$#",
+            $routerSource,
+            'Expected /admin/agents/retention route to exist in public/index.php'
+        );
     }
 
     public function testAdminConfigControllerUsesVersionReadAndRevertServiceMethods(): void
@@ -30,5 +35,7 @@ final class AdminAgentsEndpointsTest extends TestCase
         self::assertStringContainsString('adminFetchVersion($versionId)', $source);
         self::assertStringContainsString('public function agentsRevert(array $payload): void', $source);
         self::assertStringContainsString('revertVersion($versionId ?? 0)', $source);
+        self::assertStringContainsString('public function agentsRetention(array $payload): void', $source);
+        self::assertStringContainsString("updateBackupRetention(is_array(\$payload) ? (\$payload['backup_limit'] ?? null) : null)", $source);
     }
 }

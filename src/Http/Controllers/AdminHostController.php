@@ -12,6 +12,7 @@ use App\Repositories\InsecureAuthRequestRepository;
 use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
 use App\Services\AdminAuthService;
+use App\Services\AgentsService;
 use App\Services\AuthService;
 use App\Config;
 use App\Repositories\InstallTokenRepository;
@@ -31,6 +32,7 @@ class AdminHostController
         private LogRepository $logRepository,
         private AuthService $service,
         private InstallTokenRepository $installTokenRepository,
+        private AgentsService $agentsService,
     ) {}
 
     public function auth(string $hostId): void
@@ -1065,10 +1067,12 @@ class AdminHostController
 
         $updated = $this->hostRepository->findById($hostId);
         $overrideId = $updated['agents_document_id_override'] ?? null;
+        $prunedCount = $this->agentsService->pruneBackupsIfNeeded('host_override');
 
         $this->logRepository->log($hostId, 'admin.host.agents_version_override', [
             'fqdn' => $host['fqdn'] ?? null,
             'agents_document_id_override' => $overrideId,
+            'pruned_count' => $prunedCount,
         ]);
 
         Response::json([
@@ -1078,6 +1082,7 @@ class AdminHostController
                     'id' => $hostId,
                     'agents_document_id_override' => $overrideId !== null ? (int) $overrideId : null,
                 ],
+                'pruned_count' => $prunedCount,
             ],
         ]);
     }

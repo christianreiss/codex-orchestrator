@@ -369,7 +369,7 @@ $skillDraftService = new SkillDraftService($authPayloadRepository, $logRepositor
 $skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService);
 $memorySummaryService = new MemorySummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
 $memoryService = new MemoryService($memoryRepository, $logRepository, $memorySummaryService);
-$agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService, $memoryService);
+$agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService, $memoryService, $versionRepository);
 $projectCoordinationService = new ProjectCoordinationService(
     $projectRepository,
     $projectNoteRepository,
@@ -473,7 +473,7 @@ $adminPageCtrl = new AdminPageController(__DIR__);
 $adminAuthCtrl = new AdminAuthController($adminAuthService, $adminPasskeyService, $adminUserRepository, $adminPasskeyRepository, $payload);
 $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository, $payload, __DIR__);
 $adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository, $usageScalingService);
-$adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository);
+$adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository, $agentsService);
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $pricingModel);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService);
@@ -673,6 +673,7 @@ $router->add('GET', '#^/admin/agents/versions/(\d+)$#', fn($id) => $adminConfigC
 $router->add('POST', '#^/admin/agents/store$#', fn() => $adminConfigCtrl->agentsStore($payload));
 $router->add('POST', '#^/admin/agents/serve$#', fn() => $adminConfigCtrl->agentsServe($payload));
 $router->add('POST', '#^/admin/agents/revert$#', fn() => $adminConfigCtrl->agentsRevert($payload));
+$router->add('POST', '#^/admin/agents/retention$#', fn() => $adminConfigCtrl->agentsRetention($payload));
 $router->add('DELETE', '#^/admin/agents/versions/(\d+)$#', fn($id) => $adminConfigCtrl->agentsDeleteVersion($id));
 
 // Admin memories

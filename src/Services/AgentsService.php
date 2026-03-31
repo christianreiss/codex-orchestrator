@@ -12,17 +12,22 @@ namespace App\Services;
 use App\Exceptions\ValidationException;
 use App\Repositories\AgentsRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\VersionRepository;
 use App\Services\Traits\HostServiceTrait;
 
 class AgentsService
 {
     use HostServiceTrait;
+    public const BACKUP_LIMIT_VERSION_KEY = 'agents_backup_limit';
+    private const MAX_BACKUP_LIMIT = 200;
+
     public function __construct(
         private readonly AgentsRepository $agents,
         private readonly LogRepository $logs,
         private readonly ?SkillService $skills = null,
         private readonly ?ClientConfigService $clientConfigService = null,
-        private readonly ?MemoryService $memoryService = null
+        private readonly ?MemoryService $memoryService = null,
+        private readonly ?VersionRepository $versions = null
     ) {
     }
 
@@ -81,18 +86,25 @@ class AgentsService
         }
 
         $sha = hash('sha256', $body);
-        $stored = $this->agents->storeVersionIfChanged($body, null, $sha);
+        $stored = $this->agents->storeVersionIfChangedWithRetention($body, null, $sha, $this->backupLimit());
         $status = (string) ($stored['status'] ?? 'missing');
+        $prunedIds = $this->normalizePrunedIds($stored['pruned_ids'] ?? []);
+
+        if ($prunedIds !== []) {
+            $this->logPrunedVersions('seed', $prunedIds);
+        }
 
         $this->logs->log(null, 'agents.seed', [
             'status' => $status,
             'sha256' => $sha,
             'path' => $seedPath,
+            'pruned_count' => count($prunedIds),
         ]);
 
         return [
             'status' => $status,
             'sha256' => $sha,
+            'pruned_count' => count($prunedIds),
         ];
     }
 
@@ -129,6 +141,7 @@ class AgentsService
                 'active_id' => $activeId !== null ? (int) $activeId : null,
                 'served_id' => $servedId !== null ? (int) $servedId : null,
                 'latest_id' => $latestId !== null ? (int) $latestId : null,
+                'backup_limit' => $this->backupLimit(),
                 'versions' => $versionPayloads,
             ];
         }
@@ -139,6 +152,7 @@ class AgentsService
             'active_id' => $activeId !== null ? (int) $activeId : null,
             'served_id' => $servedId !== null ? (int) $servedId : null,
             'latest_id' => $latestId !== null ? (int) $latestId : null,
+            'backup_limit' => $this->backupLimit(),
             'sha256' => $served['sha256'] ?? hash('sha256', (string) ($served['body'] ?? '')),
             'updated_at' => $served['updated_at'] ?? null,
             'size_bytes' => strlen((string) ($served['body'] ?? '')),
@@ -162,11 +176,19 @@ class AgentsService
             throw new ValidationException($errors);
         }
 
-        $stored = $this->agents->storeVersionIfChanged($body, $this->hostId($host), $computedSha);
+        $stored = $this->agents->storeVersionIfChangedWithRetention($body, $this->hostId($host), $computedSha, $this->backupLimit());
         $status = (string) ($stored['status'] ?? 'created');
         $saved = is_array($stored['row'] ?? null) ? $stored['row'] : [];
+        $prunedIds = $this->normalizePrunedIds($stored['pruned_ids'] ?? []);
 
-        $this->logs->log($this->hostId($host), 'agents.store', ['status' => $status]);
+        if ($prunedIds !== []) {
+            $this->logPrunedVersions('store', $prunedIds);
+        }
+
+        $this->logs->log($this->hostId($host), 'agents.store', [
+            'status' => $status,
+            'pruned_count' => count($prunedIds),
+        ]);
 
         return [
             'status' => $status,
@@ -174,6 +196,7 @@ class AgentsService
             'sha256' => $saved['sha256'] ?? $computedSha,
             'updated_at' => $saved['updated_at'] ?? gmdate(DATE_ATOM),
             'size_bytes' => strlen((string) ($saved['body'] ?? $body)),
+            'pruned_count' => count($prunedIds),
         ];
     }
 
@@ -188,7 +211,13 @@ class AgentsService
 
         if ($normalized === AgentsRepository::MODE_LATEST) {
             $this->agents->updateState(AgentsRepository::MODE_LATEST, null);
-            return $this->adminFetch();
+            $prunedCount = $this->pruneBackupsIfNeeded('serve_mode');
+            $result = $this->adminFetch();
+            if ($prunedCount > 0) {
+                $result['pruned_count'] = $prunedCount;
+            }
+
+            return $result;
         }
 
         if ($versionId === null || $versionId <= 0) {
@@ -202,7 +231,13 @@ class AgentsService
 
         $this->agents->updateState(AgentsRepository::MODE_LOCKED, $versionId);
 
-        return $this->adminFetch();
+        $prunedCount = $this->pruneBackupsIfNeeded('serve_mode');
+        $result = $this->adminFetch();
+        if ($prunedCount > 0) {
+            $result['pruned_count'] = $prunedCount;
+        }
+
+        return $result;
     }
 
     public function adminFetchVersion(int $versionId): array
@@ -246,16 +281,28 @@ class AgentsService
 
         $body = (string) ($source['body'] ?? '');
         $sha = $source['sha256'] ?? hash('sha256', $body);
-        $created = $this->agents->createVersion($body, null, $sha);
+        $created = $this->agents->createVersionWithRetention($body, null, $sha, $this->backupLimit());
         $this->agents->updateState(AgentsRepository::MODE_LATEST, null);
+        $createdRow = is_array($created['row'] ?? null) ? $created['row'] : [];
+        $prunedIds = $this->normalizePrunedIds($created['pruned_ids'] ?? []);
+
+        if ($prunedIds !== []) {
+            $this->logPrunedVersions('revert', $prunedIds);
+        }
 
         $this->logs->log(null, 'agents.revert', [
             'status' => 'reverted',
             'source_version_id' => $versionId,
-            'new_version_id' => isset($created['id']) ? (int) $created['id'] : null,
+            'new_version_id' => isset($createdRow['id']) ? (int) $createdRow['id'] : null,
+            'pruned_count' => count($prunedIds),
         ]);
 
-        return $this->adminFetch();
+        $result = $this->adminFetch();
+        if ($prunedIds !== []) {
+            $result['pruned_count'] = count($prunedIds);
+        }
+
+        return $result;
     }
 
     public function deleteVersion(int $versionId): array
@@ -277,6 +324,47 @@ class AgentsService
         $this->logs->log(null, 'agents.delete', ['status' => 'deleted', 'version_id' => $versionId]);
 
         return $this->adminFetch();
+    }
+
+    public function updateBackupRetention(mixed $rawLimit): array
+    {
+        $limit = $this->normalizeBackupLimitInput($rawLimit);
+
+        if ($this->versions === null) {
+            throw new ValidationException(['backup_limit' => ['backup retention is unavailable']]);
+        }
+
+        if ($limit === null) {
+            $this->versions->delete(self::BACKUP_LIMIT_VERSION_KEY);
+        } else {
+            $this->versions->set(self::BACKUP_LIMIT_VERSION_KEY, (string) $limit);
+        }
+
+        $prunedCount = $this->pruneBackupsIfNeeded('settings');
+        $this->logs->log(null, 'admin.agents_backup_retention', [
+            'backup_limit' => $limit,
+            'pruned_count' => $prunedCount,
+        ]);
+
+        return [
+            'backup_limit' => $limit,
+            'pruned_count' => $prunedCount,
+        ];
+    }
+
+    public function pruneBackupsIfNeeded(string $reason): int
+    {
+        $limit = $this->backupLimit();
+        if ($limit === null || $limit <= 0) {
+            return 0;
+        }
+
+        $prunedIds = $this->normalizePrunedIds($this->agents->pruneHistoricalVersions($limit));
+        if ($prunedIds !== []) {
+            $this->logPrunedVersions($reason, $prunedIds, $limit);
+        }
+
+        return count($prunedIds);
     }
 
     private function assertSha(?string $sha, bool $allowNull = false, array &$errors = []): void
@@ -602,5 +690,77 @@ class AgentsService
         }
 
         return hash('sha256', implode("\n\n", $parts));
+    }
+
+    private function backupLimit(): ?int
+    {
+        if ($this->versions === null) {
+            return null;
+        }
+
+        $stored = $this->versions->get(self::BACKUP_LIMIT_VERSION_KEY);
+        if (!is_string($stored) || trim($stored) === '' || !is_numeric($stored)) {
+            return null;
+        }
+
+        $limit = (int) $stored;
+        if ($limit <= 0) {
+            return null;
+        }
+
+        return min($limit, self::MAX_BACKUP_LIMIT);
+    }
+
+    private function normalizeBackupLimitInput(mixed $rawLimit): ?int
+    {
+        if ($rawLimit === null || $rawLimit === '') {
+            return null;
+        }
+
+        $normalized = is_string($rawLimit) ? trim($rawLimit) : $rawLimit;
+        if (!is_numeric($normalized)) {
+            throw new ValidationException(['backup_limit' => ['backup_limit must be an integer between 0 and 200']]);
+        }
+
+        $limit = (int) $normalized;
+        if ((string) $limit !== (string) $normalized) {
+            throw new ValidationException(['backup_limit' => ['backup_limit must be an integer between 0 and 200']]);
+        }
+
+        if ($limit < 0 || $limit > self::MAX_BACKUP_LIMIT) {
+            throw new ValidationException(['backup_limit' => ['backup_limit must be between 0 and 200']]);
+        }
+
+        return $limit === 0 ? null : $limit;
+    }
+
+    private function normalizePrunedIds(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($value as $id) {
+            if (is_numeric($id) && (int) $id > 0) {
+                $result[] = (int) $id;
+            }
+        }
+
+        return array_values(array_unique($result));
+    }
+
+    private function logPrunedVersions(string $reason, array $prunedIds, ?int $limit = null): void
+    {
+        if ($prunedIds === []) {
+            return;
+        }
+
+        $this->logs->log(null, 'agents.backups_pruned', [
+            'reason' => $reason,
+            'backup_limit' => $limit ?? $this->backupLimit(),
+            'pruned_count' => count($prunedIds),
+            'version_ids' => $prunedIds,
+        ]);
     }
 }
