@@ -194,6 +194,8 @@ If you see failures about an insecure window being closed, that’s not somethin
 cdx --update
 ```
 
+That forced path checks both the wrapper and Codex. If the wrapper has to replace itself first, it restarts once and then finishes the Codex update check before exiting.
+
 If SSH launches misbehave, run `cdx doctor`. The wrapper reports SSH terminal/session hints, PTY state, API reachability, and local Codex version so you can see whether the host is launching through the normal PTY/direct paths or failing earlier.
 
 ### Rotate canonical auth (operator)

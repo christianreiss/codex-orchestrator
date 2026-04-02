@@ -25,11 +25,11 @@ final class CdxWrapperInsecureApprovalPendingTest extends TestCase
             $wrapperSource
         );
         self::assertStringContainsString(
-            'format_approval_box_field "last check:"',
+            'format_approval_box_field "last check:" "$last_check"',
             $wrapperSource
         );
         self::assertStringContainsString(
-            'format_approval_box_field "checks:"',
+            'format_approval_box_field "checks:" "$checks"',
             $wrapperSource
         );
         self::assertStringContainsString(
@@ -37,7 +37,7 @@ final class CdxWrapperInsecureApprovalPendingTest extends TestCase
             $wrapperSource
         );
         self::assertStringContainsString(
-            'INSECURE_APPROVAL_CHECK_COUNT=$(( INSECURE_APPROVAL_CHECK_COUNT + 1 ))',
+            'INSECURE_APPROVAL_CHECK_COUNT=$((INSECURE_APPROVAL_CHECK_COUNT + 1))',
             $wrapperSource
         );
         self::assertStringNotContainsString(

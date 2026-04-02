@@ -14,7 +14,7 @@ final class CdxWrapperHelpPassthroughTest extends TestCase
 
         self::assertStringContainsString('is_help_flag() {', $wrapperSource);
         self::assertStringContainsString('is_codex_help_passthrough_invocation() {', $wrapperSource);
-        self::assertStringContainsString('--help|-h|help)', $wrapperSource);
+        self::assertStringContainsString('--help | -h | help)', $wrapperSource);
         self::assertStringContainsString('for arg in "${@:2}"; do', $wrapperSource);
         self::assertStringContainsString('if is_help_flag "$arg"; then', $wrapperSource);
     }
@@ -43,6 +43,6 @@ final class CdxWrapperHelpPassthroughTest extends TestCase
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('if (( ! CODEX_STATUS_ONLY )) && (( ! CODEX_DOCTOR_ONLY )) && (( ! CODEX_DO_UNINSTALL )) && (( ! CODEX_LANE_COMMAND )) && (( ! CODEX_EXIT_AFTER_UPDATE )) && is_codex_help_passthrough_invocation "$@"; then', $wrapperSource);
+        self::assertStringContainsString('if ((!CODEX_STATUS_ONLY)) && ((!CODEX_DOCTOR_ONLY)) && ((!CODEX_DO_UNINSTALL)) && ((!CODEX_LANE_COMMAND)) && ((!CODEX_EXIT_AFTER_UPDATE)) && is_codex_help_passthrough_invocation "$@"; then', $wrapperSource);
     }
 }

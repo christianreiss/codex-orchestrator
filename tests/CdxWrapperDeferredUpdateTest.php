@@ -17,6 +17,6 @@ final class CdxWrapperDeferredUpdateTest extends TestCase
         );
         self::assertStringContainsString('codex_status_label="Deferred"', $wrapperSource);
         self::assertStringContainsString('codex_status_note="waiting for wrapper restart"', $wrapperSource);
-        self::assertStringContainsString('update\ available|check\ skipped|update\ skipped|deferred', $wrapperSource);
+        self::assertStringContainsString('update\ available | check\ skipped | update\ skipped | deferred', $wrapperSource);
     }
 }

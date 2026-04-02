@@ -13,7 +13,7 @@ final class CdxWrapperRootDetectionTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString('DETECTED_UID="$(id -u 2>/dev/null || true)"', $wrapperSource);
-        self::assertStringContainsString('if (( EUID == 0 )) || [[ "$DETECTED_UID" == "0" ]]; then', $wrapperSource);
+        self::assertStringContainsString('if ((EUID == 0)) || [[ "$DETECTED_UID" == "0" ]]; then', $wrapperSource);
         self::assertStringContainsString('uid=${DETECTED_UID:-unknown}', $wrapperSource);
     }
 

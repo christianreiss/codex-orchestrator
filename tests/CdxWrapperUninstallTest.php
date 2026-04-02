@@ -28,7 +28,7 @@ final class CdxWrapperUninstallTest extends TestCase
         $loadSyncPos = strpos($wrapperSource, "load_sync_config() {");
         self::assertNotFalse($loadSyncPos, 'Expected load_sync_config() to be defined in wrapper');
 
-        $guardPos = strpos($wrapperSource, 'if (( CODEX_DO_UNINSTALL )); then');
+        $guardPos = strpos($wrapperSource, 'if ((CODEX_DO_UNINSTALL)); then');
         self::assertNotFalse($guardPos, 'Expected wrapper to gate uninstall behind CODEX_DO_UNINSTALL');
         self::assertGreaterThan($loadSyncPos, $guardPos, 'Expected uninstall gate to run after load_sync_config() is defined');
 
@@ -36,4 +36,3 @@ final class CdxWrapperUninstallTest extends TestCase
         self::assertNotFalse($callPos, 'Expected wrapper to call cmd_uninstall after uninstall gate');
     }
 }
-

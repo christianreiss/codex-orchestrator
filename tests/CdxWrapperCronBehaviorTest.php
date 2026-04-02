@@ -49,7 +49,7 @@ final class CdxWrapperCronBehaviorTest extends TestCase
         self::assertStringContainsString('cron_ping_check_api() {', $wrapperSource);
         self::assertStringContainsString('fetch_release_payload() {', $wrapperSource);
         self::assertStringContainsString('perform_update() (', $wrapperSource);
-        self::assertStringContainsString("API_RELEASES_URL=\"https://api.github.com/repos/openai/codex/releases\"\n\nif (( CODEX_CRON_MODE )); then", $wrapperSource);
+        self::assertStringContainsString("API_RELEASES_URL=\"https://api.github.com/repos/openai/codex/releases\"\n\nif ((CODEX_CRON_MODE)); then", $wrapperSource);
         self::assertStringContainsString("wrapper_action=\"\$(printf '%s' \"\$check_response\"", $wrapperSource);
         self::assertStringContainsString('if [[ "$wrapper_action" == "update" ]]; then', $wrapperSource);
         self::assertStringContainsString('perform_wrapper_self_update "$wrapper_target_version" "$wrapper_target_sha" "$wrapper_target_url"', $wrapperSource);
@@ -65,7 +65,7 @@ final class CdxWrapperCronBehaviorTest extends TestCase
             $wrapperSource
         );
         self::assertStringContainsString('reconcile_cron_job_state remove || log_warn', $wrapperSource);
-        self::assertStringContainsString('elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && (( AUTO_UPDATE_CRON_READY )); then', $wrapperSource);
+        self::assertStringContainsString('elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && ((AUTO_UPDATE_CRON_READY)); then', $wrapperSource);
     }
 
     public function testCronModeResolvesCodexStateBeforeReleaseLookup(): void

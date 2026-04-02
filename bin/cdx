@@ -837,7 +837,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.02-02"
+WRAPPER_VERSION="2026.04.02-03"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -6828,7 +6828,7 @@ if ((!CDX_ACTIVE_RUN_DETECTED)) && { [[ "$AUTH_PULL_STATUS" == "ok" || "$CODEX_F
   if wrapper_self_update_needed "$target_wrapper" "$target_wrapper_sha"; then
     need_wrapper_update=1
   fi
-  if ((CODEX_FORCE_WRAPPER_UPDATE)); then
+  if ((CODEX_FORCE_WRAPPER_UPDATE)) && [[ "${CODEX_UPDATE_CONTINUE_AFTER_RESTART:-0}" != "1" ]]; then
     need_wrapper_update=1
     wrapper_status_note="forced update requested"
   fi
@@ -6867,16 +6867,49 @@ elif ((CDX_ACTIVE_RUN_DETECTED)); then
 fi
 
 if ((CODEX_EXIT_AFTER_UPDATE)); then
+  if ((wrapper_updated)) && [[ "${CODEX_WRAPPER_RESTARTED:-0}" != "1" ]]; then
+    if ! declare -p CODEX_ORIGINAL_ARGC >/dev/null 2>&1 || [[ ! "${CODEX_ORIGINAL_ARGC:-}" =~ ^[0-9]+$ ]]; then
+      CODEX_ORIGINAL_ARGC=0
+    fi
+    if ! declare -p CODEX_ORIGINAL_ARGS >/dev/null 2>&1; then
+      CODEX_ORIGINAL_ARGS=()
+    fi
+    release_run_lock_if_held || true
+    log_info "Wrapper update completed (version ${WRAPPER_VERSION}); restarting cdx --update to finish Codex checks."
+    if ((CODEX_ORIGINAL_ARGC > 0)); then
+      CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 CODEX_UPDATE_CONTINUE_AFTER_RESTART=1 exec "$SCRIPT_REAL" "${CODEX_ORIGINAL_ARGS[@]}"
+    fi
+    CODEX_SKIP_MOTD=1 CODEX_WRAPPER_RESTARTED=1 CODEX_UPDATE_CONTINUE_AFTER_RESTART=1 exec "$SCRIPT_REAL"
+  fi
+
   release_run_lock_if_held || true
+  if ((wrapper_update_failed)) || ((codex_update_failed)); then
+    if ((wrapper_update_failed)) && ((codex_update_failed)); then
+      log_error "Wrapper update failed (${wrapper_status_note:-unknown}); Codex update failed (${codex_status_note:-unknown})."
+    elif ((wrapper_update_failed)); then
+      log_error "Wrapper update failed (${wrapper_status_note:-unknown})."
+    else
+      log_error "Codex update failed (${codex_status_note:-unknown})."
+    fi
+    exit 1
+  fi
+  if ((wrapper_updated)) && ((codex_updated)); then
+    log_info "Wrapper and Codex updates completed (wrapper ${WRAPPER_VERSION}; Codex ${LOCAL_VERSION:-unknown})."
+    exit 0
+  fi
   if ((wrapper_updated)); then
     log_info "Wrapper update completed (version ${WRAPPER_VERSION})."
     exit 0
   fi
-  if ((wrapper_update_failed)); then
-    log_error "Wrapper update failed (${wrapper_status_note:-unknown})."
-    exit 1
+  if ((codex_updated)); then
+    log_info "Codex update completed (version ${LOCAL_VERSION:-unknown})."
+    exit 0
   fi
-  log_warn "Wrapper update not attempted (status ${wrapper_status_label})."
+  if [[ "$(lowercase "$wrapper_status_label")" == "current" ]] && [[ "$(lowercase "$codex_status_label")" == "current" ]]; then
+    log_info "Wrapper and Codex are already current."
+    exit 0
+  fi
+  log_warn "Update check ended without changes (wrapper: ${wrapper_status_label}; Codex: ${codex_status_label})."
   exit 1
 fi
 

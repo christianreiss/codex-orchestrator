@@ -77,7 +77,7 @@ Help passthrough:
 | `cdx --wrapper-version` / `cdx -W` | Print wrapper version and exit. |
 | `cdx status` / `cdx --status` | Run sync/update checks + summary, do not launch Codex. Exit `0` unless red/error state (`1`). |
 | `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, SSH terminal hints). Exit non-zero on critical failures/red state. |
-| `cdx --update` / `cdx -U` | Force wrapper update attempt from server and exit immediately after the attempt. |
+| `cdx --update` / `cdx -U` | Force an update check, refreshing the wrapper first when needed and then finishing the Codex update check before exit. |
 | `cdx --uninstall` | Deregister host auth and remove Codex/wrapper artifacts. |
 | `cdx -4` | Force IPv4 for wrapper-managed network calls and Codex child outbound traffic for this invocation. |
 | `cdx --allow-concurrent-sync` | Bypass active-run lock for this invocation. |
@@ -235,7 +235,7 @@ Codex updates:
 - When a specific platform asset name is requested during release resolution, wrapper update paths fail closed if that exact asset is missing; generic `codex` fallback is only allowed when no explicit asset name was requested.
 - After a checksum-verified cron update installs successfully, report submission is retried and a persistent report failure exits non-zero so operators can see the incomplete rollout.
 - Linux prerequisite auto-install hard-requires `curl` and `unzip`; `bwrap`/Bubblewrap is best-effort only and never blocks launch because Codex can fall back to its vendored sandbox helper.
-- `cdx --update` is treated as a recovery path: before self-update it requires only `curl`, so stale wrappers can still replace themselves even when optional prerequisites or package mappings are broken locally.
+- `cdx --update` is treated as a recovery path: before the forced wrapper/Codex update flow it requires only `curl`, so stale wrappers can still replace themselves and then continue into the Codex check even when optional prerequisites or package mappings are broken locally.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
 - `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and SSH launch mode.
 

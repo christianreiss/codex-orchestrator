@@ -36,7 +36,7 @@ final class CdxWrapperScriptDependencyTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString(
-            'if (( CODEX_EXIT_AFTER_UPDATE )); then',
+            'if ((CODEX_EXIT_AFTER_UPDATE)); then',
             $wrapperSource,
             'The explicit wrapper update path should branch before the normal prerequisite set.'
         );

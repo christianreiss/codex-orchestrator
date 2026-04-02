@@ -41,7 +41,7 @@ final class CdxWrapperPackageManagerSupportTest extends TestCase
             'Yum branch should install missing prerequisite packages non-interactively.'
         );
         self::assertStringContainsString(
-            'pacman:script|apk:script|dnf:script|yum:script',
+            'pacman:script | apk:script | dnf:script | yum:script',
             $wrapperSource,
             'script dependency should map to util-linux for package managers where script is not a package name.'
         );
@@ -68,7 +68,7 @@ final class CdxWrapperPackageManagerSupportTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString(
-            'apt-get:bwrap|dnf:bwrap|yum:bwrap',
+            'apt-get:bwrap | dnf:bwrap | yum:bwrap',
             $wrapperSource,
             'APT/DNF/YUM hosts should remap the bwrap command to the bubblewrap package name.'
         );

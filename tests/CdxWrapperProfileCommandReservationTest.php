@@ -14,7 +14,7 @@ final class CdxWrapperProfileCommandReservationTest extends TestCase
 
         self::assertStringContainsString('is_reserved_codex_command()', $wrapperSource);
         self::assertStringContainsString(
-            'exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help',
+            'exec | review | login | logout | mcp | mcp-server | app-server | completion | sandbox | debug | apply | resume | fork | cloud | features | help',
             $wrapperSource
         );
     }
@@ -29,4 +29,3 @@ final class CdxWrapperProfileCommandReservationTest extends TestCase
         self::assertStringContainsString('CODEX_PROFILE_CANDIDATE="$1"', $wrapperSource);
     }
 }
-

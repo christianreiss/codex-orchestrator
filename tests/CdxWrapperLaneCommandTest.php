@@ -35,7 +35,7 @@ final class CdxWrapperLaneCommandTest extends TestCase
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        self::assertStringContainsString('if (( ${#lane_passthrough[@]} > 0 )); then', $wrapperSource);
+        self::assertStringContainsString('if ((${#lane_passthrough[@]} > 0)); then', $wrapperSource);
         self::assertStringContainsString('set -- "${lane_passthrough[@]}"', $wrapperSource);
         self::assertStringContainsString("else\n    set --\n  fi", $wrapperSource);
     }

@@ -18,7 +18,7 @@ final class CdxWrapperInsecureApprovalBoxFormatTest extends TestCase
             'Pending approval box should start from a stable minimum width.'
         );
         self::assertStringContainsString(
-            'printf \'%s%s%s\\n\' "$top_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$top_right"',
+            'printf \'%s%s%s\\n\' "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right"',
             $wrapperSource,
             'Top border width should account for the content width plus side padding.'
         );
@@ -28,7 +28,7 @@ final class CdxWrapperInsecureApprovalBoxFormatTest extends TestCase
             'Content rows should use fixed-width padding so the right border stays aligned.'
         );
         self::assertStringContainsString(
-            'printf \'%s%s%s\' "$bottom_left" "$(repeat_box_char "$horizontal" $(( content_width + 2 )))" "$bottom_right"',
+            'printf \'%s%s%s\' "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right"',
             $wrapperSource,
             'Bottom border width should match the top border.'
         );
@@ -41,7 +41,7 @@ final class CdxWrapperInsecureApprovalBoxFormatTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString(
-            'if (( CODEX_TERM_IS_DUMB )); then',
+            'if ((CODEX_TERM_IS_DUMB)); then',
             $wrapperSource
         );
         self::assertStringContainsString(
