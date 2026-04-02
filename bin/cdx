@@ -819,6 +819,8 @@ CONFIG_REMOTE_SHA=""
 CONFIG_REMOTE_UPDATED_AT=""
 CONFIG_REMOTE_BYTES=""
 CONFIG_REMOVED=0
+STARTUP_BUNDLE_SYNC_STATUS="skip"
+STARTUP_BUNDLE_SYNC_REASON=""
 
 if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
   HOST_IS_SECURE=0
@@ -835,7 +837,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.02-01"
+WRAPPER_VERSION="2026.04.02-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -4103,11 +4105,17 @@ PY
 }
 
 sync_startup_bundle_pull() {
+  STARTUP_BUNDLE_SYNC_STATUS="error"
+  STARTUP_BUNDLE_SYNC_REASON=""
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    STARTUP_BUNDLE_SYNC_STATUS="missing-config"
+    STARTUP_BUNDLE_SYNC_REASON="missing-config"
     return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
+    STARTUP_BUNDLE_SYNC_STATUS="no-python"
+    STARTUP_BUNDLE_SYNC_REASON="no-python"
     return 1
   fi
 
@@ -4129,9 +4137,29 @@ sync_startup_bundle_pull() {
   set -e
 
   if ((status_code == 42)); then
+    STARTUP_BUNDLE_SYNC_STATUS="endpoint-missing"
+    STARTUP_BUNDLE_SYNC_REASON="endpoint-missing"
     return 1
   fi
   if ((status_code != 0)); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    STARTUP_BUNDLE_SYNC_REASON="$reason"
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      STARTUP_BUNDLE_SYNC_STATUS="offline"
+      AGENTS_SYNC_STATUS="offline"
+      AGENTS_SYNC_REASON="startup-bundle:${reason}"
+      CONFIG_SYNC_STATUS="offline"
+      CONFIG_SYNC_REASON="startup-bundle:${reason}"
+    else
+      STARTUP_BUNDLE_SYNC_STATUS="error"
+      AGENTS_SYNC_STATUS="error"
+      AGENTS_SYNC_REASON="startup-bundle:${reason}"
+      CONFIG_SYNC_STATUS="error"
+      CONFIG_SYNC_REASON="startup-bundle:${reason}"
+    fi
     return 1
   fi
 
@@ -4209,6 +4237,8 @@ PY
   SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
+  STARTUP_BUNDLE_SYNC_STATUS="ok"
+  STARTUP_BUNDLE_SYNC_REASON=""
   return 0
 }
 
@@ -6507,8 +6537,10 @@ else
   sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
-    sync_agents_pull || true
-    sync_config_pull || true
+    if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
+      sync_agents_pull || true
+      sync_config_pull || true
+    fi
   fi
   cdx_debug_phase "bundle-sync" "$_t_bundle"
 fi

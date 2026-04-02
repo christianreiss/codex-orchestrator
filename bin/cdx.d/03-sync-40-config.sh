@@ -1,9 +1,15 @@
 sync_startup_bundle_pull() {
+  STARTUP_BUNDLE_SYNC_STATUS="error"
+  STARTUP_BUNDLE_SYNC_REASON=""
   load_sync_config
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    STARTUP_BUNDLE_SYNC_STATUS="missing-config"
+    STARTUP_BUNDLE_SYNC_REASON="missing-config"
     return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
+    STARTUP_BUNDLE_SYNC_STATUS="no-python"
+    STARTUP_BUNDLE_SYNC_REASON="no-python"
     return 1
   fi
 
@@ -25,9 +31,29 @@ sync_startup_bundle_pull() {
   set -e
 
   if ((status_code == 42)); then
+    STARTUP_BUNDLE_SYNC_STATUS="endpoint-missing"
+    STARTUP_BUNDLE_SYNC_REASON="endpoint-missing"
     return 1
   fi
   if ((status_code != 0)); then
+    local reason=""
+    if [[ "$summary" == error\ reason=* ]]; then
+      reason="${summary#error reason=}"
+    fi
+    STARTUP_BUNDLE_SYNC_REASON="$reason"
+    if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
+      STARTUP_BUNDLE_SYNC_STATUS="offline"
+      AGENTS_SYNC_STATUS="offline"
+      AGENTS_SYNC_REASON="startup-bundle:${reason}"
+      CONFIG_SYNC_STATUS="offline"
+      CONFIG_SYNC_REASON="startup-bundle:${reason}"
+    else
+      STARTUP_BUNDLE_SYNC_STATUS="error"
+      AGENTS_SYNC_STATUS="error"
+      AGENTS_SYNC_REASON="startup-bundle:${reason}"
+      CONFIG_SYNC_STATUS="error"
+      CONFIG_SYNC_REASON="startup-bundle:${reason}"
+    fi
     return 1
   fi
 
@@ -105,6 +131,8 @@ PY
   SKILL_SYNC_STATUS="mcp"
   [[ -z "$AGENTS_SYNC_STATUS" ]] && AGENTS_SYNC_STATUS="ok"
   [[ -z "$CONFIG_SYNC_STATUS" ]] && CONFIG_SYNC_STATUS="ok"
+  STARTUP_BUNDLE_SYNC_STATUS="ok"
+  STARTUP_BUNDLE_SYNC_REASON=""
   return 0
 }
 

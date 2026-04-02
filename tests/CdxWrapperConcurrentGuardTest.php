@@ -26,7 +26,7 @@ final class CdxWrapperConcurrentGuardTest extends TestCase
         self::assertStringContainsString('AUTH_PULL_STATUS="concurrent"', $wrapperSource);
         self::assertStringContainsString('sync_auth_with_api "pull-readonly" "1"', $wrapperSource);
         self::assertStringContainsString('CODEX_SYNC_READ_ONLY="$read_only"', $wrapperSource);
-        self::assertStringContainsString('if (( read_only == 0 )) && [[ -f "$auth_path" ]]', $wrapperSource);
+        self::assertStringContainsString('if ((read_only == 0)) && [[ -f "$auth_path" ]]', $wrapperSource);
         self::assertStringContainsString('push_auth_if_changed "push" || true', $wrapperSource);
         self::assertStringNotContainsString('skipping pre-run sync/update mutations for this run', $wrapperSource);
         self::assertStringNotContainsString('using local auth.json with sync/update mutations skipped', $wrapperSource);
@@ -54,7 +54,7 @@ final class CdxWrapperConcurrentGuardTest extends TestCase
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
         self::assertStringContainsString("concurrent)\n", $wrapperSource);
-        self::assertStringContainsString('if (( HAS_VALID_LOCAL_AUTH )); then', $wrapperSource);
+        self::assertStringContainsString('if ((HAS_VALID_LOCAL_AUTH)); then', $wrapperSource);
         self::assertStringContainsString('Using local auth.json.', $wrapperSource);
         self::assertStringContainsString('Local auth.json is invalid.', $wrapperSource);
         self::assertStringContainsString('Local auth.json is missing.', $wrapperSource);

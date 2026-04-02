@@ -105,8 +105,10 @@ else
   sync_skills_pull || true
   _t_bundle="$(cdx_time_ms)"
   if ! sync_startup_bundle_pull; then
-    sync_agents_pull || true
-    sync_config_pull || true
+    if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
+      sync_agents_pull || true
+      sync_config_pull || true
+    fi
   fi
   cdx_debug_phase "bundle-sync" "$_t_bundle"
 fi

@@ -14,7 +14,7 @@ final class StartupSyncRoutesTest extends TestCase
         self::assertStringContainsString("#^/sync/bootstrap$#", $source);
     }
 
-    public function testWrapperUsesBundledSyncWithLegacyFallback(): void
+    public function testWrapperUsesBundledSyncWithEndpointMissingFallbackOnly(): void
     {
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
@@ -22,6 +22,7 @@ final class StartupSyncRoutesTest extends TestCase
         self::assertStringContainsString('/sync/status', $wrapperSource);
         self::assertStringContainsString('/sync/bootstrap', $wrapperSource);
         self::assertStringContainsString('if ! sync_startup_bundle_pull; then', $wrapperSource);
+        self::assertStringContainsString('if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then', $wrapperSource);
         self::assertStringContainsString('sync_skills_pull || true', $wrapperSource);
         self::assertStringContainsString('sync_agents_pull || true', $wrapperSource);
         self::assertStringContainsString('sync_config_pull || true', $wrapperSource);

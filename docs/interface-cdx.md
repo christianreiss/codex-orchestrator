@@ -30,7 +30,7 @@ Guardrails:
 3. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
 4. Sync auth via `POST /auth`.
 5. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
-6. If bundle pull fails, fallback pulls run: AGENTS, config.
+6. If the startup bundle endpoints are missing on an older server, wrapper falls back to legacy AGENTS/config pulls. Transient bundle failures do not trigger extra legacy sync requests.
 7. Compute local auth freshness:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
    - secure-host recent window: `7d` (`MAX_LOCAL_AUTH_RECENT_SECONDS`)
@@ -113,7 +113,7 @@ Profile shorthand:
 
 Sync details:
 - Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies AGENTS and config in one pass.
-- Wrapper falls back to per-resource AGENTS/config pulls if bundle path fails or endpoints are missing.
+- Wrapper falls back to per-resource AGENTS/config pulls only when the bundle endpoints are missing on an older server. Slow or failed bundle requests do not fan out into extra legacy sync calls.
 - Wrapper removes legacy prompt directories and prompt baselines on startup so stale local prompt state does not linger after the custom-prompt system was removed.
 - Wrapper removes legacy local skill directories and baselines on upgrade so stale `~/.agents/skills` / `~/.codex/skills` trees stop shadowing MCP-first behavior.
 - `status:missing` from AGENTS/config retrieval deletes local file.
