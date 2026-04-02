@@ -283,7 +283,15 @@ else:
     cli_bits+=("boot=${boot_elapsed}ms")
   fi
   if ((CODEX_SSH_INTERACTIVE)); then
-    if ssh_should_force_no_alt_screen; then
+    if ((CODEX_SSH_PTY_BRIDGE_ACTIVE)); then
+      cli_bits+=("ssh-launch=pty-bridge")
+      cli_bits+=("cpr=synthetic")
+      if ssh_should_force_no_alt_screen; then
+        cli_bits+=("alt-screen=disabled")
+      else
+        cli_bits+=("alt-screen=enabled")
+      fi
+    elif ssh_should_force_no_alt_screen; then
       cli_bits+=("ssh-launch=direct-tty-inline")
       cli_bits+=("alt-screen=disabled")
     else

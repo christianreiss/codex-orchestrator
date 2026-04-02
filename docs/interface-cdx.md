@@ -190,8 +190,8 @@ Summary layout:
 - When stdin and stdout are TTYs, Codex is launched with direct terminal ownership (no intermediate PTY capture).
 - When stdout is not a TTY (pipe mode), Codex output is captured via `tee` for token usage extraction.
 - Non-TTY interactive launch (no args, no terminal) fails with guidance to use `--execute`.
-- Interactive SSH sessions only force `--no-alt-screen` by default for older Codex builds. On `codex 0.117.0+`, alt-screen stays enabled unless you explicitly set `CODEX_SSH_ALT_SCREEN=1`; set `CODEX_SSH_ALT_SCREEN=0` to force fullscreen alt-screen mode on any version.
-- `PROMPT_TOOLKIT_NO_CPR=1` is set automatically when stdin or stdout is not a TTY.
+- Interactive SSH sessions use a Python PTY bridge when `python3` is available. The bridge normalizes SSH input quirks, strips keyboard-protocol noise, and answers Codex cursor-position probes (`ESC[6n]`) with a synthetic response so the UI does not stall after the wrapper banner. Older Codex builds still get `--no-alt-screen` automatically; on `codex 0.117.0+`, alt-screen stays enabled unless you explicitly set `CODEX_SSH_ALT_SCREEN=1`; set `CODEX_SSH_ALT_SCREEN=0` to force fullscreen alt-screen mode on any version.
+- `PROMPT_TOOLKIT_NO_CPR=1` is also set automatically when stdin or stdout is not a TTY.
 `--execute` behavior:
 - `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.
 - Runs:
