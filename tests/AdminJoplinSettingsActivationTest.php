@@ -54,7 +54,8 @@ final class AdminJoplinSettingsActivationTest extends TestCase
         $this->assertIsString($script);
 
         $this->assertStringContainsString('Save the connection details, run a successful connection test, then enable Joplin note sync.', $html);
-        $this->assertStringContainsString('Joplin Data API / Web Clipper endpoint.', $html);
+        $this->assertStringContainsString('Joplin Data API / Web Clipper endpoint. Save the URL first, then request access from Joplin.', $html);
+        $this->assertStringContainsString('Manual token fallback', $html);
         $this->assertStringContainsString('id="joplinRequestAccessBtn" type="button" disabled', $html);
         $this->assertStringContainsString('id="joplinEnabledToggle" disabled', $html);
         $this->assertStringContainsString('id="joplinTestBtn" type="button" disabled', $html);

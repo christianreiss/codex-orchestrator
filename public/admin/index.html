@@ -2376,7 +2376,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>Connection</h3>
-                    <p class="muted panel-subtitle-sm">Joplin Data API / Web Clipper endpoint. Save the URL first, then either request access from Joplin or paste a token manually.</p>
+                    <p class="muted panel-subtitle-sm">Joplin Data API / Web Clipper endpoint. Save the URL first, then request access from Joplin.</p>
                   </div>
                 </div>
                 <div class="field" style="margin-top:12px;">
@@ -2384,13 +2384,15 @@
                   <input id="joplinUrlInput" type="url" placeholder="http://localhost:41184">
                 </div>
                 <div class="field">
-                  <label for="joplinTokenInput">Access Token</label>
-                  <input id="joplinTokenInput" type="password" placeholder="Optional manual token paste (leave blank to keep current)">
-                </div>
-                <div class="field">
                   <label for="joplinSyncIntervalInput">Sync interval (minutes)</label>
                   <input id="joplinSyncIntervalInput" type="number" min="1" placeholder="15" style="width:100px;">
                 </div>
+                <details class="field" style="margin-top:12px;">
+                  <summary style="cursor:pointer; user-select:none;">Manual token fallback</summary>
+                  <p class="muted panel-meta" style="margin:8px 0 10px;">Only use this if the Joplin access request flow is unavailable in your setup.</p>
+                  <label for="joplinTokenInput">Access Token</label>
+                  <input id="joplinTokenInput" type="password" placeholder="Optional manual token paste (leave blank to keep current)">
+                </details>
                 <div class="inline-group" style="margin-top:14px;gap:8px;flex-wrap:wrap;">
                   <button class="primary" id="joplinSaveBtn" type="button" disabled>Save</button>
                   <button class="ghost tiny-btn" id="joplinRequestAccessBtn" type="button" disabled>Request Access</button>
