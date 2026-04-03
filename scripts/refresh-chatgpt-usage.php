@@ -119,6 +119,7 @@ try {
         null,
         null,
         null,
+        null,
         $dashboardGraphStatsService
     );
 

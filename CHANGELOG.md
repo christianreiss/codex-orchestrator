@@ -1,3 +1,7 @@
+# 2026-04-03
+- Ops/Joplin cache migration: removed the invalid default from `joplin_notes_cache.body` so MySQL 8 can complete boot-time schema migration again. This fixes the API container crash loop (`BLOB, TEXT, GEOMETRY or JSON column ... can't have a default value`) and lets the rest of the stack come up normally.
+- Ops/runtime checks: fixed the quota refresh cron bootstrap to pass `AuthService` dependencies in the correct order again, and corrected the API container healthcheck so a failed `/versions` probe returns a real non-zero exit code instead of PHP helpfully printing `1` and claiming everything is fine.
+
 # 2026-04-02
 - cdx wrapper: `cdx --update` now finishes the Codex update path too instead of exiting after a wrapper-only refresh. When the wrapper has to replace itself first, it re-execs once back into `--update`, skips the second forced wrapper reinstall, and now exits cleanly when both wrapper and Codex are already current. Wrapper bumped to `2026.04.02-03`; docs/tests updated.
 - cdx wrapper: startup bundle sync now falls back to legacy `POST /agents/retrieve` + `POST /config/retrieve` only when `/sync/status` or `/sync/bootstrap` are genuinely missing on an older server. Slow or failed bundle requests no longer fan out into two more 20-second startup sync calls, so a degraded server no longer turns a normal non-concurrent `cdx` launch into a long triple-wait. Wrapper bumped to `2026.04.02-02`, and the wrapper/startup-sync docs/tests now pin the endpoint-missing-only fallback behavior.

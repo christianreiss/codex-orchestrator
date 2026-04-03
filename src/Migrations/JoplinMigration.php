@@ -24,7 +24,7 @@ class JoplinMigration implements MigrationInterface
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 joplin_id VARCHAR(32) NOT NULL,
                 title VARCHAR(1000) NOT NULL DEFAULT '',
-                body LONGTEXT NOT NULL DEFAULT '',
+                body LONGTEXT NOT NULL,
                 notebook_id VARCHAR(32) NOT NULL DEFAULT '',
                 tags_json JSON NULL,
                 parent_id VARCHAR(32) NOT NULL DEFAULT '',

@@ -9,7 +9,11 @@ services:
     ports:
       - "127.0.0.1:8488:80"
     healthcheck:
-      test: ["CMD-SHELL", "php -r 'exit(@file_get_contents(\"http://127.0.0.1/versions\")===false);'"]
+      test:
+        [
+          "CMD-SHELL",
+          "php -r 'exit(@file_get_contents(\"http://127.0.0.1/versions\", false, stream_context_create([\"http\"=>[\"header\"=>\"Host: codex-auth.uggs.io\\r\\nX-Forwarded-Proto: https\\r\\n\"]]))===false ? 1 : 0);'",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
