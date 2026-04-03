@@ -2363,10 +2363,10 @@
                 <div class="setting-head">
                   <div>
                     <h3>Module State</h3>
-                    <p class="muted panel-subtitle-sm">Enable Joplin note sync.</p>
+                    <p class="muted panel-subtitle-sm">Save the connection details, run a successful connection test, then enable Joplin note sync.</p>
                   </div>
                   <label class="toggle" for="joplinEnabledToggle">
-                    <input type="checkbox" id="joplinEnabledToggle">
+                    <input type="checkbox" id="joplinEnabledToggle" disabled>
                     <span class="track"><span class="thumb"></span></span>
                     <span class="toggle-text" id="joplinEnabledLabel">Loading…</span>
                   </label>
@@ -2392,9 +2392,9 @@
                   <input id="joplinSyncIntervalInput" type="number" min="1" placeholder="15" style="width:100px;">
                 </div>
                 <div class="inline-group" style="margin-top:14px;gap:8px;flex-wrap:wrap;">
-                  <button class="primary" id="joplinSaveBtn" type="button">Save</button>
-                  <button class="ghost tiny-btn" id="joplinTestBtn" type="button">Test Connection</button>
-                  <button class="ghost tiny-btn" id="joplinSyncBtn" type="button">Sync Now</button>
+                  <button class="primary" id="joplinSaveBtn" type="button" disabled>Save</button>
+                  <button class="ghost tiny-btn" id="joplinTestBtn" type="button" disabled>Test Connection</button>
+                  <button class="ghost tiny-btn" id="joplinSyncBtn" type="button" disabled>Sync Now</button>
                 </div>
                 <p class="muted panel-meta" id="joplinStatus" style="margin-top:10px;"></p>
               </div>
@@ -2576,7 +2576,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-04-03-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-04-03-02"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-31-02"></script>
