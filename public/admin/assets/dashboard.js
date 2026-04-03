@@ -4588,22 +4588,34 @@
       currentSkills = Array.isArray(skills) ? skills : [];
       if (!skillsTbody) return;
       if (currentSkills.length === 0) {
-        skillsTbody.innerHTML = `<tr><td colspan="4" class="muted" style="padding:14px;">No skills stored</td></tr>`;
+        skillsTbody.innerHTML = `<tr><td colspan="3" class="muted" style="padding: 20px 14px; text-align: center;">
+          No skills yet — create your first one above.
+        </td></tr>`;
         return;
       }
 
       skillsTbody.innerHTML = currentSkills.map((skill) => {
-        const retired = skill.deleted_at ? '<span class="muted">(retired)</span>' : '';
-        const managed = skill.managed ? '<span class="muted">(managed)</span>' : '';
+        const retired = skill.deleted_at ? ' <span class="muted" style="font-size:11px;">(retired)</span>' : '';
+        const managed = skill.managed ? ' <span class="muted" style="font-size:11px;">(managed)</span>' : '';
         const managedDisabled = skill.managed ? 'disabled title="Managed by the Projects module"' : '';
+        const tags = Array.isArray(skill.tags) && skill.tags.length > 0
+          ? `<div class="skill-list-tags">${skill.tags.map(t => `<span class="skill-list-tag">${escapeHtml(String(t))}</span>`).join('')}</div>`
+          : '';
+        const desc = skill.description ? `<div class="skill-list-desc">${escapeHtml(skill.description)}</div>` : '';
+
         return `<tr>
-          <td data-label="Slug"><code>${skill.slug}</code> ${retired} ${managed}</td>
-          <td data-label="Display name">${(skill.display_name || '—').replace(/</g, '&lt;')}</td>
-          <td data-label="Description">${(skill.description || '—').replace(/</g, '&lt;')}</td>
+          <td data-label="Slug"><code>${escapeHtml(skill.slug)}</code>${retired}${managed}</td>
+          <td data-label="Skill">
+            <div class="skill-list-card">
+              <div class="skill-list-name">${escapeHtml(skill.display_name || skill.slug)}</div>
+              ${desc}
+              ${tags}
+            </div>
+          </td>
           <td data-label="Actions">
             <div class="table-actions">
-              <button class="ghost tiny-btn skill-open" data-slug="${skill.slug}" ${managedDisabled}>Open</button>
-              <button class="ghost tiny-btn danger skill-delete" data-slug="${skill.slug}" ${skill.deleted_at ? 'disabled' : managedDisabled}>Delete</button>
+              <button class="ghost tiny-btn skill-open" data-slug="${escapeHtml(skill.slug)}" ${managedDisabled}>Open</button>
+              <button class="ghost tiny-btn danger skill-delete" data-slug="${escapeHtml(skill.slug)}" ${skill.deleted_at ? 'disabled' : managedDisabled}>Delete</button>
             </div>
           </td>
         </tr>`;

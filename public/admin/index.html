@@ -964,11 +964,14 @@
           <section class="card panel skill-detail-page" id="skillDetailPanel">
             <div class="project-detail-head skill-detail-head">
               <div>
-                <p class="muted overline">Fleet Skill Workspace</p>
-                <h2 id="skillWorkspaceTitle">New skill</h2>
-                <p class="muted panel-subtitle" id="skillWorkspaceSubtitle">Talk with AI about this skill, then review the structured draft before saving it into <code>skill://&lt;slug&gt;</code>.</p>
+                <nav class="skill-breadcrumb" aria-label="Breadcrumb">
+                  <a href="/admin/settings/skills" class="skill-breadcrumb-link">Fleet Skills</a>
+                  <span class="skill-breadcrumb-sep" aria-hidden="true">/</span>
+                  <span id="skillWorkspaceTitle">New skill</span>
+                </nav>
+                <p class="skill-workspace-sub" id="skillWorkspaceSubtitle">Talk with AI about this skill, then review the structured draft before saving it into <code>skill://&lt;slug&gt;</code>.</p>
               </div>
-              <div class="project-detail-head-actions">
+              <div class="skill-head-actions">
                 <a class="ghost tiny-btn" id="skillDetailBack" href="/admin/settings/skills">Back to skills</a>
               </div>
             </div>
@@ -1856,7 +1859,7 @@
                 <p class="muted">Distribute Skill manifests as MCP resources under <code>skill://&lt;slug&gt;</code> across hosts.</p>
               </div>
               <div class="panel-actions">
-                <button class="ghost tiny-btn" id="newSkillBtn">New</button>
+                <button id="newSkillBtn" class="primary">New skill</button>
               </div>
             </div>
             <div class="panel-body">
@@ -1865,8 +1868,7 @@
                   <thead>
                     <tr>
                       <th>Slug</th>
-                      <th>Display name</th>
-                      <th>Description</th>
+                      <th>Skill</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
