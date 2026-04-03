@@ -72,6 +72,10 @@
               <a class="rail-sub-link settings-tab" href="/admin/settings/projects" data-nav="settings" data-settings-tab="projects" role="menuitem"><span>Projects</span><span class="rail-shortcut">[s][p]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/profiles" data-nav="settings" data-settings-tab="profiles" role="menuitem"><span>Profiles</span><span class="rail-shortcut">[s][r]</span></a>
             </section>
+            <section class="rail-section" aria-label="Integrations settings">
+              <div class="rail-section-label">Integrations</div>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/joplin" data-nav="settings" data-settings-tab="joplin" role="menuitem"><span>Joplin</span></a>
+            </section>
           </div>
         </div>
       </nav>
@@ -1352,6 +1356,7 @@
             <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="joplin" href="/admin/settings/joplin">Joplin</a>
           </nav>
           <div class="settings-layout">
             <aside class="settings-sidebar" aria-label="Settings sections">
@@ -1365,6 +1370,7 @@
                 <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="joplin" href="/admin/settings/joplin">Joplin</a>
               </div>
             </aside>
             <div class="settings-content">
@@ -2341,6 +2347,56 @@
                 <div id="configPreview" class="mono-block" aria-label="Rendered config.toml">Loading…</div>
               </div>
                 </section>
+              </div>
+            </div>
+          </section>
+          <section class="card panel" data-settings-panel="joplin" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Integrations</p>
+                <h2>Joplin</h2>
+                <p class="muted">Sync notes from a Joplin server into the orchestrator for context and memory.</p>
+              </div>
+            </div>
+            <div class="settings-grid">
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
+                    <h3>Module State</h3>
+                    <p class="muted panel-subtitle-sm">Enable Joplin note sync.</p>
+                  </div>
+                  <label class="toggle" for="joplinEnabledToggle">
+                    <input type="checkbox" id="joplinEnabledToggle">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="toggle-text" id="joplinEnabledLabel">Loading…</span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-block">
+                <div class="setting-head">
+                  <div>
+                    <h3>Connection</h3>
+                    <p class="muted panel-subtitle-sm">Joplin Web Clipper API endpoint and token.</p>
+                  </div>
+                </div>
+                <div class="field" style="margin-top:12px;">
+                  <label for="joplinUrlInput">URL</label>
+                  <input id="joplinUrlInput" type="url" placeholder="http://localhost:41184">
+                </div>
+                <div class="field">
+                  <label for="joplinTokenInput">API Token</label>
+                  <input id="joplinTokenInput" type="password" placeholder="Paste token (leave blank to keep current)">
+                </div>
+                <div class="field">
+                  <label for="joplinSyncIntervalInput">Sync interval (minutes)</label>
+                  <input id="joplinSyncIntervalInput" type="number" min="1" placeholder="15" style="width:100px;">
+                </div>
+                <div class="inline-group" style="margin-top:14px;gap:8px;flex-wrap:wrap;">
+                  <button class="primary" id="joplinSaveBtn" type="button">Save</button>
+                  <button class="ghost tiny-btn" id="joplinTestBtn" type="button">Test Connection</button>
+                  <button class="ghost tiny-btn" id="joplinSyncBtn" type="button">Sync Now</button>
+                </div>
+                <p class="muted panel-meta" id="joplinStatus" style="margin-top:10px;"></p>
               </div>
             </div>
           </section>
