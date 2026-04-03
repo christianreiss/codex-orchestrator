@@ -44,7 +44,7 @@ class JoplinCacheService
             return null;
         }
 
-        $tags = $this->joplin->getNoteTags($joplinId);
+        $tags = is_array($note['tags'] ?? null) ? $note['tags'] : $this->joplin->getNoteTags($joplinId);
 
         return $this->notes->upsert(
             $note['id'],
@@ -67,6 +67,8 @@ class JoplinCacheService
         if ($note === null) {
             return null;
         }
+
+        $tags = is_array($note['tags'] ?? null) ? $note['tags'] : $tags;
 
         return $this->notes->upsert(
             $note['id'],
@@ -93,7 +95,7 @@ class JoplinCacheService
         if ($tags !== null) {
             $this->joplin->setNoteTags($joplinId, $tags);
         } else {
-            $tags = $this->joplin->getNoteTags($joplinId);
+            $tags = is_array($note['tags'] ?? null) ? $note['tags'] : $this->joplin->getNoteTags($joplinId);
         }
 
         return $this->notes->upsert(
@@ -136,7 +138,7 @@ class JoplinCacheService
 
         foreach ($notes as $note) {
             try {
-                $tags = $this->joplin->getNoteTags($note['id']);
+                $tags = is_array($note['tags'] ?? null) ? $note['tags'] : $this->joplin->getNoteTags($note['id']);
                 $this->notes->upsert(
                     $note['id'],
                     $note['title'],

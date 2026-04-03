@@ -22,8 +22,6 @@ class AdminJoplinController
 {
     private const VERIFIED_HASH_KEY = 'joplin_verified_config_hash';
     private const VERIFIED_AT_KEY = 'joplin_verified_at';
-    private const AUTH_REQUEST_TOKEN_KEY = 'joplin_auth_request_token';
-    private const AUTH_REQUEST_STARTED_AT_KEY = 'joplin_auth_request_started_at';
 
     public function __construct(
         private readonly VersionRepository $versionRepository,
@@ -52,9 +50,10 @@ class AdminJoplinController
         $state = $this->readConfigState();
         $enabled = (bool) ($state['enabled'] ?? false);
         $url = (string) ($state['url'] ?? '');
-        $token = (string) ($this->versionRepository->get('joplin_api_token') ?? '');
+        $email = (string) ($state['email'] ?? '');
+        $password = (string) ($this->versionRepository->get('joplin_password') ?? '');
         $interval = (int) ($state['sync_interval_minutes'] ?? 15);
-        $configFieldsPresent = array_intersect(['url', 'token', 'sync_interval_minutes'], array_keys($payload));
+        $configFieldsPresent = array_intersect(['url', 'email', 'password', 'sync_interval_minutes'], array_keys($payload));
         $autoDisabled = false;
         $connectionConfigChanged = false;
         $wasEnabled = $enabled;
@@ -73,7 +72,7 @@ class AdminJoplinController
             }
 
             if ($requestedEnabled) {
-                $activationState = $this->buildConfigState($enabled, $url, $token, $interval);
+                $activationState = $this->buildConfigState($enabled, $url, $email, $password, $interval);
                 if (!$activationState['can_activate']) {
                     Response::json([
                         'status' => 'error',
@@ -97,13 +96,21 @@ class AdminJoplinController
             $connectionConfigChanged = $connectionConfigChanged || $urlChanged;
         }
 
-        if (array_key_exists('token', $payload)) {
-            $newToken = trim((string) $payload['token']);
-            if ($newToken !== '') {
-                $tokenChanged = !hash_equals($token, $newToken);
-                $token = $newToken;
-                $this->versionRepository->set('joplin_api_token', $token);
-                $connectionConfigChanged = $connectionConfigChanged || $tokenChanged;
+        if (array_key_exists('email', $payload)) {
+            $newEmail = trim((string) $payload['email']);
+            $emailChanged = $newEmail !== trim($email);
+            $email = $newEmail;
+            $this->versionRepository->set('joplin_email', $email);
+            $connectionConfigChanged = $connectionConfigChanged || $emailChanged;
+        }
+
+        if (array_key_exists('password', $payload)) {
+            $newPassword = (string) $payload['password'];
+            if ($newPassword !== '') {
+                $passwordChanged = !hash_equals($password, $newPassword);
+                $password = $newPassword;
+                $this->versionRepository->set('joplin_password', $password);
+                $connectionConfigChanged = $connectionConfigChanged || $passwordChanged;
             }
         }
 
@@ -117,12 +124,13 @@ class AdminJoplinController
 
         if ($connectionConfigChanged) {
             $this->clearVerificationState();
-            $this->clearAuthRequestState();
             if ($enabled) {
                 $enabled = false;
                 $autoDisabled = true;
             }
         }
+
+        $this->clearLegacyClipperState();
 
         $initialSync = null;
         if ($enabled && !$wasEnabled) {
@@ -139,7 +147,7 @@ class AdminJoplinController
             'initial_sync' => $initialSync,
         ]);
 
-        $updatedState = $this->buildConfigState($enabled, $url, $token, $interval);
+        $updatedState = $this->buildConfigState($enabled, $url, $email, $password, $interval);
         $updatedState['auto_disabled'] = $autoDisabled;
         if ($initialSync !== null) {
             $updatedState['initial_sync'] = $initialSync;
@@ -158,13 +166,16 @@ class AdminJoplinController
 
         $state = $this->readConfigState();
         $url = (string) ($state['url'] ?? '');
-        $token = (string) ($this->versionRepository->get('joplin_api_token') ?? '');
+        $email = (string) ($state['email'] ?? '');
+        $password = (string) ($this->versionRepository->get('joplin_password') ?? '');
         $interval = (int) ($state['sync_interval_minutes'] ?? 15);
 
         $providedUrl = array_key_exists('url', $payload) ? $this->normalizeUrl((string) $payload['url']) : null;
-        $providedToken = array_key_exists('token', $payload) ? trim((string) $payload['token']) : null;
+        $providedEmail = array_key_exists('email', $payload) ? trim((string) $payload['email']) : null;
+        $providedPassword = array_key_exists('password', $payload) ? (string) $payload['password'] : null;
         if (($providedUrl !== null && $providedUrl !== '' && $providedUrl !== $this->normalizeUrl($url))
-            || ($providedToken !== null && $providedToken !== '' && !hash_equals($token, $providedToken))
+            || ($providedEmail !== null && $providedEmail !== '' && $providedEmail !== trim($email))
+            || ($providedPassword !== null && $providedPassword !== '' && !hash_equals($password, $providedPassword))
             || array_key_exists('sync_interval_minutes', $payload)
             || array_key_exists('enabled', $payload)
         ) {
@@ -175,179 +186,28 @@ class AdminJoplinController
             ], 422);
         }
 
-        if ($url === '' || $token === '') {
-            Response::json(['status' => 'error', 'message' => 'url and token are required'], 422);
+        if ($url === '' || $email === '' || $password === '') {
+            Response::json(['status' => 'error', 'message' => 'url, email, and password are required'], 422);
         }
 
-        $probe = $this->createJoplinService($url, $token)->testConnection();
+        $probe = $this->createJoplinService($url, $email, $password)->testConnection();
         $reachable = (bool) ($probe['reachable'] ?? false);
         $status = $reachable ? 200 : null;
 
         if ($reachable) {
-            $this->versionRepository->set(self::VERIFIED_HASH_KEY, $this->verificationFingerprint($url, $token) ?? '');
+            $this->versionRepository->set(self::VERIFIED_HASH_KEY, $this->verificationFingerprint($url, $email, $password) ?? '');
             $this->versionRepository->set(self::VERIFIED_AT_KEY, gmdate(DATE_ATOM));
         } else {
             $this->clearVerificationState();
         }
 
-        $updatedState = $this->buildConfigState((bool) ($state['enabled'] ?? false), $url, $token, $interval);
+        $updatedState = $this->buildConfigState((bool) ($state['enabled'] ?? false), $url, $email, $password, $interval);
         $updatedState['reachable'] = $reachable;
         $updatedState['status_code'] = $status;
         $updatedState['reason'] = $probe['reason'] ?? null;
         $updatedState['version'] = $probe['version'] ?? null;
 
         Response::json(['status' => 'ok', 'data' => $updatedState]);
-    }
-
-    /**
-     * POST /admin/joplin/auth/request
-     */
-    public function postAuthRequest(array $payload): void
-    {
-        requireAdminAccess();
-        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-
-        $state = $this->readConfigState();
-        $url = (string) ($state['url'] ?? '');
-        $providedUrl = array_key_exists('url', $payload) ? $this->normalizeUrl((string) $payload['url']) : null;
-        if ($providedUrl !== null && $providedUrl !== '' && $providedUrl !== $this->normalizeUrl($url)) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Save the Joplin URL before requesting access',
-                'data' => $state,
-            ], 422);
-        }
-
-        if ($url === '') {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Save a Joplin URL before requesting access',
-                'data' => $state,
-            ], 422);
-        }
-
-        $request = $this->createJoplinService($url, '')->requestAccess();
-        if (!(bool) ($request['started'] ?? false) || !is_string($request['auth_token'] ?? null) || trim((string) $request['auth_token']) === '') {
-            Response::json([
-                'status' => 'error',
-                'message' => (string) ($request['reason'] ?? 'Could not start the Joplin access request'),
-                'data' => $state,
-            ], 502);
-        }
-
-        $startedAt = gmdate(DATE_ATOM);
-        $this->versionRepository->set(self::AUTH_REQUEST_TOKEN_KEY, trim((string) $request['auth_token']));
-        $this->versionRepository->set(self::AUTH_REQUEST_STARTED_AT_KEY, $startedAt);
-
-        $updatedState = $this->readConfigState();
-        $updatedState['auth_request_pending'] = true;
-        $updatedState['auth_request_started_at'] = $startedAt;
-        $updatedState['auth_request_status'] = 'waiting';
-
-        $this->logRepository->log(null, 'admin.joplin.auth.request', [
-            'url' => $url,
-            'started_at' => $startedAt,
-        ]);
-
-        Response::json(['status' => 'ok', 'data' => $updatedState]);
-    }
-
-    /**
-     * POST /admin/joplin/auth/check
-     */
-    public function postAuthCheck(): void
-    {
-        requireAdminAccess();
-        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
-
-        $state = $this->readConfigState();
-        $url = (string) ($state['url'] ?? '');
-        $interval = (int) ($state['sync_interval_minutes'] ?? 15);
-        $existingToken = (string) ($this->versionRepository->get('joplin_api_token') ?? '');
-        $authRequestToken = trim((string) ($this->versionRepository->get(self::AUTH_REQUEST_TOKEN_KEY) ?? ''));
-        $startedAt = $this->versionRepository->get(self::AUTH_REQUEST_STARTED_AT_KEY);
-
-        if ($url === '' || $authRequestToken === '') {
-            $this->clearAuthRequestState();
-            $state['auth_request_pending'] = false;
-            $state['auth_request_started_at'] = null;
-            Response::json([
-                'status' => 'error',
-                'message' => 'No pending Joplin access request',
-                'data' => $state,
-            ], 422);
-        }
-
-        $result = $this->createJoplinService($url, '')->checkAccessRequest($authRequestToken);
-        $requestStatus = (string) ($result['status'] ?? 'error');
-
-        if ($requestStatus === 'waiting') {
-            $state['auth_request_pending'] = true;
-            $state['auth_request_started_at'] = $startedAt;
-            $state['auth_request_status'] = 'waiting';
-            Response::json(['status' => 'ok', 'data' => $state]);
-        }
-
-        $this->clearAuthRequestState();
-
-        if ($requestStatus === 'accepted') {
-            $newToken = trim((string) ($result['token'] ?? ''));
-            if ($newToken === '') {
-                Response::json([
-                    'status' => 'error',
-                    'message' => 'Joplin accepted the access request without returning a token',
-                    'data' => $state,
-                ], 502);
-            }
-
-            $tokenChanged = $existingToken === '' || !hash_equals($existingToken, $newToken);
-            $autoDisabled = false;
-            $enabled = (bool) ($state['enabled'] ?? false);
-            if ($tokenChanged) {
-                $this->versionRepository->set('joplin_api_token', $newToken);
-                $this->clearVerificationState();
-                if ($enabled) {
-                    $enabled = false;
-                    $autoDisabled = true;
-                    $this->versionRepository->set('joplin_enabled', '0');
-                }
-            }
-
-            $updatedState = $this->buildConfigState($enabled, $url, $newToken, $interval);
-            $updatedState['auto_disabled'] = $autoDisabled;
-            $updatedState['auth_request_pending'] = false;
-            $updatedState['auth_request_started_at'] = null;
-            $updatedState['auth_request_status'] = 'accepted';
-
-            $this->logRepository->log(null, 'admin.joplin.auth.accepted', [
-                'url' => $url,
-                'token_changed' => $tokenChanged,
-                'auto_disabled' => $autoDisabled,
-            ]);
-
-            Response::json(['status' => 'ok', 'data' => $updatedState]);
-        }
-
-        if ($requestStatus === 'rejected') {
-            $state['auth_request_pending'] = false;
-            $state['auth_request_started_at'] = null;
-            $state['auth_request_status'] = 'rejected';
-
-            $this->logRepository->log(null, 'admin.joplin.auth.rejected', [
-                'url' => $url,
-            ]);
-
-            Response::json(['status' => 'ok', 'data' => $state]);
-        }
-
-        $state['auth_request_pending'] = false;
-        $state['auth_request_started_at'] = null;
-        $state['auth_request_status'] = 'error';
-        Response::json([
-            'status' => 'error',
-            'message' => (string) ($result['reason'] ?? 'Joplin access request failed'),
-            'data' => $state,
-        ], 502);
     }
 
     /**
@@ -384,13 +244,12 @@ class AdminJoplinController
      * @return array{
      *   enabled:bool,
      *   url:string,
-     *   token_set:bool,
+     *   email:string,
+     *   password_set:bool,
      *   sync_interval_minutes:int,
      *   config_complete:bool,
      *   verified_connection:bool,
      *   verified_at:?string,
-     *   auth_request_pending:bool,
-     *   auth_request_started_at:?string,
      *   can_activate:bool,
      *   activation_reason:string
      * }
@@ -400,7 +259,8 @@ class AdminJoplinController
         return $this->buildConfigState(
             $this->versionRepository->getFlag('joplin_enabled', false),
             (string) ($this->versionRepository->get('joplin_url') ?? ''),
-            (string) ($this->versionRepository->get('joplin_api_token') ?? ''),
+            (string) ($this->versionRepository->get('joplin_email') ?? ''),
+            (string) ($this->versionRepository->get('joplin_password') ?? ''),
             (int) ($this->versionRepository->get('joplin_sync_interval_minutes') ?? '15')
         );
     }
@@ -409,28 +269,25 @@ class AdminJoplinController
      * @return array{
      *   enabled:bool,
      *   url:string,
-     *   token_set:bool,
+     *   email:string,
+     *   password_set:bool,
      *   sync_interval_minutes:int,
      *   config_complete:bool,
      *   verified_connection:bool,
      *   verified_at:?string,
-     *   auth_request_pending:bool,
-     *   auth_request_started_at:?string,
      *   can_activate:bool,
      *   activation_reason:string
      * }
      */
-    private function buildConfigState(bool $enabled, string $url, string $token, int $interval): array
+    private function buildConfigState(bool $enabled, string $url, string $email, string $password, int $interval): array
     {
         $normalizedUrl = $this->normalizeUrl($url);
-        $token = trim($token);
-        $tokenSet = $token !== '';
+        $email = trim($email);
+        $passwordSet = trim($password) !== '';
         $intervalValid = $interval >= 1 && $interval <= 1440;
-        $configComplete = $normalizedUrl !== '' && $tokenSet && $intervalValid;
+        $configComplete = $normalizedUrl !== '' && $email !== '' && $passwordSet && $intervalValid;
         $verifiedAt = $this->versionRepository->get(self::VERIFIED_AT_KEY);
-        $authRequestPending = trim((string) ($this->versionRepository->get(self::AUTH_REQUEST_TOKEN_KEY) ?? '')) !== '';
-        $authRequestStartedAt = $authRequestPending ? $this->versionRepository->get(self::AUTH_REQUEST_STARTED_AT_KEY) : null;
-        $expectedFingerprint = $this->verificationFingerprint($normalizedUrl, $token);
+        $expectedFingerprint = $this->verificationFingerprint($normalizedUrl, $email, $password);
         $storedFingerprint = $this->versionRepository->get(self::VERIFIED_HASH_KEY) ?? '';
         $verifiedConnection = $configComplete
             && $expectedFingerprint !== null
@@ -440,8 +297,10 @@ class AdminJoplinController
         $activationReason = 'ready';
         if ($normalizedUrl === '') {
             $activationReason = 'missing_url';
-        } elseif (!$tokenSet) {
-            $activationReason = 'missing_token';
+        } elseif ($email === '') {
+            $activationReason = 'missing_email';
+        } elseif (!$passwordSet) {
+            $activationReason = 'missing_password';
         } elseif (!$intervalValid) {
             $activationReason = 'invalid_interval';
         } elseif (!$verifiedConnection) {
@@ -451,13 +310,12 @@ class AdminJoplinController
         return [
             'enabled' => $enabled,
             'url' => $normalizedUrl,
-            'token_set' => $tokenSet,
+            'email' => $email,
+            'password_set' => $passwordSet,
             'sync_interval_minutes' => $interval,
             'config_complete' => $configComplete,
             'verified_connection' => $verifiedConnection,
             'verified_at' => $verifiedConnection ? $verifiedAt : null,
-            'auth_request_pending' => $authRequestPending,
-            'auth_request_started_at' => $authRequestStartedAt,
             'can_activate' => $activationReason === 'ready',
             'activation_reason' => $activationReason,
         ];
@@ -469,10 +327,11 @@ class AdminJoplinController
         $this->versionRepository->delete(self::VERIFIED_AT_KEY);
     }
 
-    private function clearAuthRequestState(): void
+    private function clearLegacyClipperState(): void
     {
-        $this->versionRepository->delete(self::AUTH_REQUEST_TOKEN_KEY);
-        $this->versionRepository->delete(self::AUTH_REQUEST_STARTED_AT_KEY);
+        $this->versionRepository->delete('joplin_api_token');
+        $this->versionRepository->delete('joplin_auth_request_token');
+        $this->versionRepository->delete('joplin_auth_request_started_at');
     }
 
     private function normalizeUrl(string $url): string
@@ -481,24 +340,25 @@ class AdminJoplinController
         return $normalized === '' ? '' : rtrim($normalized, '/');
     }
 
-    private function verificationFingerprint(string $url, string $token): ?string
+    private function verificationFingerprint(string $url, string $email, string $password): ?string
     {
         $normalizedUrl = $this->normalizeUrl($url);
-        $trimmedToken = trim($token);
-        if ($normalizedUrl === '' || $trimmedToken === '') {
+        $trimmedEmail = trim($email);
+        if ($normalizedUrl === '' || $trimmedEmail === '' || trim($password) === '') {
             return null;
         }
 
-        return hash('sha256', $normalizedUrl . "\n" . $trimmedToken);
+        return hash('sha256', $normalizedUrl . "\n" . $trimmedEmail . "\n" . $password);
     }
 
     private function activationBlockedMessage(string $reason): string
     {
         return match ($reason) {
-            'missing_url' => 'Save a Joplin URL before enabling the module',
-            'missing_token' => 'Save or request a Joplin access token before enabling the module',
+            'missing_url' => 'Save a Joplin Server URL before enabling the module',
+            'missing_email' => 'Save a Joplin Server email before enabling the module',
+            'missing_password' => 'Save a Joplin Server password before enabling the module',
             'invalid_interval' => 'Save a valid Joplin sync interval before enabling the module',
-            default => 'Run a successful connection test on the saved Joplin configuration before enabling the module',
+            default => 'Run a successful connection test on the saved Joplin Server configuration before enabling the module',
         };
     }
 
@@ -533,8 +393,8 @@ class AdminJoplinController
         }
     }
 
-    private function createJoplinService(string $url, string $token): JoplinService
+    private function createJoplinService(string $url, string $email, string $password): JoplinService
     {
-        return new JoplinService($url, $token);
+        return new JoplinService($url, $email, $password);
     }
 }

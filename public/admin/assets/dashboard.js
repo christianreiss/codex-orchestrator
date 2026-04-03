@@ -2056,10 +2056,10 @@
     const joplinEnabledToggle = document.getElementById('joplinEnabledToggle');
     const joplinEnabledLabel = document.getElementById('joplinEnabledLabel');
     const joplinUrlInput = document.getElementById('joplinUrlInput');
-    const joplinTokenInput = document.getElementById('joplinTokenInput');
+    const joplinEmailInput = document.getElementById('joplinEmailInput');
+    const joplinPasswordInput = document.getElementById('joplinPasswordInput');
     const joplinSyncIntervalInput = document.getElementById('joplinSyncIntervalInput');
     const joplinSaveBtn = document.getElementById('joplinSaveBtn');
-    const joplinRequestAccessBtn = document.getElementById('joplinRequestAccessBtn');
     const joplinTestBtn = document.getElementById('joplinTestBtn');
     const joplinSyncBtn = document.getElementById('joplinSyncBtn');
     const joplinStatus = document.getElementById('joplinStatus');
@@ -2067,13 +2067,12 @@
     const defaultJoplinState = {
       enabled: false,
       url: '',
-      token_set: false,
+      email: '',
+      password_set: false,
       sync_interval_minutes: 15,
       config_complete: false,
       verified_connection: false,
       verified_at: null,
-      auth_request_pending: false,
-      auth_request_started_at: null,
       can_activate: false,
       activation_reason: 'loading',
       auto_disabled: false,
@@ -2082,8 +2081,6 @@
     let joplinBusy = {
       loading: false,
       saving: false,
-      requestingAccess: false,
-      checkingAccess: false,
       testing: false,
       toggling: false,
       syncing: false,
@@ -2092,11 +2089,14 @@
     let joplinStatusMessage = '';
     let joplinStatusTone = '';
     let joplinToggleTargetEnabled = null;
-    let joplinAuthPollTimer = null;
 
     function normalizeJoplinUrlValue(value) {
       const normalized = String(value || '').trim();
       return normalized ? normalized.replace(/\/+$/, '') : '';
+    }
+
+    function normalizeJoplinEmailValue(value) {
+      return String(value || '').trim();
     }
 
     function normalizeJoplinIntervalValue(value) {
@@ -2110,85 +2110,37 @@
       renderJoplinControls();
     }
 
-    function applyJoplinState(data = {}, { resetInputs = false, clearTokenInput = false } = {}) {
+    function applyJoplinState(data = {}, { resetInputs = false, clearPasswordInput = false } = {}) {
       joplinState = {
         ...defaultJoplinState,
         ...joplinState,
         ...(data || {}),
       };
       joplinState.url = normalizeJoplinUrlValue(joplinState.url);
+      joplinState.email = normalizeJoplinEmailValue(joplinState.email);
       joplinState.sync_interval_minutes = Number(joplinState.sync_interval_minutes || 15) || 15;
       if (resetInputs) {
         if (joplinUrlInput) joplinUrlInput.value = joplinState.url || '';
+        if (joplinEmailInput) joplinEmailInput.value = joplinState.email || '';
         if (joplinSyncIntervalInput) joplinSyncIntervalInput.value = joplinState.sync_interval_minutes || 15;
       }
-      if (clearTokenInput && joplinTokenInput) {
-        joplinTokenInput.value = '';
-      }
-    }
-
-    function clearJoplinAuthPollTimer() {
-      if (joplinAuthPollTimer) {
-        window.clearTimeout(joplinAuthPollTimer);
-        joplinAuthPollTimer = null;
-      }
-    }
-
-    async function pollJoplinAccessRequest({ immediate = false } = {}) {
-      clearJoplinAuthPollTimer();
-      if (!joplinState.auth_request_pending) return;
-      if (!immediate) {
-        joplinAuthPollTimer = window.setTimeout(() => {
-          pollJoplinAccessRequest({ immediate: true });
-        }, 2000);
-        return;
-      }
-
-      joplinBusy.checkingAccess = true;
-      renderJoplinControls();
-      try {
-        const res = await api('/admin/joplin/auth/check', { method: 'POST', json: {} });
-        const data = res.data || {};
-        applyJoplinState(data, { clearTokenInput: true });
-        if (data.auth_request_status === 'waiting' || data.auth_request_pending) {
-          setJoplinStatus('Approve the Joplin access request in Joplin, then this page will continue automatically.', '');
-          pollJoplinAccessRequest();
-          return;
-        }
-
-        if (data.auth_request_status === 'accepted') {
-          if (data.auto_disabled) {
-            setJoplinStatus('Joplin access approved and the new token was saved. The module was disabled until you test the saved connection again.', 'success');
-          } else {
-            setJoplinStatus('Joplin access approved and the token was saved. Run Test Connection next.', 'success');
-          }
-          return;
-        }
-
-        if (data.auth_request_status === 'rejected') {
-          setJoplinStatus('Joplin access request was rejected in Joplin.', 'error');
-          return;
-        }
-
-        setJoplinStatus('Joplin access request finished with an unexpected state.', 'error');
-      } catch (err) {
-        setJoplinStatus('Access check failed: ' + err.message, 'error');
-      } finally {
-        joplinBusy.checkingAccess = false;
-        renderJoplinControls();
+      if (clearPasswordInput && joplinPasswordInput) {
+        joplinPasswordInput.value = '';
       }
     }
 
     function getJoplinFormState() {
       const savedInterval = Number(joplinState.sync_interval_minutes || 15) || 15;
       const url = normalizeJoplinUrlValue(joplinUrlInput?.value || joplinState.url || '');
-      const replacementToken = String(joplinTokenInput?.value || '').trim();
+      const email = normalizeJoplinEmailValue(joplinEmailInput?.value || joplinState.email || '');
+      const replacementPassword = String(joplinPasswordInput?.value || '');
       const interval = normalizeJoplinIntervalValue(joplinSyncIntervalInput?.value ?? savedInterval);
       return {
         url,
-        replacementToken,
+        email,
+        replacementPassword,
         interval,
-        tokenAvailable: replacementToken !== '' || !!joplinState.token_set,
+        passwordAvailable: replacementPassword !== '' || !!joplinState.password_set,
       };
     }
 
@@ -2200,13 +2152,19 @@
       return url === '' || /^https?:\/\//i.test(url);
     }
 
+    function isJoplinEmailValid(email) {
+      return email === '' || email.includes('@');
+    }
+
     function isJoplinDirty() {
       const form = getJoplinFormState();
       const savedUrl = normalizeJoplinUrlValue(joplinState.url);
+      const savedEmail = normalizeJoplinEmailValue(joplinState.email);
       const savedInterval = Number(joplinState.sync_interval_minutes || 15) || 15;
       return form.url !== savedUrl
+        || form.email !== savedEmail
         || form.interval !== savedInterval
-        || form.replacementToken !== '';
+        || form.replacementPassword !== '';
     }
 
     function formatJoplinVerifiedAt() {
@@ -2243,13 +2201,19 @@
       }
       if (dirty) {
         if (!isJoplinUrlValid(form.url)) {
-          return { msg: 'Enter a valid http:// or https:// Joplin URL, then save.', tone: 'error' };
+          return { msg: 'Enter a valid http:// or https:// Joplin Server URL, then save.', tone: 'error' };
         }
         if (!form.url) {
-          return { msg: 'Save a Joplin URL to begin setup.', tone: '' };
+          return { msg: 'Save a Joplin Server URL to begin setup.', tone: '' };
         }
-        if (!form.tokenAvailable) {
-          return { msg: 'Save the Joplin URL, then request access from Joplin or paste an access token manually.', tone: '' };
+        if (!isJoplinEmailValid(form.email)) {
+          return { msg: 'Enter a valid Joplin Server account email, then save.', tone: 'error' };
+        }
+        if (!form.email) {
+          return { msg: 'Save a Joplin Server account email to continue.', tone: '' };
+        }
+        if (!form.passwordAvailable) {
+          return { msg: 'Save a Joplin Server password to continue.', tone: '' };
         }
         if (!isJoplinIntervalValid(form.interval)) {
           return { msg: 'Enter a sync interval between 1 and 1440 minutes, then save.', tone: 'error' };
@@ -2257,16 +2221,16 @@
         return { msg: 'Unsaved changes. Save before testing the connection or enabling the module.', tone: '' };
       }
       if (!joplinState.url) {
-        return { msg: 'Save a Joplin URL to begin setup.', tone: '' };
+        return { msg: 'Save a Joplin Server URL to begin setup.', tone: '' };
       }
-      if (joplinState.auth_request_pending) {
-        return { msg: 'Approve the pending Joplin access request in Joplin to receive a token automatically.', tone: '' };
+      if (!joplinState.email) {
+        return { msg: 'Save a Joplin Server account email to continue.', tone: '' };
       }
-      if (!joplinState.token_set) {
-        return { msg: 'Request access from Joplin or paste an access token to continue.', tone: '' };
+      if (!joplinState.password_set) {
+        return { msg: 'Save a Joplin Server password to continue.', tone: '' };
       }
       if (!joplinState.verified_connection) {
-        return { msg: 'Saved configuration needs a successful connection test before activation.', tone: '' };
+        return { msg: 'Saved configuration needs a successful Joplin Server connection test before activation.', tone: '' };
       }
       const verifiedAt = formatJoplinVerifiedAt();
       if (joplinState.enabled) {
@@ -2285,50 +2249,36 @@
       if (!joplinEnabledToggle) return;
       const form = getJoplinFormState();
       const dirty = isJoplinDirty();
-      const formValid = isJoplinUrlValid(form.url) && isJoplinIntervalValid(form.interval);
+      const formValid = isJoplinUrlValid(form.url)
+        && isJoplinEmailValid(form.email)
+        && isJoplinIntervalValid(form.interval)
+        && !!form.url
+        && !!form.email
+        && !!form.passwordAvailable;
       const saveAllowed = joplinLoaded
         && dirty
         && formValid
         && !joplinBusy.saving
-        && !joplinBusy.requestingAccess
-        && !joplinBusy.checkingAccess
-        && !joplinBusy.testing
-        && !joplinBusy.toggling;
-      const requestAllowed = joplinLoaded
-        && !dirty
-        && !!joplinState.url
-        && !joplinState.auth_request_pending
-        && !joplinBusy.saving
-        && !joplinBusy.requestingAccess
-        && !joplinBusy.checkingAccess
         && !joplinBusy.testing
         && !joplinBusy.toggling;
       const testAllowed = joplinLoaded
         && !dirty
         && !!joplinState.url
-        && !!joplinState.token_set
-        && !joplinState.auth_request_pending
+        && !!joplinState.email
+        && !!joplinState.password_set
         && !joplinBusy.saving
-        && !joplinBusy.requestingAccess
-        && !joplinBusy.checkingAccess
         && !joplinBusy.testing
         && !joplinBusy.toggling;
       const toggleAllowed = joplinLoaded
         && !dirty
-        && !joplinState.auth_request_pending
         && !joplinBusy.saving
-        && !joplinBusy.requestingAccess
-        && !joplinBusy.checkingAccess
         && !joplinBusy.testing
         && !joplinBusy.toggling
         && (joplinState.enabled || joplinState.can_activate);
       const syncAllowed = joplinLoaded
         && !dirty
         && !!joplinState.enabled
-        && !joplinState.auth_request_pending
         && !joplinBusy.saving
-        && !joplinBusy.requestingAccess
-        && !joplinBusy.checkingAccess
         && !joplinBusy.testing
         && !joplinBusy.toggling
         && !joplinBusy.syncing;
@@ -2341,7 +2291,6 @@
           : 'Loading…';
       }
       if (joplinSaveBtn) joplinSaveBtn.disabled = !saveAllowed;
-      if (joplinRequestAccessBtn) joplinRequestAccessBtn.disabled = !requestAllowed;
       if (joplinTestBtn) joplinTestBtn.disabled = !testAllowed;
       if (joplinSyncBtn) joplinSyncBtn.disabled = !syncAllowed;
 
@@ -2350,10 +2299,6 @@
         status = { msg: 'Loading saved Joplin configuration…', tone: '' };
       } else if (joplinBusy.saving) {
         status = { msg: 'Saving Joplin configuration…', tone: '' };
-      } else if (joplinBusy.requestingAccess) {
-        status = { msg: 'Requesting Joplin access…', tone: '' };
-      } else if (joplinBusy.checkingAccess || joplinState.auth_request_pending) {
-        status = { msg: 'Waiting for Joplin access approval…', tone: '' };
       } else if (joplinBusy.testing) {
         status = { msg: 'Testing the saved Joplin connection…', tone: '' };
       } else if (joplinBusy.toggling) {
@@ -2381,11 +2326,8 @@
       renderJoplinControls();
       try {
         const res = await api('/admin/joplin/config');
-        applyJoplinState(res.data || {}, { resetInputs: true, clearTokenInput: true });
+        applyJoplinState(res.data || {}, { resetInputs: true, clearPasswordInput: true });
         joplinLoaded = true;
-        if (res.data?.auth_request_pending) {
-          pollJoplinAccessRequest();
-        }
       } catch (err) {
         console.warn('joplin config unavailable', err);
         joplinLoaded = false;
@@ -2396,16 +2338,14 @@
       }
     }
 
-    [joplinUrlInput, joplinTokenInput, joplinSyncIntervalInput].forEach((input) => {
+    [joplinUrlInput, joplinEmailInput, joplinPasswordInput, joplinSyncIntervalInput].forEach((input) => {
       if (!input) return;
       input.addEventListener('input', () => {
         joplinStatusMessage = '';
-        clearJoplinAuthPollTimer();
         renderJoplinControls();
       });
       input.addEventListener('change', () => {
         joplinStatusMessage = '';
-        clearJoplinAuthPollTimer();
         renderJoplinControls();
       });
     });
@@ -2449,7 +2389,6 @@
 
     if (joplinSaveBtn) {
       joplinSaveBtn.addEventListener('click', async () => {
-        clearJoplinAuthPollTimer();
         joplinBusy.saving = true;
         joplinStatusMessage = '';
         renderJoplinControls();
@@ -2457,13 +2396,14 @@
           const form = getJoplinFormState();
           const body = {
             url: form.url,
+            email: form.email,
             sync_interval_minutes: form.interval,
           };
-          if (form.replacementToken) {
-            body.token = form.replacementToken;
+          if (form.replacementPassword) {
+            body.password = form.replacementPassword;
           }
           const res = await api('/admin/joplin/config', { method: 'POST', json: body });
-          applyJoplinState(res.data || {}, { resetInputs: true, clearTokenInput: true });
+          applyJoplinState(res.data || {}, { resetInputs: true, clearPasswordInput: true });
           if (res.data?.auto_disabled) {
             setJoplinStatus('Connection settings changed. Joplin was disabled until the saved config is tested again.', 'warn');
           } else {
@@ -2480,30 +2420,8 @@
       });
     }
 
-    if (joplinRequestAccessBtn) {
-      joplinRequestAccessBtn.addEventListener('click', async () => {
-        clearJoplinAuthPollTimer();
-        joplinBusy.requestingAccess = true;
-        joplinStatusMessage = '';
-        renderJoplinControls();
-        try {
-          const res = await api('/admin/joplin/auth/request', { method: 'POST', json: {} });
-          applyJoplinState(res.data || {}, { clearTokenInput: true });
-          setJoplinStatus('Approve the Joplin access request in Joplin. This page will save the token automatically once accepted.', '');
-          pollJoplinAccessRequest();
-        } catch (err) {
-          toast('Joplin access request failed: ' + err.message, 'error');
-          setJoplinStatus('Could not request Joplin access: ' + err.message, 'error');
-        } finally {
-          joplinBusy.requestingAccess = false;
-          renderJoplinControls();
-        }
-      });
-    }
-
     if (joplinTestBtn) {
       joplinTestBtn.addEventListener('click', async () => {
-        clearJoplinAuthPollTimer();
         joplinBusy.testing = true;
         joplinStatusMessage = '';
         renderJoplinControls();
@@ -2528,7 +2446,6 @@
 
     if (joplinSyncBtn) {
       joplinSyncBtn.addEventListener('click', async () => {
-        clearJoplinAuthPollTimer();
         joplinBusy.syncing = true;
         joplinStatusMessage = '';
         renderJoplinControls();

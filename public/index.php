@@ -396,10 +396,11 @@ $projectDraftService = new ProjectDraftService(
 );
 $joplinCacheService = null;
 $joplinUrl = trim((string) ($versionRepository->get('joplin_url') ?? ''));
-$joplinToken = trim((string) ($versionRepository->get('joplin_api_token') ?? ''));
-if ($joplinUrl !== '' && $joplinToken !== '') {
+$joplinEmail = trim((string) ($versionRepository->get('joplin_email') ?? ''));
+$joplinPassword = (string) ($versionRepository->get('joplin_password') ?? '');
+if ($joplinUrl !== '' && $joplinEmail !== '' && $joplinPassword !== '') {
     $joplinNoteRepository = new JoplinNoteRepository($database);
-    $joplinService = new JoplinService($joplinUrl, $joplinToken);
+    $joplinService = new JoplinService($joplinUrl, $joplinEmail, $joplinPassword);
     $joplinCacheService = new JoplinCacheService($joplinService, $joplinNoteRepository, $versionRepository);
 }
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root, $joplinCacheService);
@@ -748,8 +749,6 @@ $router->add('POST', '#^/admin/projects/([^/]+)/feedback$#', fn($slug) => $admin
 // Admin Joplin
 $router->add('GET', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->getConfig());
 $router->add('POST', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->postConfig($payload));
-$router->add('POST', '#^/admin/joplin/auth/request$#', fn() => $adminJoplinCtrl->postAuthRequest($payload));
-$router->add('POST', '#^/admin/joplin/auth/check$#', fn() => $adminJoplinCtrl->postAuthCheck());
 $router->add('POST', '#^/admin/joplin/test$#', fn() => $adminJoplinCtrl->postTest($payload));
 $router->add('POST', '#^/admin/joplin/sync$#', fn() => $adminJoplinCtrl->postSync());
 
