@@ -69,6 +69,7 @@ use App\Services\ProjectDraftService;
 use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
 use App\Services\AgentsService;
+use App\Services\JoplinSkillService;
 use App\Services\SkillService;
 use App\Services\SkillDraftService;
 use App\Services\SkillManifestService;
@@ -353,6 +354,7 @@ $adminPasskeyService = new AdminPasskeyService(
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $cliAuthService = new CliAuthService($cliAuthRequestRepository, $service, $logRepository, $rateLimiter);
 $projectModuleService = new ProjectModuleService($versionRepository);
+$joplinSkillService = new JoplinSkillService($versionRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -367,7 +369,7 @@ $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepo
 $skillManifestService = new SkillManifestService();
 $skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
 $skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier, $runnerValidationService);
-$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService);
+$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService, $joplinSkillService);
 $memorySummaryService = new MemorySummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
 $memoryService = new MemoryService($memoryRepository, $logRepository, $memorySummaryService);
 $agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService, $memoryService, $versionRepository);
