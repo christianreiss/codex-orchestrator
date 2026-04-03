@@ -1022,14 +1022,17 @@
               </section>
               <section class="skill-detail-section skill-editor-section">
                 <div class="project-detail-section-head">
-                  <p class="eyebrow">Structured Draft</p>
+                  <p class="eyebrow">Skill Draft</p>
                   <h3>AI-managed fields</h3>
                 </div>
                 <div class="skill-meta-row">
                   <span class="pill-quiet" id="skillDigestBadge" hidden>SHA —</span>
                   <span class="pill-quiet" id="skillUpdatedBadge" hidden>Updated —</span>
                 </div>
-                <div class="skill-changed-fields" id="skillChangedFields" hidden></div>
+                <div id="skillChangedFieldsWrap" hidden>
+                  <p class="skill-changed-label">Fields updated by AI</p>
+                  <div class="skill-changed-fields" id="skillChangedFields"></div>
+                </div>
                 <div class="field">
                   <label for="skillSlug" class="modal-label">Slug</label>
                   <input type="text" id="skillSlug" placeholder="e.g. incident-handoff">
@@ -1037,49 +1040,67 @@
                 </div>
                 <div class="field skill-managed-field" data-skill-field="display_name">
                   <div class="field-label-row">
-                    <label for="skillName" class="modal-label">Skill name</label>
-                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="display_name">Edit</button>
+                    <label for="skillName" class="modal-label">
+                      <span class="skill-field-lock-icon" aria-hidden="true">🔒</span>
+                      Skill name
+                    </label>
+                    <button type="button" class="skill-field-edit-pill skill-field-edit" data-skill-unlock="display_name">Edit</button>
                   </div>
                   <input type="text" id="skillName" placeholder="Incident warm handoff, Deploy db, …" readonly>
                   <div class="muted-note">Maps to the SKILL.md <code>name</code> and dashboard label.</div>
                 </div>
                 <div class="field skill-managed-field" data-skill-field="description">
                   <div class="field-label-row">
-                    <label for="skillDescription" class="modal-label">Short description</label>
-                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="description">Edit</button>
+                    <label for="skillDescription" class="modal-label">
+                      <span class="skill-field-lock-icon" aria-hidden="true">🔒</span>
+                      Short description
+                    </label>
+                    <button type="button" class="skill-field-edit-pill skill-field-edit" data-skill-unlock="description">Edit</button>
                   </div>
                   <input type="text" id="skillDescription" placeholder="One-liner surfaced in search/results" readonly>
                   <div class="muted-note">Populates the SKILL.md <code>description</code>.</div>
                 </div>
                 <div class="field skill-managed-field" data-skill-field="tags">
                   <div class="field-label-row">
-                    <label for="skillTagsInput" class="modal-label">Tags</label>
-                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="tags">Edit</button>
+                    <label for="skillTagsInput" class="modal-label">
+                      <span class="skill-field-lock-icon" aria-hidden="true">🔒</span>
+                      Tags
+                    </label>
+                    <button type="button" class="skill-field-edit-pill skill-field-edit" data-skill-unlock="tags">Edit</button>
                   </div>
                   <div class="skill-tags-input">
                     <div class="skill-tags-list" id="skillTagsList"></div>
-                    <input type="text" id="skillTagsInput" placeholder="Type a tag and press Enter" disabled>
+                    <input type="text" id="skillTagsInput" placeholder="Add tag…" disabled>
                   </div>
                   <div class="muted-note">Optional, but useful for search and routing.</div>
                 </div>
                 <div class="field skill-managed-field" data-skill-field="what">
                   <div class="field-label-row">
-                    <label for="skillWhat" class="modal-label">What this skill does</label>
-                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="what">Edit</button>
+                    <label for="skillWhat" class="modal-label">
+                      <span class="skill-field-lock-icon" aria-hidden="true">🔒</span>
+                      What this skill does
+                    </label>
+                    <button type="button" class="skill-field-edit-pill skill-field-edit" data-skill-unlock="what">Edit</button>
                   </div>
                   <textarea id="skillWhat" rows="6" spellcheck="false" placeholder="Explain the intent, guardrails, expected outputs." readonly></textarea>
                 </div>
                 <div class="field skill-managed-field" data-skill-field="when">
                   <div class="field-label-row">
-                    <label for="skillWhen" class="modal-label">When to use this skill</label>
-                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="when">Edit</button>
+                    <label for="skillWhen" class="modal-label">
+                      <span class="skill-field-lock-icon" aria-hidden="true">🔒</span>
+                      When to use this skill
+                    </label>
+                    <button type="button" class="skill-field-edit-pill skill-field-edit" data-skill-unlock="when">Edit</button>
                   </div>
                   <textarea id="skillWhen" rows="5" spellcheck="false" placeholder="List triggers, heuristics, or context clues." readonly></textarea>
                 </div>
                 <div class="field skill-managed-field" data-skill-field="steps">
                   <div class="field-label-row">
-                    <label for="skillSteps" class="modal-label">Step-by-step instructions</label>
-                    <button type="button" class="ghost tiny-btn skill-field-edit" data-skill-unlock="steps">Edit</button>
+                    <label for="skillSteps" class="modal-label">
+                      <span class="skill-field-lock-icon" aria-hidden="true">🔒</span>
+                      Step-by-step instructions
+                    </label>
+                    <button type="button" class="skill-field-edit-pill skill-field-edit" data-skill-unlock="steps">Edit</button>
                   </div>
                   <textarea id="skillSteps" rows="8" spellcheck="false" placeholder="Provide numbered instructions, failure modes, and success signals." readonly></textarea>
                 </div>

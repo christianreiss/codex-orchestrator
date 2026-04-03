@@ -112,6 +112,7 @@
     const skillAssistSend = document.getElementById('skillAssistSend');
     const skillAssistStatus = document.getElementById('skillAssistStatus');
     const skillChangedFields = document.getElementById('skillChangedFields');
+    const skillChangedFieldsWrap = document.getElementById('skillChangedFieldsWrap');
     const skillSlug = document.getElementById('skillSlug');
     const skillNameInput = document.getElementById('skillName');
     const skillDescriptionInput = document.getElementById('skillDescription');
@@ -4810,7 +4811,7 @@
       skillTagsList.innerHTML = skillTags.map((tag, idx) => `
         <span class="skill-tag">
           ${escapeHtml(tag)}
-          ${editable ? `<button type="button" data-tag-index="${idx}" aria-label="Remove tag ${escapeHtml(tag)}">×</button>` : ''}
+          ${editable ? `<button type="button" aria-label="Remove tag" data-tag-index="${idx}">✕</button>` : ''}
         </span>
       `).join('');
       if (!editable) return;
@@ -4879,11 +4880,11 @@
     function renderSkillChangedFields() {
       if (!skillChangedFields) return;
       if (!Array.isArray(skillChangedFieldNames) || skillChangedFieldNames.length === 0) {
-        skillChangedFields.hidden = true;
+        if (skillChangedFieldsWrap) skillChangedFieldsWrap.hidden = true;
         skillChangedFields.innerHTML = '';
         return;
       }
-      skillChangedFields.hidden = false;
+      if (skillChangedFieldsWrap) skillChangedFieldsWrap.hidden = false;
       skillChangedFields.innerHTML = skillChangedFieldNames.map((field) => `<span class="pill-quiet">Updated ${escapeHtml(field.replace(/_/g, ' '))}</span>`).join('');
     }
 
