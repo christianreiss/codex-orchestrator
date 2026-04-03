@@ -2510,6 +2510,56 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
     .overline { margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; }
     .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
     .error { color: var(--danger); font-weight: 700; }
+    /* ── Global .field form stack ────────────────────────────────────────────
+       Applies to all .field wrappers not already covered by a higher-
+       specificity scoped rule. Must stay BEFORE the Modal block so that
+       .modal input (same specificity 0,1,1) continues to win via source order.
+       ─────────────────────────────────────────────────────────────────────── */
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .field > label:not(.toggle) {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    .field > select,
+    .field > textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus,
+    .field > select:focus,
+    .field > textarea:focus {
+      outline: none;
+      border-color: rgba(var(--accent-rgb), 0.60);
+      box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+    }
+    .field > select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      background-size: 16px 16px;
+      padding-right: 32px;
+    }
+    .field > textarea {
+      resize: vertical;
+      min-height: 80px;
+      line-height: 1.5;
+    }
+
     /* Modal */
     .modal-backdrop {
       position: fixed;
