@@ -94,6 +94,25 @@ class ProjectAssistRequest(BaseModel):
     )
 
 
+class JoplinSummarizeRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    note_id: str = Field(..., description="Joplin note ID")
+    title: str = Field(..., description="Note title")
+    body: str = Field(..., description="Note body content")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the summarize call (seconds)"
+    )
+
+
+class JoplinQueryRequest(BaseModel):
+    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
+    question: str = Field(..., description="Question to answer from note content")
+    notes: list[dict] = Field(..., description="List of notes with title and body fields")
+    timeout_seconds: Optional[float] = Field(
+        None, description="Timeout for the query call (seconds)"
+    )
+
+
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
     auths = auth_json.get("auths", {})
     if isinstance(auths, dict):
@@ -420,6 +439,138 @@ def _project_assist_prompt(payload: ProjectAssistRequest) -> str:
         "Current project snapshot JSON:\n"
         f"{snapshot}"
     )
+
+
+def _joplin_summarize_prompt(title: str, body: str) -> str:
+    truncated = body[:3000] + ("..." if len(body) > 3000 else "")
+    return (
+        'Summarize the following Joplin note in one concise sentence (max 200 characters). '
+        'Return ONLY a JSON object with a single key "summary" containing the summary string. No other text.\n\n'
+        f"Note title: {title}\n\n"
+        f"Note content:\n{truncated}\n\n"
+        'Return format: {"summary": "one sentence summary here"}'
+    )
+
+
+def _extract_joplin_json_key(raw: str, key: str, max_len: int = 0) -> str:
+    """Parse a single string value from a JSON object in Codex output."""
+    raw = raw.strip()
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(raw[start:end])
+            value = parsed.get(key, "")
+            if isinstance(value, str) and value.strip():
+                result = value.strip()
+                return result[:max_len] if max_len else result
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return ""
+
+
+def _extract_joplin_summary(raw: str) -> str:
+    value = _extract_joplin_json_key(raw, "summary", max_len=200)
+    if value:
+        return value
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if line and not line.startswith("{") and not line.startswith("}"):
+            return line[:200]
+    return ""
+
+
+def _extract_joplin_answer(raw: str) -> str:
+    return _extract_joplin_json_key(raw, "answer") or raw.strip()[:2000]
+
+
+def _joplin_query_prompt(question: str, notes: list[dict]) -> str:
+    parts = []
+    for i, note in enumerate(notes[:5]):
+        title = str(note.get("title", "Untitled"))
+        body = str(note.get("body", ""))[:1500]
+        parts.append(f"\n--- Note {i + 1}: {title} ---\n{body}\n")
+    notes_text = "".join(parts)
+    return (
+        "Based on the following Joplin notes, answer the question. "
+        'Return ONLY a JSON object with a single key "answer". No other text.\n\n'
+        f"Question: {question}\n\n"
+        f"Notes:\n{notes_text}\n\n"
+        'Return format: {"answer": "your answer here"}'
+    )
+
+
+def _summarize_joplin_note(payload: JoplinSummarizeRequest) -> dict:
+    note_id = payload.note_id.strip()
+    title = payload.title.strip()
+    if note_id == "":
+        raise HTTPException(status_code=400, detail="note_id is required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(
+            _joplin_summarize_prompt(title, payload.body), env, timeout
+        )
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        summary = _extract_joplin_summary(stdout)
+        ok = proc.returncode == 0 and summary != ""
+
+        result: dict = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok:
+            result["note_id"] = note_id
+            result["summary"] = summary
+            return result
+
+        parts = [p for p in [stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:400] if message else "summarize failed"
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
+
+
+def _query_joplin_notes(payload: JoplinQueryRequest) -> dict:
+    question = payload.question.strip()
+    if question == "":
+        raise HTTPException(status_code=400, detail="question is required")
+    if not payload.notes:
+        raise HTTPException(status_code=400, detail="notes are required")
+
+    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    try:
+        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+        proc, latency_ms = _run_codex_exec(
+            _joplin_query_prompt(question, payload.notes), env, timeout
+        )
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        answer = _extract_joplin_answer(stdout)
+        ok = proc.returncode == 0 and answer != ""
+
+        result: dict = {
+            "status": "ok" if ok else "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "codex_version": _codex_version(env),
+        }
+        if ok:
+            result["question"] = question
+            result["answer"] = answer
+            return result
+
+        parts = [p for p in [stderr, stdout] if p]
+        message = "\n".join(parts).strip()
+        result["reason"] = message[:400] if message else "query failed"
+        return result
+    finally:
+        shutil.rmtree(home_dir, ignore_errors=True)
 
 
 def _summarize_skill(payload: SkillSummaryRequest) -> dict:
@@ -829,6 +980,50 @@ def exec_prompt(payload: ExecRequest, request: Request):
         return _exec_prompt(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="exec timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/joplin/summarize")
+def joplin_summarize_health():
+    return {"status": "ok"}
+
+
+@app.post("/joplin/summarize")
+def joplin_summarize(payload: JoplinSummarizeRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _summarize_joplin_note(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="summarize timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/joplin/query")
+def joplin_query_health():
+    return {"status": "ok"}
+
+
+@app.post("/joplin/query")
+def joplin_query(payload: JoplinQueryRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _query_joplin_notes(payload)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="query timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
