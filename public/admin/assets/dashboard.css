@@ -1067,7 +1067,7 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
 .skill-managed-field.is-locked input {
   background: var(--field-locked-bg);
   color: var(--muted);
-  border-color: var(--border);
+  border-color: var(--border-2);
 }
 .skill-managed-field.is-locked .skill-tags-input input {
   background: transparent;
@@ -2538,6 +2538,8 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
       font-family: var(--font-sans);
       font-size: 14px;
       box-sizing: border-box;
+      appearance: none;
+      -webkit-appearance: none;
     }
     .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus,
     .field > select:focus,
@@ -2558,6 +2560,40 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
       resize: vertical;
       min-height: 80px;
       line-height: 1.5;
+    }
+
+    /* Dark themes: stronger borders for .field inputs (beats body[data-theme] input at 0,1,2) */
+    body[data-theme="dark"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    body[data-theme="dark"] .field > select,
+    body[data-theme="dark"] .field > textarea,
+    body[data-theme="dark-pink"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    body[data-theme="dark-pink"] .field > select,
+    body[data-theme="dark-pink"] .field > textarea {
+      border-color: rgba(148, 163, 184, 0.40);
+      background: rgba(18, 24, 44, 0.84);
+    }
+    @media (prefers-color-scheme: dark) {
+      body[data-theme="auto"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+      body[data-theme="auto"] .field > select,
+      body[data-theme="auto"] .field > textarea {
+        border-color: rgba(148, 163, 184, 0.40);
+        background: rgba(18, 24, 44, 0.84);
+      }
+    }
+    body[data-theme="light"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    body[data-theme="light"] .field > select,
+    body[data-theme="light"] .field > textarea,
+    body[data-theme="bright-pink"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    body[data-theme="bright-pink"] .field > select,
+    body[data-theme="bright-pink"] .field > textarea {
+      border-color: rgba(15, 23, 42, 0.24);
+    }
+    @media (prefers-color-scheme: light) {
+      body[data-theme="auto"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+      body[data-theme="auto"] .field > select,
+      body[data-theme="auto"] .field > textarea {
+        border-color: rgba(15, 23, 42, 0.24);
+      }
     }
 
     /* Modal */
