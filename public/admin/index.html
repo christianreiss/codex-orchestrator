@@ -969,7 +969,27 @@
                 <p class="muted panel-subtitle" id="skillWorkspaceSubtitle">Talk with AI about this skill, then review the structured draft before saving it into <code>skill://&lt;slug&gt;</code>.</p>
               </div>
               <div class="project-detail-head-actions">
+                <button type="button" class="ghost tiny-btn" id="skillModeSwitchBtn" hidden>Switch mode</button>
                 <a class="ghost tiny-btn" id="skillDetailBack" href="/admin/settings/skills">Back to skills</a>
+              </div>
+            </div>
+            <div id="skillModeSplash" class="skill-mode-splash" hidden>
+              <div class="skill-mode-splash-inner">
+                <p class="skill-mode-splash-eyebrow">Fleet Skill Workspace</p>
+                <h2 class="skill-mode-splash-title">Create a new skill</h2>
+                <p class="skill-mode-splash-sub">How do you want to start?</p>
+                <div class="skill-mode-cards">
+                  <button type="button" class="skill-mode-card is-ai" id="skillModeAiBtn">
+                    <span class="skill-mode-card-icon">✦</span>
+                    <span class="skill-mode-card-label">AI-first</span>
+                    <span class="skill-mode-card-desc">Describe the skill in plain language. AI drafts the fields, you review and save.</span>
+                  </button>
+                  <button type="button" class="skill-mode-card is-manual" id="skillModeManualBtn">
+                    <span class="skill-mode-card-icon">✎</span>
+                    <span class="skill-mode-card-label">Write myself</span>
+                    <span class="skill-mode-card-desc">Fill in all fields manually. Full control, no AI involvement.</span>
+                  </button>
+                </div>
               </div>
             </div>
             <div class="project-detail-empty" id="skillDetailEmptyState" hidden>

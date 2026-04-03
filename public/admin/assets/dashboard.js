@@ -128,6 +128,10 @@
     const skillDigestBadge = document.getElementById('skillDigestBadge');
     const skillUpdatedBadge = document.getElementById('skillUpdatedBadge');
     const skillFieldEditButtons = Array.from(document.querySelectorAll('[data-skill-unlock]'));
+    const skillModeSplash = document.getElementById('skillModeSplash');
+    const skillModeAiBtn = document.getElementById('skillModeAiBtn');
+    const skillModeManualBtn = document.getElementById('skillModeManualBtn');
+    const skillModeSwitchBtn = document.getElementById('skillModeSwitchBtn');
     const skillsPanel = document.querySelector('[data-settings-panel="skills"]');
     const agentsPanel = null;
     const settingsPanel = document.getElementById('settings-panel');
@@ -304,6 +308,7 @@
     let skillUnlockedFields = new Set();
     let skillAssistBusy = false;
     let skillChangedFieldNames = [];
+    let skillCreationMode = ''; // 'ai' | 'manual' | ''
 
     const THEME_OPTIONS = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'];
     const THEME_SYNC_STORAGE_KEY = 'adminThemeSynced';
@@ -4688,6 +4693,26 @@
       applySkillFieldLocks();
     }
 
+    function activateSkillCreationMode(mode) {
+      skillCreationMode = mode;
+      if (skillModeSplash) skillModeSplash.hidden = true;
+      if (skillDetailLayout) skillDetailLayout.hidden = false;
+
+      const chatSection = skillDetailLayout?.querySelector('.skill-chat-section');
+      if (mode === 'manual') {
+        if (chatSection) chatSection.hidden = true;
+        skillFieldEditButtons.forEach(b => skillUnlockedFields.add(b.getAttribute('data-skill-unlock') || ''));
+        applySkillFieldLocks();
+      } else {
+        if (chatSection) chatSection.hidden = false;
+        skillUnlockedFields.clear();
+        applySkillFieldLocks();
+        skillAssistInput?.focus();
+      }
+
+      if (skillModeSwitchBtn) skillModeSwitchBtn.hidden = false;
+    }
+
     function setSkillBusy(isBusy) {
       skillAssistBusy = !!isBusy;
       if (skillAssistSend) skillAssistSend.disabled = skillAssistBusy;
@@ -8981,10 +9006,19 @@
       resetSkillWorkspaceEmptyState();
       setSkillDetailMode(isNew ? 'new' : 'edit', target);
       if (isNew) {
-        if (skillStatus) skillStatus.textContent = 'Talk with AI to generate the first draft, then save when it looks right.';
-        skillAssistInput?.focus();
+        skillCreationMode = '';
+        if (skillDetailLayout) skillDetailLayout.hidden = true;
+        if (skillModeSplash) skillModeSplash.hidden = false;
+        if (skillModeSwitchBtn) skillModeSwitchBtn.hidden = true;
+        if (skillStatus) skillStatus.textContent = '';
         return;
       }
+
+      if (skillModeSplash) skillModeSplash.hidden = true;
+      if (skillDetailLayout) skillDetailLayout.hidden = false;
+      if (skillModeSwitchBtn) skillModeSwitchBtn.hidden = true;
+      const chatSection = skillDetailLayout?.querySelector('.skill-chat-section');
+      if (chatSection) chatSection.hidden = false;
 
       showSkillWorkspaceEmpty('Loading skill…', 'Fetching skill details.');
       try {
@@ -9616,6 +9650,20 @@
       newSkillBtn.addEventListener('click', (event) => {
         event.preventDefault();
         openSkillDetail('');
+      });
+    }
+    if (skillModeAiBtn) {
+      skillModeAiBtn.addEventListener('click', () => activateSkillCreationMode('ai'));
+    }
+    if (skillModeManualBtn) {
+      skillModeManualBtn.addEventListener('click', () => activateSkillCreationMode('manual'));
+    }
+    if (skillModeSwitchBtn) {
+      skillModeSwitchBtn.addEventListener('click', () => {
+        if (skillDetailLayout) skillDetailLayout.hidden = true;
+        if (skillModeSplash) skillModeSplash.hidden = false;
+        skillModeSwitchBtn.hidden = true;
+        skillCreationMode = '';
       });
     }
     agentsTabButtons.forEach((button) => {

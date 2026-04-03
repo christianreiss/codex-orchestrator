@@ -862,6 +862,107 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   border-color: rgba(var(--accent-rgb), 0.32);
   color: var(--accent-2);
 }
+
+/* ── Skill mode splash ───────────────────────── */
+.skill-mode-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  padding: 40px 24px;
+}
+
+.skill-mode-splash-inner {
+  text-align: center;
+  max-width: 560px;
+  width: 100%;
+}
+
+.skill-mode-splash-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.skill-mode-splash-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+.skill-mode-splash-sub {
+  color: var(--muted);
+  margin: 0 0 32px;
+  font-size: 15px;
+}
+
+.skill-mode-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.skill-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 24px 22px;
+  border-radius: 18px;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.15s ease;
+  box-shadow: var(--shadow-soft);
+}
+
+.skill-mode-card:hover {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  box-shadow: 0 8px 32px rgba(var(--accent-rgb), 0.12);
+  transform: translateY(-2px);
+}
+
+.skill-mode-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.skill-mode-card-icon {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--accent-2);
+}
+
+.skill-mode-card.is-manual .skill-mode-card-icon {
+  color: var(--muted);
+}
+
+.skill-mode-card-label {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.skill-mode-card-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .skill-mode-cards {
+    grid-template-columns: 1fr;
+  }
+}
+/* ──────────────────────────────────────────────── */
+
 .host-detail-problems {
   margin: 0;
   padding: 12px;
