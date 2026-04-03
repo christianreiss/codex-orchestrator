@@ -1067,7 +1067,7 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
 .skill-managed-field.is-locked input {
   background: var(--field-locked-bg);
   color: var(--muted);
-  border-color: var(--border-2);
+  border-color: var(--input-border, var(--border));
 }
 .skill-managed-field.is-locked .skill-tags-input input {
   background: transparent;
@@ -2510,89 +2510,108 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
     .overline { margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; }
     .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
     .error { color: var(--danger); font-weight: 700; }
-    /* ── Global .field form stack ────────────────────────────────────────────
-       Applies to all .field wrappers not already covered by a higher-
-       specificity scoped rule. Must stay BEFORE the Modal block so that
-       .modal input (same specificity 0,1,1) continues to win via source order.
-       ─────────────────────────────────────────────────────────────────────── */
+    /* ── Global .field form stack ─────────────────────────────────────────────
+       Base styles for ALL .field wrappers. Placed before Modal so that
+       .modal input (equal specificity 0,1,1) wins via source order.
+       ──────────────────────────────────────────────────────────────────────── */
     .field {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      margin-bottom: 14px;
+      gap: 5px;
+      margin-bottom: 16px;
     }
+    .field:last-child { margin-bottom: 0; }
+
+    /* Spacing after a setting-head block */
+    .setting-head + .field,
+    .setting-head ~ .field:first-of-type { margin-top: 14px; }
+
     .field > label:not(.toggle) {
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 700;
       color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
     }
+
     .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
     .field > select,
     .field > textarea {
       width: 100%;
-      padding: 10px 12px;
+      padding: 10px 13px;
       border-radius: 10px;
-      border: 1px solid var(--border);
+      border: 1.5px solid var(--input-border, var(--border));
       background: var(--input-bg);
       color: var(--text);
       font-family: var(--font-sans);
       font-size: 14px;
+      line-height: 1.4;
       box-sizing: border-box;
       appearance: none;
       -webkit-appearance: none;
     }
+
+    .field > input::placeholder,
+    .field > textarea::placeholder { color: var(--muted); opacity: 0.55; }
+
     .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus,
     .field > select:focus,
     .field > textarea:focus {
       outline: none;
-      border-color: rgba(var(--accent-rgb), 0.60);
-      box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+      border-color: rgba(var(--accent-rgb), 0.70);
+      box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.14);
     }
+
+    /* Number / date: natural (short) width */
+    .field > input[type="number"],
+    .field > input[type="date"],
+    .field > input[type="time"] { max-width: 140px; }
+    .field > input[type="datetime-local"] { max-width: 260px; }
+
     .field > select {
-      appearance: none;
+      cursor: pointer;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 10px center;
       background-size: 16px 16px;
       padding-right: 32px;
     }
+
     .field > textarea {
       resize: vertical;
-      min-height: 80px;
-      line-height: 1.5;
+      min-height: 88px;
+      line-height: 1.6;
     }
 
-    /* Dark themes: stronger borders for .field inputs (beats body[data-theme] input at 0,1,2) */
+    /* Hint text below a field */
+    .field > .field-hint,
+    .field > .muted-note {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+      margin-top: 2px;
+    }
+
+    /* Dark themes: use --input-border and a slightly raised bg (beats body[data-theme] input at 0,1,2) */
     body[data-theme="dark"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
     body[data-theme="dark"] .field > select,
     body[data-theme="dark"] .field > textarea,
     body[data-theme="dark-pink"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
     body[data-theme="dark-pink"] .field > select,
     body[data-theme="dark-pink"] .field > textarea {
-      border-color: rgba(148, 163, 184, 0.40);
-      background: rgba(18, 24, 44, 0.84);
+      border-color: var(--input-border);
+      background: rgba(255, 255, 255, 0.06);
     }
     @media (prefers-color-scheme: dark) {
       body[data-theme="auto"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
       body[data-theme="auto"] .field > select,
       body[data-theme="auto"] .field > textarea {
-        border-color: rgba(148, 163, 184, 0.40);
-        background: rgba(18, 24, 44, 0.84);
-      }
-    }
-    body[data-theme="light"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-    body[data-theme="light"] .field > select,
-    body[data-theme="light"] .field > textarea,
-    body[data-theme="bright-pink"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-    body[data-theme="bright-pink"] .field > select,
-    body[data-theme="bright-pink"] .field > textarea {
-      border-color: rgba(15, 23, 42, 0.24);
-    }
-    @media (prefers-color-scheme: light) {
-      body[data-theme="auto"] .field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-      body[data-theme="auto"] .field > select,
-      body[data-theme="auto"] .field > textarea {
-        border-color: rgba(15, 23, 42, 0.24);
+        border-color: var(--input-border);
+        background: rgba(255, 255, 255, 0.06);
       }
     }
 
@@ -2825,12 +2844,22 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
     .modal input,
     .modal textarea,
     .modal select {
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid rgba(15,23,42,0.12);
-      background: #fff;
+      padding: 11px 13px;
+      border-radius: 10px;
+      border: 1.5px solid var(--input-border, rgba(15,23,42,0.22));
+      background: var(--input-bg);
       color: var(--text);
       font-size: 14px;
+      font-family: var(--font-sans);
+    }
+    .modal input::placeholder,
+    .modal textarea::placeholder { color: var(--muted); opacity: 0.55; }
+    .modal .field > label:not(.toggle) {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
     .modal select {
       appearance: none;
@@ -4851,7 +4880,7 @@ body.embed .hero-actions { display: none !important; }
 .config-card .field label { font-weight: 600; font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
 .config-card .field input,
 .config-card .field select,
-.config-card .field textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 14px; color: var(--text); font-family: var(--font-mono); }
+.config-card .field textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--input-border, var(--border)); background: var(--panel); font-size: 14px; color: var(--text); font-family: var(--font-mono); }
 .config-card .field textarea { min-height: 80px; resize: vertical; }
 .muted-note { color: var(--muted); font-size: 12px; }
 .inline-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
@@ -5125,7 +5154,7 @@ body[data-theme="dark"] textarea,
 body[data-theme="dark-pink"] textarea {
   background: rgba(15,23,42,0.6);
   color: var(--text);
-  border-color: var(--border);
+  border-color: var(--input-border, var(--border));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -5155,7 +5184,7 @@ body[data-theme="dark-pink"] textarea {
   body[data-theme="auto"] textarea {
     background: rgba(15,23,42,0.6);
     color: var(--text);
-    border-color: var(--border);
+    border-color: var(--input-border, var(--border));
   }
 }
 
@@ -6376,9 +6405,9 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
 }
 #accountPasswordPanel > .field input {
   width: 100%;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1.5px solid var(--input-border, var(--border));
   background: var(--input-bg);
   color: var(--text);
   font-family: var(--font-sans);

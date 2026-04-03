@@ -82,6 +82,7 @@ body[data-theme="dark"] {
   --card-strong: rgba(10, 16, 33, 0.96);
   --border: rgba(148, 163, 184, 0.16);
   --border-2: rgba(148, 163, 184, 0.22);
+  --input-border: rgba(148, 163, 184, 0.42);
   --frost: rgba(148, 163, 184, 0.08);
   --text: rgba(241, 245, 249, 0.96);
   --muted: rgba(226, 232, 240, 0.62);
@@ -125,6 +126,7 @@ body[data-theme="dark"] {
     --card-strong: rgba(247, 249, 253, 0.96);
     --border: rgba(15, 23, 42, 0.12);
     --border-2: rgba(15, 23, 42, 0.16);
+    --input-border: rgba(15, 23, 42, 0.26);
     --frost: rgba(2, 6, 23, 0.05);
     --text: #0b1220;
     --muted: rgba(15, 23, 42, 0.64);
@@ -168,6 +170,7 @@ body[data-theme="light"] {
   --card-strong: rgba(247, 249, 253, 0.96);
   --border: rgba(15, 23, 42, 0.12);
   --border-2: rgba(15, 23, 42, 0.16);
+  --input-border: rgba(15, 23, 42, 0.26);
   --frost: rgba(2, 6, 23, 0.05);
   --text: #0b1220;
   --muted: rgba(15, 23, 42, 0.64);
@@ -211,6 +214,7 @@ body[data-theme="auto-pink"] {
   --card-strong: rgba(255, 244, 249, 0.98);
   --border: rgba(157, 23, 77, 0.18);
   --border-2: rgba(157, 23, 77, 0.24);
+  --input-border: rgba(157, 23, 77, 0.34);
   --frost: rgba(190, 24, 93, 0.08);
   --text: #4a0830;
   --muted: rgba(74, 8, 48, 0.66);
@@ -253,6 +257,7 @@ body[data-theme="dark-pink"] {
   --card-strong: rgba(34, 9, 23, 0.98);
   --border: rgba(244, 114, 182, 0.20);
   --border-2: rgba(244, 114, 182, 0.28);
+  --input-border: rgba(244, 114, 182, 0.42);
   --frost: rgba(251, 207, 232, 0.10);
   --text: rgba(255, 241, 247, 0.97);
   --muted: rgba(251, 207, 232, 0.70);
