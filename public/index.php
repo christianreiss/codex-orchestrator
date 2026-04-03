@@ -111,6 +111,7 @@ use App\Http\Controllers\SkillApiController;
 use App\Http\Controllers\CliAuthController;
 use App\Http\Controllers\OpenAiApiController;
 use App\Http\Controllers\AdminOpenAiKeyController;
+use App\Http\Controllers\AdminJoplinController;
 use App\Http\OpenAiResponse;
 use App\Contracts\BackendAdapter;
 use App\Adapters\RunnerBackendAdapter;
@@ -485,6 +486,7 @@ $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, 
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $pricingModel);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
+$adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
 $cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);
@@ -729,6 +731,12 @@ $router->add('POST', '#^/admin/projects/([^/]+)/files$#', fn($slug) => $adminPro
 $router->add('DELETE', '#^/admin/projects/([^/]+)/files/(\d+)$#', fn($slug, $id) => $adminProjectCtrl->fileDelete($slug, $id));
 $router->add('GET', '#^/admin/projects/([^/]+)/feedback$#', fn($slug) => $adminProjectCtrl->feedback($slug));
 $router->add('POST', '#^/admin/projects/([^/]+)/feedback$#', fn($slug) => $adminProjectCtrl->feedbackCreate($slug, $payload));
+
+// Admin Joplin
+$router->add('GET', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->getConfig());
+$router->add('POST', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->postConfig($payload));
+$router->add('POST', '#^/admin/joplin/test$#', fn() => $adminJoplinCtrl->postTest($payload));
+$router->add('POST', '#^/admin/joplin/sync$#', fn() => $adminJoplinCtrl->postSync());
 
 // Client-facing auth
 $router->add('POST', '#^/auth$#', fn() => $authCtrl->auth($payload));
