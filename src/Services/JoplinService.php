@@ -649,7 +649,7 @@ class JoplinService
             $lines[] = $key . ': ' . $this->serializePropertyValue($key, $item[$key]);
         }
 
-        return implode("\n", $lines) . "\n";
+        return implode("\n", $lines);
     }
 
     private function serializePropertyValue(string $property, mixed $value): string

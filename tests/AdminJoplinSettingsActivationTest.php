@@ -50,6 +50,7 @@ final class AdminJoplinSettingsActivationTest extends TestCase
 
         $this->assertStringContainsString("/api/items/root/children", $source);
         $this->assertStringContainsString("'limit' => '100'", $source);
+        $this->assertStringContainsString('return implode("\\n", $lines);', $source);
     }
 
     public function testDashboardWiresJoplinSetupAsSaveThenTestThenEnable(): void
