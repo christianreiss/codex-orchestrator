@@ -15,6 +15,8 @@ use App\Http\Response;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AdminAuthService;
+use App\Services\JoplinCacheService;
+use App\Services\JoplinService;
 
 class AdminJoplinController
 {
@@ -24,6 +26,7 @@ class AdminJoplinController
     public function __construct(
         private readonly VersionRepository $versionRepository,
         private readonly LogRepository $logRepository,
+        private readonly ?JoplinCacheService $joplinCacheService = null,
     ) {}
 
     /**
@@ -52,6 +55,7 @@ class AdminJoplinController
         $configFieldsPresent = array_intersect(['url', 'token', 'sync_interval_minutes'], array_keys($payload));
         $autoDisabled = false;
         $connectionConfigChanged = false;
+        $wasEnabled = $enabled;
 
         if (array_key_exists('enabled', $payload)) {
             $requestedEnabled = normalizeBoolean($payload['enabled']);
@@ -117,6 +121,11 @@ class AdminJoplinController
             }
         }
 
+        $initialSync = null;
+        if ($enabled && !$wasEnabled) {
+            $initialSync = $this->runFullSyncOrFail();
+        }
+
         $this->versionRepository->set('joplin_enabled', $enabled ? '1' : '0');
 
         $this->logRepository->log(null, 'admin.joplin.config', [
@@ -124,10 +133,14 @@ class AdminJoplinController
             'connection_config_changed' => $connectionConfigChanged,
             'auto_disabled' => $autoDisabled,
             'enabled' => $enabled,
+            'initial_sync' => $initialSync,
         ]);
 
         $updatedState = $this->buildConfigState($enabled, $url, $token, $interval);
         $updatedState['auto_disabled'] = $autoDisabled;
+        if ($initialSync !== null) {
+            $updatedState['initial_sync'] = $initialSync;
+        }
 
         Response::json(['status' => 'ok', 'data' => $updatedState]);
     }
@@ -163,16 +176,9 @@ class AdminJoplinController
             Response::json(['status' => 'error', 'message' => 'url and token are required'], 422);
         }
 
-        $testUrl = rtrim($url, '/') . '/ping?token=' . rawurlencode($token);
-        $context = stream_context_create(['http' => ['method' => 'GET', 'timeout' => 5.0, 'ignore_errors' => true]]);
-        $response = @file_get_contents($testUrl, false, $context);
-
-        $status = null;
-        if (isset($http_response_header[0]) && preg_match('#\s(\d{3})\s#', $http_response_header[0], $m)) {
-            $status = (int) $m[1];
-        }
-
-        $reachable = $response !== false && $status === 200;
+        $probe = $this->createJoplinService($url, $token)->testConnection();
+        $reachable = (bool) ($probe['reachable'] ?? false);
+        $status = $reachable ? 200 : null;
 
         if ($reachable) {
             $this->versionRepository->set(self::VERIFIED_HASH_KEY, $this->verificationFingerprint($url, $token) ?? '');
@@ -184,6 +190,8 @@ class AdminJoplinController
         $updatedState = $this->buildConfigState((bool) ($state['enabled'] ?? false), $url, $token, $interval);
         $updatedState['reachable'] = $reachable;
         $updatedState['status_code'] = $status;
+        $updatedState['reason'] = $probe['reason'] ?? null;
+        $updatedState['version'] = $probe['version'] ?? null;
 
         Response::json(['status' => 'ok', 'data' => $updatedState]);
     }
@@ -196,8 +204,26 @@ class AdminJoplinController
         requireAdminAccess();
         requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
-        // TODO: wire to JoplinCacheService::syncAll() once that service is merged in.
-        Response::json(['status' => 'ok', 'data' => ['synced' => 0, 'errors' => 0]]);
+        $state = $this->readConfigState();
+        if (!$state['enabled']) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Enable Joplin before running a sync',
+                'data' => $state,
+            ], 422);
+        }
+
+        if (!$state['verified_connection']) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Run a successful connection test before syncing Joplin',
+                'data' => $state,
+            ], 422);
+        }
+
+        $sync = $this->runFullSyncOrFail();
+        $state['sync'] = $sync;
+        Response::json(['status' => 'ok', 'data' => $state]);
     }
 
     /**
@@ -306,5 +332,41 @@ class AdminJoplinController
             'invalid_interval' => 'Save a valid Joplin sync interval before enabling the module',
             default => 'Run a successful connection test on the saved Joplin configuration before enabling the module',
         };
+    }
+
+    /**
+     * @return array{synced:int, errors:int, notebooks:int}
+     */
+    private function runFullSyncOrFail(): array
+    {
+        if ($this->joplinCacheService === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Joplin sync service is not available',
+            ], 503);
+        }
+
+        try {
+            $result = $this->joplinCacheService->syncAll();
+            if (!isset($result['synced'], $result['errors'], $result['notebooks'])) {
+                $result['notebooks'] = 0;
+            }
+
+            return [
+                'synced' => (int) ($result['synced'] ?? 0),
+                'errors' => (int) ($result['errors'] ?? 0),
+                'notebooks' => (int) ($result['notebooks'] ?? 0),
+            ];
+        } catch (\Throwable $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Initial Joplin sync failed: ' . $exception->getMessage(),
+            ], 502);
+        }
+    }
+
+    private function createJoplinService(string $url, string $token): JoplinService
+    {
+        return new JoplinService($url, $token);
     }
 }

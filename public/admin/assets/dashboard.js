@@ -2160,6 +2160,23 @@
       }
     }
 
+    function describeJoplinSyncResult(sync = {}, { prefix = 'Sync complete:' } = {}) {
+      const synced = Number(sync?.synced ?? 0) || 0;
+      const notebooks = Number(sync?.notebooks ?? 0) || 0;
+      const errors = Number(sync?.errors ?? 0) || 0;
+      let msg = `${prefix} ${synced} notes, ${notebooks} folders`;
+      if (errors > 0) {
+        msg += `, ${errors} errors.`;
+      } else {
+        msg += '.';
+      }
+
+      return {
+        msg,
+        tone: errors > 0 ? 'error' : 'success',
+      };
+    }
+
     function defaultJoplinStatus() {
       const form = getJoplinFormState();
       const dirty = isJoplinDirty();
@@ -2312,7 +2329,12 @@
             json: { enabled: targetEnabled },
           });
           applyJoplinState(res.data || {});
-          setJoplinStatus(targetEnabled ? 'Joplin enabled.' : 'Joplin disabled.', targetEnabled ? 'success' : '');
+          if (targetEnabled && res.data?.initial_sync) {
+            const syncStatus = describeJoplinSyncResult(res.data.initial_sync, { prefix: 'Joplin enabled. Initial sync complete:' });
+            setJoplinStatus(syncStatus.msg, syncStatus.tone);
+          } else {
+            setJoplinStatus(targetEnabled ? 'Joplin enabled.' : 'Joplin disabled.', targetEnabled ? 'success' : '');
+          }
         } catch (err) {
           joplinEnabledToggle.checked = previousEnabled;
           applyJoplinState({ enabled: previousEnabled });
@@ -2371,7 +2393,7 @@
             const suffix = data.status_code ? ' (HTTP ' + data.status_code + ').' : '.';
             setJoplinStatus('Connection OK' + suffix + ' You can enable the module now.', 'success');
           } else {
-            setJoplinStatus('Connection test failed (HTTP ' + (data.status_code || '?') + ').', 'error');
+            setJoplinStatus(data.reason || ('Connection test failed (HTTP ' + (data.status_code || '?') + ').'), 'error');
           }
         } catch (err) {
           setJoplinStatus('Test failed: ' + err.message, 'error');
@@ -2390,9 +2412,8 @@
         try {
           const res = await api('/admin/joplin/sync', { method: 'POST', json: {} });
           const data = res.data || {};
-          const synced = data.synced ?? 0;
-          const errors = data.errors ?? 0;
-          setJoplinStatus('Sync complete: ' + synced + ' synced, ' + errors + ' errors.', errors > 0 ? 'error' : 'success');
+          const syncStatus = describeJoplinSyncResult(data.sync || data.initial_sync || data);
+          setJoplinStatus(syncStatus.msg, syncStatus.tone);
         } catch (err) {
           setJoplinStatus('Sync failed: ' + err.message, 'error');
         } finally {

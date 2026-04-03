@@ -17,6 +17,9 @@ final class AdminJoplinSettingsActivationTest extends TestCase
         $this->assertStringContainsString("#^/admin/joplin/config$#", $source);
         $this->assertStringContainsString("#^/admin/joplin/test$#", $source);
         $this->assertStringContainsString("#^/admin/joplin/sync$#", $source);
+        $this->assertStringContainsString('new JoplinNoteRepository($database)', $source);
+        $this->assertStringContainsString('new JoplinCacheService($joplinService, $joplinNoteRepository, $versionRepository)', $source);
+        $this->assertStringContainsString('new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService)', $source);
     }
 
     public function testBackendRequiresSavedVerifiedConfigBeforeActivation(): void
@@ -29,9 +32,12 @@ final class AdminJoplinSettingsActivationTest extends TestCase
         $this->assertStringContainsString('Save the Joplin configuration before enabling the module', $source);
         $this->assertStringContainsString('Save the Joplin configuration before testing the connection', $source);
         $this->assertStringContainsString('Run a successful connection test on the saved Joplin configuration before enabling the module', $source);
+        $this->assertStringContainsString('Enable Joplin before running a sync', $source);
+        $this->assertStringContainsString('Initial Joplin sync failed:', $source);
         $this->assertStringContainsString("'auto_disabled' => \$autoDisabled", $source);
         $this->assertStringContainsString("'verified_connection' => \$verifiedConnection", $source);
         $this->assertStringContainsString("'can_activate' => \$activationReason === 'ready'", $source);
+        $this->assertStringContainsString("'initial_sync' => \$initialSync", $source);
     }
 
     public function testDashboardWiresJoplinSetupAsSaveThenTestThenEnable(): void
@@ -47,8 +53,11 @@ final class AdminJoplinSettingsActivationTest extends TestCase
         $this->assertStringContainsString("await api('/admin/joplin/config');", $script);
         $this->assertStringContainsString("await api('/admin/joplin/config', { method: 'POST', json: body });", $script);
         $this->assertStringContainsString("await api('/admin/joplin/test', { method: 'POST', json: {} });", $script);
+        $this->assertStringContainsString("await api('/admin/joplin/sync', { method: 'POST', json: {} });", $script);
         $this->assertStringContainsString('Unsaved changes. Save before testing the connection or enabling the module.', $script);
         $this->assertStringContainsString('Saved configuration needs a successful connection test before activation.', $script);
         $this->assertStringContainsString('Connection settings changed. Joplin was disabled until the saved config is tested again.', $script);
+        $this->assertStringContainsString('Joplin enabled. Initial sync complete:', $script);
+        $this->assertStringContainsString('notes, ${notebooks} folders', $script);
     }
 }

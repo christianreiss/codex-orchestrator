@@ -36,6 +36,7 @@ use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\IpRateLimitRepository;
+use App\Repositories\JoplinNoteRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\VersionRepository;
@@ -69,6 +70,8 @@ use App\Services\ProjectDraftService;
 use App\Services\ProjectModuleService;
 use App\Services\UsageCostService;
 use App\Services\AgentsService;
+use App\Services\JoplinCacheService;
+use App\Services\JoplinService;
 use App\Services\JoplinSkillService;
 use App\Services\SkillService;
 use App\Services\SkillDraftService;
@@ -391,7 +394,14 @@ $projectDraftService = new ProjectDraftService(
     $runnerVerifier,
     $runnerValidationService
 );
-$joplinCacheService = null; // wired when JoplinCacheService is available
+$joplinCacheService = null;
+$joplinUrl = trim((string) ($versionRepository->get('joplin_url') ?? ''));
+$joplinToken = trim((string) ($versionRepository->get('joplin_api_token') ?? ''));
+if ($joplinUrl !== '' && $joplinToken !== '') {
+    $joplinNoteRepository = new JoplinNoteRepository($database);
+    $joplinService = new JoplinService($joplinUrl, $joplinToken);
+    $joplinCacheService = new JoplinCacheService($joplinService, $joplinNoteRepository, $versionRepository);
+}
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root, $joplinCacheService);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
@@ -489,7 +499,7 @@ $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, 
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $pricingModel);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
-$adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository);
+$adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
 $cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);

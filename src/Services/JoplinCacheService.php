@@ -124,10 +124,11 @@ class JoplinCacheService
     }
 
     /**
-     * @return array{synced: int, errors: int}
+     * @return array{synced: int, errors: int, notebooks: int}
      */
     public function syncAll(): array
     {
+        $notebooks = $this->joplin->listNotebooks();
         $notes = $this->joplin->listNotes(1000);
         $synced = 0;
         $errors = 0;
@@ -151,7 +152,11 @@ class JoplinCacheService
             }
         }
 
-        return ['synced' => $synced, 'errors' => $errors];
+        return [
+            'synced' => $synced,
+            'errors' => $errors,
+            'notebooks' => count($notebooks),
+        ];
     }
 
     public function needsSync(): bool
