@@ -503,7 +503,7 @@ class JoplinService
 
         while (true) {
             [$status, $body] = $this->request('GET', '/api/items/root/children', [
-                'limit' => '200',
+                'limit' => '100',
                 'page' => (string) $page,
             ]);
 

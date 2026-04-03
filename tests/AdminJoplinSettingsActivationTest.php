@@ -43,6 +43,15 @@ final class AdminJoplinSettingsActivationTest extends TestCase
         $this->assertStringContainsString("'initial_sync' => \$initialSync", $source);
     }
 
+    public function testJoplinServerSyncUsesBoundedItemPageSize(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../src/Services/JoplinService.php');
+        $this->assertIsString($source);
+
+        $this->assertStringContainsString("/api/items/root/children", $source);
+        $this->assertStringContainsString("'limit' => '100'", $source);
+    }
+
     public function testDashboardWiresJoplinSetupAsSaveThenTestThenEnable(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
