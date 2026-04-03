@@ -1,4 +1,5 @@
 # 2026-04-03
+- Admin UI / Joplin: fixed `/admin/settings/joplin` so the front controller serves the admin SPA shell for that settings page instead of falling through to the JSON `Route not found` handler.
 - Ops/Joplin cache migration: removed the invalid default from `joplin_notes_cache.body` so MySQL 8 can complete boot-time schema migration again. This fixes the API container crash loop (`BLOB, TEXT, GEOMETRY or JSON column ... can't have a default value`) and lets the rest of the stack come up normally.
 - Ops/runtime checks: fixed the quota refresh cron bootstrap to pass `AuthService` dependencies in the correct order again, and corrected the API container healthcheck so a failed `/versions` probe returns a real non-zero exit code instead of PHP helpfully printing `1` and claiming everything is fine.
 
