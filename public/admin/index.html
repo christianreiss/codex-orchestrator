@@ -2376,7 +2376,7 @@
                 <div class="setting-head">
                   <div>
                     <h3>Connection</h3>
-                    <p class="muted panel-subtitle-sm">Joplin Web Clipper API endpoint and token.</p>
+                    <p class="muted panel-subtitle-sm">Joplin Data API / Web Clipper endpoint. Save the URL first, then either request access from Joplin or paste a token manually.</p>
                   </div>
                 </div>
                 <div class="field" style="margin-top:12px;">
@@ -2384,8 +2384,8 @@
                   <input id="joplinUrlInput" type="url" placeholder="http://localhost:41184">
                 </div>
                 <div class="field">
-                  <label for="joplinTokenInput">API Token</label>
-                  <input id="joplinTokenInput" type="password" placeholder="Paste token (leave blank to keep current)">
+                  <label for="joplinTokenInput">Access Token</label>
+                  <input id="joplinTokenInput" type="password" placeholder="Optional manual token paste (leave blank to keep current)">
                 </div>
                 <div class="field">
                   <label for="joplinSyncIntervalInput">Sync interval (minutes)</label>
@@ -2393,6 +2393,7 @@
                 </div>
                 <div class="inline-group" style="margin-top:14px;gap:8px;flex-wrap:wrap;">
                   <button class="primary" id="joplinSaveBtn" type="button" disabled>Save</button>
+                  <button class="ghost tiny-btn" id="joplinRequestAccessBtn" type="button" disabled>Request Access</button>
                   <button class="ghost tiny-btn" id="joplinTestBtn" type="button" disabled>Test Connection</button>
                   <button class="ghost tiny-btn" id="joplinSyncBtn" type="button" disabled>Sync Now</button>
                 </div>
@@ -2576,7 +2577,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-04-03-03"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-04-03-04"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-31-02"></script>

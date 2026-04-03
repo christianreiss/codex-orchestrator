@@ -748,6 +748,8 @@ $router->add('POST', '#^/admin/projects/([^/]+)/feedback$#', fn($slug) => $admin
 // Admin Joplin
 $router->add('GET', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->getConfig());
 $router->add('POST', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->postConfig($payload));
+$router->add('POST', '#^/admin/joplin/auth/request$#', fn() => $adminJoplinCtrl->postAuthRequest($payload));
+$router->add('POST', '#^/admin/joplin/auth/check$#', fn() => $adminJoplinCtrl->postAuthCheck());
 $router->add('POST', '#^/admin/joplin/test$#', fn() => $adminJoplinCtrl->postTest($payload));
 $router->add('POST', '#^/admin/joplin/sync$#', fn() => $adminJoplinCtrl->postSync());
 

@@ -57,6 +57,82 @@ class JoplinService
     }
 
     /**
+     * @return array{started: bool, auth_token: ?string, reason: ?string}
+     */
+    public function requestAccess(): array
+    {
+        $url = $this->buildUrl('/auth', [], false);
+        [$status, $body] = $this->sendWithBody('POST', $url, [], false);
+
+        if (($status !== 200 && $status !== 201) || !is_string($body) || trim($body) === '') {
+            $reason = $status !== null
+                ? 'Joplin returned HTTP ' . $status . ' while requesting access'
+                : 'Joplin access request failed';
+
+            return ['started' => false, 'auth_token' => null, 'reason' => $reason];
+        }
+
+        $decoded = json_decode($body, true);
+        $authToken = is_array($decoded) && isset($decoded['auth_token']) ? trim((string) $decoded['auth_token']) : '';
+        if ($authToken === '') {
+            return ['started' => false, 'auth_token' => null, 'reason' => 'Joplin did not return an auth_token'];
+        }
+
+        return ['started' => true, 'auth_token' => $authToken, 'reason' => null];
+    }
+
+    /**
+     * @return array{status:string, token:?string, reason:?string}
+     */
+    public function checkAccessRequest(string $authToken): array
+    {
+        $authToken = trim($authToken);
+        if ($authToken === '') {
+            return ['status' => 'invalid', 'token' => null, 'reason' => 'Missing auth request token'];
+        }
+
+        $url = $this->buildUrl('/auth/check', ['auth_token' => $authToken], false);
+        [$status, $body] = $this->get($url);
+
+        if ($status !== 200 || !is_string($body) || trim($body) === '') {
+            $reason = $status !== null
+                ? 'Joplin returned HTTP ' . $status . ' while checking access'
+                : 'Joplin access check failed';
+
+            return ['status' => 'error', 'token' => null, 'reason' => $reason];
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            return ['status' => 'error', 'token' => null, 'reason' => 'Joplin returned invalid JSON while checking access'];
+        }
+
+        $requestStatus = strtolower(trim((string) ($decoded['status'] ?? '')));
+        if ($requestStatus === 'accepted') {
+            $token = trim((string) ($decoded['token'] ?? ''));
+            if ($token === '') {
+                return ['status' => 'error', 'token' => null, 'reason' => 'Joplin accepted the request without returning a token'];
+            }
+
+            return ['status' => 'accepted', 'token' => $token, 'reason' => null];
+        }
+
+        if ($requestStatus === 'waiting') {
+            return ['status' => 'waiting', 'token' => null, 'reason' => null];
+        }
+
+        if ($requestStatus === 'rejected') {
+            return ['status' => 'rejected', 'token' => null, 'reason' => 'Joplin access request was rejected'];
+        }
+
+        return [
+            'status' => $requestStatus !== '' ? $requestStatus : 'error',
+            'token' => null,
+            'reason' => 'Unexpected Joplin access status: ' . ($requestStatus !== '' ? $requestStatus : 'unknown'),
+        ];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     public function listNotes(int $limit = 100): array
@@ -379,9 +455,11 @@ class JoplinService
     /**
      * @param array<string, mixed> $params
      */
-    private function buildUrl(string $path, array $params = []): string
+    private function buildUrl(string $path, array $params = [], bool $includeToken = true): string
     {
-        $params['token'] = $this->apiToken;
+        if ($includeToken) {
+            $params['token'] = $this->apiToken;
+        }
 
         return $this->baseUrl . $path . '?' . http_build_query($params);
     }
@@ -410,19 +488,29 @@ class JoplinService
      * @param array<string, mixed> $payload
      * @return array{int|null, string|false}
      */
-    private function sendWithBody(string $method, string $url, array $payload): array
+    private function sendWithBody(string $method, string $url, array $payload, bool $jsonBody = true): array
     {
-        $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($body === false) {
-            error_log('[JoplinService] Failed to JSON-encode ' . $method . ' payload for ' . $url);
+        $body = '';
+        if ($jsonBody) {
+            $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($encoded === false) {
+                error_log('[JoplinService] Failed to JSON-encode ' . $method . ' payload for ' . $url);
 
-            return [null, false];
+                return [null, false];
+            }
+
+            $body = $encoded;
+        }
+
+        $headers = "Accept: application/json\r\n";
+        if ($jsonBody) {
+            $headers = "Content-Type: application/json\r\n" . $headers;
         }
 
         $context = stream_context_create([
             'http' => [
                 'method'        => $method,
-                'header'        => "Content-Type: application/json\r\nAccept: application/json\r\n",
+                'header'        => $headers,
                 'content'       => $body,
                 'timeout'       => $this->timeoutSeconds,
                 'ignore_errors' => true,
