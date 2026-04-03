@@ -2053,6 +2053,113 @@
       }
     }
 
+    const joplinEnabledToggle = document.getElementById('joplinEnabledToggle');
+    const joplinEnabledLabel = document.getElementById('joplinEnabledLabel');
+    const joplinUrlInput = document.getElementById('joplinUrlInput');
+    const joplinTokenInput = document.getElementById('joplinTokenInput');
+    const joplinSyncIntervalInput = document.getElementById('joplinSyncIntervalInput');
+    const joplinSaveBtn = document.getElementById('joplinSaveBtn');
+    const joplinTestBtn = document.getElementById('joplinTestBtn');
+    const joplinSyncBtn = document.getElementById('joplinSyncBtn');
+    const joplinStatus = document.getElementById('joplinStatus');
+
+    function setJoplinStatus(msg, tone) {
+      if (!joplinStatus) return;
+      joplinStatus.textContent = msg;
+      joplinStatus.style.color = tone === 'error' ? 'var(--danger)' : tone === 'success' ? 'var(--success)' : 'var(--muted)';
+    }
+
+    async function loadJoplinConfig() {
+      if (!joplinEnabledToggle) return;
+      try {
+        const res = await api('/admin/joplin/config');
+        const data = res.data || {};
+        joplinEnabledToggle.checked = !!data.enabled;
+        if (joplinEnabledLabel) joplinEnabledLabel.textContent = data.enabled ? 'Enabled' : 'Disabled';
+        if (joplinUrlInput) joplinUrlInput.value = data.url || '';
+        if (joplinTokenInput) joplinTokenInput.value = '';
+        if (joplinSyncIntervalInput) joplinSyncIntervalInput.value = data.sync_interval_minutes || 15;
+        if (data.token_set) setJoplinStatus('Token is set.', '');
+      } catch (err) {
+        console.warn('joplin config unavailable', err);
+        setJoplinStatus('Could not load config: ' + err.message, 'error');
+      }
+    }
+
+    if (joplinEnabledToggle) {
+      joplinEnabledToggle.addEventListener('change', () => {
+        if (joplinEnabledLabel) joplinEnabledLabel.textContent = joplinEnabledToggle.checked ? 'Enabled' : 'Disabled';
+      });
+    }
+
+    if (joplinSaveBtn) {
+      joplinSaveBtn.addEventListener('click', async () => {
+        joplinSaveBtn.disabled = true;
+        setJoplinStatus('Saving…', '');
+        try {
+          const token = joplinTokenInput?.value.trim();
+          const body = {
+            enabled: joplinEnabledToggle?.checked,
+            url: joplinUrlInput?.value.trim() || undefined,
+            sync_interval_minutes: Number(joplinSyncIntervalInput?.value) || undefined,
+          };
+          if (token) body.token = token;
+          await api('/admin/joplin/config', { method: 'POST', json: body });
+          setJoplinStatus('Saved.', 'success');
+          if (joplinTokenInput) joplinTokenInput.value = '';
+          flashSaved(joplinSaveBtn);
+        } catch (err) {
+          toast('Joplin save failed: ' + err.message, 'error');
+          setJoplinStatus('Save failed: ' + err.message, 'error');
+        } finally {
+          joplinSaveBtn.disabled = false;
+        }
+      });
+    }
+
+    if (joplinTestBtn) {
+      joplinTestBtn.addEventListener('click', async () => {
+        joplinTestBtn.disabled = true;
+        setJoplinStatus('Testing connection…', '');
+        try {
+          const body = {};
+          const url = joplinUrlInput?.value.trim();
+          const token = joplinTokenInput?.value.trim();
+          if (url) body.url = url;
+          if (token) body.token = token;
+          const res = await api('/admin/joplin/test', { method: 'POST', json: body });
+          const data = res.data || {};
+          if (data.reachable) {
+            setJoplinStatus('Connection OK (HTTP ' + (data.status_code || 200) + ').', 'success');
+          } else {
+            setJoplinStatus('Unreachable (HTTP ' + (data.status_code || '?') + ').', 'error');
+          }
+        } catch (err) {
+          setJoplinStatus('Test failed: ' + err.message, 'error');
+        } finally {
+          joplinTestBtn.disabled = false;
+        }
+      });
+    }
+
+    if (joplinSyncBtn) {
+      joplinSyncBtn.addEventListener('click', async () => {
+        joplinSyncBtn.disabled = true;
+        setJoplinStatus('Syncing…', '');
+        try {
+          const res = await api('/admin/joplin/sync', { method: 'POST', json: {} });
+          const data = res.data || {};
+          const synced = data.synced ?? 0;
+          const errors = data.errors ?? 0;
+          setJoplinStatus('Sync complete: ' + synced + ' synced, ' + errors + ' errors.', errors > 0 ? 'error' : 'success');
+        } catch (err) {
+          setJoplinStatus('Sync failed: ' + err.message, 'error');
+        } finally {
+          joplinSyncBtn.disabled = false;
+        }
+      });
+    }
+
     async function loadInsecureApproval() {
       if (!insecureApprovalToggle) return;
       try {
@@ -9499,6 +9606,9 @@
         if (settingsTab === 'users' && window.__initUsersOnce) {
           window.__initUsersOnce();
           window.__initUsersOnce = null;
+        }
+        if (settingsTab === 'joplin') {
+          loadJoplinConfig();
         }
       }
 
