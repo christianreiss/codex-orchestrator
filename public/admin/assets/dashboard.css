@@ -758,7 +758,7 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 12px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
 }
 .host-detail-head h2,
@@ -768,7 +768,8 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   letter-spacing: -0.02em;
 }
 .host-detail-head-actions,
-.project-detail-head-actions { display: flex; align-items: center; gap: 8px; }
+.project-detail-head-actions,
+.skill-head-actions { display: flex; align-items: center; gap: 8px; }
 .host-detail-layout,
 .project-detail-layout,
 .skill-detail-layout {
@@ -795,8 +796,91 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   border: 1px dashed var(--border);
   background: var(--card);
 }
+/* Skill breadcrumb navigation */
+.skill-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.skill-breadcrumb-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.skill-breadcrumb-link:hover {
+  color: var(--text);
+}
+
+.skill-breadcrumb-sep {
+  color: var(--border);
+  font-size: 15px;
+}
+
+.skill-breadcrumb span:last-child {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Workspace subtitle */
+.skill-workspace-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* Layout ratio: make form panel slightly wider than chat */
 .skill-detail-layout {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: 14px;
   align-items: start;
+}
+
+/* Skills list improvements */
+.skill-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skill-list-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.skill-list-desc {
+  font-size: 12px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.skill-list-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.skill-list-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  color: var(--accent-2);
 }
 .skill-chat-section,
 .skill-editor-section {
