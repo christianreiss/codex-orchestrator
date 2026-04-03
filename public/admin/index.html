@@ -1005,17 +1005,20 @@
                   <p class="eyebrow">Talk With AI</p>
                   <h3>Talk with your skill</h3>
                 </div>
-                <div class="muted panel-meta">Session only. The conversation is not stored; only saved skill fields persist.</div>
-                <div class="skill-conversation" id="skillConversation" aria-live="polite"></div>
-                <div class="skill-conversation-empty muted" id="skillConversationEmpty">Start with what the skill should do, what changed, or how it should improve. AI replies and fills the updated values.</div>
-                <div class="field">
-                  <label for="skillAssistInput" class="modal-label">Prompt</label>
-                  <textarea id="skillAssistInput" rows="5" spellcheck="false" placeholder="Example: make this skill more incident-focused, add stronger guardrails, and tighten the step-by-step instructions."></textarea>
-                  <div class="panel-actions panel-actions-spaced">
-                    <button id="skillAssistSend" type="button">Apply AI changes</button>
-                  </div>
+                <div class="skill-conversation" id="skillConversation" aria-live="polite" aria-label="AI conversation"></div>
+                <div class="skill-conversation-empty" id="skillConversationEmpty">
+                  <span class="skill-chat-empty-icon">✦</span>
+                  <p>Describe the skill you want to create, or what you'd like to improve. AI will draft the fields.</p>
+                </div>
+                <div class="skill-chat-input-wrap">
+                  <textarea id="skillAssistInput" rows="2" spellcheck="false" placeholder="Describe the skill or ask for changes…"></textarea>
+                  <button id="skillAssistSend" type="button" class="skill-chat-send-btn" title="Send (Ctrl+Enter)">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M14 8L2 2l2 6-2 6 12-6z" fill="currentColor"/></svg>
+                    <span>Send</span>
+                  </button>
                 </div>
                 <div class="muted status-text" id="skillAssistStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+                <p class="skill-chat-session-note muted">Session only — conversation is not stored; only saved skill fields persist.</p>
               </section>
               <section class="skill-detail-section skill-editor-section">
                 <div class="project-detail-section-head">
