@@ -4699,6 +4699,27 @@
       });
     }
 
+    function autoResizeSkillInput() {
+      if (!skillAssistInput) return;
+      skillAssistInput.style.height = 'auto';
+      skillAssistInput.style.height = Math.min(skillAssistInput.scrollHeight, 200) + 'px';
+    }
+
+    function showSkillTypingIndicator(show) {
+      if (!skillConversation) return;
+      const existing = skillConversation.querySelector('.skill-typing-indicator-wrap');
+      if (show && !existing) {
+        const wrap = document.createElement('article');
+        wrap.className = 'skill-message skill-message-assistant skill-typing-indicator-wrap';
+        wrap.innerHTML = `<div class="skill-message-label">AI</div><div class="skill-typing-indicator"><span></span><span></span><span></span></div>`;
+        skillConversation.appendChild(wrap);
+        skillConversation.scrollTop = skillConversation.scrollHeight;
+        if (skillConversationEmpty) skillConversationEmpty.hidden = true;
+      } else if (!show && existing) {
+        existing.remove();
+      }
+    }
+
     function setSkillBadges(meta) {
       const sha = meta?.sha256 || '';
       const updatedAt = meta?.updated_at || '';
@@ -9023,6 +9044,7 @@
       const messages = [...skillConversationMessages, userMessage];
       if (skillAssistStatus) skillAssistStatus.textContent = 'Applying AI changes…';
       setSkillBusy(true);
+      showSkillTypingIndicator(true);
 
       try {
         const resp = await api('/admin/skills/assist', {
@@ -9040,12 +9062,13 @@
         }];
         renderSkillConversation();
         applySkillDraft(data, { changedFields: data.changed_fields || [] });
-        if (skillAssistInput) skillAssistInput.value = '';
+        if (skillAssistInput) { skillAssistInput.value = ''; autoResizeSkillInput(); }
         if (skillAssistStatus) skillAssistStatus.textContent = data.assistant_message || 'Draft updated.';
         if (skillStatus) skillStatus.textContent = 'AI updated the draft. Review the highlighted fields and save when ready.';
       } catch (err) {
         if (skillAssistStatus) skillAssistStatus.textContent = `AI update failed: ${err.message}`;
       } finally {
+        showSkillTypingIndicator(false);
         setSkillBusy(false);
       }
     }
@@ -9797,6 +9820,7 @@
           assistSkillDraft();
         }
       });
+      skillAssistInput.addEventListener('input', autoResizeSkillInput);
     }
     if (skillTagsInput) {
       skillTagsInput.addEventListener('keydown', (event) => {
