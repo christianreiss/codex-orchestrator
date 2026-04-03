@@ -391,7 +391,8 @@ $projectDraftService = new ProjectDraftService(
     $runnerVerifier,
     $runnerValidationService
 );
-$mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
+$joplinCacheService = null; // wired when JoplinCacheService is available
+$mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root, $joplinCacheService);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
