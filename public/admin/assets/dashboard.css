@@ -853,14 +853,76 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
   flex-wrap: wrap;
   gap: 8px;
 }
+.skill-changed-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+.skill-changed-fields .pill-quiet {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.25);
+  color: var(--accent-2);
+}
+.muted-note {
+  font-size: 11.5px;
+}
+.skill-managed-field {
+  position: relative;
+}
+.skill-managed-field.is-locked {
+  --field-locked-bg: color-mix(in srgb, var(--panel) 70%, var(--card));
+}
 .skill-managed-field.is-locked textarea,
 .skill-managed-field.is-locked input {
-  background: color-mix(in srgb, var(--card) 65%, var(--panel));
+  background: var(--field-locked-bg);
   color: var(--muted);
+  border-color: var(--border);
 }
-.skill-field-edit[aria-pressed="true"] {
-  border-color: rgba(var(--accent-rgb), 0.32);
+.skill-managed-field.is-locked .skill-tags-input input {
+  background: transparent;
+}
+.skill-field-lock-icon {
+  font-size: 10px;
+  margin-right: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.skill-managed-field.is-locked .skill-field-lock-icon {
+  opacity: 0.6;
+}
+.skill-field-edit-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+.skill-field-edit-pill:hover:not(:disabled) {
+  border-color: rgba(var(--accent-rgb), 0.4);
   color: var(--accent-2);
+  background: rgba(var(--accent-rgb), 0.06);
+}
+.skill-field-edit-pill[aria-pressed="true"] {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  color: var(--accent-2);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+.skill-field-edit-pill:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .host-detail-problems {
   margin: 0;
@@ -2733,19 +2795,27 @@ body.auth-locked .rail-tools {
       border: 1px solid rgba(var(--accent-rgb), 0.2);
     }
     .skill-tags-input {
-      border: 1px solid rgba(15,23,42,0.12);
+      border: 1.5px solid var(--border);
       border-radius: 12px;
-      padding: 8px;
+      padding: 8px 10px;
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      background: #fff;
+      background: var(--card);
+      transition: border-color 0.15s ease;
+      min-height: 40px;
+      align-items: center;
+    }
+    .skill-tags-input:focus-within {
+      border-color: rgba(var(--accent-rgb), 0.4);
     }
     .skill-tags-input input {
       border: none;
+      background: transparent;
       flex: 1;
-      min-width: 120px;
-      padding: 4px;
+      min-width: 100px;
+      padding: 2px 4px;
+      font-size: 13px;
     }
     .skill-tags-input input:focus {
       outline: none;
@@ -2758,26 +2828,36 @@ body.auth-locked .rail-tools {
     .skill-tag {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
+      gap: 5px;
+      padding: 4px 10px;
       border-radius: 999px;
-      border: 1px solid rgba(var(--accent-rgb), 0.3);
-      background: rgba(var(--accent-rgb), 0.12);
+      border: 1px solid rgba(var(--accent-rgb), 0.28);
+      background: rgba(var(--accent-rgb), 0.1);
       font-size: 12px;
       font-weight: 600;
       color: var(--accent-2);
+      white-space: nowrap;
     }
     .skill-tag button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       border: none;
       background: transparent;
       color: var(--accent-2);
+      font-size: 13px;
       font-weight: 700;
       cursor: pointer;
       padding: 0;
       line-height: 1;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      transition: background 0.12s, color 0.12s;
     }
     .skill-tag button:hover,
     .skill-tag button:focus-visible {
+      background: rgba(var(--accent-rgb), 0.15);
       color: var(--danger);
     }
     .seed-modal { border: 1px solid var(--border); }
