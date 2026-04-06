@@ -1,3 +1,6 @@
+# 2026-04-06
+- cdx wrapper: healthy non-concurrent boots now let the startup bundle carry auth metadata/refresh too when local `auth.json` is already valid, so secure hosts avoid the extra pre-run `/auth` round trip. Older/missing-auth paths still fall back to the standalone auth sync, startup health markers only show `updated` for real local changes, and the wrapper version bumped to `2026.04.06-01`.
+
 # 2026-04-03
 - Admin UI / Joplin: fixed Joplin Server note creation/update uploads to serialize sync items without a trailing newline. Joplin’s raw-item parser was treating that extra newline as the blank separator before the properties block, which made MCP note writes fail with `Missing required property: type_`.
 - Admin UI / Joplin: fixed the first-enable Joplin Server import to stay within the server pagination bounds. Initial sync now pages `/api/items/root/children` with `limit=100` instead of `200`, which avoids the Joplin Server `HTTP 400: Limit out of bond: 200` failure during activation.

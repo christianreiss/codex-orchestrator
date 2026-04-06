@@ -837,7 +837,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.02-03"
+WRAPPER_VERSION="2026.04.06-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2760,6 +2760,450 @@ if ((CODEX_DO_UNINSTALL)); then
   cmd_uninstall
 fi
 
+emit_auth_sync_lines_from_json() {
+  local auth_json="${1-}"
+  [[ -n "$auth_json" ]] || return 0
+  AUTH_SYNC_JSON="$auth_json" python3 - <<'PY'
+import json, os, re, sys
+
+data = os.environ.get("AUTH_SYNC_JSON", "")
+try:
+    parsed = json.loads(data)
+except Exception:
+    sys.exit(0)
+
+if not isinstance(parsed, dict):
+    sys.exit(0)
+
+versions = parsed.get("versions")
+if not isinstance(versions, dict):
+    sys.exit(0)
+
+cv = versions.get("client_version")
+cvs = versions.get("client_version_source")
+cvx = versions.get("client_version_enforce_exact")
+wv = versions.get("wrapper_version")
+ws = versions.get("wrapper_sha256")
+wu = versions.get("wrapper_url")
+if isinstance(cv, str) and cv.strip():
+    print(f"cv={cv.strip()}")
+if isinstance(cvs, str) and cvs.strip():
+    print(f"cvs={cvs.strip()}")
+if isinstance(cvx, bool):
+    print("cvx=1" if cvx else "cvx=0")
+if isinstance(wv, str) and wv.strip():
+    print(f"wv={wv.strip()}")
+if isinstance(ws, str) and ws.strip():
+    print(f"ws={ws.strip()}")
+if isinstance(wu, str) and wu.strip():
+    print(f"wu={wu.strip()}")
+rs = versions.get("runner_state")
+if isinstance(rs, str) and rs.strip():
+    print(f"rs={rs.strip()}")
+rlo = versions.get("runner_last_ok")
+if isinstance(rlo, str) and rlo.strip():
+    print(f"rlo={rlo.strip()}")
+rlf = versions.get("runner_last_fail")
+if isinstance(rlf, str) and rlf.strip():
+    print(f"rlf={rlf.strip()}")
+rlc = versions.get("runner_last_check")
+if isinstance(rlc, str) and rlc.strip():
+    print(f"rlc={rlc.strip()}")
+re_val = versions.get("runner_enabled")
+if isinstance(re_val, bool):
+    print("re=1" if re_val else "re=0")
+aue = versions.get("auto_update_enabled")
+if isinstance(aue, bool):
+    print("aue=1" if aue else "aue=0")
+asv = parsed.get("auth_status")
+if isinstance(asv, str) and asv.strip():
+    print(f"as={asv.strip()}")
+aact = parsed.get("auth_action")
+if isinstance(aact, str) and aact.strip():
+    print(f"aa={aact.strip()}")
+amsg = parsed.get("auth_message")
+if isinstance(amsg, str) and amsg.strip():
+    print(f"am={amsg.strip()}")
+
+def _emit_int(value, prefix):
+    if isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)):
+        print(f"{prefix}={int(value)}")
+        return
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
+            print(f"{prefix}={int(float(normalized))}")
+
+hv = parsed.get("host_vip")
+if isinstance(hv, bool):
+    print("hv=1" if hv else "hv=0")
+qh = parsed.get("quota_hard_fail")
+if isinstance(qh, bool):
+    print("qh=1" if qh else "qh=0")
+elif isinstance(qh, (int, float)):
+    print(f"qh={int(qh)}")
+ql = parsed.get("quota_limit_percent")
+if isinstance(ql, (int, float)):
+    print(f"ql={int(ql)}")
+qwp = parsed.get("quota_week_partition")
+_emit_int(qwp, "qwp")
+csil = parsed.get("cdx_silent")
+if isinstance(csil, bool):
+    print("cs=1" if csil else "cs=0")
+admin_theme = parsed.get("admin_theme")
+if isinstance(admin_theme, str) and admin_theme.strip():
+    print(f"ath={admin_theme.strip().lower()}")
+hs = parsed.get("host_secure")
+if isinstance(hs, bool):
+    print("hs=1" if hs else "hs=0")
+hlp = parsed.get("host_lane_preference")
+if isinstance(hlp, str):
+    hlp = hlp.strip().lower()
+    if hlp in ("normal", "spark"):
+        print(f"hlp={hlp}")
+cgs = parsed.get("chatgpt_status")
+if isinstance(cgs, str) and cgs.strip():
+    print(f"cgs={cgs.strip()}")
+cgp = parsed.get("chatgpt_plan")
+if isinstance(cgp, str) and cgp.strip():
+    print(f"cgp={cgp.strip()}")
+cgn = parsed.get("chatgpt_next")
+if isinstance(cgn, str) and cgn.strip():
+    print(f"cgn={cgn.strip()}")
+cqal = parsed.get("chatgpt_active_quota_lane")
+if isinstance(cqal, str) and cqal.strip().lower() in ("normal", "spark"):
+    print(f"cqal={cqal.strip().lower()}")
+cd_u = parsed.get("chatgpt_daily_used_percent") or parsed.get("chatgpt_daily_used")
+_emit_int(cd_u, "cgdu")
+cp_u = parsed.get("chatgpt_primary_used")
+_emit_int(cp_u, "cgu")
+cp_l = parsed.get("chatgpt_primary_limit")
+_emit_int(cp_l, "cgl")
+cp_r = parsed.get("chatgpt_primary_reset_after")
+_emit_int(cp_r, "cgr")
+cp_a = parsed.get("chatgpt_primary_reset_at")
+if isinstance(cp_a, str) and cp_a.strip():
+    print(f"cga={cp_a.strip()}")
+cs_u = parsed.get("chatgpt_secondary_used")
+_emit_int(cs_u, "cgsu")
+cs_l = parsed.get("chatgpt_secondary_limit")
+_emit_int(cs_l, "cgsl")
+cs_r = parsed.get("chatgpt_secondary_reset_after")
+_emit_int(cs_r, "cgsr")
+cs_a = parsed.get("chatgpt_secondary_reset_at")
+if isinstance(cs_a, str) and cs_a.strip():
+    print(f"cgsa={cs_a.strip()}")
+cnp_u = parsed.get("chatgpt_normal_primary_used")
+_emit_int(cnp_u, "cgnu")
+cnp_l = parsed.get("chatgpt_normal_primary_limit")
+_emit_int(cnp_l, "cgnl")
+cnp_r = parsed.get("chatgpt_normal_primary_reset_after")
+_emit_int(cnp_r, "cgnr")
+cnp_a = parsed.get("chatgpt_normal_primary_reset_at")
+if isinstance(cnp_a, str) and cnp_a.strip():
+    print(f"cgna={cnp_a.strip()}")
+cns_u = parsed.get("chatgpt_normal_secondary_used")
+_emit_int(cns_u, "cgnsu")
+cns_l = parsed.get("chatgpt_normal_secondary_limit")
+_emit_int(cns_l, "cgnsl")
+cns_r = parsed.get("chatgpt_normal_secondary_reset_after")
+_emit_int(cns_r, "cgnsr")
+cns_a = parsed.get("chatgpt_normal_secondary_reset_at")
+if isinstance(cns_a, str) and cns_a.strip():
+    print(f"cgnsa={cns_a.strip()}")
+csp_u = parsed.get("chatgpt_spark_primary_used")
+_emit_int(csp_u, "cgspu")
+csp_l = parsed.get("chatgpt_spark_primary_limit")
+_emit_int(csp_l, "cgspl")
+csp_r = parsed.get("chatgpt_spark_primary_reset_after")
+_emit_int(csp_r, "cgspr")
+csp_a = parsed.get("chatgpt_spark_primary_reset_at")
+if isinstance(csp_a, str) and csp_a.strip():
+    print(f"cgspa={csp_a.strip()}")
+css_u = parsed.get("chatgpt_spark_secondary_used")
+_emit_int(css_u, "cgssu")
+css_l = parsed.get("chatgpt_spark_secondary_limit")
+_emit_int(css_l, "cgssl")
+css_r = parsed.get("chatgpt_spark_secondary_reset_after")
+_emit_int(css_r, "cgssr")
+css_a = parsed.get("chatgpt_spark_secondary_reset_at")
+if isinstance(css_a, str) and css_a.strip():
+    print(f"cgssa={css_a.strip()}")
+csl = parsed.get("chatgpt_spark_limit_name")
+if isinstance(csl, str) and csl.strip():
+    print(f"cgsln={csl.strip()}")
+cmf = parsed.get("chatgpt_spark_metered_feature")
+if isinstance(cmf, str) and cmf.strip():
+    print(f"cgsmf={cmf.strip()}")
+api_calls = parsed.get("api_calls")
+_emit_int(api_calls, "hac")
+month_usage = parsed.get("token_usage_month")
+if isinstance(month_usage, dict):
+    def _emit_month(key, prefix):
+        _emit_int(month_usage.get(key), prefix)
+    _emit_month("total", "hmtotal")
+    _emit_month("input", "hminput")
+    _emit_month("output", "hmoutput")
+    _emit_month("cached", "hmcached")
+    _emit_month("reasoning", "hmreason")
+    _emit_month("events", "hmevents")
+PY
+}
+
+apply_auth_sync_lines() {
+  local parsed_lines="${1-}"
+  [[ -n "$parsed_lines" ]] || return 0
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+      cv=*)
+        SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
+        ;;
+      cvs=*)
+        SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
+        ;;
+      cvx=*)
+        SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
+        ;;
+      wv=*)
+        SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
+        ;;
+      ws=*)
+        SYNC_REMOTE_WRAPPER_SHA256="${line#ws=}"
+        ;;
+      wu=*)
+        SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
+        ;;
+      rs=*)
+        RUNNER_STATE="${line#rs=}"
+        ;;
+      rlo=*)
+        RUNNER_LAST_OK="${line#rlo=}"
+        ;;
+      rlf=*)
+        RUNNER_LAST_FAIL="${line#rlf=}"
+        ;;
+      rlc=*)
+        RUNNER_LAST_CHECK="${line#rlc=}"
+        ;;
+      re=*)
+        RUNNER_ENABLED="${line#re=}"
+        ;;
+      aue=*)
+        SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
+        ;;
+      as=*)
+        AUTH_STATUS="${line#as=}"
+        ;;
+      aa=*)
+        AUTH_ACTION="${line#aa=}"
+        ;;
+      am=*)
+        AUTH_MESSAGE="${line#am=}"
+        ;;
+      qh=*)
+        QUOTA_HARD_FAIL="${line#qh=}"
+        ;;
+      hv=*)
+        HOST_VIP="${line#hv=}"
+        ;;
+      ql=*)
+        QUOTA_LIMIT_PERCENT="${line#ql=}"
+        ;;
+      qwp=*)
+        QUOTA_WEEK_PARTITION="${line#qwp=}"
+        ;;
+      cs=*)
+        CODEX_SILENT="${line#cs=}"
+        ;;
+      ath=*)
+        SYNC_REMOTE_ADMIN_THEME="${line#ath=}"
+        CODEX_UI_THEME="${line#ath=}"
+        ;;
+      hs=*)
+        HOST_SECURE="${line#hs=}"
+        ;;
+      hlp=*)
+        HOST_LANE_PREFERENCE="${line#hlp=}"
+        ;;
+      cgs=*)
+        CHATGPT_STATUS="${line#cgs=}"
+        ;;
+      cgp=*)
+        CHATGPT_PLAN="${line#cgp=}"
+        ;;
+      cgn=*)
+        CHATGPT_NEXT="${line#cgn=}"
+        ;;
+      cqal=*)
+        CHATGPT_ACTIVE_LANE="${line#cqal=}"
+        ;;
+      cgu=*)
+        CHATGPT_PRIMARY_USED="${line#cgu=}"
+        ;;
+      cgl=*)
+        CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
+        ;;
+      cgr=*)
+        CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
+        ;;
+      cga=*)
+        CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
+        ;;
+      cgsu=*)
+        CHATGPT_SECONDARY_USED="${line#cgsu=}"
+        ;;
+      cgsl=*)
+        CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
+        ;;
+      cgsr=*)
+        CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
+        ;;
+      cgsa=*)
+        CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
+        ;;
+      cgnu=*)
+        CHATGPT_NORMAL_PRIMARY_USED="${line#cgnu=}"
+        ;;
+      cgnl=*)
+        CHATGPT_NORMAL_PRIMARY_LIMIT="${line#cgnl=}"
+        ;;
+      cgnr=*)
+        CHATGPT_NORMAL_PRIMARY_RESET_AFTER="${line#cgnr=}"
+        ;;
+      cgna=*)
+        CHATGPT_NORMAL_PRIMARY_RESET_AT="${line#cgna=}"
+        ;;
+      cgnsu=*)
+        CHATGPT_NORMAL_SECONDARY_USED="${line#cgnsu=}"
+        ;;
+      cgnsl=*)
+        CHATGPT_NORMAL_SECONDARY_LIMIT="${line#cgnsl=}"
+        ;;
+      cgnsr=*)
+        CHATGPT_NORMAL_SECONDARY_RESET_AFTER="${line#cgnsr=}"
+        ;;
+      cgnsa=*)
+        CHATGPT_NORMAL_SECONDARY_RESET_AT="${line#cgnsa=}"
+        ;;
+      cgspu=*)
+        CHATGPT_SPARK_PRIMARY_USED="${line#cgspu=}"
+        ;;
+      cgspl=*)
+        CHATGPT_SPARK_PRIMARY_LIMIT="${line#cgspl=}"
+        ;;
+      cgspr=*)
+        CHATGPT_SPARK_PRIMARY_RESET_AFTER="${line#cgspr=}"
+        ;;
+      cgspa=*)
+        CHATGPT_SPARK_PRIMARY_RESET_AT="${line#cgspa=}"
+        ;;
+      cgssu=*)
+        CHATGPT_SPARK_SECONDARY_USED="${line#cgssu=}"
+        ;;
+      cgssl=*)
+        CHATGPT_SPARK_SECONDARY_LIMIT="${line#cgssl=}"
+        ;;
+      cgssr=*)
+        CHATGPT_SPARK_SECONDARY_RESET_AFTER="${line#cgssr=}"
+        ;;
+      cgssa=*)
+        CHATGPT_SPARK_SECONDARY_RESET_AT="${line#cgssa=}"
+        ;;
+      cgsln=*)
+        CHATGPT_SPARK_LIMIT_NAME="${line#cgsln=}"
+        ;;
+      cgsmf=*)
+        CHATGPT_SPARK_METERED_FEATURE="${line#cgsmf=}"
+        ;;
+      cgdu=*)
+        CHATGPT_DAILY_USED="${line#cgdu=}"
+        ;;
+      hac=*)
+        HOST_API_CALLS="${line#hac=}"
+        ;;
+      hmtotal=*)
+        HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
+        ;;
+      hminput=*)
+        HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
+        ;;
+      hmoutput=*)
+        HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
+        ;;
+      hmcached=*)
+        HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
+        ;;
+      hmreason=*)
+        HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
+        ;;
+      hmevents=*)
+        HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
+        ;;
+    esac
+  done <<<"$parsed_lines"
+
+  if [[ -z "$CHATGPT_NORMAL_PRIMARY_USED" && -n "$CHATGPT_PRIMARY_USED" ]]; then
+    CHATGPT_NORMAL_PRIMARY_USED="$CHATGPT_PRIMARY_USED"
+    CHATGPT_NORMAL_PRIMARY_LIMIT="$CHATGPT_PRIMARY_LIMIT"
+    CHATGPT_NORMAL_PRIMARY_RESET_AFTER="$CHATGPT_PRIMARY_RESET_AFTER"
+    CHATGPT_NORMAL_PRIMARY_RESET_AT="$CHATGPT_PRIMARY_RESET_AT"
+    CHATGPT_NORMAL_SECONDARY_USED="$CHATGPT_SECONDARY_USED"
+    CHATGPT_NORMAL_SECONDARY_LIMIT="$CHATGPT_SECONDARY_LIMIT"
+    CHATGPT_NORMAL_SECONDARY_RESET_AFTER="$CHATGPT_SECONDARY_RESET_AFTER"
+    CHATGPT_NORMAL_SECONDARY_RESET_AT="$CHATGPT_SECONDARY_RESET_AT"
+  fi
+
+  if [[ "$CHATGPT_ACTIVE_LANE" != "spark" && "$CHATGPT_ACTIVE_LANE" != "normal" ]]; then
+    CHATGPT_ACTIVE_LANE="normal"
+  fi
+
+  local has_spark_lane=0
+  if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
+    has_spark_lane=1
+  fi
+  if [[ "$CHATGPT_ACTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
+    CHATGPT_ACTIVE_LANE="normal"
+  fi
+
+  if [[ "$CHATGPT_ACTIVE_LANE" == "spark" ]]; then
+    CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
+  else
+    CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
+  fi
+
+  if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
+    HOST_IS_SECURE=0
+    PURGE_AUTH_AFTER_RUN=1
+    emit_insecure_notice
+    if [[ -z "$INSECURE_SESSION_STARTED_AT" ]]; then
+      INSECURE_SESSION_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    fi
+  else
+    HOST_IS_SECURE=1
+    PURGE_AUTH_AFTER_RUN=0
+    INSECURE_SESSION_STARTED_AT=""
+  fi
+}
+
 sync_auth_with_api() {
   local phase="$1"
   local read_only="${2:-0}"
@@ -3227,438 +3671,9 @@ PY
       versions_json="$api_output"
       if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
         local parsed
-        parsed="$(
-          VJSON="$versions_json" python3 - <<'PY'
-import json, os, re, sys
-data = os.environ.get("VJSON", "")
-try:
-    parsed = json.loads(data)
-except Exception:
-    sys.exit(0)
-if not isinstance(parsed, dict):
-    sys.exit(0)
-versions = parsed.get("versions")
-if not isinstance(versions, dict):
-    sys.exit(0)
-cv = versions.get("client_version")
-cvs = versions.get("client_version_source")
-cvx = versions.get("client_version_enforce_exact")
-wv = versions.get("wrapper_version")
-ws = versions.get("wrapper_sha256")
-wu = versions.get("wrapper_url")
-if isinstance(cv, str) and cv.strip():
-    print(f"cv={cv.strip()}")
-if isinstance(cvs, str) and cvs.strip():
-    print(f"cvs={cvs.strip()}")
-if isinstance(cvx, bool):
-    print("cvx=1" if cvx else "cvx=0")
-if isinstance(wv, str) and wv.strip():
-    print(f"wv={wv.strip()}")
-if isinstance(ws, str) and ws.strip():
-    print(f"ws={ws.strip()}")
-if isinstance(wu, str) and wu.strip():
-    print(f"wu={wu.strip()}")
-rs = versions.get("runner_state")
-if isinstance(rs, str) and rs.strip():
-    print(f"rs={rs.strip()}")
-rlo = versions.get("runner_last_ok")
-if isinstance(rlo, str) and rlo.strip():
-    print(f"rlo={rlo.strip()}")
-rlf = versions.get("runner_last_fail")
-if isinstance(rlf, str) and rlf.strip():
-    print(f"rlf={rlf.strip()}")
-rlc = versions.get("runner_last_check")
-if isinstance(rlc, str) and rlc.strip():
-    print(f"rlc={rlc.strip()}")
-re = versions.get("runner_enabled")
-if isinstance(re, bool):
-    print("re=1" if re else "re=0")
-aue = versions.get("auto_update_enabled")
-if isinstance(aue, bool):
-    print("aue=1" if aue else "aue=0")
-asv = parsed.get("auth_status")
-if isinstance(asv, str) and asv.strip():
-    print(f"as={asv.strip()}")
-aact = parsed.get("auth_action")
-if isinstance(aact, str) and aact.strip():
-    print(f"aa={aact.strip()}")
-amsg = parsed.get("auth_message")
-if isinstance(amsg, str) and amsg.strip():
-    print(f"am={amsg.strip()}")
-def _emit_int(key, prefix):
-    if isinstance(key, bool):
-        return
-    if isinstance(key, (int, float)):
-        print(f"{prefix}={int(key)}")
-        return
-    if isinstance(key, str):
-        normalized = key.strip()
-        if not normalized:
-            return
-        if re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
-            print(f"{prefix}={int(float(normalized))}")
-hv = parsed.get("host_vip")
-if isinstance(hv, bool):
-    print("hv=1" if hv else "hv=0")
-qh = parsed.get("quota_hard_fail")
-if isinstance(qh, bool):
-    print("qh=1" if qh else "qh=0")
-elif isinstance(qh, (int, float)):
-    print(f"qh={int(qh)}")
-ql = parsed.get("quota_limit_percent")
-if isinstance(ql, (int, float)):
-    print(f"ql={int(ql)}")
-qwp = parsed.get("quota_week_partition")
-_emit_int(qwp, "qwp")
-csil = parsed.get("cdx_silent")
-if isinstance(csil, bool):
-    print("cs=1" if csil else "cs=0")
-admin_theme = parsed.get("admin_theme")
-if isinstance(admin_theme, str) and admin_theme.strip():
-    print(f"ath={admin_theme.strip().lower()}")
-hs = parsed.get("host_secure")
-if isinstance(hs, bool):
-    print("hs=1" if hs else "hs=0")
-hlp = parsed.get("host_lane_preference")
-if isinstance(hlp, str):
-    hlp = hlp.strip().lower()
-    if hlp in ("normal", "spark"):
-        print(f"hlp={hlp}")
-cgst = parsed.get("chatgpt_status")
-if isinstance(cgst, str) and cgst.strip():
-    print(f"cgs={cgst.strip()}")
-cgpl = parsed.get("chatgpt_plan")
-if isinstance(cgpl, str) and cgpl.strip():
-    print(f"cgp={cgpl.strip()}")
-cgnx = parsed.get("chatgpt_next")
-if isinstance(cgnx, str) and cgnx.strip():
-    print(f"cgn={cgnx.strip()}")
-cqal = parsed.get("chatgpt_active_quota_lane")
-if isinstance(cqal, str) and cqal.strip().lower() in ("normal", "spark"):
-    print(f"cqal={cqal.strip().lower()}")
-cd_u = parsed.get("chatgpt_daily_used_percent") or parsed.get("chatgpt_daily_used")
-_emit_int(cd_u, "cgdu")
-cp_u = parsed.get("chatgpt_primary_used")
-_emit_int(cp_u, "cgu")
-cp_l = parsed.get("chatgpt_primary_limit")
-_emit_int(cp_l, "cgl")
-cp_r = parsed.get("chatgpt_primary_reset_after")
-_emit_int(cp_r, "cgr")
-cp_a = parsed.get("chatgpt_primary_reset_at")
-if isinstance(cp_a, str) and cp_a.strip():
-    print(f"cga={cp_a.strip()}")
-cs_u = parsed.get("chatgpt_secondary_used")
-_emit_int(cs_u, "cgsu")
-cs_l = parsed.get("chatgpt_secondary_limit")
-_emit_int(cs_l, "cgsl")
-cs_r = parsed.get("chatgpt_secondary_reset_after")
-_emit_int(cs_r, "cgsr")
-cs_a = parsed.get("chatgpt_secondary_reset_at")
-if isinstance(cs_a, str) and cs_a.strip():
-    print(f"cgsa={cs_a.strip()}")
-cnp_u = parsed.get("chatgpt_normal_primary_used")
-_emit_int(cnp_u, "cgnu")
-cnp_l = parsed.get("chatgpt_normal_primary_limit")
-_emit_int(cnp_l, "cgnl")
-cnp_r = parsed.get("chatgpt_normal_primary_reset_after")
-_emit_int(cnp_r, "cgnr")
-cnp_a = parsed.get("chatgpt_normal_primary_reset_at")
-if isinstance(cnp_a, str) and cnp_a.strip():
-    print(f"cgna={cnp_a.strip()}")
-cns_u = parsed.get("chatgpt_normal_secondary_used")
-_emit_int(cns_u, "cgnsu")
-cns_l = parsed.get("chatgpt_normal_secondary_limit")
-_emit_int(cns_l, "cgnsl")
-cns_r = parsed.get("chatgpt_normal_secondary_reset_after")
-_emit_int(cns_r, "cgnsr")
-cns_a = parsed.get("chatgpt_normal_secondary_reset_at")
-if isinstance(cns_a, str) and cns_a.strip():
-    print(f"cgnsa={cns_a.strip()}")
-csp_u = parsed.get("chatgpt_spark_primary_used")
-_emit_int(csp_u, "cgspu")
-csp_l = parsed.get("chatgpt_spark_primary_limit")
-_emit_int(csp_l, "cgspl")
-csp_r = parsed.get("chatgpt_spark_primary_reset_after")
-_emit_int(csp_r, "cgspr")
-csp_a = parsed.get("chatgpt_spark_primary_reset_at")
-if isinstance(csp_a, str) and csp_a.strip():
-    print(f"cgspa={csp_a.strip()}")
-css_u = parsed.get("chatgpt_spark_secondary_used")
-_emit_int(css_u, "cgssu")
-css_l = parsed.get("chatgpt_spark_secondary_limit")
-_emit_int(css_l, "cgssl")
-css_r = parsed.get("chatgpt_spark_secondary_reset_after")
-_emit_int(css_r, "cgssr")
-css_a = parsed.get("chatgpt_spark_secondary_reset_at")
-if isinstance(css_a, str) and css_a.strip():
-    print(f"cgssa={css_a.strip()}")
-csl = parsed.get("chatgpt_spark_limit_name")
-if isinstance(csl, str) and csl.strip():
-    print(f"cgsln={csl.strip()}")
-cmf = parsed.get("chatgpt_spark_metered_feature")
-if isinstance(cmf, str) and cmf.strip():
-    print(f"cgsmf={cmf.strip()}")
-api_calls = parsed.get("api_calls")
-_emit_int(api_calls, "hac")
-month_usage = parsed.get("token_usage_month")
-if isinstance(month_usage, dict):
-    def _emit_month(key, prefix):
-        val = month_usage.get(key)
-        _emit_int(val, prefix)
-    _emit_month("total", "hmtotal")
-    _emit_month("input", "hminput")
-    _emit_month("output", "hmoutput")
-    _emit_month("cached", "hmcached")
-    _emit_month("reasoning", "hmreason")
-    _emit_month("events", "hmevents")
-PY
-        )" || true
+        parsed="$(emit_auth_sync_lines_from_json "$versions_json" || true)"
         if [[ -n "$parsed" ]]; then
-          local line
-          while IFS= read -r line; do
-            case "$line" in
-              cv=*)
-                SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
-                ;;
-              cvs=*)
-                SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
-                ;;
-              cvx=*)
-                SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
-                ;;
-              wv=*)
-                SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
-                ;;
-              ws=*)
-                SYNC_REMOTE_WRAPPER_SHA256="${line#ws=}"
-                ;;
-              wu=*)
-                SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
-                ;;
-              rs=*)
-                RUNNER_STATE="${line#rs=}"
-                ;;
-              rlo=*)
-                RUNNER_LAST_OK="${line#rlo=}"
-                ;;
-              rlf=*)
-                RUNNER_LAST_FAIL="${line#rlf=}"
-                ;;
-              rlc=*)
-                RUNNER_LAST_CHECK="${line#rlc=}"
-                ;;
-              re=*)
-                RUNNER_ENABLED="${line#re=}"
-                ;;
-              aue=*)
-                SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
-                ;;
-              as=*)
-                AUTH_STATUS="${line#as=}"
-                ;;
-              aa=*)
-                AUTH_ACTION="${line#aa=}"
-                ;;
-              am=*)
-                AUTH_MESSAGE="${line#am=}"
-                ;;
-              qh=*)
-                QUOTA_HARD_FAIL="${line#qh=}"
-                ;;
-              hv=*)
-                HOST_VIP="${line#hv=}"
-                ;;
-              ql=*)
-                QUOTA_LIMIT_PERCENT="${line#ql=}"
-                ;;
-              qwp=*)
-                QUOTA_WEEK_PARTITION="${line#qwp=}"
-                ;;
-              cs=*)
-                CODEX_SILENT="${line#cs=}"
-                ;;
-              ath=*)
-                SYNC_REMOTE_ADMIN_THEME="${line#ath=}"
-                CODEX_UI_THEME="${line#ath=}"
-                ;;
-              hs=*)
-                HOST_SECURE="${line#hs=}"
-                ;;
-              hlp=*)
-                HOST_LANE_PREFERENCE="${line#hlp=}"
-                ;;
-              cgs=*)
-                CHATGPT_STATUS="${line#cgs=}"
-                ;;
-              cgp=*)
-                CHATGPT_PLAN="${line#cgp=}"
-                ;;
-              cgn=*)
-                CHATGPT_NEXT="${line#cgn=}"
-                ;;
-              cqal=*)
-                CHATGPT_ACTIVE_LANE="${line#cqal=}"
-                ;;
-              cgu=*)
-                CHATGPT_PRIMARY_USED="${line#cgu=}"
-                ;;
-              cgl=*)
-                CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
-                ;;
-              cgr=*)
-                CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
-                ;;
-              cga=*)
-                CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
-                ;;
-              cgsu=*)
-                CHATGPT_SECONDARY_USED="${line#cgsu=}"
-                ;;
-              cgsl=*)
-                CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
-                ;;
-              cgsr=*)
-                CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
-                ;;
-              cgsa=*)
-                CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
-                ;;
-              cgnu=*)
-                CHATGPT_NORMAL_PRIMARY_USED="${line#cgnu=}"
-                ;;
-              cgnl=*)
-                CHATGPT_NORMAL_PRIMARY_LIMIT="${line#cgnl=}"
-                ;;
-              cgnr=*)
-                CHATGPT_NORMAL_PRIMARY_RESET_AFTER="${line#cgnr=}"
-                ;;
-              cgna=*)
-                CHATGPT_NORMAL_PRIMARY_RESET_AT="${line#cgna=}"
-                ;;
-              cgnsu=*)
-                CHATGPT_NORMAL_SECONDARY_USED="${line#cgnsu=}"
-                ;;
-              cgnsl=*)
-                CHATGPT_NORMAL_SECONDARY_LIMIT="${line#cgnsl=}"
-                ;;
-              cgnsr=*)
-                CHATGPT_NORMAL_SECONDARY_RESET_AFTER="${line#cgnsr=}"
-                ;;
-              cgnsa=*)
-                CHATGPT_NORMAL_SECONDARY_RESET_AT="${line#cgnsa=}"
-                ;;
-              cgspu=*)
-                CHATGPT_SPARK_PRIMARY_USED="${line#cgspu=}"
-                ;;
-              cgspl=*)
-                CHATGPT_SPARK_PRIMARY_LIMIT="${line#cgspl=}"
-                ;;
-              cgspr=*)
-                CHATGPT_SPARK_PRIMARY_RESET_AFTER="${line#cgspr=}"
-                ;;
-              cgspa=*)
-                CHATGPT_SPARK_PRIMARY_RESET_AT="${line#cgspa=}"
-                ;;
-              cgssu=*)
-                CHATGPT_SPARK_SECONDARY_USED="${line#cgssu=}"
-                ;;
-              cgssl=*)
-                CHATGPT_SPARK_SECONDARY_LIMIT="${line#cgssl=}"
-                ;;
-              cgssr=*)
-                CHATGPT_SPARK_SECONDARY_RESET_AFTER="${line#cgssr=}"
-                ;;
-              cgssa=*)
-                CHATGPT_SPARK_SECONDARY_RESET_AT="${line#cgssa=}"
-                ;;
-              cgsln=*)
-                CHATGPT_SPARK_LIMIT_NAME="${line#cgsln=}"
-                ;;
-              cgsmf=*)
-                CHATGPT_SPARK_METERED_FEATURE="${line#cgsmf=}"
-                ;;
-              cgdu=*)
-                CHATGPT_DAILY_USED="${line#cgdu=}"
-                ;;
-              hac=*)
-                HOST_API_CALLS="${line#hac=}"
-                ;;
-              hmtotal=*)
-                HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
-                ;;
-              hminput=*)
-                HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
-                ;;
-              hmoutput=*)
-                HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
-                ;;
-              hmcached=*)
-                HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
-                ;;
-              hmreason=*)
-                HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
-                ;;
-              hmevents=*)
-                HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
-                ;;
-            esac
-          done <<<"$parsed"
-
-          if [[ -z "$CHATGPT_NORMAL_PRIMARY_USED" && -n "$CHATGPT_PRIMARY_USED" ]]; then
-            CHATGPT_NORMAL_PRIMARY_USED="$CHATGPT_PRIMARY_USED"
-            CHATGPT_NORMAL_PRIMARY_LIMIT="$CHATGPT_PRIMARY_LIMIT"
-            CHATGPT_NORMAL_PRIMARY_RESET_AFTER="$CHATGPT_PRIMARY_RESET_AFTER"
-            CHATGPT_NORMAL_PRIMARY_RESET_AT="$CHATGPT_PRIMARY_RESET_AT"
-            CHATGPT_NORMAL_SECONDARY_USED="$CHATGPT_SECONDARY_USED"
-            CHATGPT_NORMAL_SECONDARY_LIMIT="$CHATGPT_SECONDARY_LIMIT"
-            CHATGPT_NORMAL_SECONDARY_RESET_AFTER="$CHATGPT_SECONDARY_RESET_AFTER"
-            CHATGPT_NORMAL_SECONDARY_RESET_AT="$CHATGPT_SECONDARY_RESET_AT"
-          fi
-
-          if [[ "$CHATGPT_ACTIVE_LANE" != "spark" && "$CHATGPT_ACTIVE_LANE" != "normal" ]]; then
-            CHATGPT_ACTIVE_LANE="normal"
-          fi
-
-          local has_spark_lane=0
-          if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
-            has_spark_lane=1
-          fi
-          if [[ "$CHATGPT_ACTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
-            CHATGPT_ACTIVE_LANE="normal"
-          fi
-
-          if [[ "$CHATGPT_ACTIVE_LANE" == "spark" ]]; then
-            CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
-            CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
-            CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
-            CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
-            CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
-            CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
-            CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
-            CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
-          else
-            CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
-            CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
-            CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
-            CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
-            CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
-            CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
-            CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
-            CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
-          fi
-
-          if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
-            HOST_IS_SECURE=0
-            PURGE_AUTH_AFTER_RUN=1
-            emit_insecure_notice
-            if [[ -z "$INSECURE_SESSION_STARTED_AT" ]]; then
-              INSECURE_SESSION_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            fi
-          else
-            HOST_IS_SECURE=1
-            PURGE_AUTH_AFTER_RUN=0
-            INSECURE_SESSION_STARTED_AT=""
-          fi
+          apply_auth_sync_lines "$parsed"
         fi
       fi
       AUTH_PULL_STATUS="ok"
@@ -4104,6 +4119,12 @@ PY
   return 0
 }
 
+startup_bundle_can_include_auth() {
+  local auth_path="${1:-$HOME/.codex/auth.json}"
+  [[ -f "$auth_path" ]] || return 1
+  validate_auth_json_file "$auth_path"
+}
+
 sync_startup_bundle_pull() {
   STARTUP_BUNDLE_SYNC_STATUS="error"
   STARTUP_BUNDLE_SYNC_REASON=""
@@ -4121,6 +4142,11 @@ sync_startup_bundle_pull() {
 
   local summary status_code
   local home_path="${HOME:-}"
+  local auth_path="$HOME/.codex/auth.json"
+  local include_auth=0
+  if startup_bundle_can_include_auth "$auth_path"; then
+    include_auth=1
+  fi
   set +e
   summary="$(
     startup_sync_bundle_python \
@@ -4131,7 +4157,9 @@ sync_startup_bundle_pull() {
       "$CODEX_SYNC_CA_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
-      "$LOCAL_HOSTNAME"
+      "$LOCAL_HOSTNAME" \
+      "$include_auth" \
+      "$auth_path"
   )"
   status_code=$?
   set -e
@@ -4149,12 +4177,16 @@ sync_startup_bundle_pull() {
     STARTUP_BUNDLE_SYNC_REASON="$reason"
     if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
       STARTUP_BUNDLE_SYNC_STATUS="offline"
+      AUTH_PULL_STATUS="offline"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      AUTH_PULL_REASON="$reason"
       AGENTS_SYNC_STATUS="offline"
       AGENTS_SYNC_REASON="startup-bundle:${reason}"
       CONFIG_SYNC_STATUS="offline"
       CONFIG_SYNC_REASON="startup-bundle:${reason}"
     else
       STARTUP_BUNDLE_SYNC_STATUS="error"
+      AUTH_PULL_REASON="startup-bundle:${reason}"
       AGENTS_SYNC_STATUS="error"
       AGENTS_SYNC_REASON="startup-bundle:${reason}"
       CONFIG_SYNC_STATUS="error"
@@ -4213,6 +4245,30 @@ if isinstance(config, dict):
 PY
   )" || return 1
 
+  local auth_summary=""
+  if ((include_auth)); then
+    auth_summary="$(
+      SYNC_SUMMARY="$summary" python3 - <<'PY'
+import json
+import os
+import sys
+
+raw = os.environ.get("SYNC_SUMMARY", "")
+try:
+    parsed = json.loads(raw)
+except Exception:
+    sys.exit(1)
+
+if not isinstance(parsed, dict):
+    sys.exit(1)
+
+auth = parsed.get("auth")
+if isinstance(auth, dict):
+    print(json.dumps(auth, separators=(",", ":")))
+PY
+    )" || return 1
+  fi
+
   local line
   for line in $parsed; do
     case "$line" in
@@ -4230,6 +4286,17 @@ PY
       config_removed=*) CONFIG_REMOVED="${line#config_removed=}" ;;
     esac
   done
+
+  if [[ -n "$auth_summary" ]]; then
+    local auth_lines
+    auth_lines="$(emit_auth_sync_lines_from_json "$auth_summary" || true)"
+    if [[ -n "$auth_lines" ]]; then
+      apply_auth_sync_lines "$auth_lines"
+    fi
+    AUTH_PULL_STATUS="ok"
+    AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+    AUTH_PULL_REASON=""
+  fi
 
   SKILL_SYNC_REASON=""
   AGENTS_SYNC_REASON=""
@@ -4545,7 +4612,19 @@ startup_sync_bundle_python() {
   local username="${6}"
   local home_path="${7}"
   local hostname="${8}"
-  CODEX_SYNC_API_KEY="$api_key" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" CODEX_SYNC_USERNAME="$username" CODEX_SYNC_HOME="$home_path" CODEX_SYNC_HOSTNAME="$hostname" python3 - "$base" "$agents_file" "$config_file" "$cafile" <<'PY'
+  local include_auth="${9:-0}"
+  local auth_file="${10:-$HOME/.codex/auth.json}"
+  CODEX_SYNC_API_KEY="$api_key" \
+    CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" \
+    CODEX_SYNC_USERNAME="$username" \
+    CODEX_SYNC_HOME="$home_path" \
+    CODEX_SYNC_HOSTNAME="$hostname" \
+    CODEX_SYNC_INCLUDE_AUTH="$include_auth" \
+    CODEX_SYNC_AUTH_FILE="$auth_file" \
+    CODEX_SYNC_CLIENT_VERSION="${LOCAL_VERSION:-unknown}" \
+    CODEX_SYNC_WRAPPER_VERSION="${WRAPPER_VERSION:-unknown}" \
+    CODEX_INSECURE_SESSION_STARTED_AT="${INSECURE_SESSION_STARTED_AT:-}" \
+    python3 - "$base" "$agents_file" "$config_file" "$cafile" <<'PY'
 import hashlib
 import json
 import os
@@ -4568,6 +4647,13 @@ _cdx_cafile = cafile
 username = (os.environ.get("CODEX_SYNC_USERNAME", "") or "").strip()
 home_path = (os.environ.get("CODEX_SYNC_HOME", "") or "").strip()
 hostname = (os.environ.get("CODEX_SYNC_HOSTNAME", "") or "").strip()
+include_auth = (os.environ.get("CODEX_SYNC_INCLUDE_AUTH", "") or "").strip().lower() in ("1", "true", "yes", "on")
+auth_file_env = (os.environ.get("CODEX_SYNC_AUTH_FILE", "") or "").strip()
+auth_file = pathlib.Path(auth_file_env).expanduser() if auth_file_env else pathlib.Path.home() / ".codex" / "auth.json"
+client_version = (os.environ.get("CODEX_SYNC_CLIENT_VERSION", "") or "").strip() or "unknown"
+wrapper_version = (os.environ.get("CODEX_SYNC_WRAPPER_VERSION", "") or "").strip() or "unknown"
+session_started_at = (os.environ.get("CODEX_INSECURE_SESSION_STARTED_AT", "") or "").strip()
+installation_id = (os.environ.get("CODEX_INSTALLATION_ID", "") or "").strip()
 
 if not base:
     print("error reason=missing-base")
@@ -4577,6 +4663,24 @@ if not api_key:
     sys.exit(1)
 
 request_json = cdx_short_request_json
+
+
+def default_auth():
+    return {"last_refresh": "2000-01-01T00:00:00Z", "auths": {}}
+
+
+def load_auth_candidate(path: pathlib.Path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default_auth()
+    if not isinstance(data, dict) or "last_refresh" not in data:
+        return default_auth()
+    return data
+
+
+def canonical_json(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
 def normalize_sha(value):
@@ -4597,6 +4701,209 @@ def file_sha(path: pathlib.Path):
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except Exception:
         return None
+
+
+def normalize_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return None
+
+
+def window(value):
+    return value if isinstance(value, dict) else {}
+
+
+def record_versions(vblock):
+    out = {}
+    if isinstance(vblock, dict):
+        cv = vblock.get("client_version")
+        if isinstance(cv, str) and cv.strip():
+            out["client_version"] = cv.strip()
+        cvs = vblock.get("client_version_source")
+        if isinstance(cvs, str) and cvs.strip():
+            out["client_version_source"] = cvs.strip()
+        cvx = vblock.get("client_version_enforce_exact")
+        if isinstance(cvx, bool):
+            out["client_version_enforce_exact"] = cvx
+        wv = vblock.get("wrapper_version")
+        if isinstance(wv, str) and wv.strip():
+            out["wrapper_version"] = wv.strip()
+        ws = vblock.get("wrapper_sha256")
+        if isinstance(ws, str) and ws.strip():
+            out["wrapper_sha256"] = ws.strip()
+        wu = vblock.get("wrapper_url")
+        if isinstance(wu, str) and wu.strip():
+            out["wrapper_url"] = wu.strip()
+        rs = vblock.get("runner_state")
+        if isinstance(rs, str) and rs.strip():
+            out["runner_state"] = rs.strip()
+        rlo = vblock.get("runner_last_ok")
+        if isinstance(rlo, str) and rlo.strip():
+            out["runner_last_ok"] = rlo.strip()
+        rlf = vblock.get("runner_last_fail")
+        if isinstance(rlf, str) and rlf.strip():
+            out["runner_last_fail"] = rlf.strip()
+        rlc = vblock.get("runner_last_check")
+        if isinstance(rlc, str) and rlc.strip():
+            out["runner_last_check"] = rlc.strip()
+        re_val = vblock.get("runner_enabled")
+        if isinstance(re_val, bool):
+            out["runner_enabled"] = re_val
+        aue = vblock.get("auto_update_enabled")
+        if isinstance(aue, bool):
+            out["auto_update_enabled"] = aue
+        silent = vblock.get("cdx_silent")
+        if isinstance(silent, bool):
+            out["cdx_silent"] = silent
+        inst = vblock.get("installation_id")
+        if isinstance(inst, str) and inst.strip():
+            out["installation_id"] = inst.strip()
+    return out
+
+
+def normalize_auth_summary(block, current_auth):
+    if not isinstance(block, dict):
+        return {"status": "error", "reason": "missing-auth-block"}
+
+    payload_data = block
+    status = str(payload_data.get("status") or "").strip().lower()
+    if not status:
+        status = "upload_required"
+
+    versions_out = record_versions(payload_data.get("versions", {}))
+    server_installation = versions_out.get("installation_id")
+    if server_installation and installation_id and server_installation != installation_id:
+        return {"status": "error", "reason": "installation-mismatch"}
+
+    host_info = payload_data.get("host") if isinstance(payload_data.get("host"), dict) else {}
+    host_secure = normalize_bool(host_info.get("secure")) if isinstance(host_info, dict) else None
+    host_vip = normalize_bool(host_info.get("vip")) if isinstance(host_info, dict) else None
+    host_lane_preference = None
+    if isinstance(host_info, dict):
+        lane_pref_raw = host_info.get("lane_preference")
+        if isinstance(lane_pref_raw, str):
+            lane_pref = lane_pref_raw.strip().lower()
+            if lane_pref in ("normal", "spark"):
+                host_lane_preference = lane_pref
+
+    chatgpt_usage_raw = payload_data.get("chatgpt_usage")
+    chatgpt_usage = chatgpt_usage_raw if isinstance(chatgpt_usage_raw, dict) else {}
+
+    normal_window = chatgpt_usage.get("normal_window") if isinstance(chatgpt_usage.get("normal_window"), dict) else {}
+    spark_window = chatgpt_usage.get("spark_window") if isinstance(chatgpt_usage.get("spark_window"), dict) else {}
+    normal_primary_window = window(normal_window.get("primary_window"))
+    normal_secondary_window = window(normal_window.get("secondary_window"))
+    if not normal_primary_window and not normal_secondary_window:
+        normal_primary_window = window(chatgpt_usage.get("primary_window"))
+        normal_secondary_window = window(chatgpt_usage.get("secondary_window"))
+    spark_primary_window = window(spark_window.get("primary_window"))
+    spark_secondary_window = window(spark_window.get("secondary_window"))
+
+    active_lane = "normal"
+    active_lane_raw = chatgpt_usage.get("active_quota_lane")
+    if isinstance(active_lane_raw, str) and active_lane_raw.strip().lower() in ("normal", "spark"):
+        active_lane = active_lane_raw.strip().lower()
+    elif host_lane_preference in ("normal", "spark"):
+        active_lane = host_lane_preference
+    else:
+        model_override = host_info.get("model_override") if isinstance(host_info, dict) else None
+        if isinstance(model_override, str) and model_override.strip():
+            active_lane = "spark" if "spark" in model_override.strip().lower() else "normal"
+
+    if active_lane == "spark" and not (spark_primary_window or spark_secondary_window):
+        active_lane = "normal"
+
+    active_primary_window = spark_primary_window if active_lane == "spark" else normal_primary_window
+    active_secondary_window = spark_secondary_window if active_lane == "spark" else normal_secondary_window
+
+    auth_to_write = None
+    normalized_status = status
+    did_store = False
+    if status == "valid":
+        auth_to_write = current_auth
+    elif status == "outdated":
+        auth_to_write = payload_data.get("auth") or current_auth
+        lr = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
+        if isinstance(auth_to_write, dict) and isinstance(lr, str):
+            auth_to_write["last_refresh"] = lr
+    elif status in ("updated", "unchanged"):
+        auth_to_write = payload_data.get("auth") or current_auth
+        lr = payload_data.get("canonical_last_refresh") or payload_data.get("last_refresh")
+        if isinstance(auth_to_write, dict) and isinstance(lr, str):
+            auth_to_write["last_refresh"] = lr
+        normalized_status = "valid"
+        did_store = True
+    elif status in ("missing", "upload_required"):
+        pass
+    else:
+        normalized_status = "upload_required"
+
+    if auth_to_write is not None and not isinstance(auth_to_write, dict):
+        auth_to_write = current_auth
+
+    if auth_to_write is not None:
+        try:
+            atomic_write_text(auth_file, json.dumps(auth_to_write, indent=2) + "\n", mode=0o600)
+        except Exception as exc:
+            return {"status": "error", "reason": f"auth-write-failed:{str(exc).replace(' ', '_')}"}
+
+    return {
+        "status": "ok",
+        "summary": {
+            "versions": versions_out,
+            "auth_status": normalized_status or "unknown",
+            "auth_action": ("store" if (did_store and normalized_status == "valid") else normalized_status or "unknown"),
+            "auth_message": (
+                "uploaded current auth" if (did_store and normalized_status == "valid") else
+                "synced (no change)" if normalized_status == "valid" else
+                "updated from api" if normalized_status == "outdated" else
+                normalized_status
+            ),
+            "host_secure": host_secure,
+            "host_lane_preference": host_lane_preference,
+            "chatgpt_status": chatgpt_usage.get("status"),
+            "chatgpt_plan": chatgpt_usage.get("plan_type"),
+            "chatgpt_next": chatgpt_usage.get("next_eligible_at"),
+            "chatgpt_active_quota_lane": active_lane,
+            "chatgpt_primary_used": active_primary_window.get("used_percent"),
+            "chatgpt_primary_limit": active_primary_window.get("limit_seconds"),
+            "chatgpt_primary_reset_after": active_primary_window.get("reset_after_seconds"),
+            "chatgpt_primary_reset_at": active_primary_window.get("reset_at"),
+            "chatgpt_secondary_used": active_secondary_window.get("used_percent"),
+            "chatgpt_secondary_limit": active_secondary_window.get("limit_seconds"),
+            "chatgpt_secondary_reset_after": active_secondary_window.get("reset_after_seconds"),
+            "chatgpt_secondary_reset_at": active_secondary_window.get("reset_at"),
+            "chatgpt_normal_primary_used": normal_primary_window.get("used_percent"),
+            "chatgpt_normal_primary_limit": normal_primary_window.get("limit_seconds"),
+            "chatgpt_normal_primary_reset_after": normal_primary_window.get("reset_after_seconds"),
+            "chatgpt_normal_primary_reset_at": normal_primary_window.get("reset_at"),
+            "chatgpt_normal_secondary_used": normal_secondary_window.get("used_percent"),
+            "chatgpt_normal_secondary_limit": normal_secondary_window.get("limit_seconds"),
+            "chatgpt_normal_secondary_reset_after": normal_secondary_window.get("reset_after_seconds"),
+            "chatgpt_normal_secondary_reset_at": normal_secondary_window.get("reset_at"),
+            "chatgpt_spark_primary_used": spark_primary_window.get("used_percent"),
+            "chatgpt_spark_primary_limit": spark_primary_window.get("limit_seconds"),
+            "chatgpt_spark_primary_reset_after": spark_primary_window.get("reset_after_seconds"),
+            "chatgpt_spark_primary_reset_at": spark_primary_window.get("reset_at"),
+            "chatgpt_spark_secondary_used": spark_secondary_window.get("used_percent"),
+            "chatgpt_spark_secondary_limit": spark_secondary_window.get("limit_seconds"),
+            "chatgpt_spark_secondary_reset_after": spark_secondary_window.get("reset_after_seconds"),
+            "chatgpt_spark_secondary_reset_at": spark_secondary_window.get("reset_at"),
+            "chatgpt_spark_limit_name": chatgpt_usage.get("spark_limit_name"),
+            "chatgpt_spark_metered_feature": chatgpt_usage.get("spark_metered_feature"),
+            "chatgpt_daily_used_percent": chatgpt_usage.get("daily_used_percent"),
+            "chatgpt_daily_baseline_at": chatgpt_usage.get("daily_baseline_at"),
+            "api_calls": payload_data.get("api_calls"),
+            "token_usage_month": payload_data.get("token_usage_month"),
+            "quota_hard_fail": payload_data.get("quota_hard_fail"),
+            "quota_limit_percent": payload_data.get("quota_limit_percent"),
+            "quota_week_partition": payload_data.get("quota_week_partition"),
+            "cdx_silent": payload_data.get("cdx_silent"),
+            "host_vip": host_vip,
+        },
+    }
 
 
 def apply_agents_change(block):
@@ -4700,9 +5007,13 @@ def apply_config_change(block):
 
 agents_sha = file_sha(agents_file) if agents_file.is_file() else None
 config_sha = file_sha(config_file) if config_file.is_file() else None
+current_auth = load_auth_candidate(auth_file) if include_auth else None
+auth_digest = None
+if include_auth and isinstance(current_auth, dict):
+    auth_digest = hashlib.sha256(canonical_json(current_auth).encode("utf-8")).hexdigest()
 
 status_payload = {
-    "include_auth": False,
+    "include_auth": include_auth,
     "host_user": {
         "username": username,
         "hostname": hostname,
@@ -4716,6 +5027,18 @@ status_payload = {
         "home": home_path,
     },
 }
+if include_auth and isinstance(current_auth, dict):
+    status_payload["auth"] = {
+        "last_refresh": current_auth.get("last_refresh") or "2000-01-01T00:00:00Z",
+        "digest": auth_digest,
+    }
+    status_payload["client_version"] = client_version
+    if wrapper_version and wrapper_version != "unknown":
+        status_payload["wrapper_version"] = wrapper_version
+    if session_started_at:
+        status_payload["session_started_at"] = session_started_at
+    if installation_id:
+        status_payload["installation_id"] = installation_id
 
 try:
     status_resp = request_json("POST", f"{base}/sync/status", status_payload)
@@ -4735,6 +5058,8 @@ if not isinstance(reasons, list):
 
 if phase == "update":
     bootstrap_payload = dict(status_payload)
+    if include_auth and isinstance(current_auth, dict):
+        bootstrap_payload["auth_candidate"] = current_auth
     try:
         bootstrap_resp = request_json("POST", f"{base}/sync/bootstrap", bootstrap_payload)
     except Exception as exc:
@@ -4755,17 +5080,33 @@ if not isinstance(data, dict):
 
 agents_result = apply_agents_change(data.get("agents") if isinstance(data.get("agents"), dict) else {})
 config_result = apply_config_change(data.get("config") if isinstance(data.get("config"), dict) else {})
+auth_result = {"status": "skip", "summary": None}
+if include_auth:
+    auth_result = normalize_auth_summary(
+        data.get("auth") if isinstance(data.get("auth"), dict) else None,
+        current_auth if isinstance(current_auth, dict) else default_auth(),
+    )
 
-if agents_result.get("status") != "ok" or config_result.get("status") != "ok":
+if (
+    agents_result.get("status") != "ok"
+    or config_result.get("status") != "ok"
+    or auth_result.get("status") not in ("ok", "skip")
+):
     print(
         json.dumps(
             {
                 "status": "error",
-                "reason": agents_result.get("reason") or config_result.get("reason") or "sync-apply-failed",
+                "reason": (
+                    agents_result.get("reason")
+                    or config_result.get("reason")
+                    or auth_result.get("reason")
+                    or "sync-apply-failed"
+                ),
                 "phase": phase or str((data or {}).get("status") or "").strip().lower() or "ok",
                 "reasons": reasons,
                 "agents": agents_result,
                 "config": config_result,
+                "auth": auth_result.get("summary"),
             },
             separators=(",", ":"),
         )
@@ -4780,6 +5121,7 @@ print(
             "reasons": reasons,
             "agents": agents_result,
             "config": config_result,
+            "auth": auth_result.get("summary"),
         },
         separators=(",", ":"),
     )
@@ -6529,20 +6871,38 @@ if ((CDX_ACTIVE_RUN_DETECTED)); then
     AUTH_PULL_REASON="$concurrent_reason"
   fi
 else
-  # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
-  _t_auth="$(cdx_time_ms)"
-  sync_auth_with_api "pull" || true
-  cdx_debug_phase "auth-sync" "$_t_auth"
   cleanup_legacy_prompt_state || true
   sync_skills_pull || true
-  _t_bundle="$(cdx_time_ms)"
-  if ! sync_startup_bundle_pull; then
-    if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
-      sync_agents_pull || true
-      sync_config_pull || true
+  if startup_bundle_can_include_auth "$HOME/.codex/auth.json"; then
+    _t_bundle="$(cdx_time_ms)"
+    if ! sync_startup_bundle_pull; then
+      if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
+        _t_auth="$(cdx_time_ms)"
+        sync_auth_with_api "pull" || true
+        cdx_debug_phase "auth-sync" "$_t_auth"
+        sync_agents_pull || true
+        sync_config_pull || true
+      elif [[ "$STARTUP_BUNDLE_SYNC_STATUS" != "offline" ]]; then
+        _t_auth="$(cdx_time_ms)"
+        sync_auth_with_api "pull" || true
+        cdx_debug_phase "auth-sync" "$_t_auth"
+      fi
     fi
+    cdx_debug_phase "bundle-sync" "$_t_bundle"
+  else
+    # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
+    _t_auth="$(cdx_time_ms)"
+    sync_auth_with_api "pull" || true
+    cdx_debug_phase "auth-sync" "$_t_auth"
+    _t_bundle="$(cdx_time_ms)"
+    if ! sync_startup_bundle_pull; then
+      if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
+        sync_agents_pull || true
+        sync_config_pull || true
+      fi
+    fi
+    cdx_debug_phase "bundle-sync" "$_t_bundle"
   fi
-  cdx_debug_phase "bundle-sync" "$_t_bundle"
 fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 ORIGINAL_AUTH_SHA="$(sha256_file "$HOME/.codex/auth.json" 2>/dev/null || true)"
@@ -8146,20 +8506,25 @@ print_boot_screen() {
     local mcp_updated_marker=0
     local runner_updated_marker=0
 
-    if ((codex_updated)); then
-      api_updated_marker=1
-    fi
-    if [[ "${AUTH_ACTION:-}" == "store" ]]; then
+    api_updated_marker=0
+    if [[ "${AUTH_ACTION:-}" == "store" || "${AUTH_STATUS:-}" == "outdated" ]]; then
       auth_updated_marker=1
     fi
     if [[ "${SKILL_REMOVED:-0}" =~ ^[0-9]+$ ]] && ((SKILL_REMOVED > 0)); then
       skills_updated_marker=1
     fi
-    if [[ "${CONFIG_STATE:-}" == "updated" ]]; then
+    if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && ( "${CONFIG_STATE:-}" == "updated" || "${CONFIG_STATE:-}" == "missing" ) ]]; then
       mcp_updated_marker=1
     fi
-    if [[ "${AGENTS_STATE:-}" == "updated" ]]; then
-      runner_updated_marker=1
+    if [[ "${RUNNER_ENABLED:-0}" == "1" && -n "${RUNNER_LAST_CHECK:-}" ]]; then
+      local runner_last_check_age=""
+      runner_last_check_age="$(seconds_since_iso "$RUNNER_LAST_CHECK" 2>/dev/null || true)"
+      if [[ "$runner_last_check_age" =~ ^-?[0-9]+$ ]]; then
+        ((runner_last_check_age < 0)) && runner_last_check_age=$((-runner_last_check_age))
+        if ((runner_last_check_age <= 120)); then
+          runner_updated_marker=1
+        fi
+      fi
     fi
 
     dots+="$(build_health_dot "api" "${api_tone:-yellow}" "${api_updated_marker}")"

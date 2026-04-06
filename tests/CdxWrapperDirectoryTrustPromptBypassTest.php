@@ -33,7 +33,7 @@ final class CdxWrapperDirectoryTrustPromptBypassTest extends TestCase
             'Wrapper should include a pre-launch hook for trusting current project paths.'
         );
 
-        $trustCallPos = strrpos($wrapperSource, 'ensure_current_project_trusted_in_config');
+        $trustCallPos = strpos($wrapperSource, "\nensure_current_project_trusted_in_config\n\ncdx_debug_phase");
         $launchPos = strpos($wrapperSource, 'if run_codex_command "$@"; then');
         self::assertNotFalse($trustCallPos, 'Expected pre-launch trust call in wrapper source.');
         self::assertNotFalse($launchPos, 'Expected Codex launch call in wrapper source.');

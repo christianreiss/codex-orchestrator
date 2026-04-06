@@ -1,3 +1,9 @@
+startup_bundle_can_include_auth() {
+  local auth_path="${1:-$HOME/.codex/auth.json}"
+  [[ -f "$auth_path" ]] || return 1
+  validate_auth_json_file "$auth_path"
+}
+
 sync_startup_bundle_pull() {
   STARTUP_BUNDLE_SYNC_STATUS="error"
   STARTUP_BUNDLE_SYNC_REASON=""
@@ -15,6 +21,11 @@ sync_startup_bundle_pull() {
 
   local summary status_code
   local home_path="${HOME:-}"
+  local auth_path="$HOME/.codex/auth.json"
+  local include_auth=0
+  if startup_bundle_can_include_auth "$auth_path"; then
+    include_auth=1
+  fi
   set +e
   summary="$(
     startup_sync_bundle_python \
@@ -25,7 +36,9 @@ sync_startup_bundle_pull() {
       "$CODEX_SYNC_CA_FILE" \
       "$CURRENT_USER" \
       "$home_path" \
-      "$LOCAL_HOSTNAME"
+      "$LOCAL_HOSTNAME" \
+      "$include_auth" \
+      "$auth_path"
   )"
   status_code=$?
   set -e
@@ -43,12 +56,16 @@ sync_startup_bundle_pull() {
     STARTUP_BUNDLE_SYNC_REASON="$reason"
     if [[ "$reason" == http-5* ]] || [[ "$reason" == request_failed* ]]; then
       STARTUP_BUNDLE_SYNC_STATUS="offline"
+      AUTH_PULL_STATUS="offline"
+      AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+      AUTH_PULL_REASON="$reason"
       AGENTS_SYNC_STATUS="offline"
       AGENTS_SYNC_REASON="startup-bundle:${reason}"
       CONFIG_SYNC_STATUS="offline"
       CONFIG_SYNC_REASON="startup-bundle:${reason}"
     else
       STARTUP_BUNDLE_SYNC_STATUS="error"
+      AUTH_PULL_REASON="startup-bundle:${reason}"
       AGENTS_SYNC_STATUS="error"
       AGENTS_SYNC_REASON="startup-bundle:${reason}"
       CONFIG_SYNC_STATUS="error"
@@ -107,6 +124,30 @@ if isinstance(config, dict):
 PY
   )" || return 1
 
+  local auth_summary=""
+  if ((include_auth)); then
+    auth_summary="$(
+      SYNC_SUMMARY="$summary" python3 - <<'PY'
+import json
+import os
+import sys
+
+raw = os.environ.get("SYNC_SUMMARY", "")
+try:
+    parsed = json.loads(raw)
+except Exception:
+    sys.exit(1)
+
+if not isinstance(parsed, dict):
+    sys.exit(1)
+
+auth = parsed.get("auth")
+if isinstance(auth, dict):
+    print(json.dumps(auth, separators=(",", ":")))
+PY
+    )" || return 1
+  fi
+
   local line
   for line in $parsed; do
     case "$line" in
@@ -124,6 +165,17 @@ PY
       config_removed=*) CONFIG_REMOVED="${line#config_removed=}" ;;
     esac
   done
+
+  if [[ -n "$auth_summary" ]]; then
+    local auth_lines
+    auth_lines="$(emit_auth_sync_lines_from_json "$auth_summary" || true)"
+    if [[ -n "$auth_lines" ]]; then
+      apply_auth_sync_lines "$auth_lines"
+    fi
+    AUTH_PULL_STATUS="ok"
+    AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+    AUTH_PULL_REASON=""
+  fi
 
   SKILL_SYNC_REASON=""
   AGENTS_SYNC_REASON=""

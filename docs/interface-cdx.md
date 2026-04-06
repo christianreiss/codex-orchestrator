@@ -28,8 +28,8 @@ Guardrails:
 1. Resolve real `codex` binary (`/usr/local/bin/codex`, `/opt/codex/bin/codex`, or `PATH`); abort if none found.
 2. Help-only Codex invocations are passed straight through to the real binary before any wrapper sync/update/MOTD/footer work. Supported passthrough forms are top-level `--help`, top-level `-h`, top-level `help`, and Codex subcommand help where a reserved Codex command is followed by `--help` or `-h`.
 3. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
-4. Sync auth via `POST /auth`.
-5. Startup bundle pull via `POST /sync/status` and (when needed) `POST /sync/bootstrap`.
+4. When local `~/.codex/auth.json` is already valid, wrapper prefers the startup bundle path first: `POST /sync/status` and (when needed) `POST /sync/bootstrap` run with `include_auth=true`, so auth metadata/refresh plus AGENTS/config diffing happen in one request chain.
+5. When bundled auth cannot be used (for example local auth is missing/invalid) or when bundled auth errors outside the offline path, wrapper falls back to standalone auth sync via `POST /auth`, then continues with the startup bundle for AGENTS/config.
 6. If the startup bundle endpoints are missing on an older server, wrapper falls back to legacy AGENTS/config pulls. Transient bundle failures do not trigger extra legacy sync requests.
 7. Compute local auth freshness:
    - fresh window: `24h` (`MAX_LOCAL_AUTH_AGE_SECONDS`)
@@ -113,6 +113,7 @@ Profile shorthand:
 
 Sync details:
 - Startup bundle path (`/sync/status` + `/sync/bootstrap`) applies AGENTS and config in one pass.
+- When local auth is already valid, the same startup bundle flow also carries auth metadata/refresh inline (`include_auth=true`) so healthy non-concurrent boots avoid a second pre-run `/auth` round trip.
 - Wrapper falls back to per-resource AGENTS/config pulls only when the bundle endpoints are missing on an older server. Slow or failed bundle requests do not fan out into extra legacy sync calls.
 - Wrapper removes legacy prompt directories and prompt baselines on startup so stale local prompt state does not linger after the custom-prompt system was removed.
 - Wrapper removes legacy local skill directories and baselines on upgrade so stale `~/.agents/skills` / `~/.codex/skills` trees stop shadowing MCP-first behavior.
@@ -173,6 +174,7 @@ Wrapper quota behavior:
 Summary layout:
 - Sections: `Health`, `Versions`, `Usage`, `Quota`, `Result`.
 - When Codex auto-update checks are skipped, the `Versions` section reports the concrete reason: `active cdx run`, `cron-managed updates`, `unsupported platform (...)`, or, for genuine privilege skips, `need root; uid ...` with the wrapper-detected UID to make namespace/user mismatches visible.
+- Health-dot carets (`^` in ASCII mode) now indicate an actual local change/cleanup on that item, not merely a successful check.
 - In non-minimal output, concurrent-guard mode is compact (`Concurrent` + `Quota`).
 - Default row density:
   - global: `3` (`SUMMARY_ITEMS_PER_ROW`)

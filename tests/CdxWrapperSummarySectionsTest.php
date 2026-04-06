@@ -36,6 +36,10 @@ final class CdxWrapperSummarySectionsTest extends TestCase
         self::assertStringContainsString('build_health_dot "auth" "${auth_tone:-yellow}" "${auth_updated_marker}"', $wrapperSource);
         self::assertStringContainsString('build_health_dot "skills" "${skill_tone:-green}" "${skills_updated_marker}"', $wrapperSource);
         self::assertStringContainsString('build_health_dot "mcp" "$mcp_tone" "${mcp_updated_marker}"', $wrapperSource);
+        self::assertStringContainsString('if [[ "${AUTH_ACTION:-}" == "store" || "${AUTH_STATUS:-}" == "outdated" ]]; then', $wrapperSource);
+        self::assertStringContainsString('if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && ( "${CONFIG_STATE:-}" == "updated" || "${CONFIG_STATE:-}" == "missing" ) ]]; then', $wrapperSource);
+        self::assertStringContainsString('if [[ "${RUNNER_ENABLED:-0}" == "1" && -n "${RUNNER_LAST_CHECK:-}" ]]; then', $wrapperSource);
+        self::assertStringNotContainsString('if [[ "${SKILL_SYNC_STATUS:-}" == "mcp" ]]; then', $wrapperSource);
     }
 
     public function testWrapperSuppressesBootScreenAfterSelfUpdateRestart(): void

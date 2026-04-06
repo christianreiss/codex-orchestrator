@@ -1,3 +1,447 @@
+emit_auth_sync_lines_from_json() {
+  local auth_json="${1-}"
+  [[ -n "$auth_json" ]] || return 0
+  AUTH_SYNC_JSON="$auth_json" python3 - <<'PY'
+import json, os, re, sys
+
+data = os.environ.get("AUTH_SYNC_JSON", "")
+try:
+    parsed = json.loads(data)
+except Exception:
+    sys.exit(0)
+
+if not isinstance(parsed, dict):
+    sys.exit(0)
+
+versions = parsed.get("versions")
+if not isinstance(versions, dict):
+    sys.exit(0)
+
+cv = versions.get("client_version")
+cvs = versions.get("client_version_source")
+cvx = versions.get("client_version_enforce_exact")
+wv = versions.get("wrapper_version")
+ws = versions.get("wrapper_sha256")
+wu = versions.get("wrapper_url")
+if isinstance(cv, str) and cv.strip():
+    print(f"cv={cv.strip()}")
+if isinstance(cvs, str) and cvs.strip():
+    print(f"cvs={cvs.strip()}")
+if isinstance(cvx, bool):
+    print("cvx=1" if cvx else "cvx=0")
+if isinstance(wv, str) and wv.strip():
+    print(f"wv={wv.strip()}")
+if isinstance(ws, str) and ws.strip():
+    print(f"ws={ws.strip()}")
+if isinstance(wu, str) and wu.strip():
+    print(f"wu={wu.strip()}")
+rs = versions.get("runner_state")
+if isinstance(rs, str) and rs.strip():
+    print(f"rs={rs.strip()}")
+rlo = versions.get("runner_last_ok")
+if isinstance(rlo, str) and rlo.strip():
+    print(f"rlo={rlo.strip()}")
+rlf = versions.get("runner_last_fail")
+if isinstance(rlf, str) and rlf.strip():
+    print(f"rlf={rlf.strip()}")
+rlc = versions.get("runner_last_check")
+if isinstance(rlc, str) and rlc.strip():
+    print(f"rlc={rlc.strip()}")
+re_val = versions.get("runner_enabled")
+if isinstance(re_val, bool):
+    print("re=1" if re_val else "re=0")
+aue = versions.get("auto_update_enabled")
+if isinstance(aue, bool):
+    print("aue=1" if aue else "aue=0")
+asv = parsed.get("auth_status")
+if isinstance(asv, str) and asv.strip():
+    print(f"as={asv.strip()}")
+aact = parsed.get("auth_action")
+if isinstance(aact, str) and aact.strip():
+    print(f"aa={aact.strip()}")
+amsg = parsed.get("auth_message")
+if isinstance(amsg, str) and amsg.strip():
+    print(f"am={amsg.strip()}")
+
+def _emit_int(value, prefix):
+    if isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)):
+        print(f"{prefix}={int(value)}")
+        return
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
+            print(f"{prefix}={int(float(normalized))}")
+
+hv = parsed.get("host_vip")
+if isinstance(hv, bool):
+    print("hv=1" if hv else "hv=0")
+qh = parsed.get("quota_hard_fail")
+if isinstance(qh, bool):
+    print("qh=1" if qh else "qh=0")
+elif isinstance(qh, (int, float)):
+    print(f"qh={int(qh)}")
+ql = parsed.get("quota_limit_percent")
+if isinstance(ql, (int, float)):
+    print(f"ql={int(ql)}")
+qwp = parsed.get("quota_week_partition")
+_emit_int(qwp, "qwp")
+csil = parsed.get("cdx_silent")
+if isinstance(csil, bool):
+    print("cs=1" if csil else "cs=0")
+admin_theme = parsed.get("admin_theme")
+if isinstance(admin_theme, str) and admin_theme.strip():
+    print(f"ath={admin_theme.strip().lower()}")
+hs = parsed.get("host_secure")
+if isinstance(hs, bool):
+    print("hs=1" if hs else "hs=0")
+hlp = parsed.get("host_lane_preference")
+if isinstance(hlp, str):
+    hlp = hlp.strip().lower()
+    if hlp in ("normal", "spark"):
+        print(f"hlp={hlp}")
+cgs = parsed.get("chatgpt_status")
+if isinstance(cgs, str) and cgs.strip():
+    print(f"cgs={cgs.strip()}")
+cgp = parsed.get("chatgpt_plan")
+if isinstance(cgp, str) and cgp.strip():
+    print(f"cgp={cgp.strip()}")
+cgn = parsed.get("chatgpt_next")
+if isinstance(cgn, str) and cgn.strip():
+    print(f"cgn={cgn.strip()}")
+cqal = parsed.get("chatgpt_active_quota_lane")
+if isinstance(cqal, str) and cqal.strip().lower() in ("normal", "spark"):
+    print(f"cqal={cqal.strip().lower()}")
+cd_u = parsed.get("chatgpt_daily_used_percent") or parsed.get("chatgpt_daily_used")
+_emit_int(cd_u, "cgdu")
+cp_u = parsed.get("chatgpt_primary_used")
+_emit_int(cp_u, "cgu")
+cp_l = parsed.get("chatgpt_primary_limit")
+_emit_int(cp_l, "cgl")
+cp_r = parsed.get("chatgpt_primary_reset_after")
+_emit_int(cp_r, "cgr")
+cp_a = parsed.get("chatgpt_primary_reset_at")
+if isinstance(cp_a, str) and cp_a.strip():
+    print(f"cga={cp_a.strip()}")
+cs_u = parsed.get("chatgpt_secondary_used")
+_emit_int(cs_u, "cgsu")
+cs_l = parsed.get("chatgpt_secondary_limit")
+_emit_int(cs_l, "cgsl")
+cs_r = parsed.get("chatgpt_secondary_reset_after")
+_emit_int(cs_r, "cgsr")
+cs_a = parsed.get("chatgpt_secondary_reset_at")
+if isinstance(cs_a, str) and cs_a.strip():
+    print(f"cgsa={cs_a.strip()}")
+cnp_u = parsed.get("chatgpt_normal_primary_used")
+_emit_int(cnp_u, "cgnu")
+cnp_l = parsed.get("chatgpt_normal_primary_limit")
+_emit_int(cnp_l, "cgnl")
+cnp_r = parsed.get("chatgpt_normal_primary_reset_after")
+_emit_int(cnp_r, "cgnr")
+cnp_a = parsed.get("chatgpt_normal_primary_reset_at")
+if isinstance(cnp_a, str) and cnp_a.strip():
+    print(f"cgna={cnp_a.strip()}")
+cns_u = parsed.get("chatgpt_normal_secondary_used")
+_emit_int(cns_u, "cgnsu")
+cns_l = parsed.get("chatgpt_normal_secondary_limit")
+_emit_int(cns_l, "cgnsl")
+cns_r = parsed.get("chatgpt_normal_secondary_reset_after")
+_emit_int(cns_r, "cgnsr")
+cns_a = parsed.get("chatgpt_normal_secondary_reset_at")
+if isinstance(cns_a, str) and cns_a.strip():
+    print(f"cgnsa={cns_a.strip()}")
+csp_u = parsed.get("chatgpt_spark_primary_used")
+_emit_int(csp_u, "cgspu")
+csp_l = parsed.get("chatgpt_spark_primary_limit")
+_emit_int(csp_l, "cgspl")
+csp_r = parsed.get("chatgpt_spark_primary_reset_after")
+_emit_int(csp_r, "cgspr")
+csp_a = parsed.get("chatgpt_spark_primary_reset_at")
+if isinstance(csp_a, str) and csp_a.strip():
+    print(f"cgspa={csp_a.strip()}")
+css_u = parsed.get("chatgpt_spark_secondary_used")
+_emit_int(css_u, "cgssu")
+css_l = parsed.get("chatgpt_spark_secondary_limit")
+_emit_int(css_l, "cgssl")
+css_r = parsed.get("chatgpt_spark_secondary_reset_after")
+_emit_int(css_r, "cgssr")
+css_a = parsed.get("chatgpt_spark_secondary_reset_at")
+if isinstance(css_a, str) and css_a.strip():
+    print(f"cgssa={css_a.strip()}")
+csl = parsed.get("chatgpt_spark_limit_name")
+if isinstance(csl, str) and csl.strip():
+    print(f"cgsln={csl.strip()}")
+cmf = parsed.get("chatgpt_spark_metered_feature")
+if isinstance(cmf, str) and cmf.strip():
+    print(f"cgsmf={cmf.strip()}")
+api_calls = parsed.get("api_calls")
+_emit_int(api_calls, "hac")
+month_usage = parsed.get("token_usage_month")
+if isinstance(month_usage, dict):
+    def _emit_month(key, prefix):
+        _emit_int(month_usage.get(key), prefix)
+    _emit_month("total", "hmtotal")
+    _emit_month("input", "hminput")
+    _emit_month("output", "hmoutput")
+    _emit_month("cached", "hmcached")
+    _emit_month("reasoning", "hmreason")
+    _emit_month("events", "hmevents")
+PY
+}
+
+apply_auth_sync_lines() {
+  local parsed_lines="${1-}"
+  [[ -n "$parsed_lines" ]] || return 0
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+      cv=*)
+        SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
+        ;;
+      cvs=*)
+        SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
+        ;;
+      cvx=*)
+        SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
+        ;;
+      wv=*)
+        SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
+        ;;
+      ws=*)
+        SYNC_REMOTE_WRAPPER_SHA256="${line#ws=}"
+        ;;
+      wu=*)
+        SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
+        ;;
+      rs=*)
+        RUNNER_STATE="${line#rs=}"
+        ;;
+      rlo=*)
+        RUNNER_LAST_OK="${line#rlo=}"
+        ;;
+      rlf=*)
+        RUNNER_LAST_FAIL="${line#rlf=}"
+        ;;
+      rlc=*)
+        RUNNER_LAST_CHECK="${line#rlc=}"
+        ;;
+      re=*)
+        RUNNER_ENABLED="${line#re=}"
+        ;;
+      aue=*)
+        SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
+        ;;
+      as=*)
+        AUTH_STATUS="${line#as=}"
+        ;;
+      aa=*)
+        AUTH_ACTION="${line#aa=}"
+        ;;
+      am=*)
+        AUTH_MESSAGE="${line#am=}"
+        ;;
+      qh=*)
+        QUOTA_HARD_FAIL="${line#qh=}"
+        ;;
+      hv=*)
+        HOST_VIP="${line#hv=}"
+        ;;
+      ql=*)
+        QUOTA_LIMIT_PERCENT="${line#ql=}"
+        ;;
+      qwp=*)
+        QUOTA_WEEK_PARTITION="${line#qwp=}"
+        ;;
+      cs=*)
+        CODEX_SILENT="${line#cs=}"
+        ;;
+      ath=*)
+        SYNC_REMOTE_ADMIN_THEME="${line#ath=}"
+        CODEX_UI_THEME="${line#ath=}"
+        ;;
+      hs=*)
+        HOST_SECURE="${line#hs=}"
+        ;;
+      hlp=*)
+        HOST_LANE_PREFERENCE="${line#hlp=}"
+        ;;
+      cgs=*)
+        CHATGPT_STATUS="${line#cgs=}"
+        ;;
+      cgp=*)
+        CHATGPT_PLAN="${line#cgp=}"
+        ;;
+      cgn=*)
+        CHATGPT_NEXT="${line#cgn=}"
+        ;;
+      cqal=*)
+        CHATGPT_ACTIVE_LANE="${line#cqal=}"
+        ;;
+      cgu=*)
+        CHATGPT_PRIMARY_USED="${line#cgu=}"
+        ;;
+      cgl=*)
+        CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
+        ;;
+      cgr=*)
+        CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
+        ;;
+      cga=*)
+        CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
+        ;;
+      cgsu=*)
+        CHATGPT_SECONDARY_USED="${line#cgsu=}"
+        ;;
+      cgsl=*)
+        CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
+        ;;
+      cgsr=*)
+        CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
+        ;;
+      cgsa=*)
+        CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
+        ;;
+      cgnu=*)
+        CHATGPT_NORMAL_PRIMARY_USED="${line#cgnu=}"
+        ;;
+      cgnl=*)
+        CHATGPT_NORMAL_PRIMARY_LIMIT="${line#cgnl=}"
+        ;;
+      cgnr=*)
+        CHATGPT_NORMAL_PRIMARY_RESET_AFTER="${line#cgnr=}"
+        ;;
+      cgna=*)
+        CHATGPT_NORMAL_PRIMARY_RESET_AT="${line#cgna=}"
+        ;;
+      cgnsu=*)
+        CHATGPT_NORMAL_SECONDARY_USED="${line#cgnsu=}"
+        ;;
+      cgnsl=*)
+        CHATGPT_NORMAL_SECONDARY_LIMIT="${line#cgnsl=}"
+        ;;
+      cgnsr=*)
+        CHATGPT_NORMAL_SECONDARY_RESET_AFTER="${line#cgnsr=}"
+        ;;
+      cgnsa=*)
+        CHATGPT_NORMAL_SECONDARY_RESET_AT="${line#cgnsa=}"
+        ;;
+      cgspu=*)
+        CHATGPT_SPARK_PRIMARY_USED="${line#cgspu=}"
+        ;;
+      cgspl=*)
+        CHATGPT_SPARK_PRIMARY_LIMIT="${line#cgspl=}"
+        ;;
+      cgspr=*)
+        CHATGPT_SPARK_PRIMARY_RESET_AFTER="${line#cgspr=}"
+        ;;
+      cgspa=*)
+        CHATGPT_SPARK_PRIMARY_RESET_AT="${line#cgspa=}"
+        ;;
+      cgssu=*)
+        CHATGPT_SPARK_SECONDARY_USED="${line#cgssu=}"
+        ;;
+      cgssl=*)
+        CHATGPT_SPARK_SECONDARY_LIMIT="${line#cgssl=}"
+        ;;
+      cgssr=*)
+        CHATGPT_SPARK_SECONDARY_RESET_AFTER="${line#cgssr=}"
+        ;;
+      cgssa=*)
+        CHATGPT_SPARK_SECONDARY_RESET_AT="${line#cgssa=}"
+        ;;
+      cgsln=*)
+        CHATGPT_SPARK_LIMIT_NAME="${line#cgsln=}"
+        ;;
+      cgsmf=*)
+        CHATGPT_SPARK_METERED_FEATURE="${line#cgsmf=}"
+        ;;
+      cgdu=*)
+        CHATGPT_DAILY_USED="${line#cgdu=}"
+        ;;
+      hac=*)
+        HOST_API_CALLS="${line#hac=}"
+        ;;
+      hmtotal=*)
+        HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
+        ;;
+      hminput=*)
+        HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
+        ;;
+      hmoutput=*)
+        HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
+        ;;
+      hmcached=*)
+        HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
+        ;;
+      hmreason=*)
+        HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
+        ;;
+      hmevents=*)
+        HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
+        ;;
+    esac
+  done <<<"$parsed_lines"
+
+  if [[ -z "$CHATGPT_NORMAL_PRIMARY_USED" && -n "$CHATGPT_PRIMARY_USED" ]]; then
+    CHATGPT_NORMAL_PRIMARY_USED="$CHATGPT_PRIMARY_USED"
+    CHATGPT_NORMAL_PRIMARY_LIMIT="$CHATGPT_PRIMARY_LIMIT"
+    CHATGPT_NORMAL_PRIMARY_RESET_AFTER="$CHATGPT_PRIMARY_RESET_AFTER"
+    CHATGPT_NORMAL_PRIMARY_RESET_AT="$CHATGPT_PRIMARY_RESET_AT"
+    CHATGPT_NORMAL_SECONDARY_USED="$CHATGPT_SECONDARY_USED"
+    CHATGPT_NORMAL_SECONDARY_LIMIT="$CHATGPT_SECONDARY_LIMIT"
+    CHATGPT_NORMAL_SECONDARY_RESET_AFTER="$CHATGPT_SECONDARY_RESET_AFTER"
+    CHATGPT_NORMAL_SECONDARY_RESET_AT="$CHATGPT_SECONDARY_RESET_AT"
+  fi
+
+  if [[ "$CHATGPT_ACTIVE_LANE" != "spark" && "$CHATGPT_ACTIVE_LANE" != "normal" ]]; then
+    CHATGPT_ACTIVE_LANE="normal"
+  fi
+
+  local has_spark_lane=0
+  if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
+    has_spark_lane=1
+  fi
+  if [[ "$CHATGPT_ACTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
+    CHATGPT_ACTIVE_LANE="normal"
+  fi
+
+  if [[ "$CHATGPT_ACTIVE_LANE" == "spark" ]]; then
+    CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
+  else
+    CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
+    CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
+    CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
+    CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
+    CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
+    CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
+    CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
+    CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
+  fi
+
+  if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
+    HOST_IS_SECURE=0
+    PURGE_AUTH_AFTER_RUN=1
+    emit_insecure_notice
+    if [[ -z "$INSECURE_SESSION_STARTED_AT" ]]; then
+      INSECURE_SESSION_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    fi
+  else
+    HOST_IS_SECURE=1
+    PURGE_AUTH_AFTER_RUN=0
+    INSECURE_SESSION_STARTED_AT=""
+  fi
+}
+
 sync_auth_with_api() {
   local phase="$1"
   local read_only="${2:-0}"
@@ -465,438 +909,9 @@ PY
       versions_json="$api_output"
       if [[ -n "$versions_json" ]] && command -v python3 >/dev/null 2>&1; then
         local parsed
-        parsed="$(
-          VJSON="$versions_json" python3 - <<'PY'
-import json, os, re, sys
-data = os.environ.get("VJSON", "")
-try:
-    parsed = json.loads(data)
-except Exception:
-    sys.exit(0)
-if not isinstance(parsed, dict):
-    sys.exit(0)
-versions = parsed.get("versions")
-if not isinstance(versions, dict):
-    sys.exit(0)
-cv = versions.get("client_version")
-cvs = versions.get("client_version_source")
-cvx = versions.get("client_version_enforce_exact")
-wv = versions.get("wrapper_version")
-ws = versions.get("wrapper_sha256")
-wu = versions.get("wrapper_url")
-if isinstance(cv, str) and cv.strip():
-    print(f"cv={cv.strip()}")
-if isinstance(cvs, str) and cvs.strip():
-    print(f"cvs={cvs.strip()}")
-if isinstance(cvx, bool):
-    print("cvx=1" if cvx else "cvx=0")
-if isinstance(wv, str) and wv.strip():
-    print(f"wv={wv.strip()}")
-if isinstance(ws, str) and ws.strip():
-    print(f"ws={ws.strip()}")
-if isinstance(wu, str) and wu.strip():
-    print(f"wu={wu.strip()}")
-rs = versions.get("runner_state")
-if isinstance(rs, str) and rs.strip():
-    print(f"rs={rs.strip()}")
-rlo = versions.get("runner_last_ok")
-if isinstance(rlo, str) and rlo.strip():
-    print(f"rlo={rlo.strip()}")
-rlf = versions.get("runner_last_fail")
-if isinstance(rlf, str) and rlf.strip():
-    print(f"rlf={rlf.strip()}")
-rlc = versions.get("runner_last_check")
-if isinstance(rlc, str) and rlc.strip():
-    print(f"rlc={rlc.strip()}")
-re = versions.get("runner_enabled")
-if isinstance(re, bool):
-    print("re=1" if re else "re=0")
-aue = versions.get("auto_update_enabled")
-if isinstance(aue, bool):
-    print("aue=1" if aue else "aue=0")
-asv = parsed.get("auth_status")
-if isinstance(asv, str) and asv.strip():
-    print(f"as={asv.strip()}")
-aact = parsed.get("auth_action")
-if isinstance(aact, str) and aact.strip():
-    print(f"aa={aact.strip()}")
-amsg = parsed.get("auth_message")
-if isinstance(amsg, str) and amsg.strip():
-    print(f"am={amsg.strip()}")
-def _emit_int(key, prefix):
-    if isinstance(key, bool):
-        return
-    if isinstance(key, (int, float)):
-        print(f"{prefix}={int(key)}")
-        return
-    if isinstance(key, str):
-        normalized = key.strip()
-        if not normalized:
-            return
-        if re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
-            print(f"{prefix}={int(float(normalized))}")
-hv = parsed.get("host_vip")
-if isinstance(hv, bool):
-    print("hv=1" if hv else "hv=0")
-qh = parsed.get("quota_hard_fail")
-if isinstance(qh, bool):
-    print("qh=1" if qh else "qh=0")
-elif isinstance(qh, (int, float)):
-    print(f"qh={int(qh)}")
-ql = parsed.get("quota_limit_percent")
-if isinstance(ql, (int, float)):
-    print(f"ql={int(ql)}")
-qwp = parsed.get("quota_week_partition")
-_emit_int(qwp, "qwp")
-csil = parsed.get("cdx_silent")
-if isinstance(csil, bool):
-    print("cs=1" if csil else "cs=0")
-admin_theme = parsed.get("admin_theme")
-if isinstance(admin_theme, str) and admin_theme.strip():
-    print(f"ath={admin_theme.strip().lower()}")
-hs = parsed.get("host_secure")
-if isinstance(hs, bool):
-    print("hs=1" if hs else "hs=0")
-hlp = parsed.get("host_lane_preference")
-if isinstance(hlp, str):
-    hlp = hlp.strip().lower()
-    if hlp in ("normal", "spark"):
-        print(f"hlp={hlp}")
-cgst = parsed.get("chatgpt_status")
-if isinstance(cgst, str) and cgst.strip():
-    print(f"cgs={cgst.strip()}")
-cgpl = parsed.get("chatgpt_plan")
-if isinstance(cgpl, str) and cgpl.strip():
-    print(f"cgp={cgpl.strip()}")
-cgnx = parsed.get("chatgpt_next")
-if isinstance(cgnx, str) and cgnx.strip():
-    print(f"cgn={cgnx.strip()}")
-cqal = parsed.get("chatgpt_active_quota_lane")
-if isinstance(cqal, str) and cqal.strip().lower() in ("normal", "spark"):
-    print(f"cqal={cqal.strip().lower()}")
-cd_u = parsed.get("chatgpt_daily_used_percent") or parsed.get("chatgpt_daily_used")
-_emit_int(cd_u, "cgdu")
-cp_u = parsed.get("chatgpt_primary_used")
-_emit_int(cp_u, "cgu")
-cp_l = parsed.get("chatgpt_primary_limit")
-_emit_int(cp_l, "cgl")
-cp_r = parsed.get("chatgpt_primary_reset_after")
-_emit_int(cp_r, "cgr")
-cp_a = parsed.get("chatgpt_primary_reset_at")
-if isinstance(cp_a, str) and cp_a.strip():
-    print(f"cga={cp_a.strip()}")
-cs_u = parsed.get("chatgpt_secondary_used")
-_emit_int(cs_u, "cgsu")
-cs_l = parsed.get("chatgpt_secondary_limit")
-_emit_int(cs_l, "cgsl")
-cs_r = parsed.get("chatgpt_secondary_reset_after")
-_emit_int(cs_r, "cgsr")
-cs_a = parsed.get("chatgpt_secondary_reset_at")
-if isinstance(cs_a, str) and cs_a.strip():
-    print(f"cgsa={cs_a.strip()}")
-cnp_u = parsed.get("chatgpt_normal_primary_used")
-_emit_int(cnp_u, "cgnu")
-cnp_l = parsed.get("chatgpt_normal_primary_limit")
-_emit_int(cnp_l, "cgnl")
-cnp_r = parsed.get("chatgpt_normal_primary_reset_after")
-_emit_int(cnp_r, "cgnr")
-cnp_a = parsed.get("chatgpt_normal_primary_reset_at")
-if isinstance(cnp_a, str) and cnp_a.strip():
-    print(f"cgna={cnp_a.strip()}")
-cns_u = parsed.get("chatgpt_normal_secondary_used")
-_emit_int(cns_u, "cgnsu")
-cns_l = parsed.get("chatgpt_normal_secondary_limit")
-_emit_int(cns_l, "cgnsl")
-cns_r = parsed.get("chatgpt_normal_secondary_reset_after")
-_emit_int(cns_r, "cgnsr")
-cns_a = parsed.get("chatgpt_normal_secondary_reset_at")
-if isinstance(cns_a, str) and cns_a.strip():
-    print(f"cgnsa={cns_a.strip()}")
-csp_u = parsed.get("chatgpt_spark_primary_used")
-_emit_int(csp_u, "cgspu")
-csp_l = parsed.get("chatgpt_spark_primary_limit")
-_emit_int(csp_l, "cgspl")
-csp_r = parsed.get("chatgpt_spark_primary_reset_after")
-_emit_int(csp_r, "cgspr")
-csp_a = parsed.get("chatgpt_spark_primary_reset_at")
-if isinstance(csp_a, str) and csp_a.strip():
-    print(f"cgspa={csp_a.strip()}")
-css_u = parsed.get("chatgpt_spark_secondary_used")
-_emit_int(css_u, "cgssu")
-css_l = parsed.get("chatgpt_spark_secondary_limit")
-_emit_int(css_l, "cgssl")
-css_r = parsed.get("chatgpt_spark_secondary_reset_after")
-_emit_int(css_r, "cgssr")
-css_a = parsed.get("chatgpt_spark_secondary_reset_at")
-if isinstance(css_a, str) and css_a.strip():
-    print(f"cgssa={css_a.strip()}")
-csl = parsed.get("chatgpt_spark_limit_name")
-if isinstance(csl, str) and csl.strip():
-    print(f"cgsln={csl.strip()}")
-cmf = parsed.get("chatgpt_spark_metered_feature")
-if isinstance(cmf, str) and cmf.strip():
-    print(f"cgsmf={cmf.strip()}")
-api_calls = parsed.get("api_calls")
-_emit_int(api_calls, "hac")
-month_usage = parsed.get("token_usage_month")
-if isinstance(month_usage, dict):
-    def _emit_month(key, prefix):
-        val = month_usage.get(key)
-        _emit_int(val, prefix)
-    _emit_month("total", "hmtotal")
-    _emit_month("input", "hminput")
-    _emit_month("output", "hmoutput")
-    _emit_month("cached", "hmcached")
-    _emit_month("reasoning", "hmreason")
-    _emit_month("events", "hmevents")
-PY
-        )" || true
+        parsed="$(emit_auth_sync_lines_from_json "$versions_json" || true)"
         if [[ -n "$parsed" ]]; then
-          local line
-          while IFS= read -r line; do
-            case "$line" in
-              cv=*)
-                SYNC_REMOTE_CLIENT_VERSION="${line#cv=}"
-                ;;
-              cvs=*)
-                SYNC_REMOTE_CLIENT_VERSION_SOURCE="${line#cvs=}"
-                ;;
-              cvx=*)
-                SYNC_REMOTE_CLIENT_VERSION_ENFORCE_EXACT="${line#cvx=}"
-                ;;
-              wv=*)
-                SYNC_REMOTE_WRAPPER_VERSION="${line#wv=}"
-                ;;
-              ws=*)
-                SYNC_REMOTE_WRAPPER_SHA256="${line#ws=}"
-                ;;
-              wu=*)
-                SYNC_REMOTE_WRAPPER_URL="${line#wu=}"
-                ;;
-              rs=*)
-                RUNNER_STATE="${line#rs=}"
-                ;;
-              rlo=*)
-                RUNNER_LAST_OK="${line#rlo=}"
-                ;;
-              rlf=*)
-                RUNNER_LAST_FAIL="${line#rlf=}"
-                ;;
-              rlc=*)
-                RUNNER_LAST_CHECK="${line#rlc=}"
-                ;;
-              re=*)
-                RUNNER_ENABLED="${line#re=}"
-                ;;
-              aue=*)
-                SYNC_REMOTE_AUTO_UPDATE_CRON="${line#aue=}"
-                ;;
-              as=*)
-                AUTH_STATUS="${line#as=}"
-                ;;
-              aa=*)
-                AUTH_ACTION="${line#aa=}"
-                ;;
-              am=*)
-                AUTH_MESSAGE="${line#am=}"
-                ;;
-              qh=*)
-                QUOTA_HARD_FAIL="${line#qh=}"
-                ;;
-              hv=*)
-                HOST_VIP="${line#hv=}"
-                ;;
-              ql=*)
-                QUOTA_LIMIT_PERCENT="${line#ql=}"
-                ;;
-              qwp=*)
-                QUOTA_WEEK_PARTITION="${line#qwp=}"
-                ;;
-              cs=*)
-                CODEX_SILENT="${line#cs=}"
-                ;;
-              ath=*)
-                SYNC_REMOTE_ADMIN_THEME="${line#ath=}"
-                CODEX_UI_THEME="${line#ath=}"
-                ;;
-              hs=*)
-                HOST_SECURE="${line#hs=}"
-                ;;
-              hlp=*)
-                HOST_LANE_PREFERENCE="${line#hlp=}"
-                ;;
-              cgs=*)
-                CHATGPT_STATUS="${line#cgs=}"
-                ;;
-              cgp=*)
-                CHATGPT_PLAN="${line#cgp=}"
-                ;;
-              cgn=*)
-                CHATGPT_NEXT="${line#cgn=}"
-                ;;
-              cqal=*)
-                CHATGPT_ACTIVE_LANE="${line#cqal=}"
-                ;;
-              cgu=*)
-                CHATGPT_PRIMARY_USED="${line#cgu=}"
-                ;;
-              cgl=*)
-                CHATGPT_PRIMARY_LIMIT="${line#cgl=}"
-                ;;
-              cgr=*)
-                CHATGPT_PRIMARY_RESET_AFTER="${line#cgr=}"
-                ;;
-              cga=*)
-                CHATGPT_PRIMARY_RESET_AT="${line#cga=}"
-                ;;
-              cgsu=*)
-                CHATGPT_SECONDARY_USED="${line#cgsu=}"
-                ;;
-              cgsl=*)
-                CHATGPT_SECONDARY_LIMIT="${line#cgsl=}"
-                ;;
-              cgsr=*)
-                CHATGPT_SECONDARY_RESET_AFTER="${line#cgsr=}"
-                ;;
-              cgsa=*)
-                CHATGPT_SECONDARY_RESET_AT="${line#cgsa=}"
-                ;;
-              cgnu=*)
-                CHATGPT_NORMAL_PRIMARY_USED="${line#cgnu=}"
-                ;;
-              cgnl=*)
-                CHATGPT_NORMAL_PRIMARY_LIMIT="${line#cgnl=}"
-                ;;
-              cgnr=*)
-                CHATGPT_NORMAL_PRIMARY_RESET_AFTER="${line#cgnr=}"
-                ;;
-              cgna=*)
-                CHATGPT_NORMAL_PRIMARY_RESET_AT="${line#cgna=}"
-                ;;
-              cgnsu=*)
-                CHATGPT_NORMAL_SECONDARY_USED="${line#cgnsu=}"
-                ;;
-              cgnsl=*)
-                CHATGPT_NORMAL_SECONDARY_LIMIT="${line#cgnsl=}"
-                ;;
-              cgnsr=*)
-                CHATGPT_NORMAL_SECONDARY_RESET_AFTER="${line#cgnsr=}"
-                ;;
-              cgnsa=*)
-                CHATGPT_NORMAL_SECONDARY_RESET_AT="${line#cgnsa=}"
-                ;;
-              cgspu=*)
-                CHATGPT_SPARK_PRIMARY_USED="${line#cgspu=}"
-                ;;
-              cgspl=*)
-                CHATGPT_SPARK_PRIMARY_LIMIT="${line#cgspl=}"
-                ;;
-              cgspr=*)
-                CHATGPT_SPARK_PRIMARY_RESET_AFTER="${line#cgspr=}"
-                ;;
-              cgspa=*)
-                CHATGPT_SPARK_PRIMARY_RESET_AT="${line#cgspa=}"
-                ;;
-              cgssu=*)
-                CHATGPT_SPARK_SECONDARY_USED="${line#cgssu=}"
-                ;;
-              cgssl=*)
-                CHATGPT_SPARK_SECONDARY_LIMIT="${line#cgssl=}"
-                ;;
-              cgssr=*)
-                CHATGPT_SPARK_SECONDARY_RESET_AFTER="${line#cgssr=}"
-                ;;
-              cgssa=*)
-                CHATGPT_SPARK_SECONDARY_RESET_AT="${line#cgssa=}"
-                ;;
-              cgsln=*)
-                CHATGPT_SPARK_LIMIT_NAME="${line#cgsln=}"
-                ;;
-              cgsmf=*)
-                CHATGPT_SPARK_METERED_FEATURE="${line#cgsmf=}"
-                ;;
-              cgdu=*)
-                CHATGPT_DAILY_USED="${line#cgdu=}"
-                ;;
-              hac=*)
-                HOST_API_CALLS="${line#hac=}"
-                ;;
-              hmtotal=*)
-                HOST_TOKENS_MONTH_TOTAL="${line#hmtotal=}"
-                ;;
-              hminput=*)
-                HOST_TOKENS_MONTH_INPUT="${line#hminput=}"
-                ;;
-              hmoutput=*)
-                HOST_TOKENS_MONTH_OUTPUT="${line#hmoutput=}"
-                ;;
-              hmcached=*)
-                HOST_TOKENS_MONTH_CACHED="${line#hmcached=}"
-                ;;
-              hmreason=*)
-                HOST_TOKENS_MONTH_REASONING="${line#hmreason=}"
-                ;;
-              hmevents=*)
-                HOST_TOKENS_MONTH_EVENTS="${line#hmevents=}"
-                ;;
-            esac
-          done <<<"$parsed"
-
-          if [[ -z "$CHATGPT_NORMAL_PRIMARY_USED" && -n "$CHATGPT_PRIMARY_USED" ]]; then
-            CHATGPT_NORMAL_PRIMARY_USED="$CHATGPT_PRIMARY_USED"
-            CHATGPT_NORMAL_PRIMARY_LIMIT="$CHATGPT_PRIMARY_LIMIT"
-            CHATGPT_NORMAL_PRIMARY_RESET_AFTER="$CHATGPT_PRIMARY_RESET_AFTER"
-            CHATGPT_NORMAL_PRIMARY_RESET_AT="$CHATGPT_PRIMARY_RESET_AT"
-            CHATGPT_NORMAL_SECONDARY_USED="$CHATGPT_SECONDARY_USED"
-            CHATGPT_NORMAL_SECONDARY_LIMIT="$CHATGPT_SECONDARY_LIMIT"
-            CHATGPT_NORMAL_SECONDARY_RESET_AFTER="$CHATGPT_SECONDARY_RESET_AFTER"
-            CHATGPT_NORMAL_SECONDARY_RESET_AT="$CHATGPT_SECONDARY_RESET_AT"
-          fi
-
-          if [[ "$CHATGPT_ACTIVE_LANE" != "spark" && "$CHATGPT_ACTIVE_LANE" != "normal" ]]; then
-            CHATGPT_ACTIVE_LANE="normal"
-          fi
-
-          local has_spark_lane=0
-          if [[ -n "$CHATGPT_SPARK_PRIMARY_USED" || -n "$CHATGPT_SPARK_PRIMARY_LIMIT" || -n "$CHATGPT_SPARK_SECONDARY_USED" || -n "$CHATGPT_SPARK_SECONDARY_LIMIT" ]]; then
-            has_spark_lane=1
-          fi
-          if [[ "$CHATGPT_ACTIVE_LANE" == "spark" && "$has_spark_lane" != "1" ]]; then
-            CHATGPT_ACTIVE_LANE="normal"
-          fi
-
-          if [[ "$CHATGPT_ACTIVE_LANE" == "spark" ]]; then
-            CHATGPT_PRIMARY_USED="$CHATGPT_SPARK_PRIMARY_USED"
-            CHATGPT_PRIMARY_LIMIT="$CHATGPT_SPARK_PRIMARY_LIMIT"
-            CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_SPARK_PRIMARY_RESET_AFTER"
-            CHATGPT_PRIMARY_RESET_AT="$CHATGPT_SPARK_PRIMARY_RESET_AT"
-            CHATGPT_SECONDARY_USED="$CHATGPT_SPARK_SECONDARY_USED"
-            CHATGPT_SECONDARY_LIMIT="$CHATGPT_SPARK_SECONDARY_LIMIT"
-            CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_SPARK_SECONDARY_RESET_AFTER"
-            CHATGPT_SECONDARY_RESET_AT="$CHATGPT_SPARK_SECONDARY_RESET_AT"
-          else
-            CHATGPT_PRIMARY_USED="$CHATGPT_NORMAL_PRIMARY_USED"
-            CHATGPT_PRIMARY_LIMIT="$CHATGPT_NORMAL_PRIMARY_LIMIT"
-            CHATGPT_PRIMARY_RESET_AFTER="$CHATGPT_NORMAL_PRIMARY_RESET_AFTER"
-            CHATGPT_PRIMARY_RESET_AT="$CHATGPT_NORMAL_PRIMARY_RESET_AT"
-            CHATGPT_SECONDARY_USED="$CHATGPT_NORMAL_SECONDARY_USED"
-            CHATGPT_SECONDARY_LIMIT="$CHATGPT_NORMAL_SECONDARY_LIMIT"
-            CHATGPT_SECONDARY_RESET_AFTER="$CHATGPT_NORMAL_SECONDARY_RESET_AFTER"
-            CHATGPT_SECONDARY_RESET_AT="$CHATGPT_NORMAL_SECONDARY_RESET_AT"
-          fi
-
-          if [[ "$HOST_SECURE" == "0" || "$(lowercase "$HOST_SECURE")" == "false" ]]; then
-            HOST_IS_SECURE=0
-            PURGE_AUTH_AFTER_RUN=1
-            emit_insecure_notice
-            if [[ -z "$INSECURE_SESSION_STARTED_AT" ]]; then
-              INSECURE_SESSION_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            fi
-          else
-            HOST_IS_SECURE=1
-            PURGE_AUTH_AFTER_RUN=0
-            INSECURE_SESSION_STARTED_AT=""
-          fi
+          apply_auth_sync_lines "$parsed"
         fi
       fi
       AUTH_PULL_STATUS="ok"

@@ -97,20 +97,38 @@ if ((CDX_ACTIVE_RUN_DETECTED)); then
     AUTH_PULL_REASON="$concurrent_reason"
   fi
 else
-  # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
-  _t_auth="$(cdx_time_ms)"
-  sync_auth_with_api "pull" || true
-  cdx_debug_phase "auth-sync" "$_t_auth"
   cleanup_legacy_prompt_state || true
   sync_skills_pull || true
-  _t_bundle="$(cdx_time_ms)"
-  if ! sync_startup_bundle_pull; then
-    if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
-      sync_agents_pull || true
-      sync_config_pull || true
+  if startup_bundle_can_include_auth "$HOME/.codex/auth.json"; then
+    _t_bundle="$(cdx_time_ms)"
+    if ! sync_startup_bundle_pull; then
+      if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
+        _t_auth="$(cdx_time_ms)"
+        sync_auth_with_api "pull" || true
+        cdx_debug_phase "auth-sync" "$_t_auth"
+        sync_agents_pull || true
+        sync_config_pull || true
+      elif [[ "$STARTUP_BUNDLE_SYNC_STATUS" != "offline" ]]; then
+        _t_auth="$(cdx_time_ms)"
+        sync_auth_with_api "pull" || true
+        cdx_debug_phase "auth-sync" "$_t_auth"
+      fi
     fi
+    cdx_debug_phase "bundle-sync" "$_t_bundle"
+  else
+    # Early auth + versions sync (single POST), captures target versions and hydrates auth if needed.
+    _t_auth="$(cdx_time_ms)"
+    sync_auth_with_api "pull" || true
+    cdx_debug_phase "auth-sync" "$_t_auth"
+    _t_bundle="$(cdx_time_ms)"
+    if ! sync_startup_bundle_pull; then
+      if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then
+        sync_agents_pull || true
+        sync_config_pull || true
+      fi
+    fi
+    cdx_debug_phase "bundle-sync" "$_t_bundle"
   fi
-  cdx_debug_phase "bundle-sync" "$_t_bundle"
 fi
 ORIGINAL_LAST_REFRESH="$(get_auth_last_refresh "$HOME/.codex/auth.json")"
 ORIGINAL_AUTH_SHA="$(sha256_file "$HOME/.codex/auth.json" 2>/dev/null || true)"

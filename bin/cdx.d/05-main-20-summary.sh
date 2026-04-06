@@ -1231,23 +1231,25 @@ print_boot_screen() {
     local mcp_updated_marker=0
     local runner_updated_marker=0
 
-    if [[ "${AUTH_PULL_STATUS:-}" == "ok" ]]; then
-      api_updated_marker=1
-    fi
-    if [[ "${AUTH_ACTION:-}" == "store" ]]; then
+    api_updated_marker=0
+    if [[ "${AUTH_ACTION:-}" == "store" || "${AUTH_STATUS:-}" == "outdated" ]]; then
       auth_updated_marker=1
-    fi
-    if [[ "${SKILL_SYNC_STATUS:-}" == "mcp" ]]; then
-      skills_updated_marker=1
     fi
     if [[ "${SKILL_REMOVED:-0}" =~ ^[0-9]+$ ]] && ((SKILL_REMOVED > 0)); then
       skills_updated_marker=1
     fi
-    if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" ]]; then
+    if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && ( "${CONFIG_STATE:-}" == "updated" || "${CONFIG_STATE:-}" == "missing" ) ]]; then
       mcp_updated_marker=1
     fi
-    if [[ "${AUTH_PULL_STATUS:-}" == "ok" && "${RUNNER_ENABLED:-0}" == "1" ]]; then
-      runner_updated_marker=1
+    if [[ "${RUNNER_ENABLED:-0}" == "1" && -n "${RUNNER_LAST_CHECK:-}" ]]; then
+      local runner_last_check_age=""
+      runner_last_check_age="$(seconds_since_iso "$RUNNER_LAST_CHECK" 2>/dev/null || true)"
+      if [[ "$runner_last_check_age" =~ ^-?[0-9]+$ ]]; then
+        ((runner_last_check_age < 0)) && runner_last_check_age=$((-runner_last_check_age))
+        if ((runner_last_check_age <= 120)); then
+          runner_updated_marker=1
+        fi
+      fi
     fi
 
     dots+="$(build_health_dot "api" "${api_tone:-yellow}" "${api_updated_marker}")"
