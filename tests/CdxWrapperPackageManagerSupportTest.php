@@ -61,6 +61,24 @@ final class CdxWrapperPackageManagerSupportTest extends TestCase
         self::assertStringContainsString('dnf install -y "${install_missing[@]}"', $wrapperSource);
     }
 
+    public function testWrapperRetriesLegacyYumPythonPackageName(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString(
+            'Retrying legacy yum Python install with python36',
+            $wrapperSource,
+            'Legacy YUM hosts should retry the Python install with the older python36 package name.'
+        );
+        self::assertStringContainsString(
+            'yum install -y python36',
+            $wrapperSource,
+            'Legacy YUM fallback should install python36 when python3 is unavailable.'
+        );
+    }
+
     public function testWrapperMapsBwrapToBubblewrapForAptDnfAndYumHosts(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';

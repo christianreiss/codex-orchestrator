@@ -107,6 +107,81 @@ lowercase() {
   printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
 }
 
+python3_compat_version_ok() {
+  local candidate="${1-}"
+  [[ -n "$candidate" ]] || return 1
+  "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)' >/dev/null 2>&1
+}
+
+detect_python3_compat_command() {
+  local candidate
+  local -a candidates=()
+  if [[ -n "${CODEX_PYTHON_BIN:-}" ]]; then
+    candidates+=("${CODEX_PYTHON_BIN}")
+  fi
+  candidates+=(
+    python3
+    python3.13
+    python3.12
+    python3.11
+    python3.10
+    python3.9
+    python3.8
+    python3.7
+    python3.6
+    python313
+    python312
+    python311
+    python310
+    python39
+    python38
+    python37
+    python36
+    platform-python
+    python
+  )
+  for candidate in "${candidates[@]}"; do
+    [[ -n "$candidate" ]] || continue
+    if ! command -v "$candidate" >/dev/null 2>&1; then
+      continue
+    fi
+    local resolved=""
+    resolved="$(command -v "$candidate" 2>/dev/null || true)"
+    [[ -n "$resolved" ]] || resolved="$candidate"
+    if python3_compat_version_ok "$resolved"; then
+      printf '%s' "$resolved"
+      return 0
+    fi
+  done
+  return 1
+}
+
+activate_python3_shim() {
+  local native_python3=""
+  native_python3="$(type -P python3 2>/dev/null || true)"
+  if [[ -n "$native_python3" ]] && python3_compat_version_ok "$native_python3"; then
+    CODEX_PYTHON_BIN="$native_python3"
+    return 0
+  fi
+
+  local detected=""
+  detected="$(detect_python3_compat_command || true)"
+  if [[ -z "$detected" ]]; then
+    return 1
+  fi
+
+  CODEX_PYTHON_BIN="$detected"
+  if [[ -z "$native_python3" ]]; then
+    python3() {
+      "$CODEX_PYTHON_BIN" "$@"
+    }
+  fi
+  return 0
+}
+
+CODEX_PYTHON_BIN="${CODEX_PYTHON_BIN:-}"
+activate_python3_shim || true
+
 normalize_admin_theme() {
   local normalized
   normalized="$(lowercase "${1-}")"
@@ -837,7 +912,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.06-01"
+WRAPPER_VERSION="2026.04.07-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

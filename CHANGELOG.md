@@ -1,3 +1,6 @@
+# 2026-04-07
+- cdx wrapper: older Linux hosts now resolve a compatible Python 3 interpreter before the existing `python3` callsites run, so `python3.6`, `python36`, and `platform-python` layouts work without wrapper surgery. Normal startup prerequisite installs now also ensure Python 3, legacy YUM retries `python36` when `python3` is unavailable, the RFC3339 helpers no longer rely on `datetime.fromisoformat()`, and the wrapper version bumped to `2026.04.07-01`.
+
 # 2026-04-06
 - cdx wrapper: healthy non-concurrent boots now let the startup bundle carry auth metadata/refresh too when local `auth.json` is already valid, so secure hosts avoid the extra pre-run `/auth` round trip. Older/missing-auth paths still fall back to the standalone auth sync, startup health markers only show `updated` for real local changes, and the wrapper version bumped to `2026.04.06-01`.
 

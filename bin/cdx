@@ -107,6 +107,81 @@ lowercase() {
   printf '%s' "$input" | tr '[:upper:]' '[:lower:]'
 }
 
+python3_compat_version_ok() {
+  local candidate="${1-}"
+  [[ -n "$candidate" ]] || return 1
+  "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)' >/dev/null 2>&1
+}
+
+detect_python3_compat_command() {
+  local candidate
+  local -a candidates=()
+  if [[ -n "${CODEX_PYTHON_BIN:-}" ]]; then
+    candidates+=("${CODEX_PYTHON_BIN}")
+  fi
+  candidates+=(
+    python3
+    python3.13
+    python3.12
+    python3.11
+    python3.10
+    python3.9
+    python3.8
+    python3.7
+    python3.6
+    python313
+    python312
+    python311
+    python310
+    python39
+    python38
+    python37
+    python36
+    platform-python
+    python
+  )
+  for candidate in "${candidates[@]}"; do
+    [[ -n "$candidate" ]] || continue
+    if ! command -v "$candidate" >/dev/null 2>&1; then
+      continue
+    fi
+    local resolved=""
+    resolved="$(command -v "$candidate" 2>/dev/null || true)"
+    [[ -n "$resolved" ]] || resolved="$candidate"
+    if python3_compat_version_ok "$resolved"; then
+      printf '%s' "$resolved"
+      return 0
+    fi
+  done
+  return 1
+}
+
+activate_python3_shim() {
+  local native_python3=""
+  native_python3="$(type -P python3 2>/dev/null || true)"
+  if [[ -n "$native_python3" ]] && python3_compat_version_ok "$native_python3"; then
+    CODEX_PYTHON_BIN="$native_python3"
+    return 0
+  fi
+
+  local detected=""
+  detected="$(detect_python3_compat_command || true)"
+  if [[ -z "$detected" ]]; then
+    return 1
+  fi
+
+  CODEX_PYTHON_BIN="$detected"
+  if [[ -z "$native_python3" ]]; then
+    python3() {
+      "$CODEX_PYTHON_BIN" "$@"
+    }
+  fi
+  return 0
+}
+
+CODEX_PYTHON_BIN="${CODEX_PYTHON_BIN:-}"
+activate_python3_shim || true
+
 normalize_admin_theme() {
   local normalized
   normalized="$(lowercase "${1-}")"
@@ -837,7 +912,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.06-01"
+WRAPPER_VERSION="2026.04.07-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2236,10 +2311,31 @@ install_missing_commands() {
           ;;
         yum)
           log_info "Installing prerequisites (${missing[*]}) with yum"
+          local yum_status=0
           if ((${#use_sudo[@]} > 0)); then
-            "${use_sudo[@]}" yum install -y "${install_missing[@]}" || return 1
+            "${use_sudo[@]}" yum install -y "${install_missing[@]}" || yum_status=$?
           else
-            yum install -y "${install_missing[@]}" || return 1
+            yum install -y "${install_missing[@]}" || yum_status=$?
+          fi
+          if ((yum_status != 0)); then
+            local python_only_fallback=1
+            local pkg_name
+            for pkg_name in "${install_missing[@]}"; do
+              if [[ "$pkg_name" != "python3" ]]; then
+                python_only_fallback=0
+                break
+              fi
+            done
+            if ((python_only_fallback)); then
+              log_info "Retrying legacy yum Python install with python36"
+              if ((${#use_sudo[@]} > 0)); then
+                "${use_sudo[@]}" yum install -y python36 || return 1
+              else
+                yum install -y python36 || return 1
+              fi
+            else
+              return 1
+            fi
           fi
           ;;
         pacman)
@@ -2306,6 +2402,8 @@ ensure_commands() {
     log_error "Failed to install required commands: ${still_missing[*]}"
     exit 1
   fi
+
+  activate_python3_shim || true
 }
 
 ensure_optional_commands() {
@@ -2336,6 +2434,8 @@ ensure_optional_commands() {
   if ((${#still_missing[@]} > 0)); then
     log_warn "Optional prerequisites still missing (${still_missing[*]}). Continuing; Codex may use built-in fallbacks."
   fi
+
+  activate_python3_shim || true
 }
 
 is_codex_installed_via_npm() {
@@ -2536,7 +2636,7 @@ probe_latest_version_tag() {
 }
 
 require_python() {
-  if ! command -v python3 >/dev/null 2>&1; then
+  if ! activate_python3_shim; then
     log_warn "python3 is required for update checks; skipping update detection."
     return 1
   fi
@@ -3819,8 +3919,25 @@ from datetime import timezone
 value = sys.argv[1]
 max_age_seconds = int(sys.argv[2])
 max_future_skew = 300
+
+def parse_iso8601(raw):
+    normalized = (raw or "").strip()
+    if not normalized:
+        raise ValueError("missing timestamp")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+0000"
+    elif len(normalized) >= 6 and normalized[-6] in ("+", "-") and normalized[-3] == ":":
+        normalized = normalized[:-3] + normalized[-2:]
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.datetime.strptime(normalized, fmt)
+        except Exception:
+            continue
+    raise ValueError("invalid timestamp")
+
 try:
-    dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    dt = parse_iso8601(value)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     now = datetime.datetime.now(timezone.utc)
@@ -6817,6 +6934,7 @@ if [[ "$platform_os" == "Linux" ]]; then
       ensure_commands curl
     else
       ensure_commands curl unzip
+      ensure_commands python3
       ensure_optional_commands bwrap
     fi
   fi
@@ -6824,7 +6942,8 @@ elif [[ "$platform_os" == "Darwin" ]]; then
   if ((CODEX_EXIT_AFTER_UPDATE)); then
     ensure_commands curl
   else
-    ensure_commands python3 curl unzip
+    ensure_commands curl unzip
+    ensure_commands python3
   fi
 fi
 
@@ -8007,8 +8126,25 @@ seconds_since_iso() {
   python3 - "$iso" <<'PY'
 import datetime, sys
 raw = sys.argv[1]
+
+def parse_iso8601(value):
+    normalized = (value or "").strip()
+    if not normalized:
+        raise ValueError("missing timestamp")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+0000"
+    elif len(normalized) >= 6 and normalized[-6] in ("+", "-") and normalized[-3] == ":":
+        normalized = normalized[:-3] + normalized[-2:]
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.datetime.strptime(normalized, fmt)
+        except Exception:
+            continue
+    raise ValueError("invalid timestamp")
+
 try:
-    dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    dt = parse_iso8601(raw)
 except Exception:  # noqa: BLE001
     sys.exit(1)
 now = datetime.datetime.now(datetime.timezone.utc)

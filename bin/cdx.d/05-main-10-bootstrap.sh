@@ -43,6 +43,7 @@ if [[ "$platform_os" == "Linux" ]]; then
       ensure_commands curl
     else
       ensure_commands curl unzip
+      ensure_commands python3
       ensure_optional_commands bwrap
     fi
   fi
@@ -50,7 +51,8 @@ elif [[ "$platform_os" == "Darwin" ]]; then
   if ((CODEX_EXIT_AFTER_UPDATE)); then
     ensure_commands curl
   else
-    ensure_commands python3 curl unzip
+    ensure_commands curl unzip
+    ensure_commands python3
   fi
 fi
 

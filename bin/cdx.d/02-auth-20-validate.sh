@@ -36,8 +36,25 @@ from datetime import timezone
 value = sys.argv[1]
 max_age_seconds = int(sys.argv[2])
 max_future_skew = 300
+
+def parse_iso8601(raw):
+    normalized = (raw or "").strip()
+    if not normalized:
+        raise ValueError("missing timestamp")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+0000"
+    elif len(normalized) >= 6 and normalized[-6] in ("+", "-") and normalized[-3] == ":":
+        normalized = normalized[:-3] + normalized[-2:]
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.datetime.strptime(normalized, fmt)
+        except Exception:
+            continue
+    raise ValueError("invalid timestamp")
+
 try:
-    dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    dt = parse_iso8601(value)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     now = datetime.datetime.now(timezone.utc)

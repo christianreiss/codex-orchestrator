@@ -732,8 +732,25 @@ seconds_since_iso() {
   python3 - "$iso" <<'PY'
 import datetime, sys
 raw = sys.argv[1]
+
+def parse_iso8601(value):
+    normalized = (value or "").strip()
+    if not normalized:
+        raise ValueError("missing timestamp")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+0000"
+    elif len(normalized) >= 6 and normalized[-6] in ("+", "-") and normalized[-3] == ":":
+        normalized = normalized[:-3] + normalized[-2:]
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.datetime.strptime(normalized, fmt)
+        except Exception:
+            continue
+    raise ValueError("invalid timestamp")
+
 try:
-    dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    dt = parse_iso8601(raw)
 except Exception:  # noqa: BLE001
     sys.exit(1)
 now = datetime.datetime.now(datetime.timezone.utc)

@@ -236,8 +236,9 @@ Codex updates:
 - Cron HTTPS probes build the same relaxed SSL context chain as the other wrapper sync paths: optional baked CA, `VERIFY_X509_STRICT` fallback disable when available, and insecure mode only when the host was explicitly baked with `curl_insecure` / `CODEX_SYNC_ALLOW_INSECURE=1`.
 - When a specific platform asset name is requested during release resolution, wrapper update paths fail closed if that exact asset is missing; generic `codex` fallback is only allowed when no explicit asset name was requested.
 - After a checksum-verified cron update installs successfully, report submission is retried and a persistent report failure exits non-zero so operators can see the incomplete rollout.
-- Linux prerequisite auto-install hard-requires `curl` and `unzip`; `bwrap`/Bubblewrap is best-effort only and never blocks launch because Codex can fall back to its vendored sandbox helper.
-- `cdx --update` is treated as a recovery path: before the forced wrapper/Codex update flow it requires only `curl`, so stale wrappers can still replace themselves and then continue into the Codex check even when optional prerequisites or package mappings are broken locally.
+- Linux prerequisite auto-install hard-requires a compatible Python 3 interpreter plus `curl` and `unzip`; `bwrap`/Bubblewrap is best-effort only and never blocks launch because Codex can fall back to its vendored sandbox helper.
+- When `python3` is missing, the wrapper first accepts compatible alternatives already on the host (`python3.6`, `python36`, `platform-python`, or `python` when it is Python 3). On legacy YUM hosts, auto-install retries `python36` if `python3` is not available as a package.
+- `cdx --update` is treated as a recovery path: before the forced wrapper/Codex update flow it requires only `curl`, so stale wrappers can still replace themselves and then continue into the Codex check even when optional prerequisites or package mappings are broken locally. Normal startup still ensures a compatible Python 3 interpreter before sync/update work when the wrapper can manage prerequisites.
 - macOS prerequisite auto-install uses Homebrew (`python3`, `curl`, `unzip`).
 - `cdx doctor` reports SSH session/terminal env hints alongside the local Codex CLI version and SSH launch mode.
 

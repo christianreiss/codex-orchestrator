@@ -73,10 +73,31 @@ install_missing_commands() {
           ;;
         yum)
           log_info "Installing prerequisites (${missing[*]}) with yum"
+          local yum_status=0
           if ((${#use_sudo[@]} > 0)); then
-            "${use_sudo[@]}" yum install -y "${install_missing[@]}" || return 1
+            "${use_sudo[@]}" yum install -y "${install_missing[@]}" || yum_status=$?
           else
-            yum install -y "${install_missing[@]}" || return 1
+            yum install -y "${install_missing[@]}" || yum_status=$?
+          fi
+          if ((yum_status != 0)); then
+            local python_only_fallback=1
+            local pkg_name
+            for pkg_name in "${install_missing[@]}"; do
+              if [[ "$pkg_name" != "python3" ]]; then
+                python_only_fallback=0
+                break
+              fi
+            done
+            if ((python_only_fallback)); then
+              log_info "Retrying legacy yum Python install with python36"
+              if ((${#use_sudo[@]} > 0)); then
+                "${use_sudo[@]}" yum install -y python36 || return 1
+              else
+                yum install -y python36 || return 1
+              fi
+            else
+              return 1
+            fi
           fi
           ;;
         pacman)
@@ -143,6 +164,8 @@ ensure_commands() {
     log_error "Failed to install required commands: ${still_missing[*]}"
     exit 1
   fi
+
+  activate_python3_shim || true
 }
 
 ensure_optional_commands() {
@@ -173,6 +196,8 @@ ensure_optional_commands() {
   if ((${#still_missing[@]} > 0)); then
     log_warn "Optional prerequisites still missing (${still_missing[*]}). Continuing; Codex may use built-in fallbacks."
   fi
+
+  activate_python3_shim || true
 }
 
 is_codex_installed_via_npm() {
@@ -373,7 +398,7 @@ probe_latest_version_tag() {
 }
 
 require_python() {
-  if ! command -v python3 >/dev/null 2>&1; then
+  if ! activate_python3_shim; then
     log_warn "python3 is required for update checks; skipping update detection."
     return 1
   fi
