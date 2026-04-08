@@ -550,15 +550,9 @@ build_insecure_approval_pending_box() {
   local last_check="${2-}"
   local approval_status="${3:-Pending; open Admin, click Enable window}"
   local title_suffix="${LOCAL_VERSION:-unknown}"
-  local title=""
-  local model_line=""
-  local directory_line=""
-  local status_line=""
-  local last_check_line=""
-  local checks_line=""
   local cols=0
   local max_content_width=0
-  local min_content_width=45
+  local min_content_width=52
   local content_width=0
   local top_left="╭"
   local top_right="╮"
@@ -566,9 +560,17 @@ build_insecure_approval_pending_box() {
   local bottom_right="╯"
   local horizontal="─"
   local vertical="│"
-  local line=""
-  local truncated=""
-  local -a lines=()
+  local accent="▌"
+  local bullet="◆"
+  local -a spinner_frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+  local frame_index=0
+  if [[ "$checks" =~ ^[0-9]+$ ]]; then
+    frame_index=$((checks % 10))
+  fi
+  local spinner="${spinner_frames[$frame_index]}"
+  local -a plain_lines=()
+  local -a styled_lines=()
+  local plain="" styled="" line=""
 
   if ((CODEX_TERM_IS_DUMB)); then
     top_left="+"
@@ -577,32 +579,58 @@ build_insecure_approval_pending_box() {
     bottom_right="+"
     horizontal="-"
     vertical="|"
+    accent="|"
+    bullet="*"
+    spinner="*"
   fi
 
   if [[ -z "$last_check" ]]; then
     last_check="waiting..."
   fi
-  if [[ -z "$title_suffix" ]]; then
-    title=">_ OpenAI Codex"
-  else
-    title=">_ OpenAI Codex (v${title_suffix})"
+
+  local title_text=">_ OpenAI Codex"
+  if [[ -n "$title_suffix" ]]; then
+    title_text=">_ OpenAI Codex  v${title_suffix}"
   fi
-  local tagline="   Codex to Brrr!"
-  model_line="$(format_approval_box_field "model:" "$(detect_insecure_approval_model)")"
-  directory_line="$(format_approval_box_field "directory:" "$(compact_display_path "${PWD:-}")")"
-  status_line="$(format_approval_box_field "approval:" "$approval_status")"
-  last_check_line="$(format_approval_box_field "last check:" "$last_check")"
-  checks_line="$(format_approval_box_field "checks:" "$checks")"
-  lines=(
-    "$title"
-    "$tagline"
-    ""
-    "$model_line"
-    "$directory_line"
-    "$status_line"
-    "$last_check_line"
-    "$checks_line"
-  )
+  local tagline_text="~ Codex to Brrr! ~"
+  local model_value
+  model_value="$(detect_insecure_approval_model)"
+  local dir_value
+  dir_value="$(compact_display_path "${PWD:-}")"
+
+  # Title row
+  plain="$accent $title_text"
+  styled="$(printf '%b%s%b %b%s%b' "${MAGENTA}${BOLD}" "$accent" "$RESET" "${BOLD}${CYAN}" "$title_text" "$RESET")"
+  plain_lines+=("$plain"); styled_lines+=("$styled")
+
+  # Tagline row
+  plain="$accent $tagline_text"
+  styled="$(printf '%b%s%b %b%s%b' "${MAGENTA}${BOLD}" "$accent" "$RESET" "${DIM}${PINK}" "$tagline_text" "$RESET")"
+  plain_lines+=("$plain"); styled_lines+=("$styled")
+
+  # Spacer
+  plain_lines+=(""); styled_lines+=("")
+
+  _approval_field_row() {
+    local _label="$1"
+    local _value="$2"
+    local _value_color="${3-}"
+    local _p _s
+    _p="$(printf '%s %-12s %s' "$bullet" "$_label" "$_value")"
+    if [[ -n "$_value_color" ]]; then
+      _s="$(printf '%b%s%b %b%-12s%b %b%s%b' "${CYAN}${BOLD}" "$bullet" "$RESET" "$DIM" "$_label" "$RESET" "$_value_color" "$_value" "$RESET")"
+    else
+      _s="$(printf '%b%s%b %b%-12s%b %s' "${CYAN}${BOLD}" "$bullet" "$RESET" "$DIM" "$_label" "$RESET" "$_value")"
+    fi
+    plain_lines+=("$_p")
+    styled_lines+=("$_s")
+  }
+
+  _approval_field_row "model:" "$model_value" "${BOLD}"
+  _approval_field_row "directory:" "$dir_value" "${BLUE}"
+  _approval_field_row "approval:" "$approval_status" "${YELLOW}${BOLD}"
+  _approval_field_row "last check:" "$last_check" "${DIM}"
+  _approval_field_row "checks:" "$spinner  $checks" "${GREEN}${BOLD}"
 
   cols="$(approval_box_terminal_columns)"
   max_content_width=$((cols - 4))
@@ -610,21 +638,29 @@ build_insecure_approval_pending_box() {
     max_content_width=32
   fi
   content_width=$min_content_width
-  for line in "${lines[@]}"; do
-    if ((${#line} > content_width)); then
-      content_width=${#line}
+  local i=0
+  for ((i = 0; i < ${#plain_lines[@]}; i++)); do
+    if ((${#plain_lines[$i]} > content_width)); then
+      content_width=${#plain_lines[$i]}
     fi
   done
   if ((content_width > max_content_width)); then
     content_width=$max_content_width
   fi
 
-  printf '%s%s%s\n' "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right"
-  for line in "${lines[@]}"; do
-    truncated="$(truncate_box_text "$line" "$content_width")"
-    printf '%s %-*s %s\n' "$vertical" "$content_width" "$truncated" "$vertical"
+  printf '%b%s%s%s%b\n' "${CYAN}${BOLD}" "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right" "$RESET"
+  for ((i = 0; i < ${#plain_lines[@]}; i++)); do
+    local pl="${plain_lines[$i]}"
+    local st="${styled_lines[$i]}"
+    if ((${#pl} > content_width)); then
+      pl="$(truncate_box_text "$pl" "$content_width")"
+      st="$pl"
+    fi
+    local pad=$((content_width - ${#pl}))
+    ((pad < 0)) && pad=0
+    printf '%b%s%b %s%*s %b%s%b\n' "${CYAN}${BOLD}" "$vertical" "$RESET" "$st" "$pad" "" "${CYAN}${BOLD}" "$vertical" "$RESET"
   done
-  printf '%s%s%s' "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right"
+  printf '%b%s%s%s%b' "${CYAN}${BOLD}" "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right" "$RESET"
 }
 
 render_insecure_approval_pending_box() {
