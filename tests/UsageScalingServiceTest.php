@@ -74,7 +74,7 @@ final class UsageScalingServiceTest extends TestCase
         ], $tiers);
     }
 
-    public function testStoreRulesRejectsSparkAsScalingTarget(): void
+    public function testStoreRulesRejectsRemovedModelAsScalingTarget(): void
     {
         $service = new UsageScalingService(
             new StubChatGptUsageServiceForScaling(),
@@ -91,6 +91,6 @@ final class UsageScalingServiceTest extends TestCase
         ]);
 
         $this->assertNotEmpty($errors);
-        $this->assertContains('tiers[0].model must not be gpt-5.3-codex-spark', $errors);
+        $this->assertContains('tiers[0].model must be one of: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2', $errors);
     }
 }

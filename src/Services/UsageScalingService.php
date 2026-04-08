@@ -382,9 +382,6 @@ class UsageScalingService
             if ($model !== null && ConfigNormalizer::normalizeSupportedModel($model) === null) {
                 $errors[] = "tiers[{$i}].model must be one of: " . implode(', ', ConfigNormalizer::SUPPORTED_MODELS);
             }
-            if ($model === 'gpt-5.3-codex-spark') {
-                $errors[] = "tiers[{$i}].model must not be gpt-5.3-codex-spark";
-            }
 
             if ($model !== null && $effort !== null) {
                 if (!ConfigNormalizer::modelSupportsReasoningEffort($model, $effort)) {

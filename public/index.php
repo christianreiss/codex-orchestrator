@@ -410,6 +410,15 @@ $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageInges
 $agentsService->ensureSeededFromFile($root . '/AGENTS.md');
 $wrapperService->ensureSeeded();
 if ($runBackfillsOnBoot) {
+    if ($versionRepository->get('supported_models_backfill_v1') === null) {
+        try {
+            $hostRepository->backfillUnsupportedModelOverrides();
+            $clientConfigService->backfillUnsupportedModels();
+            $versionRepository->set('supported_models_backfill_v1', gmdate(DATE_ATOM));
+        } catch (\Throwable $exception) {
+            error_log('[models] supported model backfill failed: ' . $exception->getMessage());
+        }
+    }
     $usageCostService->backfillMissingCosts();
     $dashboardGraphStatsService->backfillMissingHistory();
 }

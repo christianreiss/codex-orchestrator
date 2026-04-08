@@ -518,7 +518,7 @@ detect_insecure_approval_model() {
   if [[ -z "$model" ]]; then
     case "${CODEX_LANE_TARGET:-}" in
       spark)
-        model="gpt-5.3-codex-spark"
+        model="gpt-5.4-mini"
         ;;
       normal)
         model="gpt-5.3-codex"
@@ -912,7 +912,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.07-01"
+WRAPPER_VERSION="2026.04.08-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -11021,7 +11021,7 @@ if ((apply_lane_selector)) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODEX_
     lane_selector_profile="$CODEX_EFFECTIVE_LANE"
     CODEX_EFFECTIVE_LANE_SELECTOR="profile:${lane_selector_profile}"
   elif [[ "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
-    lane_selector_model="gpt-5.3-codex-spark"
+    lane_selector_model="gpt-5.4-mini"
     CODEX_EFFECTIVE_LANE_SELECTOR="model:${lane_selector_model}"
   else
     lane_selector_model="gpt-5.3-codex"
@@ -11071,7 +11071,7 @@ elif default_model_name="$(config_default_model)"; then
   effective_model_name="$default_model_name"
 fi
 if [[ -n "$effective_model_name" ]] && [[ "$(lowercase "$effective_model_name")" == *"codex-spark"* ]]; then
-  # gpt-5.3-codex-spark rejects reasoning summary settings.
+  # Legacy Spark models reject reasoning summary settings.
   if [[ "$effective_profile_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
     set -- --config "profiles.${effective_profile_name}.model_reasoning_summary=none" "$@"
   fi

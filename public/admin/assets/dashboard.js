@@ -273,11 +273,7 @@
       'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.2-codex': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.2': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.1-codex-max': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.1-codex-mini': ['medium', 'high'],
     };
     const HOST_REASONING_DEFAULTS = ['low', 'medium', 'high', 'xhigh'];
 
@@ -4246,11 +4242,7 @@
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.3-codex">gpt-5.3-codex</option>
-                <option value="gpt-5.3-codex-spark">gpt-5.3-codex-spark</option>
-                <option value="gpt-5.2-codex">gpt-5.2-codex</option>
                 <option value="gpt-5.2">gpt-5.2</option>
-                <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
-                <option value="gpt-5.1-codex-mini">gpt-5.1-codex-mini</option>
               </select>
             </div>
             <div class="field" style="min-width:180px;">
@@ -7161,10 +7153,7 @@
       { value: 'gpt-5.4', label: 'gpt-5.4' },
       { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
       { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
-      { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
       { value: 'gpt-5.2', label: 'gpt-5.2' },
-      { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
-      { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
     ];
 
     function renderScaling() {

@@ -13,16 +13,23 @@ use App\Exceptions\ValidationException;
 
 class ConfigNormalizer
 {
+    public const FORCE_UPGRADE_MODEL = 'gpt-5.4';
+    public const FORCE_UPGRADE_REASONING_EFFORT = 'medium';
+
     /** @var list<string> */
     public const SUPPORTED_MODELS = [
         'gpt-5.4',
         'gpt-5.4-mini',
         'gpt-5.3-codex',
-        'gpt-5.3-codex-spark',
-        'gpt-5.2-codex',
         'gpt-5.2',
-        'gpt-5.1-codex-max',
-        'gpt-5.1-codex-mini',
+    ];
+
+    /** @var array<string, string> */
+    public const LEGACY_MODEL_UPGRADES = [
+        'gpt-5.3-codex-spark' => self::FORCE_UPGRADE_MODEL,
+        'gpt-5.2-codex' => self::FORCE_UPGRADE_MODEL,
+        'gpt-5.1-codex-max' => self::FORCE_UPGRADE_MODEL,
+        'gpt-5.1-codex-mini' => self::FORCE_UPGRADE_MODEL,
     ];
 
     /** @var array<string, list<string>> */
@@ -30,11 +37,7 @@ class ConfigNormalizer
         'gpt-5.4' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.4-mini' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.3-codex' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.3-codex-spark' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.2-codex' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.2' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.1-codex-max' => ['low', 'medium', 'high', 'xhigh'],
-        'gpt-5.1-codex-mini' => ['medium', 'high'],
     ];
 
     /** @var list<string> */
@@ -109,7 +112,9 @@ class ConfigNormalizer
     {
         $normalizeString = fn ($value): ?string => $this->normalizeString($value);
         $normalizeBool = fn ($value, ?bool $default = null): ?bool => $this->normalizeBool($value, $default);
-        $model = self::normalizeSupportedModel($settings['model'] ?? null);
+        $rawModel = $settings['model'] ?? null;
+        $model = self::normalizeStoredModel($rawModel);
+        $forceUpgradedModel = self::isLegacyModelUpgrade($rawModel);
 
         $result = [
             'model' => $model,
@@ -125,10 +130,12 @@ class ConfigNormalizer
                 ),
             ],
             'web_search' => $this->normalizeWebSearchFeature($settings['web_search'] ?? null),
-            'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
-                $settings['model_reasoning_effort'] ?? null,
-                $model
-            ),
+            'model_reasoning_effort' => $forceUpgradedModel && $model !== null
+                ? self::FORCE_UPGRADE_REASONING_EFFORT
+                : $this->normalizeReasoningEffortForModel(
+                    $settings['model_reasoning_effort'] ?? null,
+                    $model
+                ),
             'model_reasoning_summary' => null, // set after model-aware normalization
             'model_verbosity' => $this->normalizeModelVerbosity($settings['model_verbosity'] ?? null, $model),
             'model_supports_reasoning_summaries' => $normalizeBool($settings['model_supports_reasoning_summaries'] ?? null),
@@ -152,8 +159,10 @@ class ConfigNormalizer
             'hide_gpt-5.1-codex-max_migration_prompt' => true,
             'hide_rate_limit_model_nudge' => true,
             'model_migrations' => [
-                'gpt-5.2-codex' => 'gpt-5.3-codex',
-                'gpt-5.3-codex' => 'gpt-5.4',
+                'gpt-5.1-codex-max' => 'gpt-5.4',
+                'gpt-5.1-codex-mini' => 'gpt-5.4',
+                'gpt-5.2-codex' => 'gpt-5.4',
+                'gpt-5.3-codex-spark' => 'gpt-5.4',
             ],
         ];
         $notice = [];
@@ -250,8 +259,9 @@ class ConfigNormalizer
                 continue;
             }
 
-            $profileModel = $normalizeString($entry['model'] ?? null);
-            $profileModel = self::normalizeSupportedModel($profileModel);
+            $profileModelRaw = $normalizeString($entry['model'] ?? null);
+            $profileModel = self::normalizeStoredModel($profileModelRaw);
+            $forceUpgradedProfileModel = self::isLegacyModelUpgrade($profileModelRaw);
             $profileWebSearch = $this->normalizeWebSearchFeature($entry['web_search'] ?? null);
             $profileFeaturesRaw = is_array($entry['features'] ?? null) ? $entry['features'] : [];
             $profileFeatures = [];
@@ -291,10 +301,12 @@ class ConfigNormalizer
                 'sandbox_mode' => $normalizeString($entry['sandbox_mode'] ?? null),
                 'personality' => $this->normalizePersonality($entry['personality'] ?? null),
                 'web_search' => $profileWebSearch,
-                'model_reasoning_effort' => $this->normalizeReasoningEffortForModel(
-                    $entry['model_reasoning_effort'] ?? null,
-                    $profileModel
-                ),
+                'model_reasoning_effort' => $forceUpgradedProfileModel && $profileModel !== null
+                    ? self::FORCE_UPGRADE_REASONING_EFFORT
+                    : $this->normalizeReasoningEffortForModel(
+                        $entry['model_reasoning_effort'] ?? null,
+                        $profileModel
+                    ),
                 'model_reasoning_summary' => $this->normalizeReasoningSummary($entry['model_reasoning_summary'] ?? null, $profileModel),
                 'model_verbosity' => $this->normalizeModelVerbosity($entry['model_verbosity'] ?? null, $profileModel),
                 'model_supports_reasoning_summaries' => $normalizeBool($entry['model_supports_reasoning_summaries'] ?? null),
@@ -371,10 +383,6 @@ class ConfigNormalizer
         }
 
         $modelKey = strtolower((string) $model);
-        if ($modelKey === 'gpt-5.1-codex-max') {
-            return 'medium';
-        }
-
         return $normalized;
     }
 
@@ -484,7 +492,7 @@ class ConfigNormalizer
         }
 
         if ($model !== null && $this->isDetailedOnlyCodexModel($model)) {
-            // gpt-5.1-codex*, gpt-5.2-codex, and gpt-5.3-codex support detailed summaries only.
+            // gpt-5.3-codex supports detailed summaries only.
             return 'detailed';
         }
 
@@ -569,9 +577,7 @@ class ConfigNormalizer
     public function isDetailedOnlyCodexModel(string $model): bool
     {
         $m = strtolower(trim($model));
-        return str_starts_with($m, 'gpt-5.1-codex')
-            || str_starts_with($m, 'gpt-5.2-codex')
-            || $m === 'gpt-5.3-codex';
+        return $m === 'gpt-5.3-codex';
     }
 
     /** @return list<string> */
@@ -591,6 +597,39 @@ class ConfigNormalizer
         }
 
         return in_array($model, self::SUPPORTED_MODELS, true) ? $model : null;
+    }
+
+    public static function normalizeStoredModel(mixed $value): ?string
+    {
+        $supported = self::normalizeSupportedModel($value);
+        if ($supported !== null) {
+            return $supported;
+        }
+
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+
+        $model = strtolower(trim((string) $value));
+        if ($model === '') {
+            return null;
+        }
+
+        return self::LEGACY_MODEL_UPGRADES[$model] ?? null;
+    }
+
+    public static function isLegacyModelUpgrade(mixed $value): bool
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return false;
+        }
+
+        $model = strtolower(trim((string) $value));
+        if ($model === '') {
+            return false;
+        }
+
+        return array_key_exists($model, self::LEGACY_MODEL_UPGRADES);
     }
 
     /** @return list<string> */

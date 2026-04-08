@@ -19,11 +19,7 @@
     'gpt-5.4': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.4-mini': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.3-codex-spark': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.2-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.1-codex-max': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.1-codex-mini': ['', 'medium', 'high'],
   };
 
   function deepClone(value) {

@@ -94,10 +94,7 @@ Lane subcommand:
 - If lane profile exists in config (`[profiles.normal]`/`[profiles.spark]`), wrapper injects `--profile`.
 - If lane profile is missing, wrapper injects model fallback:
   - `normal` -> `gpt-5.3-codex`
-  - `spark` -> `gpt-5.3-codex-spark`
-- When the effective model resolves to `gpt-5.3-codex-spark` (lane/host injection, explicit `--model`, selected `--profile` model, or top-level default `model` in `~/.codex/config.toml`), wrapper injects `--config model_reasoning_summary=none`; if an explicit profile is active it also injects `--config profiles.<profile>.model_reasoning_summary=none` so legacy profile-level summaries cannot leak through.
-- `cdx lane spark -- --execute "<prompt>"` applies the same spark summary guards in execute mode; if profile `spark` exists it uses `--profile spark` plus both root/profile summary overrides, otherwise it falls back to `--model gpt-5.3-codex-spark`.
-- Execute passthrough Spark selectors also force summary guards: `cdx --execute "<prompt>" --model gpt-5.3-codex-spark` injects `--config model_reasoning_summary=none`, and `--profile <name>` does the same when that profile resolves to Spark (including profiles that inherit a Spark root default model); profile-scoped summary keys are overridden via `profiles.<name>.model_reasoning_summary=none`.
+  - `spark` -> `gpt-5.4-mini`
 
 Profile shorthand:
 - `cdx <name> [args...]` maps to `--profile <name>` when `[profiles.<name>]` exists.
@@ -135,15 +132,11 @@ Sync details:
   - `gpt-5.4`
   - `gpt-5.4-mini`
   - `gpt-5.3-codex`
-  - `gpt-5.3-codex-spark`
-  - `gpt-5.2-codex`
   - `gpt-5.2`
-  - `gpt-5.1-codex-max`
-  - `gpt-5.1-codex-mini`
 - Supported reasoning effort values: `low|medium|high|xhigh`.
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.4-mini` accepts `low|medium|high|xhigh`.
-- `gpt-5.1-codex-mini` accepts only `medium|high`.
+- Stored configs or host overrides that still point at removed models (`gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`) are force-upgraded to `gpt-5.4` with `medium` effort during normalization/backfill.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
 - Normalization defaults include `features.apps=true` and `features.multi_agent=true` when unset.
 - Builder defaults keep `features.guardian_approval=false`, `features.js_repl=false`, `features.tui_app_server=false`, and `features.prevent_idle_sleep=false` unless explicitly enabled.
@@ -151,7 +144,7 @@ Sync details:
 - `features.js_repl` enables the persistent Node-backed JavaScript REPL and requires Node `>= v22.22.0` on the host.
 - `features.tui_app_server` enables the app-server-backed TUI implementation.
 - `features.prevent_idle_sleep` keeps the computer awake while Codex is running a thread.
-- Normalization defaults include notice migration mappings `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4`.
+- Normalization defaults include notice migration mappings from removed models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.3-codex-spark`) to `gpt-5.4`.
 - Feature flags are normalized against the current Codex feature registry; unknown/removed flags are dropped from rendered output.
 - Removed legacy keys `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, and `use_linux_sandbox_bwrap` are accepted for ingest compatibility but dropped from rendered output.
 - When `home` is provided, server appends trusted project stanza for that path.

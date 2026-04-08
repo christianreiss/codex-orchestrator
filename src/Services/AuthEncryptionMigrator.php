@@ -116,7 +116,7 @@ class AuthEncryptionMigrator
             $select = $connection->prepare(
                 'SELECT id, token, token_enc, api_key, api_key_enc
                  FROM install_tokens
-                 WHERE token_enc IS NULL OR api_key_enc IS NULL OR CHAR_LENGTH(token) < 64
+                 WHERE token_enc IS NULL OR api_key_enc IS NULL OR LENGTH(token) < 64
                  LIMIT :limit'
             );
             $select->bindValue(':limit', self::BATCH_SIZE, PDO::PARAM_INT);

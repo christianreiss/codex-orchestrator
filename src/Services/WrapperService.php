@@ -10,8 +10,8 @@
 namespace App\Services;
 
 use App\Repositories\VersionRepository;
-use App\Support\AdminTheme;
 use App\Security\SecretBox;
+use App\Support\AdminTheme;
 
 class WrapperService
 {
@@ -111,8 +111,12 @@ class WrapperService
             return str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $value);
         };
 
-        $modelOverride = trim((string) ($host['model_override'] ?? ''));
+        $rawModelOverride = $host['model_override'] ?? null;
+        $modelOverride = ConfigNormalizer::normalizeStoredModel($rawModelOverride) ?? '';
         $reasoningOverride = trim((string) ($host['reasoning_effort_override'] ?? ''));
+        if (ConfigNormalizer::isLegacyModelUpgrade($rawModelOverride) && $modelOverride !== '') {
+            $reasoningOverride = ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT;
+        }
 
         $replacements = [
             '__CODEX_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),

@@ -597,7 +597,7 @@ if ((apply_lane_selector)) && [[ "$CODEX_EFFECTIVE_LANE" == "normal" || "$CODEX_
     lane_selector_profile="$CODEX_EFFECTIVE_LANE"
     CODEX_EFFECTIVE_LANE_SELECTOR="profile:${lane_selector_profile}"
   elif [[ "$CODEX_EFFECTIVE_LANE" == "spark" ]]; then
-    lane_selector_model="gpt-5.3-codex-spark"
+    lane_selector_model="gpt-5.4-mini"
     CODEX_EFFECTIVE_LANE_SELECTOR="model:${lane_selector_model}"
   else
     lane_selector_model="gpt-5.3-codex"
@@ -647,7 +647,7 @@ elif default_model_name="$(config_default_model)"; then
   effective_model_name="$default_model_name"
 fi
 if [[ -n "$effective_model_name" ]] && [[ "$(lowercase "$effective_model_name")" == *"codex-spark"* ]]; then
-  # gpt-5.3-codex-spark rejects reasoning summary settings.
+  # Legacy Spark models reject reasoning summary settings.
   if [[ "$effective_profile_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
     set -- --config "profiles.${effective_profile_name}.model_reasoning_summary=none" "$@"
   fi

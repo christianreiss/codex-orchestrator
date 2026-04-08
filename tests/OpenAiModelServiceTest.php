@@ -17,11 +17,7 @@ final class OpenAiModelServiceTest extends TestCase
             'gpt-5.4',
             'gpt-5.4-mini',
             'gpt-5.3-codex',
-            'gpt-5.3-codex-spark',
-            'gpt-5.2-codex',
             'gpt-5.2',
-            'gpt-5.1-codex-max',
-            'gpt-5.1-codex-mini',
         ], $service->supportedModels());
     }
 
@@ -79,7 +75,7 @@ final class OpenAiModelServiceTest extends TestCase
             $this->makeVersionRepo(['cdx_model' => 'gpt-5.1-codex-max'])
         );
 
-        $this->assertSame('gpt-5.1-codex-max', $service->resolveRequestedModel(''));
+        $this->assertSame('gpt-5.4', $service->resolveRequestedModel(''));
     }
 
     public function testResolveRequestedModelFailsWithoutConfiguredDefault(): void

@@ -120,7 +120,7 @@ final class ClientConfigServiceTest extends TestCase
                 'hide_gpt5_1_migration_prompt' => true,
                 'model_migrations' => [
                     'gpt-5.2-codex' => 'gpt-5.3-codex',
-                    'gpt-5.3-codex' => 'gpt-5.4',
+                    'gpt-5.3-codex-spark' => 'gpt-5.4',
                 ],
             ],
             'features' => [
@@ -129,7 +129,8 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertNotEmpty($rendered['content']);
-        $this->assertStringContainsString('model = "gpt-5.3-codex-spark"', $rendered['content']);
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
         $this->assertStringContainsString('model_provider = "oss"', $rendered['content']);
         $this->assertStringContainsString('local_provider = "ollama"', $rendered['content']);
         $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
@@ -138,10 +139,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[security]', $rendered['content']);
         $this->assertStringContainsString('dangerously_bypass_approvals_and_sandbox = true', $rendered['content']);
         $this->assertStringContainsString('hide_gpt5_1_migration_prompt = true', $rendered['content']);
-        $this->assertStringContainsString(
-            'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
-            $rendered['content']
-        );
+        $this->assertStringContainsString('"gpt-5.2-codex" = "gpt-5.3-codex"', $rendered['content']);
+        $this->assertStringContainsString('"gpt-5.3-codex-spark" = "gpt-5.4"', $rendered['content']);
         $this->assertEquals(64, strlen($rendered['sha256']));
     }
 
@@ -161,10 +160,8 @@ final class ClientConfigServiceTest extends TestCase
 
         $this->assertStringContainsString('personality = "friendly"', $rendered['content']);
         $this->assertSame('friendly', $rendered['settings']['personality']);
-        $this->assertStringContainsString(
-            'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
-            $rendered['content']
-        );
+        $this->assertStringContainsString('"gpt-5.1-codex-max" = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('"gpt-5.3-codex-spark" = "gpt-5.4"', $rendered['content']);
     }
 
     public function testExplicitPersonalityRendersAtRoot(): void
@@ -197,11 +194,9 @@ final class ClientConfigServiceTest extends TestCase
             ],
         ]);
 
-        $this->assertStringContainsString(
-            'model_migrations = { "gpt-5.2-codex" = "gpt-5.3-codex", "gpt-5.3-codex" = "gpt-5.4" }',
-            $rendered['content']
-        );
-        $this->assertSame('gpt-5.4', $rendered['settings']['notice']['model_migrations']['gpt-5.3-codex']);
+        $this->assertStringContainsString('"gpt-5.2-codex" = "gpt-5.3-codex"', $rendered['content']);
+        $this->assertStringContainsString('"gpt-5.3-codex-spark" = "gpt-5.4"', $rendered['content']);
+        $this->assertSame('gpt-5.4', $rendered['settings']['notice']['model_migrations']['gpt-5.3-codex-spark']);
     }
 
     public function testLegacyWebSearchRequestMapsToWebSearch(): void
@@ -406,11 +401,12 @@ final class ClientConfigServiceTest extends TestCase
             'model_reasoning_summary' => 'concise',
         ]);
 
-        $this->assertStringNotContainsString('model_reasoning_summary', $rendered['content']);
-        $this->assertNull($rendered['settings']['model_reasoning_summary']);
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_summary = "concise"', $rendered['content']);
 
         $rendered = $this->service->render([
-            'model' => 'gpt-5.1-codex-mini',
+            'model' => 'gpt-5.3-codex',
             'model_reasoning_summary' => 'auto',
         ]);
 
@@ -421,7 +417,9 @@ final class ClientConfigServiceTest extends TestCase
             'model_reasoning_summary' => 'auto',
         ]);
 
-        $this->assertStringContainsString('model_reasoning_summary = "detailed"', $rendered['content']);
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_summary = "auto"', $rendered['content']);
     }
 
     public function testVerbosityForcedMediumForGpt51CodexMax(): void
@@ -431,14 +429,15 @@ final class ClientConfigServiceTest extends TestCase
             'model_verbosity' => 'low',
         ]);
 
-        $this->assertStringContainsString('model_verbosity = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('model_verbosity = "low"', $rendered['content']);
 
         $renderedHigh = $this->service->render([
             'model' => 'gpt-5.1-codex-max',
             'model_verbosity' => 'high',
         ]);
 
-        $this->assertStringContainsString('model_verbosity = "medium"', $renderedHigh['content']);
+        $this->assertStringContainsString('model_verbosity = "high"', $renderedHigh['content']);
 
         $renderedAllowed = $this->service->render([
             'model' => 'gpt-5.2-codex',
@@ -468,8 +467,8 @@ final class ClientConfigServiceTest extends TestCase
             'model_reasoning_effort' => 'xhigh',
         ]);
 
-        $this->assertStringContainsString('model = "gpt-5.3-codex-spark"', $rendered['content']);
-        $this->assertStringContainsString('model_reasoning_effort = "xhigh"', $rendered['content']);
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
     }
 
     public function testStaticModelValidationHelpersUseSupportedAllowlist(): void
@@ -482,15 +481,12 @@ final class ClientConfigServiceTest extends TestCase
             'gpt-5.4-mini',
             ClientConfigService::normalizeSupportedModel('gpt-5.4-mini')
         );
-        $this->assertSame(
-            'gpt-5.3-codex-spark',
-            ClientConfigService::normalizeSupportedModel('gpt-5.3-codex-spark')
-        );
+        $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.3-codex-spark'));
         $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.1'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4', 'xhigh'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4-mini', 'xhigh'));
-        $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.3-codex-spark', 'xhigh'));
-        $this->assertFalse(ClientConfigService::modelSupportsReasoningEffort('gpt-5.1-codex-mini', 'low'));
+        $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.2', 'xhigh'));
+        $this->assertFalse(ClientConfigService::modelSupportsReasoningEffort('gpt-5.3-codex-spark', 'low'));
     }
 
     public function testStorePersistsAndDetectsUnchanged(): void
@@ -605,7 +601,7 @@ final class ClientConfigServiceTest extends TestCase
             'reasoning_effort_override' => 'medium',
         ], 'https://example.test', 'api-key-one');
 
-        $this->assertStringContainsString('model = "gpt-5.1-codex-mini"', $rendered['content']);
+        $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
         $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
     }
 
@@ -735,7 +731,7 @@ final class ClientConfigServiceTest extends TestCase
 
         $content = $rendered['content'];
         $this->assertStringContainsString('[profiles.ultra]', $content);
-        $this->assertStringContainsString('model = "gpt-5.1-codex-max"', $content);
+        $this->assertStringContainsString('model = "gpt-5.4"', $content);
         $this->assertStringContainsString('personality = "pragmatic"', $content);
         $this->assertStringContainsString('web_search = "cached"', $content);
         $this->assertStringContainsString('[profiles.ultra.features]', $content);
@@ -752,5 +748,7 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame(true, $settings['profiles'][0]['features']['fast_mode']);
         $this->assertSame('cached', $settings['profiles'][0]['web_search']);
         $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);
+        $this->assertSame('gpt-5.4', $settings['profiles'][0]['model']);
+        $this->assertSame('medium', $settings['profiles'][0]['model_reasoning_effort']);
     }
 }

@@ -10,6 +10,7 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Services\ConfigNormalizer;
 use App\Security\SecretBox;
 use PDO;
 
@@ -54,6 +55,14 @@ class HostRepository
         }
         if (!array_key_exists('expires_at', $host)) {
             $host['expires_at'] = null;
+        }
+        $rawModelOverride = $host['model_override'] ?? null;
+        $normalizedModelOverride = ConfigNormalizer::normalizeStoredModel($rawModelOverride);
+        if ($normalizedModelOverride !== null) {
+            $host['model_override'] = $normalizedModelOverride;
+            if (ConfigNormalizer::isLegacyModelUpgrade($rawModelOverride)) {
+                $host['reasoning_effort_override'] = ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT;
+            }
         }
         return $host;
     }
@@ -128,7 +137,7 @@ class HostRepository
 
         $host = $statement->fetch(PDO::FETCH_ASSOC);
 
-        return $host ?: null;
+        return $host ? $this->normalizeStoredHost($host) : null;
     }
 
     public function findByFqdn(string $fqdn): ?array
@@ -140,7 +149,7 @@ class HostRepository
 
         $host = $statement->fetch(PDO::FETCH_ASSOC);
 
-        return $host ?: null;
+        return $host ? $this->normalizeStoredHost($host) : null;
     }
 
     public function create(string $fqdn, string $apiKey, bool $secure = true): array
@@ -247,7 +256,8 @@ class HostRepository
             'SELECT * FROM hosts ORDER BY fqdn ASC'
         );
 
-        return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        return array_map(fn (array $host): array => $this->normalizeStoredHost($host), $rows);
     }
 
     public function findInactiveBefore(string $cutoff): array
@@ -352,6 +362,32 @@ class HostRepository
             'model_override' => $modelOverride,
             'reasoning_effort_override' => $reasoningEffortOverride,
         ]);
+    }
+
+    public function backfillUnsupportedModelOverrides(): void
+    {
+        $legacyModels = array_keys(ConfigNormalizer::LEGACY_MODEL_UPGRADES);
+        if ($legacyModels === []) {
+            return;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($legacyModels), '?'));
+        $sql = sprintf(
+            'UPDATE hosts
+             SET model_override = ?, reasoning_effort_override = ?, updated_at = ?
+             WHERE LOWER(TRIM(COALESCE(model_override, \'\'))) IN (%s)',
+            $placeholders
+        );
+
+        $statement = $this->database->connection()->prepare($sql);
+        $statement->execute(array_merge(
+            [
+                ConfigNormalizer::FORCE_UPGRADE_MODEL,
+                ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT,
+                gmdate(DATE_ATOM),
+            ],
+            $legacyModels
+        ));
     }
 
     public function updateLanePreference(int $hostId, ?string $lanePreference): void

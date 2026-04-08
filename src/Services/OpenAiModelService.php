@@ -29,12 +29,12 @@ class OpenAiModelService
     {
         $row = $this->configs->latest();
         $settings = is_array($row['settings'] ?? null) ? $row['settings'] : [];
-        $configModel = ConfigNormalizer::normalizeSupportedModel($settings['model'] ?? null);
+        $configModel = ConfigNormalizer::normalizeStoredModel($settings['model'] ?? null);
         if ($configModel !== null) {
             return $configModel;
         }
 
-        return ConfigNormalizer::normalizeSupportedModel($this->versions->get('cdx_model'));
+        return ConfigNormalizer::normalizeStoredModel($this->versions->get('cdx_model'));
     }
 
     public function resolveRequestedModel(mixed $value): string

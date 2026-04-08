@@ -1,3 +1,8 @@
+# 2026-04-08
+- Model support: removed the no-longer-supported `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, and `gpt-5.1-codex-mini` entries from the shared allowlist, admin config/profile/host-override pickers, OpenAI-compatible `/v1/models`, and docs. The app now only advertises `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2`, and removed models force-upgrade to `gpt-5.4`.
+- Config/host migration: saved fleet configs, profile models, per-host overrides, and `versions.cdx_model` values that still reference removed models are now backfilled/normalized to `gpt-5.4` with `medium` reasoning effort on boot, so older stored selections stop leaking back into baked config or wrappers.
+- cdx wrapper: Spark lane fallback now uses `gpt-5.4-mini` instead of the removed Spark Codex model, and the wrapper version bumped to `2026.04.08-01`. Cache-bumped `dashboard.css`, `dashboard.js`, `config.js`, and `profiles.js` to `v=2026-04-08-01`.
+
 # 2026-04-07
 - cdx wrapper: older Linux hosts now resolve a compatible Python 3 interpreter before the existing `python3` callsites run, so `python3.6`, `python36`, and `platform-python` layouts work without wrapper surgery. Normal startup prerequisite installs now also ensure Python 3, legacy YUM retries `python36` when `python3` is unavailable, the RFC3339 helpers no longer rely on `datetime.fromisoformat()`, and the wrapper version bumped to `2026.04.07-01`.
 

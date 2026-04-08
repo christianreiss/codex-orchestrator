@@ -80,11 +80,7 @@
     'gpt-5.4': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.4-mini': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.3-codex-spark': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.2-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.1-codex-max': ['', 'low', 'medium', 'high', 'xhigh'],
-    'gpt-5.1-codex-mini': ['', 'medium', 'high'],
   };
   const SUPPORTED_MODELS = Object.keys(MODEL_REASONING);
 
@@ -95,9 +91,7 @@
 
   function isDetailedOnlyCodexModel(model) {
     const lower = String(model || '').toLowerCase();
-    return lower.startsWith('gpt-5.1-codex')
-      || lower.startsWith('gpt-5.2-codex')
-      || lower === 'gpt-5.3-codex';
+    return lower === 'gpt-5.3-codex';
   }
 
   function clampReasoningSummaryForModel(model) {
@@ -183,8 +177,10 @@
         'hide_gpt-5.1-codex-max_migration_prompt': true,
         'hide_rate_limit_model_nudge': true,
         'model_migrations': {
-          'gpt-5.2-codex': 'gpt-5.3-codex',
-          'gpt-5.3-codex': 'gpt-5.4',
+          'gpt-5.1-codex-max': 'gpt-5.4',
+          'gpt-5.1-codex-mini': 'gpt-5.4',
+          'gpt-5.2-codex': 'gpt-5.4',
+          'gpt-5.3-codex-spark': 'gpt-5.4',
         },
       },
       sandbox_workspace_write: {

@@ -518,7 +518,7 @@ detect_insecure_approval_model() {
   if [[ -z "$model" ]]; then
     case "${CODEX_LANE_TARGET:-}" in
       spark)
-        model="gpt-5.3-codex-spark"
+        model="gpt-5.4-mini"
         ;;
       normal)
         model="gpt-5.3-codex"
@@ -912,7 +912,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.07-01"
+WRAPPER_VERSION="2026.04.08-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))

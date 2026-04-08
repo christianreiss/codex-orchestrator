@@ -239,7 +239,7 @@ final class ConfigNormalizerTest extends TestCase
 
     public function testNormalizeReasoningSummaryDetailedOnlyModelsForceDetailed(): void
     {
-        foreach (['gpt-5.1-codex-max', 'gpt-5.1-codex-mini', 'gpt-5.2-codex', 'gpt-5.3-codex'] as $model) {
+        foreach (['gpt-5.3-codex'] as $model) {
             $this->assertSame('detailed', $this->normalizer->normalizeReasoningSummary('auto', $model), "Model: $model");
             $this->assertSame('detailed', $this->normalizer->normalizeReasoningSummary('concise', $model), "Model: $model");
         }
@@ -268,8 +268,8 @@ final class ConfigNormalizerTest extends TestCase
 
     public function testNormalizeReasoningEffortMiniSupportsHighAndMedium(): void
     {
-        $this->assertSame('medium', $this->normalizer->normalizeReasoningEffortForModel('medium', 'gpt-5.1-codex-mini'));
-        $this->assertSame('high', $this->normalizer->normalizeReasoningEffortForModel('high', 'gpt-5.1-codex-mini'));
+        $this->assertSame('medium', $this->normalizer->normalizeReasoningEffortForModel('medium', 'gpt-5.4-mini'));
+        $this->assertSame('high', $this->normalizer->normalizeReasoningEffortForModel('high', 'gpt-5.4-mini'));
     }
 
     public function testNormalizeReasoningEffortNullModelReturnsNull(): void
@@ -406,7 +406,7 @@ final class ConfigNormalizerTest extends TestCase
     public function testModelSupportsReasoningEffortReturnsTrueForValidPair(): void
     {
         $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.4', 'low'));
-        $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.1-codex-mini', 'medium'));
+        $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.4-mini', 'medium'));
     }
 
     public function testModelSupportsReasoningEffortReturnsFalseForUnsupportedEffort(): void
@@ -433,9 +433,6 @@ final class ConfigNormalizerTest extends TestCase
 
     public function testIsDetailedOnlyCodexModel(): void
     {
-        $this->assertTrue($this->normalizer->isDetailedOnlyCodexModel('gpt-5.1-codex-max'));
-        $this->assertTrue($this->normalizer->isDetailedOnlyCodexModel('gpt-5.1-codex-mini'));
-        $this->assertTrue($this->normalizer->isDetailedOnlyCodexModel('gpt-5.2-codex'));
         $this->assertTrue($this->normalizer->isDetailedOnlyCodexModel('gpt-5.3-codex'));
         $this->assertFalse($this->normalizer->isDetailedOnlyCodexModel('gpt-5.3-codex-spark'));
         $this->assertFalse($this->normalizer->isDetailedOnlyCodexModel('gpt-5.4'));
@@ -460,8 +457,8 @@ final class ConfigNormalizerTest extends TestCase
 
     public function testNormalizeModelVerbosityForcedMediumForGpt51CodexMax(): void
     {
-        $this->assertSame('medium', $this->normalizer->normalizeModelVerbosity('low', 'gpt-5.1-codex-max'));
-        $this->assertSame('medium', $this->normalizer->normalizeModelVerbosity('high', 'gpt-5.1-codex-max'));
+        $this->assertSame('low', $this->normalizer->normalizeModelVerbosity('low', 'gpt-5.1-codex-max'));
+        $this->assertSame('high', $this->normalizer->normalizeModelVerbosity('high', 'gpt-5.1-codex-max'));
     }
 
     // -------------------------------------------------------------------------
@@ -780,8 +777,8 @@ final class ConfigNormalizerTest extends TestCase
             'model' => 'gpt-5.1-codex-mini',
             'model_reasoning_effort' => 'low',
         ]);
-        // 'low' is not supported for gpt-5.1-codex-mini
-        $this->assertNull($result['model_reasoning_effort']);
+        $this->assertSame('gpt-5.4', $result['model']);
+        $this->assertSame('medium', $result['model_reasoning_effort']);
     }
 
     public function testNormalizeSettingsReasoningSummaryDetailedForcedForCodexModel(): void

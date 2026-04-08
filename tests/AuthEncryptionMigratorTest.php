@@ -86,7 +86,7 @@ final class AuthEncryptionMigratorTest extends TestCase
 
     public function testMigratesInstallerTokens(): void
     {
-        // Short token triggers migration (CHAR_LENGTH(token) < 64)
+        // Short token triggers migration (LENGTH(token) < 64)
         $this->pdo->exec("INSERT INTO install_tokens (token, api_key) VALUES ('short-token', 'my-api-key')");
 
         $migrator = new AuthEncryptionMigrator($this->database, $this->encrypter);

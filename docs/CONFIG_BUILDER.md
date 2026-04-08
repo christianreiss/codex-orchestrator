@@ -20,7 +20,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 4. `cdx` writes the baked file to `~/.codex/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
 
 Default notice mappings:
-- Builder defaults include `notice.model_migrations` entries for `gpt-5.2-codex -> gpt-5.3-codex` and `gpt-5.3-codex -> gpt-5.4` so Codex upgrade prompts can be auto-resolved from fleet-managed config.
+- Builder defaults include `notice.model_migrations` entries for removed models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.3-codex-spark`) to `gpt-5.4` so Codex upgrade prompts can be auto-resolved from fleet-managed config.
 - New top-level config drafts and new profile drafts default to model `gpt-5.4`.
 
 ## Managed MCP entry

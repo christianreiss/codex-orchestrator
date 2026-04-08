@@ -112,10 +112,14 @@ class ClientConfigService
             return $settings;
         }
 
-        $modelOverride = self::normalizeSupportedModel($host['model_override'] ?? null);
-        $effectiveModel = $modelOverride ?? self::normalizeSupportedModel($settings['model'] ?? null);
+        $rawModelOverride = $host['model_override'] ?? null;
+        $modelOverride = ConfigNormalizer::normalizeStoredModel($rawModelOverride);
+        $forceUpgradedOverride = ConfigNormalizer::isLegacyModelUpgrade($rawModelOverride);
+        $effectiveModel = $modelOverride ?? ConfigNormalizer::normalizeStoredModel($settings['model'] ?? null);
         $effortOverrideRaw = self::normalizeReasoningEffort($host['reasoning_effort_override'] ?? null);
-        $effortOverride = $this->normalizer->normalizeReasoningEffortForModel($effortOverrideRaw, $effectiveModel);
+        $effortOverride = $forceUpgradedOverride && $modelOverride !== null
+            ? ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT
+            : $this->normalizer->normalizeReasoningEffortForModel($effortOverrideRaw, $effectiveModel);
         if ($modelOverride === null && $effortOverride === null) {
             return $settings;
         }
@@ -145,8 +149,10 @@ class ClientConfigService
             }
             $name = $this->normalizer->normalizeString($entry['name'] ?? null);
             if ($name !== null && hash_equals($activeProfile, $name)) {
-                $profileModel = $modelOverride ?? self::normalizeSupportedModel($entry['model'] ?? null);
-                $profileEffort = $this->normalizer->normalizeReasoningEffortForModel($effortOverrideRaw, $profileModel);
+                $profileModel = $modelOverride ?? ConfigNormalizer::normalizeStoredModel($entry['model'] ?? null);
+                $profileEffort = $forceUpgradedOverride && $modelOverride !== null
+                    ? ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT
+                    : $this->normalizer->normalizeReasoningEffortForModel($effortOverrideRaw, $profileModel);
                 if ($modelOverride !== null) {
                     $entry['model'] = $modelOverride;
                 }
@@ -183,7 +189,7 @@ class ClientConfigService
             $settings['model'] = $scaledModel;
         }
 
-        $effectiveModel = self::normalizeSupportedModel($settings['model'] ?? null);
+        $effectiveModel = ConfigNormalizer::normalizeStoredModel($settings['model'] ?? null);
         if ($scaledEffort !== null && $effectiveModel !== null) {
             $validated = $this->normalizer->normalizeReasoningEffortForModel($scaledEffort, $effectiveModel);
             if ($validated !== null) {
@@ -204,7 +210,7 @@ class ClientConfigService
                     if ($scaledModel !== null) {
                         $entry['model'] = $scaledModel;
                     }
-                    $profileModel = self::normalizeSupportedModel($entry['model'] ?? null);
+                    $profileModel = ConfigNormalizer::normalizeStoredModel($entry['model'] ?? null);
                     if ($scaledEffort !== null && $profileModel !== null) {
                         $profileEffortValidated = $this->normalizer->normalizeReasoningEffortForModel($scaledEffort, $profileModel);
                         if ($profileEffortValidated !== null) {
@@ -283,14 +289,52 @@ class ClientConfigService
         if ($this->versions === null) {
             return;
         }
-        $model = $this->normalizer->normalizeString($settings['model'] ?? null);
-        $effort = $this->normalizer->normalizeString($settings['model_reasoning_effort'] ?? null);
+        $model = ConfigNormalizer::normalizeStoredModel($settings['model'] ?? null);
+        $effort = ConfigNormalizer::normalizeReasoningEffort($settings['model_reasoning_effort'] ?? null);
         if ($model !== null) {
             $this->versions->set('cdx_model', $model);
         }
         if ($effort !== null) {
             $this->versions->set('cdx_reasoning_effort', $effort);
         }
+    }
+
+    public function backfillUnsupportedModels(): void
+    {
+        $row = $this->configs->latest();
+        if ($row !== null) {
+            $settings = is_array($row['settings'] ?? null) ? $row['settings'] : [];
+            $rendered = $this->render($settings);
+            $currentBody = (string) ($row['body'] ?? '');
+            $currentSettings = is_array($row['settings'] ?? null) ? $row['settings'] : [];
+            $contentChanged = $rendered['content'] !== $currentBody;
+            $settingsChanged = !hash_equals(
+                $this->normalizer->settingsHash($currentSettings),
+                $this->normalizer->settingsHash($rendered['settings'] ?? [])
+            );
+
+            if ($contentChanged || $settingsChanged) {
+                $sourceHostId = isset($row['source_host_id']) && is_numeric($row['source_host_id'])
+                    ? (int) $row['source_host_id']
+                    : null;
+                $this->configs->upsert($rendered['content'], $rendered['settings'], $sourceHostId, $rendered['sha256']);
+            }
+
+            $this->writeGlobalModelDefaults($rendered['settings'] ?? []);
+            return;
+        }
+
+        if ($this->versions === null) {
+            return;
+        }
+
+        $storedModel = $this->versions->get('cdx_model');
+        if (!ConfigNormalizer::isLegacyModelUpgrade($storedModel)) {
+            return;
+        }
+
+        $this->versions->set('cdx_model', ConfigNormalizer::FORCE_UPGRADE_MODEL);
+        $this->versions->set('cdx_reasoning_effort', ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT);
     }
 
     public function retrieve(

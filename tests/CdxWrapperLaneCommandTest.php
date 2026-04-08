@@ -25,7 +25,7 @@ final class CdxWrapperLaneCommandTest extends TestCase
 
         self::assertStringContainsString('CODEX_EFFECTIVE_LANE_SOURCE', $wrapperSource);
         self::assertStringContainsString('config_has_profile "$CODEX_EFFECTIVE_LANE"', $wrapperSource);
-        self::assertStringContainsString('gpt-5.3-codex-spark', $wrapperSource);
+        self::assertStringContainsString('gpt-5.4-mini', $wrapperSource);
         self::assertStringContainsString('gpt-5.3-codex', $wrapperSource);
     }
 
