@@ -24,6 +24,7 @@ DEBUG_DUMP_AUTH = os.getenv("RUNNER_DEBUG_DUMP_AUTH") == "1"
 ALLOW_SECRET_DUMP = os.getenv("RUNNER_ALLOW_SECRET_DUMP") == "1"
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
 RUNNER_SHARED_SECRET = os.getenv("RUNNER_SHARED_SECRET", "").strip()
+RUNNER_HOME_PARENT = os.getenv("RUNNER_HOME_PARENT", "/var/tmp").strip() or "/var/tmp"
 DEBUG_DUMP_ENABLED = DEBUG_DUMP_AUTH and ALLOW_SECRET_DUMP and APP_ENV != "production"
 
 
@@ -177,8 +178,16 @@ def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
         raise HTTPException(status_code=400, detail="no usable token in auth_json")
 
     env = os.environ.copy()
-    home_dir = tempfile.mkdtemp(prefix="codex-runner-")
+    try:
+        home_dir = tempfile.mkdtemp(prefix="codex-runner-", dir=RUNNER_HOME_PARENT)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to create runner home: {exc}")
     env["HOME"] = home_dir
+    tmp_dir = os.path.join(home_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    env["TMPDIR"] = tmp_dir
+    env["TMP"] = tmp_dir
+    env["TEMP"] = tmp_dir
     codex_dir = os.path.join(home_dir, ".codex")
     os.makedirs(codex_dir, exist_ok=True)
     auth_path = os.path.join(codex_dir, "auth.json")
@@ -197,14 +206,7 @@ def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
 
 
 def _run_codex_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
-    cmd = [
-        "/usr/local/bin/codex",
-        "exec",
-        prompt,
-        "-s",
-        "read-only",
-        "--skip-git-repo-check",
-    ]
+    cmd = _build_codex_exec_cmd(prompt, None)
     start = time.perf_counter()
     proc = subprocess.run(
         cmd,
@@ -1003,17 +1005,16 @@ def _materialize_exec_images(images: list[ExecImageInput], home_dir: str) -> lis
 
 
 def _build_codex_exec_cmd(prompt: str, model: Optional[str], image_paths: Optional[list[str]] = None) -> list[str]:
-    cmd = ["/usr/local/bin/codex"]
+    cmd = ["/usr/local/bin/codex", "exec"]
     if isinstance(model, str) and model.strip():
         cmd.extend(["--model", model.strip()])
     for image_path in image_paths or []:
         cmd.extend(["--image", image_path])
     cmd.extend([
-        "exec",
-        prompt,
         "-s",
         "read-only",
         "--skip-git-repo-check",
+        prompt,
     ])
     return cmd
 
