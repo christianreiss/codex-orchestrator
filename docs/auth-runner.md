@@ -31,7 +31,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 1. Optionally persist the incoming auth to `/tmp/last-auth.json` (0600) only when all are true: `RUNNER_DEBUG_DUMP_AUTH=1`, `RUNNER_ALLOW_SECRET_DUMP=1`, and `APP_ENV!=production`.
 2. Require at least one usable token from `auths["api.openai.com"]["token"]`, `tokens["access_token"]`, or `tokens["openai_api_key"]`; otherwise return HTTP 400 (`detail: "no usable token in auth_json"`).
-3. Create a temp `$HOME` under `RUNNER_HOME_PARENT` (default `/var/tmp`), point `TMPDIR` / `TMP` / `TEMP` at a writable subdirectory inside that home, write `~/.codex/auth.json`, chmod 0600, and clean up the temp home after the probe.
+3. Create a temp `$HOME` under `RUNNER_HOME_PARENT` (the bundled runner image sets this to `/runner-home`), point `TMPDIR` / `TMP` / `TEMP` at a writable subdirectory inside that home, write `~/.codex/auth.json`, chmod 0600, and clean up the temp home after the probe.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from runner env when set (otherwise `http://api`), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
 5. Run `/usr/local/bin/codex exec -s read-only --skip-git-repo-check "Reply Banana if this works."` with timeout `timeout_seconds` (or `8.0` when unset/falsey).
 6. Reload `~/.codex/auth.json` after the probe; when it differs from the input payload, include it in the response as `updated_auth`.
@@ -112,6 +112,6 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 - `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): preflight interval. Default: `28800` (8h). Non-positive values fall back to `28800`.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
-- `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. Default: `/var/tmp`.
+- `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/runner-home`.
 - `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for `/verify`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, and `/skills/assist`.
 - `RUNNER_DEBUG_DUMP_AUTH` + `RUNNER_ALLOW_SECRET_DUMP` (runner container): both must be `1` to allow `/tmp/last-auth.json` writes; still disabled when `APP_ENV=production`.

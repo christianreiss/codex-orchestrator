@@ -30,9 +30,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY runner/app.py runner/entrypoint.sh /app/
 COPY bin/cdx /app/cdx
 
-RUN chmod +x /app/entrypoint.sh /app/cdx
+RUN mkdir -p /runner-home \
+    && chown 65534:65534 /runner-home \
+    && chmod 700 /runner-home \
+    && chmod +x /app/entrypoint.sh /app/cdx
 
 ENV PYTHONUNBUFFERED=1
+ENV RUNNER_HOME_PARENT=/runner-home
 USER nobody
 EXPOSE 8080
 

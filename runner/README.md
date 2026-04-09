@@ -22,7 +22,7 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, and `/projects/assist` require header `X-Runner-Auth` with an exact secret match.
-- `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; defaults to `/var/tmp` so Codex does not reject temp-backed homes under `/tmp`.
+- `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/runner-home`, a pre-created writable directory owned by the runtime user, so Codex does not reject temp-backed homes under `/tmp`.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`.
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for writing `/tmp/last-auth.json`.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -99,7 +99,7 @@ If the probe updates `~/.codex/auth.json` (for example by refreshing tokens), th
 
 Behavior details:
 - Uses a temporary `$HOME` and writes `~/.codex/auth.json` with mode 0600 for each probe.
-- The temporary `$HOME` is created under `/var/tmp` by default (or `RUNNER_HOME_PARENT` when set), and the runner also points `TMPDIR`/`TMP`/`TEMP` at a writable subdirectory inside that home.
+- The temporary `$HOME` is created under `RUNNER_HOME_PARENT` (the bundled image defaults this to `/runner-home`), and the runner also points `TMPDIR`/`TMP`/`TEMP` at a writable subdirectory inside that home.
 - Token extraction order is `auths.api.openai.com.token` first, then `tokens.access_token`, then `tokens.openai_api_key`.
 - Runs `/usr/local/bin/codex exec -s read-only --skip-git-repo-check "Reply Banana if this works."`.
 - Sets `CODEX_SYNC_BASE_URL` from the container env (default `http://api` when unset), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
