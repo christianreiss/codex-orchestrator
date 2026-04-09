@@ -294,7 +294,7 @@
                   <table class="api-ref-table">
                     <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                     <tbody>
-                      <tr><td><code>messages</code></td><td>array</td><td>Yes</td><td>Array of message objects with <code>role</code> and <code>content</code></td></tr>
+                      <tr><td><code>messages</code></td><td>array</td><td>Yes</td><td>Array of message objects with <code>role</code> and <code>content</code>; <code>content</code> may be a string or text/image content-part array</td></tr>
                       <tr><td><code>model</code></td><td>string</td><td>No</td><td>Supported model identifier. When omitted, the API uses the saved main config model and falls back to <code>versions.cdx_model</code>.</td></tr>
                       <tr><td><code>stream</code></td><td>boolean</td><td>No</td><td>Enable server-sent events streaming</td></tr>
                     </tbody>
@@ -317,7 +317,7 @@
                   <table class="api-ref-table">
                     <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                     <tbody>
-                      <tr><td><code>input</code></td><td>string | array</td><td>Yes</td><td>User input as a string or message-style array</td></tr>
+                      <tr><td><code>input</code></td><td>string | array</td><td>Yes</td><td>User input as a string, content-part array, or message-style array with text/image parts</td></tr>
                       <tr><td><code>instructions</code></td><td>string</td><td>No</td><td>Optional system-style instructions prepended to the request</td></tr>
                       <tr><td><code>model</code></td><td>string</td><td>No</td><td>Supported model identifier. When omitted, the API uses the saved main config model and falls back to <code>versions.cdx_model</code>.</td></tr>
                     </tbody>

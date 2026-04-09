@@ -7,11 +7,41 @@ namespace App\Http;
 final class OpenAiCompat
 {
     /**
-     * @return list<array{role:string, content:string}>|null
+     * @return list<array{role:string, content:string|list<array<string, mixed>>}>|null
+     */
+    public static function normalizeChatMessages(mixed $messages): ?array
+    {
+        if (!is_array($messages) || $messages === []) {
+            return null;
+        }
+
+        $normalized = [];
+        foreach ($messages as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $content = self::normalizeMessageContent($entry['content'] ?? null);
+            if ($content === null) {
+                continue;
+            }
+
+            $normalized[] = [
+                'role' => self::normalizeRole($entry['role'] ?? null),
+                'content' => $content,
+            ];
+        }
+
+        return $normalized !== [] ? $normalized : null;
+    }
+
+    /**
+     * @return list<array{role:string, content:string|list<array<string, mixed>>}>|null
      */
     public static function normalizeResponsesInput(mixed $input, mixed $instructions = null): ?array
     {
         $messages = [];
+        $inputMessages = [];
 
         if (is_string($instructions) && trim($instructions) !== '') {
             $messages[] = [
@@ -45,7 +75,7 @@ final class OpenAiCompat
                     continue;
                 }
 
-                $messages[] = [
+                $inputMessages[] = [
                     'role' => 'user',
                     'content' => $content,
                 ];
@@ -57,10 +87,10 @@ final class OpenAiCompat
             }
 
             $role = self::normalizeRole($entry['role'] ?? null);
-            $content = self::flattenMessageContent($entry['content'] ?? null);
+            $content = self::normalizeMessageContent($entry['content'] ?? null);
 
             if (($entry['type'] ?? null) === 'message' && $content !== null) {
-                $messages[] = [
+                $inputMessages[] = [
                     'role' => $role,
                     'content' => $content,
                 ];
@@ -68,12 +98,24 @@ final class OpenAiCompat
             }
 
             if ($content !== null && isset($entry['role'])) {
-                $messages[] = [
+                $inputMessages[] = [
                     'role' => $role,
                     'content' => $content,
                 ];
             }
         }
+
+        if ($inputMessages === []) {
+            $content = self::normalizeMessageContent($input);
+            if ($content !== null) {
+                $inputMessages[] = [
+                    'role' => 'user',
+                    'content' => $content,
+                ];
+            }
+        }
+
+        $messages = [...$messages, ...$inputMessages];
 
         return $messages !== [] ? $messages : null;
     }
@@ -208,7 +250,10 @@ final class OpenAiCompat
         return in_array($normalized, ['system', 'developer', 'assistant'], true) ? $normalized : 'user';
     }
 
-    private static function flattenMessageContent(mixed $content): ?string
+    /**
+     * @return string|list<array<string, mixed>>|null
+     */
+    private static function normalizeMessageContent(mixed $content): string|array|null
     {
         if (is_string($content)) {
             $value = trim($content);
@@ -219,12 +264,19 @@ final class OpenAiCompat
             return null;
         }
 
+        if (self::looksLikeSingleContentPart($content)) {
+            $content = [$content];
+        }
+
         $parts = [];
         foreach ($content as $part) {
             if (is_string($part)) {
                 $value = trim($part);
                 if ($value !== '') {
-                    $parts[] = $value;
+                    $parts[] = [
+                        'type' => 'text',
+                        'text' => $value,
+                    ];
                 }
                 continue;
             }
@@ -233,17 +285,9 @@ final class OpenAiCompat
                 continue;
             }
 
-            $type = strtolower((string) ($part['type'] ?? ''));
-            $text = $part['text'] ?? null;
-            if (!is_string($text)) {
-                continue;
-            }
-
-            if (in_array($type, ['input_text', 'text', 'output_text'], true)) {
-                $value = trim($text);
-                if ($value !== '') {
-                    $parts[] = $value;
-                }
+            $normalized = self::normalizeContentPart($part);
+            if ($normalized !== null) {
+                $parts[] = $normalized;
             }
         }
 
@@ -251,7 +295,75 @@ final class OpenAiCompat
             return null;
         }
 
-        return implode("\n", $parts);
+        if (count($parts) === 1 && ($parts[0]['type'] ?? null) === 'text' && is_string($parts[0]['text'] ?? null)) {
+            return $parts[0]['text'];
+        }
+
+        return $parts;
+    }
+
+    private static function looksLikeSingleContentPart(array $content): bool
+    {
+        return array_key_exists('type', $content)
+            || array_key_exists('text', $content)
+            || array_key_exists('image_url', $content);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function normalizeContentPart(array $part): ?array
+    {
+        $type = strtolower((string) ($part['type'] ?? ''));
+        if (in_array($type, ['input_text', 'text', 'output_text'], true)) {
+            $text = $part['text'] ?? null;
+            if (!is_string($text)) {
+                return null;
+            }
+
+            $value = trim($text);
+            if ($value === '') {
+                return null;
+            }
+
+            return [
+                'type' => 'text',
+                'text' => $value,
+            ];
+        }
+
+        if (in_array($type, ['image_url', 'input_image'], true)) {
+            $imageUrl = $part['image_url'] ?? null;
+            $url = null;
+            $detail = null;
+
+            if (is_array($imageUrl)) {
+                $url = $imageUrl['url'] ?? null;
+                $detail = $imageUrl['detail'] ?? ($part['detail'] ?? null);
+            } else {
+                $url = $imageUrl;
+                $detail = $part['detail'] ?? null;
+            }
+
+            if (!is_string($url) || trim($url) === '') {
+                return null;
+            }
+
+            $normalized = [
+                'type' => 'image_url',
+                'image_url' => [
+                    'url' => trim($url),
+                ],
+            ];
+
+            if (is_string($detail) && trim($detail) !== '') {
+                $normalized['image_url']['detail'] = trim($detail);
+            }
+
+            return $normalized;
+        }
+
+        return null;
     }
 
     private static function deriveId(string $sourceId, string $prefix): string

@@ -7,7 +7,7 @@ namespace App\Contracts;
 interface BackendAdapter
 {
     /**
-     * @param array<int, array{role: string, content: string}> $messages
+     * @param array<int, array{role: string, content: string|array<int, array<string, mixed>>}> $messages
      */
     public function chatCompletions(array $messages, string $model): array;
 

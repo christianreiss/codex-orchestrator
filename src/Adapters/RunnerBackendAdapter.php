@@ -22,15 +22,9 @@ class RunnerBackendAdapter implements BackendAdapter
 
     public function chatCompletions(array $messages, string $model): array
     {
-        $lines = [];
-        foreach ($messages as $message) {
-            $role = $message['role'] ?? 'user';
-            $content = $message['content'] ?? '';
-            $lines[] = "{$role}: {$content}";
-        }
-        $prompt = implode("\n", $lines);
+        [$prompt, $images] = $this->buildPromptPayload($messages);
 
-        $output = $this->runPrompt($prompt, $model);
+        $output = $this->runPrompt($prompt, $model, $images);
 
         return [
             'id' => 'chatcmpl-' . bin2hex(random_bytes(12)),
@@ -115,7 +109,7 @@ class RunnerBackendAdapter implements BackendAdapter
      *
      * @throws \RuntimeException on runner communication failure
      */
-    private function runPrompt(string $prompt, ?string $model = null): string
+    private function runPrompt(string $prompt, ?string $model = null, array $images = []): string
     {
         if (trim($prompt) === '') {
             return '';
@@ -129,6 +123,7 @@ class RunnerBackendAdapter implements BackendAdapter
         $body = json_encode([
             'auth_json' => $authPayload,
             'prompt' => $prompt,
+            'images' => $images,
             'model' => $model,
             'timeout_seconds' => $this->timeout,
         ], JSON_UNESCAPED_SLASHES);
@@ -139,8 +134,106 @@ class RunnerBackendAdapter implements BackendAdapter
             return $result['output'] ?? '';
         }
 
-        $error = $result['error'] ?? $result['reason'] ?? 'Runner execution failed';
+        $error = $result['error'] ?? $result['reason'] ?? $result['detail'] ?? 'Runner execution failed';
         throw new \RuntimeException((string) $error);
+    }
+
+    /**
+     * @param array<int, array{role?: mixed, content?: mixed}> $messages
+     * @return array{0: string, 1: list<array{url: string, detail?: string}>}
+     */
+    private function buildPromptPayload(array $messages): array
+    {
+        $lines = [];
+        $images = [];
+        $imageNumber = 1;
+
+        foreach ($messages as $message) {
+            if (!is_array($message)) {
+                continue;
+            }
+
+            $role = is_string($message['role'] ?? null) && trim((string) $message['role']) !== ''
+                ? trim((string) $message['role'])
+                : 'user';
+            $content = $this->renderMessageContent($message['content'] ?? null, $images, $imageNumber);
+
+            if ($content === '') {
+                continue;
+            }
+
+            $lines[] = "{$role}: {$content}";
+        }
+
+        return [implode("\n", $lines), $images];
+    }
+
+    /**
+     * @param list<array{url: string, detail?: string}> $images
+     */
+    private function renderMessageContent(mixed $content, array &$images, int &$imageNumber): string
+    {
+        if (is_string($content)) {
+            return trim($content);
+        }
+
+        if (!is_array($content)) {
+            return '';
+        }
+
+        if (array_key_exists('type', $content) || array_key_exists('text', $content) || array_key_exists('image_url', $content)) {
+            $content = [$content];
+        }
+
+        $parts = [];
+        foreach ($content as $part) {
+            if (is_string($part)) {
+                $value = trim($part);
+                if ($value !== '') {
+                    $parts[] = $value;
+                }
+                continue;
+            }
+
+            if (!is_array($part)) {
+                continue;
+            }
+
+            $type = strtolower((string) ($part['type'] ?? ''));
+            if ($type === 'text') {
+                $text = $part['text'] ?? null;
+                if (is_string($text) && trim($text) !== '') {
+                    $parts[] = trim($text);
+                }
+                continue;
+            }
+
+            if ($type !== 'image_url') {
+                continue;
+            }
+
+            $imageUrl = $part['image_url'] ?? null;
+            if (!is_array($imageUrl)) {
+                continue;
+            }
+
+            $url = $imageUrl['url'] ?? null;
+            if (!is_string($url) || trim($url) === '') {
+                continue;
+            }
+
+            $image = ['url' => trim($url)];
+            $detail = $imageUrl['detail'] ?? null;
+            if (is_string($detail) && trim($detail) !== '') {
+                $image['detail'] = trim($detail);
+            }
+
+            $images[] = $image;
+            $parts[] = '[Image ' . $imageNumber . ' attached]';
+            $imageNumber++;
+        }
+
+        return implode("\n", $parts);
     }
 
     protected function attemptRequest(string $body): array

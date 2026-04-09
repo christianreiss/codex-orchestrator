@@ -49,6 +49,50 @@ final class RunnerBackendAdapterTest extends TestCase
         $this->assertSame(12.5, $adapter->seenPayloads[0]['timeout_seconds']);
     }
 
+    public function testChatCompletionsForwardImagePartsToRunnerExecPayload(): void
+    {
+        $authService = $this->createMock(AuthService::class);
+        $authService->method('canonicalAuthSnapshot')->willReturn([
+            'tokens' => ['access_token' => 'tok_test_12345678901234567890'],
+        ]);
+
+        $adapter = new class(
+            'http://runner.test/exec',
+            '',
+            $authService,
+            new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo())
+        ) extends RunnerBackendAdapter {
+            public array $seenPayloads = [];
+
+            protected function attemptRequest(string $body): array
+            {
+                $decoded = json_decode($body, true);
+                $this->seenPayloads[] = is_array($decoded) ? $decoded : [];
+
+                return [
+                    'status' => 'ok',
+                    'output' => 'image result',
+                ];
+            }
+        };
+
+        $adapter->chatCompletions([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'Describe this image.'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/cat.png', 'detail' => 'high']],
+                ],
+            ],
+        ], 'gpt-5.4');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $this->assertSame("user: Describe this image.\n[Image 1 attached]", $adapter->seenPayloads[0]['prompt']);
+        $this->assertSame([
+            ['url' => 'https://example.test/cat.png', 'detail' => 'high'],
+        ], $adapter->seenPayloads[0]['images']);
+    }
+
     public function testModelsExposeSharedSupportedModelList(): void
     {
         $authService = $this->createMock(AuthService::class);

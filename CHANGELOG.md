@@ -1,3 +1,6 @@
+# 2026-04-09
+- OpenAI-compatible API: `POST /v1/chat/completions` and `POST /v1/responses` now preserve array-format content parts instead of coercing them to PHP `"Array"`. Text parts are normalized, and `image_url` / `input_image` parts now flow through the runner as real `codex exec --image` attachments for both remote `http(s)` URLs and base64 `data:` URLs. API/admin docs and runner docs were updated to match.
+
 # 2026-04-08
 - Model support: removed the no-longer-supported `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, and `gpt-5.1-codex-mini` entries from the shared allowlist, admin config/profile/host-override pickers, OpenAI-compatible `/v1/models`, and docs. The app now only advertises `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2`, and removed models force-upgrade to `gpt-5.4`.
 - Config/host migration: saved fleet configs, profile models, per-host overrides, and `versions.cdx_model` values that still reference removed models are now backfilled/normalized to `gpt-5.4` with `medium` reasoning effort on boot, so older stored selections stop leaking back into baked config or wrappers.

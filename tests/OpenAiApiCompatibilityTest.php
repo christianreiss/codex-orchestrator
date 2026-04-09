@@ -25,7 +25,51 @@ final class OpenAiApiCompatibilityTest extends TestCase
 
         $this->assertSame([
             ['role' => 'system', 'content' => 'Be terse.'],
-            ['role' => 'user', 'content' => "Reply with\nexactly pong"],
+            ['role' => 'user', 'content' => [
+                ['type' => 'text', 'text' => 'Reply with'],
+                ['type' => 'text', 'text' => 'exactly pong'],
+            ]],
+        ], $messages);
+    }
+
+    public function testNormalizeChatMessagesKeepsImageContentParts(): void
+    {
+        $messages = OpenAiCompat::normalizeChatMessages([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'What is in this image?'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/cat.png', 'detail' => 'high']],
+                ],
+            ],
+        ]);
+
+        $this->assertSame([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'What is in this image?'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/cat.png', 'detail' => 'high']],
+                ],
+            ],
+        ], $messages);
+    }
+
+    public function testNormalizeResponsesInputSupportsBareContentPartArrays(): void
+    {
+        $messages = OpenAiCompat::normalizeResponsesInput([
+            ['type' => 'input_text', 'text' => 'Inspect this.'],
+            ['type' => 'input_image', 'image_url' => 'data:image/png;base64,Zm9v'],
+        ]);
+
+        $this->assertSame([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'Inspect this.'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'data:image/png;base64,Zm9v']],
+                ],
+            ],
         ], $messages);
     }
 

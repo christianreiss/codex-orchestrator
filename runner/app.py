@@ -1,11 +1,18 @@
+import base64
+import binascii
 import json
+import mimetypes
 import os
+import re
 import secrets
 import shutil
 import subprocess
 import tempfile
 import time
 from typing import Optional
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -111,6 +118,17 @@ class JoplinQueryRequest(BaseModel):
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the query call (seconds)"
     )
+
+
+class ExecImageInput(BaseModel):
+    url: str = Field(..., description="Image URL or data URL to attach")
+    detail: Optional[str] = Field(None, description="Requested image detail level")
+
+
+DATA_URL_RE = re.compile(
+    r"^data:(?P<mime>[-\w.+/]+)?(?:;charset=[^;,]+)?;base64,(?P<data>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
@@ -895,16 +913,101 @@ def summarize_memory(payload: MemorySummaryRequest, request: Request):
 class ExecRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     prompt: str = Field(..., description="Prompt to execute")
+    images: list[ExecImageInput] = Field(default_factory=list, description="Optional images to attach")
     model: Optional[str] = Field(None, description="Codex model to execute")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the exec call (seconds)"
     )
 
 
-def _build_codex_exec_cmd(prompt: str, model: Optional[str]) -> list[str]:
+def _guess_image_suffix(mime_type: Optional[str], source_url: str) -> str:
+    mime = (mime_type or "").split(";", 1)[0].strip().lower()
+    suffix = mimetypes.guess_extension(mime) if mime else None
+    if suffix == ".jpe":
+        suffix = ".jpg"
+    if suffix:
+        return suffix
+
+    path = urllib_parse.urlparse(source_url).path
+    guessed = os.path.splitext(path)[1]
+    return guessed or ".img"
+
+
+def _materialize_data_url_image(url: str, image_dir: str, index: int) -> str:
+    match = DATA_URL_RE.match(url.strip())
+    if not match:
+        raise HTTPException(status_code=400, detail="invalid base64 image data URL")
+
+    try:
+        raw = base64.b64decode(match.group("data"), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"invalid base64 image data URL: {exc}")
+
+    if raw == b"":
+        raise HTTPException(status_code=400, detail="image data URL is empty")
+
+    suffix = _guess_image_suffix(match.group("mime"), url)
+    path = os.path.join(image_dir, f"image-{index}{suffix}")
+    with open(path, "wb") as fh:
+        fh.write(raw)
+    return path
+
+
+def _materialize_remote_image(url: str, image_dir: str, index: int) -> str:
+    parsed = urllib_parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="image URLs must use http, https, or data")
+
+    try:
+        req = urllib_request.Request(
+            url,
+            headers={"User-Agent": "codex-orchestrator-runner/1.0"},
+        )
+        with urllib_request.urlopen(req, timeout=15.0) as response:
+            raw = response.read()
+            mime_type = response.headers.get_content_type()
+    except urllib_error.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"image download failed with HTTP {exc.code}")
+    except urllib_error.URLError as exc:
+        raise HTTPException(status_code=400, detail=f"image download failed: {exc.reason}")
+
+    if raw == b"":
+        raise HTTPException(status_code=400, detail="downloaded image is empty")
+
+    suffix = _guess_image_suffix(mime_type, url)
+    path = os.path.join(image_dir, f"image-{index}{suffix}")
+    with open(path, "wb") as fh:
+        fh.write(raw)
+    return path
+
+
+def _materialize_exec_images(images: list[ExecImageInput], home_dir: str) -> list[str]:
+    if not images:
+        return []
+
+    image_dir = os.path.join(home_dir, "exec-images")
+    os.makedirs(image_dir, exist_ok=True)
+
+    paths = []
+    for index, image in enumerate(images, start=1):
+        url = image.url.strip()
+        if url == "":
+            raise HTTPException(status_code=400, detail="image url is required")
+
+        if url.lower().startswith("data:"):
+            paths.append(_materialize_data_url_image(url, image_dir, index))
+        else:
+            paths.append(_materialize_remote_image(url, image_dir, index))
+
+    return paths
+
+
+def _build_codex_exec_cmd(prompt: str, model: Optional[str], image_paths: Optional[list[str]] = None) -> list[str]:
     cmd = ["/usr/local/bin/codex"]
     if isinstance(model, str) and model.strip():
         cmd.extend(["--model", model.strip()])
+    for image_path in image_paths or []:
+        cmd.extend(["--image", image_path])
     cmd.extend([
         "exec",
         prompt,
@@ -923,7 +1026,8 @@ def _exec_prompt(payload: ExecRequest) -> dict:
     env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
     try:
         timeout = payload.timeout_seconds or 30.0
-        cmd = _build_codex_exec_cmd(prompt, payload.model)
+        image_paths = _materialize_exec_images(payload.images or [], home_dir)
+        cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
         start = time.perf_counter()
         proc = subprocess.run(
             cmd,

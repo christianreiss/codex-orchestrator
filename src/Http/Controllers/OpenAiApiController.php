@@ -29,8 +29,8 @@ class OpenAiApiController
         $this->enforceRateLimit($key);
         $this->ensureBackend();
 
-        $messages = $payload['messages'] ?? null;
-        if (!is_array($messages) || $messages === []) {
+        $messages = OpenAiCompat::normalizeChatMessages($payload['messages'] ?? null);
+        if ($messages === null) {
             OpenAiResponse::error('Missing required parameter: messages', 'invalid_request_error', 400, null, 'messages');
         }
 
