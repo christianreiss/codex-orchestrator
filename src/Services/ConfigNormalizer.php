@@ -32,6 +32,26 @@ class ConfigNormalizer
         'gpt-5.1-codex-mini' => self::FORCE_UPGRADE_MODEL,
     ];
 
+    /** @var list<string> */
+    public const CLAUDE_SUPPORTED_MODELS = [
+        'claude-opus-4-6',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5',
+    ];
+
+    /** @var array<string, string> */
+    public const CLAUDE_LEGACY_MODEL_UPGRADES = [
+        'claude-3-opus-20240229' => 'claude-opus-4-6',
+        'claude-3-sonnet-20240229' => 'claude-sonnet-4-6',
+        'claude-3-haiku-20240307' => 'claude-haiku-4-5',
+        'claude-3-5-sonnet-20240620' => 'claude-sonnet-4-6',
+        'claude-3-5-sonnet-20241022' => 'claude-sonnet-4-6',
+        'claude-3-5-haiku-20241022' => 'claude-haiku-4-5',
+        'claude-sonnet-4-20250514' => 'claude-sonnet-4-6',
+        'claude-opus-4-20250514' => 'claude-opus-4-6',
+        'claude-haiku-4-5-20251001' => 'claude-haiku-4-5',
+    ];
+
     /** @var array<string, list<string>> */
     public const MODEL_REASONING_EFFORTS = [
         'gpt-5.4' => ['low', 'medium', 'high', 'xhigh'],
@@ -71,6 +91,9 @@ class ConfigNormalizer
         'apps',
         'artifact',
         'child_agents_md',
+        'claude_citations',
+        'claude_pdf_support',
+        'claude_tool_use',
         'code_mode',
         'code_mode_only',
         'codex_git_commit',
@@ -79,6 +102,7 @@ class ConfigNormalizer
         'enable_fanout',
         'enable_request_compression',
         'exec_permission_approvals',
+        'extended_thinking',
         'fast_mode',
         'guardian_approval',
         'image_detail_original',
@@ -91,6 +115,7 @@ class ConfigNormalizer
         'plugins',
         'powershell_utf8',
         'prevent_idle_sleep',
+        'prompt_caching',
         'realtime_conversation',
         'request_permissions_tool',
         'runtime_metrics',
@@ -630,6 +655,33 @@ class ConfigNormalizer
         }
 
         return array_key_exists($model, self::LEGACY_MODEL_UPGRADES);
+    }
+
+    public static function isClaudeModel(mixed $value): bool
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return false;
+        }
+        $model = strtolower(trim((string) $value));
+
+        return in_array($model, self::CLAUDE_SUPPORTED_MODELS, true)
+            || isset(self::CLAUDE_LEGACY_MODEL_UPGRADES[$model]);
+    }
+
+    public static function normalizeClaudeModel(mixed $value): ?string
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+        $model = strtolower(trim((string) $value));
+        if ($model === '') {
+            return null;
+        }
+        if (in_array($model, self::CLAUDE_SUPPORTED_MODELS, true)) {
+            return $model;
+        }
+
+        return self::CLAUDE_LEGACY_MODEL_UPGRADES[$model] ?? null;
     }
 
     /** @return list<string> */
