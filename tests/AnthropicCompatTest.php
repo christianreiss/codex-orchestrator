@@ -204,7 +204,7 @@ final class AnthropicCompatTest extends TestCase
         $this->assertIsArray($events);
         $this->assertCount(6, $events);
 
-        $eventTypes = array_map(static fn(array $e): string => $e['type'] ?? '', $events);
+        $eventTypes = array_map(static fn(array $e): string => $e['event'] ?? '', $events);
         $this->assertSame('message_start', $eventTypes[0]);
         $this->assertSame('content_block_start', $eventTypes[1]);
         $this->assertSame('content_block_delta', $eventTypes[2]);
@@ -230,8 +230,8 @@ final class AnthropicCompatTest extends TestCase
         ]);
 
         $startEvent = $events[0];
-        $this->assertSame('message_start', $startEvent['type']);
-        $message = $startEvent['message'] ?? [];
+        $this->assertSame('message_start', $startEvent['event']);
+        $message = $startEvent['data']['message'] ?? [];
         $this->assertSame('msg_custom_id', $message['id'] ?? null);
         $this->assertSame('claude-opus-4-20250514', $message['model'] ?? null);
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Adapters\ClaudeBackendAdapter;
+use App\Http\AnthropicCompat;
 use App\Http\AnthropicResponse;
 use App\Repositories\VersionRepository;
 use App\Security\RateLimiter;
@@ -30,15 +31,22 @@ class ClaudeApiController
         $this->ensureApiEnabled();
         $this->ensureBackend();
 
-        $messages = $payload['messages'] ?? null;
-        if (!is_array($messages) || $messages === []) {
+        $messages = AnthropicCompat::normalizeChatMessages($payload['messages'] ?? null);
+        if ($messages === null) {
             AnthropicResponse::error('Missing required parameter: messages', 'invalid_request_error', 400);
         }
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
+        $params = [];
+        foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as $param) {
+            if (isset($payload[$param])) {
+                $params[$param] = $payload[$param];
+            }
+        }
+
         try {
-            $result = $this->backend->messages($messages, $model);
+            $result = $this->backend->messages($messages, $model, $params);
         } catch (\RuntimeException $e) {
             AnthropicResponse::error($e->getMessage(), 'api_error', 502);
         }
@@ -92,9 +100,72 @@ class ClaudeApiController
         ]);
     }
 
+    public function responses(array $payload): void
+    {
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
+        $this->ensureBackend();
+
+        $messages = AnthropicCompat::normalizeResponsesInput(
+            $payload['input'] ?? null,
+            $payload['instructions'] ?? null
+        );
+
+        if ($messages === null) {
+            AnthropicResponse::error('Missing required parameter: input', 'invalid_request_error', 400);
+        }
+
+        $model = $this->resolveModel($payload['model'] ?? null);
+
+        if (!empty($payload['stream'])) {
+            AnthropicResponse::error(
+                'Streaming responses are not implemented for this backend yet.',
+                'invalid_request_error',
+                400,
+                'unsupported_stream'
+            );
+        }
+
+        try {
+            $result = $this->backend->messages($messages, $model);
+        } catch (\RuntimeException $e) {
+            AnthropicResponse::error($e->getMessage(), 'api_error', 502);
+        }
+
+        AnthropicResponse::json(AnthropicCompat::responseFromMessage($result));
+    }
+
+    public function embeddings(array $payload): void
+    {
+        $this->authenticate();
+        $this->ensureApiEnabled();
+        $this->ensureBackend();
+
+        $input = $payload['input'] ?? null;
+        if ($input === null) {
+            AnthropicResponse::error('Missing required parameter: input', 'invalid_request_error', 400);
+        }
+
+        $model = $this->resolveModel($payload['model'] ?? null);
+        $result = $this->backend->embeddings($input, $model);
+
+        if (isset($result['error'])) {
+            AnthropicResponse::error(
+                $result['error']['message'] ?? 'Embeddings not supported',
+                $result['error']['type'] ?? 'not_implemented',
+                501,
+                $result['error']['code'] ?? null
+            );
+        }
+
+        AnthropicResponse::json($result);
+    }
+
     public function models(): void
     {
         $this->authenticate();
+        $this->ensureApiEnabled();
 
         $result = $this->backend !== null
             ? $this->backend->models()
@@ -110,92 +181,7 @@ class ClaudeApiController
 
     private function streamResponse(array $result): never
     {
-        $messageId = $result['id'] ?? ('msg_' . bin2hex(random_bytes(16)));
-        $model = $result['model'] ?? ClaudeModelService::DEFAULT_MODEL;
-        $outputTokens = $result['usage']['output_tokens'] ?? 0;
-        $text = '';
-
-        $content = $result['content'] ?? [];
-        if (is_array($content)) {
-            foreach ($content as $block) {
-                if (is_array($block) && ($block['type'] ?? '') === 'text') {
-                    $text = $block['text'] ?? '';
-                    break;
-                }
-            }
-        }
-
-        $events = [
-            [
-                'event' => 'message_start',
-                'data' => [
-                    'type' => 'message_start',
-                    'message' => [
-                        'id' => $messageId,
-                        'type' => 'message',
-                        'role' => 'assistant',
-                        'content' => [],
-                        'model' => $model,
-                        'stop_reason' => null,
-                        'stop_sequence' => null,
-                        'usage' => [
-                            'input_tokens' => $result['usage']['input_tokens'] ?? 0,
-                            'output_tokens' => 0,
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'event' => 'content_block_start',
-                'data' => [
-                    'type' => 'content_block_start',
-                    'index' => 0,
-                    'content_block' => [
-                        'type' => 'text',
-                        'text' => '',
-                    ],
-                ],
-            ],
-            [
-                'event' => 'content_block_delta',
-                'data' => [
-                    'type' => 'content_block_delta',
-                    'index' => 0,
-                    'delta' => [
-                        'type' => 'text_delta',
-                        'text' => $text,
-                    ],
-                ],
-            ],
-            [
-                'event' => 'content_block_stop',
-                'data' => [
-                    'type' => 'content_block_stop',
-                    'index' => 0,
-                ],
-            ],
-            [
-                'event' => 'message_delta',
-                'data' => [
-                    'type' => 'message_delta',
-                    'delta' => [
-                        'stop_reason' => 'end_turn',
-                        'stop_sequence' => null,
-                    ],
-                    'usage' => [
-                        'output_tokens' => $outputTokens,
-                    ],
-                ],
-            ],
-            [
-                'event' => 'message_stop',
-                'data' => [
-                    'type' => 'message_stop',
-                ],
-            ],
-        ];
-
-        AnthropicResponse::streamEvents($events);
+        AnthropicResponse::streamEvents(AnthropicCompat::messageStreamEvents($result));
     }
 
     private function fallbackModels(): array

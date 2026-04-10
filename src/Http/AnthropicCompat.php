@@ -9,6 +9,144 @@ final class AnthropicCompat
     /**
      * @return list<array{role:string, content:string|list<array<string, mixed>>}>|null
      */
+    public static function normalizeResponsesInput(mixed $input, mixed $instructions = null): ?array
+    {
+        $messages = [];
+        $inputMessages = [];
+
+        if (is_string($instructions) && trim($instructions) !== '') {
+            $messages[] = [
+                'role' => 'system',
+                'content' => trim($instructions),
+            ];
+        }
+
+        if (is_string($input)) {
+            $content = trim($input);
+            if ($content === '') {
+                return null;
+            }
+
+            $messages[] = [
+                'role' => 'user',
+                'content' => $content,
+            ];
+
+            return $messages;
+        }
+
+        if (!is_array($input)) {
+            return null;
+        }
+
+        foreach ($input as $entry) {
+            if (is_string($entry)) {
+                $content = trim($entry);
+                if ($content !== '') {
+                    $inputMessages[] = [
+                        'role' => 'user',
+                        'content' => $content,
+                    ];
+                }
+                continue;
+            }
+
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $role = self::normalizeRole($entry['role'] ?? null);
+            $content = self::normalizeMessageContent($entry['content'] ?? null);
+
+            if (($entry['type'] ?? null) === 'message' && $content !== null) {
+                $inputMessages[] = [
+                    'role' => $role,
+                    'content' => $content,
+                ];
+                continue;
+            }
+
+            if ($content !== null && isset($entry['role'])) {
+                $inputMessages[] = [
+                    'role' => $role,
+                    'content' => $content,
+                ];
+            }
+        }
+
+        if ($inputMessages === []) {
+            $content = self::normalizeMessageContent($input);
+            if ($content !== null) {
+                $inputMessages[] = [
+                    'role' => 'user',
+                    'content' => $content,
+                ];
+            }
+        }
+
+        $messages = [...$messages, ...$inputMessages];
+
+        return $messages !== [] ? $messages : null;
+    }
+
+    public static function responseFromMessage(array $messageResult): array
+    {
+        $sourceId = (string) ($messageResult['id'] ?? '');
+        $responseId = self::deriveId($sourceId, 'resp_');
+        $messageId = self::deriveId($sourceId, 'msg_');
+        $model = (string) ($messageResult['model'] ?? '');
+        $usage = is_array($messageResult['usage'] ?? null) ? $messageResult['usage'] : [];
+
+        $inputTokens = (int) ($usage['input_tokens'] ?? 0);
+        $outputTokens = (int) ($usage['output_tokens'] ?? 0);
+
+        $text = '';
+        $blocks = $messageResult['content'] ?? null;
+        if (is_array($blocks)) {
+            foreach ($blocks as $block) {
+                if (is_array($block) && ($block['type'] ?? null) === 'text' && is_string($block['text'] ?? null)) {
+                    $text .= $block['text'];
+                }
+            }
+        }
+
+        return [
+            'id' => $responseId,
+            'object' => 'response',
+            'created_at' => time(),
+            'status' => 'completed',
+            'model' => $model,
+            'output' => [
+                [
+                    'id' => $messageId,
+                    'type' => 'message',
+                    'status' => 'completed',
+                    'role' => 'assistant',
+                    'content' => [
+                        [
+                            'type' => 'output_text',
+                            'text' => $text,
+                            'annotations' => [],
+                            'logprobs' => [],
+                        ],
+                    ],
+                ],
+            ],
+            'parallel_tool_calls' => false,
+            'usage' => [
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'output_tokens_details' => [
+                    'reasoning_tokens' => 0,
+                ],
+                'total_tokens' => $inputTokens + $outputTokens,
+            ],
+        ];
+    }
+
+    /**
+     * @return list<array{role:string, content:string|list<array<string, mixed>>}>|null
+     */
     public static function normalizeChatMessages(mixed $messages): ?array
     {
         if (!is_array($messages) || $messages === []) {

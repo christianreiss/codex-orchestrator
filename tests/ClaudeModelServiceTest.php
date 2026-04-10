@@ -9,94 +9,86 @@ use PHPUnit\Framework\TestCase;
 
 final class ClaudeModelServiceTest extends TestCase
 {
-    public function testSupportedModelsReturnsExpectedList(): void
+    public function testDefaultModelReturnsHardcodedFallbackWhenNoConfig(): void
     {
         $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
-        $models = $service->supportedModels();
 
-        $this->assertIsArray($models);
-        $this->assertNotEmpty($models);
-        foreach ($models as $model) {
-            $this->assertStringContainsString('claude', strtolower($model));
-        }
+        $this->assertSame(ClaudeModelService::DEFAULT_MODEL, $service->defaultModel());
     }
 
-    public function testSupportedModelsIncludesMainClaudeFamilies(): void
-    {
-        $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
-        $models = $service->supportedModels();
-
-        $joined = implode(' ', $models);
-        $this->assertTrue(
-            str_contains($joined, 'sonnet') || str_contains($joined, 'haiku') || str_contains($joined, 'opus'),
-            'Expected at least one of sonnet, haiku, or opus in supported models'
-        );
-    }
-
-    public function testDefaultModelReturnsConstantWhenNoConfigOrRepo(): void
-    {
-        $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
-        $default = $service->defaultModel();
-
-        if ($default !== null) {
-            $this->assertStringContainsString('claude', strtolower($default));
-        } else {
-            $this->assertNull($default);
-        }
-    }
-
-    public function testDefaultModelReturnsConfiguredModelFromClientConfig(): void
+    public function testDefaultModelReadsFromClientConfig(): void
     {
         $service = new ClaudeModelService(
-            $this->makeConfigRepo(['settings' => ['claude_model' => 'claude-sonnet-4-20250514']]),
+            $this->makeConfigRepo(['settings' => ['claude_model' => 'claude-opus-4-6']]),
             $this->makeVersionRepo([])
         );
 
-        $default = $service->defaultModel();
-
-        if ($default !== null) {
-            $this->assertStringContainsString('claude', strtolower($default));
-        }
+        $this->assertSame('claude-opus-4-6', $service->defaultModel());
     }
 
-    public function testDefaultModelReturnsConfiguredModelFromVersionRepository(): void
+    public function testDefaultModelReadsFromVersionRepository(): void
     {
         $service = new ClaudeModelService(
             $this->makeConfigRepo(null),
-            $this->makeVersionRepo(['claude_model' => 'claude-sonnet-4-20250514'])
+            $this->makeVersionRepo(['claude_default_model' => 'claude-haiku-4-5'])
         );
 
-        $default = $service->defaultModel();
+        $this->assertSame('claude-haiku-4-5', $service->defaultModel());
+    }
 
-        if ($default !== null) {
-            $this->assertStringContainsString('claude', strtolower($default));
+    public function testDefaultModelPrefersClientConfigOverVersionRepo(): void
+    {
+        $service = new ClaudeModelService(
+            $this->makeConfigRepo(['settings' => ['claude_model' => 'claude-opus-4-6']]),
+            $this->makeVersionRepo(['claude_default_model' => 'claude-haiku-4-5'])
+        );
+
+        $this->assertSame('claude-opus-4-6', $service->defaultModel());
+    }
+
+    public function testResolveRequestedModelUsesHardcodedDefaultWhenNoConfig(): void
+    {
+        $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
+
+        $resolved = $service->resolveRequestedModel(null);
+        $this->assertSame(ClaudeModelService::DEFAULT_MODEL, $resolved);
+    }
+
+    public function testResolveRequestedModelUsesDefaultWhenEmptyString(): void
+    {
+        $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
+
+        $resolved = $service->resolveRequestedModel('');
+        $this->assertSame(ClaudeModelService::DEFAULT_MODEL, $resolved);
+    }
+
+    public function testResolveRequestedModelUpgradesLegacyModels(): void
+    {
+        $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
+
+        foreach (ClaudeModelService::LEGACY_MODEL_UPGRADES as $legacy => $upgraded) {
+            $resolved = $service->resolveRequestedModel($legacy);
+            $this->assertSame($upgraded, $resolved, "Legacy model '{$legacy}' should upgrade to '{$upgraded}'");
         }
     }
 
-    public function testResolveRequestedModelValidatesSupportedModel(): void
+    public function testResolveRequestedModelAcceptsExplicitSupportedModel(): void
     {
         $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
-        $models = $service->supportedModels();
 
-        if (count($models) === 0) {
-            $this->markTestSkipped('No supported models available');
+        foreach (ClaudeModelService::SUPPORTED_MODELS as $model) {
+            $resolved = $service->resolveRequestedModel($model);
+            $this->assertSame($model, $resolved, "Supported model '{$model}' should resolve to itself");
         }
-
-        $resolved = $service->resolveRequestedModel($models[0]);
-        $this->assertSame($models[0], $resolved);
     }
 
     public function testResolveRequestedModelTrimsWhitespace(): void
     {
         $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
-        $models = $service->supportedModels();
+        $model = ClaudeModelService::SUPPORTED_MODELS[0];
 
-        if (count($models) === 0) {
-            $this->markTestSkipped('No supported models available');
-        }
-
-        $resolved = $service->resolveRequestedModel('  ' . $models[0] . '  ');
-        $this->assertSame($models[0], $resolved);
+        $resolved = $service->resolveRequestedModel("  {$model}  ");
+        $this->assertSame($model, $resolved);
     }
 
     public function testResolveRequestedModelRejectsUnsupportedModel(): void
@@ -106,49 +98,26 @@ final class ClaudeModelServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Unsupported model');
 
-        $service->resolveRequestedModel('totally-fake-model-xyz');
+        $service->resolveRequestedModel('not-a-real-model');
     }
 
-    public function testResolveRequestedModelUsesDefaultWhenNull(): void
+    public function testResolveRequestedModelUsesConfiguredDefault(): void
     {
         $service = new ClaudeModelService(
-            $this->makeConfigRepo(['settings' => ['claude_model' => 'claude-sonnet-4-20250514']]),
+            $this->makeConfigRepo(['settings' => ['claude_model' => 'claude-opus-4-6']]),
             $this->makeVersionRepo([])
         );
 
-        try {
-            $resolved = $service->resolveRequestedModel(null);
-            $this->assertIsString($resolved);
-            $this->assertNotSame('', $resolved);
-        } catch (RuntimeException $e) {
-            // If no default is configured, a RuntimeException is acceptable
-            $this->assertStringContainsString('No default model', $e->getMessage());
-        }
+        $this->assertSame('claude-opus-4-6', $service->resolveRequestedModel(null));
     }
 
-    public function testResolveRequestedModelUsesDefaultWhenEmptyString(): void
-    {
-        $service = new ClaudeModelService(
-            $this->makeConfigRepo(['settings' => ['claude_model' => 'claude-sonnet-4-20250514']]),
-            $this->makeVersionRepo([])
-        );
-
-        try {
-            $resolved = $service->resolveRequestedModel('');
-            $this->assertIsString($resolved);
-            $this->assertNotSame('', $resolved);
-        } catch (RuntimeException $e) {
-            $this->assertStringContainsString('No default model', $e->getMessage());
-        }
-    }
-
-    public function testResolveRequestedModelFailsWithoutConfiguredDefault(): void
+    public function testSupportedModelsReturnsNonEmptyList(): void
     {
         $service = new ClaudeModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
 
-        $this->expectException(RuntimeException::class);
-
-        $service->resolveRequestedModel(null);
+        $models = $service->supportedModels();
+        $this->assertNotEmpty($models);
+        $this->assertSame(ClaudeModelService::SUPPORTED_MODELS, $models);
     }
 
     private function makeConfigRepo(?array $row): ClientConfigRepository

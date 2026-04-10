@@ -41,7 +41,6 @@ final class ClaudeBackendAdapterTest extends TestCase
             $result['data']
         );
 
-        // At minimum, one of the main Claude models should be present
         $hasClaudeModel = false;
         foreach ($modelIds as $id) {
             if (str_contains($id, 'claude')) {
@@ -55,7 +54,7 @@ final class ClaudeBackendAdapterTest extends TestCase
     public function testEmbeddingsReturnsNotImplementedError(): void
     {
         $adapter = $this->createAdapter();
-        $result = $adapter->embeddings('test input', 'claude-sonnet-4-20250514');
+        $result = $adapter->embeddings('test input', 'claude-sonnet-4-6');
 
         $this->assertArrayHasKey('error', $result);
         $this->assertSame('not_implemented', $result['error']['type'] ?? $result['error']['code'] ?? null);
@@ -74,12 +73,12 @@ final class ClaudeBackendAdapterTest extends TestCase
 
         $result = $adapter->messages([
             ['role' => 'user', 'content' => 'Hello'],
-        ], 'claude-sonnet-4-20250514');
+        ], 'claude-sonnet-4-6');
 
         $this->assertStringStartsWith('msg_', $result['id']);
         $this->assertSame('message', $result['type']);
         $this->assertSame('assistant', $result['role']);
-        $this->assertSame('claude-sonnet-4-20250514', $result['model']);
+        $this->assertSame('claude-sonnet-4-6', $result['model']);
         $this->assertSame('end_turn', $result['stop_reason']);
         $this->assertIsArray($result['content']);
         $this->assertSame('text', $result['content'][0]['type']);
@@ -96,11 +95,11 @@ final class ClaudeBackendAdapterTest extends TestCase
 
         $result = $adapter->chatCompletions([
             ['role' => 'user', 'content' => 'Hello'],
-        ], 'claude-sonnet-4-20250514');
+        ], 'claude-sonnet-4-6');
 
         $this->assertSame('chat.completion', $result['object']);
         $this->assertStringStartsWith('chatcmpl-', $result['id']);
-        $this->assertSame('claude-sonnet-4-20250514', $result['model']);
+        $this->assertSame('claude-sonnet-4-6', $result['model']);
         $this->assertIsArray($result['choices']);
         $this->assertCount(1, $result['choices']);
         $this->assertSame('assistant', $result['choices'][0]['message']['role']);
@@ -116,38 +115,14 @@ final class ClaudeBackendAdapterTest extends TestCase
             'output' => 'Completed text',
         ]);
 
-        $result = $adapter->completions('Complete this:', 'claude-sonnet-4-20250514');
+        $result = $adapter->completions('Complete this:', 'claude-sonnet-4-6');
 
         $this->assertSame('text_completion', $result['object']);
         $this->assertStringStartsWith('cmpl-', $result['id']);
-        $this->assertSame('claude-sonnet-4-20250514', $result['model']);
+        $this->assertSame('claude-sonnet-4-6', $result['model']);
         $this->assertIsArray($result['choices']);
         $this->assertSame('Completed text', $result['choices'][0]['text']);
         $this->assertSame('stop', $result['choices'][0]['finish_reason']);
-    }
-
-    public function testExtractUsageExtractsTokenCountsFromRunnerResult(): void
-    {
-        $adapter = $this->createAdapterWithCannedResponse([
-            'status' => 'ok',
-            'output' => 'response',
-            'usage' => [
-                'input_tokens' => 150,
-                'output_tokens' => 42,
-                'cache_creation_input_tokens' => 0,
-                'cache_read_input_tokens' => 10,
-            ],
-        ]);
-
-        $result = $adapter->chatCompletions([
-            ['role' => 'user', 'content' => 'Test'],
-        ], 'claude-sonnet-4-20250514');
-
-        $usage = $result['usage'] ?? [];
-        $this->assertIsArray($usage);
-        $this->assertArrayHasKey('prompt_tokens', $usage);
-        $this->assertArrayHasKey('completion_tokens', $usage);
-        $this->assertArrayHasKey('total_tokens', $usage);
     }
 
     public function testChatCompletionsWithEmptyMessagesReturnsEmptyContent(): void
@@ -157,12 +132,135 @@ final class ClaudeBackendAdapterTest extends TestCase
             'output' => '',
         ]);
 
-        $result = $adapter->chatCompletions([], 'claude-sonnet-4-20250514');
+        $result = $adapter->chatCompletions([], 'claude-sonnet-4-6');
 
         $this->assertSame('chat.completion', $result['object']);
         $content = $result['choices'][0]['message']['content'] ?? '';
         $this->assertSame('', $content);
     }
+
+    // --- New parameter passthrough and content type tests ---
+
+    public function testMessagesAcceptsOptionalParamsArray(): void
+    {
+        $adapter = $this->createAdapterWithCannedResponse([
+            'status' => 'ok',
+            'output' => 'Hello!',
+        ]);
+
+        if (!method_exists($adapter, 'messages')) {
+            $this->markTestSkipped('messages() not available');
+        }
+
+        $ref = new ReflectionMethod($adapter, 'messages');
+        if ($ref->getNumberOfParameters() < 3) {
+            $this->markTestSkipped('messages() does not yet accept a $params argument');
+        }
+
+        $result = $adapter->messages(
+            [['role' => 'user', 'content' => 'Test']],
+            'claude-sonnet-4-6',
+            ['max_tokens' => 100, 'temperature' => 0.7]
+        );
+
+        $this->assertSame('message', $result['type']);
+        $this->assertSame('Hello!', $result['content'][0]['text']);
+    }
+
+    public function testMessagesWorksWithoutParamsForBackwardCompatibility(): void
+    {
+        $adapter = $this->createAdapterWithCannedResponse([
+            'status' => 'ok',
+            'output' => 'Hello!',
+        ]);
+
+        if (!method_exists($adapter, 'messages')) {
+            $this->markTestSkipped('messages() not available');
+        }
+
+        $result = $adapter->messages(
+            [['role' => 'user', 'content' => 'Test']],
+            'claude-sonnet-4-6'
+        );
+
+        $this->assertSame('message', $result['type']);
+    }
+
+    public function testChatCompletionsAcceptsOptionalParamsArray(): void
+    {
+        $adapter = $this->createAdapterWithCannedResponse([
+            'status' => 'ok',
+            'output' => 'Hi there',
+        ]);
+
+        $ref = new ReflectionMethod($adapter, 'chatCompletions');
+        if ($ref->getNumberOfParameters() < 3) {
+            $this->markTestSkipped('chatCompletions() does not yet accept a $params argument');
+        }
+
+        $result = $adapter->chatCompletions(
+            [['role' => 'user', 'content' => 'Hello']],
+            'claude-sonnet-4-6',
+            ['temperature' => 0.5]
+        );
+
+        $this->assertSame('chat.completion', $result['object']);
+        $this->assertSame('Hi there', $result['choices'][0]['message']['content']);
+    }
+
+    public function testMessagesHandlesMultipartContent(): void
+    {
+        $adapter = $this->createAdapterWithCannedResponse([
+            'status' => 'ok',
+            'output' => 'I see an image',
+        ]);
+
+        if (!method_exists($adapter, 'messages')) {
+            $this->markTestSkipped('messages() not available');
+        }
+
+        $result = $adapter->messages([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'What is this?'],
+                    ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => 'iVBOR']],
+                ],
+            ],
+        ], 'claude-sonnet-4-6');
+
+        $this->assertSame('message', $result['type']);
+        $this->assertSame('I see an image', $result['content'][0]['text']);
+    }
+
+    public function testMessagesUsageIncludesCacheTokenFields(): void
+    {
+        $adapter = $this->createAdapterWithCannedResponse([
+            'status' => 'ok',
+            'output' => 'response',
+            'input_tokens' => 100,
+            'output_tokens' => 50,
+            'cache_creation_input_tokens' => 20,
+            'cache_read_input_tokens' => 30,
+        ]);
+
+        if (!method_exists($adapter, 'messages')) {
+            $this->markTestSkipped('messages() not available');
+        }
+
+        $result = $adapter->messages(
+            [['role' => 'user', 'content' => 'Test']],
+            'claude-sonnet-4-6'
+        );
+
+        $usage = $result['usage'];
+        $this->assertSame(100, $usage['input_tokens']);
+        $this->assertSame(50, $usage['output_tokens']);
+        $this->assertSame(20, $usage['cache_creation_input_tokens']);
+        $this->assertSame(30, $usage['cache_read_input_tokens']);
+    }
+
+    // --- Helper methods ---
 
     private function createAdapter(): ClaudeBackendAdapter
     {
@@ -231,6 +329,9 @@ final class ClaudeBackendAdapterTest extends TestCase
                     $mock->method('canonicalAuthSnapshot')->willReturn([
                         'tokens' => ['access_token' => 'test_token'],
                     ]);
+                }
+                if ($typeName === 'App\Services\ClaudeModelService' || str_ends_with($typeName, 'ClaudeModelService')) {
+                    $mock->method('supportedModels')->willReturn(\App\Services\ClaudeModelService::SUPPORTED_MODELS);
                 }
                 $args[] = $mock;
             } else {

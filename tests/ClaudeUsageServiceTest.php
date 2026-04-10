@@ -31,17 +31,15 @@ final class ClaudeUsageServiceTest extends TestCase
 
         foreach ($pricing as $model => $prices) {
             $this->assertIsArray($prices, "Pricing for {$model} should be an array");
-            $this->assertArrayHasKey('input_per_1m', $prices, "Missing input_per_1m for {$model}");
-            $this->assertArrayHasKey('output_per_1m', $prices, "Missing output_per_1m for {$model}");
+            $this->assertArrayHasKey('input', $prices, "Missing input for {$model}");
+            $this->assertArrayHasKey('output', $prices, "Missing output for {$model}");
+            $this->assertArrayHasKey('cached', $prices, "Missing cached for {$model}");
         }
     }
 
     public function testCalculateCostForOpusModel(): void
     {
-        $cost = ClaudeUsageService::calculateCost('claude-opus-4-20250514', [
-            'input_tokens' => 1000,
-            'output_tokens' => 500,
-        ]);
+        $cost = ClaudeUsageService::calculateCost('claude-opus-4-6', 1000, 500);
 
         $this->assertIsFloat($cost);
         $this->assertGreaterThan(0.0, $cost);
@@ -49,10 +47,7 @@ final class ClaudeUsageServiceTest extends TestCase
 
     public function testCalculateCostForSonnetModel(): void
     {
-        $cost = ClaudeUsageService::calculateCost('claude-sonnet-4-20250514', [
-            'input_tokens' => 1000,
-            'output_tokens' => 500,
-        ]);
+        $cost = ClaudeUsageService::calculateCost('claude-sonnet-4-6', 1000, 500);
 
         $this->assertIsFloat($cost);
         $this->assertGreaterThan(0.0, $cost);
@@ -60,10 +55,7 @@ final class ClaudeUsageServiceTest extends TestCase
 
     public function testCalculateCostForHaikuModel(): void
     {
-        $cost = ClaudeUsageService::calculateCost('claude-haiku-3-5-20241022', [
-            'input_tokens' => 1000,
-            'output_tokens' => 500,
-        ]);
+        $cost = ClaudeUsageService::calculateCost('claude-haiku-4-5', 1000, 500);
 
         $this->assertIsFloat($cost);
         $this->assertGreaterThan(0.0, $cost);
@@ -71,7 +63,8 @@ final class ClaudeUsageServiceTest extends TestCase
 
     public function testCalculateCostHaikuCheaperThanSonnetCheaperThanOpus(): void
     {
-        $tokens = ['input_tokens' => 10000, 'output_tokens' => 5000];
+        $inputTokens = 10000;
+        $outputTokens = 5000;
 
         $pricing = ClaudeUsageService::modelPricing();
         $modelKeys = array_keys($pricing);
@@ -95,9 +88,9 @@ final class ClaudeUsageServiceTest extends TestCase
             $this->markTestSkipped('Need all three model tiers for price comparison');
         }
 
-        $opusCost = ClaudeUsageService::calculateCost($opusModel, $tokens);
-        $sonnetCost = ClaudeUsageService::calculateCost($sonnetModel, $tokens);
-        $haikuCost = ClaudeUsageService::calculateCost($haikuModel, $tokens);
+        $opusCost = ClaudeUsageService::calculateCost($opusModel, $inputTokens, $outputTokens);
+        $sonnetCost = ClaudeUsageService::calculateCost($sonnetModel, $inputTokens, $outputTokens);
+        $haikuCost = ClaudeUsageService::calculateCost($haikuModel, $inputTokens, $outputTokens);
 
         $this->assertGreaterThan($sonnetCost, $opusCost, 'Opus should be more expensive than Sonnet');
         $this->assertGreaterThan($haikuCost, $sonnetCost, 'Sonnet should be more expensive than Haiku');
@@ -105,16 +98,9 @@ final class ClaudeUsageServiceTest extends TestCase
 
     public function testCalculateCostWithCachedTokens(): void
     {
-        $costWithoutCache = ClaudeUsageService::calculateCost('claude-sonnet-4-20250514', [
-            'input_tokens' => 1000,
-            'output_tokens' => 500,
-        ]);
+        $costWithoutCache = ClaudeUsageService::calculateCost('claude-sonnet-4-6', 1000, 500);
 
-        $costWithCache = ClaudeUsageService::calculateCost('claude-sonnet-4-20250514', [
-            'input_tokens' => 500,
-            'output_tokens' => 500,
-            'cache_read_input_tokens' => 500,
-        ]);
+        $costWithCache = ClaudeUsageService::calculateCost('claude-sonnet-4-6', 500, 500, 500);
 
         $this->assertIsFloat($costWithCache);
         $this->assertGreaterThan(0.0, $costWithCache);
@@ -124,15 +110,9 @@ final class ClaudeUsageServiceTest extends TestCase
 
     public function testCalculateCostFallsBackToSonnetPricingForUnknownModel(): void
     {
-        $unknownCost = ClaudeUsageService::calculateCost('claude-unknown-model', [
-            'input_tokens' => 1000,
-            'output_tokens' => 500,
-        ]);
+        $unknownCost = ClaudeUsageService::calculateCost('claude-unknown-model', 1000, 500);
 
-        $sonnetCost = ClaudeUsageService::calculateCost('claude-sonnet-4-20250514', [
-            'input_tokens' => 1000,
-            'output_tokens' => 500,
-        ]);
+        $sonnetCost = ClaudeUsageService::calculateCost('claude-sonnet-4-6', 1000, 500);
 
         $this->assertIsFloat($unknownCost);
         $this->assertGreaterThan(0.0, $unknownCost);
@@ -141,10 +121,7 @@ final class ClaudeUsageServiceTest extends TestCase
 
     public function testCalculateCostWithZeroTokensReturnsZero(): void
     {
-        $cost = ClaudeUsageService::calculateCost('claude-sonnet-4-20250514', [
-            'input_tokens' => 0,
-            'output_tokens' => 0,
-        ]);
+        $cost = ClaudeUsageService::calculateCost('claude-sonnet-4-6', 0, 0);
 
         $this->assertSame(0.0, $cost);
     }

@@ -2096,6 +2096,24 @@
                   <tbody></tbody>
                 </table>
               </div>
+              <div class="config-card" style="margin-top:14px" data-config-card="claude-api-ref" data-config-title="API Reference">
+                <div class="config-card-head">
+                  <h3 style="margin:0;">Anthropic-compatible Endpoints</h3>
+                </div>
+                <div class="config-card-body">
+                  <p class="muted">These endpoints accept Anthropic-format requests with <code>sk-claude-</code> API keys.</p>
+                  <table class="tbl" style="margin-top:0.5rem">
+                    <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+                    <tbody>
+                      <tr><td><strong>POST</strong></td><td><code>/anthropic/v1/messages</code></td><td>Messages API (streaming supported)</td></tr>
+                      <tr><td><strong>POST</strong></td><td><code>/anthropic/v1/completions</code></td><td>Text completion</td></tr>
+                      <tr><td><strong>POST</strong></td><td><code>/anthropic/v1/responses</code></td><td>Responses API (non-streaming)</td></tr>
+                      <tr><td><strong>GET</strong></td><td><code>/anthropic/v1/models</code></td><td>List supported Claude models</td></tr>
+                      <tr><td><strong>POST</strong></td><td><code>/anthropic/v1/embeddings</code></td><td>Embeddings (not implemented)</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </section>
 

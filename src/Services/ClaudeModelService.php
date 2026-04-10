@@ -4,21 +4,37 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Repositories\ClientConfigRepository;
 use App\Repositories\VersionRepository;
 use InvalidArgumentException;
 
 class ClaudeModelService
 {
+    public const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+    /** @var list<string> */
     public const SUPPORTED_MODELS = [
         'claude-opus-4-6',
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
     ];
 
-    public const DEFAULT_MODEL = 'claude-sonnet-4-6';
+    /** @var array<string, string> */
+    public const LEGACY_MODEL_UPGRADES = [
+        'claude-3-opus-20240229' => 'claude-opus-4-6',
+        'claude-3-sonnet-20240229' => 'claude-sonnet-4-6',
+        'claude-3-haiku-20240307' => 'claude-haiku-4-5',
+        'claude-3-5-sonnet-20240620' => 'claude-sonnet-4-6',
+        'claude-3-5-sonnet-20241022' => 'claude-sonnet-4-6',
+        'claude-3-5-haiku-20241022' => 'claude-haiku-4-5',
+        'claude-sonnet-4-20250514' => 'claude-sonnet-4-6',
+        'claude-opus-4-20250514' => 'claude-opus-4-6',
+        'claude-haiku-4-5-20251001' => 'claude-haiku-4-5',
+    ];
 
     public function __construct(
-        private readonly ?VersionRepository $versions = null,
+        private readonly ClientConfigRepository $configs,
+        private readonly VersionRepository $versions,
     ) {
     }
 
@@ -30,21 +46,46 @@ class ClaudeModelService
 
     public function defaultModel(): string
     {
-        if ($this->versions !== null) {
-            $configured = $this->versions->get('claude_default_model');
-            $normalized = self::normalizeSupportedModel($configured);
-            if ($normalized !== null) {
-                return $normalized;
-            }
+        $row = $this->configs->latest();
+        $settings = is_array($row['settings'] ?? null) ? $row['settings'] : [];
+        $configModel = self::normalizeSupportedModel($settings['claude_model'] ?? $settings['model'] ?? null);
+        if ($configModel !== null) {
+            return $configModel;
+        }
+
+        $configured = $this->versions->get('claude_default_model');
+        $normalized = self::normalizeSupportedModel($configured);
+        if ($normalized !== null) {
+            return $normalized;
         }
 
         return self::DEFAULT_MODEL;
     }
 
-    /**
-     * Validate and normalize a model identifier against the supported list.
-     * Returns the model if supported, null otherwise.
-     */
+    public function resolveRequestedModel(mixed $value): string
+    {
+        $normalized = is_string($value) ? trim($value) : '';
+        if ($normalized !== '') {
+            $model = self::normalizeSupportedModel($normalized);
+            if ($model !== null) {
+                return $model;
+            }
+
+            $lowered = strtolower($normalized);
+            if (isset(self::LEGACY_MODEL_UPGRADES[$lowered])) {
+                return self::LEGACY_MODEL_UPGRADES[$lowered];
+            }
+
+            throw new InvalidArgumentException(sprintf(
+                'Unsupported model "%s". Supported models: %s',
+                $normalized,
+                implode(', ', self::SUPPORTED_MODELS)
+            ));
+        }
+
+        return $this->defaultModel();
+    }
+
     public static function normalizeSupportedModel(mixed $value): ?string
     {
         if (!is_string($value) && !is_numeric($value)) {
@@ -58,22 +99,21 @@ class ClaudeModelService
         return in_array($model, self::SUPPORTED_MODELS, true) ? $model : null;
     }
 
-    public function resolveRequestedModel(mixed $value): string
+    public static function normalizeStoredModel(mixed $value): ?string
     {
-        $normalized = is_string($value) ? trim($value) : '';
-        if ($normalized !== '') {
-            $model = self::normalizeSupportedModel($normalized);
-            if ($model !== null) {
-                return $model;
-            }
-
-            throw new InvalidArgumentException(sprintf(
-                'Unsupported model "%s". Supported models: %s',
-                $normalized,
-                implode(', ', self::SUPPORTED_MODELS)
-            ));
+        $supported = self::normalizeSupportedModel($value);
+        if ($supported !== null) {
+            return $supported;
         }
 
-        return $this->defaultModel();
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+        $model = strtolower(trim((string) $value));
+        if ($model === '') {
+            return null;
+        }
+
+        return self::LEGACY_MODEL_UPGRADES[$model] ?? null;
     }
 }

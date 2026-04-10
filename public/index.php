@@ -545,7 +545,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService);
-$claudeModelService = new ClaudeModelService($versionRepository);
+$claudeModelService = new ClaudeModelService($clientConfigRepository, $versionRepository);
 $claudeBackend = null;
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     $claudeExecUrl = preg_replace('#/verify$#', '/exec', $runnerUrl);
@@ -849,10 +849,12 @@ $router->add('POST', '#^/v1/embeddings$#', fn() => $openaiApiCtrl->embeddings($p
 $router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());
 
 // Anthropic-compatible API
-$router->add('OPTIONS', '#^/anthropic/v1/(?:messages|models|completions)$#', fn() => $claudeApiCtrl->options());
+$router->add('OPTIONS', '#^/anthropic/v1/(?:messages|models|completions|responses|embeddings)$#', fn() => $claudeApiCtrl->options());
 $router->add('POST', '#^/anthropic/v1/messages$#', fn() => $claudeApiCtrl->messages($payload));
 $router->add('POST', '#^/anthropic/v1/completions$#', fn() => $claudeApiCtrl->completions($payload));
 $router->add('GET', '#^/anthropic/v1/models$#', fn() => $claudeApiCtrl->models());
+$router->add('POST', '#^/anthropic/v1/responses$#', fn() => $claudeApiCtrl->responses($payload));
+$router->add('POST', '#^/anthropic/v1/embeddings$#', fn() => $claudeApiCtrl->embeddings($payload));
 
 // Admin: OpenAI API key management
 $router->add('GET', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->index());

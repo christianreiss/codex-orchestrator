@@ -21,10 +21,10 @@ class ClaudeBackendAdapter implements BackendAdapter
     ) {
     }
 
-    public function messages(array $messages, string $model): array
+    public function messages(array $messages, string $model, array $params = []): array
     {
         [$prompt, $images] = $this->buildPromptPayload($messages);
-        $result = $this->runPrompt($prompt, $model, $images);
+        $result = $this->runPrompt($prompt, $model, $images, $params);
         $usage = self::extractUsage($result);
 
         return [
@@ -44,10 +44,10 @@ class ClaudeBackendAdapter implements BackendAdapter
         ];
     }
 
-    public function chatCompletions(array $messages, string $model): array
+    public function chatCompletions(array $messages, string $model, array $params = []): array
     {
         [$prompt, $images] = $this->buildPromptPayload($messages);
-        $result = $this->runPrompt($prompt, $model, $images);
+        $result = $this->runPrompt($prompt, $model, $images, $params);
         $usage = self::extractUsage($result);
 
         return [
@@ -168,7 +168,7 @@ class ClaudeBackendAdapter implements BackendAdapter
             'timeout_seconds' => $this->timeout,
         ];
 
-        foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as $key) {
+        foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'system'] as $key) {
             if (isset($params[$key])) {
                 $payload[$key] = $params[$key];
             }
