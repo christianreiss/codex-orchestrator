@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Adapters\ClaudeBackendAdapter;
 use App\Http\AnthropicResponse;
+use App\Repositories\VersionRepository;
 use App\Security\RateLimiter;
 use App\Services\ClaudeModelService;
 use App\Services\OpenaiApiKeyService;
@@ -17,7 +18,8 @@ class ClaudeApiController
         private readonly ?ClaudeBackendAdapter $backend,
         private readonly OpenaiApiKeyService $keyService,
         private readonly RateLimiter $rateLimiter,
-        private readonly ClaudeModelService $modelService
+        private readonly ClaudeModelService $modelService,
+        private readonly ?VersionRepository $versionRepository = null
     ) {
     }
 
@@ -25,6 +27,7 @@ class ClaudeApiController
     {
         $key = $this->authenticate();
         $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
         $this->ensureBackend();
 
         $messages = $payload['messages'] ?? null;
@@ -45,6 +48,48 @@ class ClaudeApiController
         }
 
         AnthropicResponse::json($result);
+    }
+
+    public function completions(array $payload): void
+    {
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
+        $this->ensureBackend();
+
+        $prompt = $payload['prompt'] ?? null;
+        if (!is_string($prompt) || trim($prompt) === '') {
+            AnthropicResponse::error('Missing required parameter: prompt', 'invalid_request_error', 400);
+        }
+
+        $model = $this->resolveModel($payload['model'] ?? null);
+
+        // Convert prompt to a single user message for the Messages API
+        $messages = [['role' => 'user', 'content' => $prompt]];
+
+        try {
+            $result = $this->backend->messages($messages, $model);
+        } catch (\RuntimeException $e) {
+            AnthropicResponse::error($e->getMessage(), 'api_error', 502);
+        }
+
+        // Extract text from Anthropic response format
+        $text = '';
+        foreach ($result['content'] ?? [] as $block) {
+            if (is_array($block) && ($block['type'] ?? '') === 'text') {
+                $text .= $block['text'] ?? '';
+            }
+        }
+
+        // Return in text_completion format for compatibility
+        AnthropicResponse::json([
+            'id' => $result['id'] ?? ('cmpl-' . bin2hex(random_bytes(12))),
+            'type' => 'completion',
+            'completion' => $text,
+            'model' => $result['model'] ?? $model,
+            'stop_reason' => $result['stop_reason'] ?? 'end_turn',
+            'usage' => $result['usage'] ?? ['input_tokens' => 0, 'output_tokens' => 0],
+        ]);
     }
 
     public function models(): void
@@ -170,6 +215,13 @@ class ClaudeApiController
             'data' => $data,
             'object' => 'list',
         ];
+    }
+
+    private function ensureApiEnabled(): void
+    {
+        if ($this->versionRepository !== null && $this->versionRepository->getFlag('claude_api_disabled', false)) {
+            AnthropicResponse::error('Claude API is currently disabled by administrator', 'api_error', 503);
+        }
     }
 
     private function authenticate(): array
