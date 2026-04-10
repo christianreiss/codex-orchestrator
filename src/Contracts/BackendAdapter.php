@@ -11,6 +11,12 @@ interface BackendAdapter
      */
     public function chatCompletions(array $messages, string $model): array;
 
+    /**
+     * @param array<int, array{role: string, content: string|array<int, array<string, mixed>>}> $messages
+     * @return array{id: string, type: string, role: string, content: list<array<string, mixed>>, model: string, stop_reason: string, stop_sequence: ?string, usage: array<string, int>}
+     */
+    public function messages(array $messages, string $model, array $params = []): array;
+
     public function completions(string $prompt, string $model): array;
 
     /**

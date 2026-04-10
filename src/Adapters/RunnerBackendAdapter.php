@@ -49,6 +49,33 @@ class RunnerBackendAdapter implements BackendAdapter
         ];
     }
 
+    public function messages(array $messages, string $model, array $params = []): array
+    {
+        [$prompt, $images] = $this->buildPromptPayload($messages);
+        $output = $this->runPrompt($prompt, $model, $images, $params);
+
+        return [
+            'id' => 'msg_' . bin2hex(random_bytes(16)),
+            'type' => 'message',
+            'role' => 'assistant',
+            'content' => [
+                [
+                    'type' => 'text',
+                    'text' => $output,
+                ],
+            ],
+            'model' => $model,
+            'stop_reason' => 'end_turn',
+            'stop_sequence' => null,
+            'usage' => [
+                'input_tokens' => 0,
+                'output_tokens' => 0,
+                'cache_creation_input_tokens' => 0,
+                'cache_read_input_tokens' => 0,
+            ],
+        ];
+    }
+
     public function completions(string $prompt, string $model): array
     {
         $output = $this->runPrompt($prompt, $model);
@@ -109,7 +136,7 @@ class RunnerBackendAdapter implements BackendAdapter
      *
      * @throws \RuntimeException on runner communication failure
      */
-    private function runPrompt(string $prompt, ?string $model = null, array $images = []): string
+    private function runPrompt(string $prompt, ?string $model = null, array $images = [], array $params = []): string
     {
         if (trim($prompt) === '') {
             return '';
@@ -120,13 +147,13 @@ class RunnerBackendAdapter implements BackendAdapter
             throw new \RuntimeException('No auth credentials available. Upload auth.json first.');
         }
 
-        $body = json_encode([
+        $body = json_encode(array_merge([
             'auth_json' => $authPayload,
             'prompt' => $prompt,
             'images' => $images,
             'model' => $model,
             'timeout_seconds' => $this->timeout,
-        ], JSON_UNESCAPED_SLASHES);
+        ], $params), JSON_UNESCAPED_SLASHES);
 
         $result = $this->attemptRequest($body);
 
