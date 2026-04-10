@@ -659,9 +659,7 @@ ensure_base_urls() {
   local env_file="$1" default_domain="${2:-codex-auth.example.com}"
 
   local codex_url runner_url host_from_url
-  local existing_codex_url existing_runner_url existing_public_base_url
-  existing_codex_url="$(read_env_value "CODEX_SYNC_BASE_URL" "$env_file" || true)"
-  codex_url="$existing_codex_url"
+  codex_url="$(read_env_value "CODEX_SYNC_BASE_URL" "$env_file" || true)"
   [[ -z "$codex_url" ]] && codex_url="https://${default_domain}"
   prompt_value codex_url "External HTTPS URL for Codex Auth API (used by hosts)" "$codex_url" "$CODEX_URL_ARG"
   set_env_value "CODEX_SYNC_BASE_URL" "$codex_url" "$env_file"
@@ -671,19 +669,10 @@ ensure_base_urls() {
   host_from_url="${host_from_url%%/*}"
   host_from_url="${host_from_url%%:*}"
 
-  existing_runner_url="$(read_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$env_file" || true)"
-  runner_url="$existing_runner_url"
+  runner_url="$(read_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$env_file" || true)"
   [[ -z "$runner_url" ]] && runner_url="$codex_url"
   prompt_value runner_url "External HTTPS URL the auth runner should use" "$runner_url" "$RUNNER_URL_ARG"
   set_env_value "AUTH_RUNNER_CODEX_BASE_URL" "$runner_url" "$env_file"
-
-  existing_public_base_url="$(read_env_value "PUBLIC_BASE_URL" "$env_file" || true)"
-  if [[ -z "$existing_public_base_url" \
-      || "$existing_public_base_url" == "https://codex-auth.example.com" \
-      || "$existing_public_base_url" == "$existing_codex_url" \
-      || "$existing_public_base_url" == "$existing_runner_url" ]]; then
-    set_env_value "PUBLIC_BASE_URL" "$codex_url" "$env_file"
-  fi
 
   # Seed Caddy domain from the chosen Codex URL if it was empty.
   local existing_domain

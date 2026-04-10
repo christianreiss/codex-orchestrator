@@ -36,7 +36,7 @@ What it does
 - Prompts for external URLs used by hosts/runner:
   - `CODEX_SYNC_BASE_URL` (runner container base URL for Codex probes; defaults to the API URL in compose)
   - `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility knob; retained in setup/env but no longer sent to the runner verifier payload)
-  - Automatically seeds `PUBLIC_BASE_URL` from the chosen Codex URL unless you already set an explicit different public URL override.
+  - Set `PUBLIC_BASE_URL` for production so installers/wrappers always bake the correct base URL.
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
   - Prompts for app-level admin mode (`ADMIN_ACCESS_MODE=mtls|none`).
   - Bundled Caddy still requires a valid client cert for `/admin*` and forwards `X-MTLS-*` headers.
