@@ -471,6 +471,8 @@ class AdminOverviewController
                 'client_version_lock' => $clientVersionLock['version'] ?? null,
                 'client_version_lock_updated_at' => $clientVersionLock['updated_at'] ?? null,
                 'scaling' => $this->usageScalingService?->currentStatus(),
+                'claude_api_disabled' => $this->versionRepository->getFlag('claude_api_disabled', false),
+                'claude_default_model' => $this->versionRepository->get('claude_default_model') ?? 'claude-sonnet-4-6',
             ],
         ]);
     }

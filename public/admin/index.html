@@ -61,6 +61,7 @@
               <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem"><span>Agents</span><span class="rail-shortcut">[s][a]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem"><span>config.toml</span><span class="rail-shortcut">[s][c]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/apikeys" data-nav="settings" data-settings-tab="apikeys" role="menuitem"><span>API Keys</span><span class="rail-shortcut">[s][i]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/claude" data-nav="settings" data-settings-tab="claude" role="menuitem"><span>Claude</span></a>
             </section>
             <section class="rail-section" aria-label="Authoring settings">
               <div class="rail-section-label">Authoring</div>
@@ -1356,6 +1357,7 @@
             <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="claude" href="/admin/settings/claude">Claude</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="joplin" href="/admin/settings/joplin">Joplin</a>
           </nav>
           <div class="settings-layout">
@@ -1370,6 +1372,7 @@
                 <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="claude" href="/admin/settings/claude">Claude</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="joplin" href="/admin/settings/joplin">Joplin</a>
               </div>
             </aside>
@@ -1932,7 +1935,7 @@
               <div>
                 <p class="eyebrow">OpenAI-compatible API</p>
                 <h2>API Keys</h2>
-                <p class="muted">Manage API keys for the OpenAI-compatible <code>/v1/</code> endpoints. Keys use the <code>sk-coco-</code> prefix.</p>
+                <p class="muted">Manage API keys for the OpenAI-compatible <code>/v1/</code> endpoints. Keys use the <code>sk-coco-</code> (OpenAI) or <code>sk-claude-</code> (Claude) prefix.</p>
                 <div class="setting-block" style="margin-top:12px">
                   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="muted" style="font-size:13px">Endpoint:</span>
@@ -1967,6 +1970,53 @@
                   </thead>
                   <tbody></tbody>
                 </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="card panel settings-panel" data-settings-panel="claude" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Claude API</p>
+                <h2>Claude Settings</h2>
+                <p class="muted">Configure the Claude/Anthropic API backend. Model, token limits, and spend controls.</p>
+              </div>
+              <div class="panel-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <label class="toggle" for="claudeApiToggle">
+                  <input type="checkbox" id="claudeApiToggle">
+                  <span class="track"><span class="thumb"></span></span>
+                  <span class="toggle-text" id="claudeApiToggleLabel">Enabled</span>
+                </label>
+                <button class="primary tiny-btn" id="claudeSettingsSaveBtn">Save</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="settings-grid">
+                <div class="setting-block">
+                  <h3>Model</h3>
+                  <div class="field">
+                    <label for="claudeDefaultModel">Default model</label>
+                    <select id="claudeDefaultModel">
+                      <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                      <option value="claude-opus-4-6">claude-opus-4-6</option>
+                      <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-block">
+                  <h3>Limits</h3>
+                  <div class="inline-group">
+                    <div class="field">
+                      <label for="claudeMaxTokens">Max output tokens</label>
+                      <input id="claudeMaxTokens" type="number" min="256" max="200000" placeholder="8192">
+                    </div>
+                    <div class="field">
+                      <label for="claudeSpendLimit">Spend limit (USD)</label>
+                      <input id="claudeSpendLimit" type="number" min="0" step="0.01" placeholder="0">
+                      <div class="muted-note">Set to 0 for unlimited.</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </section>
@@ -2582,5 +2632,79 @@
   <script src="/admin/assets/projects.js?v=2026-03-31-02"></script>
   <script src="/admin/assets/config.js?v=2026-04-08-01"></script>
   <script src="/admin/assets/profiles.js?v=2026-04-08-01"></script>
+  <script>
+  // Claude settings integration
+  (function() {
+    const claudeToggle = document.getElementById('claudeApiToggle');
+    const claudeToggleLabel = document.getElementById('claudeApiToggleLabel');
+    const claudeDefaultModel = document.getElementById('claudeDefaultModel');
+    const claudeMaxTokens = document.getElementById('claudeMaxTokens');
+    const claudeSpendLimit = document.getElementById('claudeSpendLimit');
+    const claudeSaveBtn = document.getElementById('claudeSettingsSaveBtn');
+    let claudeLoaded = false;
+
+    async function loadClaudeSettings() {
+      if (claudeLoaded) return;
+      try {
+        const json = await api('/admin/claude/settings');
+        if (json.status === 'ok' && json.data) {
+          const d = json.data;
+          if (claudeDefaultModel) claudeDefaultModel.value = d.default_model || 'claude-sonnet-4-6';
+          if (claudeMaxTokens) claudeMaxTokens.value = d.max_tokens || 8192;
+          if (claudeSpendLimit) claudeSpendLimit.value = d.spend_limit || 0;
+          if (claudeToggle) {
+            claudeToggle.checked = !d.disabled;
+            claudeToggle.disabled = false;
+            if (claudeToggleLabel) claudeToggleLabel.textContent = d.disabled ? 'Disabled' : 'Enabled';
+          }
+          claudeLoaded = true;
+        }
+      } catch (err) {
+        console.error('Failed to load Claude settings:', err);
+        if (claudeToggle) { claudeToggle.checked = false; claudeToggle.disabled = true; }
+        if (claudeToggleLabel) claudeToggleLabel.textContent = 'Unavailable';
+      }
+    }
+
+    if (claudeToggle) {
+      claudeToggle.addEventListener('change', async function() {
+        claudeToggle.disabled = true;
+        try {
+          await api('/admin/claude/state', { method: 'POST', json: { disabled: !claudeToggle.checked } });
+          if (claudeToggleLabel) claudeToggleLabel.textContent = claudeToggle.checked ? 'Enabled' : 'Disabled';
+        } catch (err) {
+          toast('Claude API toggle failed: ' + err.message, 'error');
+          claudeToggle.checked = !claudeToggle.checked;
+        } finally {
+          claudeToggle.disabled = false;
+        }
+      });
+    }
+
+    if (claudeSaveBtn) {
+      claudeSaveBtn.addEventListener('click', async function() {
+        try {
+          const body = {
+            default_model: claudeDefaultModel ? claudeDefaultModel.value : 'claude-sonnet-4-6',
+            max_tokens: parseInt(claudeMaxTokens ? claudeMaxTokens.value : '8192', 10),
+            spend_limit: parseFloat(claudeSpendLimit ? claudeSpendLimit.value : '0'),
+          };
+          const json = await api('/admin/claude/settings', { method: 'POST', json: body });
+          if (json.status === 'ok') {
+            claudeSaveBtn.textContent = 'Saved!';
+            setTimeout(function() { claudeSaveBtn.textContent = 'Save'; }, 1500);
+          }
+        } catch (err) {
+          toast('Failed to save Claude settings: ' + err.message, 'error');
+        }
+      });
+    }
+
+    window.__initClaudeOnce = function() {
+      loadClaudeSettings();
+      window.__initClaudeOnce = null;
+    };
+  })();
+  </script>
 </body>
 </html>

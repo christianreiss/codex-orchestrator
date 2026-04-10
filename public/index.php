@@ -833,6 +833,12 @@ $router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKe
 $router->add('GET', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->getOpenaiApiState());
 $router->add('POST', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->postOpenaiApiState($payload));
 
+// Admin: Claude API state & settings
+$router->add('GET', '#^/admin/claude/state$#', fn() => $adminSettingsCtrl->getClaudeApiState());
+$router->add('POST', '#^/admin/claude/state$#', fn() => $adminSettingsCtrl->postClaudeApiState($payload));
+$router->add('GET', '#^/admin/claude/settings$#', fn() => $adminSettingsCtrl->getClaudeSettings());
+$router->add('POST', '#^/admin/claude/settings$#', fn() => $adminSettingsCtrl->postClaudeSettings($payload));
+
 // --- Dispatch + error handling ---
 
 if (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {

@@ -5873,6 +5873,7 @@
     const SETTINGS_GENERAL_LIVE_ACTIONS = new Set([
       'admin.api.state',
       'admin.openai_api.state',
+      'admin.claude_api.state',
       'admin.cdx_silent',
       'admin.reverse_dns',
       'admin.insecure_approval',
@@ -9901,6 +9902,10 @@
         }
         if (settingsTab === 'joplin') {
           loadJoplinConfig();
+        }
+        if (settingsTab === 'claude' && window.__initClaudeOnce) {
+          window.__initClaudeOnce();
+          window.__initClaudeOnce = null;
         }
       }
 
