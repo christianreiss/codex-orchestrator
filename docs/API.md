@@ -24,6 +24,184 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - `GET /v1/models` — list the supported Codex model ids from the shared config/model allowlist.
 - `POST /v1/embeddings` — currently returns `501 not_implemented` for the bundled backend.
 
+### Anthropic-compatible API
+
+Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error envelope and CORS headers (`Access-Control-Allow-Headers` includes `x-api-key` and `anthropic-version`).
+
+**Authentication**: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header. Keys are managed via `/admin/claude/keys` endpoints and use the `sk-claude-` prefix.
+
+**Rate limiting**: per-key RPM using the `anthropic:{key_id}` bucket (default 60 RPM, configurable per key). Exceeding the limit returns HTTP 429 with a `Retry-After: 60` header.
+
+**Supported models**: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to the current equivalents.
+
+#### `POST /anthropic/v1/messages`
+
+Anthropic-compatible Messages API.
+
+**Request body:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `messages` | array | yes | Array of `{role, content}` objects. Roles: `user`, `assistant`, `system`. |
+| `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-4-6`). |
+| `max_tokens` | integer | no | Maximum tokens to generate. |
+| `temperature` | float | no | Sampling temperature (0-1). |
+| `top_p` | float | no | Nucleus sampling (0-1). |
+| `top_k` | integer | no | Top-k sampling. |
+| `stop_sequences` | string[] | no | Stop sequences. |
+| `stream` | boolean | no | Enable SSE streaming. |
+
+`messages[].content` may be a plain string or an array of content blocks:
+- `{type: "text", text: "..."}` for text
+- `{type: "image", source: {type: "base64", media_type: "image/png", data: "..."}}` for base64 images
+- `{type: "image", source: {type: "url", url: "https://..."}}` for URL images
+
+OpenAI-format image parts (`image_url`, `input_image`) are automatically converted to Anthropic `image` blocks. System messages in the `messages` array are extracted and concatenated into a single system prompt per Anthropic convention.
+
+**Response (non-streaming):**
+```json
+{
+  "id": "msg_<hex>",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "..."}],
+  "model": "claude-sonnet-4-6",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 25,
+    "output_tokens": 100,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  }
+}
+```
+
+**Response (streaming):** SSE with `Content-Type: text/event-stream`. Events are emitted in this sequence:
+
+| Event | Description |
+|---|---|
+| `message_start` | Opening message envelope with `id`, `model`, `role`, initial `usage`. |
+| `content_block_start` | Signals start of content block (index 0, type `text`). |
+| `content_block_delta` | Text delta: `{type: "text_delta", text: "..."}`. |
+| `content_block_stop` | Signals end of content block. |
+| `message_delta` | Final `stop_reason` (`end_turn`) and output token count. |
+| `message_stop` | Terminal event. |
+
+Currently the full response is emitted in a single `content_block_delta` (not incremental from the runner).
+
+#### `POST /anthropic/v1/completions`
+
+Legacy text completion endpoint.
+
+**Request body:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prompt` | string | yes | The prompt text. |
+| `model` | string | no | Model id. |
+
+**Response:**
+```json
+{
+  "id": "msg_<hex>",
+  "type": "completion",
+  "completion": "...",
+  "model": "claude-sonnet-4-6",
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 10, "output_tokens": 50}
+}
+```
+
+#### `POST /anthropic/v1/responses`
+
+Responses API shim (non-streaming only).
+
+**Request body:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `input` | string/array | yes | Plain string, content-part array, or message-style array. |
+| `instructions` | string | no | Injected as a system message. |
+| `model` | string | no | Model id. |
+| `stream` | boolean | no | Must be `false` or omitted. `true` returns 400 `unsupported_stream`. |
+
+**Response:**
+```json
+{
+  "id": "resp_<hex>",
+  "object": "response",
+  "created_at": 1234567890,
+  "status": "completed",
+  "model": "claude-sonnet-4-6",
+  "output": [{
+    "id": "msg_<hex>",
+    "type": "message",
+    "status": "completed",
+    "role": "assistant",
+    "content": [{"type": "output_text", "text": "...", "annotations": [], "logprobs": []}]
+  }],
+  "usage": {"input_tokens": 10, "output_tokens": 50, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 60}
+}
+```
+
+#### `GET /anthropic/v1/models`
+
+List available Claude models.
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "claude-opus-4-6", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"id": "claude-sonnet-4-6", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"id": "claude-haiku-4-5", "object": "model", "created": 1234567890, "owned_by": "anthropic"}
+  ]
+}
+```
+
+#### `POST /anthropic/v1/embeddings`
+
+Placeholder. Anthropic does not support embeddings. Returns HTTP 501:
+```json
+{
+  "type": "error",
+  "error": {"type": "not_implemented", "message": "Embeddings are not supported by the Anthropic backend", "code": "not_implemented"}
+}
+```
+
+#### Anthropic Error Format
+
+All Anthropic endpoint errors use this envelope (distinct from the OpenAI `{"error":{...}}` format):
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "Missing required parameter: messages",
+    "code": "optional_error_code"
+  }
+}
+```
+
+| Status | Error type | When |
+|---|---|---|
+| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream` |
+| 401 | `authentication_error` | Missing or invalid API key |
+| 429 | `rate_limit_error` | Rate limit exceeded (includes `Retry-After` header) |
+| 502 | `api_error` | Backend/runner communication failure |
+| 503 | `api_error` | Backend not configured or API disabled by administrator |
+
+#### CORS Preflight
+
+`OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses`, `OPTIONS /anthropic/v1/embeddings` -- returns 204 with headers:
+```
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Headers: Content-Type, Authorization, x-api-key, anthropic-version
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+```
+
 ### `POST /auth`
 Unified retrieve/store. Auth required; IP binding enforced.
 
@@ -166,6 +344,15 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /seed/auth/{uuid}` — serve seed shell script.
 - `POST /seed/auth/{uuid}` — accept raw auth payload (or `{ "auth": ... }`), validate/store canonical auth, consume token, runner skipped.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
+- `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
+- Claude admin endpoints:
+  - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
+  - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, rate_limit_rpm? (default 60), expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+  - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
+  - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
+  - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). Requires `settings` capability.
+  - `GET /admin/claude/settings` — get Claude fleet settings. Returns `{status, data: {default_model, max_tokens, spend_limit, disabled}}`.
+  - `POST /admin/claude/settings` — update Claude fleet settings. Body: `{default_model?, max_tokens? (256-200000), spend_limit? (>=0)}`. Requires `settings` capability. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).

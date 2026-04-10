@@ -1,9 +1,11 @@
 # Codex API -- Design Document
 
-Pure-PHP, zero-dependency REST API that exposes an **OpenAI-compatible** interface
-(`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`) and
-delegates actual inference to a pluggable **backend adapter**. Any OpenAI SDK
-client can point at this server and work without code changes.
+Pure-PHP, zero-dependency REST API that exposes both an **OpenAI-compatible** interface
+(`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`) and an
+**Anthropic-compatible** interface (`/anthropic/v1/messages`, `/anthropic/v1/completions`,
+`/anthropic/v1/models`, `/anthropic/v1/responses`, `/anthropic/v1/embeddings`), delegating
+actual inference to pluggable **backend adapters**. Any OpenAI or Anthropic SDK client can
+point at this server and work without code changes.
 
 ---
 
@@ -12,18 +14,28 @@ client can point at this server and work without code changes.
 ```
 codex-api/
   public/
-    index.php               # Entry point (autoloader + bootstrap)
+    index.php                  # Entry point (autoloader + bootstrap)
   src/
-    Router.php              # Request dispatcher (auth, validation, routing)
+    Router.php                 # Request dispatcher (auth, validation, routing)
     Contracts/
-      BackendAdapter.php    # Interface: the 4 methods every backend must implement
+      BackendAdapter.php       # Interface: the methods every backend must implement
     Adapters/
       NullBackendAdapter.php   # Stub adapter (returns placeholder text, zero tokens)
-      CdxBackendAdapter.php    # Real adapter: shells out to local `cdx` binary
+      CdxBackendAdapter.php    # OpenAI adapter: shells out to local `cdx` binary
+      ClaudeBackendAdapter.php # Anthropic adapter: delegates to runner with engine:"claude"
     Http/
-      Request.php           # Parses $_SERVER, headers, JSON body
-      JsonResponse.php      # Static helpers: send(), sendError(), stream()
-    Controllers/            # Empty (reserved)
+      Request.php              # Parses $_SERVER, headers, JSON body
+      JsonResponse.php         # Static helpers: send(), sendError(), stream()
+      AnthropicCompat.php      # Message normalization & format conversion for Anthropic API
+      AnthropicResponse.php    # Anthropic-format JSON/SSE/error response helpers
+    Controllers/
+      ClaudeApiController.php  # Routes for /anthropic/v1/* endpoints
+      AdminClaudeKeyController.php  # Admin Claude API key CRUD
+    Services/
+      ClaudeModelService.php   # Model allowlist, legacy upgrades, default resolution
+      ClaudeUsageService.php   # Token usage aggregation, pricing, dashboard summary
+    Support/
+      Engine.php               # Engine enum (codex/claude) with per-engine config maps
 ```
 
 No Composer, no vendor directory, no external packages.
@@ -315,6 +327,177 @@ The production adapter. Shells out to a local **`cdx`** binary (default path
 10. If `proc_open` fails entirely -> return empty string.
 
 **Token counts:** Always zero. Not implemented.
+
+### 8c. `ClaudeBackendAdapter`
+
+The Anthropic/Claude production adapter. Implements `BackendAdapter` and delegates
+inference to the shared runner with `engine: "claude"`, returning responses in
+Anthropic message format.
+
+**Constructor:** `($runnerExecUrl, $sharedSecret, $authService, $modelService, $timeout)`
+
+Uses the same runner `/exec` endpoint as the OpenAI adapter but sends
+`engine: "claude"` in the runner payload so the runner invokes `claude` (Claude Code CLI)
+instead of `codex`.
+
+**Messages flow (`messages()`):**
+1. Call `buildPromptPayload($messages)` to flatten the message array into a
+   prompt string and extract image attachments.
+2. Pass prompt + images + extra params to `runPrompt()`.
+3. Extract usage via `extractUsage($result)`.
+4. Wrap in Anthropic message format:
+   ```json
+   {"id":"msg_<hex>","type":"message","role":"assistant",
+    "content":[{"type":"text","text":"..."}],
+    "model":"...","stop_reason":"end_turn","stop_sequence":null,
+    "usage":{...}}
+   ```
+
+**Chat completions flow (`chatCompletions()`):** Same runner call, but wraps
+the result in OpenAI `chat.completion` format with `prompt_tokens`/`completion_tokens`.
+
+**Text completions flow (`completions()`):** Wraps runner output in OpenAI
+`text_completion` format.
+
+**Embeddings:** Returns `not_implemented` error. Anthropic has no embedding endpoint.
+
+**Models:** Iterates `$modelService->supportedModels()` and returns each as
+`{id, object:"model", created, owned_by:"anthropic"}`.
+
+**`runPrompt()` -- runner HTTP call:**
+1. Empty prompt -> return immediately with status `ok` and empty output.
+2. Fetch canonical auth snapshot from `$authService`.
+3. Build JSON payload: `auth_json`, `prompt`, `images`, `model`, `engine: "claude"`,
+   `timeout_seconds`, plus any optional params (`max_tokens`, `temperature`,
+   `top_p`, `top_k`, `stop_sequences`, `system`).
+4. POST to runner `/exec` via `file_get_contents()` with `X-Runner-Auth` header.
+5. Decode JSON response; `status: "ok"` returns the result array.
+6. Non-OK status throws `RuntimeException` with the error message.
+
+**Image handling in `buildPromptPayload()`:**
+- Iterates messages, renders each content part.
+- Anthropic-native images (`type: "image"` with `source.type: "base64"` or `"url"`)
+  are extracted as `{url: "..."}` entries.
+- Text is flattened as `"role: content"` lines joined by `\n`.
+
+**Token counts:** Returned by the runner as `input_tokens`, `output_tokens`,
+`cache_creation_input_tokens`, `cache_read_input_tokens`. All extracted in
+`extractUsage()`.
+
+---
+
+### 8d. Message Normalization (`AnthropicCompat`)
+
+`src/Http/AnthropicCompat.php` is a static utility class that normalizes
+Anthropic-format requests and builds Anthropic-format responses.
+
+#### `normalizeChatMessages()`
+
+Normalizes a raw `messages` array for the Messages endpoint:
+1. Iterates each message entry.
+2. Normalizes roles: `system`/`developer` -> `system`, `assistant` -> `assistant`,
+   everything else -> `user`.
+3. Normalizes content: strings are trimmed; arrays are processed part-by-part.
+4. Content parts are normalized:
+   - `text`, `input_text`, `output_text` -> `{type:"text", text:"..."}`.
+   - `image` with `source.type:"base64"` or `source.type:"url"` -> kept as-is.
+   - OpenAI `image_url`/`input_image` -> converted to Anthropic `image` format
+     (data URLs become `base64` source; HTTP URLs become `url` source).
+5. Single text-only content blocks are collapsed to a plain string.
+6. Returns normalized array or `null` when empty.
+
+#### `extractSystemMessages()`
+
+Splits a normalized message array into system and conversation parts:
+- Messages with role `system` or `developer` are extracted; their text content
+  is concatenated with `\n\n` separators.
+- Returns `{system: ?string, messages: [...]}` where `messages` contains only
+  `user`/`assistant` entries.
+
+#### `normalizeResponsesInput()`
+
+Normalizes Responses API `input` parameter (string, content-part array, or
+message-style array) into a standard messages array. Optional `instructions`
+are prepended as a system message.
+
+#### `responseFromMessage()`
+
+Converts an Anthropic message result into OpenAI Responses API format:
+`{id:"resp_...", object:"response", output:[{type:"message",...}], usage:{...}}`.
+
+#### `messageStreamEvents()`
+
+Builds the 6-event SSE sequence from a completed message result:
+1. `message_start` -- message envelope with model/role/usage.
+2. `content_block_start` -- index 0, type `text`.
+3. `content_block_delta` -- `text_delta` with the full response text.
+4. `content_block_stop` -- index 0.
+5. `message_delta` -- `stop_reason: "end_turn"`, output token count.
+6. `message_stop` -- terminal event.
+
+Currently the entire response is emitted in a single `content_block_delta`
+event (the runner does not stream incrementally).
+
+---
+
+### 8e. Anthropic Response Layer (`AnthropicResponse`)
+
+`src/Http/AnthropicResponse.php` provides static helpers analogous to
+`JsonResponse` but using the Anthropic error envelope and CORS headers.
+
+| Method | Behavior |
+|---|---|
+| `json(array, status)` | JSON response with Anthropic CORS headers. Calls `exit`. |
+| `error(message, type, status, code?)` | Wraps in `{type:"error", error:{type, message, code?}}`. |
+| `streamEvents(events[])` | SSE with `event:` + `data:` per event. No `[DONE]` sentinel. |
+| `options()` | 204 with CORS headers (preflight). |
+
+CORS headers include `x-api-key` and `anthropic-version` in
+`Access-Control-Allow-Headers`.
+
+---
+
+### 8f. Claude Model Service
+
+`src/Services/ClaudeModelService.php` manages the Claude model allowlist.
+
+- **Supported models:** `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`.
+- **Default model:** resolved from admin config (`claude_model` setting),
+  then `claude_default_model` version key, falling back to `claude-sonnet-4-6`.
+- **Legacy model upgrades:** 9 legacy model names (e.g. `claude-3-opus-20240229`,
+  `claude-sonnet-4-20250514`) are silently mapped to current equivalents.
+- **`resolveRequestedModel()`:** validates the requested model against the
+  allowlist and legacy map; throws `InvalidArgumentException` for unknown models.
+
+---
+
+### 8g. Pricing & Usage Tracking (`ClaudeUsageService`)
+
+`src/Services/ClaudeUsageService.php` tracks Anthropic API costs and provides
+dashboard summaries.
+
+**Per-model pricing** (configurable via ENV vars):
+
+| Model | Input/1K | Output/1K | Cached/1K | ENV prefix |
+|---|---|---|---|---|
+| `claude-opus-4-6` | $0.015 | $0.075 | $0.0075 | `CLAUDE_OPUS_*` |
+| `claude-sonnet-4-6` | $0.003 | $0.015 | $0.0015 | `CLAUDE_SONNET_*` |
+| `claude-haiku-4-5` | $0.0008 | $0.004 | $0.0004 | `CLAUDE_HAIKU_*` |
+
+**`calculateCost(model, inputTokens, outputTokens, cachedTokens)`:**
+Token-level cost calculation; unknown models fall back to Sonnet pricing.
+
+**`aggregateRecentUsage(period)`:** Queries `token_usages` table where
+`engine = "claude"` for the given window (`24h`, `7d`, or `30d`), grouped
+by model. Returns per-model token counts and calculated costs.
+
+**`dashboardSummary()`:** Aggregates all three time windows and computes
+spend-limit utilization percentage from the latest snapshot. Returns:
+```
+{current_spend:{used, limit, percent},
+ usage_24h, usage_7d, usage_30d,
+ total_cost_24h, total_cost_7d, total_cost_30d}
+```
 
 ---
 
