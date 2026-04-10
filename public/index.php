@@ -443,7 +443,7 @@ enforcePublicBaseUrlPolicy($normalizedPath);
 
 // First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
 // Avoid doing preflight work on ultra-hot, unauthenticated endpoints (health checks) or latency-sensitive MCP init.
-if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp') && !str_starts_with($normalizedPath, '/cron') && !str_starts_with($normalizedPath, '/v1/')) {
+if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp') && !str_starts_with($normalizedPath, '/cron') && !str_starts_with($normalizedPath, '/v1/') && !str_starts_with($normalizedPath, '/anthropic/')) {
     try {
         $service->runDailyPreflight();
     } catch (\Throwable $exception) {
@@ -849,7 +849,7 @@ $router->add('POST', '#^/v1/embeddings$#', fn() => $openaiApiCtrl->embeddings($p
 $router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());
 
 // Anthropic-compatible API
-$router->add('OPTIONS', '#^/anthropic/v1/(?:messages|models|completions|responses|embeddings)$#', fn() => $claudeApiCtrl->options());
+$router->add('OPTIONS', '#^/anthropic/v1/#', fn() => $claudeApiCtrl->options());
 $router->add('POST', '#^/anthropic/v1/messages$#', fn() => $claudeApiCtrl->messages($payload));
 $router->add('POST', '#^/anthropic/v1/completions$#', fn() => $claudeApiCtrl->completions($payload));
 $router->add('GET', '#^/anthropic/v1/models$#', fn() => $claudeApiCtrl->models());
