@@ -12,43 +12,78 @@ namespace App\Services;
 use App\Repositories\VersionRepository;
 use App\Security\SecretBox;
 use App\Support\AdminTheme;
+use App\Support\Engine;
 
 class WrapperService
 {
     private bool $seedFallbackWarned = false;
+
+    /** @var array<string,string> Storage paths per engine */
+    private array $engineStoragePaths;
+
+    /** @var array<string,string> Seed paths per engine */
+    private array $engineSeedPaths;
 
     public function __construct(
         private readonly VersionRepository $versions,
         private readonly string $storagePath,
         private readonly string $seedPath,
         private readonly ?string $installationId = null,
-        private readonly ?SecretBox $secretBox = null
+        private readonly ?SecretBox $secretBox = null,
+        ?string $clxStoragePath = null,
+        ?string $clxSeedPath = null
     ) {
         $directory = dirname($this->storagePath);
         if (!is_dir($directory)) {
             mkdir($directory, 0775, true);
         }
+
+        // Engine-specific paths.
+        $this->engineStoragePaths = [
+            Engine::CODEX => $this->storagePath,
+            Engine::CLAUDE => $clxStoragePath ?? str_replace('/cdx', '/clx', $this->storagePath),
+        ];
+        $this->engineSeedPaths = [
+            Engine::CODEX => $this->seedPath,
+            Engine::CLAUDE => $clxSeedPath ?? str_replace('/cdx', '/clx', $this->seedPath),
+        ];
+
+        foreach ($this->engineStoragePaths as $path) {
+            $dir = dirname($path);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+        }
     }
 
-    public function ensureSeeded(): void
+    public function ensureSeeded(string $engine = Engine::CODEX): void
     {
-        $resolved = $this->resolveTemplatePath();
+        $resolved = $this->resolveTemplatePath($engine);
         if ($resolved === null) {
             return;
         }
 
-        $version = $this->versions->get('wrapper');
+        $versionKey = $engine === Engine::CLAUDE ? 'wrapper_claude' : 'wrapper';
+        $version = $this->versions->get($versionKey);
         $detected = $this->computeVersionForPath($resolved);
         if ($version === null || !hash_equals($version, $detected)) {
-            $this->versions->set('wrapper', $detected);
+            $this->versions->set($versionKey, $detected);
         }
     }
 
-    public function metadata(): array
+    public function ensureAllSeeded(): void
     {
-        $templatePath = $this->resolveTemplatePath();
+        foreach (Engine::ALL as $engine) {
+            $this->ensureSeeded($engine);
+        }
+    }
+
+    public function metadata(string $engine = Engine::CODEX): array
+    {
+        $templatePath = $this->resolveTemplatePath($engine);
         if ($templatePath === null || !is_file($templatePath)) {
             return [
+                'engine' => $engine,
                 'version' => null,
                 'sha256' => null,
                 'size_bytes' => null,
@@ -57,20 +92,23 @@ class WrapperService
             ];
         }
 
+        $versionKey = $engine === Engine::CLAUDE ? 'wrapper_claude' : 'wrapper';
         $version = $this->computeVersionForPath($templatePath);
-        $this->versions->set('wrapper', $version);
+        $this->versions->set($versionKey, $version);
 
         $sha = hash_file('sha256', $templatePath) ?: null;
         $size = filesize($templatePath) ?: null;
         $mtime = filemtime($templatePath);
         $updatedAt = $mtime !== false ? gmdate(DATE_ATOM, $mtime) : null;
+        $wrapperName = Engine::wrapperName($engine);
 
         return [
+            'engine' => $engine,
             'version' => $version,
             'sha256' => $sha,
             'size_bytes' => $size,
             'updated_at' => $updatedAt,
-            'url' => '/wrapper/download',
+            'url' => '/wrapper/download?engine=' . $engine,
         ];
     }
 
@@ -80,13 +118,14 @@ class WrapperService
      * @param array $host Must contain api_key and fqdn.
      * @param string $baseUrl Public base URL used by the host (no trailing slash).
      * @param string|null $caFile Optional CA file path to bake into the script.
+     * @param string $engine Engine to bake the wrapper for.
      *
-     * @return array{version: ?string, sha256: ?string, size_bytes: ?int, updated_at: ?string, url: ?string, content: ?string}
+     * @return array{engine: string, version: ?string, sha256: ?string, size_bytes: ?int, updated_at: ?string, url: ?string, content: ?string}
      */
-    public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
+    public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null, string $engine = Engine::CODEX): array
     {
-        $templatePath = $this->resolveTemplatePath();
-        $meta = $this->metadata();
+        $templatePath = $this->resolveTemplatePath($engine);
+        $meta = $this->metadata($engine);
         if ($templatePath === null || !is_file($templatePath)) {
             return array_merge($meta, ['content' => null]);
         }
@@ -104,37 +143,59 @@ class WrapperService
         $fqdn = (string) ($host['fqdn'] ?? '');
         $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $curlInsecure = isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false;
-        $cdxSilent = $this->versions->getFlag('cdx_silent', false);
         $adminTheme = AdminTheme::normalize($this->versions->get('admin_theme'));
         $escapeBashDefault = static function (string $value): string {
             $value = str_replace(["\r", "\n"], '', $value);
             return str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $value);
         };
 
-        $rawModelOverride = $host['model_override'] ?? null;
-        $modelOverride = ConfigNormalizer::normalizeStoredModel($rawModelOverride) ?? '';
-        $reasoningOverride = trim((string) ($host['reasoning_effort_override'] ?? ''));
-        if (ConfigNormalizer::isLegacyModelUpgrade($rawModelOverride) && $modelOverride !== '') {
-            $reasoningOverride = ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT;
-        }
+        if ($engine === Engine::CLAUDE) {
+            // Claude wrapper baking — uses CLAUDE_* placeholders.
+            $claudeModel = trim((string) ($host['claude_model_override'] ?? ''));
+            $silentFlag = $this->versions->getFlag('clx_silent', false) || $this->versions->getFlag('cdx_silent', false);
 
-        $replacements = [
-            '__CODEX_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
-            '__CODEX_SYNC_API_KEY__' => $apiKey,
-            '__CODEX_SYNC_FQDN__' => $fqdn,
-            '__CODEX_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
-            '__CODEX_HOST_SECURE__' => $secure ? '1' : '0',
-            '__CODEX_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
-            '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
-            '__CODEX_SILENT__' => $cdxSilent ? '1' : '0',
-            '__CODEX_ADMIN_THEME__' => $adminTheme,
-            '__CODEX_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
-        ];
-        if ($modelOverride !== '') {
-            $replacements['__CODEX_HOST_MODEL__'] = $escapeBashDefault($modelOverride);
-        }
-        if ($reasoningOverride !== '') {
-            $replacements['__CODEX_HOST_REASONING_EFFORT__'] = $escapeBashDefault($reasoningOverride);
+            $replacements = [
+                '__CLAUDE_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
+                '__CLAUDE_SYNC_API_KEY__' => $apiKey,
+                '__CLAUDE_SYNC_FQDN__' => $fqdn,
+                '__CLAUDE_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
+                '__CLAUDE_HOST_SECURE__' => $secure ? '1' : '0',
+                '__CLAUDE_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
+                '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
+                '__CLAUDE_SILENT__' => $silentFlag ? '1' : '0',
+                '__CLAUDE_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
+            ];
+            if ($claudeModel !== '') {
+                $replacements['__CLAUDE_HOST_MODEL__'] = $escapeBashDefault($claudeModel);
+            }
+        } else {
+            // Codex wrapper baking — existing CODEX_* placeholders.
+            $cdxSilent = $this->versions->getFlag('cdx_silent', false);
+            $rawModelOverride = $host['model_override'] ?? null;
+            $modelOverride = ConfigNormalizer::normalizeStoredModel($rawModelOverride) ?? '';
+            $reasoningOverride = trim((string) ($host['reasoning_effort_override'] ?? ''));
+            if (ConfigNormalizer::isLegacyModelUpgrade($rawModelOverride) && $modelOverride !== '') {
+                $reasoningOverride = ConfigNormalizer::FORCE_UPGRADE_REASONING_EFFORT;
+            }
+
+            $replacements = [
+                '__CODEX_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
+                '__CODEX_SYNC_API_KEY__' => $apiKey,
+                '__CODEX_SYNC_FQDN__' => $fqdn,
+                '__CODEX_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
+                '__CODEX_HOST_SECURE__' => $secure ? '1' : '0',
+                '__CODEX_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
+                '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
+                '__CODEX_SILENT__' => $cdxSilent ? '1' : '0',
+                '__CODEX_ADMIN_THEME__' => $adminTheme,
+                '__CODEX_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
+            ];
+            if ($modelOverride !== '') {
+                $replacements['__CODEX_HOST_MODEL__'] = $escapeBashDefault($modelOverride);
+            }
+            if ($reasoningOverride !== '') {
+                $replacements['__CODEX_HOST_REASONING_EFFORT__'] = $escapeBashDefault($reasoningOverride);
+            }
         }
 
         $rendered = strtr($template, $replacements);
@@ -180,51 +241,57 @@ class WrapperService
         return 'auto-' . substr($hash, 0, 12);
     }
 
-    private function resolveTemplatePath(): ?string
+    private function resolveTemplatePath(string $engine = Engine::CODEX): ?string
     {
-        $hasStorage = is_file($this->storagePath);
-        $hasSeed = is_file($this->seedPath);
+        $storagePath = $this->engineStoragePaths[$engine] ?? $this->storagePath;
+        $seedPath = $this->engineSeedPaths[$engine] ?? $this->seedPath;
+
+        $hasStorage = is_file($storagePath);
+        $hasSeed = is_file($seedPath);
 
         if (!$hasStorage && !$hasSeed) {
             return null;
         }
         if (!$hasSeed) {
-            return $hasStorage ? $this->storagePath : null;
+            return $hasStorage ? $storagePath : null;
         }
         if (!$hasStorage) {
-            return $this->seedPath;
+            return $seedPath;
         }
 
-        $seedHash = hash_file('sha256', $this->seedPath) ?: null;
-        $storedHash = hash_file('sha256', $this->storagePath) ?: null;
+        $seedHash = hash_file('sha256', $seedPath) ?: null;
+        $storedHash = hash_file('sha256', $storagePath) ?: null;
         if ($seedHash !== null && $storedHash !== null && hash_equals($seedHash, $storedHash)) {
-            return $this->storagePath;
+            return $storagePath;
         }
 
-        if ($this->copySeedToStorage()) {
-            return $this->storagePath;
+        if ($this->copySeedToStorage($engine)) {
+            return $storagePath;
         }
 
         $this->warnSeedFallback();
-        return $this->seedPath;
+        return $seedPath;
     }
 
-    private function copySeedToStorage(): bool
+    private function copySeedToStorage(string $engine = Engine::CODEX): bool
     {
-        if (!is_file($this->seedPath)) {
+        $seedPath = $this->engineSeedPaths[$engine] ?? $this->seedPath;
+        $storagePath = $this->engineStoragePaths[$engine] ?? $this->storagePath;
+
+        if (!is_file($seedPath)) {
             return false;
         }
 
-        $directory = dirname($this->storagePath);
+        $directory = dirname($storagePath);
         if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
             return false;
         }
 
-        if (!@copy($this->seedPath, $this->storagePath)) {
+        if (!@copy($seedPath, $storagePath)) {
             return false;
         }
 
-        @chmod($this->storagePath, 0644);
+        @chmod($storagePath, 0644);
         return true;
     }
 

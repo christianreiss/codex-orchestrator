@@ -33,6 +33,9 @@
     const temporaryHostToggle = document.getElementById('temporaryHostToggle');
     const insecureToggle = document.getElementById('insecureToggle');
     const vipToggle = document.getElementById('vipToggle');
+    const engineCodexToggle = document.getElementById('engineCodexToggle');
+    const engineClaudeToggle = document.getElementById('engineClaudeToggle');
+    const newHostEngineError = document.getElementById('newHostEngineError');
     const createHostBtn = document.getElementById('createHost');
     const cancelNewHostBtn = document.getElementById('cancelNewHost');
     const commandField = document.getElementById('commandField');
@@ -289,7 +292,7 @@
     let agentsRestoreInFlight = false;
     let agentsEditing = false;
     let agentsOriginalContent = '';
-    let latestVersions = { client: null, wrapper: null };
+    let latestVersions = { client: null, wrapper: null, claude: null };
     let tokensSummary = null;
     let runnerSummary = null;
     let hostFilterText = '';
@@ -1109,6 +1112,7 @@
             host?.runner_version,
             host?.id,
             hostListStatus(host)?.label,
+            parseEngines(host?.engines).join(' '),
           ]
             .map((value) => String(value || '').toLowerCase())
             .join(' ');
@@ -1164,6 +1168,7 @@
         const status = hostListStatus(host);
         const lastSeenText = host.updated_at ? formatRelative(host.updated_at) : 'Never';
         const version = host.client_version ? `Codex ${host.client_version}` : 'Codex unknown';
+        const hostEnginesLabel = parseEngines(host.engines).map(e => e === 'codex' ? 'CDX' : e === 'claude' ? 'CLX' : e).join('+');
         const activeClass = index === hostSearchSelectedIndex ? ' is-active' : '';
         return `
           <button type="button" class="host-search-result${activeClass}" data-host-id="${host.id}" data-host-search-index="${index}">
@@ -1172,7 +1177,7 @@
                 <span class="host-search-result-name">${escapeHtml(host.fqdn || `Host #${host.id}`)}</span>
                 <span class="chip ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>
               </span>
-              <span class="host-search-result-meta">#${host.id} · ${escapeHtml(lastSeenText)} · ${escapeHtml(version)}</span>
+              <span class="host-search-result-meta">#${host.id} · ${escapeHtml(hostEnginesLabel)} · ${escapeHtml(lastSeenText)} · ${escapeHtml(version)}</span>
             </span>
           </button>
         `;
@@ -2783,7 +2788,29 @@
       return '<span class="vip-crown" title="VIP host: quota hard-fail disabled">👑</span>';
     }
 
+    function parseEngines(raw) {
+      if (!raw || typeof raw !== 'string') return ['codex'];
+      return raw.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    }
 
+    function buildEnginesValue() {
+      const parts = [];
+      if (engineCodexToggle?.checked) parts.push('codex');
+      if (engineClaudeToggle?.checked) parts.push('claude');
+      return parts.length ? parts.join(',') : 'codex';
+    }
+
+    function renderEngineBadges(enginesRaw) {
+      const engines = parseEngines(enginesRaw);
+      const badges = [];
+      if (engines.includes('codex')) {
+        badges.push('<span class="chip engine-badge engine-cdx" title="Codex engine">CDX</span>');
+      }
+      if (engines.includes('claude')) {
+        badges.push('<span class="chip engine-badge engine-clx" title="Claude engine">CLX</span>');
+      }
+      return badges.length ? badges.join(' ') : '<span class="muted">—</span>';
+    }
 
     // One-time init guards for lazily loaded panels
     let clientLogsInited = false;
@@ -3645,7 +3672,8 @@
         if (!hostFilterText) return true;
         const statusLabel = hostListStatus(host).label.toLowerCase();
         const autoUpdateLabel = hostAutoUpdateIndicator(host).label.toLowerCase();
-        const haystacks = [host.fqdn, host.client_version, statusLabel, autoUpdateLabel]
+        const enginesLabel = parseEngines(host.engines).join(' ');
+        const haystacks = [host.fqdn, host.client_version, statusLabel, autoUpdateLabel, enginesLabel]
           .map((value) => (typeof value === 'string' ? value.toLowerCase() : ''));
         return haystacks.some(text => text.includes(hostFilterText));
       });
@@ -3680,6 +3708,8 @@
       switch (key) {
         case 'host':
           return (host.fqdn || '').toLowerCase();
+        case 'engines':
+          return parseEngines(host.engines).join(',');
         case 'status':
           return hostListStatus(host).rank;
         case 'last_seen': {
@@ -3824,6 +3854,9 @@
         wrapper: typeof nextVersions.wrapper_version === 'string'
           ? nextVersions.wrapper_version.trim().replace(/^v/i, '')
           : latestVersions.wrapper,
+        claude: typeof nextVersions.claude_version === 'string'
+          ? nextVersions.claude_version.trim().replace(/^v/i, '')
+          : latestVersions.claude,
       };
       if (typeof overview.reverse_dns_enabled !== 'undefined') {
         reverseDnsEnabled = !!overview.reverse_dns_enabled;
@@ -4521,11 +4554,27 @@
       const clientTag = renderVersionTag(host.client_version, latestVersions.client);
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
       const autoUpdate = hostAutoUpdateIndicator(host);
+      const hostEngines = parseEngines(host.engines);
+      const claudeVersionTag = host.claude_version
+        ? renderVersionTag(host.claude_version, latestVersions.claude)
+        : null;
+      let versionValue = `${clientTag} ${wrapperTag}`;
+      let versionMeta = 'Client \u00b7 Wrapper';
+      if (claudeVersionTag) {
+        versionValue += ` ${claudeVersionTag}`;
+        versionMeta = 'Codex \u00b7 Wrapper \u00b7 Claude';
+      }
       const summaryItems = [
         {
           label: 'Health',
           value: health.label,
           meta: host.authed ? 'Canonical auth stored' : 'Not provisioned yet',
+        },
+        {
+          label: 'Engines',
+          value: renderEngineBadges(host.engines),
+          meta: hostEngines.join(', '),
+          raw: true,
         },
         {
           label: 'Last Seen',
@@ -4541,8 +4590,8 @@
         },
         {
           label: 'Versions',
-          value: `${clientTag} ${wrapperTag}`,
-          meta: 'Client · Wrapper',
+          value: versionValue,
+          meta: versionMeta,
           raw: true,
         },
         {
@@ -4583,11 +4632,18 @@
         : '<span class="chip warn">Insecure</span>';
       const primaryIp = host.ip4 ?? host.ip6 ?? null;
       const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
+      const detailEngines = parseEngines(host.engines);
+      const claudeTag = host.claude_version ? renderVersionTag(host.claude_version, latestVersions.claude) : null;
       const rows = [
         {
           key: 'Status',
           value: `${renderStatusPill(host.status)} ${securityChip} ${insecureStatus}`,
           desc: 'Host entry state; suspended hosts cannot authenticate. Insecure hosts purge auth.json after each run.',
+        },
+        {
+          key: 'Engines',
+          value: renderEngineBadges(host.engines),
+          desc: 'Which engines are installed on this host. Codex (CDX) and/or Claude (CLX).',
         },
         { key: 'Health', value: `<span class="chip ${health.tone === 'ok' ? 'ok' : 'warn'}">${health.label}</span>`, desc: healthDesc },
         { key: 'Last seen', value: `${formatRelativeWithTimestamp(host.updated_at)}${apiCallsLabel}`, desc: 'Timestamp of the most recent API call from this host.' },
@@ -4651,20 +4707,32 @@
 
       const modelOverride = (host.model_override || '').trim();
       const reasoningOverride = (host.reasoning_effort_override || '').trim();
+      const claudeModelOverride = (host.claude_model_override || '').trim();
+      const modelRows = [
+        `<div class=”kv-rowline”>
+          <span class=”muted”>Codex model</span>
+          ${modelOverride ? `<code>${escapeHtml(modelOverride)}</code>` : '<span class=”muted”>Standard (global)</span>'}
+        </div>`,
+        `<div class=”kv-rowline” style=”margin-top:4px;”>
+          <span class=”muted”>Reasoning effort</span>
+          ${reasoningOverride ? `<code>${escapeHtml(reasoningOverride)}</code>` : '<span class=”muted”>Standard (global)</span>'}
+        </div>`,
+      ];
+      if (detailEngines.includes('claude')) {
+        modelRows.push(`<div class=”kv-rowline” style=”margin-top:4px;”>
+          <span class=”muted”>Claude model</span>
+          ${claudeModelOverride ? `<code>${escapeHtml(claudeModelOverride)}</code>` : '<span class=”muted”>Standard (global)</span>'}
+        </div>`);
+      }
+      if (claudeTag && detailEngines.includes('claude')) {
+        modelRows.push(`<div class=”kv-rowline” style=”margin-top:4px;”>
+          <span class=”muted”>Claude version</span>
+          ${claudeTag}
+        </div>`);
+      }
       rows.push({
         key: 'Model overrides',
-        value: `
-          <div class="kv-stack">
-            <div class="kv-rowline">
-              <span class="muted">Model</span>
-              ${modelOverride ? `<code>${escapeHtml(modelOverride)}</code>` : '<span class="muted">Standard (global)</span>'}
-            </div>
-            <div class="kv-rowline" style="margin-top:4px;">
-              <span class="muted">Reasoning effort</span>
-              ${reasoningOverride ? `<code>${escapeHtml(reasoningOverride)}</code>` : '<span class="muted">Standard (global)</span>'}
-            </div>
-          </div>
-        `,
+        value: `<div class=”kv-stack”>${modelRows.join('')}</div>`,
         desc: 'Optional per-host model + reasoning-effort overrides. “Standard” means use fleet-wide config.',
         full: true,
       });
@@ -4795,6 +4863,7 @@
         if (host.vip) {
           pills.push(renderVipCrown());
         }
+        pills.push(renderEngineBadges(host.engines));
         if (isHostSecure(host) && host.auth_outdated) {
           pills.push('<span class="chip warn">Outdated auth</span>');
         }
@@ -4920,6 +4989,7 @@
         <td data-label="Host">
           <strong class="host-primary">${escapeHtml(host.fqdn || `Host #${host.id}`)}${authSourceMarker}</strong>
         </td>
+        <td data-label="Engines" class="engines-cell">${renderEngineBadges(host.engines)}</td>
         <td data-label="Status" class="status-cell">${statusChip}</td>
         <td data-label="Last Seen"><span class="host-secondary">${escapeHtml(lastSeenText)}</span></td>
         <td data-label="Codex">${renderVersionTag(host.client_version, latestVersions.client)}</td>
@@ -4958,7 +5028,7 @@
       const filtered = applyHostFilters(currentHosts);
 
       hostsTbody.innerHTML = '';
-      const cols = hostTableShowsInsecureColumn() ? 6 : 5;
+      const cols = hostTableShowsInsecureColumn() ? 7 : 6;
       if (!filtered.length) {
         hostsTbody.innerHTML = `<tr class="empty-row"><td colspan="${cols}">No hosts match your filters yet.</td></tr>`;
         updateSortIndicators();
@@ -7702,6 +7772,9 @@
           : null,
         wrapper: typeof versions.wrapper_version === 'string'
           ? versions.wrapper_version.trim().replace(/^v/i, '')
+          : null,
+        claude: typeof versions.claude_version === 'string'
+          ? versions.claude_version.trim().replace(/^v/i, '')
           : null,
       };
 
@@ -10626,7 +10699,7 @@
       }
     }
 
-    function renderNewHostSuccessChips({ fqdn, secure, temporary, insecureCurl, vip }) {
+    function renderNewHostSuccessChips({ fqdn, secure, temporary, insecureCurl, vip, engines }) {
       if (!newHostSuccessChips) return;
       const chips = [
         { label: fqdn, tone: 'pro' },
@@ -10639,6 +10712,9 @@
       if (vip) {
         chips.push({ label: 'VIP', tone: 'pro' });
       }
+      const engineList = parseEngines(engines);
+      if (engineList.includes('codex')) chips.push({ label: 'CDX', tone: 'ok' });
+      if (engineList.includes('claude')) chips.push({ label: 'CLX', tone: 'pro' });
       newHostSuccessChips.replaceChildren();
       chips.forEach(({ label, tone }) => {
         const chip = document.createElement('span');
@@ -10717,6 +10793,13 @@
         newHostName?.focus();
         return;
       }
+      const hasCodex = engineCodexToggle ? engineCodexToggle.checked : true;
+      const hasClaude = engineClaudeToggle ? engineClaudeToggle.checked : false;
+      if (!hasCodex && !hasClaude) {
+        if (newHostEngineError) { newHostEngineError.textContent = 'Select at least one engine'; newHostEngineError.classList.add('show'); }
+        return;
+      }
+      if (newHostEngineError) { newHostEngineError.textContent = ''; newHostEngineError.classList.remove('show'); }
       await regenerateInstaller(fqdn);
     }
 
@@ -10740,15 +10823,22 @@
       if (vipToggle && existingHost) {
         vipToggle.checked = !!existingHost.vip;
       }
+      if (existingHost) {
+        const existingEngines = parseEngines(existingHost.engines);
+        if (engineCodexToggle) engineCodexToggle.checked = existingEngines.includes('codex');
+        if (engineClaudeToggle) engineClaudeToggle.checked = existingEngines.includes('claude');
+      }
       const secure = secureHostToggle ? secureHostToggle.checked : true;
       const vip = vipToggle ? vipToggle.checked : false;
       const temporary = temporaryHostToggle ? temporaryHostToggle.checked : false;
+      const engines = buildEnginesValue();
       const registerPayload = {
         fqdn: targetFqdn,
         host_id: hostId ?? undefined,
         secure,
         vip,
         temporary: !!temporary,
+        engines,
         curl_insecure: insecureToggle ? !!insecureToggle.checked : undefined,
       };
       if (!secure) {
@@ -10810,6 +10900,7 @@
           temporary: !!temporary,
           insecureCurl: insecureToggle ? !!insecureToggle.checked : false,
           vip,
+          engines,
         });
         setNewHostModalStage('success');
         if (newHostName) {

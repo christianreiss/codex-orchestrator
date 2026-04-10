@@ -27,6 +27,8 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Support\CodexVersionPolicy;
+use App\Support\ClaudeVersionPolicy;
+use App\Support\Engine;
 use App\Support\Timestamp;
 use App\Security\RateLimiter;
 use DateTimeImmutable;
@@ -136,7 +138,10 @@ class AuthService
         return new ReverseDnsValidator($versions);
     }
 
-    public function register(string $fqdn, bool $secure = true, ?int $insecureWindowMinutes = null): array
+    /**
+     * @param string[] $engines Engine identifiers (e.g. ['codex'], ['claude'], ['codex','claude']).
+     */
+    public function register(string $fqdn, bool $secure = true, ?int $insecureWindowMinutes = null, array $engines = [Engine::DEFAULT]): array
     {
         $this->pruneInactiveHosts();
 
@@ -156,6 +161,8 @@ class AuthService
                 $this->hosts->updateSecure((int) $existing['id'], $secure);
                 $existing = $this->hosts->findByFqdn($fqdn) ?? $existing;
             }
+            // Update engines if they differ from what was requested.
+            $this->hosts->updateEngines((int) $existing['id'], $engines);
             $apiKey = bin2hex(random_bytes(32));
             $host = $this->hosts->rotateApiKey((int) $existing['id'], $apiKey);
             if (!$secure) {
@@ -167,19 +174,25 @@ class AuthService
             } else {
                 $existing['api_key_plain'] = $apiKey;
             }
-            $this->logs->log((int) $existing['id'], 'register', ['result' => 'rotated']);
+            $this->logs->log((int) $existing['id'], 'register', [
+                'result' => 'rotated',
+                'engines' => Engine::serializeHostEngines($engines),
+            ]);
             $payload = $this->buildHostPayload($host ?? $existing, true);
             return $payload;
         }
 
         $apiKey = bin2hex(random_bytes(32));
-        $host = $this->hosts->create($fqdn, $apiKey, $secure);
+        $host = $this->hosts->create($fqdn, $apiKey, $secure, $engines);
         if (!$secure && isset($host['id'])) {
             $this->insecureHostWindowService->openInitialInsecureWindow((int) $host['id'], $insecureWindowMinutes);
             $host = $this->hosts->findById((int) $host['id']) ?? $host;
         }
         $host['api_key_plain'] = $apiKey;
-        $this->logs->log((int) $host['id'], 'register', ['result' => 'created']);
+        $this->logs->log((int) $host['id'], 'register', [
+            'result' => 'created',
+            'engines' => Engine::serializeHostEngines($engines),
+        ]);
 
         $payload = $this->buildHostPayload($host, true);
 
@@ -1086,6 +1099,13 @@ class AuthService
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
             'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
             'last_cron_check' => $host['last_cron_check'] ?? null,
+            // Multi-engine support.
+            'engines' => $host['engines'] ?? Engine::DEFAULT,
+            'engines_list' => Engine::parseHostEngines($host['engines'] ?? null),
+            'claude_client_version' => $host['claude_client_version'] ?? null,
+            'claude_wrapper_version' => $host['claude_wrapper_version'] ?? null,
+            'claude_auth_digest' => $host['claude_auth_digest'] ?? null,
+            'claude_model_override' => $host['claude_model_override'] ?? null,
         ];
 
         if ($includeApiKey) {

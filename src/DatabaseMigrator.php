@@ -12,6 +12,7 @@ namespace App;
 use App\Migrations\AdminMigration;
 use App\Migrations\AuthMigration;
 use App\Migrations\ContentMigration;
+use App\Migrations\EngineMigration;
 use App\Migrations\HostMigration;
 use App\Migrations\InfrastructureMigration;
 use App\Migrations\InsecureMigration;
@@ -77,6 +78,7 @@ class DatabaseMigrator
             new InfrastructureMigration(),
             new OpenaiApiMigration(),
             new JoplinMigration(),
+            new EngineMigration(),
         ];
 
         foreach ($migrations as $migration) {

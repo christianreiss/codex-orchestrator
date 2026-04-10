@@ -5,6 +5,7 @@ namespace App\Http;
 use App\Config;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
+use App\Support\Engine;
 
 final class VersionHelper
 {
@@ -182,7 +183,7 @@ final class VersionHelper
             }
         }
 
-        $aliases = ['client_version', 'cdx_version'];
+        $aliases = ['client_version', 'cdx_version', 'clx_version'];
         foreach ($aliases as $alias) {
             $fromQuery = RequestHelper::resolveQueryParam($alias);
             if ($fromQuery !== null) {
@@ -208,5 +209,45 @@ final class VersionHelper
         }
 
         return null;
+    }
+
+    /**
+     * Extract the engine identifier from a request payload, query parameter, or header.
+     * Falls back to Engine::DEFAULT ('codex') if not specified.
+     */
+    public static function extractEngine(mixed $payload): string
+    {
+        // 1. Payload body.
+        if (is_array($payload) && array_key_exists('engine', $payload)) {
+            $value = self::normalizeVersionValue($payload['engine']);
+            if ($value !== null && Engine::isValid($value)) {
+                return $value;
+            }
+        }
+
+        // 2. Query parameter.
+        $fromQuery = RequestHelper::resolveQueryParam('engine');
+        if ($fromQuery !== null && Engine::isValid($fromQuery)) {
+            return $fromQuery;
+        }
+
+        // 3. X-Engine header.
+        $header = $_SERVER['HTTP_X_ENGINE'] ?? null;
+        if (is_string($header)) {
+            $normalized = strtolower(trim($header));
+            if (Engine::isValid($normalized)) {
+                return $normalized;
+            }
+        }
+
+        // 4. Detect from wrapper name in User-Agent (e.g. "clx/1.2.3" or "cdx/4.5.6").
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        if (is_string($ua)) {
+            if (preg_match('/\bclx\b/i', $ua)) {
+                return Engine::CLAUDE;
+            }
+        }
+
+        return Engine::DEFAULT;
     }
 }

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Response;
+use App\Http\VersionHelper;
 use App\Services\AuthService;
 use App\Services\WrapperService;
+use App\Support\Engine;
 
 class WrapperController
 {
@@ -24,13 +26,14 @@ class WrapperController
     {
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
+        $engine = VersionHelper::extractEngine(null);
         $host = $this->service->authenticate($apiKey, $clientIp);
         $baseUrl = resolveBaseUrl();
-        $meta = $this->wrapperService->bakedForHost($host, $baseUrl);
+        $meta = $this->wrapperService->bakedForHost($host, $baseUrl, null, $engine);
         if ($meta['content'] === null || $meta['version'] === null) {
             Response::json([
                 'status' => 'error',
-                'message' => 'Wrapper not available',
+                'message' => 'Wrapper not available for engine: ' . $engine,
             ], 404);
         }
 
@@ -46,17 +49,19 @@ class WrapperController
     {
         $apiKey = resolveApiKey();
         $clientIp = resolveClientIp();
+        $engine = VersionHelper::extractEngine(null);
         $host = $this->service->authenticate($apiKey, $clientIp);
         $baseUrl = resolveBaseUrl();
-        $meta = $this->wrapperService->bakedForHost($host, $baseUrl);
+        $meta = $this->wrapperService->bakedForHost($host, $baseUrl, null, $engine);
         if ($meta['version'] === null || $meta['content'] === null) {
             Response::json([
                 'status' => 'error',
-                'message' => 'Wrapper not available',
+                'message' => 'Wrapper not available for engine: ' . $engine,
             ], 404);
         }
 
-        $fileName = 'cdx-' . ($meta['version'] ?? 'latest') . '.sh';
+        $wrapperName = Engine::wrapperName($engine);
+        $fileName = $wrapperName . '-' . ($meta['version'] ?? 'latest') . '.sh';
         header('Content-Type: text/x-shellscript');
         header('Content-Disposition: attachment; filename="' . $fileName . '"');
         if ($meta['sha256']) {

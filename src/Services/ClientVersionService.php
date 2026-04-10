@@ -12,7 +12,9 @@ namespace App\Services;
 use App\Repositories\HostRepository;
 use App\Repositories\VersionRepository;
 use App\Support\AdminTheme;
+use App\Support\ClaudeVersionPolicy;
 use App\Support\CodexVersionPolicy;
+use App\Support\Engine;
 
 class ClientVersionService
 {
@@ -74,6 +76,10 @@ class ClientVersionService
             'runner_last_check' => $this->versions->get('runner_last_check'),
             'installation_id' => $this->installationId,
             'auto_update_enabled' => $this->versions->getFlag('auto_update_enabled', false),
+            // Multi-engine support.
+            'engines' => Engine::ALL,
+            'claude_wrapper_version' => $this->canonicalVersion($this->wrapperService->metadata(Engine::CLAUDE)['version'] ?? null),
+            'claude_client_version_minimum' => ClaudeVersionPolicy::minimumVersion(),
         ];
     }
 

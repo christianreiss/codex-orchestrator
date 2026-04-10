@@ -1062,10 +1062,6 @@ HAS_LOCAL_AUTH=0
 HAS_VALID_LOCAL_AUTH=0
 LOCAL_AUTH_IS_FRESH=0
 ORIGINAL_LAST_REFRESH=""
-CLX_AUTH_STATUS=""
-CLX_CLI_STATUS=""
-CLX_AGENTS_STATUS=""
-CLX_CONFIG_STATUS=""
 QUOTA_BLOCKED=0
 QUOTA_BLOCK_REASON=""
 QUOTA_WARNING=0
@@ -2674,9 +2670,15 @@ clx_acquire_lock() {
     local lock_pid=""
     lock_pid="$(cat "$CLX_LOCK_FILE" 2>/dev/null || true)"
     if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
-      log_error "Another CLX instance is running (PID ${lock_pid})."
-      log_error "If this is wrong, remove ${CLX_LOCK_FILE}"
-      exit 1
+      CLX_ACTIVE_RUN_DETECTED=1
+      if ((CLAUDE_CONCURRENT_SYNC_OVERRIDE)); then
+        log_warn "Another CLX instance is running (PID ${lock_pid}); proceeding with --allow-concurrent-sync."
+      else
+        # Allow boot to continue (auth sync may return concurrent status),
+        # but do not take the lock.
+        log_debug "Another CLX instance is running (PID ${lock_pid}); concurrent mode."
+        return 0
+      fi
     fi
     rm -f "$CLX_LOCK_FILE"
   fi
@@ -2745,7 +2747,6 @@ clx_status() {
 }
 
 clx_doctor() {
-  clx_bootstrap
   print_doctor_report
 }
 
@@ -2923,103 +2924,13 @@ print_boot_screen() {
 # ── CLX Doctor Diagnostic Report ──────────────────────────────
 # Comprehensive diagnostic matching the CDX doctor output format,
 # adapted for Claude Code / CLX paths and tooling.
-
-# ── Utility functions (self-contained) ────────────────────────
-# These mirror CDX's summary helpers so the doctor fragment works
-# without depending on a separate summary fragment.
-
-SED_ERE_FLAG="${SED_ERE_FLAG:-}"
-
-_dr_detect_sed_ere_flag() {
-  if [[ -n "$SED_ERE_FLAG" ]]; then return 0; fi
-  if echo x | sed -r 's/x/x/' >/dev/null 2>&1; then
-    SED_ERE_FLAG="-r"
-  else
-    SED_ERE_FLAG="-E"
-  fi
-}
-
-_dr_strip_ansi() {
-  local text="${1-}"
-  _dr_detect_sed_ere_flag
-  sed "$SED_ERE_FLAG" 's/\x1B\[[0-9;]*[mK]//g' <<<"$text"
-}
-
-_dr_colorize() {
-  local text="$1" tone="$2"
-  case "$tone" in
-    green)  printf "%b%s%b" "${GREEN}${BOLD}" "$text" "${RESET}" ;;
-    yellow) printf "%b%s%b" "${YELLOW}${BOLD}" "$text" "${RESET}" ;;
-    red)    printf "%b%s%b" "${RED}${BOLD}" "$text" "${RESET}" ;;
-    *)      printf "%s" "$text" ;;
-  esac
-}
-
-_DR_ROW_LABEL_WIDTH=12
-
-_dr_compute_row_label_width() {
-  local width="$_DR_ROW_LABEL_WIDTH"
-  local label="" plain_len=0
-  for label in "$@"; do
-    [[ -z "$label" ]] && continue
-    local plain
-    plain="$(_dr_strip_ansi "$label")"
-    plain_len=${#plain}
-    if ((plain_len > width)); then
-      width=$plain_len
-    fi
-  done
-  printf '%s' "$width"
-}
-
-_dr_format_row() {
-  local label="$1" text="$2"
-  printf "%-${_DR_ROW_LABEL_WIDTH}s | %s" "$label" "$text"
-}
-
-_dr_join() {
-  local sep="$1"; shift
-  local out="" part
-  for part in "$@"; do
-    [[ -z "$part" ]] && continue
-    [[ -n "$out" ]] && out+="$sep"
-    out+="$part"
-  done
-  printf "%s" "$out"
-}
-
-_dr_divider() {
-  local cols="${COLUMNS:-}"
-  if [[ ! "$cols" =~ ^[0-9]+$ ]] && command -v tput >/dev/null 2>&1; then
-    cols="$(tput cols 2>/dev/null || true)"
-  fi
-  if [[ ! "$cols" =~ ^[0-9]+$ ]] || ((cols < 40)); then cols=80; fi
-  local w=$((cols - 2))
-  ((w < 20)) && w=20
-  printf "%b%s%b" "${DIM}" "$(printf '%*s' "$w" '' | tr ' ' '-')" "${RESET}"
-}
-
-_dr_header() {
-  local title="$1"
-  local left
-  printf -v left "%b%s%b" "${VIOLET}${BOLD}" "clx" "${RESET}"
-  local ts=""
-  ts="$(date '+%Y-%m-%d %H:%M' 2>/dev/null || true)"
-  [[ -n "$ts" ]] && left+=" $(printf '%b%s%b' "${DIM}" "$ts" "${RESET}")"
-  local right=""
-  if [[ -n "$title" ]]; then
-    printf -v right "%b%s%b" "${BOLD}" "$title" "${RESET}"
-  fi
-  if [[ -n "$right" ]]; then
-    printf "%s  %b·%b  %s" "$left" "${DIM}" "${RESET}" "$right"
-  else
-    printf "%s" "$left"
-  fi
-}
+# Uses shared functions from prolog: colorize, format_simple_row,
+# summary_divider, summary_header, join_with_sep,
+# compute_row_label_width, colorize_sync_status, output_supports_unicode.
 
 # ── API probe ─────────────────────────────────────────────────
 
-_dr_probe_api_versions() {
+doctor_probe_api_versions() {
   if [[ -z "${CLAUDE_SYNC_BASE_URL:-}" ]]; then
     printf "fail\tmissing base url"
     return 1
@@ -3072,27 +2983,27 @@ print_doctor_report() {
   if [[ "$dep_python" == "ok" ]]; then
     dep_bits+=("python3 ok")
   else
-    dep_bits+=("python3 $(_dr_colorize "missing" "red")")
+    dep_bits+=("python3 $(colorize "missing" "red")")
     failures=$((failures + 1))
     hints+=("Install python3; several checks require it.")
   fi
   if [[ "$dep_curl" == "ok" ]]; then
     dep_bits+=("curl ok")
   else
-    dep_bits+=("curl $(_dr_colorize "missing" "yellow")")
+    dep_bits+=("curl $(colorize "missing" "yellow")")
     hints+=("Install curl to enable wrapper/CLI download updates.")
   fi
   if [[ "$dep_jq" == "ok" ]]; then
     dep_bits+=("jq ok")
   else
-    dep_bits+=("jq $(_dr_colorize "missing" "red")")
+    dep_bits+=("jq $(colorize "missing" "red")")
     failures=$((failures + 1))
     hints+=("Install jq; CLX requires it for JSON processing.")
   fi
   if [[ "$dep_node" == "ok" ]]; then
     dep_bits+=("node ok")
   else
-    dep_bits+=("node $(_dr_colorize "missing" "red")")
+    dep_bits+=("node $(colorize "missing" "red")")
     failures=$((failures + 1))
     hints+=("Install Node.js (>= 18); Claude Code requires it.")
   fi
@@ -3101,47 +3012,73 @@ print_doctor_report() {
   local claude_real_bin=""
   claude_real_bin="$(detect_claude_cli 2>/dev/null || true)"
   local script_real=""
-  script_real="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+  script_real="$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
 
-  # ── 3. Auth ──────────────────────────────────────────────────
+  # ── 3. Auth freshness ───────────────────────────────────────
   local auth_freshness=""
-  if [[ -f "$CLX_AUTH_FILE" ]]; then
-    local auth_mtime="" auth_age=""
-    if command -v stat >/dev/null 2>&1; then
-      auth_mtime="$(stat -c '%Y' "$CLX_AUTH_FILE" 2>/dev/null || stat -f '%m' "$CLX_AUTH_FILE" 2>/dev/null || true)"
-    fi
-    if [[ "$auth_mtime" =~ ^[0-9]+$ ]]; then
-      local now_ts
-      now_ts="$(date +%s)"
-      auth_age=$(( now_ts - auth_mtime ))
-      if (( auth_age < 86400 )); then
-        auth_freshness="fresh ($(date -d "@${auth_mtime}" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r "$auth_mtime" '+%Y-%m-%d %H:%M' 2>/dev/null || echo 'recent'))"
-      elif (( auth_age < 604800 )); then
-        auth_freshness="recent ($(date -d "@${auth_mtime}" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r "$auth_mtime" '+%Y-%m-%d %H:%M' 2>/dev/null || echo 'older'))"
-      else
-        auth_freshness="$(_dr_colorize "stale" "yellow") ($(date -d "@${auth_mtime}" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r "$auth_mtime" '+%Y-%m-%d %H:%M' 2>/dev/null || echo 'old'))"
-        hints+=("Refresh auth soon; cached credentials are older than 7 days.")
-      fi
+  if ((HAS_LOCAL_AUTH)); then
+    if ((LOCAL_AUTH_IS_FRESH)); then
+      auth_freshness="fresh (${ORIGINAL_LAST_REFRESH:-unknown})"
+    elif ((HOST_IS_SECURE)) && ((${LOCAL_AUTH_IS_RECENT:-0})); then
+      auth_freshness="recent secure-cache (${ORIGINAL_LAST_REFRESH:-unknown})"
     else
-      auth_freshness="present (age unknown)"
+      auth_freshness="$(colorize "stale" "yellow") (${ORIGINAL_LAST_REFRESH:-unknown})"
+      hints+=("Refresh auth soon; cached credentials are older than the normal window.")
     fi
   else
-    auth_freshness="$(_dr_colorize "missing" "red")"
+    auth_freshness="$(colorize "missing" "red")"
     failures=$((failures + 1))
     hints+=("No local auth credentials; check API connectivity and host registration.")
   fi
 
-  # ── 4. Config (settings.json) ────────────────────────────────
+  # ── 4. Sync statuses ────────────────────────────────────────
+  local sync_bits=(
+    "auth=$(colorize_sync_status "${AUTH_PULL_STATUS:-unknown}")"
+    "skills=$(colorize_sync_status "${SKILL_SYNC_STATUS:-unknown}")"
+    "agents=$(colorize_sync_status "${AGENTS_SYNC_STATUS:-unknown}")"
+    "config=$(colorize_sync_status "${CONFIG_SYNC_STATUS:-unknown}")"
+  )
+  local sync_label
+  sync_label="$(join_with_sep ' | ' "${sync_bits[@]}")"
+  case "$AUTH_PULL_STATUS" in
+    invalid)
+      failures=$((failures + 1))
+      hints+=("API key rejected. Download a fresh wrapper or rotate the host key in admin.")
+      ;;
+    missing-config)
+      failures=$((failures + 1))
+      hints+=("Wrapper is missing baked sync config. Reinstall clx from /install token.")
+      ;;
+    insecure)
+      failures=$((failures + 1))
+      hints+=("Insecure host window is closed. Enable the host window in admin.")
+      ;;
+    insecure-denied)
+      failures=$((failures + 1))
+      hints+=("Host approval was denied. Approve/re-enable the host in admin and retry.")
+      ;;
+    offline)
+      hints+=("API is offline; cached auth may work temporarily but sync/push is limited.")
+      ;;
+    concurrent)
+      hints+=("Another clx process is active; this run skips pre-run sync/update mutations unless --allow-concurrent-sync is passed.")
+      ;;
+  esac
+
+  # ── 5. Config (settings.json) ────────────────────────────────
   local settings_path="${HOME}/.claude/settings.json"
   local config_state_label=""
   if [[ -f "$settings_path" ]]; then
-    config_state_label="present"
-  elif [[ -f "$CLX_SETTINGS_FILE" ]]; then
+    config_state_label="${CONFIG_SYNC_STATUS:-unknown}"
+    [[ -n "${CONFIG_STATE:-}" ]] && config_state_label+=" (${CONFIG_STATE})"
+  elif [[ -f "${CLX_SETTINGS_FILE:-}" ]]; then
     config_state_label="present (clx cache only)"
     settings_path="$CLX_SETTINGS_FILE"
   else
-    config_state_label="missing"
-    hints+=("settings.json not found; restore API connectivity and rerun sync.")
+    config_state_label="missing local file"
+    if [[ "${CONFIG_SYNC_STATUS:-}" != "ok" ]]; then
+      hints+=("settings.json is missing locally; restore API connectivity and rerun sync.")
+    fi
   fi
 
   local config_validity_label="n/a"
@@ -3159,7 +3096,7 @@ except Exception as e:
     if [[ "$config_parse_err" == "ok" ]]; then
       config_validity_label="valid (json) ok"
     else
-      config_validity_label="$(_dr_colorize "parse error: ${config_parse_err}" "red")"
+      config_validity_label="$(colorize "parse error: ${config_parse_err}" "red")"
       failures=$((failures + 1))
       hints+=("settings.json has parse errors; fix or re-sync the file.")
     fi
@@ -3167,15 +3104,15 @@ except Exception as e:
     if jq empty "$settings_path" 2>/dev/null; then
       config_validity_label="valid (jq) ok"
     else
-      config_validity_label="$(_dr_colorize "parse error" "red")"
+      config_validity_label="$(colorize "parse error" "red")"
       failures=$((failures + 1))
       hints+=("settings.json has parse errors; fix or re-sync the file.")
     fi
   elif [[ -f "$settings_path" ]]; then
-    config_validity_label="$(_dr_colorize "python3/jq required for validation" "yellow")"
+    config_validity_label="$(colorize "python3/jq required for validation" "yellow")"
   fi
 
-  # ── 5. MCP ───────────────────────────────────────────────────
+  # ── 6. MCP ───────────────────────────────────────────────────
   local mcp_label="n/a"
   if [[ -f "$settings_path" ]] && command -v jq >/dev/null 2>&1; then
     local has_clx_mcp="" has_legacy_mcp=""
@@ -3186,21 +3123,21 @@ except Exception as e:
     elif [[ "$has_legacy_mcp" == "yes" ]]; then
       mcp_label="configured (legacy name) ok"
     else
-      mcp_label="$(_dr_colorize "not configured" "yellow")"
+      mcp_label="$(colorize "not configured" "yellow")"
       hints+=("MCP server 'clx' is missing in settings.json mcpServers.")
     fi
   elif [[ -f "$settings_path" ]]; then
-    mcp_label="$(_dr_colorize "jq required to check" "yellow")"
+    mcp_label="$(colorize "jq required to check" "yellow")"
   else
-    mcp_label="$(_dr_colorize "no settings.json" "yellow")"
+    mcp_label="$(colorize "no settings.json" "yellow")"
   fi
 
-  # ── 6. API probe ─────────────────────────────────────────────
+  # ── 7. API probe ─────────────────────────────────────────────
   local api_probe="fail\tunreachable"
   local api_probe_rc=1
   local api_probe_start_ns="" api_probe_end_ns="" api_probe_elapsed_ms=""
   api_probe_start_ns="$(clx_time_ms)"
-  if api_probe="$(_dr_probe_api_versions)"; then
+  if api_probe="$(doctor_probe_api_versions)"; then
     api_probe_rc=0
   else
     api_probe_rc=$?
@@ -3214,20 +3151,20 @@ except Exception as e:
   local api_probe_label="$api_probe_detail"
   case "$api_probe_state" in
     ok)
-      api_probe_label="$(_dr_colorize "reachable" "green")"
+      api_probe_label="$(colorize "reachable" "green")"
       [[ -n "$api_probe_detail" ]] && api_probe_label+=" (${api_probe_detail})"
       ;;
     skip)
-      api_probe_label="$(_dr_colorize "skipped" "yellow") (${api_probe_detail})"
+      api_probe_label="$(colorize "skipped" "yellow") (${api_probe_detail})"
       ;;
     *)
-      api_probe_label="$(_dr_colorize "unreachable" "red") (${api_probe_detail})"
+      api_probe_label="$(colorize "unreachable" "red") (${api_probe_detail})"
       failures=$((failures + 1))
       hints+=("Check ${CLAUDE_SYNC_BASE_URL%/}/versions reachability, DNS/TLS, firewall, and CA settings.")
       ;;
   esac
 
-  # ── 7. Runner ────────────────────────────────────────────────
+  # ── 8. Runner ────────────────────────────────────────────────
   local runner_row_label=""
   local runner_row_tone="yellow"
   if ((${runner_enabled_flag:-0})) || [[ -n "${runner_label:-}" ]]; then
@@ -3239,7 +3176,7 @@ except Exception as e:
     fi
   fi
 
-  # ── 8. Disk ──────────────────────────────────────────────────
+  # ── 9. Disk ──────────────────────────────────────────────────
   local disk_label="ok"
   local claude_parent="${HOME}/.claude"
   if command -v df >/dev/null 2>&1 && [[ -d "$claude_parent" ]]; then
@@ -3248,11 +3185,11 @@ except Exception as e:
     if [[ "$free_kb" =~ ^[0-9]+$ ]]; then
       local free_mb=$((free_kb / 1024))
       if ((free_mb < 500)); then
-        disk_label="$(_dr_colorize "${free_mb}MB free (< 500MB)" "red")"
+        disk_label="$(colorize "${free_mb}MB free (< 500MB)" "red")"
         failures=$((failures + 1))
         hints+=("Disk space on ~/.claude partition is critically low (${free_mb}MB free).")
       elif ((free_mb < 1000)); then
-        disk_label="$(_dr_colorize "${free_mb}MB free" "yellow")"
+        disk_label="$(colorize "${free_mb}MB free" "yellow")"
         hints+=("Disk space on ~/.claude partition is low (${free_mb}MB free).")
       else
         disk_label="${free_mb}MB free ok"
@@ -3260,19 +3197,25 @@ except Exception as e:
     fi
   fi
 
-  # ── 9. Cron ──────────────────────────────────────────────────
+  # ── 10. Cron ─────────────────────────────────────────────────
   local cron_label="n/a"
   if command -v crontab >/dev/null 2>&1; then
+    local clx_real_path=""
+    clx_real_path="$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+    local cron_marker=""
+    cron_marker="$(cron_managed_marker)"
     local current_crontab=""
     current_crontab="$(crontab -l 2>/dev/null || true)"
-    if printf '%s' "$current_crontab" | grep -q "clx.*--cron\|clx.*--update"; then
+    local quoted_clx_path=""
+    printf -v quoted_clx_path '%q' "$clx_real_path"
+    if cron_has_wrapper_entry "$current_crontab" "$clx_real_path" "$quoted_clx_path" "$cron_marker"; then
       cron_label="installed ok"
     else
       cron_label="not installed"
     fi
   fi
 
-  # ── 10. SSH env ──────────────────────────────────────────────
+  # ── 11. SSH env ──────────────────────────────────────────────
   local ssh_session_label="local"
   if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_CLIENT:-}" ]]; then
     ssh_session_label="ssh"
@@ -3293,9 +3236,9 @@ except Exception as e:
   [[ -n "${WEZTERM_VERSION:-}" ]] && ssh_bits+=("WEZTERM_VERSION=${WEZTERM_VERSION}")
   [[ -n "${WT_SESSION:-}" ]] && ssh_bits+=("WT_SESSION=set")
   local ssh_env_label
-  ssh_env_label="$(_dr_join '; ' "${ssh_bits[@]}")"
+  ssh_env_label="$(join_with_sep '; ' "${ssh_bits[@]}")"
 
-  # ── 11. CLI info ─────────────────────────────────────────────
+  # ── 12. CLI info ─────────────────────────────────────────────
   local local_version="unknown"
   if [[ -n "$claude_real_bin" ]]; then
     local_version="$("$claude_real_bin" --version 2>/dev/null || echo "unknown")"
@@ -3314,71 +3257,76 @@ except Exception as e:
   local api_latency_label=""
   if [[ "${api_probe_elapsed_ms:-}" =~ ^[0-9]+$ ]]; then
     if ((api_probe_elapsed_ms > 5000)); then
-      api_latency_label="$(_dr_colorize "${api_probe_elapsed_ms}ms (slow)" "red")"
+      api_latency_label="$(colorize "${api_probe_elapsed_ms}ms (slow)" "red")"
       hints+=("API probe latency is high (${api_probe_elapsed_ms}ms); check network conditions.")
     elif ((api_probe_elapsed_ms > 2000)); then
-      api_latency_label="$(_dr_colorize "${api_probe_elapsed_ms}ms" "yellow")"
+      api_latency_label="$(colorize "${api_probe_elapsed_ms}ms" "yellow")"
     else
       api_latency_label="${api_probe_elapsed_ms}ms ok"
     fi
   fi
 
   # ── Render ───────────────────────────────────────────────────
-  local doctor_row_labels=("Deps" "Paths" "Auth" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "SSH env" "CLI")
-  local saved_row_label_width="$_DR_ROW_LABEL_WIDTH"
-  _DR_ROW_LABEL_WIDTH="$(_dr_compute_row_label_width "${doctor_row_labels[@]}")"
+  local doctor_row_labels=("Deps" "Paths" "Auth" "Sync" "Config" "MCP" "Runner" "API" "Latency" "Disk" "Cron" "SSH env" "CLI")
+  local saved_row_label_width="$ROW_LABEL_WIDTH"
+  ROW_LABEL_WIDTH="$(compute_row_label_width "${doctor_row_labels[@]}")"
 
-  log_info "$(_dr_divider)"
-  log_info "$(_dr_header "Doctor report")"
-  log_info "$(_dr_format_row "Deps" "$(_dr_join ' | ' "${dep_bits[@]}")")"
-  log_info "$(_dr_format_row "Paths" "claude=${claude_real_bin:-not found}; wrapper=${script_real}")"
-  log_info "$(_dr_format_row "Auth" "freshness=${auth_freshness}")"
-  log_info "$(_dr_format_row "Config" "path=${settings_path}; state=${config_state_label}; validity=${config_validity_label}")"
-  log_info "$(_dr_format_row "MCP" "$mcp_label")"
+  log_info "$(summary_divider)"
+  log_info "$(summary_header "Doctor report")"
+  log_info "$(format_simple_row "Deps" "$(join_with_sep ' | ' "${dep_bits[@]}")")"
+  log_info "$(format_simple_row "Paths" "claude=${claude_real_bin:-not found}; wrapper=${script_real}")"
+  log_info "$(format_simple_row "Auth" "freshness=${auth_freshness}; status=${AUTH_PULL_STATUS:-unknown}")"
+  log_info "$(format_simple_row "Sync" "$sync_label")"
+  log_info "$(format_simple_row "Config" "path=${settings_path}; state=${config_state_label}; validity=${config_validity_label}")"
+  log_info "$(format_simple_row "MCP" "$mcp_label")"
   if [[ -n "$runner_row_label" ]]; then
     local runner_row_display
     if [[ "$runner_row_tone" == "green" ]]; then
       runner_row_display="${runner_row_label} ok"
     else
-      runner_row_display="$(_dr_colorize "$runner_row_label" "$runner_row_tone")"
+      runner_row_display="$(colorize "$runner_row_label" "$runner_row_tone")"
     fi
-    log_info "$(_dr_format_row "Runner" "$runner_row_display")"
+    log_info "$(format_simple_row "Runner" "$runner_row_display")"
   fi
-  log_info "$(_dr_format_row "API" "$api_probe_label")"
+  log_info "$(format_simple_row "API" "$api_probe_label")"
   if [[ -n "$api_latency_label" ]]; then
-    log_info "$(_dr_format_row "Latency" "$api_latency_label")"
+    log_info "$(format_simple_row "Latency" "$api_latency_label")"
   fi
-  log_info "$(_dr_format_row "Disk" "$disk_label")"
-  log_info "$(_dr_format_row "Cron" "$cron_label")"
-  log_info "$(_dr_format_row "SSH env" "$ssh_env_label")"
-  log_info "$(_dr_format_row "CLI" "$(_dr_join '; ' "${cli_bits[@]}")")"
+  log_info "$(format_simple_row "Disk" "$disk_label")"
+  log_info "$(format_simple_row "Cron" "$cron_label")"
+  log_info "$(format_simple_row "SSH env" "$ssh_env_label")"
+  log_info "$(format_simple_row "CLI" "$(join_with_sep '; ' "${cli_bits[@]}")")"
 
   local result_summary=""
   local hints_suffix=""
   if ((${#hints[@]} > 0)); then
-    hints_suffix=" -- see hints below"
+    if output_supports_unicode; then
+      hints_suffix=" -- see hints below"
+    else
+      hints_suffix=" -- see hints below"
+    fi
   fi
   if ((failures == 0)); then
-    result_summary="$(_dr_colorize "all checks passed" "green") ok"
+    result_summary="$(colorize "all checks passed" "green") ok"
   elif ((failures == 1)); then
-    result_summary="$(_dr_colorize "1 failure" "red")${hints_suffix}"
+    result_summary="$(colorize "1 failure" "red")${hints_suffix}"
   else
-    result_summary="$(_dr_colorize "${failures} failures" "red")${hints_suffix}"
+    result_summary="$(colorize "${failures} failures" "red")${hints_suffix}"
   fi
-  log_info "$(_dr_format_row "Result" "$result_summary")"
+  log_info "$(format_simple_row "Result" "$result_summary")"
 
   if ((${#hints[@]})); then
-    log_info "$(_dr_divider)"
+    log_info "$(summary_divider)"
     local hint_index=1
     local hint
     for hint in "${hints[@]}"; do
-      log_warn "$(_dr_format_row "Hint ${hint_index}" "$hint")"
+      log_warn "$(format_simple_row "Hint ${hint_index}" "$hint")"
       hint_index=$((hint_index + 1))
     done
   fi
-  log_info "$(_dr_divider)"
+  log_info "$(summary_divider)"
 
-  _DR_ROW_LABEL_WIDTH="$saved_row_label_width"
+  ROW_LABEL_WIDTH="$saved_row_label_width"
   DOCTOR_FAILURES=$failures
 }
 
@@ -4113,17 +4061,14 @@ fi
 clx_display() {
   local concurrent_compact_summary=0
   local concurrent_compact_note=""
-  local concurrent_compact_tone="yellow"
   if ((CLX_ACTIVE_RUN_DETECTED)) && ((!CLAUDE_CONCURRENT_SYNC_OVERRIDE)); then
     concurrent_compact_summary=1
     if ((HAS_VALID_LOCAL_AUTH)); then
       concurrent_compact_note="Using local credentials."
     elif ((HAS_LOCAL_AUTH)); then
       concurrent_compact_note="Local credentials are invalid."
-      concurrent_compact_tone="red"
     else
       concurrent_compact_note="Local credentials are missing."
-      concurrent_compact_tone="red"
     fi
   fi
 

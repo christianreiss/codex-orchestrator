@@ -18,6 +18,7 @@ use App\Config;
 use App\Repositories\InstallTokenRepository;
 use App\Services\ClientConfigService;
 use App\Support\CodexVersionPolicy;
+use App\Support\Engine;
 
 class AdminHostController
 {
@@ -1152,6 +1153,25 @@ class AdminHostController
             }
         }
 
+        // Engine selection — defaults to ['codex'] for backwards compatibility.
+        $engines = [Engine::DEFAULT];
+        if (array_key_exists('engines', $payload)) {
+            $enginesRaw = $payload['engines'];
+            if (is_string($enginesRaw)) {
+                $enginesRaw = array_map('trim', explode(',', $enginesRaw));
+            }
+            if (is_array($enginesRaw)) {
+                $validated = array_filter($enginesRaw, fn ($e) => is_string($e) && Engine::isValid($e));
+                if ($validated === []) {
+                    Response::json([
+                        'status' => 'error',
+                        'message' => 'engines must contain at least one of: ' . implode(', ', Engine::ALL),
+                    ], 422);
+                }
+                $engines = array_values($validated);
+            }
+        }
+
         $durationMinutes = null;
         if (array_key_exists('duration_minutes', $payload)) {
             $durationRaw = $payload['duration_minutes'];
@@ -1177,7 +1197,7 @@ class AdminHostController
             }
         }
 
-        $hostPayload = $this->service->register($fqdn, $secure, $durationMinutes);
+        $hostPayload = $this->service->register($fqdn, $secure, $durationMinutes, $engines);
         $host = $this->hostRepository->findByFqdn($fqdn);
         if (!$host) {
             Response::json([

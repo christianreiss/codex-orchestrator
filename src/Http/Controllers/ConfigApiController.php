@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\RequestHelper;
 use App\Http\Response;
+use App\Http\VersionHelper;
 use App\Services\AgentsService;
 use App\Services\AuthService;
 use App\Services\ClientConfigService;
+use App\Support\Engine;
 
 class ConfigApiController
 {
@@ -20,14 +22,15 @@ class ConfigApiController
     {
         $apiKey = RequestHelper::resolveApiKey();
         $clientIp = RequestHelper::resolveClientIp();
+        $engine = VersionHelper::extractEngine($payload);
         $host = $this->service->authenticate($apiKey, $clientIp);
 
         $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
-        $result = $this->agentsService->retrieve($sha, $host);
+        $result = $this->agentsService->retrieve($sha, $host, $engine);
 
         Response::json([
             'status' => 'ok',
-            'data' => $result,
+            'data' => array_merge($result, ['engine' => $engine]),
         ]);
     }
 
@@ -35,17 +38,18 @@ class ConfigApiController
     {
         $apiKey = RequestHelper::resolveApiKey();
         $clientIp = RequestHelper::resolveClientIp();
+        $engine = VersionHelper::extractEngine($payload);
         $host = $this->service->authenticate($apiKey, $clientIp);
         $baseUrl = RequestHelper::resolveBaseUrl();
 
         $sha = is_array($payload) && array_key_exists('sha256', $payload) ? (string) $payload['sha256'] : null;
         $username = is_array($payload) && array_key_exists('username', $payload) ? (string) $payload['username'] : null;
         $home = is_array($payload) && array_key_exists('home', $payload) ? (string) $payload['home'] : null;
-        $result = $this->clientConfigService->retrieve($sha, $host, $baseUrl, $apiKey, $username, $home);
+        $result = $this->clientConfigService->retrieve($sha, $host, $baseUrl, $apiKey, $username, $home, $engine);
 
         Response::json([
             'status' => 'ok',
-            'data' => $result,
+            'data' => array_merge($result, ['engine' => $engine]),
         ]);
     }
 }

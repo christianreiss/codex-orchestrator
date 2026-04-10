@@ -10,6 +10,7 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Support\Engine;
 use PDO;
 use Throwable;
 
@@ -26,12 +27,27 @@ class AgentsRepository
     public function latest(): ?array
     {
         $statement = $this->database->connection()->query(
-            'SELECT id, sha256, body, source_host_id, created_at, updated_at
+            'SELECT id, sha256, body, source_host_id, engine, created_at, updated_at
              FROM agents_documents
              ORDER BY id DESC
              LIMIT 1'
         );
 
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : null;
+    }
+
+    public function latestByEngine(string $engine): ?array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, sha256, body, source_host_id, engine, created_at, updated_at
+             FROM agents_documents
+             WHERE engine = :engine
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $statement->execute(['engine' => $engine]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) ? $row : null;
@@ -200,15 +216,18 @@ class AgentsRepository
         return $statement->rowCount() > 0;
     }
 
-    public function state(): array
+    public function state(string $engine = Engine::CODEX): array
     {
+        // Use STATE_ID for codex, STATE_ID+1 for claude, to allow per-engine state.
+        $stateId = $engine === Engine::CLAUDE ? self::STATE_ID + 1 : self::STATE_ID;
+
         $statement = $this->database->connection()->prepare(
-            'SELECT id, mode, active_document_id, created_at, updated_at
+            'SELECT id, mode, active_document_id, engine, created_at, updated_at
              FROM agents_document_state
              WHERE id = :id
              LIMIT 1'
         );
-        $statement->execute(['id' => self::STATE_ID]);
+        $statement->execute(['id' => $stateId]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
 
         if (is_array($row)) {
@@ -216,29 +235,36 @@ class AgentsRepository
         }
 
         $now = gmdate(DATE_ATOM);
-        $insert = $this->database->connection()->prepare(
-            'INSERT INTO agents_document_state (id, mode, active_document_id, created_at, updated_at)
-             VALUES (:id, :mode, :active_document_id, :created_at, :updated_at)'
-        );
-        $insert->execute([
-            'id' => self::STATE_ID,
-            'mode' => self::MODE_LATEST,
-            'active_document_id' => null,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        try {
+            $insert = $this->database->connection()->prepare(
+                'INSERT INTO agents_document_state (id, mode, active_document_id, engine, created_at, updated_at)
+                 VALUES (:id, :mode, :active_document_id, :engine, :created_at, :updated_at)'
+            );
+            $insert->execute([
+                'id' => $stateId,
+                'mode' => self::MODE_LATEST,
+                'active_document_id' => null,
+                'engine' => $engine,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        } catch (Throwable) {
+            // Ignore duplicate key on concurrent insert.
+        }
 
         return [
-            'id' => self::STATE_ID,
+            'id' => $stateId,
             'mode' => self::MODE_LATEST,
             'active_document_id' => null,
+            'engine' => $engine,
             'created_at' => $now,
             'updated_at' => $now,
         ];
     }
 
-    public function updateState(string $mode, ?int $activeId): array
+    public function updateState(string $mode, ?int $activeId, string $engine = Engine::CODEX): array
     {
+        $stateId = $engine === Engine::CLAUDE ? self::STATE_ID + 1 : self::STATE_ID;
         $now = gmdate(DATE_ATOM);
         $statement = $this->database->connection()->prepare(
             'UPDATE agents_document_state
@@ -249,10 +275,10 @@ class AgentsRepository
             'mode' => $mode,
             'active_document_id' => $activeId,
             'updated_at' => $now,
-            'id' => self::STATE_ID,
+            'id' => $stateId,
         ]);
 
-        return $this->state();
+        return $this->state($engine);
     }
 
     public function storeVersionIfChangedWithRetention(string $body, ?int $sourceHostId = null, ?string $sha256 = null, ?int $backupLimit = null): array

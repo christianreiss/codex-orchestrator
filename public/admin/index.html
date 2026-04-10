@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codex Orchestrator</title>
+  <title>Orchestrator</title>
   <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-04-08-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="editorial-rail">
-    <a class="rail-brand" href="/admin/dashboard" aria-label="Codex Orchestrator dashboard">
+    <a class="rail-brand" href="/admin/dashboard" aria-label="Orchestrator dashboard">
       <img class="rail-brand-mark" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
       <div class="rail-brand-copy">
-        <div class="rail-brand-title">Codex Orchestrator</div>
-        <div class="rail-brand-tagline">Codex to Brrr!</div>
+        <div class="rail-brand-title">Orchestrator</div>
+        <div class="rail-brand-tagline">Engines to Brrr!</div>
       </div>
     </a>
     <button class="rail-toggle" id="navMenuToggle" type="button" aria-expanded="false" aria-controls="navDrawer" aria-label="Open navigation menu">
@@ -59,7 +59,8 @@
               <a class="rail-sub-link settings-tab" href="/admin/settings/general" data-nav="settings" data-settings-tab="general" role="menuitem"><span>General</span><span class="rail-shortcut">[s][g]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/users" data-nav="settings" data-settings-tab="users" role="menuitem"><span>Users</span><span class="rail-shortcut">[s][u]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/agents" data-nav="settings" data-settings-tab="agents" role="menuitem"><span>Agents</span><span class="rail-shortcut">[s][a]</span></a>
-              <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem"><span>config.toml</span><span class="rail-shortcut">[s][c]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/config" data-nav="settings" data-settings-tab="config" role="menuitem"><span>OpenAI</span><span class="rail-shortcut">[s][c]</span></a>
+              <a class="rail-sub-link settings-tab" href="/admin/settings/claude" data-nav="settings" data-settings-tab="claude" role="menuitem"><span>Claude</span><span class="rail-shortcut">[s][l]</span></a>
               <a class="rail-sub-link settings-tab" href="/admin/settings/apikeys" data-nav="settings" data-settings-tab="apikeys" role="menuitem"><span>API Keys</span><span class="rail-shortcut">[s][i]</span></a>
             </section>
             <section class="rail-section" aria-label="Authoring settings">
@@ -179,7 +180,7 @@
             </div>
             <div class="field">
               <label for="hostSearchInput" class="modal-label">Hostname</label>
-              <input id="hostSearchInput" type="search" placeholder="Search hostname, id, version, or status" autocomplete="off" spellcheck="false">
+              <input id="hostSearchInput" type="search" placeholder="Search hostname, id, engine, version, or status" autocomplete="off" spellcheck="false">
             </div>
             <div class="quick-hosts-list host-search-results" id="hostSearchResults" aria-live="polite"></div>
             <div class="muted panel-meta" id="hostSearchMeta">Type to filter the current fleet.</div>
@@ -426,14 +427,30 @@
         <div class="modal-backdrop" id="seedModal" role="dialog" aria-modal="true">
           <div class="modal seed-modal">
             <h3>Initial seeding required</h3>
-            <p class="muted" id="seedModalCopy">This installation has no hosts or canonical auth.json yet. Seed auth.json before issuing installers.</p>
+            <p class="muted" id="seedModalCopy">This installation has no hosts or canonical auth yet. Seed credentials before issuing installers.</p>
             <div class="seed-status">
               <div class="seed-chip warn" id="seedHostsStatus"><span class="dot"></span>No hosts registered</div>
-              <div class="seed-chip warn" id="seedAuthStatus"><span class="dot"></span>Canonical auth.json missing</div>
+              <div class="seed-chip warn" id="seedAuthStatus"><span class="dot"></span>Canonical auth missing</div>
+            </div>
+            <div class="field" style="margin-top:1rem">
+              <div class="modal-label">Seed engine</div>
+              <p class="panel-subtitle-sm">Choose which engine credentials to seed.</p>
+              <div class="new-host-toggle-grid" style="gap:0.5rem">
+                <label class="toggle state-toggle" for="seedEngineCodex" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                  <input type="radio" name="seedEngine" id="seedEngineCodex" value="codex" checked>
+                  <img src="assets/codex-logo.svg" alt="Codex" width="20" height="20" style="border-radius:4px">
+                  <span>OpenAI / Codex <small class="muted">(auth.json)</small></span>
+                </label>
+                <label class="toggle state-toggle" for="seedEngineClaude" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                  <input type="radio" name="seedEngine" id="seedEngineClaude" value="claude">
+                  <img src="assets/claude-logo.svg" alt="Claude" width="20" height="20" style="border-radius:4px">
+                  <span>Anthropic / Claude <small class="muted">(API key)</small></span>
+                </label>
+              </div>
             </div>
             <div class="actions">
               <button class="ghost" id="seedDismissBtn">Close</button>
-              <button id="seedUploadBtn">Seed auth.json</button>
+              <button id="seedUploadBtn">Seed credentials</button>
             </div>
           </div>
         </div>
@@ -495,6 +512,33 @@
                       </span>
                     </label>
                   </div>
+                </div>
+                <div class="field">
+                  <div class="modal-label">Engines to install</div>
+                  <p class="panel-subtitle-sm">Select which engines this host should run. At least one required.</p>
+                  <div class="new-host-toggle-grid">
+                    <label class="toggle state-toggle new-host-option" for="engineCodexToggle">
+                      <span class="new-host-option-head">
+                        <input type="checkbox" id="engineCodexToggle" checked>
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="new-host-option-copy">
+                          <span class="new-host-option-title">Codex</span>
+                          <span class="new-host-option-desc">OpenAI Codex CLI engine for code generation tasks.</span>
+                        </span>
+                      </span>
+                    </label>
+                    <label class="toggle state-toggle new-host-option" for="engineClaudeToggle">
+                      <span class="new-host-option-head">
+                        <input type="checkbox" id="engineClaudeToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="new-host-option-copy">
+                          <span class="new-host-option-title">Claude</span>
+                          <span class="new-host-option-desc">Anthropic Claude Code engine for agentic development.</span>
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                  <div class="auth-error" id="newHostEngineError" role="alert"></div>
                 </div>
                 <div class="actions">
                   <button class="ghost" id="cancelNewHost" type="button">Cancel</button>
@@ -713,7 +757,7 @@
                     <h2>Authorized Hosts</h2>
                   </div>
                   <div class="panel-actions">
-                    <input type="search" id="host-filter" placeholder="Search host, status, or codex version">
+                    <input type="search" id="host-filter" placeholder="Search host, status, engine, or version">
                   </div>
                 </div>
                 <div class="table-wrap">
@@ -721,6 +765,7 @@
                     <thead>
                       <tr>
                         <th data-sort-key="host"><span class="sort-link" role="button" tabindex="0" data-sort="host" aria-label="Sort by host"><span>Host</span><span class="sort-indicator">↕</span></span></th>
+                        <th data-sort-key="engines"><span class="sort-link" role="button" tabindex="0" data-sort="engines" aria-label="Sort by engines"><span>Engines</span><span class="sort-indicator">↕</span></span></th>
                         <th data-sort-key="status"><span class="sort-link" role="button" tabindex="0" data-sort="status" aria-label="Sort by status"><span>Status</span><span class="sort-indicator">↕</span></span></th>
                         <th data-sort-key="last_seen"><span class="sort-link" role="button" tabindex="0" data-sort="last_seen" aria-label="Sort by last seen"><span>Last Seen</span><span class="sort-indicator">↕</span></span></th>
                         <th data-sort-key="client"><span class="sort-link" role="button" tabindex="0" data-sort="client" aria-label="Sort by Codex version"><span>Codex</span><span class="sort-indicator">↕</span></span></th>
@@ -1354,7 +1399,8 @@
             <a class="settings-tab settings-mobile-tab" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
-            <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="config" href="/admin/settings/config">OpenAI</a>
+            <a class="settings-tab settings-mobile-tab" data-settings-tab="claude" href="/admin/settings/claude">Claude</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
             <a class="settings-tab settings-mobile-tab" data-settings-tab="joplin" href="/admin/settings/joplin">Joplin</a>
           </nav>
@@ -1368,7 +1414,8 @@
                 <a class="settings-tab settings-nav-link" data-settings-tab="projects" href="/admin/settings/projects">Projects</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="profiles" href="/admin/settings/profiles">Profiles</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="skills" href="/admin/settings/skills">Skills</a>
-                <a class="settings-tab settings-nav-link" data-settings-tab="config" href="/admin/settings/config">config.toml</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="config" href="/admin/settings/config">OpenAI</a>
+                <a class="settings-tab settings-nav-link" data-settings-tab="claude" href="/admin/settings/claude">Claude</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="apikeys" href="/admin/settings/apikeys">API Keys</a>
                 <a class="settings-tab settings-nav-link" data-settings-tab="joplin" href="/admin/settings/joplin">Joplin</a>
               </div>
@@ -1568,6 +1615,22 @@
                         </select>
                       </div>
                       <p class="muted panel-meta" id="codexVersionMeta">Loading…</p>
+                    </div>
+                  </div>
+                  <div class="setting-block">
+                    <div class="setting-head">
+                      <div>
+                        <h3>Claude Version</h3>
+                        <p class="muted panel-subtitle-sm">Target Claude Code version for hosts with the Claude engine.</p>
+                      </div>
+                    </div>
+                    <div class="setting-body">
+                      <div class="panel-actions panel-actions-spaced">
+                        <select id="claudeVersionSelect" title="Claude target version">
+                          <option value="latest">Latest</option>
+                        </select>
+                      </div>
+                      <p class="muted panel-meta" id="claudeVersionMeta">Loading…</p>
                     </div>
                   </div>
                   <div class="setting-block">
@@ -1927,12 +1990,74 @@
               </div>
             </div>
           </section>
+          <section class="card panel settings-panel" data-settings-panel="claude" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Claude / Anthropic</p>
+                <h2>Claude Settings</h2>
+                <p class="muted">Configure Claude Code fleet settings. Hosts with the Claude engine will receive these settings via <code>clx</code>.</p>
+              </div>
+            </div>
+            <div class="panel-body" style="padding:1.5rem">
+              <div class="config-card" data-config-card="claude-general" data-config-title="General">
+                <div class="config-card-head">
+                  <h3 style="margin:0;">Claude Fleet Configuration</h3>
+                </div>
+                <div class="config-card-body">
+                  <div class="field">
+                    <label class="modal-label" for="claudeDefaultModel">Default Model</label>
+                    <select id="claudeDefaultModel" class="modal-select">
+                      <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (recommended)</option>
+                      <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                      <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="modal-label" for="claudeMaxTokens">Default Max Tokens</label>
+                    <input type="number" id="claudeMaxTokens" value="8192" min="256" max="200000">
+                  </div>
+                  <div class="field">
+                    <label class="modal-label" for="claudeSpendLimit">Monthly Spend Limit (USD)</label>
+                    <input type="number" id="claudeSpendLimit" value="0" min="0" step="10" placeholder="0 = unlimited">
+                    <p class="panel-subtitle-sm">Set to 0 for no spend cap. Quota policy (hard fail) applies when reached.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="config-card" style="margin-top:14px" data-config-card="claude-usage" data-config-title="Usage">
+                <div class="config-card-head">
+                  <h3 style="margin:0;">Claude Usage &amp; Quotas</h3>
+                </div>
+                <div class="config-card-body" id="claudeUsagePanel">
+                  <p class="muted">Claude usage tracking is active. Token costs are tracked per-host using current model pricing.</p>
+                  <table class="tbl" style="margin-top:0.5rem">
+                    <thead><tr><th>Model</th><th>Input / 1K</th><th>Output / 1K</th><th>Cached / 1K</th></tr></thead>
+                    <tbody>
+                      <tr><td>Opus 4.6</td><td>$0.015</td><td>$0.075</td><td>$0.0075</td></tr>
+                      <tr><td>Sonnet 4.6</td><td>$0.003</td><td>$0.015</td><td>$0.0015</td></tr>
+                      <tr><td>Haiku 4.5</td><td>$0.0008</td><td>$0.004</td><td>$0.0004</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="config-card" style="margin-top:14px" data-config-card="claude-runner" data-config-title="Runner">
+                <div class="config-card-head">
+                  <h3 style="margin:0;">Claude Runner Status</h3>
+                </div>
+                <div class="config-card-body" id="claudeRunnerPanel">
+                  <p class="muted">The runner sidecar validates Claude credentials via the <code>/verify-claude</code> endpoint.</p>
+                  <div id="claudeRunnerStatus" class="seed-status" style="margin-top:0.5rem">
+                    <div class="seed-chip" id="claudeRunnerChip"><span class="dot"></span>Checking...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
           <section class="card panel settings-panel" data-settings-panel="apikeys" hidden>
             <div class="panel-head">
               <div>
-                <p class="eyebrow">OpenAI-compatible API</p>
+                <p class="eyebrow">Compatible APIs</p>
                 <h2>API Keys</h2>
-                <p class="muted">Manage API keys for the OpenAI-compatible <code>/v1/</code> endpoints. Keys use the <code>sk-coco-</code> prefix.</p>
+                <p class="muted">Manage API keys for the OpenAI-compatible <code>/v1/</code> and Anthropic-compatible <code>/anthropic/v1/</code> endpoints. Keys use the <code>sk-coco-</code> prefix.</p>
                 <div class="setting-block" style="margin-top:12px">
                   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="muted" style="font-size:13px">Endpoint:</span>
@@ -1975,7 +2100,7 @@
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Config Builder</p>
-                <h2>config.toml generator</h2>
+                <h2>OpenAI / Codex config.toml</h2>
 	                <p class="muted">Generate, preview, and deploy the fleet-wide config in one place. Profiles live under <strong>Settings → Profiles</strong>.</p>
 	              </div>
               <div class="panel-actions">
@@ -2268,7 +2393,7 @@
 
                 <div class="config-card" data-config-card="mcp" data-config-title="MCP &amp; Telemetry">
                   <h3>MCP &amp; Telemetry</h3>
-                  <p>Wire Codex Orchestrator memory MCP or other servers, plus OTEL.</p>
+                  <p>Wire Orchestrator memory MCP or other servers, plus OTEL.</p>
                   <div class="row-actions" style="align-items:center;">
                     <label class="toggle state-toggle" style="display:inline-flex; align-items:center; gap:10px;">
                       <input type="checkbox" id="orchestratorMcpToggle">

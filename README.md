@@ -1,15 +1,22 @@
 # Codex Orchestrator
 
-**One command to rule your Codex fleet.**
+**One command to rule your AI fleet — Codex and Claude, side by side.**
 
-Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` handle the rest — syncing credentials, config, AGENTS.md, and usage data while serving Skills canonically through MCP so you never have to copy a token by hand again.
+Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex and Anthropic Claude Code running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` (Codex) and `clx` (Claude) handle the rest — syncing credentials, config, skills, and usage data while serving everything canonically through MCP so you never have to copy a token by hand again.
+
+A host can run Codex, Claude, or both. The orchestrator manages both engines from a single admin dashboard.
 
 ![Host-specific installer baking and sync flow](docs/img/cdx.png)
 
 ## What does it actually do?
 
+**Multi-engine fleet management**
+- Deploy **Codex** (`cdx`) and/or **Claude Code** (`clx`) on any host — each gets its own wrapper but shares the same API key.
+- Skills, AGENTS.md, and MCP memories are shared across both engines by default.
+- Engine-specific config: `config.toml` for Codex, `settings.json` for Claude.
+
 **Sync everything, everywhere**
-- Your `auth.json`, `config.toml`, slash commands, and `AGENTS.md` stay in sync across every host — automatically, every time you run `cdx`.
+- Auth credentials, config, slash commands, and agent documents stay in sync across every host — automatically, every time you run `cdx` or `clx`.
 - Skills are served canonically through MCP `skill://{slug}` resources instead of per-host local copies.
 - Each host gets its own API key baked right into the wrapper. No shared secrets floating around.
 
@@ -19,36 +26,37 @@ Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex ru
 - A global kill switch lets you cut API access fleet-wide in seconds if something goes sideways.
 
 **See what's happening**
-- Track token usage and costs per host with built-in dashboards.
+- Track token usage and costs per host and per engine with built-in dashboards.
 - Quota warnings nudge you before you hit limits. VIP hosts can bypass them when it matters.
 - ChatGPT quota snapshots refresh automatically so you always know where you stand.
+- Claude model pricing (Opus, Sonnet, Haiku) tracked alongside Codex/GPT costs.
 
 **Stay in control**
-- Pin Codex to a specific version fleet-wide, or let individual hosts override.
-- The `cdx` wrapper self-updates from your server — no manual upgrades.
-- An admin dashboard covers host management, content editing, usage monitoring, and more.
+- Pin Codex or Claude to a specific version fleet-wide, or let individual hosts override.
+- Both `cdx` and `clx` wrappers self-update from your server — no manual upgrades.
+- An admin dashboard covers host management, engine selection, content editing, usage monitoring, and more.
 
-**Expose an OpenAI-compatible API**
+**Expose compatible APIs**
 - The built-in `/v1/` endpoints speak the OpenAI protocol — point any OpenAI SDK client at your orchestrator.
+- The `/anthropic/v1/` endpoints speak the Anthropic protocol — point any Anthropic SDK client at your orchestrator.
 - Manage API keys (`sk-coco-` prefix) from the admin dashboard with per-key rate limits and expiration.
-- Prompt execution is delegated to the runner container, so no extra infrastructure is needed.
 
 **Collaborate across agents**
 - The optional Projects module gives your agents shared notes, todos, files, and feedback with append-only change history.
-- A native MCP server provides host-scoped memory tools plus shared project resources.
+- A native MCP server provides host-scoped memory tools plus shared project resources — accessible from both Codex and Claude.
 
 ## Is this for me?
 
 You'll get the most out of this if:
 
-- You run Codex on **more than one machine** and want a single source of truth for auth and config.
+- You run Codex and/or Claude Code on **more than one machine** and want a single source of truth for auth and config.
 - You want **per-host API keys** with IP binding, instead of one token pasted everywhere.
-- You need **visibility** into who's using what, how much it costs, and a way to set limits.
-- You'd like to manage **skills and AGENTS.md** from one place instead of scattering files across machines.
+- You need **visibility** into who's using what across both engines, how much it costs, and a way to set limits.
+- You'd like to manage **skills and agent documents** from one place instead of scattering files across machines.
 - You want a **kill switch** and quota controls you can pull from a dashboard.
-- You want an **OpenAI-compatible API** you can point third-party tools at without exposing your real API keys.
+- You want **OpenAI and Anthropic compatible APIs** you can point third-party tools at without exposing your real API keys.
 
-If you only use Codex on one laptop, this is probably overkill — but we won't judge if you set it up anyway.
+If you only use one AI tool on one laptop, this is probably overkill — but we won't judge if you set it up anyway.
 
 ## Get started in 5 minutes
 

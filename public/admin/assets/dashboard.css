@@ -739,6 +739,13 @@ body[data-theme="dark-pink"] .config-search { background: rgba(2,6,23,0.26); }
 .chip.err { color: var(--danger); border-color: rgba(251, 113, 133, 0.28); background: rgba(251, 113, 133, 0.10); }
 .chip.neutral { color: var(--muted); border-color: var(--border); background: rgba(148, 163, 184, 0.10); }
 
+/* Engine badges */
+.engine-badge { font-weight: 700; font-size: 11px; letter-spacing: 0.06em; padding: 2px 7px; }
+.engine-cdx { color: #22d3ee; border-color: rgba(34, 211, 238, 0.40); background: rgba(34, 211, 238, 0.12); }
+.engine-clx { color: #a78bfa; border-color: rgba(167, 139, 250, 0.40); background: rgba(167, 139, 250, 0.12); }
+.engines-cell { white-space: nowrap; }
+.engines-cell .engine-badge + .engine-badge { margin-left: 4px; }
+
 /* Host + project detail pages */
 .host-detail-page,
 .project-detail-page,

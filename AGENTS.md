@@ -1,6 +1,15 @@
 # Agents & Responsibilities
 
-Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md`. Keep them in lock-step with code. This service keeps one canonical Codex `auth.json` for the whole fleet, so every change needs a paper trail.
+Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md`. Keep them in lock-step with code. This service keeps one canonical auth store per engine (Codex `auth.json` and Claude credentials) for the whole fleet, so every change needs a paper trail.
+
+## Multi-Engine Architecture
+
+The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthropic). A host can have one or both.
+- `cdx` wrapper manages Codex; `clx` wrapper manages Claude Code.
+- Skills, AGENTS.md, and MCP are shared across both engines by default.
+- Auth, config, and CLI binaries are engine-specific.
+- The `engine` column/parameter appears throughout the API for routing.
+- Engine::CODEX = 'codex', Engine::CLAUDE = 'claude' (see `src/Support/Engine.php`).
 
 ## Voice & Contact Rules
 
@@ -20,7 +29,9 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
 - Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
 - Pricing snapshots are for model `gpt-5.4` with 24h refresh (`PRICING_URL` when set, otherwise preferred `GPT54_*` + `PRICING_CURRENCY` env fallbacks with legacy `GPT51_*` compatibility). `UsageCostService` backfills missing token usage + ingest costs once on boot.
-- When AGENTS/cdx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
+- When AGENTS/cdx/clx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
+- Pricing snapshots now cover both GPT models (via `PRICING_URL`/`GPT51_*`) and Claude models (via `CLAUDE_OPUS_*`/`CLAUDE_SONNET_*`/`CLAUDE_HAIKU_*` env fallbacks). `EngineMigration` seeds initial Claude pricing.
+- Quota tracking supports both ChatGPT (Codex) and Claude usage quotas. The admin dashboard shows per-engine cost breakdowns.
 
 ## Repo Snapshot
 

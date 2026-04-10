@@ -10,6 +10,7 @@ use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\StartupSyncService;
+use App\Support\Engine;
 
 class AuthController
 {
@@ -31,13 +32,18 @@ class AuthController
 
         $apiKey = RequestHelper::resolveApiKey();
         $clientIp = RequestHelper::resolveClientIp();
+        $engine = VersionHelper::extractEngine($payload);
         $host = $this->service->authenticate($apiKey, $clientIp, false, true);
         $clientVersion = VersionHelper::extractClientVersion($payload);
         $wrapperVersion = VersionHelper::extractWrapperVersion($payload);
         $baseUrl = RequestHelper::resolveBaseUrl();
 
-        // Opportunistically refresh ChatGPT usage if stale (respects cooldown inside service).
-        $result = $this->service->handleAuth(is_array($payload) ? $payload : [], $host, $clientVersion, $wrapperVersion, $baseUrl);
+        // Inject engine context into the payload so handleAuth can route appropriately.
+        $authPayload = is_array($payload) ? $payload : [];
+        $authPayload['engine'] = $engine;
+
+        $result = $this->service->handleAuth($authPayload, $host, $clientVersion, $wrapperVersion, $baseUrl);
+        $result['engine'] = $engine;
         $result['chatgpt_usage'] = $this->fetchChatGptUsage($host);
 
         Response::json([
