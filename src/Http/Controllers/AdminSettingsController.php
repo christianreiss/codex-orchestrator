@@ -767,4 +767,94 @@ class AdminSettingsController
             'data' => $this->usageScalingService->currentStatus(),
         ]);
     }
+
+    /**
+     * GET /admin/claude/version
+     */
+    public function getClaudeVersion(): void
+    {
+        requireAdminAccess();
+
+        $version = $this->versionRepository->get('claude_fleet_version');
+        $locked = $this->versionRepository->getFlag('claude_version_locked', false);
+        $updatedAt = $this->versionRepository->get('claude_fleet_version_updated_at');
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'version' => $version,
+                'locked' => $locked,
+                'updated_at' => $updatedAt,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /admin/claude/version
+     */
+    public function postClaudeVersion(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        $version = isset($payload['version']) && is_string($payload['version']) ? trim($payload['version']) : null;
+        $locked = isset($payload['locked']) ? (bool) $payload['locked'] : false;
+
+        if ($version !== null && $version !== '') {
+            $this->versionRepository->set('claude_fleet_version', $version);
+        } else {
+            $this->versionRepository->set('claude_fleet_version', '');
+        }
+
+        $this->versionRepository->set('claude_version_locked', $locked ? '1' : '0');
+        $this->versionRepository->set('claude_fleet_version_updated_at', gmdate(DATE_ATOM));
+
+        $this->logRepository->log(null, 'admin.claude_version', [
+            'version' => $version,
+            'locked' => $locked,
+        ]);
+
+        Response::json(['status' => 'ok']);
+    }
+
+    /**
+     * GET /admin/claude/usage/history
+     */
+    public function getClaudeUsageHistory(): void
+    {
+        requireAdminAccess();
+
+        $bucket = $_GET['bucket'] ?? 'daily';
+        $period = $_GET['period'] ?? '7d';
+        $model = $_GET['model'] ?? null;
+
+        if (!in_array($bucket, ['hourly', 'daily'], true)) {
+            $bucket = 'daily';
+        }
+        if (!in_array($period, ['24h', '7d', '30d'], true)) {
+            $period = '7d';
+        }
+
+        $service = $this->getClaudeUsageService();
+        if ($service === null) {
+            Response::json(['status' => 'ok', 'data' => []]);
+            return;
+        }
+
+        if (!method_exists($service, 'history')) {
+            Response::json(['status' => 'ok', 'data' => []]);
+            return;
+        }
+
+        $data = $service->history($bucket, $period, is_string($model) ? $model : null);
+        Response::json(['status' => 'ok', 'data' => $data]);
+    }
+
+    private function getClaudeUsageService(): ?object
+    {
+        if (!class_exists(\App\Services\ClaudeUsageService::class)) {
+            return null;
+        }
+        return new \App\Services\ClaudeUsageService($this->versionRepository, $this->logRepository);
+    }
 }
