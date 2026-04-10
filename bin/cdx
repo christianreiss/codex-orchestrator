@@ -948,7 +948,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.08-01"
+WRAPPER_VERSION="2026.04.10-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2679,21 +2679,32 @@ require_python() {
   return 0
 }
 
+has_baked_sync_config() {
+  local base_placeholder="__CODEX_SYNC_BASE""_URL__"
+  local key_placeholder="__CODEX_SYNC_API""_KEY__"
+  [[ -n "${CODEX_SYNC_BASE_URL_DEFAULT:-}" ]] \
+    && [[ "${CODEX_SYNC_BASE_URL_DEFAULT}" != "$base_placeholder" ]] \
+    && [[ -n "${CODEX_SYNC_API_KEY:-}" ]] \
+    && [[ "${CODEX_SYNC_API_KEY}" != "$key_placeholder" ]]
+}
+
 load_sync_config() {
   if ((SYNC_CONFIG_LOADED)); then
     return 0
   fi
-  # Check for CLI-login credentials first, then fall back to baked-in values.
   local cred_file="${XDG_CONFIG_HOME:-$HOME/.config}/cdx/credentials.env"
-  if [[ -f "$cred_file" ]]; then
+  if has_baked_sync_config; then
+    CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
+    log_debug "config (baked) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+  elif [[ -f "$cred_file" ]]; then
+    # CLI-login credentials are only a fallback for wrappers that were not baked for a host.
     # shellcheck source=/dev/null
     source "$cred_file"
     CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL%/}"
     log_debug "config (credentials.env) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none}"
   else
-    # Always prefer baked-in sync configuration; ignore local .env overrides.
     CODEX_SYNC_BASE_URL="${CODEX_SYNC_BASE_URL_DEFAULT%/}"
-    log_debug "config (baked-only) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
+    log_debug "config (missing) | base=${CODEX_SYNC_BASE_URL} | api_key=$(mask_key "$CODEX_SYNC_API_KEY") | fqdn=${CODEX_SYNC_FQDN:-none} | ca=${CODEX_SYNC_CA_FILE:-none} | secure=${CODEX_HOST_SECURE}"
   fi
   enforce_baked_fqdn_guard
   SYNC_CONFIG_LOADED=1

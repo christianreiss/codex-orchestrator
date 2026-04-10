@@ -22,7 +22,7 @@ At download time, the server bakes host-specific placeholders into the wrapper:
 
 Guardrails:
 - Wrapper enforces baked FQDN at runtime. Override only with `CODEX_ALLOW_FQDN_MISMATCH=1`.
-- `load_sync_config` uses baked config only; it does not read local sync env files.
+- `load_sync_config` prefers baked host config whenever the wrapper was baked for a host. Local CLI-login credentials are only used as a fallback for unbaked wrappers.
 
 ## Startup Sequence
 1. Resolve real `codex` binary (`/usr/local/bin/codex`, `/opt/codex/bin/codex`, or `PATH`); abort if none found.
