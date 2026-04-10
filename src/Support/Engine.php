@@ -16,6 +16,7 @@ final class Engine
     public const CODEX = 'codex';
     public const CLAUDE = 'claude';
 
+<<<<<<< HEAD
     /** All valid engine identifiers. */
     public const ALL = [self::CODEX, self::CLAUDE];
 
@@ -179,5 +180,10 @@ final class Engine
     public static function cliBinary(string $engine): string
     {
         return self::CLI_BINARY[$engine] ?? self::CLI_BINARY[self::DEFAULT];
+    }
+
+    public static function logPrefix(string $engine): string
+    {
+        return $engine === self::CLAUDE ? 'claude.key' : 'openai.key';
     }
 }

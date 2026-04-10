@@ -6501,7 +6501,7 @@ parameters:
 		-
 			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 8
+			count: 9
 			path: src/Repositories/OpenaiApiKeyRepository.php
 
 		-
@@ -6513,7 +6513,7 @@ parameters:
 		-
 			message: '#^Cannot call method fetchAll\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 2
+			count: 3
 			path: src/Repositories/OpenaiApiKeyRepository.php
 
 		-
@@ -6554,6 +6554,12 @@ parameters:
 
 		-
 			message: '#^Method App\\Repositories\\OpenaiApiKeyRepository\:\:listAll\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/OpenaiApiKeyRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\OpenaiApiKeyRepository\:\:listByEngine\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Repositories/OpenaiApiKeyRepository.php
@@ -10118,6 +10124,12 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\OpenaiApiKeyService\:\:list\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/OpenaiApiKeyService.php
+
+		-
+			message: '#^Method App\\Services\\OpenaiApiKeyService\:\:listByEngine\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Services/OpenaiApiKeyService.php
