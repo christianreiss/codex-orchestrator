@@ -39,12 +39,7 @@ class ClaudeApiController
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
-        $params = [];
-        foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as $param) {
-            if (isset($payload[$param])) {
-                $params[$param] = $payload[$param];
-            }
-        }
+        $params = self::extractParams($payload);
 
         // Prefer top-level 'system' param (Anthropic native format) over inline system messages
         if (isset($payload['system']) && is_string($payload['system']) && trim($payload['system']) !== '') {
@@ -84,11 +79,13 @@ class ClaudeApiController
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
+        $params = self::extractParams($payload);
+
         // Convert prompt to a single user message for the Messages API
         $messages = [['role' => 'user', 'content' => $prompt]];
 
         try {
-            $result = $this->backend->messages($messages, $model);
+            $result = $this->backend->messages($messages, $model, $params);
         } catch (\RuntimeException $e) {
             AnthropicResponse::error($e->getMessage(), 'api_error', 502);
         }
@@ -145,6 +142,8 @@ class ClaudeApiController
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
+        $params = self::extractParams($payload);
+
         if (!empty($payload['stream'])) {
             AnthropicResponse::error(
                 'Streaming responses are not implemented for this backend yet.',
@@ -155,7 +154,7 @@ class ClaudeApiController
         }
 
         try {
-            $result = $this->backend->messages($messages, $model);
+            $result = $this->backend->messages($messages, $model, $params);
         } catch (\RuntimeException $e) {
             AnthropicResponse::error($e->getMessage(), 'api_error', 502);
         }
@@ -204,6 +203,31 @@ class ClaudeApiController
     public function options(): void
     {
         AnthropicResponse::options();
+    }
+
+    /**
+     * Extract optional generation parameters from the request payload.
+     *
+     * Supports Claude-native parameters plus OpenAI-style 'stop' mapping
+     * to 'stop_sequences' for cross-compatibility.
+     *
+     * @return array<string, mixed>
+     */
+    private static function extractParams(array $payload): array
+    {
+        $params = [];
+        foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'system'] as $param) {
+            if (isset($payload[$param])) {
+                $params[$param] = $payload[$param];
+            }
+        }
+
+        // Map OpenAI-style 'stop' to 'stop_sequences' for cross-compatibility
+        if (isset($payload['stop']) && !isset($params['stop_sequences'])) {
+            $params['stop_sequences'] = is_array($payload['stop']) ? $payload['stop'] : [$payload['stop']];
+        }
+
+        return $params;
     }
 
     private function streamResponse(array $result): never
@@ -257,13 +281,14 @@ class ClaudeApiController
             AnthropicResponse::error(
                 'Missing API key. Include it in the Authorization header or x-api-key header.',
                 'authentication_error',
-                401
+                401,
+                'invalid_api_key'
             );
         }
 
         $key = $this->keyService->validate($apiKey);
         if ($key === null) {
-            AnthropicResponse::error('Invalid API key.', 'authentication_error', 401);
+            AnthropicResponse::error('Invalid API key.', 'authentication_error', 401, 'invalid_api_key');
         }
 
         return $key;
@@ -278,7 +303,12 @@ class ClaudeApiController
         $result = $this->rateLimiter->hit($clientIp, $bucket, $rpm, 60);
         if (!$result['allowed']) {
             header('Retry-After: 60');
-            AnthropicResponse::error('Rate limit exceeded. Please retry after 60 seconds.', 'rate_limit_error', 429);
+            AnthropicResponse::error(
+                'Rate limit exceeded. Please retry after 60 seconds.',
+                'rate_limit_error',
+                429,
+                'rate_limit_exceeded'
+            );
         }
     }
 
@@ -288,7 +318,8 @@ class ClaudeApiController
             AnthropicResponse::error(
                 'Anthropic API backend is not configured. Ensure the runner is available.',
                 'api_error',
-                503
+                503,
+                'backend_unavailable'
             );
         }
     }
