@@ -12,6 +12,7 @@ use App\Security\RateLimiter;
 use App\Services\ClaudeModelService;
 use App\Services\OpenaiApiKeyService;
 use InvalidArgumentException;
+use RuntimeException;
 
 class ClaudeApiController
 {
@@ -42,6 +43,17 @@ class ClaudeApiController
         foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as $param) {
             if (isset($payload[$param])) {
                 $params[$param] = $payload[$param];
+            }
+        }
+
+        // Prefer top-level 'system' param (Anthropic native format) over inline system messages
+        if (isset($payload['system']) && is_string($payload['system']) && trim($payload['system']) !== '') {
+            $params['system'] = trim($payload['system']);
+        } else {
+            $extracted = AnthropicCompat::extractSystemMessages($messages);
+            if ($extracted['system'] !== null && $extracted['system'] !== '') {
+                $params['system'] = $extracted['system'];
+                $messages = $extracted['messages'];
             }
         }
 
@@ -87,6 +99,21 @@ class ClaudeApiController
             if (is_array($block) && ($block['type'] ?? '') === 'text') {
                 $text .= $block['text'] ?? '';
             }
+        }
+
+        if (!empty($payload['stream'])) {
+            // Build a message-format result for the streaming helper
+            $messageResult = [
+                'id' => $result['id'] ?? ('msg_' . bin2hex(random_bytes(16))),
+                'type' => 'message',
+                'role' => 'assistant',
+                'content' => [['type' => 'text', 'text' => $text]],
+                'model' => $result['model'] ?? $model,
+                'stop_reason' => 'end_turn',
+                'stop_sequence' => null,
+                'usage' => $result['usage'] ?? ['input_tokens' => 0, 'output_tokens' => 0],
+            ];
+            $this->streamResponse($messageResult);
         }
 
         // Return in text_completion format for compatibility
@@ -270,7 +297,7 @@ class ClaudeApiController
     {
         try {
             return $this->modelService->resolveRequestedModel($value);
-        } catch (InvalidArgumentException $e) {
+        } catch (InvalidArgumentException|RuntimeException $e) {
             AnthropicResponse::error($e->getMessage(), 'invalid_request_error', 400);
         }
     }
