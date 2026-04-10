@@ -90,4 +90,14 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString('function installerModeLabel(mode)', $js);
         $this->assertStringContainsString('const installerMode = normalizeInstallerMode(installer.mode, engines);', $js);
     }
+
+    public function testHostDetailInstallerActionUsesHostEngineMode(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+        $this->assertStringContainsString('function installerActionLabel(mode)', $js);
+        $this->assertStringContainsString("const installerMode = installerModeFromEngines(host?.engines);", $js);
+        $this->assertStringContainsString('data-action="install">${escapeHtml(installerActionLabel(installerMode))}</button>', $js);
+        $this->assertStringContainsString('const existingHost = hostId ? getHostById(hostId) : null;', $js);
+    }
 }

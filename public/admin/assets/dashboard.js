@@ -2831,6 +2831,12 @@
       return 'Codex installer command';
     }
 
+    function installerActionLabel(mode) {
+      if (mode === 'claude') return 'Install Claude';
+      if (mode === 'both') return 'Install Codex + Claude';
+      return 'Install Codex';
+    }
+
     function renderEngineBadges(enginesRaw) {
       const engines = parseEngines(enginesRaw);
       const badges = [];
@@ -4177,6 +4183,7 @@
 
     function renderHostActionButtons(host) {
       const secure = isHostSecure(host);
+      const installerMode = installerModeFromEngines(host?.engines);
       const toggles = [];
       const secureState = secure
         ? 'Secure: auth.json stays on disk'
@@ -4326,7 +4333,7 @@
           </div>
         </div>
         <div class="host-action-buttons">
-          <button class="ghost secondary" data-action="install">Install script</button>
+          <button class="ghost secondary" data-action="install">${escapeHtml(installerActionLabel(installerMode))}</button>
           <button class="ghost" data-action="clear">Clear auth</button>
           <button class="danger" data-action="remove">Remove</button>
         </div>
@@ -11130,7 +11137,7 @@
         newHostName?.focus();
         return;
       }
-      const existingHost = hostId ? currentHosts.find(h => h.id === hostId) : null;
+      const existingHost = hostId ? getHostById(hostId) : null;
       if (secureHostToggle && existingHost) {
         secureHostToggle.checked = isHostSecure(existingHost);
       }
