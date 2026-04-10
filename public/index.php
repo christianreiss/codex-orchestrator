@@ -116,10 +116,14 @@ use App\Http\Controllers\CliAuthController;
 use App\Http\Controllers\OpenAiApiController;
 use App\Http\Controllers\AdminOpenAiKeyController;
 use App\Http\Controllers\AdminJoplinController;
+use App\Http\Controllers\ClaudeApiController;
 use App\Http\OpenAiResponse;
+use App\Http\AnthropicResponse;
 use App\Contracts\BackendAdapter;
 use App\Adapters\RunnerBackendAdapter;
+use App\Adapters\ClaudeBackendAdapter;
 use App\Adapters\NullBackendAdapter;
+use App\Services\ClaudeModelService;
 use App\Repositories\OpenaiApiKeyRepository;
 use App\Services\OpenaiApiKeyService;
 use App\Repositories\CliAuthRequestRepository;
@@ -536,6 +540,22 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService);
+
+// Anthropic-compatible API (Claude)
+$claudeModelService = new ClaudeModelService();
+$claudeBackend = null;
+if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
+    $claudeExecUrl = preg_replace('#/verify$#', '/exec', $runnerUrl);
+    $claudeBackend = new ClaudeBackendAdapter(
+        $claudeExecUrl,
+        (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
+        $service,
+        $claudeModelService,
+        (float) Config::get('OPENAI_API_TIMEOUT', 30.0)
+    );
+}
+$claudeApiCtrl = new ClaudeApiController($claudeBackend, $openaiKeyService, $rateLimiter, $claudeModelService, $versionRepository);
+
 $adminOpenAiKeyCtrl = new AdminOpenAiKeyController($openaiKeyService);
 
 // --- Route wiring ---
@@ -825,6 +845,12 @@ $router->add('POST', '#^/v1/completions$#', fn() => $openaiApiCtrl->completions(
 $router->add('POST', '#^/v1/embeddings$#', fn() => $openaiApiCtrl->embeddings($payload));
 $router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());
 
+// Anthropic-compatible API
+$router->add('OPTIONS', '#^/anthropic/v1/(?:messages|models|completions)$#', fn() => $claudeApiCtrl->options());
+$router->add('POST', '#^/anthropic/v1/messages$#', fn() => $claudeApiCtrl->messages($payload));
+$router->add('POST', '#^/anthropic/v1/completions$#', fn() => $claudeApiCtrl->completions($payload));
+$router->add('GET', '#^/anthropic/v1/models$#', fn() => $claudeApiCtrl->models());
+
 // Admin: OpenAI API key management
 $router->add('GET', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->index());
 $router->add('POST', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->store($payload));
@@ -835,7 +861,24 @@ $router->add('POST', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->post
 
 // --- Dispatch + error handling ---
 
-if (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {
+if (str_starts_with($normalizedPath, '/anthropic/v1/')) {
+    // Anthropic-compatible error envelopes for /anthropic/v1/ routes
+    if ($versionRepository->getFlag('claude_api_disabled', false) && $method !== 'OPTIONS') {
+        AnthropicResponse::error('Claude API disabled by administrator', 'api_error', 503);
+    }
+    try {
+        $handled = $router->dispatch($method, $normalizedPath);
+        if (!$handled) {
+            AnthropicResponse::error('Unknown endpoint', 'not_found_error', 404);
+        }
+    } catch (HttpException $exception) {
+        AnthropicResponse::error($exception->getMessage(), 'api_error', $exception->getStatusCode());
+    } catch (Throwable $exception) {
+        error_log('Anthropic API error: ' . $exception->getMessage());
+        error_log($exception->getTraceAsString());
+        AnthropicResponse::error('Internal server error', 'api_error', 500);
+    }
+} elseif (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {
     // OpenAI-compatible error envelopes for /v1/ routes
     $openaiApiDisabled = $versionRepository->getFlag('openai_api_disabled', false);
     if ($openaiApiDisabled && $method !== 'OPTIONS') {
