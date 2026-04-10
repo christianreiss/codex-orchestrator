@@ -16,7 +16,6 @@ final class Engine
     public const CODEX = 'codex';
     public const CLAUDE = 'claude';
 
-<<<<<<< HEAD
     /** All valid engine identifiers. */
     public const ALL = [self::CODEX, self::CLAUDE];
 
