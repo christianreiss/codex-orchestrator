@@ -9,9 +9,9 @@ interface BackendAdapter
     /**
      * @param array<int, array{role: string, content: string|array<int, array<string, mixed>>}> $messages
      */
-    public function chatCompletions(array $messages, string $model): array;
+    public function chatCompletions(array $messages, string $model, array $params = []): array;
 
-    public function completions(string $prompt, string $model): array;
+    public function completions(string $prompt, string $model, array $params = []): array;
 
     /**
      * @param string|string[] $input

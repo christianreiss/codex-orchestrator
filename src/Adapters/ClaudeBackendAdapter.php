@@ -73,9 +73,9 @@ class ClaudeBackendAdapter implements BackendAdapter
         ];
     }
 
-    public function completions(string $prompt, string $model): array
+    public function completions(string $prompt, string $model, array $params = []): array
     {
-        $result = $this->runPrompt($prompt, $model);
+        $result = $this->runPrompt($prompt, $model, [], $params);
         $usage = self::extractUsage($result);
 
         return [

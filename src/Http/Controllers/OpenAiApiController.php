@@ -36,8 +36,10 @@ class OpenAiApiController
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
+        $params = self::extractParams($payload);
+
         try {
-            $result = $this->backend->chatCompletions($messages, $model);
+            $result = $this->backend->chatCompletions($messages, $model, $params);
         } catch (\RuntimeException $e) {
             OpenAiResponse::error($e->getMessage(), 'api_error', 502);
         }
@@ -66,8 +68,10 @@ class OpenAiApiController
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
+        $params = self::extractParams($payload);
+
         try {
-            $result = $this->backend->chatCompletions($messages, $model);
+            $result = $this->backend->chatCompletions($messages, $model, $params);
         } catch (\RuntimeException $e) {
             OpenAiResponse::error($e->getMessage(), 'api_error', 502);
         }
@@ -97,8 +101,10 @@ class OpenAiApiController
 
         $model = $this->resolveModel($payload['model'] ?? null);
 
+        $params = self::extractParams($payload);
+
         try {
-            $result = $this->backend->completions($prompt, $model);
+            $result = $this->backend->completions($prompt, $model, $params);
         } catch (\RuntimeException $e) {
             OpenAiResponse::error($e->getMessage(), 'api_error', 502);
         }
@@ -212,5 +218,29 @@ class OpenAiApiController
         } catch (InvalidArgumentException|RuntimeException $e) {
             OpenAiResponse::error($e->getMessage(), 'invalid_request_error', 400, null, 'model');
         }
+    }
+
+    /**
+     * Extract optional generation parameters from the request payload.
+     *
+     * Maps OpenAI's `stop` parameter to the runner's `stop_sequences` key.
+     *
+     * @return array<string, mixed>
+     */
+    private static function extractParams(array $payload): array
+    {
+        $params = [];
+        foreach (['max_tokens', 'temperature', 'top_p', 'stop', 'system'] as $param) {
+            if (isset($payload[$param])) {
+                $params[$param] = $payload[$param];
+            }
+        }
+
+        if (isset($params['stop'])) {
+            $params['stop_sequences'] = is_array($params['stop']) ? $params['stop'] : [$params['stop']];
+            unset($params['stop']);
+        }
+
+        return $params;
     }
 }
