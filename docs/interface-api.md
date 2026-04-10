@@ -21,6 +21,13 @@
   - `POST /v1/completions` — legacy text completions endpoint. `model` uses the same strict allowlist and default-resolution behavior as chat completions.
   - `POST /v1/embeddings` — placeholder endpoint; returns `501` / `not_implemented` against the current backend.
   - `GET /v1/models` — lists the supported Codex model ids from the shared config/model allowlist used by the OpenAI-compatible API.
+- Anthropic-compatible API (see [Anthropic-compatible API](#anthropic-compatible-api) section below for full details):
+  - `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. Accepts `messages` with `role`/`content`, optional `model`, `stream`, `max_tokens`, `temperature`, `top_p`, `top_k`. System messages in the `messages` array are extracted and handled separately per Anthropic convention. Content can be a string or an array of content blocks (text, image). Non-streaming returns an Anthropic message format response. Streaming returns Server-Sent Events with event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`. Authentication via `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header.
+  - `POST /anthropic/v1/completions` — Anthropic-compatible text completion endpoint. Accepts `prompt` and optional `model`. Returns completion in Anthropic format.
+  - `GET /anthropic/v1/models` — lists available Claude models (`claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`).
+  - `POST /anthropic/v1/responses` — Minimal Responses API shim for non-streaming clients. Accepts `input` (string, content-part array, or message-style array) plus optional `instructions`. Maps the request onto the Claude Messages backend and returns an OpenAI-compatible `response` object. `stream: true` is rejected.
+  - `POST /anthropic/v1/embeddings` — Placeholder endpoint; returns `501` / `not_implemented` as Anthropic does not support embeddings.
+  - `OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses`, `OPTIONS /anthropic/v1/embeddings` — CORS preflight for Anthropic routes.
 - `GET /wrapper` — wrapper metadata baked for host (version, per-host `sha256` of rendered script, `size_bytes`, `updated_at`, `url`). Auth required. Source wrapper defaults to `storage/wrapper/cdx`; when it drifts from bundled `bin/cdx` and storage is not writable, the service serves `bin/cdx` directly as a safety fallback and logs a warning.
 - `GET /wrapper/download` — downloads baked `cdx` wrapper (per-host hash). Auth required; response sets `X-SHA256` + `ETag` and `Content-Length` when available.
 - `POST /cron/check` — lightweight cron auto-update probe for installed `cdx --cron` jobs. Requires host API key but intentionally skips normal host-status/IP/insecure-window gating; updates only `last_cron_check` (not host `updated_at`), records submitted observed `client_version` / `wrapper_version` when present, and returns top-level Codex `action` (`disable|no_update|update`) plus target version/tag metadata. Response also carries a nested `wrapper` block (`action`, `target_version`, `sha256`, `url`) so cron can self-update the wrapper before attempting any Codex update. For backward compatibility the top-level `action` remains Codex-only, so a wrapper-only update returns `action:"no_update"` with `wrapper.action:"update"`.
@@ -129,6 +136,17 @@ Scheduled preflight: on the first non-admin request after the configured interva
 - `GET /seed/auth/{uuid}` — returns a shell script that checks for `~/.codex/auth.json` and posts it to `/seed/auth/{uuid}`. Intended for `curl -fsSL ... | bash`.
 - `POST /seed/auth/{uuid}` — accepts a raw `auth.json` payload (or `{ "auth": ... }`), validates it, stores canonical auth, and consumes the seed token. This path bypasses the runner.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` stays reachable so operators can re-enable).
+- `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently). Requires `settings` capability.
+- `GET /admin/openai/keys` — list all OpenAI API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
+- `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, rate_limit_rpm?: int (default 60), expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-codex-` prefix.
+- `POST /admin/openai/keys/{id}/toggle` — enable or disable an OpenAI API key. Body: `{active: bool}`.
+- `DELETE /admin/openai/keys/{id}` — delete an OpenAI API key.
+- `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). Requires `settings` capability. See [Admin: Claude management](#admin-claude-management) for full details.
+- `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
+- `POST /admin/claude/keys` — create a new Claude API key. Body: `{name: string, rate_limit_rpm?: int (default 60), expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+- `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
+- `DELETE /admin/claude/keys/{id}` — delete a Claude API key.
+- `GET /admin/claude/settings` / `POST /admin/claude/settings` — read/set Claude fleet settings (`default_model`, `max_tokens`, `spend_limit`). Requires `settings` capability. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean), the warn/kill threshold (`limit_percent`, integer 50–100), and optional weekly partitioning (`week_partition`: `0|off`, `7`, or `5`). When `false`, `cdx` warns once usage meets the configured limit but still launches Codex; when `true`, exceeding the limit blocks execution. A non-zero `week_partition` adds a daily allowance bar in `cdx` (derived from the weekly window) that obeys the same warn/deny policy.
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set fleet-wide wrapper quiet mode (`silent` boolean). When enabled, `cdx` suppresses boot info/warn logs and only emits errors.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set fleet-wide reverse DNS enforcement (`enabled` boolean). When enabled (or per-host override enabled), `/auth` requires a forward A/AAAA match and reverse PTR match for the calling IP.
@@ -190,6 +208,16 @@ Scheduled preflight: on the first non-admin request after the configured interva
 - Global throttle for non-admin paths: per-IP `global` bucket defaults to `RATE_LIMIT_GLOBAL_PER_MINUTE=120` over `RATE_LIMIT_GLOBAL_WINDOW=60` seconds. Exceeding the limit returns HTTP 429 with `{ bucket: "global", reset_at, limit }`.
 - Brute-force guard: repeated missing/invalid API keys are counted per IP in the `auth-fail` bucket. Defaults: `RATE_LIMIT_AUTH_FAIL_COUNT=20` failures within `RATE_LIMIT_AUTH_FAIL_WINDOW=600` seconds, extending the block for `RATE_LIMIT_AUTH_FAIL_BLOCK=1800` seconds once tripped. Limit hits return HTTP 429 `Too many failed authentication attempts` with `reset_at` + `bucket`.
 - Admin routes are exempt; when no client IP can be resolved the request proceeds without throttling. Tune the env vars above to tighten or disable the windows (zero/negative disables the guard).
+
+## Anthropic-compatible API
+
+- `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. `messages[].content` may be a plain string or an Anthropic-style content-block array. Non-streaming returns a standard `message` object. Streaming emits `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, and `message_stop` SSE events. `model` must be one of the supported Claude models returned by `GET /anthropic/v1/models`; when omitted, the API resolves the default from the saved main config model. Supported body parameters: `messages` (required), `model` (optional), `stream` (optional bool), `max_tokens` (optional int), `temperature` (optional float 0-1), `top_p` (optional float 0-1), `top_k` (optional int), `stop_sequences` (optional string array).
+- `POST /anthropic/v1/completions` — legacy Anthropic text completions endpoint. `model` uses the same strict allowlist and default-resolution behavior as messages.
+- `GET /anthropic/v1/models` — lists the supported Claude model ids from the shared config/model allowlist used by the Anthropic-compatible API. Model uses the Claude model allowlist: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`.
+- `POST /anthropic/v1/responses` — Minimal Responses API shim for non-streaming clients. Body: `{ input: string|array, instructions?: string, model?: string, stream?: bool }`. When `stream` is `true`, the API returns HTTP 400 with code `unsupported_stream`. The `input` parameter accepts a plain string, a bare content-part array (e.g. `[{type:"input_text", text:"..."}]`), or a message-style array (e.g. `[{type:"message", role:"user", content:"..."}]`). Optional `instructions` are injected as a `system` message. Maps the request onto the Messages backend and returns an OpenAI-compatible `response` object with `output[0].content[0].type="output_text"`. Model uses the same Claude model allowlist: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`.
+- `POST /anthropic/v1/embeddings` — Placeholder endpoint. Anthropic does not support embeddings; returns HTTP 501 with `{type: "error", error: {type: "not_implemented", message: "Embeddings are not supported by the Anthropic backend", code: "not_implemented"}}`.
+- `OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses`, `OPTIONS /anthropic/v1/embeddings` — CORS preflight for Anthropic routes.
+
 ## Admin access control
 
 - Admin routes are protected by mTLS (client certificates) when `ADMIN_ACCESS_MODE=mtls` (default). Passkey/WebAuthn login is implemented, but it still sits inside that mTLS gate in the default setup.
@@ -203,3 +231,48 @@ Scheduled preflight: on the first non-admin request after the configured interva
   - `fleet_operator`: can add/remove hosts and change admin settings.
   - `trusted_user`: can activate insecure hosts (open/close windows).
   - `user`: read-only access to admin views.
+
+## Anthropic-compatible API
+
+Authentication: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header. Keys are managed via `/admin/claude/keys` endpoints.
+
+### Endpoints
+
+- `POST /anthropic/v1/messages` — Send messages to Claude. Body: `{ messages: [{role: "user"|"assistant", content: string|array}], model: string, stream?: bool, max_tokens?: int, temperature?: float, top_p?: float, top_k?: int }`. Content can be a string or an array of content blocks: `{type: "text", text: "..."}` for text, `{type: "image", source: {type: "base64"|"url", media_type?: string, data?: string, url?: string}}` for images. System messages in the `messages` array are extracted and handled separately per Anthropic convention. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`. Returns Anthropic message format: `{id, type: "message", role: "assistant", content: [{type: "text", text: "..."}], model, stop_reason, stop_sequence, usage: {input_tokens, output_tokens}}`. When `stream: true`, returns Server-Sent Events with event types: `message_start`, `content_block_start`, `content_block_delta` (with `text_delta`), `content_block_stop`, `message_delta`, `message_stop`.
+
+- `POST /anthropic/v1/completions` — Text completion endpoint. Body: `{ prompt: string, model?: string }`. Returns: `{id, type: "completion", completion: string, model, stop_reason, usage: {input_tokens, output_tokens}}`.
+
+- `GET /anthropic/v1/models` — List available Claude models. Returns: `{object: "list", data: [{id, object: "model", created, owned_by: "anthropic"}]}`.
+
+- `OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions` — CORS preflight. Returns 204 with `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Headers: Content-Type, Authorization, x-api-key, anthropic-version`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`.
+
+### Admin: Claude management
+
+- `GET /admin/claude/keys` — List all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
+
+- `POST /admin/claude/keys` — Create a new Claude API key. Body: `{name: string, rate_limit_rpm?: int (default 60), expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+
+- `POST /admin/claude/keys/{id}/toggle` — Enable or disable a Claude API key. Body: `{active: bool}`.
+
+- `DELETE /admin/claude/keys/{id}` — Delete a Claude API key.
+
+- `GET /admin/claude/state` — Get Claude API enabled/disabled state. Returns `{status, data: {disabled: bool}}`.
+
+- `POST /admin/claude/state` — Toggle Claude API enabled/disabled. Body: `{disabled: bool}`. Requires `settings` capability.
+
+- `GET /admin/claude/settings` — Get Claude fleet settings. Returns `{status, data: {default_model, max_tokens, spend_limit, disabled}}`.
+
+- `POST /admin/claude/settings` — Update Claude fleet settings. Body: `{default_model?: string, max_tokens?: int, spend_limit?: float}`. Requires `settings` capability. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`.
+
+### Anthropic error format
+
+Errors return: `{type: "error", error: {type: string, message: string, code?: string}}` with appropriate HTTP status codes:
+- 400: `invalid_request_error` — Missing or invalid parameters
+- 401: `authentication_error` — Missing or invalid API key
+- 429: `rate_limit_error` — Rate limit exceeded (includes `Retry-After` header)
+- 502: `api_error` — Backend/runner communication failure
+- 503: `api_error` — Backend not configured or API disabled by administrator
+
+### Anthropic rate limiting
+
+Per-key rate limiting uses the `anthropic:{key_id}` bucket. Default: 60 requests per minute (configurable per key). Rate limit exceeded returns HTTP 429 with `Retry-After: 60` header.

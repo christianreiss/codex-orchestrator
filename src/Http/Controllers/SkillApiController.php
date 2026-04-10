@@ -6,8 +6,10 @@ namespace App\Http\Controllers;
 
 use App\Http\RequestHelper;
 use App\Http\Response;
+use App\Http\VersionHelper;
 use App\Services\AuthService;
 use App\Services\SkillService;
+use App\Support\Engine;
 
 class SkillApiController
 {
@@ -19,11 +21,13 @@ class SkillApiController
     public function listSkills(): void
     {
         $host = $this->authenticateHost();
-        $skills = $this->skillService->listSkills($host, true);
+        $engine = VersionHelper::extractEngine(null);
+        $skills = $this->skillService->listSkills($host, true, $engine);
 
         Response::json([
             'status' => 'ok',
             'data' => [
+                'engine' => $engine,
                 'skills' => $skills,
             ],
         ]);

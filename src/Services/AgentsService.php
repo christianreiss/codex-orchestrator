@@ -14,6 +14,7 @@ use App\Repositories\AgentsRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\Traits\HostServiceTrait;
+use App\Support\Engine;
 
 class AgentsService
 {
@@ -31,10 +32,10 @@ class AgentsService
     ) {
     }
 
-    public function retrieve(?string $sha256, ?array $host = null): array
+    public function retrieve(?string $sha256, ?array $host = null, string $engine = Engine::CODEX): array
     {
         $this->assertSha($sha256, true);
-        $row = $this->resolveServedDocument($host);
+        $row = $this->resolveServedDocument($host, $engine);
         $hostId = $this->hostId($host);
 
         if ($row === null) {
@@ -45,7 +46,7 @@ class AgentsService
             ];
         }
 
-        $served = $this->buildServedDocument($row, $host);
+        $served = $this->buildServedDocument($row, $host, $engine);
         $canonicalSha = $served['sha256'] ?? hash('sha256', (string) ($served['body'] ?? ''));
         $status = ($sha256 !== null && hash_equals($canonicalSha, $sha256)) ? 'unchanged' : 'updated';
 
@@ -401,7 +402,7 @@ class AgentsService
         }
     }
 
-    private function resolveServedDocument(?array $host = null): ?array
+    private function resolveServedDocument(?array $host = null, string $engine = Engine::CODEX): ?array
     {
         $hostOverrideRaw = $host['agents_document_id_override'] ?? null;
         if (is_numeric($hostOverrideRaw)) {
@@ -419,7 +420,8 @@ class AgentsService
             }
         }
 
-        $state = $this->agents->state();
+        // Try engine-specific document first, then fall back to default.
+        $state = $this->agents->state($engine);
         $mode = $state['mode'] ?? AgentsRepository::MODE_LATEST;
         $activeId = $state['active_document_id'] ?? null;
 
@@ -429,22 +431,35 @@ class AgentsService
                 return $active;
             }
 
-            $this->agents->updateState(AgentsRepository::MODE_LATEST, null);
+            $this->agents->updateState(AgentsRepository::MODE_LATEST, null, $engine);
             $this->logs->log($this->hostId($host), 'agents.active_missing', [
                 'status' => 'fallback_latest',
                 'active_id' => $activeId,
+                'engine' => $engine,
             ]);
+        }
+
+        // Try engine-specific latest first.
+        $latest = $this->agents->latestByEngine($engine);
+        if ($latest !== null) {
+            return $latest;
+        }
+
+        // Fall back to the default (codex) agents document if this is Claude
+        // and no Claude-specific document exists yet.
+        if ($engine !== Engine::CODEX) {
+            return $this->agents->latest();
         }
 
         return $this->agents->latest();
     }
 
-    private function buildServedDocument(array $row, ?array $host = null): array
+    private function buildServedDocument(array $row, ?array $host = null, string $engine = Engine::CODEX): array
     {
         $body = (string) ($row['body'] ?? '');
         $baseSha = $row['sha256'] ?? hash('sha256', $body);
-        $skillsSection = $this->skillsSection();
-        $memoriesSection = $this->memoriesSection($host);
+        $skillsSection = $this->skillsSection($engine);
+        $memoriesSection = $this->memoriesSection($host, $engine);
         $skillsBlock = ($skillsSection['present'] ?? false) ? (string) ($skillsSection['body'] ?? '') : null;
         $memoriesBlock = ($memoriesSection['present'] ?? false) ? (string) ($memoriesSection['body'] ?? '') : null;
         $sections = [
@@ -487,7 +502,7 @@ class AgentsService
         ];
     }
 
-    private function skillsSection(): array
+    private function skillsSection(string $engine = Engine::CODEX): array
     {
         if ($this->skills === null || $this->clientConfigService === null) {
             return [
@@ -531,10 +546,12 @@ class AgentsService
             ];
         }
 
+        $prefix = $this->markerPrefix($engine);
+
         $lines = [
-            '<!-- cdx:skills:start -->',
+            sprintf('<!-- %s:skills:start -->', $prefix),
             '## Skills',
-            'The following skills are available through the managed `cdx` MCP server. Read details with `skill://{slug}` resources.',
+            sprintf('The following skills are available through the managed `%s` MCP server. Read details with `skill://{slug}` resources.', $prefix),
             '',
         ];
 
@@ -548,7 +565,7 @@ class AgentsService
             $lines[] = sprintf('- `%s` - %s', $slug, $description);
         }
 
-        $lines[] = '<!-- cdx:skills:end -->';
+        $lines[] = sprintf('<!-- %s:skills:end -->', $prefix);
 
         $body = implode("\n", $lines);
 
@@ -573,7 +590,7 @@ class AgentsService
         return sprintf('Skill available via MCP; open `skill://%s` for details.', $slug);
     }
 
-    private function memoriesSection(?array $host): array
+    private function memoriesSection(?array $host, string $engine = Engine::CODEX): array
     {
         if ($this->memoryService === null || $this->clientConfigService === null) {
             return [
@@ -620,8 +637,10 @@ class AgentsService
 
         $memories = $this->memoryService->listForAgentsDocument($host);
 
+        $prefix = $this->markerPrefix($engine);
+
         $lines = [
-            '<!-- cdx:memories:start -->',
+            sprintf('<!-- %s:memories:start -->', $prefix),
             '## Memories',
             'The following memories are stored for this host. Use `memory_retrieve` to read full content.',
             '',
@@ -653,7 +672,7 @@ class AgentsService
             ];
         }
 
-        $lines[] = '<!-- cdx:memories:end -->';
+        $lines[] = sprintf('<!-- %s:memories:end -->', $prefix);
 
         $body = implode("\n", $lines);
 
@@ -665,6 +684,11 @@ class AgentsService
             'reason' => 'ok',
             'body' => $body,
         ];
+    }
+
+    private function markerPrefix(string $engine): string
+    {
+        return Engine::wrapperName($engine);
     }
 
     private function normalizeMemoryDescription(mixed $description, string $key): string

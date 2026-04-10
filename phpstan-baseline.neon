@@ -57,7 +57,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to float\.$#'
 			identifier: cast.double
-			count: 3
+			count: 4
 			path: public/index.php
 
 		-
@@ -69,7 +69,13 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 9
+			count: 10
+			path: public/index.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 3
 			path: public/index.php
 
 		-
@@ -205,6 +211,18 @@ parameters:
 			path: public/index.php
 
 		-
+			message: '#^Parameter \#1 \$id of method App\\Http\\Controllers\\AdminClaudeKeyController\:\:delete\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$id of method App\\Http\\Controllers\\AdminClaudeKeyController\:\:toggle\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
 			message: '#^Parameter \#1 \$id of method App\\Http\\Controllers\\AdminUserController\:\:delete\(\) expects string, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -218,6 +236,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#1 \$id of method App\\Http\\Controllers\\ProjectApiController\:\:memoriesDeleteById\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminConfigController\:\:agentsRetention\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -253,6 +277,12 @@ parameters:
 			path: public/index.php
 
 		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminConfigController\:\:skillAssist\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
 			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminConfigController\:\:skillGenerate\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -271,7 +301,25 @@ parameters:
 			path: public/index.php
 
 		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminJoplinController\:\:postConfig\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminJoplinController\:\:postTest\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
 			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminOpenAiKeyController\:\:store\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminClaudeKeyController\:\:store\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -338,6 +386,18 @@ parameters:
 
 		-
 			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminSettingsController\:\:postOpenaiApiState\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminSettingsController\:\:postClaudeApiState\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminSettingsController\:\:postClaudeSettings\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -433,6 +493,18 @@ parameters:
 			path: public/index.php
 
 		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\ClaudeApiController\:\:messages\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\ClaudeApiController\:\:completions\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
 			message: '#^Parameter \#1 \$rawBody of method App\\Http\\Controllers\\McpRouteController\:\:handle\(\) expects string\|null, string\|false given\.$#'
 			identifier: argument.type
 			count: 1
@@ -463,6 +535,12 @@ parameters:
 			path: public/index.php
 
 		-
+			message: '#^Parameter \#1 \$runnerExecUrl of class App\\Adapters\\ClaudeBackendAdapter constructor expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
 			message: '#^Parameter \#1 \$runnerExecUrl of class App\\Adapters\\RunnerBackendAdapter constructor expects string, string\|null given\.$#'
 			identifier: argument.type
 			count: 1
@@ -476,6 +554,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#1 \$slug of method App\\Http\\Controllers\\AdminConfigController\:\:skillShow\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#1 \$slug of method App\\Http\\Controllers\\AdminProjectController\:\:assist\(\) expects string, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -926,6 +1010,12 @@ parameters:
 
 		-
 			message: '#^Parameter \#2 \$payload of method App\\Http\\Controllers\\AdminOpenAiKeyController\:\:toggle\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/index.php
+
+		-
+			message: '#^Parameter \#2 \$payload of method App\\Http\\Controllers\\AdminClaudeKeyController\:\:toggle\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: public/index.php
@@ -1411,12 +1501,6 @@ parameters:
 			path: scripts/refresh-chatgpt-usage.php
 
 		-
-			message: '#^Parameter \#20 \$adminEvents of class App\\Services\\AuthService constructor expects App\\Repositories\\AdminEventRepository\|null, App\\Services\\DashboardGraphStatsService given\.$#'
-			identifier: argument.type
-			count: 1
-			path: scripts/refresh-chatgpt-usage.php
-
-		-
 			message: '#^Parameter \#3 \$seedPath of class App\\Services\\WrapperService constructor expects string, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -1463,6 +1547,126 @@ parameters:
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 2
 			path: scripts/verify-interface-contracts.php
+
+		-
+			message: '#^Binary operation "\." between ''data\:'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 4
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 2
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:attemptRequest\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:buildPromptPayload\(\) has parameter \$messages with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:chatCompletions\(\) overrides method App\\Contracts\\BackendAdapter\:\:chatCompletions\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:chatCompletions\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:completions\(\) overrides method App\\Contracts\\BackendAdapter\:\:completions\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:completions\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:embeddings\(\) overrides method App\\Contracts\\BackendAdapter\:\:embeddings\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:embeddings\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:messages\(\) has parameter \$messages with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:messages\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:models\(\) overrides method App\\Contracts\\BackendAdapter\:\:models\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:models\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:runPrompt\(\) has parameter \$images with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:runPrompt\(\) has parameter \$params with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:runPrompt\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Parameter \#1 \$runnerResult of static method App\\Adapters\\ClaudeBackendAdapter\:\:extractUsage\(\) expects array\<string, mixed\>, array given\.$#'
+			identifier: argument.type
+			count: 3
+			path: src/Adapters/ClaudeBackendAdapter.php
 
 		-
 			message: '#^Method App\\Adapters\\NullBackendAdapter\:\:chatCompletions\(\) overrides method App\\Contracts\\BackendAdapter\:\:chatCompletions\(\) but is missing the \#\[\\Override\] attribute\.$#'
@@ -1513,9 +1717,87 @@ parameters:
 			path: src/Adapters/NullBackendAdapter.php
 
 		-
+			message: '#^Call to function is_array\(\) with array\{role\?\: mixed, content\?\: mixed\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Adapters/RunnerBackendAdapter.php
+
+		-
+			message: '#^Binary operation "\." between ''data:'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
+			count: 2
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 2
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:attemptRequest\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
 			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:buildPromptPayload\(\) has parameter \$messages with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:messages\(\) has parameter \$messages with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:messages\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:models\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:runPrompt\(\) has parameter \$images with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Method App\\Adapters\\ClaudeBackendAdapter\:\:runPrompt\(\) should return string but returns mixed\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Parameter \#1 \$body of method App\\Adapters\\ClaudeBackendAdapter\:\:attemptRequest\(\) expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Adapters/ClaudeBackendAdapter.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: src/Adapters/RunnerBackendAdapter.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 2
 			path: src/Adapters/RunnerBackendAdapter.php
 
 		-
@@ -1573,20 +1855,14 @@ parameters:
 			path: src/Adapters/RunnerBackendAdapter.php
 
 		-
+			message: '#^Method App\\Adapters\\RunnerBackendAdapter\:\:runPrompt\(\) has parameter \$images with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Adapters/RunnerBackendAdapter.php
+
+		-
 			message: '#^Method App\\Adapters\\RunnerBackendAdapter\:\:runPrompt\(\) should return string but returns mixed\.$#'
 			identifier: return.type
-			count: 1
-			path: src/Adapters/RunnerBackendAdapter.php
-
-		-
-			message: '#^Offset ''content'' on array\{role\: string, content\: string\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: src/Adapters/RunnerBackendAdapter.php
-
-		-
-			message: '#^Offset ''role'' on array\{role\: string, content\: string\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
 			count: 1
 			path: src/Adapters/RunnerBackendAdapter.php
 
@@ -1723,6 +1999,24 @@ parameters:
 			path: src/Http/AdminSessionHelper.php
 
 		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:json\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:stream\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:streamEvents\(\) has parameter \$events with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
 			message: '#^Call to function array_filter\(\) requires parameter \#2 to be passed to avoid loose comparison semantics\.$#'
 			identifier: arrayFilter.strict
 			count: 1
@@ -1815,7 +2109,7 @@ parameters:
 		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
-			count: 6
+			count: 8
 			path: src/Http/Controllers/AdminConfigController.php
 
 		-
@@ -1834,6 +2128,12 @@ parameters:
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
 			count: 4
+			path: src/Http/Controllers/AdminConfigController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminConfigController\:\:agentsRetention\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
 			path: src/Http/Controllers/AdminConfigController.php
 
 		-
@@ -1867,6 +2167,12 @@ parameters:
 			path: src/Http/Controllers/AdminConfigController.php
 
 		-
+			message: '#^Method App\\Http\\Controllers\\AdminConfigController\:\:skillAssist\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminConfigController.php
+
+		-
 			message: '#^Method App\\Http\\Controllers\\AdminConfigController\:\:skillGenerate\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -1875,6 +2181,12 @@ parameters:
 		-
 			message: '#^Method App\\Http\\Controllers\\AdminConfigController\:\:skillStore\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminConfigController.php
+
+		-
+			message: '#^Parameter \#1 \$payload of method App\\Services\\SkillDraftService\:\:assist\(\) expects array\<string, mixed\>, array\<mixed, mixed\> given\.$#'
+			identifier: argument.type
 			count: 1
 			path: src/Http/Controllers/AdminConfigController.php
 
@@ -1905,7 +2217,7 @@ parameters:
 		-
 			message: '#^Variable \$result might not be defined\.$#'
 			identifier: variable.undefined
-			count: 9
+			count: 11
 			path: src/Http/Controllers/AdminConfigController.php
 
 		-
@@ -2131,6 +2443,156 @@ parameters:
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
+			message: '#^Cannot call method syncAll\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 6
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Casting to bool something that''s already bool\.$#'
+			identifier: cast.useless
+			count: 3
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Casting to int something that''s already int\.$#'
+			identifier: cast.useless
+			count: 5
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 10
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Left side of \|\| is always false\.$#'
+			identifier: booleanOr.leftAlwaysFalse
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminJoplinController\:\:postConfig\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminJoplinController\:\:postTest\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''email'' on array\{enabled\: bool, url\: string, email\: string, password_set\: bool, sync_interval_minutes\: int, config_complete\: bool, verified_connection\: bool, verified_at\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''enabled'' on array\{enabled\: bool, url\: string, email\: string, password_set\: bool, sync_interval_minutes\: int, config_complete\: bool, verified_connection\: bool, verified_at\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''errors'' on array\{synced\: int, errors\: int, notebooks\: int\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''errors'' on array\{synced\: int, errors\: int, notebooks\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''notebooks'' on array\{synced\: int, errors\: int, notebooks\: int\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''notebooks'' on array\{synced\: int, errors\: int, notebooks\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''reachable'' on array\{reachable\: bool, reason\: string\|null, version\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''sync_interval…'' on array\{enabled\: bool, url\: string, email\: string, password_set\: bool, sync_interval_minutes\: int, config_complete\: bool, verified_connection\: bool, verified_at\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''synced'' on array\{synced\: int, errors\: int, notebooks\: int\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''synced'' on array\{synced\: int, errors\: int, notebooks\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Offset ''url'' on array\{enabled\: bool, url\: string, email\: string, password_set\: bool, sync_interval_minutes\: int, config_complete\: bool, verified_connection\: bool, verified_at\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Only booleans are allowed in &&, bool\|null given on the left side\.$#'
+			identifier: booleanAnd.leftNotBoolean
+			count: 2
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Only booleans are allowed in a negated boolean, int\|false given\.$#'
+			identifier: booleanNot.exprNotBoolean
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Only booleans are allowed in a ternary operator condition, bool\|null given\.$#'
+			identifier: ternary.condNotBoolean
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Only booleans are allowed in an if condition, bool\|null given\.$#'
+			identifier: if.condNotBoolean
+			count: 2
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
+			message: '#^Parameter \#1 \$enabled of method App\\Http\\Controllers\\AdminJoplinController\:\:buildConfigState\(\) expects bool, bool\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/AdminJoplinController.php
+
+		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
 			count: 2
@@ -2159,6 +2621,36 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Http/Controllers/AdminOpenAiKeyController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 2
+			path: src/Http/Controllers/AdminClaudeKeyController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: src/Http/Controllers/AdminClaudeKeyController.php
+
+		-
+			message: '#^Construct empty\(\) is not allowed\. Use more strict comparison\.$#'
+			identifier: empty.notAllowed
+			count: 1
+			path: src/Http/Controllers/AdminClaudeKeyController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminClaudeKeyController\:\:store\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminClaudeKeyController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminClaudeKeyController\:\:toggle\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminClaudeKeyController.php
 
 		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
@@ -2667,6 +3159,24 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
+			count: 2
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
+			message: '#^Cannot cast mixed to float\.$#'
+			identifier: cast.double
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
+			message: '#^Call to function array_filter\(\) requires parameter \#2 to be passed to avoid loose comparison semantics\.$#'
+			identifier: arrayFilter.strict
 			count: 1
 			path: src/Http/Controllers/AdminSettingsController.php
 
@@ -2743,9 +3253,21 @@ parameters:
 			path: src/Http/Controllers/AdminSettingsController.php
 
 		-
+			message: '#^Method App\\Http\\Controllers\\AdminSettingsController\:\:postClaudeApiState\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\AdminSettingsController\:\:postClaudeSettings\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/AdminSettingsController.php
+
+		-
 			message: '#^Only booleans are allowed in a ternary operator condition, bool\|null given\.$#'
 			identifier: ternary.condNotBoolean
-			count: 8
+			count: 9
 			path: src/Http/Controllers/AdminSettingsController.php
 
 		-
@@ -3157,6 +3679,96 @@ parameters:
 			path: src/Http/Controllers/McpRouteController.php
 
 		-
+			message: '#^Binary operation "\." between ''anthropic\:'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Binary operation "\.=" between string and mixed results in an error\.$#'
+			identifier: assignOp.invalid
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Cannot access offset ''input_tokens'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Cannot access offset ''output_tokens'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Cannot call method messages\(\) on App\\Adapters\\ClaudeBackendAdapter\|null\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Construct empty\(\) is not allowed\. Use more strict comparison\.$#'
+			identifier: empty.notAllowed
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\ClaudeApiController\:\:authenticate\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\ClaudeApiController\:\:completions\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\ClaudeApiController\:\:enforceRateLimit\(\) has parameter \$key with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\ClaudeApiController\:\:fallbackModels\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\ClaudeApiController\:\:messages\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Method App\\Http\\Controllers\\ClaudeApiController\:\:streamResponse\(\) has parameter \$result with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
+			message: '#^Parameter \#1 \$ip of method App\\Security\\RateLimiter\:\:hit\(\) expects string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controllers/ClaudeApiController.php
+
+		-
 			message: '#^Binary operation "\." between ''openai\:'' and mixed results in an error\.$#'
 			identifier: binaryOp.invalid
 			count: 1
@@ -3415,6 +4027,18 @@ parameters:
 			path: src/Http/OpenAiCompat.php
 
 		-
+			message: '#^Method App\\Http\\OpenAiCompat\:\:looksLikeSingleContentPart\(\) has parameter \$content with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/OpenAiCompat.php
+
+		-
+			message: '#^Method App\\Http\\OpenAiCompat\:\:normalizeContentPart\(\) has parameter \$part with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/OpenAiCompat.php
+
+		-
 			message: '#^Method App\\Http\\OpenAiCompat\:\:responseFromChatCompletion\(\) has parameter \$completion with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -3425,6 +4049,18 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Http/OpenAiCompat.php
+
+		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:json\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:streamEvents\(\) has parameter \$events with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
 
 		-
 			message: '#^Method App\\Http\\OpenAiResponse\:\:json\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
@@ -4129,6 +4765,54 @@ parameters:
 			path: src/Mcp/McpServer.php
 
 		-
+			message: '#^Cannot call method createNote\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot call method deleteNote\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot call method getNote\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot call method listNotebooks\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot call method search\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot call method updateNote\(\) on App\\Services\\JoplinCacheService\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 10
+			path: src/Mcp/McpServer.php
+
+		-
 			message: '#^Casting to \*NEVER\* something that''s already \*NEVER\*\.$#'
 			identifier: cast.useless
 			count: 1
@@ -4138,6 +4822,66 @@ parameters:
 			message: '#^Method App\\Mcp\\McpServer\:\:dispatch\(\) should return array\<string, mixed\> but returns array\.$#'
 			identifier: return.type
 			count: 2
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinCreateNote\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinDeleteNote\(\) has parameter \$args with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinDeleteNote\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinGetNote\(\) has parameter \$args with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinGetNote\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinListNotebooks\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinSearch\(\) has parameter \$args with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinSearch\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinUnconfigured\(\) should return array\<string, mixed\>\|null but returns array\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Mcp/McpServer.php
+
+		-
+			message: '#^Method App\\Mcp\\McpServer\:\:joplinUpdateNote\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
 			path: src/Mcp/McpServer.php
 
 		-
@@ -4295,6 +5039,24 @@ parameters:
 			identifier: method.missingOverride
 			count: 1
 			path: src/Migrations/InsecureMigration.php
+
+		-
+			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: src/Migrations/JoplinMigration.php
+
+		-
+			message: '#^Cannot call method fetchColumn\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: src/Migrations/JoplinMigration.php
+
+		-
+			message: '#^Method App\\Migrations\\JoplinMigration\:\:up\(\) overrides method App\\Migrations\\MigrationInterface\:\:up\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: src/Migrations/JoplinMigration.php
 
 		-
 			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
@@ -4737,31 +5499,43 @@ parameters:
 		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
+			count: 3
+			path: src/Repositories/AgentsRepository.php
+
+		-
+			message: '#^Cannot access offset ''active_document_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
+			path: src/Repositories/AgentsRepository.php
+
+		-
+			message: '#^Cannot access offset ''id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
 			path: src/Repositories/AgentsRepository.php
 
 		-
 			message: '#^Cannot call method bindValue\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 1
+			count: 2
 			path: src/Repositories/AgentsRepository.php
 
 		-
 			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 10
+			count: 14
 			path: src/Repositories/AgentsRepository.php
 
 		-
 			message: '#^Cannot call method fetch\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 4
+			count: 6
 			path: src/Repositories/AgentsRepository.php
 
 		-
 			message: '#^Cannot call method fetchAll\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 1
+			count: 4
 			path: src/Repositories/AgentsRepository.php
 
 		-
@@ -4771,13 +5545,25 @@ parameters:
 			path: src/Repositories/AgentsRepository.php
 
 		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 2
+			path: src/Repositories/AgentsRepository.php
+
+		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 1
+			count: 2
 			path: src/Repositories/AgentsRepository.php
 
 		-
 			message: '#^Method App\\Repositories\\AgentsRepository\:\:createVersion\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/AgentsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\AgentsRepository\:\:createVersionWithRetention\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Repositories/AgentsRepository.php
@@ -4801,6 +5587,18 @@ parameters:
 			path: src/Repositories/AgentsRepository.php
 
 		-
+			message: '#^Method App\\Repositories\\AgentsRepository\:\:pruneHistoricalVersions\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/AgentsRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\AgentsRepository\:\:pruneHistoricalVersionsLocked\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/AgentsRepository.php
+
+		-
 			message: '#^Method App\\Repositories\\AgentsRepository\:\:state\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -4813,8 +5611,20 @@ parameters:
 			path: src/Repositories/AgentsRepository.php
 
 		-
+			message: '#^Method App\\Repositories\\AgentsRepository\:\:storeVersionIfChangedWithRetention\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/AgentsRepository.php
+
+		-
 			message: '#^Method App\\Repositories\\AgentsRepository\:\:updateState\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/AgentsRepository.php
+
+		-
+			message: '#^Parameter \#1 \$array \(non\-empty\-list\<int\<1, max\>\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
 			count: 1
 			path: src/Repositories/AgentsRepository.php
 
@@ -5595,7 +6405,7 @@ parameters:
 		-
 			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 17
+			count: 18
 			path: src/Repositories/HostRepository.php
 
 		-
@@ -5653,20 +6463,8 @@ parameters:
 			path: src/Repositories/HostRepository.php
 
 		-
-			message: '#^Method App\\Repositories\\HostRepository\:\:findByFqdn\(\) should return array\|null but returns mixed\.$#'
-			identifier: return.type
-			count: 1
-			path: src/Repositories/HostRepository.php
-
-		-
 			message: '#^Method App\\Repositories\\HostRepository\:\:findById\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
-			count: 1
-			path: src/Repositories/HostRepository.php
-
-		-
-			message: '#^Method App\\Repositories\\HostRepository\:\:findById\(\) should return array\|null but returns mixed\.$#'
-			identifier: return.type
 			count: 1
 			path: src/Repositories/HostRepository.php
 
@@ -5721,7 +6519,7 @@ parameters:
 		-
 			message: '#^Only booleans are allowed in a ternary operator condition, mixed given\.$#'
 			identifier: ternary.condNotBoolean
-			count: 1
+			count: 3
 			path: src/Repositories/HostRepository.php
 
 		-
@@ -5743,21 +6541,33 @@ parameters:
 			path: src/Repositories/HostRepository.php
 
 		-
-			message: '#^Parameter \#1 \$host of method App\\Repositories\\HostRepository\:\:normalizeStoredHost\(\) expects array, mixed given\.$#'
+			message: '#^Parameter \#1 \$callback of function array_map expects \(callable\(mixed\)\: mixed\)\|null, Closure\(array\)\: array given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/Repositories/HostRepository.php
 
 		-
+			message: '#^Parameter \#1 \$host of method App\\Repositories\\HostRepository\:\:normalizeStoredHost\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 3
+			path: src/Repositories/HostRepository.php
+
+		-
 			message: '#^Short ternary operator is not allowed\. Use null coalesce operator if applicable or consider using long ternary\.$#'
 			identifier: ternary.shortNotAllowed
-			count: 6
+			count: 4
 			path: src/Repositories/HostRepository.php
 
 		-
 			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
 			count: 2
+			path: src/Repositories/HostRepository.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between array\{''gpt\-5\.3\-codex\-spark'', ''gpt\-5\.2\-codex'', ''gpt\-5\.1\-codex\-max'', ''gpt\-5\.1\-codex\-mini''\} and array\{\} will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
 			path: src/Repositories/HostRepository.php
 
 		-
@@ -6101,6 +6911,84 @@ parameters:
 			identifier: ternary.shortNotAllowed
 			count: 1
 			path: src/Repositories/IpRateLimitRepository.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Cannot call method bindValue\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 7
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Cannot call method fetch\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Cannot call method fetchAll\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Cannot call method fetchColumn\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Cannot call method rowCount\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\JoplinNoteRepository\:\:all\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\JoplinNoteRepository\:\:find\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\JoplinNoteRepository\:\:findByJoplinId\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\JoplinNoteRepository\:\:search\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) has parameter \$tags with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/JoplinNoteRepository.php
 
 		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
@@ -6483,7 +7371,7 @@ parameters:
 		-
 			message: '#^Cannot call method execute\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 8
+			count: 9
 			path: src/Repositories/OpenaiApiKeyRepository.php
 
 		-
@@ -6495,7 +7383,7 @@ parameters:
 		-
 			message: '#^Cannot call method fetchAll\(\) on PDOStatement\|false\.$#'
 			identifier: method.nonObject
-			count: 2
+			count: 3
 			path: src/Repositories/OpenaiApiKeyRepository.php
 
 		-
@@ -6536,6 +7424,12 @@ parameters:
 
 		-
 			message: '#^Method App\\Repositories\\OpenaiApiKeyRepository\:\:listAll\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repositories/OpenaiApiKeyRepository.php
+
+		-
+			message: '#^Method App\\Repositories\\OpenaiApiKeyRepository\:\:listByEngine\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Repositories/OpenaiApiKeyRepository.php
@@ -7869,13 +8763,13 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 21
+			count: 22
 			path: src/Services/AgentsService.php
 
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 22
+			count: 23
 			path: src/Services/AgentsService.php
 
 		-
@@ -7945,6 +8839,12 @@ parameters:
 			path: src/Services/AgentsService.php
 
 		-
+			message: '#^Method App\\Services\\AgentsService\:\:logPrunedVersions\(\) has parameter \$prunedIds with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/AgentsService.php
+
+		-
 			message: '#^Method App\\Services\\AgentsService\:\:memoriesSection\(\) has parameter \$host with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -7952,6 +8852,12 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\AgentsService\:\:memoriesSection\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/AgentsService.php
+
+		-
+			message: '#^Method App\\Services\\AgentsService\:\:normalizePrunedIds\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Services/AgentsService.php
@@ -8023,6 +8929,12 @@ parameters:
 			path: src/Services/AgentsService.php
 
 		-
+			message: '#^Method App\\Services\\AgentsService\:\:updateBackupRetention\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/AgentsService.php
+
+		-
 			message: '#^Only booleans are allowed in a negated boolean, int\|false given\.$#'
 			identifier: booleanNot.exprNotBoolean
 			count: 2
@@ -8059,7 +8971,7 @@ parameters:
 			path: src/Services/AgentsService.php
 
 		-
-			message: '#^Parameter \#3 \$sha256 of method App\\Repositories\\AgentsRepository\:\:createVersion\(\) expects string\|null, mixed given\.$#'
+			message: '#^Parameter \#3 \$sha256 of method App\\Repositories\\AgentsRepository\:\:createVersionWithRetention\(\) expects string\|null, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/Services/AgentsService.php
@@ -8979,7 +9891,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 7
+			count: 8
 			path: src/Services/ClientConfigService.php
 
 		-
@@ -9147,7 +10059,7 @@ parameters:
 		-
 			message: '#^Parameter \#1 \$body of method App\\Repositories\\ClientConfigRepository\:\:upsert\(\) expects string, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: src/Services/ClientConfigService.php
 
 		-
@@ -9165,13 +10077,13 @@ parameters:
 		-
 			message: '#^Parameter \#1 \$settings of method App\\Services\\ClientConfigService\:\:writeGlobalModelDefaults\(\) expects array, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: src/Services/ClientConfigService.php
 
 		-
 			message: '#^Parameter \#2 \$settings of method App\\Repositories\\ClientConfigRepository\:\:upsert\(\) expects array\|null, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: src/Services/ClientConfigService.php
 
 		-
@@ -9189,7 +10101,7 @@ parameters:
 		-
 			message: '#^Parameter \#4 \$sha256 of method App\\Repositories\\ClientConfigRepository\:\:upsert\(\) expects string\|null, mixed given\.$#'
 			identifier: argument.type
-			count: 1
+			count: 2
 			path: src/Services/ClientConfigService.php
 
 		-
@@ -9295,7 +10207,7 @@ parameters:
 			path: src/Services/ConfigNormalizer.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\{''gpt\-5\.2\-codex''\: ''gpt\-5\.3\-codex'', ''gpt\-5\.3\-codex''\: ''gpt\-5\.4''\} will always evaluate to true\.$#'
+			message: '#^Call to function is_array\(\) with array\{''gpt\-5\.1\-codex\-max''\: ''gpt\-5\.4'', ''gpt\-5\.1\-codex\-mini''\: ''gpt\-5\.4'', ''gpt\-5\.2\-codex''\: ''gpt\-5\.4'', ''gpt\-5\.3\-codex\-spark''\: ''gpt\-5\.4''\} will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: src/Services/ConfigNormalizer.php
@@ -9745,6 +10657,156 @@ parameters:
 			path: src/Services/InsecureHostWindowService.php
 
 		-
+			message: '#^Method App\\Services\\JoplinCacheService\:\:createNote\(\) should return array\<string, mixed\>\|null but returns array\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinCacheService\:\:getNote\(\) should return array\<string, mixed\>\|null but returns array\.$#'
+			identifier: return.type
+			count: 2
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinCacheService\:\:listNotebooks\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinCacheService\:\:search\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinCacheService\:\:updateNote\(\) should return array\<string, mixed\>\|null but returns array\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Parameter \#1 \$joplinId of method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 4
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Parameter \#1 \$noteId of method App\\Services\\JoplinService\:\:getNoteTags\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Parameter \#2 \$title of method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 4
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Parameter \#3 \$body of method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 4
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Parameter \#4 \$notebookId of method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 4
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Parameter \#6 \$parentId of method App\\Repositories\\JoplinNoteRepository\:\:upsert\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 4
+			path: src/Services/JoplinCacheService.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 6
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 29
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Casting to int something that''s already int\.$#'
+			identifier: cast.useless
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 8
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinService\:\:listAllItemEntries\(\) should return array\<int, array\<string, mixed\>\> but returns list\<array\<mixed, mixed\>\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Offset ''id'' on non\-empty\-array\<string, mixed\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Offset ''path_name'' on non\-empty\-array\<string, mixed\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Offset ''title'' on array\{id\: string, title\: string, parent_id\: string, updated_time\: string, path_name\: non\-falsy\-string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Offset ''type_'' on non\-empty\-array\<string, mixed\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Short ternary operator is not allowed\. Use null coalesce operator if applicable or consider using long ternary\.$#'
+			identifier: ternary.shortNotAllowed
+			count: 2
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Variable \$http_response_header on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: src/Services/JoplinService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinSkillService\:\:managedSkill\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/JoplinSkillService.php
+
+		-
+			message: '#^Method App\\Services\\JoplinSkillService\:\:managedSkillMetadata\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/JoplinSkillService.php
+
+		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 3
@@ -10100,6 +11162,12 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\OpenaiApiKeyService\:\:list\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/OpenaiApiKeyService.php
+
+		-
+			message: '#^Method App\\Services\\OpenaiApiKeyService\:\:listByEngine\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Services/OpenaiApiKeyService.php
@@ -10765,6 +11833,96 @@ parameters:
 			path: src/Services/ProjectCoordinationService.php
 
 		-
+			message: '#^Binary operation "\." between ''Project assist…'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 15
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Casting to string something that''s already string\.$#'
+			identifier: cast.useless
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 2
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Method App\\Services\\ProjectDraftService\:\:assist\(\) has parameter \$host with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Method App\\Services\\ProjectDraftService\:\:canonicalAuthPayload\(\) should return array\<string, mixed\>\|null but returns array\<mixed, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Method App\\Services\\ProjectDraftService\:\:canonicalAuthPayload\(\) should return array\<string, mixed\>\|null but returns array\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Method App\\Services\\ProjectDraftService\:\:hostId\(\) has parameter \$host with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Only booleans are allowed in a negated boolean, int\|false given\.$#'
+			identifier: booleanNot.exprNotBoolean
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Only booleans are allowed in an if condition, array\<string, list\<string\>\> given\.$#'
+			identifier: if.condNotBoolean
+			count: 2
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Parameter \#1 \$detail of method App\\Services\\ProjectDraftService\:\:buildRunnerProjectContext\(\) expects array\<string, mixed\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Parameter \#1 \$detail of method App\\Services\\ProjectDraftService\:\:currentDraftFromDetail\(\) expects array\<string, mixed\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Parameter \#1 \$result of method App\\Services\\ProjectDraftService\:\:buildDraftPayload\(\) expects array\<string, mixed\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Short ternary operator is not allowed\. Use null coalesce operator if applicable or consider using long ternary\.$#'
+			identifier: ternary.shortNotAllowed
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: src/Services/ProjectDraftService.php
+
+		-
 			message: '#^Method App\\Services\\ProjectModuleService\:\:adminState\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -10965,7 +12123,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 7
+			count: 6
 			path: src/Services/RunnerValidationService.php
 
 		-
@@ -11025,6 +12183,12 @@ parameters:
 		-
 			message: '#^Method App\\Services\\RunnerValidationService\:\:canonicalAuthSnapshot\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerValidationService.php
+
+		-
+			message: '#^Method App\\Services\\RunnerValidationService\:\:canonicalAuthSnapshot\(\) should return array\|null but returns mixed\.$#'
+			identifier: return.type
 			count: 1
 			path: src/Services/RunnerValidationService.php
 
@@ -11275,12 +12439,6 @@ parameters:
 			path: src/Services/RunnerValidationService.php
 
 		-
-			message: '#^Parameter \#2 \$host of method App\\Services\\RunnerValidationService\:\:runnerDailyCheck\(\) expects array, mixed given\.$#'
-			identifier: argument.type
-			count: 1
-			path: src/Services/RunnerValidationService.php
-
-		-
 			message: '#^Parameter \#2 \$second of static method App\\Support\\Timestamp\:\:compare\(\) expects string\|null, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -11389,6 +12547,48 @@ parameters:
 			path: src/Services/RunnerVerifier.php
 
 		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistProjectDraft\(\) has parameter \$authPayload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistProjectDraft\(\) has parameter \$project with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistProjectDraft\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistSkillDraft\(\) has parameter \$authPayload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistSkillDraft\(\) has parameter \$messages with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistSkillDraft\(\) has parameter \$skill with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
+			message: '#^Method App\\Services\\RunnerVerifier\:\:assistSkillDraft\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/RunnerVerifier.php
+
+		-
 			message: '#^Method App\\Services\\RunnerVerifier\:\:attemptRequest\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -11485,6 +12685,12 @@ parameters:
 			path: src/Services/RunnerVerifier.php
 
 		-
+			message: '#^Binary operation "\." between ''Skill assist failed…'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Services/SkillDraftService.php
+
+		-
 			message: '#^Binary operation "\." between ''Skill generation…'' and mixed results in an error\.$#'
 			identifier: binaryOp.invalid
 			count: 1
@@ -11493,12 +12699,18 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 7
+			count: 18
 			path: src/Services/SkillDraftService.php
 
 		-
 			message: '#^Casting to string something that''s already string\.$#'
 			identifier: cast.useless
+			count: 1
+			path: src/Services/SkillDraftService.php
+
+		-
+			message: '#^Method App\\Services\\SkillDraftService\:\:assist\(\) has parameter \$host with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
 			count: 1
 			path: src/Services/SkillDraftService.php
 
@@ -11518,6 +12730,12 @@ parameters:
 			message: '#^Method App\\Services\\SkillDraftService\:\:hostId\(\) has parameter \$host with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
+			path: src/Services/SkillDraftService.php
+
+		-
+			message: '#^Offset ''description''\|''display_name''\|''slug''\|''steps''\|''tags''\|''what''\|''when'' on array\{slug\: string, display_name\: string, description\: string, tags\: array\<int, string\>, what\: string, when\: string, steps\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
 			path: src/Services/SkillDraftService.php
 
 		-
@@ -11648,6 +12866,30 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\SkillService\:\:hostId\(\) has parameter \$host with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/SkillService.php
+
+		-
+			message: '#^Method App\\Services\\SkillService\:\:injectManagedSkill\(\) has parameter \$managed with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/SkillService.php
+
+		-
+			message: '#^Method App\\Services\\SkillService\:\:injectManagedSkill\(\) has parameter \$rows with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/SkillService.php
+
+		-
+			message: '#^Method App\\Services\\SkillService\:\:injectManagedSkill\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Services/SkillService.php
+
+		-
+			message: '#^Method App\\Services\\SkillService\:\:joplinSkill\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Services/SkillService.php
@@ -12459,7 +13701,7 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 6
+			count: 5
 			path: src/Services/WrapperService.php
 
 		-
@@ -12729,7 +13971,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 22
+			count: 10
 			path: tests/AdminAgentsUiWiringTest.php
 
 		-
@@ -12747,13 +13989,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 74
+			count: 44
 			path: tests/AdminAgentsUiWiringTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 8
+			count: 15
 			path: tests/AdminAgentsUiWiringTest.php
 
 		-
@@ -12891,11 +14133,17 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 1
+			count: 2
 			path: tests/AdminChatGptUsageDualLaneTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 16
+			path: tests/AdminChatGptUsageDualLaneTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
 			count: 12
 			path: tests/AdminChatGptUsageDualLaneTest.php
@@ -12933,13 +14181,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 5
+			count: 6
 			path: tests/AdminDashboardChartLibraryTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 32
+			count: 49
 			path: tests/AdminDashboardChartLibraryTest.php
 
 		-
@@ -13119,6 +14367,18 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
+			count: 5
+			path: tests/AdminJoplinSettingsActivationTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 39
+			path: tests/AdminJoplinSettingsActivationTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
 			count: 3
 			path: tests/AdminLoginPageAssetsTest.php
 
@@ -13179,7 +14439,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 45
+			count: 48
 			path: tests/AdminNavDrawerUiTest.php
 
 		-
@@ -13581,19 +14841,43 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 11
+			count: 12
 			path: tests/AdminSettingsLiveUpdateLogActionsTest.php
+
+		-
+			message: '#^Call to method PHPUnit\\Framework\\Assert\:\:assertIsString\(\) with string will always evaluate to true\.$#'
+			identifier: method.alreadyNarrowedType
+			count: 1
+			path: tests/AdminSkillDetailPageRoutingTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
+			count: 1
+			path: tests/AdminSkillDetailPageRoutingTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
 			count: 4
+			path: tests/AdminSkillDetailPageRoutingTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertIsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 6
 			path: tests/AdminSkillRegistryEditUiTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 29
+			count: 28
+			path: tests/AdminSkillRegistryEditUiTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
 			path: tests/AdminSkillRegistryEditUiTest.php
 
 		-
@@ -13605,7 +14889,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 22
+			count: 35
 			path: tests/AdminThemePresetsTest.php
 
 		-
@@ -13801,6 +15085,12 @@ parameters:
 			path: tests/AgentsServiceTest.php
 
 		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 3
+			path: tests/AgentsServiceTest.php
+
+		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
 			count: 1
@@ -13843,6 +15133,12 @@ parameters:
 			path: tests/AgentsServiceTest.php
 
 		-
+			message: '#^Class AgentsServiceTest has an uninitialized property \$versionRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
 			message: '#^Construct empty\(\) is not allowed\. Use more strict comparison\.$#'
 			identifier: empty.notAllowed
 			count: 2
@@ -13863,7 +15159,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertCount\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 4
+			count: 6
 			path: tests/AgentsServiceTest.php
 
 		-
@@ -13875,7 +15171,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertNotFalse\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 1
+			count: 2
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertNotNull\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 2
 			path: tests/AgentsServiceTest.php
 
 		-
@@ -13887,13 +15189,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertNull\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 1
+			count: 8
 			path: tests/AgentsServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 44
+			count: 55
 			path: tests/AgentsServiceTest.php
 
 		-
@@ -13934,6 +15236,12 @@ parameters:
 
 		-
 			message: '#^InMemoryAgentsRepository\:\:__construct\(\) does not call parent constructor from App\\Repositories\\AgentsRepository\.$#'
+			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^InMemoryVersionRepositoryForAgents\:\:__construct\(\) does not call parent constructor from App\\Repositories\\VersionRepository\.$#'
 			identifier: constructor.missingParentCall
 			count: 1
 			path: tests/AgentsServiceTest.php
@@ -13999,6 +15307,18 @@ parameters:
 			path: tests/AgentsServiceTest.php
 
 		-
+			message: '#^Method InMemoryAgentsRepository\:\:createVersionWithRetention\(\) overrides method App\\Repositories\\AgentsRepository\:\:createVersionWithRetention\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryAgentsRepository\:\:createVersionWithRetention\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
 			message: '#^Method InMemoryAgentsRepository\:\:deleteVersion\(\) overrides method App\\Repositories\\AgentsRepository\:\:deleteVersion\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
@@ -14041,6 +15361,18 @@ parameters:
 			path: tests/AgentsServiceTest.php
 
 		-
+			message: '#^Method InMemoryAgentsRepository\:\:pruneHistoricalVersions\(\) overrides method App\\Repositories\\AgentsRepository\:\:pruneHistoricalVersions\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryAgentsRepository\:\:pruneHistoricalVersions\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
 			message: '#^Method InMemoryAgentsRepository\:\:state\(\) overrides method App\\Repositories\\AgentsRepository\:\:state\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
@@ -14065,6 +15397,18 @@ parameters:
 			path: tests/AgentsServiceTest.php
 
 		-
+			message: '#^Method InMemoryAgentsRepository\:\:storeVersionIfChangedWithRetention\(\) overrides method App\\Repositories\\AgentsRepository\:\:storeVersionIfChangedWithRetention\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryAgentsRepository\:\:storeVersionIfChangedWithRetention\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
 			message: '#^Method InMemoryAgentsRepository\:\:updateState\(\) overrides method App\\Repositories\\AgentsRepository\:\:updateState\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
@@ -14073,6 +15417,30 @@ parameters:
 		-
 			message: '#^Method InMemoryAgentsRepository\:\:updateState\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryVersionRepositoryForAgents\:\:__construct\(\) has parameter \$seed with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryVersionRepositoryForAgents\:\:delete\(\) overrides method App\\Repositories\\VersionRepository\:\:delete\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryVersionRepositoryForAgents\:\:get\(\) overrides method App\\Repositories\\VersionRepository\:\:get\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Method InMemoryVersionRepositoryForAgents\:\:set\(\) overrides method App\\Repositories\\VersionRepository\:\:set\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
 			count: 1
 			path: tests/AgentsServiceTest.php
 
@@ -14097,7 +15465,13 @@ parameters:
 		-
 			message: '#^Offset ''body'' might not exist on array\|null\.$#'
 			identifier: offsetAccess.notFound
-			count: 2
+			count: 3
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Parameter \#1 \$id of method InMemoryAgentsRepository\:\:findById\(\) expects int, mixed given\.$#'
+			identifier: argument.type
+			count: 3
 			path: tests/AgentsServiceTest.php
 
 		-
@@ -14145,7 +15519,7 @@ parameters:
 		-
 			message: '#^Parameter \#2 \$versionId of method App\\Services\\AgentsService\:\:setServeMode\(\) expects int\|null, mixed given\.$#'
 			identifier: argument.type
-			count: 5
+			count: 7
 			path: tests/AgentsServiceTest.php
 
 		-
@@ -14167,6 +15541,12 @@ parameters:
 			path: tests/AgentsServiceTest.php
 
 		-
+			message: '#^Property InMemoryAgentsRepository\:\:\$protectedHostOverrideIds \(array\<int\>\) does not accept array\<int, mixed\>\.$#'
+			identifier: assign.propertyType
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
 			message: '#^Property InMemoryAgentsRepository\:\:\$stateRow type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -14175,6 +15555,12 @@ parameters:
 		-
 			message: '#^Property InMemoryAgentsRepository\:\:\$versions type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AgentsServiceTest.php
+
+		-
+			message: '#^Property InMemoryVersionRepositoryForAgents\:\:\$values \(array\<string, string\>\) does not accept array\.$#'
+			identifier: assign.propertyType
 			count: 1
 			path: tests/AgentsServiceTest.php
 
@@ -17659,7 +19045,7 @@ parameters:
 			path: tests/ClientConfigServiceTest.php
 
 		-
-			message: '#^Cannot access offset ''gpt\-5\.3\-codex'' on mixed\.$#'
+			message: '#^Cannot access offset ''gpt\-5\.3\-codex\-spark'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/ClientConfigServiceTest.php
@@ -17679,7 +19065,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''model'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: tests/ClientConfigServiceTest.php
 
 		-
@@ -17691,13 +19077,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''model_reasoning_effort'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
-			path: tests/ClientConfigServiceTest.php
-
-		-
-			message: '#^Cannot access offset ''model_reasoning_summary'' on mixed\.$#'
-			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: tests/ClientConfigServiceTest.php
 
 		-
@@ -17883,19 +19263,19 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 40
+			count: 41
 			path: tests/ClientConfigServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 72
+			count: 82
 			path: tests/ClientConfigServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 20
+			count: 19
 			path: tests/ClientConfigServiceTest.php
 
 		-
@@ -18027,13 +19407,13 @@ parameters:
 		-
 			message: '#^Parameter \#2 \$haystack of method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\) expects string, mixed given\.$#'
 			identifier: argument.type
-			count: 72
+			count: 82
 			path: tests/ClientConfigServiceTest.php
 
 		-
 			message: '#^Parameter \#2 \$haystack of method PHPUnit\\Framework\\Assert\:\:assertStringNotContainsString\(\) expects string, mixed given\.$#'
 			identifier: argument.type
-			count: 20
+			count: 19
 			path: tests/ClientConfigServiceTest.php
 
 		-
@@ -18375,19 +19755,19 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertNull\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 30
+			count: 29
 			path: tests/ConfigNormalizerTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 77
+			count: 79
 			path: tests/ConfigNormalizerTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertTrue\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 24
+			count: 21
 			path: tests/ConfigNormalizerTest.php
 
 		-
@@ -20451,19 +21831,19 @@ parameters:
 		-
 			message: '#^Cannot access offset ''api\.openai\.com'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/MemorySummaryServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''authPayload'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/MemorySummaryServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''auths'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/MemorySummaryServiceTest.php
 
 		-
@@ -20493,7 +21873,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''token'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: tests/MemorySummaryServiceTest.php
 
 		-
@@ -20697,7 +22077,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 12
+			count: 14
 			path: tests/OpenAiApiCompatibilityTest.php
 
 		-
@@ -20707,13 +22087,13 @@ parameters:
 			path: tests/OpenAiApiCompatibilityTest.php
 
 		-
-			message: '#^AnonymousClass0622508e078e9d4e18804fd99506a83e\:\:__construct\(\) does not call parent constructor from App\\Repositories\\VersionRepository\.$#'
+			message: '#^AnonymousClass81f03868e2a19243383802b6b7a881c2\:\:__construct\(\) does not call parent constructor from App\\Repositories\\VersionRepository\.$#'
 			identifier: constructor.missingParentCall
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
 
 		-
-			message: '#^AnonymousClass170969854de04e78eace26603aec13b2\:\:__construct\(\) does not call parent constructor from App\\Repositories\\ClientConfigRepository\.$#'
+			message: '#^AnonymousClass946bd89c6633b72b9af6ef14736713b8\:\:__construct\(\) does not call parent constructor from App\\Repositories\\ClientConfigRepository\.$#'
 			identifier: constructor.missingParentCall
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
@@ -20725,31 +22105,31 @@ parameters:
 			path: tests/OpenAiModelServiceTest.php
 
 		-
-			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/OpenAiModelServiceTest\.php\:97\:\:__construct\(\) has parameter \$row with no value type specified in iterable type array\.$#'
+			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/OpenAiModelServiceTest\.php\:93\:\:__construct\(\) has parameter \$row with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
 
 		-
-			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/OpenAiModelServiceTest\.php\:97\:\:latest\(\) overrides method App\\Repositories\\ClientConfigRepository\:\:latest\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/OpenAiModelServiceTest\.php\:93\:\:latest\(\) overrides method App\\Repositories\\ClientConfigRepository\:\:latest\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
 
 		-
-			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/OpenAiModelServiceTest\.php\:97\:\:latest\(\) return type has no value type specified in iterable type array\.$#'
+			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/OpenAiModelServiceTest\.php\:93\:\:latest\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
 
 		-
-			message: '#^Method App\\Repositories\\VersionRepository@anonymous/tests/OpenAiModelServiceTest\.php\:111\:\:__construct\(\) has parameter \$values with no value type specified in iterable type array\.$#'
+			message: '#^Method App\\Repositories\\VersionRepository@anonymous/tests/OpenAiModelServiceTest\.php\:107\:\:__construct\(\) has parameter \$values with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
 
 		-
-			message: '#^Method App\\Repositories\\VersionRepository@anonymous/tests/OpenAiModelServiceTest\.php\:111\:\:get\(\) overrides method App\\Repositories\\VersionRepository\:\:get\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			message: '#^Method App\\Repositories\\VersionRepository@anonymous/tests/OpenAiModelServiceTest\.php\:107\:\:get\(\) overrides method App\\Repositories\\VersionRepository\:\:get\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
 			path: tests/OpenAiModelServiceTest.php
@@ -21099,7 +22479,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 32
+			count: 40
 			path: tests/ProjectCoordinationWiringTest.php
 
 		-
@@ -21215,6 +22595,210 @@ parameters:
 			identifier: constructor.missingParentCall
 			count: 1
 			path: tests/ProjectCoordinationWiringTest.php
+
+		-
+			message: '#^Cannot access offset ''action'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''api\.openai\.com'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''authPayload'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''auths'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''description'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''details'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''name'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''project'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''slug'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''status'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''title'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''token'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Class ProjectDraftServiceTest has an uninitialized property \$logs\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Class ProjectDraftServiceTest has an uninitialized property \$payloads\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Class ProjectDraftServiceTest has an uninitialized property \$projects\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Class ProjectDraftServiceTest has an uninitialized property \$runner\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Class ProjectDraftServiceTest has an uninitialized property \$service\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^InMemoryAuthPayloadRepositoryForProjectDraft\:\:__construct\(\) does not call parent constructor from App\\Repositories\\AuthPayloadRepository\.$#'
+			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method InMemoryAuthPayloadRepositoryForProjectDraft\:\:latest\(\) overrides method App\\Repositories\\AuthPayloadRepository\:\:latest\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method InMemoryAuthPayloadRepositoryForProjectDraft\:\:latest\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method NullLogRepositoryProjectDraft\:\:log\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method NullLogRepositoryProjectDraft\:\:log\(\) overrides method App\\Repositories\\LogRepository\:\:log\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method ProjectDraftServiceTest\:\:setUp\(\) overrides method PHPUnit\\Framework\\TestCase\:\:setUp\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForProjectDraft\:\:assistProjectDraft\(\) has parameter \$authPayload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForProjectDraft\:\:assistProjectDraft\(\) has parameter \$project with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForProjectDraft\:\:assistProjectDraft\(\) overrides method App\\Services\\RunnerVerifier\:\:assistProjectDraft\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForProjectDraft\:\:assistProjectDraft\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^NullLogRepositoryProjectDraft\:\:__construct\(\) does not call parent constructor from App\\Repositories\\LogRepository\.$#'
+			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Parameter \#2 \$array of static method PHPUnit\\Framework\\Assert\:\:assertArrayHasKey\(\) expects array\|ArrayAccess, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Property InMemoryAuthPayloadRepositoryForProjectDraft\:\:\$latestPayload type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Property NullLogRepositoryProjectDraft\:\:\$records type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Property StubRunnerVerifierForProjectDraft\:\:\$calls type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^Property StubRunnerVerifierForProjectDraft\:\:\$result type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
+
+		-
+			message: '#^StubRunnerVerifierForProjectDraft\:\:__construct\(\) does not call parent constructor from App\\Services\\RunnerVerifier\.$#'
+			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/ProjectDraftServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertArrayNotHasKey\(\)\.$#'
@@ -21451,19 +23035,31 @@ parameters:
 			path: tests/RateLimiterTest.php
 
 		-
-			message: '#^AnonymousClass69a11c1afb5596dd4024fa1ebd6bbe17\:\:__construct\(\) does not call parent constructor from App\\Repositories\\ClientConfigRepository\.$#'
+			message: '#^AnonymousClass417b0894a0c0c42d70b5323f24edb189\:\:__construct\(\) does not call parent constructor from App\\Repositories\\ClientConfigRepository\.$#'
 			identifier: constructor.missingParentCall
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
-			message: '#^AnonymousClass6fdc59ffc54de2a03dccb7d30325748c\:\:__construct\(\) does not call parent constructor from App\\Repositories\\VersionRepository\.$#'
+			message: '#^AnonymousClass6336d80eea475f596968b2b8126e8330\:\:__construct\(\) does not call parent constructor from App\\Repositories\\VersionRepository\.$#'
 			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/RunnerBackendAdapterTest.php
+
+		-
+			message: '#^Cannot access offset ''images'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
 			message: '#^Cannot access offset ''model'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerBackendAdapterTest.php
+
+		-
+			message: '#^Cannot access offset ''prompt'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
@@ -21483,13 +23079,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertCount\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 1
+			count: 2
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 4
+			count: 6
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
@@ -21505,19 +23101,31 @@ parameters:
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
-			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/RunnerBackendAdapterTest\.php\:66\:\:latest\(\) overrides method App\\Repositories\\ClientConfigRepository\:\:latest\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			message: '#^Method App\\Adapters\\RunnerBackendAdapter@anonymous/tests/RunnerBackendAdapterTest\.php\:59\:\:attemptRequest\(\) overrides method App\\Adapters\\RunnerBackendAdapter\:\:attemptRequest\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
-			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/RunnerBackendAdapterTest\.php\:66\:\:latest\(\) return type has no value type specified in iterable type array\.$#'
+			message: '#^Method App\\Adapters\\RunnerBackendAdapter@anonymous/tests/RunnerBackendAdapterTest\.php\:59\:\:attemptRequest\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
 
 		-
-			message: '#^Method App\\Repositories\\VersionRepository@anonymous/tests/RunnerBackendAdapterTest\.php\:80\:\:get\(\) overrides method App\\Repositories\\VersionRepository\:\:get\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/RunnerBackendAdapterTest\.php\:110\:\:latest\(\) overrides method App\\Repositories\\ClientConfigRepository\:\:latest\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/RunnerBackendAdapterTest.php
+
+		-
+			message: '#^Method App\\Repositories\\ClientConfigRepository@anonymous/tests/RunnerBackendAdapterTest\.php\:110\:\:latest\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/RunnerBackendAdapterTest.php
+
+		-
+			message: '#^Method App\\Repositories\\VersionRepository@anonymous/tests/RunnerBackendAdapterTest\.php\:124\:\:get\(\) overrides method App\\Repositories\\VersionRepository\:\:get\(\) but is missing the \#\[\\Override\] attribute\.$#'
 			identifier: method.missingOverride
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
@@ -21536,6 +23144,12 @@ parameters:
 
 		-
 			message: '#^Property App\\Adapters\\RunnerBackendAdapter@anonymous/tests/RunnerBackendAdapterTest\.php\:21\:\:\$seenPayloads type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/RunnerBackendAdapterTest.php
+
+		-
+			message: '#^Property App\\Adapters\\RunnerBackendAdapter@anonymous/tests/RunnerBackendAdapterTest\.php\:59\:\:\$seenPayloads type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: tests/RunnerBackendAdapterTest.php
@@ -21663,7 +23277,7 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertFalse\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 3
+			count: 4
 			path: tests/RunnerValidationServiceTest.php
 
 		-
@@ -21693,13 +23307,13 @@ parameters:
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertNull\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 6
+			count: 7
 			path: tests/RunnerValidationServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
 			identifier: staticMethod.dynamicCall
-			count: 43
+			count: 46
 			path: tests/RunnerValidationServiceTest.php
 
 		-
@@ -21739,19 +23353,37 @@ parameters:
 			path: tests/RunnerValidationServiceTest.php
 
 		-
+			message: '#^Cannot access offset ''about'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
 			message: '#^Cannot access offset ''access_token'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 4
+			count: 5
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
 			message: '#^Cannot access offset ''auth_json'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 4
+			count: 5
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
 			message: '#^Cannot access offset ''content'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset ''description'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset ''header'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/RunnerVerifierPayloadTest.php
@@ -21769,7 +23401,37 @@ parameters:
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
+			message: '#^Cannot access offset ''messages'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset ''mode'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset ''notes'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset ''project'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
 			message: '#^Cannot access offset ''prompt'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset ''skill'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/RunnerVerifierPayloadTest.php
@@ -21777,7 +23439,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''slug'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 3
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
@@ -21787,21 +23449,33 @@ parameters:
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
+			message: '#^Cannot access offset ''slug_locked'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
 			message: '#^Cannot access offset ''timeout_seconds'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 4
+			count: 6
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
 			message: '#^Cannot access offset ''tokens'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 4
+			count: 5
+			path: tests/RunnerVerifierPayloadTest.php
+
+		-
+			message: '#^Cannot access offset 0 on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
 			message: '#^Parameter \#1 \$array of function array_keys expects array, mixed given\.$#'
 			identifier: argument.type
-			count: 4
+			count: 6
 			path: tests/RunnerVerifierPayloadTest.php
 
 		-
@@ -21867,23 +23541,41 @@ parameters:
 		-
 			message: '#^Cannot access offset ''api\.openai\.com'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: tests/SkillDraftServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''authPayload'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: tests/SkillDraftServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''auths'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''content'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/SkillDraftServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''details'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''messages'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''mode'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/SkillDraftServiceTest.php
@@ -21901,7 +23593,25 @@ parameters:
 			path: tests/SkillDraftServiceTest.php
 
 		-
+			message: '#^Cannot access offset ''slugLocked'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
 			message: '#^Cannot access offset ''status'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset ''token'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Cannot access offset 0 on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: tests/SkillDraftServiceTest.php
@@ -21967,6 +23677,36 @@ parameters:
 			path: tests/SkillDraftServiceTest.php
 
 		-
+			message: '#^Method StubRunnerVerifierForSkillDraft\:\:assistSkillDraft\(\) has parameter \$authPayload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForSkillDraft\:\:assistSkillDraft\(\) has parameter \$messages with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForSkillDraft\:\:assistSkillDraft\(\) has parameter \$skill with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForSkillDraft\:\:assistSkillDraft\(\) overrides method App\\Services\\RunnerVerifier\:\:assistSkillDraft\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Method StubRunnerVerifierForSkillDraft\:\:assistSkillDraft\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
 			message: '#^Method StubRunnerVerifierForSkillDraft\:\:generateSkillDraft\(\) has parameter \$authPayload with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -21991,9 +23731,15 @@ parameters:
 			path: tests/SkillDraftServiceTest.php
 
 		-
+			message: '#^Parameter \#2 \$haystack of static method PHPUnit\\Framework\\Assert\:\:assertContains\(\) expects iterable, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
 			message: '#^Parameter \#2 \$haystack of static method PHPUnit\\Framework\\Assert\:\:assertStringContainsString\(\) expects string, mixed given\.$#'
 			identifier: argument.type
-			count: 2
+			count: 3
 			path: tests/SkillDraftServiceTest.php
 
 		-
@@ -22004,6 +23750,18 @@ parameters:
 
 		-
 			message: '#^Property NullLogRepositorySkillDraft\:\:\$records type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Property StubRunnerVerifierForSkillDraft\:\:\$assistCalls type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/SkillDraftServiceTest.php
+
+		-
+			message: '#^Property StubRunnerVerifierForSkillDraft\:\:\$assistResult type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: tests/SkillDraftServiceTest.php
@@ -22389,19 +24147,19 @@ parameters:
 		-
 			message: '#^Cannot access offset ''api\.openai\.com'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/SkillSummaryServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''authPayload'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/SkillSummaryServiceTest.php
 
 		-
 			message: '#^Cannot access offset ''auths'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 3
+			count: 4
 			path: tests/SkillSummaryServiceTest.php
 
 		-
@@ -22431,7 +24189,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''token'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 1
+			count: 2
 			path: tests/SkillSummaryServiceTest.php
 
 		-
@@ -22871,6 +24629,66 @@ parameters:
 			identifier: staticMethod.dynamicCall
 			count: 3
 			path: tests/UsageCostServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertContains\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertNotEmpty\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\)\.$#'
+			identifier: staticMethod.dynamicCall
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^InMemoryVersionRepositoryForUsageScaling\:\:__construct\(\) does not call parent constructor from App\\Repositories\\VersionRepository\.$#'
+			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Method InMemoryVersionRepositoryForUsageScaling\:\:get\(\) overrides method App\\Repositories\\VersionRepository\:\:get\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Method InMemoryVersionRepositoryForUsageScaling\:\:set\(\) overrides method App\\Repositories\\VersionRepository\:\:set\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Method StubChatGptUsageServiceForScaling\:\:latestWindowSummary\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Method StubChatGptUsageServiceForScaling\:\:latestWindowSummary\(\) overrides method App\\Services\\ChatGptUsageService\:\:latestWindowSummary\(\) but is missing the \#\[\\Override\] attribute\.$#'
+			identifier: method.missingOverride
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^Method StubChatGptUsageServiceForScaling\:\:latestWindowSummary\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/UsageScalingServiceTest.php
+
+		-
+			message: '#^StubChatGptUsageServiceForScaling\:\:__construct\(\) does not call parent constructor from App\\Services\\ChatGptUsageService\.$#'
+			identifier: constructor.missingParentCall
+			count: 1
+			path: tests/UsageScalingServiceTest.php
 
 		-
 			message: '#^Dynamic call to static method PHPUnit\\Framework\\Assert\:\:assertFalse\(\)\.$#'

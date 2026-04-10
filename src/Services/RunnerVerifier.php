@@ -53,6 +53,26 @@ class RunnerVerifier
         return $this->sendRequest($this->runnerUrl, $payload, $timeout);
     }
 
+    /**
+     * Verify Anthropic/Claude credentials via the runner's /verify-claude endpoint.
+     */
+    public function verifyClaude(array $authPayload, ?float $timeoutSeconds = null): array
+    {
+        $claudeUrl = $this->deriveClaudeVerifyUrl($this->runnerUrl);
+        $payload = [
+            'auth_json' => $authPayload,
+        ];
+
+        $timeout = $timeoutSeconds ?? $this->timeoutSeconds;
+        $payload['timeout_seconds'] = $timeout;
+        return $this->sendRequest($claudeUrl, $payload, $timeout);
+    }
+
+    private function deriveClaudeVerifyUrl(string $runnerUrl): string
+    {
+        return preg_replace('#/verify$#', '/verify-claude', $runnerUrl) ?? $runnerUrl . '-claude';
+    }
+
     public function summarizeSkill(string $slug, string $manifest, array $authPayload, ?float $timeoutSeconds = null): array
     {
         if ($this->skillSummaryUrl === '') {

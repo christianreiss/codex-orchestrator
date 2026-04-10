@@ -9,11 +9,12 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Optional
+from typing import Literal, Optional
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -30,7 +31,15 @@ DEBUG_DUMP_ENABLED = DEBUG_DUMP_AUTH and ALLOW_SECRET_DUMP and APP_ENV != "produ
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    codex_ok = shutil.which("codex") is not None
+    claude_ok = shutil.which("claude") is not None
+    return {
+        "status": "ok",
+        "engines": {
+            "codex": {"available": codex_ok},
+            "claude": {"available": claude_ok},
+        },
+    }
 
 
 class VerifyRequest(BaseModel):
@@ -44,6 +53,7 @@ class SkillSummaryRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     slug: str = Field(..., description="Skill slug")
     manifest: str = Field(..., description="SKILL.md contents to summarize")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the summary call (seconds)"
     )
@@ -53,6 +63,7 @@ class SkillGenerateRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     prompt: str = Field(..., description="Free-text operator request for the skill")
     slug_hint: Optional[str] = Field(None, description="Optional slug hint from the UI")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the generation call (seconds)"
     )
@@ -79,6 +90,7 @@ class SkillAssistRequest(BaseModel):
     skill: SkillAssistDraft = Field(..., description="Current skill draft")
     mode: str = Field("new", description="Whether the skill is new or existing")
     slug_locked: bool = Field(False, description="Whether the slug must stay unchanged")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the assist call (seconds)"
     )
@@ -88,6 +100,7 @@ class MemorySummaryRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     memory_key: str = Field(..., description="Memory key identifier")
     content: str = Field(..., description="Memory content to summarize")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the summary call (seconds)"
     )
@@ -97,6 +110,7 @@ class ProjectAssistRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     slug: str = Field(..., description="Project slug")
     project: dict = Field(..., description="Current project snapshot for drafting")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the assist call (seconds)"
     )
@@ -203,6 +217,199 @@ def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
     env["CODEX_SYNC_BAKED"] = "0"
 
     return env, home_dir, auth_path
+
+
+# ---------------------------------------------------------------------------
+# Claude Code engine helpers
+# ---------------------------------------------------------------------------
+
+ANTHROPIC_API_BASE = os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com").rstrip("/")
+CLAUDE_CLI_PATH = shutil.which("claude") or "/usr/local/bin/claude"
+
+
+def _extract_anthropic_token(auth_json: dict) -> Optional[str]:
+    """Pull an Anthropic API key from the auth payload."""
+    auths = auth_json.get("auths", {})
+    if isinstance(auths, dict):
+        anthropic_entry = auths.get("api.anthropic.com")
+        if isinstance(anthropic_entry, dict):
+            token = anthropic_entry.get("token")
+            if isinstance(token, str) and token.strip():
+                return token.strip()
+    tokens = auth_json.get("tokens", {})
+    if isinstance(tokens, dict):
+        candidate = tokens.get("anthropic_api_key")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _claude_version() -> str:
+    try:
+        proc = subprocess.run(
+            [CLAUDE_CLI_PATH, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            return "unknown"
+        parts = proc.stdout.strip().split()
+        return parts[-1] if parts else "unknown"
+    except Exception:
+        return "unavailable"
+
+
+def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
+    """Set up a temp HOME with an Anthropic API key for the Claude CLI."""
+    token = _extract_anthropic_token(auth_json)
+    if token is None or token.strip() == "":
+        raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
+
+    env = os.environ.copy()
+    try:
+        home_dir = tempfile.mkdtemp(prefix="claude-runner-", dir=RUNNER_HOME_PARENT)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to create runner home: {exc}")
+    env["HOME"] = home_dir
+    tmp_dir = os.path.join(home_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    env["TMPDIR"] = tmp_dir
+    env["TMP"] = tmp_dir
+    env["TEMP"] = tmp_dir
+
+    # Claude Code reads the API key from the environment variable.
+    env["ANTHROPIC_API_KEY"] = token
+
+    # Store the token so callers can detect rotation (same pattern as Codex).
+    claude_dir = os.path.join(home_dir, ".claude")
+    os.makedirs(claude_dir, exist_ok=True)
+    auth_path = os.path.join(claude_dir, "auth.json")
+    try:
+        with open(auth_path, "w", encoding="utf-8") as fh:
+            json.dump(auth_json, fh)
+        os.chmod(auth_path, 0o600)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
+
+    return env, home_dir, auth_path
+
+
+def _run_claude_probe(payload) -> dict:
+    """Validate an Anthropic API key with a lightweight messages API call."""
+    token = _extract_anthropic_token(payload.auth_json)
+    if token is None or token.strip() == "":
+        raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
+
+    timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+    start = time.perf_counter()
+    try:
+        resp = httpx.post(
+            f"{ANTHROPIC_API_BASE}/v1/messages",
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "Reply Banana if this works."}],
+            },
+            timeout=timeout,
+        )
+        latency_ms = int((time.perf_counter() - start) * 1000)
+
+        if resp.status_code == 200:
+            body = resp.json()
+            text = ""
+            for block in body.get("content", []):
+                if block.get("type") == "text":
+                    text += block.get("text", "")
+            ok = "banana" in text.lower()
+            result = {
+                "status": "ok" if ok else "fail",
+                "latency_ms": latency_ms,
+                "reachable": True,
+                "claude_version": _claude_version(),
+            }
+            if not ok:
+                result["reason"] = f"unexpected response: {text[:200]}"
+            return result
+
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        error_text = resp.text[:400]
+        return {
+            "status": "fail",
+            "latency_ms": latency_ms,
+            "reachable": True,
+            "reason": f"HTTP {resp.status_code}: {error_text}",
+            "claude_version": _claude_version(),
+        }
+    except httpx.TimeoutException:
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return {
+            "status": "fail",
+            "latency_ms": latency_ms,
+            "reachable": False,
+            "reason": "timeout contacting Anthropic API",
+            "claude_version": _claude_version(),
+        }
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return {
+            "status": "fail",
+            "latency_ms": latency_ms,
+            "reachable": False,
+            "reason": str(exc)[:400],
+            "claude_version": _claude_version(),
+        }
+
+
+def _build_claude_exec_cmd(prompt: str, model: Optional[str] = None) -> list[str]:
+    cmd = [CLAUDE_CLI_PATH, "--print", "--no-input"]
+    if isinstance(model, str) and model.strip():
+        cmd.extend(["--model", model.strip()])
+    cmd.append(prompt)
+    return cmd
+
+
+def _run_claude_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
+    cmd = _build_claude_exec_cmd(prompt)
+    start = time.perf_counter()
+    proc = subprocess.run(
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return proc, latency_ms
+
+
+def _run_engine_exec(prompt: str, env: dict, timeout: float, engine: str = "codex") -> tuple[subprocess.CompletedProcess[str], int]:
+    """Dispatch to either Codex or Claude exec based on engine parameter."""
+    if engine == "claude":
+        return _run_claude_exec(prompt, env, timeout)
+    return _run_codex_exec(prompt, env, timeout)
+
+
+def _prepare_engine_env(auth_json: dict, engine: str = "codex") -> tuple[dict, str, str]:
+    """Dispatch to either Codex or Claude env preparation."""
+    if engine == "claude":
+        return _prepare_claude_env(auth_json)
+    return _prepare_codex_env(auth_json)
+
+
+def _engine_version_key(engine: str) -> str:
+    return "claude_version" if engine == "claude" else "codex_version"
+
+
+def _engine_version(env: dict, engine: str) -> str:
+    if engine == "claude":
+        return _claude_version()
+    return _codex_version(env)
 
 
 def _run_codex_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
@@ -601,10 +808,11 @@ def _summarize_skill(payload: SkillSummaryRequest) -> dict:
     if manifest == "":
         raise HTTPException(status_code=400, detail="manifest is required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(_skill_summary_prompt(slug, manifest), env, timeout)
+        proc, latency_ms = _run_engine_exec(_skill_summary_prompt(slug, manifest), env, timeout, engine)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
         summary = _sanitize_skill_summary(stdout)
@@ -614,7 +822,7 @@ def _summarize_skill(payload: SkillSummaryRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok:
             result["summary"] = summary
@@ -636,10 +844,11 @@ def _summarize_memory(payload: MemorySummaryRequest) -> dict:
     if content == "":
         raise HTTPException(status_code=400, detail="content is required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(_memory_summary_prompt(memory_key, content), env, timeout)
+        proc, latency_ms = _run_engine_exec(_memory_summary_prompt(memory_key, content), env, timeout, engine)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
         summary = _sanitize_skill_summary(stdout)
@@ -649,7 +858,7 @@ def _summarize_memory(payload: MemorySummaryRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok:
             result["summary"] = summary
@@ -669,10 +878,11 @@ def _generate_skill(payload: SkillGenerateRequest) -> dict:
     if prompt == "":
         raise HTTPException(status_code=400, detail="prompt is required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(_skill_generation_prompt(prompt, slug_hint), env, timeout)
+        proc, latency_ms = _run_engine_exec(_skill_generation_prompt(prompt, slug_hint), env, timeout, engine)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
@@ -689,7 +899,7 @@ def _generate_skill(payload: SkillGenerateRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok and generated is not None:
             result.update(generated)
@@ -707,10 +917,11 @@ def _assist_skill(payload: SkillAssistRequest) -> dict:
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages are required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(_skill_assist_prompt(payload), env, timeout)
+        proc, latency_ms = _run_engine_exec(_skill_assist_prompt(payload), env, timeout, engine)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
@@ -727,7 +938,7 @@ def _assist_skill(payload: SkillAssistRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok and assisted is not None:
             result.update(assisted)
@@ -748,10 +959,11 @@ def _assist_project(payload: ProjectAssistRequest) -> dict:
     if not isinstance(payload.project, dict) or not payload.project:
         raise HTTPException(status_code=400, detail="project is required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(_project_assist_prompt(payload), env, timeout)
+        proc, latency_ms = _run_engine_exec(_project_assist_prompt(payload), env, timeout, engine)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
@@ -768,7 +980,7 @@ def _assist_project(payload: ProjectAssistRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok and assisted is not None:
             result.update(assisted)
@@ -793,6 +1005,21 @@ def verify(payload: VerifyRequest, request: Request):
         return _run_probe(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="probe timeout")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/verify-claude")
+def verify_claude(payload: VerifyRequest, request: Request):
+    if RUNNER_SHARED_SECRET:
+        provided = request.headers.get("x-runner-auth", "")
+        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        return _run_claude_probe(payload)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -916,7 +1143,8 @@ class ExecRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     prompt: str = Field(..., description="Prompt to execute")
     images: list[ExecImageInput] = Field(default_factory=list, description="Optional images to attach")
-    model: Optional[str] = Field(None, description="Codex model to execute")
+    model: Optional[str] = Field(None, description="Model to execute")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the exec call (seconds)"
     )
@@ -1024,11 +1252,15 @@ def _exec_prompt(payload: ExecRequest) -> dict:
     if prompt == "":
         raise HTTPException(status_code=400, detail="prompt is required")
 
-    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, auth_path = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or 30.0
-        image_paths = _materialize_exec_images(payload.images or [], home_dir)
-        cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
+        if engine == "claude":
+            cmd = _build_claude_exec_cmd(prompt, payload.model)
+        else:
+            image_paths = _materialize_exec_images(payload.images or [], home_dir)
+            cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
         start = time.perf_counter()
         proc = subprocess.run(
             cmd,
@@ -1059,7 +1291,7 @@ def _exec_prompt(payload: ExecRequest) -> dict:
             parts = [p for p in [stderr, stdout] if p]
             message = "\n".join(parts).strip()
             result["output"] = ""
-            result["error"] = message[:500] if message else "codex exec failed"
+            result["error"] = message[:500] if message else f"{engine} exec failed"
             return result
 
         result["status"] = "ok"

@@ -12,6 +12,7 @@ namespace App\Repositories;
 use App\Database;
 use App\Services\ConfigNormalizer;
 use App\Security\SecretBox;
+use App\Support\Engine;
 use PDO;
 
 class HostRepository
@@ -56,6 +57,12 @@ class HostRepository
         if (!array_key_exists('expires_at', $host)) {
             $host['expires_at'] = null;
         }
+        // Engine normalization — default to 'codex' for legacy hosts.
+        if (!array_key_exists('engines', $host) || $host['engines'] === null || $host['engines'] === '') {
+            $host['engines'] = Engine::DEFAULT;
+        }
+        $host['engines_list'] = Engine::parseHostEngines($host['engines'] ?? null);
+
         $rawModelOverride = $host['model_override'] ?? null;
         $normalizedModelOverride = ConfigNormalizer::normalizeStoredModel($rawModelOverride);
         if ($normalizedModelOverride !== null) {
@@ -152,14 +159,18 @@ class HostRepository
         return $host ? $this->normalizeStoredHost($host) : null;
     }
 
-    public function create(string $fqdn, string $apiKey, bool $secure = true): array
+    /**
+     * @param string[] $engines Engine identifiers (e.g. ['codex'], ['claude'], ['codex','claude']).
+     */
+    public function create(string $fqdn, string $apiKey, bool $secure = true, array $engines = [Engine::DEFAULT]): array
     {
         $hash = $this->hashApiKey($apiKey);
         $encrypted = $this->encryptApiKey($apiKey);
         $now = gmdate(DATE_ATOM);
+        $enginesStr = Engine::serializeHostEngines($engines ?: [Engine::DEFAULT]);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, vip, model_override, reasoning_effort_override, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :vip, :model_override, :reasoning_effort_override, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, api_key_hash, api_key_enc, status, secure, vip, engines, model_override, reasoning_effort_override, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :api_key_hash, :api_key_enc, :status, :secure, :vip, :engines, :model_override, :reasoning_effort_override, :created_at, :updated_at)'
         );
         $statement->execute([
             'fqdn' => $fqdn,
@@ -169,6 +180,7 @@ class HostRepository
             'status' => 'active',
             'secure' => $secure ? 1 : 0,
             'vip' => 0,
+            'engines' => $enginesStr,
             'model_override' => null,
             'reasoning_effort_override' => null,
             'created_at' => $now,
@@ -181,6 +193,47 @@ class HostRepository
         }
 
         return $host;
+    }
+
+    /**
+     * @param string[] $engines
+     */
+    public function updateEngines(int $hostId, array $engines): void
+    {
+        $enginesStr = Engine::serializeHostEngines($engines);
+        $this->updateHostFields($hostId, 'engines = :engines', ['engines' => $enginesStr]);
+    }
+
+    public function updateClaudeVersions(int $hostId, ?string $clientVersion, ?string $wrapperVersion): void
+    {
+        $assignments = [];
+        $params = [];
+
+        if ($clientVersion !== null) {
+            $assignments[] = 'claude_client_version = :claude_client_version';
+            $params['claude_client_version'] = $clientVersion;
+        }
+
+        if ($wrapperVersion !== null) {
+            $assignments[] = 'claude_wrapper_version = :claude_wrapper_version';
+            $params['claude_wrapper_version'] = $wrapperVersion;
+        }
+
+        if ($assignments === []) {
+            return;
+        }
+
+        $this->updateHostFields($hostId, implode(', ', $assignments), $params);
+    }
+
+    public function updateClaudeAuthDigest(int $hostId, ?string $digest): void
+    {
+        $this->updateHostFields($hostId, 'claude_auth_digest = :digest', ['digest' => $digest]);
+    }
+
+    public function updateClaudeModelOverride(int $hostId, ?string $modelOverride): void
+    {
+        $this->updateHostFields($hostId, 'claude_model_override = :claude_model_override', ['claude_model_override' => $modelOverride]);
     }
 
     public function rotateApiKey(int $hostId, string $apiKey): ?array

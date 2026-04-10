@@ -308,12 +308,12 @@ class InsecureSessionWrapperService extends WrapperService
     {
     }
 
-    public function metadata(): array
+    public function metadata(string $engine = \App\Support\Engine::CODEX): array
     {
         return [];
     }
 
-    public function ensureSeeded(): void
+    public function ensureSeeded(string $engine = \App\Support\Engine::CODEX): void
     {
     }
 }

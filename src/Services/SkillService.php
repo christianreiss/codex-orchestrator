@@ -13,6 +13,7 @@ use App\Exceptions\ValidationException;
 use App\Repositories\LogRepository;
 use App\Repositories\SkillRepository;
 use App\Services\Traits\HostServiceTrait;
+use App\Support\Engine;
 
 class SkillService
 {
@@ -29,10 +30,23 @@ class SkillService
     ) {
     }
 
-    public function listSkills(?array $host = null, bool $includeDeleted = false): array
+    /**
+     * @param string|null $engine Filter skills by engine. NULL returns all skills.
+     *                            A specific engine returns universal (NULL engine) + engine-specific skills.
+     */
+    public function listSkills(?array $host = null, bool $includeDeleted = false, ?string $engine = null): array
     {
         $rows = $this->publishedSkills($includeDeleted);
-        $this->logs->log($this->hostId($host), 'skill.list', ['count' => count($rows)]);
+
+        // Filter by engine: include universal skills (engine IS NULL) and engine-specific ones.
+        if ($engine !== null && Engine::isValid($engine)) {
+            $rows = array_values(array_filter($rows, static function (array $row) use ($engine): bool {
+                $skillEngine = $row['engine'] ?? null;
+                return $skillEngine === null || $skillEngine === '' || $skillEngine === $engine;
+            }));
+        }
+
+        $this->logs->log($this->hostId($host), 'skill.list', ['count' => count($rows), 'engine' => $engine]);
 
         return $rows;
     }

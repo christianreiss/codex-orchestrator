@@ -9,6 +9,7 @@ use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
+use App\Support\Engine;
 use Throwable;
 
 class HostApiController
@@ -127,10 +128,15 @@ class HostApiController
     {
         $apiKey = RequestHelper::resolveApiKey();
         $clientIp = RequestHelper::resolveClientIp();
+        $engine = VersionHelper::extractEngine($payload);
         $host = $this->service->authenticate($apiKey, $clientIp);
 
+        $usagePayload = is_array($payload) ? $payload : [];
+        $usagePayload['engine'] = $engine;
+
         try {
-            $data = $this->service->recordTokenUsage($host, is_array($payload) ? $payload : [], $clientIp);
+            $data = $this->service->recordTokenUsage($host, $usagePayload, $clientIp);
+            $data['engine'] = $engine;
         } catch (Throwable $exception) {
             error_log('Usage ingestion failed: ' . $exception->getMessage());
             Response::json([
@@ -138,6 +144,7 @@ class HostApiController
                 'data' => [
                     'recorded' => false,
                     'reason' => 'usage ingestion failed',
+                    'engine' => $engine,
                 ],
             ]);
         }

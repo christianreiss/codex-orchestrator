@@ -81,6 +81,8 @@ use App\Services\MemoryService;
 use App\Services\MemorySummaryService;
 use App\Services\ClientConfigService;
 use App\Services\OpenAiModelService;
+use App\Services\ClaudeModelService;
+use App\Services\ClaudeUsageService;
 use App\Services\StartupSyncService;
 use App\Services\UsageScalingService;
 use App\Mcp\McpServer;
@@ -114,11 +116,15 @@ use App\Http\Controllers\McpRouteController;
 use App\Http\Controllers\SkillApiController;
 use App\Http\Controllers\CliAuthController;
 use App\Http\Controllers\OpenAiApiController;
+use App\Http\Controllers\ClaudeApiController;
 use App\Http\Controllers\AdminOpenAiKeyController;
+use App\Http\Controllers\AdminClaudeKeyController;
 use App\Http\Controllers\AdminJoplinController;
 use App\Http\OpenAiResponse;
+use App\Http\AnthropicResponse;
 use App\Contracts\BackendAdapter;
 use App\Adapters\RunnerBackendAdapter;
+use App\Adapters\ClaudeBackendAdapter;
 use App\Adapters\NullBackendAdapter;
 use App\Repositories\OpenaiApiKeyRepository;
 use App\Services\OpenaiApiKeyService;
@@ -279,7 +285,9 @@ $pricingService = new PricingService(
 );
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox);
+$clxStoragePath = Config::get('CLX_WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/clx');
+$clxSeedPath = Config::get('CLX_WRAPPER_SEED_PATH', $root . '/bin/clx');
+$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox, $clxStoragePath, $clxSeedPath);
 $dashboardGraphStatsService = new DashboardGraphStatsService(
     $dashboardGraphStatsRepository,
     $tokenUsageRepository,
@@ -368,6 +376,7 @@ $chatGptUsageService = new ChatGptUsageService(
     null,
     $dashboardGraphStatsService
 );
+$claudeUsageService = new ClaudeUsageService($versionRepository, $logRepository, $database);
 $usageScalingService = new UsageScalingService($chatGptUsageService, $versionRepository);
 $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepository, $versionRepository, $mcpSessionTokenRepository, usageScalingService: $usageScalingService);
 $skillManifestService = new SkillManifestService();
@@ -408,7 +417,7 @@ $startupSyncService = new StartupSyncService($agentsService, $clientConfigServic
 $costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
 $usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
 $agentsService->ensureSeededFromFile($root . '/AGENTS.md');
-$wrapperService->ensureSeeded();
+$wrapperService->ensureAllSeeded();
 if ($runBackfillsOnBoot) {
     if ($versionRepository->get('supported_models_backfill_v1') === null) {
         try {
@@ -506,7 +515,7 @@ $adminAuthCtrl = new AdminAuthController($adminAuthService, $adminPasskeyService
 $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository, $payload, __DIR__);
 $adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository, $usageScalingService);
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository, $agentsService);
-$adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $pricingModel);
+$adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $claudeUsageService, $pricingModel);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
 $adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService);
@@ -536,7 +545,21 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService);
+$claudeModelService = new ClaudeModelService($clientConfigRepository, $versionRepository);
+$claudeBackend = null;
+if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
+    $claudeExecUrl = preg_replace('#/verify$#', '/exec', $runnerUrl);
+    $claudeBackend = new ClaudeBackendAdapter(
+        $claudeExecUrl,
+        (string) Config::get('AUTH_RUNNER_SHARED_SECRET', ''),
+        $service,
+        $claudeModelService,
+        (float) Config::get('OPENAI_API_TIMEOUT', 30.0)
+    );
+}
+$claudeApiCtrl = new ClaudeApiController($claudeBackend, $openaiKeyService, $rateLimiter, $claudeModelService, $versionRepository);
 $adminOpenAiKeyCtrl = new AdminOpenAiKeyController($openaiKeyService);
+$adminClaudeKeyCtrl = new AdminClaudeKeyController($openaiKeyService);
 
 // --- Route wiring ---
 
@@ -825,6 +848,14 @@ $router->add('POST', '#^/v1/completions$#', fn() => $openaiApiCtrl->completions(
 $router->add('POST', '#^/v1/embeddings$#', fn() => $openaiApiCtrl->embeddings($payload));
 $router->add('GET', '#^/v1/models$#', fn() => $openaiApiCtrl->models());
 
+// Anthropic-compatible API
+$router->add('OPTIONS', '#^/anthropic/v1/(?:messages|models|completions|responses|embeddings)$#', fn() => $claudeApiCtrl->options());
+$router->add('POST', '#^/anthropic/v1/messages$#', fn() => $claudeApiCtrl->messages($payload));
+$router->add('POST', '#^/anthropic/v1/completions$#', fn() => $claudeApiCtrl->completions($payload));
+$router->add('GET', '#^/anthropic/v1/models$#', fn() => $claudeApiCtrl->models());
+$router->add('POST', '#^/anthropic/v1/responses$#', fn() => $claudeApiCtrl->responses($payload));
+$router->add('POST', '#^/anthropic/v1/embeddings$#', fn() => $claudeApiCtrl->embeddings($payload));
+
 // Admin: OpenAI API key management
 $router->add('GET', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->index());
 $router->add('POST', '#^/admin/openai/keys$#', fn() => $adminOpenAiKeyCtrl->store($payload));
@@ -833,9 +864,36 @@ $router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKe
 $router->add('GET', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->getOpenaiApiState());
 $router->add('POST', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->postOpenaiApiState($payload));
 
+// Admin: Claude API key management & settings
+$router->add('GET', '#^/admin/claude/keys$#', fn() => $adminClaudeKeyCtrl->index());
+$router->add('POST', '#^/admin/claude/keys$#', fn() => $adminClaudeKeyCtrl->store($payload));
+$router->add('POST', '#^/admin/claude/keys/(\d+)/toggle$#', fn($id) => $adminClaudeKeyCtrl->toggle($id, $payload));
+$router->add('DELETE', '#^/admin/claude/keys/(\d+)$#', fn($id) => $adminClaudeKeyCtrl->delete($id));
+$router->add('GET', '#^/admin/claude/state$#', fn() => $adminSettingsCtrl->getClaudeApiState());
+$router->add('POST', '#^/admin/claude/state$#', fn() => $adminSettingsCtrl->postClaudeApiState($payload));
+$router->add('GET', '#^/admin/claude/settings$#', fn() => $adminSettingsCtrl->getClaudeSettings());
+$router->add('POST', '#^/admin/claude/settings$#', fn() => $adminSettingsCtrl->postClaudeSettings($payload));
+
 // --- Dispatch + error handling ---
 
-if (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {
+if (str_starts_with($normalizedPath, '/anthropic/v1/')) {
+    // Anthropic-compatible error envelopes for /anthropic/v1/ routes
+    if ($versionRepository->getFlag('claude_api_disabled', false) && $method !== 'OPTIONS') {
+        AnthropicResponse::error('Claude API disabled by administrator', 'api_error', 503);
+    }
+    try {
+        $handled = $router->dispatch($method, $normalizedPath);
+        if (!$handled) {
+            AnthropicResponse::error('Unknown endpoint', 'not_found_error', 404);
+        }
+    } catch (HttpException $exception) {
+        AnthropicResponse::error($exception->getMessage(), 'api_error', $exception->getStatusCode());
+    } catch (Throwable $exception) {
+        error_log('Anthropic API error: ' . $exception->getMessage());
+        error_log($exception->getTraceAsString());
+        AnthropicResponse::error('Internal server error', 'api_error', 500);
+    }
+} elseif (str_starts_with($normalizedPath, '/v1/') || $normalizedPath === '/v1') {
     // OpenAI-compatible error envelopes for /v1/ routes
     $openaiApiDisabled = $versionRepository->getFlag('openai_api_disabled', false);
     if ($openaiApiDisabled && $method !== 'OPTIONS') {
