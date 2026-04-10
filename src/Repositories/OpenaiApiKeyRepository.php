@@ -6,6 +6,7 @@ namespace App\Repositories;
 
 use App\Database;
 use App\Security\SecretBox;
+use App\Support\Engine;
 use PDO;
 
 class OpenaiApiKeyRepository
@@ -16,7 +17,7 @@ class OpenaiApiKeyRepository
     ) {
     }
 
-    public function create(string $key, string $name, ?int $adminUserId, int $rateLimitRpm = 60, ?string $expiresAt = null): array
+    public function create(string $key, string $name, ?int $adminUserId, int $rateLimitRpm = 60, ?string $expiresAt = null, string $engine = Engine::CODEX): array
     {
         $now = gmdate(DATE_ATOM);
         $keyHash = hash('sha256', $key);
@@ -24,8 +25,8 @@ class OpenaiApiKeyRepository
         $prefix = substr($key, 0, 16) . '...';
 
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO openai_api_keys (name, key_prefix, key_hash, key_enc, admin_user_id, rate_limit_rpm, is_active, use_count, expires_at, created_at, updated_at)
-             VALUES (:name, :key_prefix, :key_hash, :key_enc, :admin_user_id, :rate_limit_rpm, 1, 0, :expires_at, :created_at, :updated_at)'
+            'INSERT INTO openai_api_keys (name, key_prefix, key_hash, key_enc, admin_user_id, rate_limit_rpm, is_active, use_count, expires_at, engine, created_at, updated_at)
+             VALUES (:name, :key_prefix, :key_hash, :key_enc, :admin_user_id, :rate_limit_rpm, 1, 0, :expires_at, :engine, :created_at, :updated_at)'
         );
 
         $statement->execute([
@@ -36,6 +37,7 @@ class OpenaiApiKeyRepository
             'admin_user_id' => $adminUserId,
             'rate_limit_rpm' => $rateLimitRpm,
             'expires_at' => $expiresAt,
+            'engine' => $engine,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -81,8 +83,19 @@ class OpenaiApiKeyRepository
     public function listAll(): array
     {
         $statement = $this->database->connection()->query(
-            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, created_at, updated_at FROM openai_api_keys ORDER BY created_at DESC'
+            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at FROM openai_api_keys ORDER BY created_at DESC'
         );
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function listByEngine(string $engine): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, name, key_prefix, admin_user_id, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at
+             FROM openai_api_keys WHERE engine = :engine ORDER BY created_at DESC'
+        );
+        $statement->execute(['engine' => $engine]);
 
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }

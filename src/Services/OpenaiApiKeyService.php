@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Repositories\LogRepository;
 use App\Repositories\OpenaiApiKeyRepository;
+use App\Support\Engine;
 
 class OpenaiApiKeyService
 {
@@ -18,15 +19,18 @@ class OpenaiApiKeyService
     /**
      * Generate a new API key. Returns ['key' => full key (shown once), 'record' => db row].
      */
-    public function generate(string $name, ?int $adminUserId = null, int $rateLimitRpm = 60, ?string $expiresAt = null): array
+    public function generate(string $name, ?int $adminUserId = null, int $rateLimitRpm = 60, ?string $expiresAt = null, string $engine = Engine::CODEX): array
     {
-        $key = 'sk-coco-' . bin2hex(random_bytes(32));
-        $record = $this->repository->create($key, $name, $adminUserId, $rateLimitRpm, $expiresAt);
+        $prefix = Engine::keyPrefix($engine);
+        $key = $prefix . bin2hex(random_bytes(32));
+        $record = $this->repository->create($key, $name, $adminUserId, $rateLimitRpm, $expiresAt, $engine);
 
-        $this->logs->log(null, 'openai.key.create', [
+        $logPrefix = Engine::logPrefix($engine);
+        $this->logs->log(null, "{$logPrefix}.create", [
             'key_id' => $record['id'] ?? null,
             'name' => $name,
             'admin_user_id' => $adminUserId,
+            'engine' => $engine,
         ]);
 
         return [
@@ -69,20 +73,30 @@ class OpenaiApiKeyService
         return $this->repository->listAll();
     }
 
-    public function toggleActive(int $id, bool $active): void
+    /**
+     * List keys filtered by engine.
+     */
+    public function listByEngine(string $engine): array
+    {
+        return $this->repository->listByEngine($engine);
+    }
+
+    public function toggleActive(int $id, bool $active, string $engine = Engine::CODEX): void
     {
         $this->repository->setActive($id, $active);
 
-        $this->logs->log(null, $active ? 'openai.key.enable' : 'openai.key.disable', [
+        $logPrefix = Engine::logPrefix($engine);
+        $this->logs->log(null, $active ? "{$logPrefix}.enable" : "{$logPrefix}.disable", [
             'key_id' => $id,
         ]);
     }
 
-    public function delete(int $id): void
+    public function delete(int $id, string $engine = Engine::CODEX): void
     {
         $this->repository->delete($id);
 
-        $this->logs->log(null, 'openai.key.delete', [
+        $logPrefix = Engine::logPrefix($engine);
+        $this->logs->log(null, "{$logPrefix}.delete", [
             'key_id' => $id,
         ]);
     }
