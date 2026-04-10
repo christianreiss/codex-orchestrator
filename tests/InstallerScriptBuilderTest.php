@@ -63,6 +63,17 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('3) Run one-shot prompt: cdx --execute \"summarize this repo\"', $script);
     }
 
+    public function testTemplatePrefersExistingStandardWrapperPathAndPrintsRehashHint(): void
+    {
+        $script = $this->buildScript();
+
+        $this->assertStringContainsString('preferred_wrapper_path() {', $script);
+        $this->assertStringContainsString('current_path="$(command -v "$name" 2>/dev/null || true)"', $script);
+        $this->assertStringContainsString('cdx_install_path="$(preferred_wrapper_path cdx "/usr/local/bin/cdx" "$HOME/.local/bin/cdx")"', $script);
+        $this->assertStringContainsString('print_shell_rehash_hint cdx "${existing_cdx_path:-}" "$cdx_install_path"', $script);
+        $this->assertStringContainsString("Run 'hash -r' if '\${name}' still shows the old wrapper.", $script);
+    }
+
     public function testClaudeTemplateInstallsClxAndClaudeCode(): void
     {
         $script = $this->buildScript([], '1.2.3', 'claude');
@@ -70,7 +81,8 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('Installing Claude Code for ${FQDN}', $script);
         $this->assertStringContainsString('/wrapper/download?engine=claude', $script);
         $this->assertStringContainsString('npm install -g @anthropic-ai/claude-code', $script);
-        $this->assertStringContainsString('clx_install_path="/usr/local/bin/clx"', $script);
+        $this->assertStringContainsString('clx_install_path="$(preferred_wrapper_path clx "/usr/local/bin/clx" "$HOME/.local/bin/clx")"', $script);
+        $this->assertStringContainsString('print_shell_rehash_hint clx "${existing_clx_path:-}" "$clx_install_path"', $script);
         $this->assertStringContainsString('1) Check versions: clx --version', $script);
         $this->assertStringContainsString('2) Sync auth + start Claude Code: clx', $script);
         $this->assertStringContainsString('3) Run one-shot prompt: clx \"summarize this repo\"', $script);
@@ -86,6 +98,8 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('npm install -g @anthropic-ai/claude-code', $script);
         $this->assertStringContainsString('Target Codex: ${CODEX_VERSION}', $script);
         $this->assertStringContainsString('Target Claude Code: latest npm release', $script);
+        $this->assertStringContainsString('print_shell_rehash_hint cdx "${existing_cdx_path:-}" "$cdx_install_path"', $script);
+        $this->assertStringContainsString('print_shell_rehash_hint clx "${existing_clx_path:-}" "$clx_install_path"', $script);
         $this->assertStringContainsString('1) Check versions: cdx --version && clx --version', $script);
         $this->assertStringContainsString('2) Sync auth + start Codex: cdx', $script);
         $this->assertStringContainsString('3) Sync auth + start Claude Code: clx', $script);

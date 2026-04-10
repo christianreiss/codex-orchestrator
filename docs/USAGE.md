@@ -92,9 +92,11 @@ What the installer does:
 - Installs Codex CLI for `cdx` hosts, Claude Code CLI for `clx` hosts, or both for dual-engine hosts
 
 - Downloads the **host-baked** `cdx` wrapper from the service (`/wrapper/download`).
-- Installs `cdx` to `/usr/local/bin/cdx` when writable, otherwise to `$HOME/.local/bin/cdx`.
+- Reuses the currently active standard wrapper path (`/usr/local/bin/{cdx,clx}` or `~/.local/bin/{cdx,clx}`) when one already exists; otherwise installs to `/usr/local/bin/...` when writable, falling back to `~/.local/bin/...`.
 - Downloads the matching Codex CLI release from GitHub and installs `codex` similarly.
 - Prints installed versions plus a compact `Next steps` quickstart (`cdx --version`, `cdx`, `cdx --execute ...`) and leaves `cdx` ready to run.
+
+If the install switches wrapper locations and your current Bash session still resolves `cdx` or `clx` to the old path, run `hash -r` (or open a new shell) so Bash forgets the cached command path.
 
 If it installed into `~/.local/bin`, make sure that’s on `PATH`:
 

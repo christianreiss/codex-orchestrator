@@ -65,7 +65,8 @@ echo "Target Codex: ${CODEX_VERSION}"
 
 curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=codex" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
-cdx_install_path="/usr/local/bin/cdx"
+existing_cdx_path="$(command -v cdx 2>/dev/null || true)"
+cdx_install_path="$(preferred_wrapper_path cdx "/usr/local/bin/cdx" "$HOME/.local/bin/cdx")"
 if ! install_binary "$tmpdir/cdx" "$cdx_install_path"; then
   cdx_install_path="$HOME/.local/bin/cdx"
   mkdir -p "$(dirname "$cdx_install_path")"
@@ -81,6 +82,7 @@ if ! "$CODEX_BIN_PATH" -V; then
   echo "Codex install failed: ${CODEX_BIN_PATH} did not run cleanly." >&2
   exit 1
 fi
+print_shell_rehash_hint cdx "${existing_cdx_path:-}" "$cdx_install_path"
 if (( user_bin )); then
   echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' is not found."
 fi
@@ -116,7 +118,8 @@ echo "Target Claude Code: latest npm release"
 
 curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=claude" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/clx"
 chmod +x "$tmpdir/clx"
-clx_install_path="/usr/local/bin/clx"
+existing_clx_path="$(command -v clx 2>/dev/null || true)"
+clx_install_path="$(preferred_wrapper_path clx "/usr/local/bin/clx" "$HOME/.local/bin/clx")"
 if ! install_binary "$tmpdir/clx" "$clx_install_path"; then
   clx_install_path="$HOME/.local/bin/clx"
   mkdir -p "$(dirname "$clx_install_path")"
@@ -132,6 +135,7 @@ if ! "$CLAUDE_BIN_PATH" --version; then
   echo "Claude Code install failed: ${CLAUDE_BIN_PATH} did not run cleanly." >&2
   exit 1
 fi
+print_shell_rehash_hint clx "${existing_clx_path:-}" "$clx_install_path"
 if (( user_bin )); then
   echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'clx' is not found."
 fi
@@ -174,7 +178,8 @@ echo "Target Claude Code: latest npm release"
 
 curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=codex" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/cdx"
 chmod +x "$tmpdir/cdx"
-cdx_install_path="/usr/local/bin/cdx"
+existing_cdx_path="$(command -v cdx 2>/dev/null || true)"
+cdx_install_path="$(preferred_wrapper_path cdx "/usr/local/bin/cdx" "$HOME/.local/bin/cdx")"
 if ! install_binary "$tmpdir/cdx" "$cdx_install_path"; then
   cdx_install_path="$HOME/.local/bin/cdx"
   mkdir -p "$(dirname "$cdx_install_path")"
@@ -184,7 +189,8 @@ fi
 
 curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=claude" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/clx"
 chmod +x "$tmpdir/clx"
-clx_install_path="/usr/local/bin/clx"
+existing_clx_path="$(command -v clx 2>/dev/null || true)"
+clx_install_path="$(preferred_wrapper_path clx "/usr/local/bin/clx" "$HOME/.local/bin/clx")"
 if ! install_binary "$tmpdir/clx" "$clx_install_path"; then
   clx_install_path="$HOME/.local/bin/clx"
   mkdir -p "$(dirname "$clx_install_path")"
@@ -206,6 +212,8 @@ if ! "$CLAUDE_BIN_PATH" --version; then
   echo "Claude Code install failed: ${CLAUDE_BIN_PATH} did not run cleanly." >&2
   exit 1
 fi
+print_shell_rehash_hint cdx "${existing_cdx_path:-}" "$cdx_install_path"
+print_shell_rehash_hint clx "${existing_clx_path:-}" "$clx_install_path"
 if (( user_bin )); then
   echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' or 'clx' is not found."
 fi
@@ -260,6 +268,30 @@ install_binary() {
     fi
   fi
   return 1
+}
+
+preferred_wrapper_path() {
+  local name="$1"
+  local system_path="$2"
+  local user_path="$3"
+  local current_path=""
+  current_path="$(command -v "$name" 2>/dev/null || true)"
+  case "$current_path" in
+    "$system_path"|"$user_path")
+      printf '%s' "$current_path"
+      return 0
+      ;;
+  esac
+  printf '%s' "$system_path"
+}
+
+print_shell_rehash_hint() {
+  local name="$1"
+  local previous_path="$2"
+  local installed_path="$3"
+  if [[ -n "$previous_path" && "$previous_path" != "$installed_path" ]]; then
+    echo "Note: your current shell may still cache ${name} at ${previous_path}. Run 'hash -r' if '${name}' still shows the old wrapper."
+  fi
 }
 
 user_bin=0
