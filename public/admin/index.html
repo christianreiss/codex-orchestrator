@@ -650,6 +650,17 @@
             </div>
           </div>
         </div>
+        <div class="modal-backdrop" id="claudeRunnerModal" role="dialog" aria-modal="true">
+          <div class="modal">
+            <h3>Claude runner</h3>
+            <p class="muted">Claude API verification with live output and result.</p>
+            <div class="runner-meta" id="claudeRunnerMeta"></div>
+            <div class="runner-log" id="claudeRunnerLog" aria-live="polite"></div>
+            <div class="actions">
+              <button class="ghost" id="claudeRunnerClose">Close</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-backdrop" id="upgradeModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3>Codex Upgrade Notes</h3>
@@ -728,6 +739,9 @@
           <section class="dashboard-primary-grid" id="stats">
             <section class="dashboard-primary-card" id="chatgpt-usage-card">
               <div class="muted">Loading usage…</div>
+            </section>
+            <section class="dashboard-primary-card" id="claude-usage-card">
+              <div class="muted">Loading Claude usage…</div>
             </section>
           </section>
           <div class="dashboard-ops-strip" id="dashboardOpsStrip" hidden></div>
@@ -1623,9 +1637,14 @@
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
-                        <h3>Claude Version</h3>
-                        <p class="muted panel-subtitle-sm">Target Claude Code version for hosts with the Claude engine.</p>
+                        <h3>Claude Version <span class="pill-quiet" id="claudeVersionBadge">Loading…</span></h3>
+                        <p class="muted panel-subtitle-sm">Current Claude fleet version; lock to pin a specific version.</p>
                       </div>
+                      <label class="toggle" for="claudeVersionLockToggle">
+                        <input type="checkbox" id="claudeVersionLockToggle">
+                        <span class="track"><span class="thumb"></span></span>
+                        <span class="toggle-text" id="claudeVersionLockLabel">Unlocked</span>
+                      </label>
                     </div>
                     <div class="setting-body">
                       <div class="panel-actions panel-actions-spaced">
@@ -1748,6 +1767,7 @@
                     <div class="setting-actions">
                       <button class="ghost" id="uploadAuthBtn">Seed auth.json</button>
                       <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
+                      <button class="ghost tiny-btn" id="runner-claude" title="Run Claude verification now">↻ Claude Runner</button>
                       <button class="ghost" id="version-check">Check versions</button>
                     </div>
                   </div>
