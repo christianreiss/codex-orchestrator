@@ -3200,15 +3200,7 @@ except Exception as e:
   # ── 10. Cron ─────────────────────────────────────────────────
   local cron_label="n/a"
   if command -v crontab >/dev/null 2>&1; then
-    local clx_real_path=""
-    clx_real_path="$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
-    local cron_marker=""
-    cron_marker="$(cron_managed_marker)"
-    local current_crontab=""
-    current_crontab="$(crontab -l 2>/dev/null || true)"
-    local quoted_clx_path=""
-    printf -v quoted_clx_path '%q' "$clx_real_path"
-    if cron_has_wrapper_entry "$current_crontab" "$clx_real_path" "$quoted_clx_path" "$cron_marker"; then
+    if cron_wrapper_entry_installed; then
       cron_label="installed ok"
     else
       cron_label="not installed"
@@ -3300,11 +3292,7 @@ except Exception as e:
   local result_summary=""
   local hints_suffix=""
   if ((${#hints[@]} > 0)); then
-    if output_supports_unicode; then
-      hints_suffix=" -- see hints below"
-    else
-      hints_suffix=" -- see hints below"
-    fi
+    hints_suffix=" -- see hints below"
   fi
   if ((failures == 0)); then
     result_summary="$(colorize "all checks passed" "green") ok"
