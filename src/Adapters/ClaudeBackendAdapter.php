@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Adapters;
 
+use App\Contracts\BackendAdapter;
 use App\Services\AuthService;
 use App\Services\ClaudeModelService;
 use App\Support\Engine;
 use Throwable;
 
-class ClaudeBackendAdapter
+class ClaudeBackendAdapter implements BackendAdapter
 {
     public function __construct(
         private readonly string $runnerExecUrl,
@@ -23,8 +24,8 @@ class ClaudeBackendAdapter
     public function messages(array $messages, string $model): array
     {
         [$prompt, $images] = $this->buildPromptPayload($messages);
-
-        $output = $this->runPrompt($prompt, $model, $images);
+        $result = $this->runPrompt($prompt, $model, $images);
+        $usage = self::extractUsage($result);
 
         return [
             'id' => 'msg_' . bin2hex(random_bytes(16)),
@@ -33,15 +34,78 @@ class ClaudeBackendAdapter
             'content' => [
                 [
                     'type' => 'text',
-                    'text' => $output,
+                    'text' => $result['output'] ?? '',
                 ],
             ],
             'model' => $model,
             'stop_reason' => 'end_turn',
             'stop_sequence' => null,
+            'usage' => $usage,
+        ];
+    }
+
+    public function chatCompletions(array $messages, string $model): array
+    {
+        [$prompt, $images] = $this->buildPromptPayload($messages);
+        $result = $this->runPrompt($prompt, $model, $images);
+        $usage = self::extractUsage($result);
+
+        return [
+            'id' => 'chatcmpl-' . bin2hex(random_bytes(12)),
+            'object' => 'chat.completion',
+            'created' => time(),
+            'model' => $model,
+            'choices' => [
+                [
+                    'index' => 0,
+                    'message' => [
+                        'role' => 'assistant',
+                        'content' => $result['output'] ?? '',
+                    ],
+                    'finish_reason' => 'stop',
+                ],
+            ],
             'usage' => [
-                'input_tokens' => 0,
-                'output_tokens' => 0,
+                'prompt_tokens' => $usage['input_tokens'],
+                'completion_tokens' => $usage['output_tokens'],
+                'total_tokens' => $usage['input_tokens'] + $usage['output_tokens'],
+            ],
+        ];
+    }
+
+    public function completions(string $prompt, string $model): array
+    {
+        $result = $this->runPrompt($prompt, $model);
+        $usage = self::extractUsage($result);
+
+        return [
+            'id' => 'cmpl-' . bin2hex(random_bytes(12)),
+            'object' => 'text_completion',
+            'created' => time(),
+            'model' => $model,
+            'choices' => [
+                [
+                    'text' => $result['output'] ?? '',
+                    'index' => 0,
+                    'logprobs' => null,
+                    'finish_reason' => 'stop',
+                ],
+            ],
+            'usage' => [
+                'prompt_tokens' => $usage['input_tokens'],
+                'completion_tokens' => $usage['output_tokens'],
+                'total_tokens' => $usage['input_tokens'] + $usage['output_tokens'],
+            ],
+        ];
+    }
+
+    public function embeddings(array|string $input, string $model): array
+    {
+        return [
+            'error' => [
+                'message' => 'Embeddings are not supported by the Anthropic backend',
+                'type' => 'not_implemented',
+                'code' => 'not_implemented',
             ],
         ];
     }
@@ -65,10 +129,29 @@ class ClaudeBackendAdapter
         ];
     }
 
-    private function runPrompt(string $prompt, ?string $model = null, array $images = []): string
+    /**
+     * @param  array<string, mixed> $runnerResult
+     * @return array{input_tokens: int, output_tokens: int, cache_creation_input_tokens: int, cache_read_input_tokens: int}
+     */
+    private static function extractUsage(array $runnerResult): array
+    {
+        return [
+            'input_tokens' => (int) ($runnerResult['input_tokens'] ?? 0),
+            'output_tokens' => (int) ($runnerResult['output_tokens'] ?? 0),
+            'cache_creation_input_tokens' => (int) ($runnerResult['cache_creation_input_tokens'] ?? 0),
+            'cache_read_input_tokens' => (int) ($runnerResult['cache_read_input_tokens'] ?? 0),
+        ];
+    }
+
+    /**
+     * Send prompt to runner /exec endpoint and return the full runner result.
+     *
+     * @throws \RuntimeException on runner communication failure
+     */
+    private function runPrompt(string $prompt, ?string $model = null, array $images = [], array $params = []): array
     {
         if (trim($prompt) === '') {
-            return '';
+            return ['status' => 'ok', 'output' => ''];
         }
 
         $authPayload = $this->authService->canonicalAuthSnapshot();
@@ -76,19 +159,27 @@ class ClaudeBackendAdapter
             throw new \RuntimeException('No auth credentials available. Upload auth.json first.');
         }
 
-        $body = json_encode([
+        $payload = [
             'auth_json' => $authPayload,
             'prompt' => $prompt,
             'images' => $images,
             'model' => $model,
             'engine' => Engine::CLAUDE,
             'timeout_seconds' => $this->timeout,
-        ], JSON_UNESCAPED_SLASHES);
+        ];
+
+        foreach (['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as $key) {
+            if (isset($params[$key])) {
+                $payload[$key] = $params[$key];
+            }
+        }
+
+        $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         $result = $this->attemptRequest($body);
 
         if (($result['status'] ?? '') === 'ok') {
-            return $result['output'] ?? '';
+            return $result;
         }
 
         $error = $result['error'] ?? $result['reason'] ?? $result['detail'] ?? 'Runner execution failed';
@@ -198,7 +289,7 @@ class ClaudeBackendAdapter
         return implode("\n", $parts);
     }
 
-    private function attemptRequest(string $body): array
+    protected function attemptRequest(string $body): array
     {
         try {
             $headers = "Content-Type: application/json\r\n";
