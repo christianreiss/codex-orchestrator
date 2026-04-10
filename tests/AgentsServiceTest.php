@@ -37,6 +37,12 @@ final class InMemoryAgentsRepository extends AgentsRepository
         return $sorted[0];
     }
 
+    public function latestByEngine(string $engine): ?array
+    {
+        // In-memory versions don't track engine; delegate to latest().
+        return $this->latest();
+    }
+
     public function findById(int $id): ?array
     {
         return $this->versions[$id] ?? null;
@@ -117,7 +123,7 @@ final class InMemoryAgentsRepository extends AgentsRepository
         return true;
     }
 
-    public function state(): array
+    public function state(string $engine = \App\Support\Engine::CODEX): array
     {
         if (empty($this->stateRow)) {
             $now = gmdate(DATE_ATOM);
@@ -132,7 +138,7 @@ final class InMemoryAgentsRepository extends AgentsRepository
         return $this->stateRow;
     }
 
-    public function updateState(string $mode, ?int $activeId): array
+    public function updateState(string $mode, ?int $activeId, string $engine = \App\Support\Engine::CODEX): array
     {
         $this->state();
         $this->stateRow['mode'] = $mode;
