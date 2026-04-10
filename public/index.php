@@ -864,7 +864,7 @@ $router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKe
 $router->add('GET', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->getOpenaiApiState());
 $router->add('POST', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->postOpenaiApiState($payload));
 
-// Admin: Claude API key management
+// Admin: Claude API key management & settings
 $router->add('GET', '#^/admin/claude/keys$#', fn() => $adminClaudeKeyCtrl->index());
 $router->add('POST', '#^/admin/claude/keys$#', fn() => $adminClaudeKeyCtrl->store($payload));
 $router->add('POST', '#^/admin/claude/keys/(\d+)/toggle$#', fn($id) => $adminClaudeKeyCtrl->toggle($id, $payload));
