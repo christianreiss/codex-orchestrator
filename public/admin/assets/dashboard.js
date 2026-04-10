@@ -64,6 +64,12 @@
     const runnerLogEl = document.getElementById('runnerLog');
     const runnerMetaEl = document.getElementById('runnerMeta');
     const runnerCloseBtn = document.getElementById('runnerClose');
+    const claudeRunnerBtn = document.getElementById('runner-claude');
+    const claudeRunnerModal = document.getElementById('claudeRunnerModal');
+    const claudeRunnerLogEl = document.getElementById('claudeRunnerLog');
+    const claudeRunnerMetaEl = document.getElementById('claudeRunnerMeta');
+    const claudeRunnerCloseBtn = document.getElementById('claudeRunnerClose');
+    const claudeUsageCard = document.getElementById('claude-usage-card');
     const upgradeModal = document.getElementById('upgradeModal');
     const upgradeNotesEl = document.getElementById('upgradeNotes');
     const upgradeVersionEl = document.getElementById('upgradeVersionLabel');
@@ -663,7 +669,7 @@
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
         copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
-        show: ['stats', 'chatgpt-usage-card', 'dashboardFooter', 'dashboardGrid'],
+        show: ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardGrid'],
       },
       hosts: {
         eyebrow: 'Hosts',
@@ -749,7 +755,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -6131,6 +6137,7 @@
 
       if (needSettingsGeneral && currentOverview) {
         await loadCodexVersionControl();
+        await loadClaudeVersion();
       }
 
       if (needSkills && skillsResponse) {
@@ -7852,6 +7859,7 @@
         next_eligible_at: safeData.chatgpt_next_eligible_at || null,
       };
       renderChatGptUsage(chatgptUsage);
+      renderClaudeUsage(safeData);
     }
 
     function destroyDashboardCharts() {
@@ -8942,6 +8950,7 @@
           renderScaling();
         }
         await loadCodexVersionControl();
+        await loadClaudeVersion();
         evaluateSeedRequirement(currentOverview, hostsList);
       } catch (err) {
         if (mtlsStatus) {
@@ -9697,6 +9706,274 @@
       }
     }
 
+    // ── Claude runner verification ──
+
+    function appendToLogEl(logEl, message, tone) {
+      if (!logEl) return;
+      const line = document.createElement('div');
+      line.className = 'line' + (tone ? ` ${tone}` : '');
+      const ts = new Date().toLocaleTimeString();
+      line.textContent = `${ts} \u00b7 ${message}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setClaudeRunnerMeta(result) {
+      if (!claudeRunnerMetaEl) return;
+      if (!result) {
+        claudeRunnerMetaEl.innerHTML = '';
+        return;
+      }
+      const status = result?.status || 'unknown';
+      const latency = result?.latency_ms ? `${result.latency_ms}ms` : 'n/a';
+      const model = result?.model || 'n/a';
+      const error = result?.error || '';
+      claudeRunnerMetaEl.innerHTML = `
+        <div><div class="label">Status</div><div>${status === 'ok' ? 'OK' : status}</div></div>
+        <div><div class="label">Latency</div><div>${latency}</div></div>
+        <div><div class="label">Model</div><div>${escapeHtml(model)}</div></div>
+        ${error ? `<div><div class="label">Error</div><div>${escapeHtml(error)}</div></div>` : ''}
+      `;
+    }
+
+    function showClaudeRunnerModal(show) {
+      if (!claudeRunnerModal) return;
+      if (show) {
+        claudeRunnerModal.classList.add('show');
+        setInertBehindModal(claudeRunnerModal, true);
+        if (claudeRunnerLogEl) claudeRunnerLogEl.innerHTML = '';
+        setClaudeRunnerMeta(null);
+      } else {
+        claudeRunnerModal.classList.remove('show');
+        setInertBehindModal(claudeRunnerModal, false);
+      }
+    }
+
+    async function runClaudeVerification(logFn = null) {
+      try {
+        if (logFn) logFn('Invoking Claude verification\u2026');
+        const startMs = performance.now();
+        const res = await api('/admin/runner/run-claude', { method: 'POST' });
+        const elapsedMs = Math.round(performance.now() - startMs);
+        const result = res?.data ?? {};
+        if (!result.latency_ms) result.latency_ms = elapsedMs;
+        const ok = result?.status === 'ok';
+        if (logFn) logFn(`Claude verification completed (status=${ok ? 'ok' : 'fail'}, ${elapsedMs}ms)`, ok ? 'ok' : 'err');
+        return result;
+      } catch (err) {
+        if (logFn) logFn(`Claude verification failed: ${err.message}`, 'err');
+        else toast(`Claude verification failed: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+
+    async function handleClaudeRunnerClick() {
+      const logFn = (msg, tone) => appendToLogEl(claudeRunnerLogEl, msg, tone);
+      if (!claudeRunnerModal || !claudeRunnerLogEl) {
+        try {
+          await runClaudeVerification();
+          toast('Claude verification succeeded', 'success');
+        } catch (_) {}
+        return;
+      }
+      showClaudeRunnerModal(true);
+      logFn('Preparing Claude verification\u2026');
+      try {
+        const result = await runClaudeVerification(logFn);
+        setClaudeRunnerMeta(result);
+        logFn('Claude verification finished', result?.status === 'ok' ? 'ok' : 'err');
+      } catch (err) {
+        logFn(`Claude verification error: ${err.message}`, 'err');
+      }
+    }
+
+    // ── Claude usage rendering ──
+
+    function renderClaudeUsage(data) {
+      if (!claudeUsageCard) return;
+      const usage = data?.claude_usage || null;
+      if (!usage) {
+        claudeUsageCard.innerHTML = '<div class="muted">Claude usage not available yet.</div>';
+        return;
+      }
+
+      const models = usage.models || {};
+      const modelKeys = Object.keys(models);
+      const totals = usage.totals || {};
+      const totalInput = Number(totals.input_tokens) || 0;
+      const totalOutput = Number(totals.output_tokens) || 0;
+      const totalCached = Number(totals.cached_tokens) || 0;
+      const totalCost = Number(totals.cost) || 0;
+      const period = usage.period || '24h';
+      const fetchedAt = usage.fetched_at ? formatRelative(usage.fetched_at) : 'never';
+
+      let modelsHtml = '';
+      if (modelKeys.length > 0) {
+        const modelRows = modelKeys.map((key) => {
+          const m = models[key] || {};
+          return `<tr>
+            <td><code>${escapeHtml(key)}</code></td>
+            <td>${formatCompactNumber(Number(m.input_tokens) || 0)}</td>
+            <td>${formatCompactNumber(Number(m.output_tokens) || 0)}</td>
+            <td>${formatCompactNumber(Number(m.cached_tokens) || 0)}</td>
+            <td>${typeof m.cost === 'number' ? '$' + m.cost.toFixed(4) : '\u2014'}</td>
+          </tr>`;
+        }).join('');
+        modelsHtml = `
+          <table class="claude-usage-table">
+            <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cached</th><th>Cost</th></tr></thead>
+            <tbody>${modelRows}</tbody>
+          </table>
+        `;
+      }
+
+      const periodButtons = ['24h', '7d', '30d'].map((p) =>
+        `<button type="button" class="ghost tiny-btn claude-period-btn${p === period ? ' is-active' : ''}" data-claude-period="${p}">${p}</button>`
+      ).join('');
+
+      claudeUsageCard.innerHTML = `
+        <div class="claude-usage-head">
+          <div>
+            <div class="stat-label">Claude / Anthropic</div>
+            <h3>API Usage</h3>
+          </div>
+          <div class="claude-usage-controls">
+            <div class="claude-period-group" role="group" aria-label="Time period">${periodButtons}</div>
+            <span class="muted" style="font-size:0.8em;">Updated ${fetchedAt}</span>
+          </div>
+        </div>
+        <div class="claude-usage-totals">
+          <div class="claude-usage-stat">
+            <div class="stat-label">Input tokens</div>
+            <div class="stat-value">${formatCompactNumber(totalInput)}</div>
+          </div>
+          <div class="claude-usage-stat">
+            <div class="stat-label">Output tokens</div>
+            <div class="stat-value">${formatCompactNumber(totalOutput)}</div>
+          </div>
+          <div class="claude-usage-stat">
+            <div class="stat-label">Cached tokens</div>
+            <div class="stat-value">${formatCompactNumber(totalCached)}</div>
+          </div>
+          <div class="claude-usage-stat">
+            <div class="stat-label">Total cost</div>
+            <div class="stat-value">${totalCost > 0 ? '$' + totalCost.toFixed(4) : '\u2014'}</div>
+          </div>
+        </div>
+        ${modelsHtml}
+      `;
+
+      claudeUsageCard.querySelectorAll('.claude-period-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const p = btn.dataset.claudePeriod;
+          if (!p) return;
+          claudeUsageCard.querySelectorAll('.claude-period-btn').forEach((b) => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+          try {
+            const res = await api('/admin/claude/usage?period=' + encodeURIComponent(p));
+            renderClaudeUsage({ claude_usage: res?.data || null });
+          } catch (err) {
+            toast('Failed to load Claude usage: ' + err.message, 'error');
+          }
+        });
+      });
+    }
+
+    // ── Claude version management ──
+
+    const claudeVersionSelect = document.getElementById('claudeVersionSelect');
+    const claudeVersionMeta = document.getElementById('claudeVersionMeta');
+    const claudeVersionBadge = document.getElementById('claudeVersionBadge');
+    const claudeVersionLockToggle = document.getElementById('claudeVersionLockToggle');
+    const claudeVersionLockLabel = document.getElementById('claudeVersionLockLabel');
+    let claudeVersionData = null;
+
+    async function loadClaudeVersion() {
+      if (!claudeVersionSelect) return;
+
+      try {
+        const res = await api('/admin/claude/version');
+        claudeVersionData = res?.data || null;
+      } catch (_) {
+        claudeVersionData = null;
+      }
+
+      if (!claudeVersionData) {
+        if (claudeVersionMeta) claudeVersionMeta.textContent = 'Claude version data not available.';
+        if (claudeVersionBadge) claudeVersionBadge.textContent = 'n/a';
+        return;
+      }
+
+      const current = claudeVersionData.current_version || 'unknown';
+      const locked = claudeVersionData.locked === true;
+      const lockedVersion = claudeVersionData.locked_version || null;
+      const updatedAt = claudeVersionData.updated_at || null;
+
+      if (claudeVersionBadge) claudeVersionBadge.textContent = locked ? 'Locked' : 'Latest';
+      if (claudeVersionLockToggle) claudeVersionLockToggle.checked = locked;
+      if (claudeVersionLockLabel) claudeVersionLockLabel.textContent = locked ? 'Locked' : 'Unlocked';
+
+      claudeVersionSelect.innerHTML = '';
+      const latestOpt = document.createElement('option');
+      latestOpt.value = 'latest';
+      latestOpt.textContent = `Latest (${current})`;
+      claudeVersionSelect.appendChild(latestOpt);
+
+      if (lockedVersion && lockedVersion !== current) {
+        const lockedOpt = document.createElement('option');
+        lockedOpt.value = lockedVersion;
+        lockedOpt.textContent = `${lockedVersion} (pinned)`;
+        claudeVersionSelect.appendChild(lockedOpt);
+      }
+
+      const versions = claudeVersionData.available_versions || [];
+      for (const v of versions) {
+        if (v === current || v === lockedVersion) continue;
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        claudeVersionSelect.appendChild(opt);
+      }
+
+      claudeVersionSelect.value = locked && lockedVersion ? lockedVersion : 'latest';
+
+      if (claudeVersionMeta) {
+        const atLabel = updatedAt ? formatRelative(updatedAt) : 'unknown';
+        claudeVersionMeta.textContent = `Current: ${current}${locked ? ` (locked to ${lockedVersion})` : ''} \u00b7 Updated ${atLabel}`;
+      }
+    }
+
+    async function setClaudeVersion(version) {
+      if (!claudeVersionSelect) return;
+      claudeVersionSelect.disabled = true;
+      try {
+        await api('/admin/claude/version', {
+          method: 'POST',
+          json: { version },
+        });
+        toast(`Claude version set to ${version === 'latest' ? 'latest' : version}`, 'success');
+        await loadClaudeVersion();
+      } catch (err) {
+        toast(`Failed to set Claude version: ${err.message}`, 'error');
+      } finally {
+        claudeVersionSelect.disabled = false;
+      }
+    }
+
+    function wireClaudeVersionControls() {
+      if (claudeVersionSelect) {
+        claudeVersionSelect.addEventListener('change', () => {
+          setClaudeVersion(claudeVersionSelect.value);
+        });
+      }
+      if (claudeVersionLockToggle) {
+        claudeVersionLockToggle.addEventListener('change', () => {
+          const version = claudeVersionLockToggle.checked ? (claudeVersionSelect?.value || 'latest') : 'latest';
+          setClaudeVersion(version);
+        });
+      }
+    }
+
     function setActiveLinks(selector, match) {
       document.querySelectorAll(selector).forEach((link) => {
         const key = (link.dataset.hostTab || link.dataset.logTab || link.dataset.settingsTab || '').toLowerCase();
@@ -9943,6 +10220,18 @@
     if (runnerRunnerBtn) {
       runnerRunnerBtn.addEventListener('click', handleRunnerClick);
     }
+    if (claudeRunnerBtn) {
+      claudeRunnerBtn.addEventListener('click', handleClaudeRunnerClick);
+    }
+    if (claudeRunnerModal) {
+      claudeRunnerModal.addEventListener('click', (e) => {
+        if (e.target === claudeRunnerModal) showClaudeRunnerModal(false);
+      });
+    }
+    if (claudeRunnerCloseBtn) {
+      claudeRunnerCloseBtn.addEventListener('click', () => showClaudeRunnerModal(false));
+    }
+    wireClaudeVersionControls();
     /* ── General settings: section-jump navigation ── */
     (function initGeneralSectionNav() {
       const navBtns = document.querySelectorAll('.general-section-btn');
@@ -10315,6 +10604,7 @@
       [insecureHostsModal,    () => closeInsecureHostsModal()],
       [deleteHostModal,       () => closeDeleteModal()],
       [runnerModal,           () => showRunnerModal(false)],
+      [claudeRunnerModal,     () => showClaudeRunnerModal(false)],
       [upgradeModal,          () => showUpgradeNotesModal(false)],
       [usageHistoryModal,     () => showUsageHistoryModal(false)],
       [costHistoryModal,      () => showCostHistoryModal(false)],

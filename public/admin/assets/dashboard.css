@@ -243,6 +243,13 @@ body {
   background: transparent;
   box-shadow: none;
 }
+#claude-usage-card {
+  grid-column: 1 / -1;
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--dash-subtle-border) 92%, transparent);
+  background: color-mix(in srgb, var(--dash-subtle-surface) 84%, var(--card) 16%);
+}
 .primary-card-head {
   display: flex;
   justify-content: space-between;
@@ -6455,5 +6462,81 @@ body[data-nav-version="2026"].editorial-rail-open .editorial-rail-backdrop {
   select,
   textarea {
     transition: none !important;
+  }
+}
+
+/* ── Claude usage card ── */
+.claude-usage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.claude-usage-head h3 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+.claude-usage-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.claude-period-group {
+  display: inline-flex;
+  gap: 4px;
+}
+.claude-period-btn.is-active {
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  border-color: var(--accent);
+}
+.claude-usage-totals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.claude-usage-stat .stat-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.claude-usage-stat .stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.claude-usage-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.claude-usage-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  padding: 4px 8px 6px 0;
+  border-bottom: 1px solid var(--dash-subtle-border, var(--border));
+}
+.claude-usage-table td {
+  padding: 5px 8px 5px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--dash-subtle-border, var(--border)) 50%, transparent);
+}
+.claude-usage-table code {
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .claude-usage-totals {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
