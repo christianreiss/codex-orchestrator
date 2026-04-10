@@ -798,4 +798,48 @@ final class ConfigNormalizerTest extends TestCase
         // Deduplication via normalizeStringList
         $this->assertSame(['oncall@example.com', 'team@example.com'], $result['notify']);
     }
+
+    // -------------------------------------------------------------------------
+    // Claude reasoning effort
+    // -------------------------------------------------------------------------
+
+    public function testSupportedReasoningEffortsForClaudeOpus(): void
+    {
+        $efforts = ConfigNormalizer::supportedReasoningEffortsForModel('claude-opus-4-6');
+        $this->assertSame(['low', 'medium', 'high'], $efforts);
+    }
+
+    public function testSupportedReasoningEffortsForClaudeSonnet(): void
+    {
+        $efforts = ConfigNormalizer::supportedReasoningEffortsForModel('claude-sonnet-4-6');
+        $this->assertSame(['low', 'medium', 'high'], $efforts);
+    }
+
+    public function testSupportedReasoningEffortsForClaudeHaiku(): void
+    {
+        $efforts = ConfigNormalizer::supportedReasoningEffortsForModel('claude-haiku-4-5');
+        $this->assertSame(['low', 'medium', 'high'], $efforts);
+    }
+
+    public function testClaudeModelSupportsReasoningEffortMedium(): void
+    {
+        $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('claude-sonnet-4-6', 'medium'));
+    }
+
+    public function testClaudeModelDoesNotSupportXhigh(): void
+    {
+        $this->assertFalse(ConfigNormalizer::modelSupportsReasoningEffort('claude-sonnet-4-6', 'xhigh'));
+    }
+
+    public function testOpenAiModelsStillWorkAfterClaudeAddition(): void
+    {
+        $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.4', 'high'));
+        $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.4', 'xhigh'));
+    }
+
+    public function testUnsupportedModelReturnsEmptyEfforts(): void
+    {
+        $efforts = ConfigNormalizer::supportedReasoningEffortsForModel('unknown-model');
+        $this->assertSame([], $efforts);
+    }
 }
