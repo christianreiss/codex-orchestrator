@@ -2745,7 +2745,7 @@ clx_status() {
 }
 
 clx_doctor() {
-  # Full diagnostic report (defined in 05-main-30-doctor.sh).
+  clx_bootstrap
   print_doctor_report
 }
 
@@ -4018,22 +4018,21 @@ fi
 # Fetches Claude spend data, computes quota state, and builds the
 # display segment for the boot screen.
 #
-# Claude uses a simpler spend-based model than ChatGPT:
-#   - Single spend pool (no lanes, no primary/secondary windows)
-#   - Dollar amounts: CLAUDE_SPEND_USED / CLAUDE_SPEND_LIMIT
-#   - Cumulative spend (no daily budget partitioning)
-#
-# Variables consumed (from 05-main-40-status.sh):
-#   QUOTA_LIMIT_PERCENT, QUOTA_HARD_FAIL, QUOTA_BLOCKED, QUOTA_WARNING
-#
-# Variables exported for later fragments:
-#   CLAUDE_SPEND_USED, CLAUDE_SPEND_LIMIT, CLAUDE_SPEND_PCT
-#   primary_quota_segment, quota_lane_display
+# Claude uses a single spend pool (no lanes, no primary/secondary
+# windows, no daily budget partitioning).
+
+# Apply quota policy values from a source (cache or API response).
+_clx_apply_quota_policy() {
+  local hard_fail="$1" limit_pct="$2"
+  if [[ "$hard_fail" == "true" ]]; then
+    QUOTA_HARD_FAIL=1
+  elif [[ "$hard_fail" == "false" ]]; then
+    QUOTA_HARD_FAIL=0
+  fi
+  [[ "$limit_pct" =~ ^[0-9]+$ ]] && QUOTA_LIMIT_PERCENT="$limit_pct"
+}
 
 # ── Fetch spend data ─────────────────────────────────────────
-# Try the quota cache first (written by 03-sync-40-quota.sh),
-# then fall back to a live /versions probe.
-
 _clx_spend_used=""
 _clx_spend_limit=""
 _clx_spend_reset_after=""
@@ -4042,18 +4041,9 @@ if [[ -f "${CLX_QUOTA_CACHE:-}" ]]; then
   _clx_spend_used="$(jq -r '.spend_used // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
   _clx_spend_limit="$(jq -r '.spend_limit // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
   _clx_spend_reset_after="$(jq -r '.spend_reset_after // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
-
-  # Also pull quota policy from cache if present.
-  _cached_hard_fail="$(jq -r '.quota_hard_fail // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
-  _cached_limit_pct="$(jq -r '.quota_limit_percent // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
-  if [[ "$_cached_hard_fail" == "true" ]]; then
-    QUOTA_HARD_FAIL=1
-  elif [[ "$_cached_hard_fail" == "false" ]]; then
-    QUOTA_HARD_FAIL=0
-  fi
-  if [[ "$_cached_limit_pct" =~ ^[0-9]+$ ]]; then
-    QUOTA_LIMIT_PERCENT="$_cached_limit_pct"
-  fi
+  _clx_apply_quota_policy \
+    "$(jq -r '.quota_hard_fail // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)" \
+    "$(jq -r '.quota_limit_percent // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
 fi
 
 if [[ -z "$_clx_spend_used" ]] && [[ -n "$CLAUDE_SYNC_BASE_URL" ]] && [[ -n "$CLAUDE_SYNC_API_KEY" ]]; then
@@ -4065,21 +4055,12 @@ if [[ -z "$_clx_spend_used" ]] && [[ -n "$CLAUDE_SYNC_BASE_URL" ]] && [[ -n "$CL
       _clx_spend_limit="$(printf '%s' "$_clx_claude_usage" | jq -r '.spend_limit // empty' 2>/dev/null || true)"
       _clx_spend_reset_after="$(printf '%s' "$_clx_claude_usage" | jq -r '.spend_reset_after // empty' 2>/dev/null || true)"
     fi
-    # Pull quota policy from live response.
-    _live_hard_fail="$(printf '%s' "$_clx_versions_resp" | jq -r '.data.quota_hard_fail // empty' 2>/dev/null || true)"
-    _live_limit_pct="$(printf '%s' "$_clx_versions_resp" | jq -r '.data.quota_limit_percent // empty' 2>/dev/null || true)"
-    if [[ "$_live_hard_fail" == "true" ]]; then
-      QUOTA_HARD_FAIL=1
-    elif [[ "$_live_hard_fail" == "false" ]]; then
-      QUOTA_HARD_FAIL=0
-    fi
-    if [[ "$_live_limit_pct" =~ ^[0-9]+$ ]]; then
-      QUOTA_LIMIT_PERCENT="$_live_limit_pct"
-    fi
+    _clx_apply_quota_policy \
+      "$(printf '%s' "$_clx_versions_resp" | jq -r '.data.quota_hard_fail // empty' 2>/dev/null || true)" \
+      "$(printf '%s' "$_clx_versions_resp" | jq -r '.data.quota_limit_percent // empty' 2>/dev/null || true)"
   fi
 fi
 
-# Publish as global variables for 05-main-40-status.sh and display.
 CLAUDE_SPEND_USED="$_clx_spend_used"
 CLAUDE_SPEND_LIMIT="$_clx_spend_limit"
 CLAUDE_SPEND_RESET_AFTER="$_clx_spend_reset_after"
@@ -4094,8 +4075,6 @@ if [[ -n "$CLAUDE_SPEND_USED" ]] && [[ -n "$CLAUDE_SPEND_LIMIT" ]] \
 fi
 
 # ── Build quota display segment ──────────────────────────────
-# Single bar for Claude spend (analogous to CDX primary_quota_segment).
-
 quota_lane_display="standard"
 primary_quota_segment=""
 
@@ -4103,8 +4082,7 @@ if [[ "$CLAUDE_SPEND_PCT" =~ ^[0-9]+$ ]]; then
   _q_pct=$CLAUDE_SPEND_PCT
   ((_q_pct > 100)) && _q_pct=100
 
-  _q_bar_w="${QUOTA_BAR_WIDTH:-24}"
-  _q_bar="$(build_quota_bar "$_q_pct" "$_q_bar_w")"
+  _q_bar="$(build_quota_bar "$_q_pct" "${QUOTA_BAR_WIDTH:-24}")"
 
   _q_tone="green"
   ((_q_pct >= 95)) && _q_tone="red"
@@ -4121,15 +4099,10 @@ if [[ "$CLAUDE_SPEND_PCT" =~ ^[0-9]+$ ]]; then
     [[ -n "$_q_dur" ]] && _q_note_parts+=("resets in ${_q_dur}")
   fi
 
-  _q_note=""
-  if ((${#_q_note_parts[@]})); then
-    _q_note="$(join_with_semicolon "${_q_note_parts[@]}")"
-  fi
-
   primary_quota_segment="$(colorize "$_q_text" "$_q_tone")"
-  if [[ -n "$_q_note" ]]; then
+  if ((${#_q_note_parts[@]})); then
     _q_note_disp=""
-    printf -v _q_note_disp "%b" "${DIM}${_q_note}${RESET}"
+    printf -v _q_note_disp "%b" "${DIM}$(join_with_semicolon "${_q_note_parts[@]}")${RESET}"
     primary_quota_segment+=" ${_q_note_disp}"
   fi
 fi
