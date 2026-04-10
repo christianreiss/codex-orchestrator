@@ -51,6 +51,34 @@ class RunnerBackendAdapter implements BackendAdapter
         ];
     }
 
+    public function messages(array $messages, string $model, array $params = []): array
+    {
+        [$prompt, $images] = $this->buildPromptPayload($messages);
+        $result = $this->runPrompt($prompt, $model, $images, $params);
+        $usage = self::extractUsage($result);
+
+        return [
+            'id' => 'msg_' . bin2hex(random_bytes(16)),
+            'type' => 'message',
+            'role' => 'assistant',
+            'content' => [
+                [
+                    'type' => 'text',
+                    'text' => $result['output'] ?? '',
+                ],
+            ],
+            'model' => $model,
+            'stop_reason' => 'end_turn',
+            'stop_sequence' => null,
+            'usage' => [
+                'input_tokens' => $usage['prompt_tokens'],
+                'output_tokens' => $usage['completion_tokens'],
+                'cache_creation_input_tokens' => 0,
+                'cache_read_input_tokens' => 0,
+            ],
+        ];
+    }
+
     public function completions(string $prompt, string $model, array $params = []): array
     {
         $result = $this->runPrompt($prompt, $model, [], $params);

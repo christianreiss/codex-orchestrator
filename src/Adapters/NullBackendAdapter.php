@@ -33,6 +33,30 @@ class NullBackendAdapter implements BackendAdapter
         ];
     }
 
+    public function messages(array $messages, string $model, array $params = []): array
+    {
+        return [
+            'id' => 'msg_' . bin2hex(random_bytes(16)),
+            'type' => 'message',
+            'role' => 'assistant',
+            'content' => [
+                [
+                    'type' => 'text',
+                    'text' => 'Backend adapter not implemented yet.',
+                ],
+            ],
+            'model' => $model,
+            'stop_reason' => 'end_turn',
+            'stop_sequence' => null,
+            'usage' => [
+                'input_tokens' => 0,
+                'output_tokens' => 0,
+                'cache_creation_input_tokens' => 0,
+                'cache_read_input_tokens' => 0,
+            ],
+        ];
+    }
+
     public function completions(string $prompt, string $model, array $params = []): array
     {
         return [
