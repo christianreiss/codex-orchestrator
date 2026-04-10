@@ -78,14 +78,20 @@ final class OpenAiModelServiceTest extends TestCase
         $this->assertSame('gpt-5.4', $service->resolveRequestedModel(''));
     }
 
-    public function testResolveRequestedModelFailsWithoutConfiguredDefault(): void
+    public function testResolveRequestedModelFallsBackToDefaultModelConstant(): void
     {
         $service = new OpenAiModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('No default model configured');
+        $this->assertSame(OpenAiModelService::DEFAULT_MODEL, $service->resolveRequestedModel(null));
+    }
 
-        $service->resolveRequestedModel(null);
+    public function testResolveRequestedModelUpgradesLegacyModel(): void
+    {
+        $service = new OpenAiModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
+
+        $this->assertSame('gpt-5.4', $service->resolveRequestedModel('gpt-5.3-codex-spark'));
+        $this->assertSame('gpt-5.4', $service->resolveRequestedModel('gpt-5.2-codex'));
+        $this->assertSame('gpt-5.4', $service->resolveRequestedModel('gpt-5.1-codex-max'));
     }
 
     private function makeConfigRepo(?array $row): ClientConfigRepository

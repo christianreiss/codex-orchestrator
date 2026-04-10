@@ -7,10 +7,11 @@ namespace App\Services;
 use App\Repositories\ClientConfigRepository;
 use App\Repositories\VersionRepository;
 use InvalidArgumentException;
-use RuntimeException;
 
 class OpenAiModelService
 {
+    public const DEFAULT_MODEL = ConfigNormalizer::FORCE_UPGRADE_MODEL;
+
     public function __construct(
         private readonly ClientConfigRepository $configs,
         private readonly VersionRepository $versions
@@ -46,6 +47,11 @@ class OpenAiModelService
                 return $model;
             }
 
+            $lowered = strtolower($normalized);
+            if (isset(ConfigNormalizer::LEGACY_MODEL_UPGRADES[$lowered])) {
+                return ConfigNormalizer::LEGACY_MODEL_UPGRADES[$lowered];
+            }
+
             throw new InvalidArgumentException(sprintf(
                 'Unsupported model "%s". Supported models: %s',
                 $normalized,
@@ -58,8 +64,6 @@ class OpenAiModelService
             return $default;
         }
 
-        throw new RuntimeException(
-            'No default model configured. Set the main config model or provide model explicitly.'
-        );
+        return self::DEFAULT_MODEL;
     }
 }
