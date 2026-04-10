@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl jq ca-certificates unzip \
+    && apt-get install -y --no-install-recommends curl jq ca-certificates unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Codex CLI (multi-arch) ---

@@ -1,3 +1,6 @@
+# 2026-04-10
+- Auth runner: fixed the `claude` branch container rebuild by installing `xz-utils` in the runner image before extracting the Node.js `.tar.xz` payload used for the Claude Code CLI layer. `docker compose build` no longer fails with `tar (grandchild): xz: Cannot exec`.
+
 # 2026-04-09
 - OpenAI-compatible API: `POST /v1/chat/completions` and `POST /v1/responses` now preserve array-format content parts instead of coercing them to PHP `"Array"`. Text parts are normalized, and `image_url` / `input_image` parts now flow through the runner as real `codex exec --image` attachments for both remote `http(s)` URLs and base64 `data:` URLs. API/admin docs and runner docs were updated to match.
 - Auth runner: fixed the Codex CLI invocation for multimodal runs so `exec` options (`-s`, `--skip-git-repo-check`, `--image`, `--model`) are passed before the prompt instead of after it, and moved the runner’s temporary Codex `$HOME` root out of `/tmp` into `/dev/shm` by default in the container (`RUNNER_HOME_PARENT=/dev/shm`), which is writable in the hardened runner image and no longer triggers Codex’s temp-home refusal during image requests.
