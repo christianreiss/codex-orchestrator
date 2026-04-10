@@ -109,6 +109,102 @@ class AdminSettingsController
     }
 
     /**
+     * GET /admin/claude/state
+     */
+    public function getClaudeApiState(): void
+    {
+        requireAdminAccess();
+
+        $disabled = $this->versionRepository->getFlag('claude_api_disabled', false);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['disabled' => $disabled],
+        ]);
+    }
+
+    /**
+     * POST /admin/claude/state
+     */
+    public function postClaudeApiState(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        $disabledRaw = $payload['disabled'] ?? null;
+        $disabled = normalizeBoolean($disabledRaw);
+        if ($disabled === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'disabled must be boolean',
+            ], 422);
+        }
+
+        $this->versionRepository->set('claude_api_disabled', $disabled ? '1' : '0');
+        $this->logRepository->log(null, 'admin.claude_api.state', [
+            'disabled' => $disabled,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => ['disabled' => $disabled],
+        ]);
+    }
+
+    /**
+     * GET /admin/claude/settings
+     */
+    public function getClaudeSettings(): void
+    {
+        requireAdminAccess();
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'default_model' => $this->versionRepository->get('claude_default_model') ?? 'claude-sonnet-4-6',
+                'max_tokens' => (int) ($this->versionRepository->get('claude_max_tokens') ?? 8192),
+                'spend_limit' => (float) ($this->versionRepository->get('claude_spend_limit') ?? 0),
+                'disabled' => $this->versionRepository->getFlag('claude_api_disabled', false),
+            ],
+        ]);
+    }
+
+    /**
+     * POST /admin/claude/settings
+     */
+    public function postClaudeSettings(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        $supported = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+
+        if (isset($payload['default_model'])) {
+            $model = trim((string) $payload['default_model']);
+            if (in_array($model, $supported, true)) {
+                $this->versionRepository->set('claude_default_model', $model);
+            }
+        }
+        if (isset($payload['max_tokens'])) {
+            $tokens = (int) $payload['max_tokens'];
+            if ($tokens >= 256 && $tokens <= 200000) {
+                $this->versionRepository->set('claude_max_tokens', (string) $tokens);
+            }
+        }
+        if (isset($payload['spend_limit'])) {
+            $limit = (float) $payload['spend_limit'];
+            if ($limit >= 0) {
+                $this->versionRepository->set('claude_spend_limit', (string) $limit);
+            }
+        }
+
+        $this->logRepository->log(null, 'admin.claude_settings', array_filter($payload));
+
+        // Return current state
+        $this->getClaudeSettings();
+    }
+
+    /**
      * GET /admin/cdx-silent
      */
     public function getCdxSilent(): void
