@@ -1723,6 +1723,24 @@ parameters:
 			path: src/Http/AdminSessionHelper.php
 
 		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:json\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:stream\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
+			message: '#^Method App\\Http\\AnthropicResponse\:\:streamEvents\(\) has parameter \$events with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Http/AnthropicResponse.php
+
+		-
 			message: '#^Call to function array_filter\(\) requires parameter \#2 to be passed to avoid loose comparison semantics\.$#'
 			identifier: arrayFilter.strict
 			count: 1
