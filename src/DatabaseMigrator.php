@@ -11,6 +11,7 @@ namespace App;
 
 use App\Migrations\AdminMigration;
 use App\Migrations\AuthMigration;
+use App\Migrations\ClaudeHostFieldsMigration;
 use App\Migrations\ContentMigration;
 use App\Migrations\HostMigration;
 use App\Migrations\InfrastructureMigration;
@@ -77,6 +78,7 @@ class DatabaseMigrator
             new InfrastructureMigration(),
             new OpenaiApiMigration(),
             new JoplinMigration(),
+            new ClaudeHostFieldsMigration(),
         ];
 
         foreach ($migrations as $migration) {
