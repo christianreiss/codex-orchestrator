@@ -121,6 +121,7 @@ class JoplinSummarizeRequest(BaseModel):
     note_id: str = Field(..., description="Joplin note ID")
     title: str = Field(..., description="Note title")
     body: str = Field(..., description="Note body content")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the summarize call (seconds)"
     )
@@ -130,6 +131,7 @@ class JoplinQueryRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     question: str = Field(..., description="Question to answer from note content")
     notes: list[dict] = Field(..., description="List of notes with title and body fields")
+    engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the query call (seconds)"
     )
@@ -244,10 +246,11 @@ def _extract_anthropic_token(auth_json: dict) -> Optional[str]:
     return None
 
 
-def _claude_version() -> str:
+def _claude_version(env: Optional[dict] = None) -> str:
     try:
         proc = subprocess.run(
             [CLAUDE_CLI_PATH, "--version"],
+            env=env,
             capture_output=True,
             text=True,
             timeout=5,
@@ -262,6 +265,15 @@ def _claude_version() -> str:
 
 def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     """Set up a temp HOME with an Anthropic API key for the Claude CLI."""
+    if DEBUG_DUMP_ENABLED:
+        try:
+            debug_path = "/tmp/last-claude-auth.json"
+            with open(debug_path, "w", encoding="utf-8") as fh:
+                json.dump(auth_json, fh, indent=2)
+            os.chmod(debug_path, 0o600)
+        except Exception:
+            pass
+
     token = _extract_anthropic_token(auth_json)
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
@@ -366,11 +378,26 @@ def _run_claude_probe(payload) -> dict:
         }
 
 
-def _build_claude_exec_cmd(prompt: str, model: Optional[str] = None) -> list[str]:
+def _build_claude_exec_cmd(
+    prompt: str,
+    model: Optional[str] = None,
+    image_paths: Optional[list[str]] = None,
+    system: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+) -> list[str]:
     cmd = [CLAUDE_CLI_PATH, "--print", "--no-input"]
     if isinstance(model, str) and model.strip():
         cmd.extend(["--model", model.strip()])
-    cmd.append(prompt)
+    if isinstance(max_tokens, int) and max_tokens > 0:
+        cmd.extend(["--max-tokens", str(max_tokens)])
+    if isinstance(system, str) and system.strip():
+        cmd.extend(["--system-prompt", system.strip()])
+    # Claude Code CLI does not have an --image flag; embed file references in the prompt.
+    effective_prompt = prompt
+    if image_paths:
+        image_notes = "\n".join(f"[Attached image: {p}]" for p in image_paths)
+        effective_prompt = f"{prompt}\n\n{image_notes}"
+    cmd.append(effective_prompt)
     return cmd
 
 
@@ -408,7 +435,7 @@ def _engine_version_key(engine: str) -> str:
 
 def _engine_version(env: dict, engine: str) -> str:
     if engine == "claude":
-        return _claude_version()
+        return _claude_version(env)
     return _codex_version(env)
 
 
@@ -733,11 +760,12 @@ def _summarize_joplin_note(payload: JoplinSummarizeRequest) -> dict:
     if note_id == "":
         raise HTTPException(status_code=400, detail="note_id is required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(
-            _joplin_summarize_prompt(title, payload.body), env, timeout
+        proc, latency_ms = _run_engine_exec(
+            _joplin_summarize_prompt(title, payload.body), env, timeout, engine
         )
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
@@ -748,7 +776,7 @@ def _summarize_joplin_note(payload: JoplinSummarizeRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok:
             result["note_id"] = note_id
@@ -770,11 +798,12 @@ def _query_joplin_notes(payload: JoplinQueryRequest) -> dict:
     if not payload.notes:
         raise HTTPException(status_code=400, detail="notes are required")
 
-    env, home_dir, _ = _prepare_codex_env(payload.auth_json)
+    engine = payload.engine
+    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec(
-            _joplin_query_prompt(question, payload.notes), env, timeout
+        proc, latency_ms = _run_engine_exec(
+            _joplin_query_prompt(question, payload.notes), env, timeout, engine
         )
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
@@ -785,7 +814,7 @@ def _query_joplin_notes(payload: JoplinQueryRequest) -> dict:
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
-            "codex_version": _codex_version(env),
+            _engine_version_key(engine): _engine_version(env, engine),
         }
         if ok:
             result["question"] = question
@@ -1145,6 +1174,12 @@ class ExecRequest(BaseModel):
     images: list[ExecImageInput] = Field(default_factory=list, description="Optional images to attach")
     model: Optional[str] = Field(None, description="Model to execute")
     engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
+    max_tokens: Optional[int] = Field(None, description="Maximum tokens for response")
+    temperature: Optional[float] = Field(None, description="Sampling temperature")
+    top_p: Optional[float] = Field(None, description="Nucleus sampling threshold")
+    top_k: Optional[int] = Field(None, description="Top-k sampling")
+    stop_sequences: Optional[list[str]] = Field(None, description="Stop sequences")
+    system: Optional[str] = Field(None, description="System prompt")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the exec call (seconds)"
     )
@@ -1256,10 +1291,16 @@ def _exec_prompt(payload: ExecRequest) -> dict:
     env, home_dir, auth_path = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or 30.0
+        image_paths = _materialize_exec_images(payload.images or [], home_dir)
         if engine == "claude":
-            cmd = _build_claude_exec_cmd(prompt, payload.model)
+            cmd = _build_claude_exec_cmd(
+                prompt,
+                payload.model,
+                image_paths=image_paths,
+                system=payload.system,
+                max_tokens=payload.max_tokens,
+            )
         else:
-            image_paths = _materialize_exec_images(payload.images or [], home_dir)
             cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
         start = time.perf_counter()
         proc = subprocess.run(
