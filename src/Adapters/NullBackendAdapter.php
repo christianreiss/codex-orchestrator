@@ -8,7 +8,7 @@ use App\Contracts\BackendAdapter;
 
 class NullBackendAdapter implements BackendAdapter
 {
-    public function chatCompletions(array $messages, string $model): array
+    public function chatCompletions(array $messages, string $model, array $params = []): array
     {
         return [
             'id' => 'chatcmpl-' . bin2hex(random_bytes(12)),
@@ -33,7 +33,7 @@ class NullBackendAdapter implements BackendAdapter
         ];
     }
 
-    public function completions(string $prompt, string $model): array
+    public function completions(string $prompt, string $model, array $params = []): array
     {
         return [
             'id' => 'cmpl-' . bin2hex(random_bytes(12)),

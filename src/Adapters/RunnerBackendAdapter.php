@@ -7,6 +7,7 @@ namespace App\Adapters;
 use App\Contracts\BackendAdapter;
 use App\Services\AuthService;
 use App\Services\OpenAiModelService;
+use App\Support\Engine;
 use Throwable;
 
 class RunnerBackendAdapter implements BackendAdapter
@@ -20,11 +21,12 @@ class RunnerBackendAdapter implements BackendAdapter
     ) {
     }
 
-    public function chatCompletions(array $messages, string $model): array
+    public function chatCompletions(array $messages, string $model, array $params = []): array
     {
         [$prompt, $images] = $this->buildPromptPayload($messages);
 
-        $output = $this->runPrompt($prompt, $model, $images);
+        $result = $this->runPrompt($prompt, $model, $images, $params);
+        $usage = self::extractUsage($result);
 
         return [
             'id' => 'chatcmpl-' . bin2hex(random_bytes(12)),
@@ -36,22 +38,23 @@ class RunnerBackendAdapter implements BackendAdapter
                     'index' => 0,
                     'message' => [
                         'role' => 'assistant',
-                        'content' => $output,
+                        'content' => $result['output'] ?? '',
                     ],
                     'finish_reason' => 'stop',
                 ],
             ],
             'usage' => [
-                'prompt_tokens' => 0,
-                'completion_tokens' => 0,
-                'total_tokens' => 0,
+                'prompt_tokens' => $usage['prompt_tokens'],
+                'completion_tokens' => $usage['completion_tokens'],
+                'total_tokens' => $usage['total_tokens'],
             ],
         ];
     }
 
-    public function completions(string $prompt, string $model): array
+    public function completions(string $prompt, string $model, array $params = []): array
     {
-        $output = $this->runPrompt($prompt, $model);
+        $result = $this->runPrompt($prompt, $model, [], $params);
+        $usage = self::extractUsage($result);
 
         return [
             'id' => 'cmpl-' . bin2hex(random_bytes(12)),
@@ -60,16 +63,16 @@ class RunnerBackendAdapter implements BackendAdapter
             'model' => $model,
             'choices' => [
                 [
-                    'text' => $output,
+                    'text' => $result['output'] ?? '',
                     'index' => 0,
                     'logprobs' => null,
                     'finish_reason' => 'stop',
                 ],
             ],
             'usage' => [
-                'prompt_tokens' => 0,
-                'completion_tokens' => 0,
-                'total_tokens' => 0,
+                'prompt_tokens' => $usage['prompt_tokens'],
+                'completion_tokens' => $usage['completion_tokens'],
+                'total_tokens' => $usage['total_tokens'],
             ],
         ];
     }
@@ -105,14 +108,30 @@ class RunnerBackendAdapter implements BackendAdapter
     }
 
     /**
-     * Send prompt to runner /exec endpoint and return the output text.
+     * @param  array<string, mixed> $runnerResult
+     * @return array{prompt_tokens: int, completion_tokens: int, total_tokens: int}
+     */
+    private static function extractUsage(array $runnerResult): array
+    {
+        $prompt = (int) ($runnerResult['input_tokens'] ?? 0);
+        $completion = (int) ($runnerResult['output_tokens'] ?? 0);
+
+        return [
+            'prompt_tokens' => $prompt,
+            'completion_tokens' => $completion,
+            'total_tokens' => $prompt + $completion,
+        ];
+    }
+
+    /**
+     * Send prompt to runner /exec endpoint and return the full runner result.
      *
      * @throws \RuntimeException on runner communication failure
      */
-    private function runPrompt(string $prompt, ?string $model = null, array $images = []): string
+    private function runPrompt(string $prompt, ?string $model = null, array $images = [], array $params = []): array
     {
         if (trim($prompt) === '') {
-            return '';
+            return ['status' => 'ok', 'output' => ''];
         }
 
         $authPayload = $this->authService->canonicalAuthSnapshot();
@@ -120,18 +139,27 @@ class RunnerBackendAdapter implements BackendAdapter
             throw new \RuntimeException('No auth credentials available. Upload auth.json first.');
         }
 
-        $body = json_encode([
+        $payload = [
             'auth_json' => $authPayload,
             'prompt' => $prompt,
             'images' => $images,
             'model' => $model,
+            'engine' => Engine::CODEX,
             'timeout_seconds' => $this->timeout,
-        ], JSON_UNESCAPED_SLASHES);
+        ];
+
+        foreach (['max_tokens', 'temperature', 'top_p', 'stop_sequences', 'system'] as $key) {
+            if (isset($params[$key])) {
+                $payload[$key] = $params[$key];
+            }
+        }
+
+        $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         $result = $this->attemptRequest($body);
 
         if (($result['status'] ?? '') === 'ok') {
-            return $result['output'] ?? '';
+            return $result;
         }
 
         $error = $result['error'] ?? $result['reason'] ?? $result['detail'] ?? 'Runner execution failed';
