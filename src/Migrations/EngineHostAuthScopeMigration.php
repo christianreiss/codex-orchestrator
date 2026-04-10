@@ -47,7 +47,8 @@ class EngineHostAuthScopeMigration implements MigrationInterface
         }
 
         if ($columns !== []) {
-            $pdo->exec('ALTER TABLE host_auth_states DROP PRIMARY KEY');
+            $pdo->exec('ALTER TABLE host_auth_states DROP PRIMARY KEY, ADD PRIMARY KEY (host_id, engine)');
+            return;
         }
 
         $pdo->exec('ALTER TABLE host_auth_states ADD PRIMARY KEY (host_id, engine)');
