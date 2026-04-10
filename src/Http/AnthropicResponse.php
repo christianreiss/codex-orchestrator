@@ -22,16 +22,30 @@ class AnthropicResponse
         exit;
     }
 
-    public static function error(string $message, string $type, int $status): never
+    public static function error(string $message, string $type, int $status, ?string $code = null): never
     {
+        $error = [
+            'type' => $type,
+            'message' => $message,
+        ];
+
+        if ($code !== null) {
+            $error['code'] = $code;
+        }
+
         self::json([
             'type' => 'error',
-            'error' => [
-                'type' => $type,
-                'message' => $message,
-            ],
+            'error' => $error,
         ], $status);
     }
+
+    public static function stream(array $payload): never
+    {
+        self::streamEvents([
+            ['event' => 'message_start', 'data' => $payload],
+        ]);
+    }
+
 
     /**
      * @param list<array{event: string, data: array}> $events
