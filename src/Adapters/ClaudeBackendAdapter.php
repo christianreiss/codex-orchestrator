@@ -187,7 +187,7 @@ class ClaudeBackendAdapter implements BackendAdapter
     }
 
     /**
-     * @return array{0: string, 1: list<array{url: string}>}
+     * @return array{0: string, 1: list<array{url: string, detail?: string}>}
      */
     private function buildPromptPayload(array $messages): array
     {
@@ -216,7 +216,7 @@ class ClaudeBackendAdapter implements BackendAdapter
     }
 
     /**
-     * @param list<array{url: string}> $images
+     * @param list<array{url: string, detail?: string}> $images
      */
     private function renderMessageContent(mixed $content, array &$images, int &$imageNumber): string
     {
@@ -228,7 +228,7 @@ class ClaudeBackendAdapter implements BackendAdapter
             return '';
         }
 
-        if (array_key_exists('type', $content) || array_key_exists('text', $content) || array_key_exists('source', $content)) {
+        if (array_key_exists('type', $content) || array_key_exists('text', $content) || array_key_exists('source', $content) || array_key_exists('image_url', $content)) {
             $content = [$content];
         }
 
@@ -255,35 +255,57 @@ class ClaudeBackendAdapter implements BackendAdapter
                 continue;
             }
 
-            if ($type !== 'image') {
-                continue;
-            }
-
-            $source = $part['source'] ?? null;
-            if (!is_array($source)) {
-                continue;
-            }
-
-            $sourceType = $source['type'] ?? null;
-            if ($sourceType === 'base64') {
-                $mediaType = $source['media_type'] ?? 'image/png';
-                $data = $source['data'] ?? null;
-                if (!is_string($data) || trim($data) === '') {
+            if ($type === 'image') {
+                $source = $part['source'] ?? null;
+                if (!is_array($source)) {
                     continue;
                 }
-                $url = 'data:' . $mediaType . ';base64,' . $data;
-            } elseif ($sourceType === 'url') {
-                $url = $source['url'] ?? null;
+
+                $sourceType = $source['type'] ?? null;
+                if ($sourceType === 'base64') {
+                    $mediaType = $source['media_type'] ?? 'image/png';
+                    $data = $source['data'] ?? null;
+                    if (!is_string($data) || trim($data) === '') {
+                        continue;
+                    }
+                    $url = 'data:' . $mediaType . ';base64,' . $data;
+                } elseif ($sourceType === 'url') {
+                    $url = $source['url'] ?? null;
+                    if (!is_string($url) || trim($url) === '') {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+
+                $images[] = ['url' => $url];
+                $parts[] = '[Image ' . $imageNumber . ' attached]';
+                $imageNumber++;
+                continue;
+            }
+
+            if ($type === 'image_url') {
+                $imageUrl = $part['image_url'] ?? null;
+                if (!is_array($imageUrl)) {
+                    continue;
+                }
+
+                $url = $imageUrl['url'] ?? null;
                 if (!is_string($url) || trim($url) === '') {
                     continue;
                 }
-            } else {
+
+                $image = ['url' => trim($url)];
+                $detail = $imageUrl['detail'] ?? null;
+                if (is_string($detail) && trim($detail) !== '') {
+                    $image['detail'] = trim($detail);
+                }
+
+                $images[] = $image;
+                $parts[] = '[Image ' . $imageNumber . ' attached]';
+                $imageNumber++;
                 continue;
             }
-
-            $images[] = ['url' => $url];
-            $parts[] = '[Image ' . $imageNumber . ' attached]';
-            $imageNumber++;
         }
 
         return implode("\n", $parts);

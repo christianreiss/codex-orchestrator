@@ -67,10 +67,6 @@ final class ClaudeBackendAdapterTest extends TestCase
             'output' => 'Hello from Claude!',
         ]);
 
-        if (!method_exists($adapter, 'messages')) {
-            $this->markTestSkipped('messages() method not yet implemented on ClaudeBackendAdapter');
-        }
-
         $result = $adapter->messages([
             ['role' => 'user', 'content' => 'Hello'],
         ], 'claude-sonnet-4-6');
@@ -139,23 +135,12 @@ final class ClaudeBackendAdapterTest extends TestCase
         $this->assertSame('', $content);
     }
 
-    // --- New parameter passthrough and content type tests ---
-
     public function testMessagesAcceptsOptionalParamsArray(): void
     {
         $adapter = $this->createAdapterWithCannedResponse([
             'status' => 'ok',
             'output' => 'Hello!',
         ]);
-
-        if (!method_exists($adapter, 'messages')) {
-            $this->markTestSkipped('messages() not available');
-        }
-
-        $ref = new ReflectionMethod($adapter, 'messages');
-        if ($ref->getNumberOfParameters() < 3) {
-            $this->markTestSkipped('messages() does not yet accept a $params argument');
-        }
 
         $result = $adapter->messages(
             [['role' => 'user', 'content' => 'Test']],
@@ -174,10 +159,6 @@ final class ClaudeBackendAdapterTest extends TestCase
             'output' => 'Hello!',
         ]);
 
-        if (!method_exists($adapter, 'messages')) {
-            $this->markTestSkipped('messages() not available');
-        }
-
         $result = $adapter->messages(
             [['role' => 'user', 'content' => 'Test']],
             'claude-sonnet-4-6'
@@ -192,11 +173,6 @@ final class ClaudeBackendAdapterTest extends TestCase
             'status' => 'ok',
             'output' => 'Hi there',
         ]);
-
-        $ref = new ReflectionMethod($adapter, 'chatCompletions');
-        if ($ref->getNumberOfParameters() < 3) {
-            $this->markTestSkipped('chatCompletions() does not yet accept a $params argument');
-        }
 
         $result = $adapter->chatCompletions(
             [['role' => 'user', 'content' => 'Hello']],
@@ -214,10 +190,6 @@ final class ClaudeBackendAdapterTest extends TestCase
             'status' => 'ok',
             'output' => 'I see an image',
         ]);
-
-        if (!method_exists($adapter, 'messages')) {
-            $this->markTestSkipped('messages() not available');
-        }
 
         $result = $adapter->messages([
             [
@@ -244,10 +216,6 @@ final class ClaudeBackendAdapterTest extends TestCase
             'cache_read_input_tokens' => 30,
         ]);
 
-        if (!method_exists($adapter, 'messages')) {
-            $this->markTestSkipped('messages() not available');
-        }
-
         $result = $adapter->messages(
             [['role' => 'user', 'content' => 'Test']],
             'claude-sonnet-4-6'
@@ -260,7 +228,187 @@ final class ClaudeBackendAdapterTest extends TestCase
         $this->assertSame(30, $usage['cache_read_input_tokens']);
     }
 
+    // --- image_url format support tests ---
+
+    public function testMessagesForwardsImageUrlContentParts(): void
+    {
+        $adapter = $this->makeTestAdapterWithPayloadCapture('image result');
+
+        $adapter->messages([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'Describe this image.'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/cat.png']],
+                ],
+            ],
+        ], 'claude-sonnet-4-6');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $this->assertStringContainsString('[Image 1 attached]', $adapter->seenPayloads[0]['prompt']);
+        $this->assertStringContainsString('Describe this image.', $adapter->seenPayloads[0]['prompt']);
+        $this->assertSame([
+            ['url' => 'https://example.test/cat.png'],
+        ], $adapter->seenPayloads[0]['images']);
+    }
+
+    public function testMessagesPreservesImageUrlDetailField(): void
+    {
+        $adapter = $this->makeTestAdapterWithPayloadCapture('detail result');
+
+        $adapter->messages([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'Describe in detail.'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/photo.jpg', 'detail' => 'high']],
+                ],
+            ],
+        ], 'claude-sonnet-4-6');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $this->assertSame([
+            ['url' => 'https://example.test/photo.jpg', 'detail' => 'high'],
+        ], $adapter->seenPayloads[0]['images']);
+    }
+
+    public function testMessagesHandlesMixedImageFormats(): void
+    {
+        $adapter = $this->makeTestAdapterWithPayloadCapture('mixed result');
+
+        $adapter->messages([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'Compare these.'],
+                    ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => 'iVBOR']],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/photo.jpg', 'detail' => 'low']],
+                ],
+            ],
+        ], 'claude-sonnet-4-6');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $images = $adapter->seenPayloads[0]['images'];
+        $this->assertCount(2, $images);
+        $this->assertSame('data:image/png;base64,iVBOR', $images[0]['url']);
+        $this->assertSame('https://example.test/photo.jpg', $images[1]['url']);
+        $this->assertSame('low', $images[1]['detail']);
+        $this->assertStringContainsString('[Image 1 attached]', $adapter->seenPayloads[0]['prompt']);
+        $this->assertStringContainsString('[Image 2 attached]', $adapter->seenPayloads[0]['prompt']);
+    }
+
+    public function testChatCompletionsHandlesImageUrlFormat(): void
+    {
+        $adapter = $this->makeTestAdapterWithPayloadCapture('chat image result');
+
+        $adapter->chatCompletions([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'What is in this picture?'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/dog.png', 'detail' => 'auto']],
+                ],
+            ],
+        ], 'claude-sonnet-4-6');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $this->assertStringContainsString('[Image 1 attached]', $adapter->seenPayloads[0]['prompt']);
+        $this->assertSame([
+            ['url' => 'https://example.test/dog.png', 'detail' => 'auto'],
+        ], $adapter->seenPayloads[0]['images']);
+    }
+
+    public function testRunnerPayloadIncludesEngineField(): void
+    {
+        $adapter = $this->makeTestAdapterWithPayloadCapture('engine test');
+
+        $adapter->messages([
+            ['role' => 'user', 'content' => 'Hello'],
+        ], 'claude-sonnet-4-6');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $this->assertSame('claude', $adapter->seenPayloads[0]['engine']);
+    }
+
+    public function testRunnerPayloadForwardsAllParams(): void
+    {
+        $adapter = $this->makeTestAdapterWithPayloadCapture('params test');
+
+        $adapter->messages(
+            [['role' => 'user', 'content' => 'Test']],
+            'claude-sonnet-4-6',
+            [
+                'max_tokens' => 1024,
+                'temperature' => 0.8,
+                'top_p' => 0.9,
+                'top_k' => 40,
+                'stop_sequences' => ["\n\nHuman:"],
+                'system' => 'You are a helpful assistant.',
+            ]
+        );
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $payload = $adapter->seenPayloads[0];
+        $this->assertSame(1024, $payload['max_tokens']);
+        $this->assertSame(0.8, $payload['temperature']);
+        $this->assertSame(0.9, $payload['top_p']);
+        $this->assertSame(40, $payload['top_k']);
+        $this->assertSame(["\n\nHuman:"], $payload['stop_sequences']);
+        $this->assertSame('You are a helpful assistant.', $payload['system']);
+    }
+
     // --- Helper methods ---
+
+    /**
+     * Create a test adapter that captures decoded payloads sent to attemptRequest().
+     *
+     * @return ClaudeBackendAdapter&object{seenPayloads: array<int, array<string, mixed>>}
+     */
+    private function makeTestAdapterWithPayloadCapture(string $output, float $timeout = 30.0): ClaudeBackendAdapter
+    {
+        $authService = $this->createMock(\App\Services\AuthService::class);
+        $authService->method('canonicalAuthSnapshot')->willReturn([
+            'tokens' => ['access_token' => 'tok_test_12345678901234567890'],
+        ]);
+
+        $modelService = $this->createMock(\App\Services\ClaudeModelService::class);
+        $modelService->method('supportedModels')->willReturn(\App\Services\ClaudeModelService::SUPPORTED_MODELS);
+
+        return new class(
+            'http://runner.test/exec',
+            '',
+            $authService,
+            $modelService,
+            $timeout,
+            $output
+        ) extends ClaudeBackendAdapter {
+            public array $seenPayloads = [];
+            private string $testOutput;
+
+            public function __construct(
+                string $runnerExecUrl,
+                string $sharedSecret,
+                \App\Services\AuthService $authService,
+                \App\Services\ClaudeModelService $modelService,
+                float $timeout,
+                string $output
+            ) {
+                parent::__construct($runnerExecUrl, $sharedSecret, $authService, $modelService, $timeout);
+                $this->testOutput = $output;
+            }
+
+            protected function attemptRequest(string $body): array
+            {
+                $decoded = json_decode($body, true);
+                $this->seenPayloads[] = is_array($decoded) ? $decoded : [];
+
+                return [
+                    'status' => 'ok',
+                    'output' => $this->testOutput,
+                ];
+            }
+        };
+    }
 
     private function createAdapter(): ClaudeBackendAdapter
     {
@@ -272,17 +420,7 @@ final class ClaudeBackendAdapterTest extends TestCase
 
     private function createAdapterWithCannedResponse(array $cannedResponse): ClaudeBackendAdapter
     {
-        $reflection = new ReflectionClass(ClaudeBackendAdapter::class);
-
-        $method = $reflection->hasMethod('attemptRequest')
-            ? $reflection->getMethod('attemptRequest')
-            : null;
-
-        if ($method === null || $method->isPrivate()) {
-            return $this->createAdapter();
-        }
-
-        $parentArgs = $this->resolveConstructorArgs($reflection, stubAuth: true);
+        $parentArgs = $this->resolveConstructorArgs(new ReflectionClass(ClaudeBackendAdapter::class), stubAuth: true);
 
         return new class(...[...$parentArgs, $cannedResponse]) extends ClaudeBackendAdapter {
             private array $testCannedResponse;
