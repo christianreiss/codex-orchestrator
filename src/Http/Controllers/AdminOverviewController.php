@@ -22,6 +22,7 @@ use App\Repositories\VersionRepository;
 use App\Services\AdminAuthService;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
+use App\Services\ClaudeUsageService;
 use App\Services\CostHistoryService;
 use App\Services\PricingService;
 use App\Services\UsageScalingService;
@@ -48,6 +49,7 @@ class AdminOverviewController
         private HostUserRepository $hostUserRepository,
         private InsecureDomainAllowRepository $insecureDomainAllowRepository,
         private ?UsageScalingService $usageScalingService = null,
+        private ?ClaudeUsageService $claudeUsageService = null,
         private string $pricingModel = 'gpt-5.4',
     ) {}
 
@@ -426,6 +428,7 @@ class AdminOverviewController
                 $chatgptSummary['active_quota_lane'] = $globalLaneSpark ? 'spark' : 'normal';
             }
         }
+        $claudeUsageSummary = $this->claudeUsageService?->dashboardSummary();
 
         Response::json([
             'status' => 'ok',
@@ -454,6 +457,7 @@ class AdminOverviewController
                 'chatgpt_usage_summary' => $chatgptSummary,
                 'chatgpt_cached' => $chatgpt['cached'] ?? false,
                 'chatgpt_next_eligible_at' => $chatgpt['next_eligible_at'] ?? null,
+                'claude_usage_summary' => $claudeUsageSummary,
                 'quota_hard_fail' => $quotaHardFail,
                 'quota_limit_percent' => $quotaLimitPercent,
                 'quota_week_partition' => $quotaWeekPartition,
