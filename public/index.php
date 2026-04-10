@@ -118,6 +118,7 @@ use App\Http\Controllers\CliAuthController;
 use App\Http\Controllers\OpenAiApiController;
 use App\Http\Controllers\ClaudeApiController;
 use App\Http\Controllers\AdminOpenAiKeyController;
+use App\Http\Controllers\AdminClaudeKeyController;
 use App\Http\Controllers\AdminJoplinController;
 use App\Http\Controllers\ClaudeApiController;
 use App\Http\OpenAiResponse;
@@ -560,6 +561,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
 }
 $claudeApiCtrl = new ClaudeApiController($claudeBackend, $openaiKeyService, $rateLimiter, $claudeModelService, $versionRepository);
 $adminOpenAiKeyCtrl = new AdminOpenAiKeyController($openaiKeyService);
+$adminClaudeKeyCtrl = new AdminClaudeKeyController($openaiKeyService);
 
 // --- Route wiring ---
 
@@ -861,6 +863,16 @@ $router->add('POST', '#^/admin/openai/keys/(\d+)/toggle$#', fn($id) => $adminOpe
 $router->add('DELETE', '#^/admin/openai/keys/(\d+)$#', fn($id) => $adminOpenAiKeyCtrl->delete($id));
 $router->add('GET', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->getOpenaiApiState());
 $router->add('POST', '#^/admin/openai/state$#', fn() => $adminSettingsCtrl->postOpenaiApiState($payload));
+
+// Admin: Claude API key management
+$router->add('GET', '#^/admin/claude/keys$#', fn() => $adminClaudeKeyCtrl->index());
+$router->add('POST', '#^/admin/claude/keys$#', fn() => $adminClaudeKeyCtrl->store($payload));
+$router->add('POST', '#^/admin/claude/keys/(\d+)/toggle$#', fn($id) => $adminClaudeKeyCtrl->toggle($id, $payload));
+$router->add('DELETE', '#^/admin/claude/keys/(\d+)$#', fn($id) => $adminClaudeKeyCtrl->delete($id));
+$router->add('GET', '#^/admin/claude/state$#', fn() => $adminSettingsCtrl->getClaudeApiState());
+$router->add('POST', '#^/admin/claude/state$#', fn() => $adminSettingsCtrl->postClaudeApiState($payload));
+$router->add('GET', '#^/admin/claude/settings$#', fn() => $adminSettingsCtrl->getClaudeSettings());
+$router->add('POST', '#^/admin/claude/settings$#', fn() => $adminSettingsCtrl->postClaudeSettings($payload));
 
 // --- Dispatch + error handling ---
 
