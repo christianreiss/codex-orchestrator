@@ -61,6 +61,20 @@ class ConfigNormalizer
     ];
 
     /** @var list<string> */
+    public const CLAUDE_SUPPORTED_MODELS = [
+        'claude-opus-4-6',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5',
+    ];
+
+    /** @var array<string, list<string>> */
+    public const CLAUDE_MODEL_REASONING_EFFORTS = [
+        'claude-opus-4-6' => ['low', 'medium', 'high'],
+        'claude-sonnet-4-6' => ['low', 'medium', 'high'],
+        'claude-haiku-4-5' => ['low', 'medium', 'high'],
+    ];
+
+    /** @var list<string> */
     public const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
     /** @var list<string> */
@@ -624,6 +638,19 @@ class ConfigNormalizer
         return in_array($model, self::SUPPORTED_MODELS, true) ? $model : null;
     }
 
+    public static function normalizeClaudeModel(mixed $value): ?string
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+        $model = strtolower(trim((string) $value));
+        if ($model === '') {
+            return null;
+        }
+
+        return in_array($model, self::CLAUDE_SUPPORTED_MODELS, true) ? $model : null;
+    }
+
     public static function normalizeStoredModel(mixed $value): ?string
     {
         $supported = self::normalizeSupportedModel($value);
@@ -688,11 +715,16 @@ class ConfigNormalizer
     public static function supportedReasoningEffortsForModel(mixed $model): array
     {
         $normalized = self::normalizeSupportedModel($model);
-        if ($normalized === null) {
-            return [];
+        if ($normalized !== null) {
+            return self::MODEL_REASONING_EFFORTS[$normalized] ?? [];
         }
 
-        return self::MODEL_REASONING_EFFORTS[$normalized] ?? [];
+        $claudeNormalized = self::normalizeClaudeModel($model);
+        if ($claudeNormalized !== null) {
+            return self::CLAUDE_MODEL_REASONING_EFFORTS[$claudeNormalized] ?? [];
+        }
+
+        return [];
     }
 
     public static function normalizeReasoningEffort(mixed $value): ?string
@@ -710,13 +742,14 @@ class ConfigNormalizer
 
     public static function modelSupportsReasoningEffort(mixed $model, mixed $effort): bool
     {
-        $normalizedModel = self::normalizeSupportedModel($model);
         $normalizedEffort = self::normalizeReasoningEffort($effort);
-        if ($normalizedModel === null || $normalizedEffort === null) {
+        if ($normalizedEffort === null) {
             return false;
         }
 
-        return in_array($normalizedEffort, self::supportedReasoningEffortsForModel($normalizedModel), true);
+        $efforts = self::supportedReasoningEffortsForModel($model);
+
+        return in_array($normalizedEffort, $efforts, true);
     }
 
     public function settingsHash(mixed $settings): string
