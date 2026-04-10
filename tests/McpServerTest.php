@@ -266,7 +266,7 @@ final class SpySkillService extends SkillService
     {
     }
 
-    public function listSkills(?array $host = null, bool $includeDeleted = false): array
+    public function listSkills(?array $host = null, bool $includeDeleted = false, ?string $engine = null): array
     {
         return array_values(array_filter(
             $this->skills,

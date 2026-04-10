@@ -284,16 +284,16 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function metadata(): array
+            public function metadata(string $engine = \App\Support\Engine::CODEX): array
             {
                 return [];
             }
 
-            public function ensureSeeded(): void
+            public function ensureSeeded(string $engine = \App\Support\Engine::CODEX): void
             {
             }
 
-            public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
+            public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null, string $engine = \App\Support\Engine::CODEX): array
             {
                 return [
                     'version' => null,
@@ -554,7 +554,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function metadata(): array
+            public function metadata(string $engine = \App\Support\Engine::CODEX): array
             {
                 return [
                     'version' => null,
@@ -570,7 +570,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 return [];
             }
 
-            public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null): array
+            public function bakedForHost(array $host, string $baseUrl, ?string $caFile = null, string $engine = \App\Support\Engine::CODEX): array
             {
                 return [
                     'version' => null,
