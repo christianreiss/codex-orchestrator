@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/*
+ * Creator: Christian Reiss
+ * Contact: email@christian-reiss.de
+ * Mastodon: @chris@social.uggs.io
+ * GitHub: https://github.com/christianreiss/codex-orchestrator
+ */
+
 namespace App\Services;
 
 use App\Database;
@@ -23,6 +30,8 @@ use PDO;
  */
 class ClaudeUsageService
 {
+    private const MIN_REFRESH_SECONDS = 300;
+
     public function __construct(
         private readonly VersionRepository $versions,
         private readonly LogRepository $logs,
@@ -122,12 +131,7 @@ class ClaudeUsageService
             return [];
         }
 
-        $seconds = match ($period) {
-            '7d' => 7 * 86400,
-            '30d' => 30 * 86400,
-            default => 86400,
-        };
-        $since = gmdate(DATE_ATOM, time() - $seconds);
+        $since = gmdate(DATE_ATOM, time() - self::periodToSeconds($period));
 
         $sql = "SELECT COALESCE(model, 'unknown') AS model,
                        COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -135,12 +139,12 @@ class ClaudeUsageService
                        COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
                        COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) + COALESCE(cached_tokens, 0)), 0) AS total_tokens
                 FROM token_usages
-                WHERE engine = :engine AND created_at >= :since
+                WHERE created_at >= :since
                 GROUP BY model
                 ORDER BY total_tokens DESC";
 
         $stmt = $this->database->connection()->prepare($sql);
-        $stmt->execute(['engine' => Engine::CLAUDE, 'since' => $since]);
+        $stmt->execute(['since' => $since]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $results = [];
@@ -209,6 +213,123 @@ class ClaudeUsageService
     }
 
     /**
+     * Get Claude usage history bucketed by time period.
+     *
+     * @param string $bucket One of 'hourly', 'daily'
+     * @param string $period How far back: '24h', '7d', '30d'
+     * @param string|null $model Filter by model
+     * @return array<int, array{bucket: string, model: string, input_tokens: int, output_tokens: int, cached_tokens: int, cost: float}>
+     */
+    public function history(string $bucket = 'daily', string $period = '7d', ?string $model = null): array
+    {
+        if ($this->database === null) {
+            return [];
+        }
+
+        $since = gmdate(DATE_ATOM, time() - self::periodToSeconds($period));
+
+        $format = $bucket === 'hourly' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
+
+        $modelFilter = '';
+        $params = ['since' => $since];
+        if ($model !== null && $model !== '') {
+            $modelFilter = ' AND model = :model';
+            $params['model'] = $model;
+        }
+
+        $sql = "SELECT DATE_FORMAT(created_at, :fmt) AS time_bucket,
+                       COALESCE(model, 'unknown') AS model,
+                       COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                       COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                       COALESCE(SUM(cached_tokens), 0) AS cached_tokens
+                FROM token_usages
+                WHERE created_at >= :since{$modelFilter}
+                GROUP BY time_bucket, model
+                ORDER BY time_bucket ASC, model ASC";
+
+        $params['fmt'] = $format;
+
+        $stmt = $this->database->connection()->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $results = [];
+        foreach ($rows as $row) {
+            $rowModel = (string) ($row['model'] ?? 'unknown');
+            $inputTokens = (int) ($row['input_tokens'] ?? 0);
+            $outputTokens = (int) ($row['output_tokens'] ?? 0);
+            $cachedTokens = (int) ($row['cached_tokens'] ?? 0);
+            $cost = self::calculateCost($rowModel, $inputTokens, $outputTokens, $cachedTokens);
+
+            $results[] = [
+                'bucket' => (string) ($row['time_bucket'] ?? ''),
+                'model' => $rowModel,
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'cached_tokens' => $cachedTokens,
+                'cost' => round($cost, 6),
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Advanced history with per-model cost series for charting.
+     *
+     * @return array{series: array<string, list<array{bucket: string, cost: float, tokens: int}>>, totals: array<string, float>}
+     */
+    public function historyAdvanced(string $bucket = 'daily', string $period = '30d'): array
+    {
+        $raw = $this->history($bucket, $period);
+
+        $series = [];
+        $totals = [];
+
+        foreach ($raw as $row) {
+            $model = $row['model'];
+            if (!isset($series[$model])) {
+                $series[$model] = [];
+                $totals[$model] = 0.0;
+            }
+
+            $tokens = $row['input_tokens'] + $row['output_tokens'] + $row['cached_tokens'];
+            $series[$model][] = [
+                'bucket' => $row['bucket'],
+                'cost' => $row['cost'],
+                'tokens' => $tokens,
+            ];
+            $totals[$model] = round($totals[$model] + $row['cost'], 6);
+        }
+
+        return [
+            'series' => $series,
+            'totals' => $totals,
+        ];
+    }
+
+    /**
+     * Log an error for debugging.
+     */
+    public function storeError(string $message, array $context = []): void
+    {
+        $this->logs->log(null, 'claude.usage.error', array_merge(['message' => $message], $context));
+    }
+
+    /**
+     * Check whether the cached snapshot is stale and should be refreshed.
+     */
+    public function shouldRefresh(): bool
+    {
+        $lastRefresh = $this->versions->get('claude_usage_last_refresh');
+        if ($lastRefresh === null) {
+            return true;
+        }
+
+        return (time() - (int) $lastRefresh) >= self::MIN_REFRESH_SECONDS;
+    }
+
+    /**
      * Aggregate from the database and persist a fresh snapshot.
      */
     public function refreshSnapshot(): array
@@ -226,7 +347,18 @@ class ClaudeUsageService
         ];
 
         $this->recordSnapshot($snapshotData);
+        $this->versions->set('claude_usage_last_refresh', (string) time());
 
         return $summary;
+    }
+
+    private static function periodToSeconds(string $period): int
+    {
+        return match ($period) {
+            '24h' => 86400,
+            '7d' => 7 * 86400,
+            '30d' => 30 * 86400,
+            default => 7 * 86400,
+        };
     }
 }

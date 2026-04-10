@@ -12,6 +12,7 @@ namespace App;
 use App\Migrations\AdminMigration;
 use App\Migrations\AuthMigration;
 use App\Migrations\ClaudeHostFieldsMigration;
+use App\Migrations\ClaudeUsageSnapshotsMigration;
 use App\Migrations\ContentMigration;
 use App\Migrations\EngineMigration;
 use App\Migrations\HostMigration;
@@ -81,6 +82,7 @@ class DatabaseMigrator
             new JoplinMigration(),
             new EngineMigration(),
             new ClaudeHostFieldsMigration(),
+            new ClaudeUsageSnapshotsMigration(),
         ];
 
         foreach ($migrations as $migration) {
