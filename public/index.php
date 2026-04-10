@@ -543,7 +543,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     );
 }
 $openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService);
-$claudeModelService = new ClaudeModelService();
+$claudeModelService = new ClaudeModelService($versionRepository);
 $claudeBackend = null;
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
     $claudeExecUrl = preg_replace('#/verify$#', '/exec', $runnerUrl);
