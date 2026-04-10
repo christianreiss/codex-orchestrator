@@ -13,31 +13,7 @@ final class RunnerBackendAdapterTest extends TestCase
 {
     public function testChatCompletionsSendSelectedModelToRunnerExecPayload(): void
     {
-        $authService = $this->createMock(AuthService::class);
-        $authService->method('canonicalAuthSnapshot')->willReturn([
-            'tokens' => ['access_token' => 'tok_test_12345678901234567890'],
-        ]);
-
-        $adapter = new class(
-            'http://runner.test/exec',
-            '',
-            $authService,
-            new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo()),
-            12.5
-        ) extends RunnerBackendAdapter {
-            public array $seenPayloads = [];
-
-            protected function attemptRequest(string $body): array
-            {
-                $decoded = json_decode($body, true);
-                $this->seenPayloads[] = is_array($decoded) ? $decoded : [];
-
-                return [
-                    'status' => 'ok',
-                    'output' => 'pong',
-                ];
-            }
-        };
+        $adapter = $this->makeTestAdapter('pong', 12.5);
 
         $result = $adapter->chatCompletions([
             ['role' => 'user', 'content' => 'Hello'],
@@ -51,30 +27,7 @@ final class RunnerBackendAdapterTest extends TestCase
 
     public function testChatCompletionsForwardImagePartsToRunnerExecPayload(): void
     {
-        $authService = $this->createMock(AuthService::class);
-        $authService->method('canonicalAuthSnapshot')->willReturn([
-            'tokens' => ['access_token' => 'tok_test_12345678901234567890'],
-        ]);
-
-        $adapter = new class(
-            'http://runner.test/exec',
-            '',
-            $authService,
-            new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo())
-        ) extends RunnerBackendAdapter {
-            public array $seenPayloads = [];
-
-            protected function attemptRequest(string $body): array
-            {
-                $decoded = json_decode($body, true);
-                $this->seenPayloads[] = is_array($decoded) ? $decoded : [];
-
-                return [
-                    'status' => 'ok',
-                    'output' => 'image result',
-                ];
-            }
-        };
+        $adapter = $this->makeTestAdapter('image result');
 
         $adapter->chatCompletions([
             [
@@ -103,6 +56,192 @@ final class RunnerBackendAdapterTest extends TestCase
         $ids = array_map(static fn (array $row): string => (string) ($row['id'] ?? ''), $result['data']);
 
         $this->assertSame($modelService->supportedModels(), $ids);
+    }
+
+    public function testImplementsBackendAdapter(): void
+    {
+        $authService = $this->createMock(AuthService::class);
+        $modelService = new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo());
+        $adapter = new RunnerBackendAdapter('http://runner.test/exec', '', $authService, $modelService);
+
+        $this->assertInstanceOf(\App\Contracts\BackendAdapter::class, $adapter);
+    }
+
+    public function testChatCompletionsReturnsCorrectFormat(): void
+    {
+        $adapter = $this->makeTestAdapter('Backend reply');
+
+        $result = $adapter->chatCompletions([
+            ['role' => 'user', 'content' => 'Hello'],
+        ], 'gpt-5.4');
+
+        $this->assertStringStartsWith('chatcmpl-', $result['id']);
+        $this->assertSame('chat.completion', $result['object']);
+        $this->assertSame('gpt-5.4', $result['model']);
+        $this->assertIsInt($result['created']);
+        $this->assertCount(1, $result['choices']);
+        $this->assertSame(0, $result['choices'][0]['index']);
+        $this->assertSame('assistant', $result['choices'][0]['message']['role']);
+        $this->assertSame('Backend reply', $result['choices'][0]['message']['content']);
+        $this->assertSame('stop', $result['choices'][0]['finish_reason']);
+        $this->assertArrayHasKey('usage', $result);
+        $this->assertArrayHasKey('prompt_tokens', $result['usage']);
+        $this->assertArrayHasKey('completion_tokens', $result['usage']);
+        $this->assertArrayHasKey('total_tokens', $result['usage']);
+    }
+
+    public function testCompletionsReturnsCorrectFormat(): void
+    {
+        $adapter = $this->makeTestAdapter('Completion output');
+
+        $result = $adapter->completions('Some prompt', 'gpt-5.4');
+
+        $this->assertStringStartsWith('cmpl-', $result['id']);
+        $this->assertSame('text_completion', $result['object']);
+        $this->assertSame('gpt-5.4', $result['model']);
+        $this->assertIsInt($result['created']);
+        $this->assertCount(1, $result['choices']);
+        $this->assertSame(0, $result['choices'][0]['index']);
+        $this->assertSame('Completion output', $result['choices'][0]['text']);
+        $this->assertNull($result['choices'][0]['logprobs']);
+        $this->assertSame('stop', $result['choices'][0]['finish_reason']);
+        $this->assertArrayHasKey('usage', $result);
+    }
+
+    public function testEmbeddingsReturnsError(): void
+    {
+        $authService = $this->createMock(AuthService::class);
+        $modelService = new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo());
+        $adapter = new RunnerBackendAdapter('http://runner.test/exec', '', $authService, $modelService);
+
+        $result = $adapter->embeddings('test input', 'text-embedding-3-small');
+
+        $this->assertArrayHasKey('error', $result);
+        $this->assertSame('not_implemented', $result['error']['type']);
+        $this->assertSame('not_implemented', $result['error']['code']);
+        $this->assertStringContainsString('not supported', $result['error']['message']);
+    }
+
+    public function testModelsReturnsCorrectFormat(): void
+    {
+        $authService = $this->createMock(AuthService::class);
+        $modelService = new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo());
+        $adapter = new RunnerBackendAdapter('http://runner.test/exec', '', $authService, $modelService);
+
+        $result = $adapter->models();
+
+        $this->assertSame('list', $result['object']);
+        $this->assertIsArray($result['data']);
+        $this->assertNotEmpty($result['data']);
+
+        foreach ($result['data'] as $model) {
+            $this->assertArrayHasKey('id', $model);
+            $this->assertSame('model', $model['object']);
+            $this->assertArrayHasKey('created', $model);
+            $this->assertSame('codex-orchestrator', $model['owned_by']);
+        }
+    }
+
+    public function testEmptyPromptReturnsEmpty(): void
+    {
+        $adapter = $this->makeTestAdapter('should not appear');
+
+        $result = $adapter->completions('', 'gpt-5.4');
+
+        $this->assertSame('', $result['choices'][0]['text']);
+    }
+
+    public function testChatCompletionsWithImages(): void
+    {
+        $adapter = $this->makeTestAdapter('Image described');
+
+        $adapter->chatCompletions([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'What is this?'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/cat.png', 'detail' => 'auto']],
+                ],
+            ],
+        ], 'gpt-5.4');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $payload = $adapter->seenPayloads[0];
+        $this->assertStringContainsString('What is this?', $payload['prompt']);
+        $this->assertStringContainsString('[Image 1 attached]', $payload['prompt']);
+        $this->assertCount(1, $payload['images']);
+        $this->assertSame('https://example.test/cat.png', $payload['images'][0]['url']);
+        $this->assertSame('auto', $payload['images'][0]['detail']);
+    }
+
+    public function testMultipartContentHandling(): void
+    {
+        $adapter = $this->makeTestAdapter('Multi response');
+
+        $adapter->chatCompletions([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => 'First text part'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/a.png']],
+                    ['type' => 'text', 'text' => 'Second text part'],
+                    ['type' => 'image_url', 'image_url' => ['url' => 'https://example.test/b.png', 'detail' => 'low']],
+                ],
+            ],
+        ], 'gpt-5.4');
+
+        $this->assertCount(1, $adapter->seenPayloads);
+        $payload = $adapter->seenPayloads[0];
+        $this->assertStringContainsString('First text part', $payload['prompt']);
+        $this->assertStringContainsString('Second text part', $payload['prompt']);
+        $this->assertStringContainsString('[Image 1 attached]', $payload['prompt']);
+        $this->assertStringContainsString('[Image 2 attached]', $payload['prompt']);
+        $this->assertCount(2, $payload['images']);
+        $this->assertSame('https://example.test/a.png', $payload['images'][0]['url']);
+        $this->assertSame('https://example.test/b.png', $payload['images'][1]['url']);
+        $this->assertSame('low', $payload['images'][1]['detail']);
+    }
+
+    private function makeTestAdapter(string $output, float $timeout = 30.0): RunnerBackendAdapter
+    {
+        $authService = $this->createMock(AuthService::class);
+        $authService->method('canonicalAuthSnapshot')->willReturn([
+            'tokens' => ['access_token' => 'tok_test_12345678901234567890'],
+        ]);
+
+        return new class(
+            'http://runner.test/exec',
+            '',
+            $authService,
+            new OpenAiModelService($this->makeConfigRepo(), $this->makeVersionRepo()),
+            $timeout,
+            $output
+        ) extends RunnerBackendAdapter {
+            /** @var list<array<string, mixed>> */
+            public array $seenPayloads = [];
+
+            public function __construct(
+                string $runnerExecUrl,
+                string $sharedSecret,
+                AuthService $authService,
+                OpenAiModelService $modelService,
+                float $timeout,
+                private readonly string $cannedOutput,
+            ) {
+                parent::__construct($runnerExecUrl, $sharedSecret, $authService, $modelService, $timeout);
+            }
+
+            protected function attemptRequest(string $body): array
+            {
+                $decoded = json_decode($body, true);
+                $this->seenPayloads[] = is_array($decoded) ? $decoded : [];
+
+                return [
+                    'status' => 'ok',
+                    'output' => $this->cannedOutput,
+                ];
+            }
+        };
     }
 
     private function makeConfigRepo(): ClientConfigRepository
