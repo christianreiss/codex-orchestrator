@@ -60,13 +60,6 @@ class ConfigNormalizer
         'gpt-5.2' => ['low', 'medium', 'high', 'xhigh'],
     ];
 
-    /** @var list<string> */
-    public const CLAUDE_SUPPORTED_MODELS = [
-        'claude-opus-4-6',
-        'claude-sonnet-4-6',
-        'claude-haiku-4-5',
-    ];
-
     /** @var array<string, list<string>> */
     public const CLAUDE_MODEL_REASONING_EFFORTS = [
         'claude-opus-4-6' => ['low', 'medium', 'high'],
@@ -636,19 +629,6 @@ class ConfigNormalizer
         }
 
         return in_array($model, self::SUPPORTED_MODELS, true) ? $model : null;
-    }
-
-    public static function normalizeClaudeModel(mixed $value): ?string
-    {
-        if (!is_string($value) && !is_numeric($value)) {
-            return null;
-        }
-        $model = strtolower(trim((string) $value));
-        if ($model === '') {
-            return null;
-        }
-
-        return in_array($model, self::CLAUDE_SUPPORTED_MODELS, true) ? $model : null;
     }
 
     public static function normalizeStoredModel(mixed $value): ?string
