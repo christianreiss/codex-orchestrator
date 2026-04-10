@@ -18,17 +18,17 @@ final class CdxWrapperInsecureApprovalBoxFormatTest extends TestCase
             'Pending approval box should start from a stable minimum width.'
         );
         self::assertStringContainsString(
-            'printf \'%s%s%s\\n\' "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right"',
+            'printf \'%b%s%s%s%b\\n\' "${CYAN}${BOLD}" "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right" "$RESET"',
             $wrapperSource,
             'Top border width should account for the content width plus side padding.'
         );
         self::assertStringContainsString(
-            'printf \'%s %-*s %s\\n\' "$vertical" "$content_width" "$truncated" "$vertical"',
+            'printf \'%b%s%b %s%*s %b%s%b\\n\' "${CYAN}${BOLD}" "$vertical" "$RESET" "$st" "$pad" "" "${CYAN}${BOLD}" "$vertical" "$RESET"',
             $wrapperSource,
             'Content rows should use fixed-width padding so the right border stays aligned.'
         );
         self::assertStringContainsString(
-            'printf \'%s%s%s\' "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right"',
+            'printf \'%b%s%s%s%b\' "${CYAN}${BOLD}" "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right" "$RESET"',
             $wrapperSource,
             'Bottom border width should match the top border.'
         );

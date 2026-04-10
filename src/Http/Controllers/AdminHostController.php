@@ -19,6 +19,7 @@ use App\Repositories\InstallTokenRepository;
 use App\Services\ClientConfigService;
 use App\Support\CodexVersionPolicy;
 use App\Support\Engine;
+use App\Support\InstallerMode;
 
 class AdminHostController
 {
@@ -1258,18 +1259,21 @@ class AdminHostController
                 'message' => 'Unable to determine public base URL for installer. Set PUBLIC_BASE_URL or ensure Host/X-Forwarded-Proto headers are forwarded.',
             ], 500);
         }
+        $installerMode = InstallerMode::forHostEngines($engines);
         $tokenRow = $this->installTokenRepository->create(
             generateUuid(),
             (int) $host['id'],
             (string) ($hostPayload['api_key'] ?? ($host['api_key_plain'] ?? '')),
             (string) $host['fqdn'],
             $expiresAt,
-            $baseUrl
+            $baseUrl,
+            $installerMode
         );
 
         $this->logRepository->log((int) $host['id'], 'admin.install_token.create', [
             'fqdn' => $host['fqdn'],
             'expires_at' => $expiresAt,
+            'installer_mode' => $installerMode,
             'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
         ]);
 
@@ -1279,6 +1283,8 @@ class AdminHostController
                 'host' => array_merge($hostPayload, ['id' => (int) $host['id']]),
                 'installer' => [
                     'token' => $tokenRow['token'],
+                    'mode' => $installerMode,
+                    'label' => InstallerMode::label($installerMode),
                     'url' => rtrim($baseUrl, '/') . '/install/' . $tokenRow['token'],
                     'command' => installerCommand($baseUrl, $tokenRow['token']),
                     'expires_at' => $expiresAt,

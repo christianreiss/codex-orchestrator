@@ -37,7 +37,7 @@ Use the admin dashboard:
 
 - **Hosts** → **New Host**
 - Set the host **FQDN** and toggles (secure/insecure, roaming IPs, VIP, IPv4-only).
-- Copy the installer command (it looks like `curl …/install/<token> | bash`).
+- Copy the installer command (it looks like `curl …/install/<token> | bash`). Depending on the selected host engines, that one command installs Codex, Claude, or both.
 
 Operational reality:
 
@@ -48,7 +48,7 @@ Operational reality:
 
 If you prefer provisioning via API (CI, inventory tooling), the admin endpoint is:
 
-- `POST /admin/hosts/register` with JSON body: `{"fqdn":"host1.example.com","secure":true,"vip":false}`
+- `POST /admin/hosts/register` with JSON body: `{"fqdn":"host1.example.com","secure":true,"vip":false,"engines":["codex","claude"]}`
 
 Preferred: use admin login + session cookie for `/admin/*` calls. mTLS is an advanced hardening layer; only required when `ADMIN_ACCESS_MODE=mtls`.
 
@@ -66,7 +66,7 @@ curl --fail-with-body -sS \
   "$BASE_URL/admin/hosts/register"
 ```
 
-The response includes `data.installer.url` and a copy/paste-friendly `data.installer.command` (the `curl …/install/<token> | bash` line).
+The response includes `data.installer.url`, `data.installer.command`, and installer mode metadata (`data.installer.mode`, `data.installer.label`) so callers can tell whether the command installs Codex, Claude, or both.
 If `ADMIN_ACCESS_MODE=none`, log in via `/admin` and reuse the session cookie for API automation (see `LOGIN.md`).
 
 ### 2) Run the installer on the target host
@@ -88,6 +88,8 @@ The `CODEX_INSTALL_CURL_INSECURE=1` part tells the installer to reuse `curl -k` 
 If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” when issuing the host installer (or export `CODEX_SYNC_ALLOW_INSECURE=1` before running `cdx`). This is a last resort — trusting the correct CA is strongly preferred.
 
 What the installer does:
+- Downloads the engine-appropriate wrapper(s) from `/wrapper/download?engine=...`
+- Installs Codex CLI for `cdx` hosts, Claude Code CLI for `clx` hosts, or both for dual-engine hosts
 
 - Downloads the **host-baked** `cdx` wrapper from the service (`/wrapper/download`).
 - Installs `cdx` to `/usr/local/bin/cdx` when writable, otherwise to `$HOME/.local/bin/cdx`.

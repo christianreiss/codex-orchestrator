@@ -86,5 +86,8 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString("setNewHostModalStage('success');", $js);
         $this->assertStringContainsString("await copyInstallerCommand(cmd, { auto: true });", $js);
         $this->assertStringContainsString("copyCmdBtn.textContent = 'Copy Again';", $js);
+        $this->assertStringContainsString('function normalizeInstallerMode(mode, enginesRaw)', $js);
+        $this->assertStringContainsString('function installerModeLabel(mode)', $js);
+        $this->assertStringContainsString('const installerMode = normalizeInstallerMode(installer.mode, engines);', $js);
     }
 }

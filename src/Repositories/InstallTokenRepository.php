@@ -22,7 +22,15 @@ class InstallTokenRepository
     {
     }
 
-    public function create(string $token, int $hostId, string $apiKey, string $fqdn, string $expiresAt, ?string $baseUrl = null): array
+    public function create(
+        string $token,
+        int $hostId,
+        string $apiKey,
+        string $fqdn,
+        string $expiresAt,
+        ?string $baseUrl = null,
+        string $engine = 'codex'
+    ): array
     {
         $now = gmdate(DATE_ATOM);
         $tokenHash = hash('sha256', $token);
@@ -35,8 +43,8 @@ class InstallTokenRepository
         $delete->execute(['host_id' => $hostId]);
 
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO install_tokens (token, token_enc, host_id, api_key, api_key_enc, fqdn, base_url, expires_at, created_at)
-             VALUES (:token, :token_enc, :host_id, :api_key, :api_key_enc, :fqdn, :base_url, :expires_at, :created_at)'
+            'INSERT INTO install_tokens (token, token_enc, host_id, api_key, api_key_enc, fqdn, base_url, engine, expires_at, created_at)
+             VALUES (:token, :token_enc, :host_id, :api_key, :api_key_enc, :fqdn, :base_url, :engine, :expires_at, :created_at)'
         );
 
         $statement->execute([
@@ -47,6 +55,7 @@ class InstallTokenRepository
             'api_key_enc' => $apiKeyEnc,
             'fqdn' => $fqdn,
             'base_url' => $baseUrl,
+            'engine' => $engine,
             'expires_at' => $expiresAt,
             'created_at' => $now,
         ]);

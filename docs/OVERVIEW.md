@@ -55,8 +55,8 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 ## How the flow works
 
 1) **Provision a host (admin)**
-   - `POST /admin/hosts/register` creates or rotates a host, hashes + encrypts the API key, and mints a single-use installer token. Optional `vip=true` marks the host as VIP immediately (quota hard-fail disabled). Insecure hosts get a provisioning window (default 30 minutes, or `duration_minutes` from register when provided); secure hosts expect long-lived local auth.
-   - `GET /install/{token}` emits a bash script that downloads the baked wrapper, installs Codex from GitHub (Linux + macOS `apple-darwin` assets), prints versions plus a compact usage quickstart (`cdx --version`, `cdx`, `cdx --execute ...`), and leaves `cdx` ready to run. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
+   - `POST /admin/hosts/register` creates or rotates a host, hashes + encrypts the API key, and mints a single-use installer token. Optional `vip=true` marks the host as VIP immediately (quota hard-fail disabled). Insecure hosts get a provisioning window (default 30 minutes, or `duration_minutes` from register when provided); secure hosts expect long-lived local auth. The returned installer metadata includes `mode`/`label` so callers know whether the command will install Codex, Claude, or both.
+   - `GET /install/{token}` emits a bash script that downloads the baked wrapper(s), installs the matching CLI tool(s), prints an engine-appropriate quickstart, and leaves the wrapper(s) ready to run. Tokens expire (`INSTALL_TOKEN_TTL_SECONDS`) and are marked used on first fetch.
 
 2) **Every `/auth` call**
    - Scheduled preflight runs on the first non-admin request after an ~8-hour gap (or boot, configurable via `AUTH_RUNNER_PREFLIGHT_SECONDS`): refresh the GitHub client-version cache and, when configured, run one runner validation.
@@ -119,7 +119,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 - Bring up the stack (`cp .env.example .env`, set DB/host vars, `docker compose up --build`; add `--profile caddy` for TLS/mTLS frontend). Runner + quota cron sidecars are on by default in compose.
 - Log into Codex once on a trusted box; upload that `~/.codex/auth.json` via the dashboard, use the one-time `curl | bash` seed command, or call `/auth` with `command: "store"`.
-- For each host: `New Host` → copy `curl …/install/{token} | bash` → run on the host. The wrapper bakes API key/FQDN/base URL and pulls canonical auth.
+- For each host: `New Host` → copy `curl …/install/{token} | bash` → run on the host. Codex hosts receive `cdx`, Claude hosts receive `clx`, and dual-engine hosts receive one combined installer that provisions both wrappers against the same host key.
 - Host-side usage (how to run Codex via `cdx`, what files it manages, troubleshooting): see `docs/USAGE.md`.
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
 - Build/edit `config.toml` from `/admin/config.html`; saved output is synced by `cdx` to `~/.codex/config.toml` baked per host (managed HTTP MCP entry; secure hosts use the host API key, insecure hosts get a short-lived bearer). New builder drafts default to model `gpt-5.4`, `personality = "friendly"`, `[features].apps = true`, and `[features].multi_agent = true`; the admin builder keeps `guardian_approval`, `js_repl`, `tui_app_server`, and `prevent_idle_sleep` off until explicitly enabled. `status:missing` deletes the local copy. Legacy feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `request_permissions`, `use_linux_sandbox_bwrap`) remain ingest-compatible but are dropped from rendered output.

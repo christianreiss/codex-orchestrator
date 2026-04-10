@@ -25,11 +25,11 @@ final class CdxWrapperInsecureApprovalPendingTest extends TestCase
             $wrapperSource
         );
         self::assertStringContainsString(
-            'format_approval_box_field "last check:" "$last_check"',
+            '_approval_field_row "last check:" "$last_check" "${DIM}"',
             $wrapperSource
         );
         self::assertStringContainsString(
-            'format_approval_box_field "checks:" "$checks"',
+            '_approval_field_row "checks:" "$spinner  $checks" "${GREEN}${BOLD}"',
             $wrapperSource
         );
         self::assertStringContainsString(

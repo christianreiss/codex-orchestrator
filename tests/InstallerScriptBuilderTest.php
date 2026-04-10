@@ -63,10 +63,42 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('3) Run one-shot prompt: cdx --execute \"summarize this repo\"', $script);
     }
 
+    public function testClaudeTemplateInstallsClxAndClaudeCode(): void
+    {
+        $script = $this->buildScript([], '1.2.3', 'claude');
+
+        $this->assertStringContainsString('Installing Claude Code for ${FQDN}', $script);
+        $this->assertStringContainsString('/wrapper/download?engine=claude', $script);
+        $this->assertStringContainsString('npm install -g @anthropic-ai/claude-code', $script);
+        $this->assertStringContainsString('clx_install_path="/usr/local/bin/clx"', $script);
+        $this->assertStringContainsString('1) Check versions: clx --version', $script);
+        $this->assertStringContainsString('2) Sync auth + start Claude Code: clx', $script);
+        $this->assertStringContainsString('3) Run one-shot prompt: clx \"summarize this repo\"', $script);
+    }
+
+    public function testCombinedTemplateInstallsBothWrappersAndCliTools(): void
+    {
+        $script = $this->buildScript([], '1.2.3', 'both');
+
+        $this->assertStringContainsString('Installing Codex + Claude for ${FQDN}', $script);
+        $this->assertStringContainsString('/wrapper/download?engine=codex', $script);
+        $this->assertStringContainsString('/wrapper/download?engine=claude', $script);
+        $this->assertStringContainsString('npm install -g @anthropic-ai/claude-code', $script);
+        $this->assertStringContainsString('Target Codex: ${CODEX_VERSION}', $script);
+        $this->assertStringContainsString('Target Claude Code: latest npm release', $script);
+        $this->assertStringContainsString('1) Check versions: cdx --version && clx --version', $script);
+        $this->assertStringContainsString('2) Sync auth + start Codex: cdx', $script);
+        $this->assertStringContainsString('3) Sync auth + start Claude Code: clx', $script);
+    }
+
     /**
      * @param array<string, mixed> $hostOverrides
      */
-    private function buildScript(array $hostOverrides = [], string $clientVersion = '1.2.3'): string
+    private function buildScript(
+        array $hostOverrides = [],
+        string $clientVersion = '1.2.3',
+        string $installerMode = 'codex'
+    ): string
     {
         $host = array_merge([
             'fqdn' => 'host.test',
@@ -75,6 +107,7 @@ final class InstallerScriptBuilderTest extends TestCase
         $token = [
             'api_key' => 'api-key',
             'fqdn' => 'host.test',
+            'engine' => $installerMode,
         ];
 
         return InstallerScriptBuilder::build(

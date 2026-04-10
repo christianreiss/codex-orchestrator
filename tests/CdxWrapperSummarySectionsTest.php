@@ -53,7 +53,7 @@ final class CdxWrapperSummarySectionsTest extends TestCase
             $wrapperSource,
             'Wrapper self-update re-execs should not print the boot screen a second time.'
         );
-        self::assertStringContainsString('local tagline="   Codex to Brrr!"', $wrapperSource);
+        self::assertStringContainsString('printf -v tagline "%bCodex to Brrr!%b"', $wrapperSource);
         self::assertStringContainsString('title="$(colorize "codex orchestrator" "$(banner_color_tone)")"', $wrapperSource);
     }
 

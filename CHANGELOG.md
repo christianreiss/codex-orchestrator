@@ -1,4 +1,5 @@
 # 2026-04-10
+- Host minter / installer: `POST /admin/hosts/register` now mints engine-aware installers instead of always emitting a Codex-only bootstrap. Codex-only hosts get `cdx`, Claude-only hosts get `clx`, and dual-engine hosts now receive one combined installer command that installs both wrappers and both CLIs in a single run. The installer response now includes `mode`/`label` metadata for admin UI and API callers.
 - Auth runner: fixed the `claude` branch container rebuild by installing `xz-utils` in the runner image before extracting the Node.js `.tar.xz` payload used for the Claude Code CLI layer. `docker compose build` no longer fails with `tar (grandchild): xz: Cannot exec`.
 
 # 2026-04-09

@@ -84,6 +84,6 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("return hostStatusFilter !== 'secure';", $js);
         self::assertStringContainsString('hostsInsecureHeader.hidden = !hostTableShowsInsecureColumn();', $js);
         self::assertStringContainsString('${showInsecureColumn ? `<td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>` : \'\'}', $js);
-        self::assertStringContainsString('const cols = hostTableShowsInsecureColumn() ? 6 : 5;', $js);
+        self::assertStringContainsString('const cols = hostTableShowsInsecureColumn() ? 7 : 6;', $js);
     }
 }

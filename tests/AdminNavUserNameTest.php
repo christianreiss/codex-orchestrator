@@ -20,9 +20,9 @@ final class AdminNavUserNameTest extends TestCase
         $this->assertStringContainsString('id="navAccountPasswordLink"', $html);
         $this->assertStringContainsString('id="navAccountPasskeysLink"', $html);
         $this->assertStringContainsString('id="navLogout"', $html);
-        $this->assertStringContainsString('aria-label="Codex Orchestrator dashboard"', $html);
+        $this->assertStringContainsString('aria-label="Orchestrator dashboard"', $html);
         $this->assertStringContainsString('rail-brand-tagline', $html);
-        $this->assertStringContainsString('Codex to Brrr!', $html);
+        $this->assertStringContainsString('Engines to Brrr!', $html);
 
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/admin-auth.js');
         $this->assertIsString($js);

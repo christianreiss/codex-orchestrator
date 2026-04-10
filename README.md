@@ -76,7 +76,7 @@ That's it. The guided installer walks you through `.env` configuration, data dir
    ```bash
    curl https://your-server/install/<token> | bash
    ```
-4. **Done.** From now on, just run `cdx` and everything syncs.
+4. **Done.** Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both in one install.
 
 Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback). Insecure hosts purge auth after each run and need an open window from the admin.
 

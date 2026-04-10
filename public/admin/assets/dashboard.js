@@ -2806,6 +2806,31 @@
       return parts.length ? parts.join(',') : 'codex';
     }
 
+    function installerModeFromEngines(enginesRaw) {
+      const engines = parseEngines(enginesRaw);
+      if (engines.includes('codex') && engines.includes('claude')) return 'both';
+      if (engines.includes('claude')) return 'claude';
+      return 'codex';
+    }
+
+    function normalizeInstallerMode(mode, enginesRaw) {
+      const normalized = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
+      if (['codex', 'claude', 'both'].includes(normalized)) return normalized;
+      return installerModeFromEngines(enginesRaw);
+    }
+
+    function installerModeLabel(mode) {
+      if (mode === 'claude') return 'Claude';
+      if (mode === 'both') return 'Codex + Claude';
+      return 'Codex';
+    }
+
+    function installerCommandLabel(mode) {
+      if (mode === 'claude') return 'Claude installer command';
+      if (mode === 'both') return 'Codex + Claude installer command';
+      return 'Codex installer command';
+    }
+
     function renderEngineBadges(enginesRaw) {
       const engines = parseEngines(enginesRaw);
       const badges = [];
@@ -11150,6 +11175,9 @@
         });
         const installer = res.data?.installer;
         if (!installer || !installer.command) throw new Error('Missing installer command in response');
+        const installerMode = normalizeInstallerMode(installer.mode, engines);
+        const installerLabel = installerModeLabel(installerMode);
+        const installerCommandCopy = installerCommandLabel(installerMode);
         let cmd = installer.command;
         if (insecureToggle?.checked) {
           cmd = addCurlFlag(cmd, '-k');
@@ -11164,8 +11192,8 @@
         if (installerMeta) {
           const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
           installerMeta.textContent = expires
-            ? `One-time installer (expires ${expires}).`
-            : `One-time installer ready.`;
+            ? `${installerLabel} installer (expires ${expires}).`
+            : `${installerLabel} installer ready.`;
           installerMeta.style.display = 'block';
         }
         const hostResponse = res.data?.host || null;
@@ -11178,16 +11206,18 @@
         }
         if (newHostSuccessKicker) {
           newHostSuccessKicker.textContent = created
-            ? 'Host created. Clipboard warm.'
-            : 'Installer refreshed. Clipboard warm.';
+            ? `${installerLabel} ready. Clipboard warm.`
+            : `${installerLabel} refreshed. Clipboard warm.`;
         }
         if (newHostSuccessTitle) {
-          newHostSuccessTitle.textContent = created ? 'Host Ready to Join' : 'Fresh Installer Ready';
+          newHostSuccessTitle.textContent = created
+            ? `${installerLabel} Host Ready`
+            : `Fresh ${installerLabel} Installer Ready`;
         }
         if (newHostSuccessCopy) {
           newHostSuccessCopy.textContent = created
-            ? `${targetFqdn} is registered. The installer curl is already copied, so you can paste it straight onto the new host.`
-            : `${targetFqdn} already exists. A fresh installer curl is copied and ready for the next run.`;
+            ? `${targetFqdn} is registered. The ${installerCommandCopy} is already copied, so you can paste it straight onto the new host.`
+            : `${targetFqdn} already exists. A fresh ${installerCommandCopy} is copied and ready for the next run.`;
         }
         renderNewHostSuccessChips({
           fqdn: targetFqdn,

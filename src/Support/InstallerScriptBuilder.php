@@ -32,10 +32,197 @@ final class InstallerScriptBuilder
 
         $clientVersion = is_string($versions['client_version'] ?? null) ? $versions['client_version'] : null;
         $codexVersion = CodexVersionPolicy::resolveEffective($clientVersion, false)['version'];
-
         $curlInsecure = self::resolveCurlInsecureFlag($host, $tokenRow) ? '1' : '0';
+        $mode = InstallerMode::normalize(is_string($tokenRow['engine'] ?? null) ? $tokenRow['engine'] : null);
 
-        $template = <<<'SCRIPT'
+        return match ($mode) {
+            InstallerMode::CLAUDE => self::buildClaudeInstaller($base, $apiKeyRaw, $fqdnRaw, $curlInsecure),
+            InstallerMode::BOTH => self::buildCombinedInstaller($base, $apiKeyRaw, $fqdnRaw, (string) $codexVersion, $curlInsecure),
+            default => self::buildCodexInstaller($base, $apiKeyRaw, $fqdnRaw, (string) $codexVersion, $curlInsecure),
+        };
+    }
+
+    private static function buildCodexInstaller(
+        string $base,
+        string $apiKeyRaw,
+        string $fqdnRaw,
+        string $codexVersion,
+        string $curlInsecure
+    ): string {
+        $template = self::commonHeader() . self::codexFunctions() . <<<'SCRIPT'
+echo "Installing Codex for ${FQDN} via ${BASE_URL}"
+if command -v codex >/dev/null 2>&1; then
+  current_codex_path="$(command -v codex)"
+  current_codex_version="$("$current_codex_path" -V 2>/dev/null | head -n1 || true)"
+  if [ -n "$current_codex_version" ]; then
+    echo "Current Codex: ${current_codex_version} (${current_codex_path})"
+  else
+    echo "Current Codex: installed (${current_codex_path})"
+  fi
+fi
+
+echo "Target Codex: ${CODEX_VERSION}"
+
+curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=codex" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/cdx"
+chmod +x "$tmpdir/cdx"
+cdx_install_path="/usr/local/bin/cdx"
+if ! install_binary "$tmpdir/cdx" "$cdx_install_path"; then
+  cdx_install_path="$HOME/.local/bin/cdx"
+  mkdir -p "$(dirname "$cdx_install_path")"
+  install -m 755 "$tmpdir/cdx" "$cdx_install_path"
+  user_bin=1
+fi
+
+install_codex_cli "$tmpdir"
+
+mkdir -p "$HOME/.codex"
+"$cdx_install_path" --wrapper-version
+if ! "$CODEX_BIN_PATH" -V; then
+  echo "Codex install failed: ${CODEX_BIN_PATH} did not run cleanly." >&2
+  exit 1
+fi
+if (( user_bin )); then
+  echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' is not found."
+fi
+echo "Install complete for ${FQDN}"
+echo "Next steps:"
+echo "  1) Check versions: cdx --version"
+echo "  2) Sync auth + start Codex: cdx"
+echo "  3) Run one-shot prompt: cdx --execute \"summarize this repo\""
+SCRIPT;
+
+        return self::renderTemplate($template, $base, $apiKeyRaw, $fqdnRaw, $curlInsecure, $codexVersion);
+    }
+
+    private static function buildClaudeInstaller(
+        string $base,
+        string $apiKeyRaw,
+        string $fqdnRaw,
+        string $curlInsecure
+    ): string {
+        $template = self::commonHeader() . self::claudeFunctions() . <<<'SCRIPT'
+echo "Installing Claude Code for ${FQDN} via ${BASE_URL}"
+current_claude_path="$(detect_claude_cli || true)"
+if [ -n "$current_claude_path" ]; then
+  current_claude_version="$("$current_claude_path" --version 2>/dev/null | head -n1 || true)"
+  if [ -n "$current_claude_version" ]; then
+    echo "Current Claude Code: ${current_claude_version} (${current_claude_path})"
+  else
+    echo "Current Claude Code: installed (${current_claude_path})"
+  fi
+fi
+
+echo "Target Claude Code: latest npm release"
+
+curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=claude" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/clx"
+chmod +x "$tmpdir/clx"
+clx_install_path="/usr/local/bin/clx"
+if ! install_binary "$tmpdir/clx" "$clx_install_path"; then
+  clx_install_path="$HOME/.local/bin/clx"
+  mkdir -p "$(dirname "$clx_install_path")"
+  install -m 755 "$tmpdir/clx" "$clx_install_path"
+  user_bin=1
+fi
+
+install_claude_cli
+
+mkdir -p "$HOME/.clx"
+"$clx_install_path" --version
+if ! "$CLAUDE_BIN_PATH" --version; then
+  echo "Claude Code install failed: ${CLAUDE_BIN_PATH} did not run cleanly." >&2
+  exit 1
+fi
+if (( user_bin )); then
+  echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'clx' is not found."
+fi
+echo "Install complete for ${FQDN}"
+echo "Next steps:"
+echo "  1) Check versions: clx --version"
+echo "  2) Sync auth + start Claude Code: clx"
+echo "  3) Run one-shot prompt: clx \"summarize this repo\""
+SCRIPT;
+
+        return self::renderTemplate($template, $base, $apiKeyRaw, $fqdnRaw, $curlInsecure);
+    }
+
+    private static function buildCombinedInstaller(
+        string $base,
+        string $apiKeyRaw,
+        string $fqdnRaw,
+        string $codexVersion,
+        string $curlInsecure
+    ): string {
+        $template = self::commonHeader() . self::codexFunctions() . self::claudeFunctions() . <<<'SCRIPT'
+echo "Installing Codex + Claude for ${FQDN} via ${BASE_URL}"
+if command -v codex >/dev/null 2>&1; then
+  current_codex_path="$(command -v codex)"
+  current_codex_version="$("$current_codex_path" -V 2>/dev/null | head -n1 || true)"
+  if [ -n "$current_codex_version" ]; then
+    echo "Current Codex: ${current_codex_version} (${current_codex_path})"
+  fi
+fi
+current_claude_path="$(detect_claude_cli || true)"
+if [ -n "$current_claude_path" ]; then
+  current_claude_version="$("$current_claude_path" --version 2>/dev/null | head -n1 || true)"
+  if [ -n "$current_claude_version" ]; then
+    echo "Current Claude Code: ${current_claude_version} (${current_claude_path})"
+  fi
+fi
+
+echo "Target Codex: ${CODEX_VERSION}"
+echo "Target Claude Code: latest npm release"
+
+curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=codex" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/cdx"
+chmod +x "$tmpdir/cdx"
+cdx_install_path="/usr/local/bin/cdx"
+if ! install_binary "$tmpdir/cdx" "$cdx_install_path"; then
+  cdx_install_path="$HOME/.local/bin/cdx"
+  mkdir -p "$(dirname "$cdx_install_path")"
+  install -m 755 "$tmpdir/cdx" "$cdx_install_path"
+  user_bin=1
+fi
+
+curl_fetch -fsSL "${BASE_URL}/wrapper/download?engine=claude" -H "X-API-Key: ${API_KEY}" -o "$tmpdir/clx"
+chmod +x "$tmpdir/clx"
+clx_install_path="/usr/local/bin/clx"
+if ! install_binary "$tmpdir/clx" "$clx_install_path"; then
+  clx_install_path="$HOME/.local/bin/clx"
+  mkdir -p "$(dirname "$clx_install_path")"
+  install -m 755 "$tmpdir/clx" "$clx_install_path"
+  user_bin=1
+fi
+
+install_codex_cli "$tmpdir"
+install_claude_cli
+
+mkdir -p "$HOME/.codex" "$HOME/.clx"
+"$cdx_install_path" --wrapper-version
+"$clx_install_path" --version
+if ! "$CODEX_BIN_PATH" -V; then
+  echo "Codex install failed: ${CODEX_BIN_PATH} did not run cleanly." >&2
+  exit 1
+fi
+if ! "$CLAUDE_BIN_PATH" --version; then
+  echo "Claude Code install failed: ${CLAUDE_BIN_PATH} did not run cleanly." >&2
+  exit 1
+fi
+if (( user_bin )); then
+  echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' or 'clx' is not found."
+fi
+echo "Install complete for ${FQDN}"
+echo "Next steps:"
+echo "  1) Check versions: cdx --version && clx --version"
+echo "  2) Sync auth + start Codex: cdx"
+echo "  3) Sync auth + start Claude Code: clx"
+echo "  4) Run one-shot prompts: cdx --execute \"summarize this repo\" or clx \"summarize this repo\""
+SCRIPT;
+
+        return self::renderTemplate($template, $base, $apiKeyRaw, $fqdnRaw, $curlInsecure, $codexVersion);
+    }
+
+    private static function commonHeader(): string
+    {
+        return <<<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 BASE_URL='__BASE__'
@@ -75,32 +262,16 @@ install_binary() {
   return 1
 }
 
-echo "Installing Codex for __FQDN__ via __BASE__"
-if command -v codex >/dev/null 2>&1; then
-  current_codex_path="$(command -v codex)"
-  current_codex_version="$("$current_codex_path" -V 2>/dev/null | head -n1 || true)"
-  if [ -n "$current_codex_version" ]; then
-    echo "Current Codex: ${current_codex_version} (${current_codex_path})"
-  else
-    echo "Current Codex: installed (${current_codex_path})"
-  fi
-fi
-
-echo "Target Codex: ${CODEX_VERSION}"
-
-curl_fetch -fsSL "__BASE__/wrapper/download" -H "X-API-Key: __API__" -o "$tmpdir/cdx"
-chmod +x "$tmpdir/cdx"
 user_bin=0
-install_path="/usr/local/bin/cdx"
-if ! install_binary "$tmpdir/cdx" "$install_path"; then
-  install_path="$HOME/.local/bin/cdx"
-  mkdir -p "$(dirname "$install_path")"
-  install -m 755 "$tmpdir/cdx" "$install_path"
-  user_bin=1
-fi
 
-os="$(uname -s)"
-arch="$(uname -m)"
+SCRIPT;
+    }
+
+    private static function codexFunctions(): string
+    {
+        return <<<'SCRIPT'
+CODEX_BIN_PATH=""
+
 version_lt() {
   local a="$1" b="$2"
   local a_major a_minor b_major b_minor
@@ -127,7 +298,7 @@ detect_glibc_version() {
   if command -v getconf >/dev/null 2>&1; then
     out="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
     v="${out#glibc }"
-    if [[ "$v" =~ ^[0-9]+\\.[0-9]+ ]]; then
+    if [[ "$v" =~ ^[0-9]+\.[0-9]+ ]]; then
       printf '%s' "$v"
       return 0
     fi
@@ -136,7 +307,7 @@ detect_glibc_version() {
     out="$(ldd --version 2>/dev/null | head -n1 || true)"
     if [[ "$out" == *"GNU libc"* ]]; then
       v="${out##* }"
-      if [[ "$v" =~ ^[0-9]+\\.[0-9]+ ]]; then
+      if [[ "$v" =~ ^[0-9]+\.[0-9]+ ]]; then
         printf '%s' "$v"
         return 0
       fi
@@ -145,76 +316,115 @@ detect_glibc_version() {
   printf ''
 }
 
-case "$os" in
-  Linux)
-    glibc_version="$(detect_glibc_version)"
-    case "$arch" in
-      x86_64|amd64)
-        asset="codex-x86_64-unknown-linux-gnu.tar.gz"
-        if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-          asset="codex-x86_64-unknown-linux-musl.tar.gz"
-        fi
-        ;;
-      aarch64|arm64)
-        asset="codex-aarch64-unknown-linux-gnu.tar.gz"
-        if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-          asset="codex-aarch64-unknown-linux-musl.tar.gz"
-        fi
-        ;;
-      *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
-    esac
-    ;;
-  Darwin)
-    case "$arch" in
-      x86_64|amd64)
-        asset="codex-x86_64-apple-darwin.tar.gz"
-        ;;
-      aarch64|arm64)
-        asset="codex-aarch64-apple-darwin.tar.gz"
-        ;;
-      *) echo "Unsupported macOS arch: $arch" >&2; exit 1 ;;
-    esac
-    ;;
-  *) echo "Unsupported OS: $os" >&2; exit 1 ;;
-esac
+install_codex_cli() {
+  local workdir="$1"
+  local os arch glibc_version asset codex_bin
+  os="$(uname -s)"
+  arch="$(uname -m)"
 
-curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$tmpdir/codex.tar.gz"
-tar -xzf "$tmpdir/codex.tar.gz" -C "$tmpdir"
-codex_bin="$(find "$tmpdir" -type f ! -name "*.tar.gz" \( -name "codex" -o -name "codex-*" \) | head -n1)"
-if [ -z "$codex_bin" ]; then
-  echo "Codex binary not found in archive" >&2
-  exit 1
-fi
+  case "$os" in
+    Linux)
+      glibc_version="$(detect_glibc_version)"
+      case "$arch" in
+        x86_64|amd64)
+          asset="codex-x86_64-unknown-linux-gnu.tar.gz"
+          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
+            asset="codex-x86_64-unknown-linux-musl.tar.gz"
+          fi
+          ;;
+        aarch64|arm64)
+          asset="codex-aarch64-unknown-linux-gnu.tar.gz"
+          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
+            asset="codex-aarch64-unknown-linux-musl.tar.gz"
+          fi
+          ;;
+        *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
+      esac
+      ;;
+    Darwin)
+      case "$arch" in
+        x86_64|amd64) asset="codex-x86_64-apple-darwin.tar.gz" ;;
+        aarch64|arm64) asset="codex-aarch64-apple-darwin.tar.gz" ;;
+        *) echo "Unsupported macOS arch: $arch" >&2; exit 1 ;;
+      esac
+      ;;
+    *) echo "Unsupported OS: $os" >&2; exit 1 ;;
+  esac
 
-codex_path="/usr/local/bin/codex"
-if ! install_binary "$codex_bin" "$codex_path"; then
-  codex_path="$HOME/.local/bin/codex"
-  mkdir -p "$(dirname "$codex_path")"
-  install -m 755 "$codex_bin" "$codex_path"
-  user_bin=1
-fi
+  curl_fetch -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/${asset}" -o "$workdir/codex.tar.gz"
+  tar -xzf "$workdir/codex.tar.gz" -C "$workdir"
+  codex_bin="$(find "$workdir" -type f ! -name "*.tar.gz" \( -name "codex" -o -name "codex-*" \) | head -n1)"
+  if [ -z "$codex_bin" ]; then
+    echo "Codex binary not found in archive" >&2
+    exit 1
+  fi
 
-mkdir -p "$HOME/.codex"
-"$install_path" --wrapper-version
-if ! "$codex_path" -V; then
-  echo "Codex install failed: ${codex_path} did not run cleanly." >&2
-  exit 1
-fi
-if (( user_bin )); then
-  echo "Note: ${HOME}/.local/bin is not on PATH by default. Add it if 'cdx' is not found."
-fi
-echo "Install complete for __FQDN__"
-echo "Next steps:"
-echo "  1) Check versions: cdx --version"
-echo "  2) Sync auth + start Codex: cdx"
-echo "  3) Run one-shot prompt: cdx --execute \"summarize this repo\""
+  CODEX_BIN_PATH="/usr/local/bin/codex"
+  if ! install_binary "$codex_bin" "$CODEX_BIN_PATH"; then
+    CODEX_BIN_PATH="$HOME/.local/bin/codex"
+    mkdir -p "$(dirname "$CODEX_BIN_PATH")"
+    install -m 755 "$codex_bin" "$CODEX_BIN_PATH"
+    user_bin=1
+  fi
+}
+
 SCRIPT;
+    }
 
+    private static function claudeFunctions(): string
+    {
+        return <<<'SCRIPT'
+CLAUDE_BIN_PATH=""
+
+detect_claude_cli() {
+  if command -v claude >/dev/null 2>&1; then
+    command -v claude
+    return 0
+  fi
+  if command -v claude-code >/dev/null 2>&1; then
+    command -v claude-code
+    return 0
+  fi
+  return 1
+}
+
+install_claude_cli() {
+  local existing=""
+  existing="$(detect_claude_cli || true)"
+  if [ -n "$existing" ]; then
+    CLAUDE_BIN_PATH="$existing"
+    return 0
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "Claude Code install requires npm (Node.js >= 18)." >&2
+    exit 1
+  fi
+
+  npm install -g @anthropic-ai/claude-code 2>/dev/null
+  CLAUDE_BIN_PATH="$(detect_claude_cli || true)"
+  if [ -z "$CLAUDE_BIN_PATH" ]; then
+    echo "Claude Code CLI not found after npm install." >&2
+    exit 1
+  fi
+}
+
+SCRIPT;
+    }
+
+    private static function renderTemplate(
+        string $template,
+        string $base,
+        string $apiKeyRaw,
+        string $fqdnRaw,
+        string $curlInsecure,
+        string $codexVersion = ''
+    ): string {
         return strtr($template, [
             '__BASE__' => self::escapeForSingleQuotes($base),
             '__API__' => self::escapeForSingleQuotes($apiKeyRaw),
             '__FQDN__' => self::escapeForSingleQuotes($fqdnRaw),
-            '__CODEX__' => self::escapeForSingleQuotes((string) $codexVersion),
+            '__CODEX__' => self::escapeForSingleQuotes($codexVersion),
             '__CURL_INSECURE__' => $curlInsecure,
         ]);
     }
